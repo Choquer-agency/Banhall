@@ -13,13 +13,21 @@ export const MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES = 64_000;
 /**
  * Worst-case compact-JSON bytes of one Summary Self-check response. Real
  * Briefs carry 10 to 20 ordinary checks per Section, so 4,096 bytes refused
- * every real sign-off (2026-09-25). 16,384 bytes fits 30 ordinary checks,
- * about 10 plan rows and the Storyline question. The Summary-plan Self-check
- * request sends the same number as its output token allowance
- * (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens), so a response within this
- * byte limit never needs more tokens than the request allows.
+ * every real sign-off (2026-09-25). 16,384 bytes fit 30 ordinary checks,
+ * about 10 plan rows and the Storyline question, until the facts check
+ * (1,106 bytes) and the targets check (1,102 bytes) took about 2,200 of it
+ * (2026-10-04). On 2026-10-09 a writer's full plan (30 ordinary checks, 14
+ * Line 244 items) was refused twice: its Line 244 worst case was 17,125
+ * bytes, 741 over. 32,768 bytes fits 30 ordinary checks, the Storyline
+ * question, every rule check and about 50 plan rows per Line; her plan's
+ * largest Line uses 17,125, and five picks in every step 22,253.
+ * The Summary-plan Self-check request sends the same number as its output
+ * token allowance (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens), so a response
+ * within this byte limit never needs more tokens than the request allows.
+ * Every model enabled on 2026-10-22 allows at least 64,000 output tokens,
+ * and a reasoning model's multiplied allowance is clipped to its own cap.
  */
-export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 16_384;
+export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 32_768;
 export const MAX_SUMMARY_PLAN_VERDICTS = 256;
 export const MAX_SUMMARY_ORDINARY_VERDICTS = 30;
 export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;

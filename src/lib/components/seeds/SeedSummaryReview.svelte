@@ -8,6 +8,7 @@
   import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
   import { modelLabelFor } from "$lib/modelPicker";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { signOffErrorMessage } from "./signOffError";
   import { reducedMotion } from "$lib/motion";
   import Button from "$lib/components/ui/Button.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
@@ -705,7 +706,7 @@
     } catch (cause) {
       // A refused command never invalidates the completely loaded review.
       if (!disposed && submitted.ownerKey === currentOwnerKey()) {
-        actionError = userErrorMessage(cause, "The Summary could not be signed off.");
+        actionError = signOffErrorMessage(cause);
       }
     } finally {
       if (!disposed) busy = false;

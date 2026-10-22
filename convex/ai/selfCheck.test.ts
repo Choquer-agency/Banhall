@@ -445,8 +445,8 @@ describe("Self-check before display (CAP-9)", () => {
   it("gives only the Summary-plan Self-check an output allowance that covers its admitted response bytes", async () => {
     // A byte-level tokenizer never needs more tokens than bytes, so an
     // allowance at least as large as the admitted response always fits it.
-    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
-    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(16_384);
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(32_768);
+    expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBe(32_768);
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBeGreaterThanOrEqual(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -494,7 +494,7 @@ describe("Self-check before display (CAP-9)", () => {
     expect(create).toHaveBeenCalledTimes(1);
     const [request] = create.mock.calls[0];
     expect(request.system).toBe(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT);
-    expect(request.max_tokens).toBe(16_384);
+    expect(request.max_tokens).toBe(32_768);
   });
 
   it.each(["missing tool output", "malformed adapter output", "invalid field type"] as const)(
@@ -2361,9 +2361,9 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       detail: "10 of 14 verdicts invalid; first ordinary verdict 1: label of 11 escaped bytes matches no supplied label",
     },
     {
-      name: "a response over 16,384 bytes",
+      name: "a response over 32,768 bytes",
       mutate: (response: ReturnType<typeof replayResponse>) => {
-        response.verdicts[0].reason = "The section matches the Storyline. ".repeat(480);
+        response.verdicts[0].reason = "The section matches the Storyline. ".repeat(960);
       },
       detail: "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
     },

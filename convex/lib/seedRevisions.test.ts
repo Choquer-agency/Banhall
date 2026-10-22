@@ -819,7 +819,7 @@ describe("seed revisions", () => {
     })).toContain('"instruction":"feedback:F1"');
   });
 
-  it("enforces independent Summary response counts and the exact 16,384-byte envelope", async () => {
+  it("enforces independent Summary response counts and the exact 32,768-byte envelope", async () => {
     const ordinary = projectSummaryOrdinaryChecks({
       storylineText: "Storyline",
       confidenceMap: [{ text: "Confidence" }],
@@ -948,19 +948,19 @@ describe("seed revisions", () => {
 
     // Primitive arithmetic is deliberately separate from a realizable plan.
     // Literal widths keep the boundary independent of the exported constant.
-    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(16_384);
+    expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(32_768);
     expect(() => assertSummarySelfCheckResponseWithinLimit(
-      "x".repeat(16_384)
+      "x".repeat(32_768)
     )).not.toThrow();
     expect(() => assertSummarySelfCheckResponseWithinLimit(
-      "x".repeat(16_385)
-    )).toThrow("worst-case response exceeds 16384 UTF-8 bytes");
+      "x".repeat(32_769)
+    )).toThrow("worst-case response exceeds 32768 UTF-8 bytes");
     // Multibyte text is measured in UTF-8 bytes, not characters.
     expect(() => assertSummarySelfCheckResponseWithinLimit(
-      "é".repeat(8_192)
+      "é".repeat(16_384)
     )).not.toThrow();
     expect(() => assertSummarySelfCheckResponseWithinLimit(
-      `${"é".repeat(8_192)}x`
+      `${"é".repeat(16_384)}x`
     )).toThrow("worst-case response");
   });
 
@@ -1504,7 +1504,7 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(() => admitted("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
   });
 
-  it("counts LEAVE OUT and advancement verdicts in the exact 16,384-byte response envelope", () => {
+  it("counts LEAVE OUT and advancement verdicts in the exact 32,768-byte response envelope", () => {
     const ordinary = projectSummaryOrdinaryChecks({
       storylineText: "Storyline",
       confidenceMap: [{ text: "Confidence" }],
@@ -1551,7 +1551,7 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       planChecks: sample,
       includeStorylineQuestion: true,
     }));
-    // Fill with items, then pad ids so the envelope is exactly 16,384 bytes
+    // Fill with items, then pad ids so the envelope is exactly 32,768 bytes
     // with one LEAVE OUT and the advancement check in it.
     const fillers: FrozenSummaryPlanCheck[] = [];
     while (bytes(envelope([...fillers, item(`i${fillers.length}`), leaveOut("d"), rule])) <= MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES) {
@@ -1577,7 +1577,7 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       ordinaryChecks: ordinary,
       planChecks: [...padded, leaveOut(`${droppedId}d`), rule],
       includeStorylineQuestion: true,
-    })).toThrow("worst-case response exceeds 16384 UTF-8 bytes");
+    })).toThrow("worst-case response exceeds 32768 UTF-8 bytes");
     // Without the new checks the same items are admitted with room to spare.
     expect(bytes(envelope(padded))).toBeLessThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES - 300);
     // 2026-09-30 (second, Rule C): Line 244's work verdict is counted the
@@ -1761,5 +1761,119 @@ describe("the drafter's warning (2026-10-04, second, round 3, owner decision 202
     expect(warned.checks.find((check) => check.itemId === "company-1")).toEqual(plain.checks.find((check) => check.itemId === "company-1"));
     // An empty list is no warning at all.
     expect(buildFrozenSummaryPlan({ section: "s242", items: [{ ...items[0]!, quotesDoNotBack: [] }, items[1]!], skippedRoleIds: [], factsMatchSources: true }).block).toBe(plain.block);
+  });
+});
+
+describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () => {
+  // The shape of the plan refused twice on 2026-10-09 (project
+  // k971kjme7ayfb7pw79z9kkzjfd8fz6gr): every step approved, nothing
+  // skipped or dropped, a Brief of the Storyline, 15 Confidence Map entries
+  // and 14 Glossary Terms, no writer profile or rules. Counts and id widths
+  // only; no client text. Ids are 32 characters, as Convex ids are.
+  const picks: Record<string, number> = {
+    company_context: 1,
+    goal_problem: 3,
+    passive_limitations: 1,
+    technological_objective: 3,
+    active_uncertainties: 3,
+    prior_year_status: 4,
+    workplan: 3,
+    hypothesis: 2,
+    experimentation: 5,
+    overall_advancement: 3,
+    specific_advancements: 4,
+    project_status: 3,
+    goal_improvements: 2,
+  };
+  const realId = (prefix: string, index: number) =>
+    `${prefix}${String(index).padStart(4, "0")}`.padEnd(32, "x");
+  type ShapeItem = {
+    itemId: string;
+    seedId: string;
+    roleId: FrozenSummaryPlanCheck["roleId"];
+    kind: "standard";
+    bullets: string[];
+    support: "source_supported";
+    uncertaintySeedId?: string;
+  };
+  const planShape = (
+    counts: Record<string, number>,
+    advancementUncertainty: (index: number) => number
+  ) => {
+    const items: ShapeItem[] = [];
+    let next = 0;
+    for (const [roleId, count] of Object.entries(counts)) {
+      for (let index = 0; index < count; index += 1) {
+        items.push({
+          itemId: realId("it", next),
+          seedId: roleId === "active_uncertainties" ? realId("au", index) : realId("sd", next),
+          roleId: roleId as FrozenSummaryPlanCheck["roleId"],
+          kind: "standard",
+          bullets: ["Wording."],
+          support: "source_supported",
+          ...(roleId === "specific_advancements"
+            ? { uncertaintySeedId: realId("au", advancementUncertainty(index)) }
+            : {}),
+        });
+        next += 1;
+      }
+    }
+    return items;
+  };
+  const ordinary = projectSummaryOrdinaryChecks({
+    storylineText: "Storyline",
+    confidenceMap: Array.from({ length: 15 }, () => ({ text: "Confidence" })),
+    glossaryTerms: Array.from({ length: 14 }, () => "Term"),
+    writerFlavor: undefined,
+    rules: [],
+  });
+  const lineEnvelopes = (items: ShapeItem[]) =>
+    (["242", "244", "246"] as const).map((section) => {
+      const plan = buildFrozenSummaryPlan({
+        section: `s${section}`,
+        items,
+        skippedRoleIds: [],
+        referencesBySeedId: new Map(items.map((item) => [item.seedId, item.bullets] as const)),
+        droppedUncertainties: [],
+        ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        resultsAgainstTargets: true,
+        factsMatchSources: true,
+      });
+      return {
+        checks: plan.checks,
+        bytes: bytes(projectSummarySelfCheckWorstCaseResponse({
+          ordinaryChecks: ordinary,
+          planChecks: plan.checks,
+          includeStorylineQuestion: true,
+        })),
+      };
+    });
+
+  it("admits every Line of the refused plan, whose Line 244 was 741 bytes over the old 16,384-byte limit", () => {
+    expect(ordinary).toHaveLength(MAX_SUMMARY_ORDINARY_VERDICTS);
+    // Two advancements answer the first uncertainty, one each the others.
+    const lines = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    expect(lines.map((line) => line.checks.length)).toEqual([12, 17, 15]);
+    expect(lines.map((line) => line.bytes)).toEqual([14_651, 17_125, 16_316]);
+    // The cause: Line 244 crossed the old limit by 741 bytes, and Line 246
+    // was 68 bytes under it.
+    expect(lines[1]!.bytes - 16_384).toBe(741);
+    expect(16_384 - lines[2]!.bytes).toBe(68);
+    for (const line of lines) {
+      expect(() => summarySelfCheckWorstCaseResponse({
+        ordinaryChecks: ordinary,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      })).not.toThrow();
+    }
+  });
+
+  it("still admits the same Brief with five picks in every step", () => {
+    const five = Object.fromEntries(Object.keys(picks).map((roleId) => [roleId, 5]));
+    const lines = lineEnvelopes(planShape(five, (index) => index));
+    expect(Math.max(...lines.map((line) => line.bytes))).toBe(22_253);
+    expect(Math.max(...lines.map((line) => line.bytes)))
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
   });
 });
