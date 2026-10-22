@@ -74,6 +74,10 @@ describe("Report reading presentation", () => {
     // Sans body in the reading column (owner, 2026-10-21: no serif).
     const editor = container.querySelector(".tiptap-editor") as HTMLElement;
     expect(getComputedStyle(editor).fontFamily).toContain("Geist");
+    expect(getComputedStyle(editor).fontWeight).toBe("300");
+    // 48px between Sections; the label 8px above its first paragraph.
+    expect(getComputedStyle(headings[1]).marginTop).toBe("48px");
+    expect(getComputedStyle(headings[1].nextElementSibling!).marginTop).toBe("8px");
     expect(getComputedStyle(editor).fontSize).toBe("15px");
     expect(getComputedStyle(editor).lineHeight).toBe("25px");
     const title = getComputedStyle(headings[0].querySelector("h3")!);

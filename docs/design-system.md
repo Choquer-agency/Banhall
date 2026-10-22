@@ -1219,7 +1219,9 @@ sizes below are at the 16px root; a laptop renders them at 0.9375x.
   Section's h3. The limit meter sits at its right only while the Section is
   over a CRA limit; near a limit, nothing shows (owner, 2026-10-21).
 - **Report type (2026-10-21).** The report reads in sans, not serif: the
-  title uses `text-display`, and the body is Geist at 15px on a 25px line.
+  title uses `text-display` at weight 400, and the body is Geist Light
+  (300) at 15px on a 25px line. Sections sit 48px apart, and a Section's
+  label sits 8px above its first paragraph.
 - **Default view (2026-10-06).** A project opens on the report alone, in
   the reading column, with the Assistant and QA closed. Their open state
   and Full width are not remembered between visits; the side panel width

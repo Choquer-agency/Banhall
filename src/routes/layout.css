@@ -1122,6 +1122,7 @@ textarea.input-chromeless:focus-visible {
 .report-reading .tiptap-editor {
   font-family: var(--font-sans);
   font-size: 0.9375rem;
+  font-weight: 300;
   line-height: 1.5625rem;
   color: var(--color-ink);
 }
@@ -1143,11 +1144,17 @@ textarea.input-chromeless:focus-visible {
 .report-reading .tiptap-editor[contenteditable="true"] > p:not(.not-drafted-placeholder):hover {
   background-color: var(--color-gray-50);
 }
+/* Owner, 2026-10-21: more space between Sections, and the label sits a
+   little closer to its first paragraph. */
 .report-reading .tiptap-editor > .report-section-heading {
+  margin-top: 3rem;
+}
+/* The first Section keeps its place under the report title. */
+.report-reading .tiptap-editor > h1 + .report-section-heading {
   margin-top: 1.875rem;
 }
 .report-reading .tiptap-editor > .report-section-heading + * {
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 /* The stored rule between Sections is replaced by the heading rhythm. */
 .report-reading .tiptap-editor > hr:has(+ .report-section-heading) {

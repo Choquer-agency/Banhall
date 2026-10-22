@@ -2548,7 +2548,7 @@
               <!-- Board 2.1: the report opens on its serif title. The top bar
                    holds the page h1; the document's own title heading stays
                    hidden in the editor. -->
-              <h2 data-report-title class="mb-0.5 text-display">
+              <h2 data-report-title class="mb-0.5 text-display font-normal">
                 {project.title}
               </h2>
               {#if notDraftedSections.length > 0}
