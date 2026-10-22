@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHandledRefusalLog, userErrorCode, userErrorData } from "./errors";
+import { isHandledRefusalLog, userErrorCode, userErrorData, userErrorMessage } from "./errors";
 
 /** The Convex client's log line for a failed call, as `logForFunction` writes it. */
 function convexLog(path: string, data: Record<string, unknown> | null, kind = "M") {
@@ -38,6 +38,14 @@ describe("isHandledRefusalLog", () => {
     ] as const) {
       expect(isHandledRefusalLog(convexLog(path, limited, kind))).toBe(true);
     }
+    // 2026-10-22: the AI provider still rate limits the Settings check after
+    // its retry; Writing preferences says so under Check again.
+    const busy = {
+      code: "PROVIDER_UNAVAILABLE",
+      message: "The AI service is busy right now. Wait a minute, then select Check again.",
+    };
+    expect(isHandledRefusalLog(convexLog("ai/styleAnalysis:analyzeMyInstructions", busy, "A"))).toBe(true);
+    expect(userErrorMessage(new Error(convexLog("ai/styleAnalysis:analyzeMyInstructions", busy, "A")), "fallback")).toBe(busy.message);
     // 2026-10-14 saved clients: New client shows the name already in use inline.
     const exists = { code: "CLIENT_EXISTS", message: "Cedarline Systems already exists.", existingName: "Cedarline Systems" };
     expect(isHandledRefusalLog(convexLog("clients:createClient", exists))).toBe(true);

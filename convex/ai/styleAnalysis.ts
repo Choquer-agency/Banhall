@@ -14,9 +14,9 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { domainError, sha256 } from "../lib/contracts";
 import { z } from "zod";
-import { clientForRole } from "./providers";
+import { clientForRole, normalizeProviderError } from "./providers";
 import { generateStructured } from "./structured";
-import { startActionDeadline } from "./actionDeadline";
+import { ActionTimeBudgetError, startActionDeadline, wasStoppedByDeadline } from "./actionDeadline";
 import {
   STYLE_OVERRIDE_KEYS,
   STYLE_OVERRIDE_META,
@@ -27,6 +27,20 @@ import { INSTRUCTIONS_TOO_LONG_MESSAGE, MAX_INSTRUCTIONS_CHARS } from "../../sha
 
 // Same cap as the saved profile so no part of a saved document goes unread.
 const MAX_INPUT_CHARS = MAX_INSTRUCTIONS_CHARS;
+
+/**
+ * 2026-10-22: what the Settings page says when the AI provider still
+ * rate-limits the check after the transport's own retry. Sent as a
+ * PROVIDER_UNAVAILABLE domain error, which the page shows under "Check
+ * again" (src/lib/errors.ts lists it as handled).
+ */
+export const STYLE_CHECK_BUSY_MESSAGE =
+  "The AI service is busy right now. Wait a minute, then select Check again.";
+
+function isProviderRateLimit(error: unknown): boolean {
+  if (error instanceof ActionTimeBudgetError || wasStoppedByDeadline(error)) return false;
+  return normalizeProviderError(error).code === "rate_limited";
+}
 
 export interface StyleAnalysis {
   categories: Record<
@@ -212,6 +226,15 @@ export const analyzeMyInstructions = action({
         // validate as usual, as the settings document classifier does. No
         // request is added.
         encodedFieldRecovery: true,
+      }).catch((error: unknown) => {
+        // 2026-10-22: a 429 on 2026-10-13 reached the writer as a crash. A
+        // rate limit that outlasts the retry is a plain "try again shortly";
+        // every other failure is thrown as before.
+        if (isProviderRateLimit(error)) {
+          console.warn(`${STYLE_ANALYSIS_REQUEST.toolName}: the AI provider is still rate limiting the check`);
+          domainError("PROVIDER_UNAVAILABLE", STYLE_CHECK_BUSY_MESSAGE);
+        }
+        throw error;
       });
       if (answer.lockedConflicts === undefined) {
         console.warn(`${STYLE_ANALYSIS_REQUEST.toolName}: the answer left out lockedConflicts, read as empty`);

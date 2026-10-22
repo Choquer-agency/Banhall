@@ -57,6 +57,9 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
   // 2026-10-14 saved clients: a client name that already exists. New client
   // shows the server's message inline next to the name.
   "CLIENT_EXISTS",
+  // 2026-10-22: the AI provider still rate limits a call after its retry.
+  // Writing preferences says so under Check again.
+  "PROVIDER_UNAVAILABLE",
   // Chat parity Phase A (2026-10-19): report chat refusals. The composer
   // explains each in plain words on the unsent message, with Retry.
   "CHAT_TURN_ACTIVE",
