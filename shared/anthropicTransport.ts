@@ -24,6 +24,8 @@
  * Pure: no Convex runtime imports.
  */
 
+import { openRouterIdForDirectClaude } from "./modelTracks";
+
 export const ANTHROPIC_TRANSPORTS = ["direct", "openrouter"] as const;
 export type AnthropicTransport = (typeof ANTHROPIC_TRANSPORTS)[number];
 
@@ -75,6 +77,9 @@ export const OPENROUTER_APP_HEADERS = {
  * has no OpenRouter listing, so it has no entry.
  */
 export const OPENROUTER_ANTHROPIC_REQUEST_IDS: Readonly<Record<string, string>> = {
+  // The Claude Sonnet and Haiku track models on 2026-10-22.
+  "claude-sonnet-5-5": "anthropic/claude-sonnet-5.5",
+  "claude-haiku-5-5": "anthropic/claude-haiku-5.5",
   "claude-sonnet-5": "anthropic/claude-sonnet-5",
   "claude-opus-5-5": "anthropic/claude-opus-5.5",
   "claude-opus-4-8": "anthropic/claude-opus-4.8",
@@ -85,11 +90,17 @@ export const OPENROUTER_ANTHROPIC_REQUEST_IDS: Readonly<Record<string, string>> 
   "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
 };
 
-/** The OpenRouter request id for an app model id, or undefined if unmapped. */
+/**
+ * The OpenRouter request id for an app model id, or undefined if unmapped.
+ * A Claude track version the daily job moved to after this table was last
+ * edited (claude-opus-6, 2026-10-22 decision) maps by its own id
+ * (anthropic/claude-opus-6), the form OpenRouter lists it under.
+ */
 export function openRouterAnthropicRequestId(appModelId: string): string | undefined {
-  return Object.hasOwn(OPENROUTER_ANTHROPIC_REQUEST_IDS, appModelId)
-    ? OPENROUTER_ANTHROPIC_REQUEST_IDS[appModelId]
-    : undefined;
+  if (Object.hasOwn(OPENROUTER_ANTHROPIC_REQUEST_IDS, appModelId)) {
+    return OPENROUTER_ANTHROPIC_REQUEST_IDS[appModelId];
+  }
+  return openRouterIdForDirectClaude(appModelId) ?? undefined;
 }
 
 /**

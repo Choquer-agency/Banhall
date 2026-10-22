@@ -1,6 +1,9 @@
 import {
   CANDIDATE_MODELS,
+  PICKER_SEED_MODELS,
   eligibleForRandomDraw,
+  LEGACY_MODEL,
+  LEGACY_RETRIEVAL_BRIEF_MODEL,
   MODEL,
   RANDOM_COMPARISON_GATEWAY,
   modelById,
@@ -46,12 +49,14 @@ type CandidateModel = ModelEntry;
 /**
  * The roster a legacy in-flight compare generation (no persisted pair) ran
  * before pairs were persisted: the three Anthropic models of that time.
- * Pinned by id, so an Anthropic model added to the seed later never joins it.
+ * Pinned by id, so an Anthropic model added to the seed later never joins it
+ * and the default moving to a newer Sonnet (2026-10-22) never changes it:
+ * like any frozen choice, it keeps the models it ran.
  */
 export const LEGACY_COMPARE_MODEL_IDS = [
-  MODEL,
+  LEGACY_MODEL,
   "claude-opus-4-8",
-  "claude-haiku-4-5-20251001",
+  LEGACY_RETRIEVAL_BRIEF_MODEL,
 ] as const;
 
 /**
@@ -81,7 +86,7 @@ export function resolveCompareModels(
  * call. OpenAI/Google models are always an explicit writer choice.
  */
 export function randomComparePair(
-  pool: readonly CandidateModel[] = CANDIDATE_MODELS
+  pool: readonly CandidateModel[] = PICKER_SEED_MODELS as readonly CandidateModel[]
 ): CandidateModel[] {
   const shuffled = pool.filter(eligibleForRandomDraw);
   // Fewer than two would persist a pair that is not the one run

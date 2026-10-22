@@ -243,8 +243,8 @@ describe("seed initialization action boundary", () => {
     });
     network.create.mockReset().mockImplementation(async params => ({
       id: "startup-response", type: "message", role: "assistant", model: "claude-sonnet-5",
-      content: [{ type: "tool_use", id: "startup-tool", name: params.tool_choice.name,
-        input: params.tool_choice.name === "submit_transcript_analysis" ? {
+      content: [{ type: "tool_use", id: "startup-tool", name: params.tools[0].name,
+        input: params.tools[0].name === "submit_transcript_analysis" ? {
           company_context: "Test company", project_goal: "Control loop",
           business_problem: "Unstable output", scientific_technical_problem: "Response is unknown",
           technological_objective: "Stable control", work_performed: {}, project_status: "completed",
@@ -295,7 +295,8 @@ describe("seed initialization action boundary", () => {
     await s.t.action(internal.ai.iterative.resumeSeedInitialization, { generationId: s.generationId });
     expect(await s.t.run(ctx => ctx.db.get(s.generationId))).toMatchObject({ status: "awaiting_input" });
     expect(network.create).toHaveBeenCalledTimes(1);
-    expect(network.create.mock.calls[0][0].tool_choice.name).toBe("submit_generation_brief");
+    // Sonnet 5.5 takes no forced tool call, so the Brief request names its one tool.
+    expect(network.create.mock.calls[0][0].tools[0].name).toBe("submit_generation_brief");
     expect(await s.t.run(ctx => ctx.db.query("generationSectionRuns").collect())).toEqual([]);
     expect(await s.t.run(ctx => ctx.db.query("generationCandidateRuns").collect())).toEqual([]);
     vi.unstubAllEnvs();

@@ -10,6 +10,7 @@
  */
 import { internalAction } from "../_generated/server";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
+import { LEGACY_MODEL } from "../../shared/generationModels";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { generationStepClients, registerGenerationModels, startActionDeadline } from "./providers";
@@ -74,8 +75,11 @@ export const runReportQa = internalAction({
       }),
     });
     const clientFor = steps.client;
-    // The model each request names; undefined sends the default, as before.
-    const modelFor = (callSite: string) => steps.route(callSite).model || undefined;
+    // The model each request names. A report with no model of its own was
+    // scored on the pre-catalog default before step routing, Sonnet 5, and
+    // keeps it after the default moved on (2026-10-22): a frozen
+    // generation never changes models.
+    const modelFor = (callSite: string) => steps.route(callSite).model || LEGACY_MODEL;
 
     // Reviewer calibration digest and (for legacy generations without a
     // frozen copy) the live style policy load in parallel — both optional,

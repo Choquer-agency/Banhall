@@ -580,22 +580,24 @@ describe("models added 2026-09-25", () => {
     }
   });
 
-  it("rejects forced tool calls only for Opus 5.5, Fable 5.1 and Mythos 5.1, by either gateway id", () => {
+  it("rejects forced tool calls only for Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1, by either gateway id", () => {
     expect(CANDIDATE_MODELS.filter((model) => !acceptsForcedToolChoice(model.id)).map((model) => model.id)).toEqual([
       "claude-opus-5-5",
+      "claude-sonnet-5-5",
     ]);
     // Fable 5.1 is no longer a seed but keeps the rule for any row that lists it.
     expect(acceptsForcedToolChoice("claude-fable-5-1")).toBe(false);
     expect(modelById("claude-fable-5-1")).toBeUndefined();
     for (const id of [
       "anthropic/claude-opus-5.5",
+      "anthropic/claude-sonnet-5.5",
       "anthropic/claude-fable-5.1",
       "anthropic/claude-mythos-5.1",
       "claude-mythos-5-1",
     ]) {
       expect(acceptsForcedToolChoice(id), id).toBe(false);
     }
-    for (const id of ["claude-sonnet-5", "anthropic/claude-sonnet-5", "claude-opus-4-8", "some-legacy-model"]) {
+    for (const id of ["claude-sonnet-5", "anthropic/claude-sonnet-5", "claude-opus-4-8", "claude-haiku-5-5", "anthropic/claude-haiku-5.5", "some-legacy-model"]) {
       expect(acceptsForcedToolChoice(id), id).toBe(true);
     }
     // A catalog model registered from its frozen entry carries the flag.

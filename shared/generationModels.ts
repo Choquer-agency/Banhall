@@ -1,4 +1,22 @@
-export const MODEL = "claude-sonnet-5";
+import { MODEL_TRACKS, MODEL_TRACK_IDS, TRACK_SEED_MODEL_IDS, trackLabelFor } from "./modelTracks";
+
+/**
+ * The default model: the Claude Sonnet track's model on 2026-10-22
+ * (shared/modelTracks.ts). Code that can read the track table resolves the
+ * track instead; this constant is the fallback when it cannot.
+ */
+export const MODEL = "claude-sonnet-5-5";
+/** The Claude Haiku track's model on 2026-10-22. */
+export const HAIKU_MODEL = "claude-haiku-5-5";
+
+/**
+ * The models generations ran on before the model catalog froze models on
+ * each generation (2026-09-24). Legacy rows without a freeze, and the prompt
+ * program's legacy fields, keep naming these, so no reserved generation's
+ * prompt version changes when the defaults move.
+ */
+export const LEGACY_MODEL = "claude-sonnet-5";
+export const LEGACY_RETRIEVAL_BRIEF_MODEL = "claude-haiku-4-5-20251001";
 
 // Provider logomarks served from static/ (no external favicon dependency).
 export const PROVIDER_LOGOS = {
@@ -26,46 +44,42 @@ export const PROVIDER_LOGO_URL = PROVIDER_LOGOS.Anthropic;
  * deliberately, these models must be budgeted as if it is always on.
  *
  * forcedToolChoice: false marks a model whose API answers a forced tool call
- * (`tool_choice` `tool` or `any`) with a 400 (Opus 5.5, Fable 5.1; see
+ * (`tool_choice` `tool` or `any`) with a 400 (Opus 5.5, Sonnet 5.5, Fable 5.1; see
  * acceptsForcedToolChoice). Both gateways then send it `auto` plus one
  * system line instead (toolRequestForModel).
  */
 export const CANDIDATE_MODELS = [
-  {
-    id: MODEL,
-    label: "Sonnet 5",
-    provider: "Anthropic",
-    gateway: "anthropic",
-    description: "Balanced default — near-Opus quality writing at a mid price point.",
-  },
+  // The seven tracks' models on 2026-10-22, in picker order
+  // (shared/modelTracks.ts). Labels follow trackLabel.
   {
     id: "claude-opus-5-5",
     label: "Opus 5.5",
     provider: "Anthropic",
     gateway: "anthropic",
-    description: "Newest Opus - deep reasoning at a lower price than Opus 4.8.",
+    description: MODEL_TRACKS["claude-opus"].description,
     forcedToolChoice: false,
   },
   {
-    id: "claude-opus-4-8",
-    label: "Opus 4.8",
+    id: MODEL,
+    label: "Sonnet 5.5",
     provider: "Anthropic",
     gateway: "anthropic",
-    description: "Most capable — deepest reasoning for dense technical claims.",
+    description: MODEL_TRACKS["claude-sonnet"].description,
+    forcedToolChoice: false,
   },
   {
-    id: "claude-haiku-4-5-20251001",
-    label: "Haiku 4.5",
+    id: HAIKU_MODEL,
+    label: "Haiku 5.5",
     provider: "Anthropic",
     gateway: "anthropic",
-    description: "Fastest and cheapest — good for quick comparison baselines.",
+    description: MODEL_TRACKS["claude-haiku"].description,
   },
   {
-    id: "openai/gpt-6-sol",
-    label: "GPT-6 Sol",
+    id: "openai/gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
     provider: "OpenAI",
     gateway: "openrouter",
-    description: "OpenAI's newest flagship - strong reasoning at a mid price point.",
+    description: MODEL_TRACKS["gpt-sol"].description,
     reasoning: true,
     maxCompletionTokens: 128000,
   },
@@ -74,25 +88,7 @@ export const CANDIDATE_MODELS = [
     label: "GPT-6 Luna",
     provider: "OpenAI",
     gateway: "openrouter",
-    description: "OpenAI's newest fast tier - quick drafts at a very low price.",
-    reasoning: true,
-    maxCompletionTokens: 128000,
-  },
-  {
-    id: "openai/gpt-5.6-sol",
-    label: "GPT-5.6 Sol",
-    provider: "OpenAI",
-    gateway: "openrouter",
-    description: "OpenAI's flagship — strong reasoning, familiar ChatGPT voice.",
-    reasoning: true,
-    maxCompletionTokens: 128000,
-  },
-  {
-    id: "openai/gpt-5.6-luna",
-    label: "GPT-5.6 Luna",
-    provider: "OpenAI",
-    gateway: "openrouter",
-    description: "OpenAI's fast tier — quick drafts at a low price point.",
+    description: MODEL_TRACKS["gpt-luna"].description,
     reasoning: true,
     maxCompletionTokens: 128000,
   },
@@ -101,20 +97,89 @@ export const CANDIDATE_MODELS = [
     label: "Gemini 3.1 Pro",
     provider: "Google",
     gateway: "openrouter",
-    description: "Google's frontier reasoning model — long-context strength.",
+    description: MODEL_TRACKS["gemini-pro"].description,
     reasoning: true,
     maxCompletionTokens: 65536,
+  },
+  {
+    id: "google/gemini-3.8-flash",
+    label: "Gemini 3.8 Flash",
+    provider: "Google",
+    gateway: "openrouter",
+    description: MODEL_TRACKS["gemini-flash"].description,
+    reasoning: true,
+    maxCompletionTokens: 65536,
+  },
+  // Superseded seeds. Never pickable (the picker lists the tracks); kept so
+  // generations frozen on them, their retries and history still route,
+  // budget and price exactly as before.
+  {
+    id: LEGACY_MODEL,
+    label: "Sonnet 5",
+    provider: "Anthropic",
+    gateway: "anthropic",
+    description: "Replaced by Sonnet 5.5.",
+  },
+  {
+    id: "claude-opus-4-8",
+    label: "Opus 4.8",
+    provider: "Anthropic",
+    gateway: "anthropic",
+    description: "Replaced by Opus 5.5.",
+  },
+  {
+    id: LEGACY_RETRIEVAL_BRIEF_MODEL,
+    label: "Haiku 4.5",
+    provider: "Anthropic",
+    gateway: "anthropic",
+    description: "Replaced by Haiku 5.5.",
+  },
+  {
+    id: "openai/gpt-6-sol",
+    label: "GPT-6 Sol",
+    provider: "OpenAI",
+    gateway: "openrouter",
+    description: "Replaced by GPT-6.1 Sol.",
+    reasoning: true,
+    maxCompletionTokens: 128000,
+  },
+  {
+    id: "openai/gpt-5.6-sol",
+    label: "GPT-5.6 Sol",
+    provider: "OpenAI",
+    gateway: "openrouter",
+    description: "Replaced by GPT-6.1 Sol.",
+    reasoning: true,
+    maxCompletionTokens: 128000,
+  },
+  {
+    id: "openai/gpt-5.6-luna",
+    label: "GPT-5.6 Luna",
+    provider: "OpenAI",
+    gateway: "openrouter",
+    description: "Replaced by GPT-6 Luna.",
+    reasoning: true,
+    maxCompletionTokens: 128000,
   },
   {
     id: "google/gemini-3.5-flash",
     label: "Gemini 3.5 Flash",
     provider: "Google",
     gateway: "openrouter",
-    description: "Google's fast tier — near-Pro quality at Flash speed and cost.",
+    description: "Replaced by Gemini 3.8 Flash.",
     reasoning: true,
     maxCompletionTokens: 65536,
   },
 ] as const;
+
+/**
+ * The seven picker models on a deployment whose track table was never
+ * written: each track's 2026-10-22 model, in track order. Browsers show
+ * these while the live list loads.
+ */
+export const PICKER_SEED_MODELS = MODEL_TRACK_IDS.map(
+  (track) => CANDIDATE_MODELS.find((model) => model.id === TRACK_SEED_MODEL_IDS[track])!
+);
 
 export type CandidateModelId = (typeof CANDIDATE_MODELS)[number]["id"];
 export type ModelGateway = (typeof CANDIDATE_MODELS)[number]["gateway"];
@@ -212,6 +277,14 @@ export const RETIRED_SEED_LABELS: Readonly<Record<string, string>> = {
   "claude-fable-5-1": "Fable 5.1",
 };
 
+/**
+ * A display label for any model id: the seed's, a retired seed's, or one
+ * built from its track and version (shared/modelTracks.ts), else the id.
+ */
+export function modelLabelOf(id: string): string {
+  return seedModelById(id)?.label ?? RETIRED_SEED_LABELS[id] ?? trackLabelFor(id) ?? id;
+}
+
 export function modelById(id: string): ModelEntry | undefined {
   return (
     runtimeEntries.get(id) ??
@@ -229,17 +302,21 @@ export function seedModelById(id: string): ModelEntry | undefined {
 }
 
 /**
- * Claude models whose thinking is always on: Opus 5.5, Fable 5.1 and Mythos
- * 5.1, by direct Anthropic id and by OpenRouter id. Their API answers a
+ * Claude models whose thinking is always on: Opus 5.5, Sonnet 5.5, Fable 5.1
+ * and Mythos 5.1, by direct Anthropic id and by OpenRouter id (Sonnet 5.5:
+ * Anthropic's migration notes, read 2026-10-22, list a 400 for both
+ * requests below; Haiku 5.5 is not on that list). Their API answers a
  * forced tool call (`tool_choice` `tool` or `any`) and, on the direct
  * gateway, `thinking: {type: "disabled"}` with a 400. A fixed rule, because
  * OpenRouter's catalog lists `tool_choice` for them and cannot tell.
  */
 export const FORCED_TOOL_CHOICE_REJECTED_IDS: ReadonlySet<string> = new Set([
   "claude-opus-5-5",
+  "claude-sonnet-5-5",
   "claude-fable-5-1",
   "claude-mythos-5-1",
   "anthropic/claude-opus-5.5",
+  "anthropic/claude-sonnet-5.5",
   "anthropic/claude-fable-5.1",
   "anthropic/claude-mythos-5.1",
 ]);
@@ -296,8 +373,10 @@ export function alwaysThinkingMaxTokens(id: string, maxTokens: number): number {
  * Models that reject a forced tool call but may still be drawn for a Random
  * compare slot (owner decision 34, 2026-09-25). Opus 5.5 ran a full real
  * Step-by-step on the unforced path; Fable 5.1 and Mythos 5.1 stay out.
+ * Sonnet 5.5 is the default writing model from 2026-10-22, so every
+ * generation already runs it on the unforced path.
  */
-const RANDOM_DRAW_APPROVED_IDS: ReadonlySet<string> = new Set(["claude-opus-5-5"]);
+const RANDOM_DRAW_APPROVED_IDS: ReadonlySet<string> = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
 
 /**
  * Whether a Random compare slot may draw `model`. Anthropic models only: a
@@ -425,7 +504,7 @@ export function singleModelItems(
 export function comparePairFromSlots(
   slotA: string,
   slotB: string,
-  models: readonly Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">[] = CANDIDATE_MODELS
+  models: readonly Pick<ModelEntry, "id" | "gateway" | "forcedToolChoice">[] = PICKER_SEED_MODELS
 ): string[] | undefined {
   const picked = [slotA, slotB].filter(Boolean);
   if (picked.length === 0) return undefined;
@@ -439,7 +518,7 @@ export function comparePairFromSlots(
 export function comparePairLabel(
   slotA: string,
   slotB: string,
-  models: readonly Pick<ModelEntry, "id" | "label">[] = CANDIDATE_MODELS
+  models: readonly Pick<ModelEntry, "id" | "label">[] = PICKER_SEED_MODELS
 ): string {
   const name = (id: string) =>
     models.find((m) => m.id === id)?.label ?? modelById(id)?.label ?? "Random";

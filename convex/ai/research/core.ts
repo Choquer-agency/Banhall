@@ -10,10 +10,15 @@ import {
 } from "../openrouterCore";
 import { NAME_EDGE_BEFORE, pseudonymize, surfacePattern, type PlaceholderMap } from "../../lib/deidentify";
 
+/**
+ * Research models. GPT and the reviewer are the GPT Sol and Claude Sonnet
+ * tracks' models on 2026-10-22 (shared/modelTracks.ts); research is not a
+ * model role, so it names them here.
+ */
 export const RESEARCH_MODELS = {
-  gpt: "openai/gpt-5.6-sol",
+  gpt: "openai/gpt-6.1-sol",
   perplexity: "perplexity/sonar-deep-research",
-  reviewer: "anthropic/claude-sonnet-5",
+  reviewer: "anthropic/claude-sonnet-5.5",
 } as const;
 
 export type ExternalResearchProvider = "gpt" | "perplexity";

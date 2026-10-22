@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { generateStructured } from "../structured";
 import type { GenerationClient } from "../openrouterCore";
 import { pseudonymize, type PlaceholderMap } from "../../lib/deidentify";
+import { HAIKU_MODEL } from "../../../shared/generationModels";
 
 /**
  * Section-scoped retrieval queries for The Brain, extracted from the raw
@@ -25,7 +26,11 @@ export type RetrievalBrief = {
   advancement: string;
 };
 
-export const RETRIEVAL_BRIEF_MODEL = "claude-haiku-4-5-20251001";
+/**
+ * The fallback when no frozen retrieval_brief role resolves: the Claude Haiku
+ * track's model on 2026-10-22. Generations use their frozen role model.
+ */
+export const RETRIEVAL_BRIEF_MODEL = HAIKU_MODEL;
 
 /** Transcripts can be huge; the technical meat is captured well within this. */
 export const RETRIEVAL_BRIEF_TRANSCRIPT_CAP = 120_000;

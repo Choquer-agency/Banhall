@@ -1,14 +1,16 @@
 /**
  * Picker data from the model catalog. `providerReadiness.getCapabilities`
- * returns the models a writer may pick today (the catalog's enabled set) and
- * the writing role's current default; these helpers fall back to the static
- * seed list only while that query is loading.
+ * returns the models a writer may pick today (each tier's newest version,
+ * 2026-10-22 decision) and the writing role's current default; these
+ * helpers fall back to the seven 2026-10-22 models only while that query is
+ * loading.
  */
 import {
   RETIRED_SEED_LABELS,
-  CANDIDATE_MODELS,
+  PICKER_SEED_MODELS,
   MODEL,
   modelById,
+  modelLabelOf,
   singleModelItems,
 } from "../../shared/generationModels";
 
@@ -30,7 +32,7 @@ export type PickerCapabilities =
   | null
   | undefined;
 
-const SEED_MODELS: PickerModel[] = CANDIDATE_MODELS.map((model) => ({
+const SEED_MODELS: PickerModel[] = PICKER_SEED_MODELS.map((model) => ({
   id: model.id,
   label: model.label,
   provider: model.provider,
@@ -47,13 +49,16 @@ export function defaultModelIdFor(capabilities: PickerCapabilities): string {
   return capabilities?.defaultModel ?? MODEL;
 }
 
-/** A model's display label: catalog list, then the seed, then the id. */
+/**
+ * A model's display label: catalog list, then the seed, then a label built
+ * from its tier and version (a newer track model), then the id.
+ */
 export function modelLabelFor(id: string, capabilities: PickerCapabilities): string {
   return (
     pickerModels(capabilities).find((model) => model.id === id)?.label ??
     modelById(id)?.label ??
     RETIRED_SEED_LABELS[id] ??
-    id
+    modelLabelOf(id)
   );
 }
 

@@ -33,27 +33,51 @@ describe("single-model picker items", () => {
     ]);
   });
 
-  it("falls back to the seed list only while capabilities load", () => {
-    expect(pickerModels(undefined).map((model) => model.id)).toContain("claude-sonnet-5");
-    expect(singleModelItemsFor(undefined)[0]).toEqual({ value: "", label: "Default (Sonnet 5)" });
+  it("falls back to the seven 2026-10-22 tier models only while capabilities load", () => {
+    expect(pickerModels(undefined).map((model) => model.id)).toEqual([
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+      "openai/gpt-6.1-sol",
+      "openai/gpt-6-luna",
+      "google/gemini-3.1-pro-preview",
+      "google/gemini-3.8-flash",
+    ]);
+    expect(pickerModels(undefined).map((model) => model.label)).toEqual([
+      "Opus 5.5",
+      "Sonnet 5.5",
+      "Haiku 5.5",
+      "GPT-6.1 Sol",
+      "GPT-6 Luna",
+      "Gemini 3.1 Pro",
+      "Gemini 3.8 Flash",
+    ]);
+    for (const model of pickerModels(undefined)) expect(model.description, model.id).not.toMatch(/[\u2013\u2014]/);
+    expect(singleModelItemsFor(undefined)[0]).toEqual({ value: "", label: "Default (Sonnet 5.5)" });
     expect(modelLabelFor("x-ai/grok-4.7", { models: [grok] })).toBe("Grok 4.7");
     expect(modelLabelFor("unknown/model", undefined)).toBe("unknown/model");
   });
 
-  it("lists Opus 5.5, GPT-6 Sol and GPT-6 Luna in the seed fallback, and not Fable 5.1", () => {
-    const seed = pickerModels(undefined);
-    const byId = (id: string) => seed.find((model) => model.id === id);
-    expect(byId("claude-opus-5-5")).toMatchObject({ label: "Opus 5.5", provider: "Anthropic", gateway: "anthropic" });
-    expect(byId("claude-fable-5-1")).toBeUndefined();
-    expect(byId("openai/gpt-6-sol")).toMatchObject({ label: "GPT-6 Sol", provider: "OpenAI", gateway: "openrouter" });
-    expect(byId("openai/gpt-6-luna")).toMatchObject({ label: "GPT-6 Luna", provider: "OpenAI", gateway: "openrouter" });
+  it("never lists a superseded model or Fable 5.1, but still names them for older generations", () => {
     const items = singleModelItemsFor(undefined).map((item) => item.value);
-    expect(items).toEqual(expect.arrayContaining(["claude-opus-5-5", "openai/gpt-6-sol", "openai/gpt-6-luna"]));
-    expect(items).not.toContain("claude-fable-5-1");
-    // Older generations frozen on Fable 5.1 still show its name.
+    for (const id of [
+      "claude-sonnet-5",
+      "claude-opus-4-8",
+      "claude-haiku-4-5-20251001",
+      "openai/gpt-6-sol",
+      "openai/gpt-5.6-sol",
+      "openai/gpt-5.6-luna",
+      "google/gemini-3.5-flash",
+      "claude-fable-5-1",
+    ]) {
+      expect(items, id).not.toContain(id);
+    }
     expect(modelLabelFor("claude-fable-5-1", undefined)).toBe("Fable 5.1");
+    expect(modelLabelFor("claude-sonnet-5", undefined)).toBe("Sonnet 5");
+    expect(modelLabelFor("openai/gpt-6-sol", undefined)).toBe("GPT-6 Sol");
+    // A tier version the daily job moves to later is named from its id.
+    expect(modelLabelFor("claude-opus-6", undefined)).toBe("Opus 6");
     // The OpenRouter listings of the direct Anthropic models are not seeds.
-    expect(byId("anthropic/claude-opus-5.5")).toBeUndefined();
-    expect(byId("anthropic/claude-fable-5.1")).toBeUndefined();
+    expect(pickerModels(undefined).find((model) => model.id === "anthropic/claude-opus-5.5")).toBeUndefined();
   });
 });

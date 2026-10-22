@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FunctionArgs } from "convex/server";
 import { internal } from "../_generated/api";
 import schema from "../schema";
-import { MODEL } from "./model";
+// These generations carry no model freeze, so they run on the pre-catalog
+// Sonnet 5 (2026-10-22); the prompt program names it as their fallback.
+import { LEGACY_MODEL as MODEL } from "../../shared/generationModels";
 import { generationPromptProgram } from "./promptProgram";
 import { SECTION_242_REQUEST } from "./section242Agent";
 import { SECTION_244_REQUEST } from "./section244Agent";

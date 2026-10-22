@@ -88,9 +88,11 @@ crons.interval(
   internal.myWorkBackfill.sweepStalled
 );
 
-// Model catalog (owner decision 21): refresh from OpenRouter, flag expiring
-// or removed models, roll back failing switches and queue at most two
-// evaluations. After the learning digests, still outside working hours.
+// Model catalog (owner decision 21, amended 2026-10-22): refresh from
+// OpenRouter, log expiring or removed models for admins, move a failing new
+// track model back, and move each tier to its newest version once it passes
+// a readiness check. Never switches a role to another vendor or tier. After
+// the learning digests, still outside working hours.
 crons.cron(
   "refresh model catalog",
   "45 8 * * *",

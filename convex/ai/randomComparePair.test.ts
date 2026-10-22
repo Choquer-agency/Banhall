@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomComparePair } from "./model";
-import { CANDIDATE_MODELS, comparePairFromSlots } from "../../shared/generationModels";
+import { CANDIDATE_MODELS, PICKER_SEED_MODELS, comparePairFromSlots } from "../../shared/generationModels";
 
 describe("randomComparePair", () => {
   it("refuses a draw with fewer than two eligible models instead of persisting a short pair (models-2 review P3-3)", () => {
@@ -10,13 +10,13 @@ describe("randomComparePair", () => {
     expect(() => randomComparePair([])).toThrow(/Fewer than two models can be drawn/);
   });
 
-  it("draws Opus 5.5 but no other model that rejects forced tool calls", () => {
+  it("draws Opus 5.5 and Sonnet 5.5 but no other model that rejects forced tool calls, from the seven picker models", () => {
     const drawn = new Set<string>();
     for (let i = 0; i < 400; i += 1) {
-      for (const model of randomComparePair(CANDIDATE_MODELS)) drawn.add(model.id);
+      for (const model of randomComparePair(PICKER_SEED_MODELS)) drawn.add(model.id);
     }
     expect([...drawn].sort()).toEqual(
-      ["claude-haiku-4-5-20251001", "claude-opus-4-8", "claude-opus-5-5", "claude-sonnet-5"].sort()
+      ["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"].sort()
     );
   });
 
@@ -58,12 +58,12 @@ describe("comparePairFromSlots with one model and Random", () => {
   it("fills the Random slot from the same pool as the server draw", () => {
     const filled = new Set<string>();
     for (let i = 0; i < 400; i += 1) {
-      const pair = comparePairFromSlots("claude-sonnet-5", "", CANDIDATE_MODELS);
-      expect(pair?.[0]).toBe("claude-sonnet-5");
+      const pair = comparePairFromSlots("claude-sonnet-5-5", "", PICKER_SEED_MODELS);
+      expect(pair?.[0]).toBe("claude-sonnet-5-5");
       filled.add(pair![1]!);
     }
     expect([...filled].sort()).toEqual(
-      ["claude-haiku-4-5-20251001", "claude-opus-4-8", "claude-opus-5-5"].sort()
+      ["claude-haiku-5-5", "claude-opus-5-5"].sort()
     );
   });
 

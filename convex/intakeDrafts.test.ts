@@ -18,7 +18,7 @@ import type { ActionCtx } from "./_generated/server";
 import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
 import { sha256 } from "./lib/contracts";
 import { firmDayNumber } from "../shared/firmTime";
-import { preparationDay } from "./lib/briefPreparationBudget";
+import { PREPARATION_PROJECT_DAILY_USD, preparationDay } from "./lib/briefPreparationBudget";
 import { BRIEF_REQUEST } from "./lib/briefRequest";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import { INTAKE_DEBOUNCE_MS, INTAKE_IDLE_MS, INTAKE_LIFETIME_MS } from "./lib/intakeDrafts";
@@ -1196,14 +1196,14 @@ describe("review fixes (2026-09-26, Opus 5.5 and Fable 5.1)", () => {
     expect(await s.t.run(async (ctx) => ctx.db.get(draftId))).toBeNull();
   });
 
-  test("a draft holds $0.50 for its whole life, and its spend that day counts toward the promoted project", async () => {
+  test("a draft holds its daily project limit for its whole life, and its spend that day counts toward the promoted project", async () => {
     const s = await setup();
     const draftId = await s.writer.mutation(intakeDraftRefs.createIntakeDraft, {});
     // Earlier days' spend on this draft.
     await s.t.run(async (ctx) =>
       ctx.db.insert("briefPreparations", {
         intakeDraftId: draftId, status: "failed", revision: 1, runAt: 0, triggeredBy: s.userId, triggerReason: "x",
-        createdAt: 0, updatedAt: 0, dispatchedAt: 1, firmDay: firmDayNumber(Date.now()) - 3, reservedUsd: 0.49,
+        createdAt: 0, updatedAt: 0, dispatchedAt: 1, firmDay: firmDayNumber(Date.now()) - 3, reservedUsd: PREPARATION_PROJECT_DAILY_USD - 0.01,
       })
     );
     await saveTranscript(s, draftId, "transcript-key-1");

@@ -13,7 +13,7 @@ import type { ModelFreeze } from "../modelCatalogValidators";
 import { type ModelEntry, MODEL } from "../../../shared/generationModels";
 import {
   entryFromFrozen,
-  isSelectableModel,
+  selectableModelIdFor,
   catalogEntry,
   listSelectableModels,
   freezeModelsForGeneration,
@@ -166,7 +166,9 @@ export async function validatedExcludedSources(
 
 /**
  * Entries for `ids` as a mutation sees them: frozen on `freeze` when the
- * retried generation carried one, else the catalog's selectable set. Never
+ * retried generation carried one, else the catalog's selectable set. A
+ * superseded id a stale client sends (2026-10-22 decision) resolves to its
+ * track's current model, so the entry's id can differ from the key. Never
  * the runtime registry, which only actions write.
  */
 export async function modelEntriesFor(
@@ -181,29 +183,31 @@ export async function modelEntriesFor(
       entries.set(id, entryFromFrozen(frozen));
       continue;
     }
-    if (!(await isSelectableModel(ctx, id))) continue;
-    const entry = await catalogEntry(ctx, id);
+    const selectable = await selectableModelIdFor(ctx, id);
+    if (!selectable) continue;
+    const entry = await catalogEntry(ctx, selectable);
     if (entry) entries.set(id, entry);
   }
   return entries;
 }
 
 /** Single and iterative modes both run exactly one explicitly chosen model
- * (defaulting to the writing role's model when unset). */
+ * (defaulting to the writing role's model when unset). A superseded id is
+ * mapped to its track's current model rather than refused. */
 export async function validatedSingleModelId(
   ctx: MutationCtx,
   candidateMode: CandidateMode,
   singleModelId: string | undefined
 ): Promise<string | undefined> {
   if (candidateMode === "compare" || !singleModelId) return undefined;
-  if (!(await isSelectableModel(ctx, singleModelId))) {
-    domainError("INVALID_INPUT", "Select a supported generation model");
-  }
-  return singleModelId;
+  const selectable = await selectableModelIdFor(ctx, singleModelId);
+  if (!selectable) domainError("INVALID_INPUT", "Select a supported generation model");
+  return selectable;
 }
 
-/** A retry keeps its model when it is still selectable or was frozen on the
- * generation being retried; otherwise the retry takes today's default. */
+/** A retry keeps its model when it was frozen on the generation being
+ * retried, else takes the model's track's current version; otherwise the
+ * retry takes today's default. */
 export async function persistedSingleModelId(
   ctx: MutationCtx,
   candidateMode: CandidateMode,
@@ -211,9 +215,7 @@ export async function persistedSingleModelId(
   freeze: ModelFreeze | undefined
 ): Promise<string | undefined> {
   if (candidateMode === "compare" || !singleModelId) return undefined;
-  return (await modelEntriesFor(ctx, [singleModelId], freeze)).has(singleModelId)
-    ? singleModelId
-    : undefined;
+  return (await modelEntriesFor(ctx, [singleModelId], freeze)).get(singleModelId)?.id;
 }
 
 /** Mirrors validatedSingleModelId: only meaningful in compare mode; when the

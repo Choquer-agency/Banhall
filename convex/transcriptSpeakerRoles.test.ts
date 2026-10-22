@@ -101,7 +101,8 @@ describe("speaker roles by model, behind placeholders", () => {
 
     expect(bodies).toHaveLength(1);
     const request = JSON.parse(bodies[0]) as { model: string; messages: Array<{ content: unknown }> };
-    expect(request.model).toBe("claude-haiku-4-5-20251001");
+    // The Claude Haiku tier's model on 2026-10-22.
+    expect(request.model).toBe("claude-haiku-5-5");
     expect(bodies[0]).not.toContain("Marcus");
     expect(bodies[0]).not.toContain("Kowalczyk");
     expect(bodies[0]).toContain("[PERSON_");

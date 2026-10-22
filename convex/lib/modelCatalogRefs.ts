@@ -1,6 +1,7 @@
 /**
  * Typed function references for the model catalog modules
- * (convex/modelCatalog.ts, convex/ai/modelEvaluation.ts).
+ * (convex/modelCatalog.ts, convex/ai/modelEvaluation.ts,
+ * convex/ai/modelReadiness.ts).
  *
  * These two modules are new, and `convex/_generated/api.d.ts` only lists a
  * module after `npx convex codegen`, which needs a deployment. Until it is
@@ -18,6 +19,7 @@ import {
 } from "convex/server";
 import type * as catalog from "../modelCatalog";
 import type * as evaluation from "../ai/modelEvaluation";
+import type * as readiness from "../ai/modelReadiness";
 
 type RefOf<Export> =
   Export extends RegisteredQuery<infer Visibility, infer Args, infer Return>
@@ -49,10 +51,31 @@ export const checkProductionErrorsRef = ref<typeof catalog.checkProductionErrors
 export const pruneCallOutcomesRef = ref<typeof catalog.pruneCallOutcomes>(
   "modelCatalog:pruneCallOutcomes"
 );
-export const planEvaluationsRef = ref<typeof catalog.planEvaluations>(
-  "modelCatalog:planEvaluations"
-);
 export const refreshCatalogRef = ref<typeof catalog.refreshCatalog>("modelCatalog:refreshCatalog");
+
+// Internal: track upgrades (2026-10-22).
+export const upgradeTracksRef = ref<typeof readiness.upgradeTracks>("ai/modelReadiness:upgradeTracks");
+export const planTrackUpgradesRef = ref<typeof catalog.planTrackUpgrades>(
+  "modelCatalog:planTrackUpgrades"
+);
+export const applyTrackUpgradeRef = ref<typeof catalog.applyTrackUpgrade>(
+  "modelCatalog:applyTrackUpgrade"
+);
+export const noteTrackCheckRef = ref<typeof catalog.noteTrackCheck>("modelCatalog:noteTrackCheck");
+export const generationModelRedirectsRef = ref<typeof catalog.generationModelRedirects>(
+  "modelCatalog:generationModelRedirects"
+);
+export const recordGenerationModelRedirectsRef = ref<typeof catalog.recordGenerationModelRedirects>(
+  "modelCatalog:recordGenerationModelRedirects"
+);
+
+// Internal: one-off migrations, run by hand (2026-10-22).
+export const pointRolesAtTracksRef = ref<typeof catalog.pointRolesAtTracks>(
+  "modelCatalog:pointRolesAtTracks"
+);
+export const resolveModelCatalogAlertsRef = ref<typeof catalog.resolveModelCatalogAlerts>(
+  "modelCatalog:resolveModelCatalogAlerts"
+);
 
 // Internal: evaluations.
 export const claimEvaluationRef = ref<typeof catalog.claimEvaluation>(
@@ -83,7 +106,8 @@ export const adminStateRef = ref<typeof catalog.adminState>("modelCatalog:adminS
 export const setAutoSwitchRef = ref<typeof catalog.setAutoSwitch>("modelCatalog:setAutoSwitch");
 export const setRoleCostCapRef = ref<typeof catalog.setRoleCostCap>("modelCatalog:setRoleCostCap");
 export const setEvalBudgetRef = ref<typeof catalog.setEvalBudget>("modelCatalog:setEvalBudget");
-export const rollbackRoleRef = ref<typeof catalog.rollbackRole>("modelCatalog:rollbackRole");
+export const moveTrackBackRef = ref<typeof catalog.moveTrackBack>("modelCatalog:moveTrackBack");
+export const setRoleTrackRef = ref<typeof catalog.setRoleTrack>("modelCatalog:setRoleTrack");
 export const setRoleModelRef = ref<typeof catalog.setRoleModel>("modelCatalog:setRoleModel");
 export const requestCatalogRefreshRef = ref<typeof catalog.requestCatalogRefresh>(
   "modelCatalog:requestCatalogRefresh"

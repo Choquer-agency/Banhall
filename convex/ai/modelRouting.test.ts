@@ -108,6 +108,33 @@ afterEach(() => {
   resetRegisteredModelEntries();
 });
 
+/**
+ * A helper role on a tier (2026-10-22): the role follows the GPT Sol track,
+ * whose current and previous models are set here. The track row stands for
+ * any tier whose two models are OpenRouter rows; the routing under test
+ * reads only the row.
+ */
+async function roleOnTrack(
+  t: Awaited<ReturnType<typeof setup>>,
+  role: "structured_helper" | "brain_context" | "writing",
+  track: { modelId: string; previousModelId?: string; rolledBackFrom?: string[]; switchedAt?: number }
+) {
+  await t.run(async (ctx) => {
+    const existing = await ctx.db.query("modelTracks").withIndex("by_track", (q) => q.eq("track", "gpt-sol")).unique();
+    const fields = {
+      modelId: track.modelId,
+      ...(track.previousModelId ? { previousModelId: track.previousModelId } : {}),
+      switchedAt: track.switchedAt ?? NOW,
+      rolledBackFrom: track.rolledBackFrom ?? [],
+    };
+    if (existing) await ctx.db.patch(existing._id, fields);
+    else await ctx.db.insert("modelTracks", { track: "gpt-sol", ...fields });
+    const assignment = await ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", role)).unique();
+    if (assignment) await ctx.db.patch(assignment._id, { track: "gpt-sol" });
+    else await ctx.db.insert("modelRoleAssignments", { role, modelId: track.modelId, track: "gpt-sol", assignedAt: NOW, assignedBy: "user" });
+  });
+}
+
 async function setup() {
   const t = convexTest(schema, modules);
   await t.mutation(applyCatalogRefreshRef, {
@@ -218,18 +245,10 @@ describe("OpenRouter request fields", () => {
     });
   });
 
-  it("gives a helper role its previous OpenRouter model as a fallback and bills the model that answered", async () => {
+  it("gives a helper role its tier's previous OpenRouter model as a fallback and bills the model that answered", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = await setup();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "structured_helper",
-        modelId: "z-ai/glm-5.3-flash",
-        previousModelId: "xiaomi/mimo-v2.6-pro",
-        assignedAt: NOW,
-        assignedBy: "system",
-      });
-    });
+    await roleOnTrack(t, "structured_helper", { modelId: "z-ai/glm-5.3-flash", previousModelId: "xiaomi/mimo-v2.6-pro" });
     reply = () => toolReply(JSON.stringify({ ok: true }), "xiaomi/mimo-v2.6-pro");
     await t.action(async (ctx) => {
       const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
@@ -255,15 +274,7 @@ describe("OpenRouter request fields", () => {
       ctx.db.query("modelCatalog").filter((q) => q.eq(q.field("modelId"), "anthropic/claude-3-haiku")).first()
     );
     expect(row).toMatchObject({ gateway: "openrouter", source: "openrouter", status: "candidate" });
-    await t.run(async (ctx) => {
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "structured_helper",
-        modelId: "anthropic/claude-3-haiku",
-        previousModelId: "z-ai/glm-5.3-flash",
-        assignedAt: NOW,
-        assignedBy: "system",
-      });
-    });
+    await roleOnTrack(t, "structured_helper", { modelId: "anthropic/claude-3-haiku", previousModelId: "z-ai/glm-5.3-flash" });
     await t.action(async (ctx) => {
       const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
       expect(model).toBe("anthropic/claude-3-haiku");
@@ -284,15 +295,7 @@ describe("OpenRouter request fields", () => {
   it("never sends an Anthropic fallback unpinned behind a non-Anthropic model", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = await setup();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "structured_helper",
-        modelId: "z-ai/glm-5.3-flash",
-        previousModelId: "anthropic/claude-3-haiku",
-        assignedAt: NOW,
-        assignedBy: "system",
-      });
-    });
+    await roleOnTrack(t, "structured_helper", { modelId: "z-ai/glm-5.3-flash", previousModelId: "anthropic/claude-3-haiku" });
     await t.action(async (ctx) => {
       const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
       await client.messages.create(toolParams(model));
@@ -303,27 +306,14 @@ describe("OpenRouter request fields", () => {
     vi.useRealTimers();
   });
 
-  it("never falls back to the model a helper role was rolled back from", async () => {
-    // The same assignment as above, reached by rolling back from the
-    // previous model: the test above is its negative control.
+  it("never falls back to a model the helper role's tier was moved back from", async () => {
+    // The same tier as above, but its previous model is one it was moved
+    // back from: the first test above is its negative control.
     const t = await setup();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("modelSwitchEvents", {
-        role: "structured_helper",
-        fromModelId: "xiaomi/mimo-v2.6-pro",
-        toModelId: "z-ai/glm-5.3-flash",
-        kind: "rollback",
-        reason: "production_error_rate",
-        actor: "system",
-        at: NOW,
-      });
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "structured_helper",
-        modelId: "z-ai/glm-5.3-flash",
-        previousModelId: "xiaomi/mimo-v2.6-pro",
-        assignedAt: NOW,
-        assignedBy: "system",
-      });
+    await roleOnTrack(t, "structured_helper", {
+      modelId: "z-ai/glm-5.3-flash",
+      previousModelId: "xiaomi/mimo-v2.6-pro",
+      rolledBackFrom: ["xiaomi/mimo-v2.6-pro"],
     });
     await t.action(async (ctx) => {
       const { client, model } = await clientForRole(ctx, "structured_helper", { callSite: "routing-test" });
@@ -334,37 +324,14 @@ describe("OpenRouter request fields", () => {
     expect(captured[0].body.models).toBeUndefined();
   });
 
-  it("never gives a split role its predecessor's rolled-back-from model as a fallback", async () => {
+  it("gives a second role on the same tier the same fallback rule (split roles follow their tier, 2026-10-22)", async () => {
     const t = await setup();
-    // Before the split, release notes were rolled back from mimo to glm.
-    const rollbackId = await t.run(async (ctx) => {
-      const split = await ctx.db
-        .query("modelRoleAssignments")
-        .withIndex("by_role", (q) => q.eq("role", "brain_context"))
-        .unique();
-      if (split) await ctx.db.delete(split._id);
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "structured_helper",
-        modelId: "z-ai/glm-5.3-flash",
-        previousModelId: "xiaomi/mimo-v2.6-pro",
-        assignedAt: NOW,
-        assignedBy: "system",
-      });
-      return await ctx.db.insert("modelSwitchEvents", {
-        role: "structured_helper",
-        fromModelId: "xiaomi/mimo-v2.6-pro",
-        toModelId: "z-ai/glm-5.3-flash",
-        kind: "rollback",
-        reason: "production_error_rate",
-        actor: "system",
-        at: NOW,
-      });
-    });
-    // Brain context is split out of it and carries mimo as its previous model.
-    await t.mutation(applyCatalogRefreshRef, {
-      models: parseOpenRouterModels(fixture, NOW).models,
-      fetchedAt: NOW,
-      complete: false,
+    // Brain context, once split out of release notes, now follows a tier
+    // like every role; the tier was moved back from mimo.
+    await roleOnTrack(t, "brain_context", {
+      modelId: "z-ai/glm-5.3-flash",
+      previousModelId: "xiaomi/mimo-v2.6-pro",
+      rolledBackFrom: ["xiaomi/mimo-v2.6-pro"],
     });
     const call = () =>
       t.action(async (ctx) => {
@@ -375,9 +342,8 @@ describe("OpenRouter request fields", () => {
     await call();
     expect(captured[0].body).toMatchObject({ model: "z-ai/glm-5.3-flash" });
     expect(captured[0].body.models).toBeUndefined();
-    // Negative control: without the predecessor's rollback, the same split
-    // role falls back to mimo.
-    await t.run((ctx) => ctx.db.delete(rollbackId));
+    // Negative control: without the move back, the same role falls back to mimo.
+    await roleOnTrack(t, "brain_context", { modelId: "z-ai/glm-5.3-flash", previousModelId: "xiaomi/mimo-v2.6-pro" });
     await call();
     expect(captured[1].body).toMatchObject({ models: ["z-ai/glm-5.3-flash", "xiaomi/mimo-v2.6-pro"] });
   });
@@ -417,14 +383,12 @@ describe("model outcome recording", () => {
   it("finding 6: a billed malformed response is one failure, never also a success, so 5 of 20 rolls back", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = await setup();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "writing",
-        modelId: "openai/gpt-5.6-sol",
-        previousModelId: "claude-sonnet-5",
-        assignedAt: NOW - 60 * 60 * 1000,
-        assignedBy: "system",
-      });
+    // The GPT Sol tier moved to GPT-5.6 Sol an hour ago (a stand-in for a
+    // newly moved version) from GPT-6 Sol.
+    await roleOnTrack(t, "writing", {
+      modelId: "openai/gpt-5.6-sol",
+      previousModelId: "openai/gpt-6-sol",
+      switchedAt: NOW - 60 * 60 * 1000,
     });
     let call = 0;
     // Every response is billed (usage.cost present); every fourth carries
@@ -447,7 +411,7 @@ describe("model outcome recording", () => {
     const [bucket] = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
     expect(bucket).toMatchObject({ successes: 15, failures: 5 });
     expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
-      { role: "writing", modelId: "openai/gpt-5.6-sol", rolledBack: true },
+      { track: "gpt-sol", modelId: "openai/gpt-5.6-sol", rolledBack: true },
     ]);
     vi.useRealTimers();
   });
@@ -490,15 +454,7 @@ describe("second review: outcome attribution and recording", () => {
   it("E: a fallback's answers, good or malformed, count for the fallback model", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = await setup();
-    await t.run(async (ctx) => {
-      await ctx.db.insert("modelRoleAssignments", {
-        role: "structured_helper",
-        modelId: "z-ai/glm-5.3-flash",
-        previousModelId: "xiaomi/mimo-v2.6-pro",
-        assignedAt: NOW,
-        assignedBy: "system",
-      });
-    });
+    await roleOnTrack(t, "structured_helper", { modelId: "z-ai/glm-5.3-flash", previousModelId: "xiaomi/mimo-v2.6-pro" });
     let call = 0;
     reply = () => {
       call += 1;
@@ -621,7 +577,8 @@ describe("round 3: financial extraction settles after its own validation", () =>
     expect(done?.processingStatus).toBe("completed");
     const buckets = await t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
     expect(buckets).toMatchObject([
-      { model: "claude-sonnet-5", successes: 1, failures: 1, lastFailureCode: "invalid_output", lastFailureCallSite: "financial" },
+      // The timesheet role follows the Claude Sonnet tier (2026-10-22).
+      { model: "claude-sonnet-5-5", successes: 1, failures: 1, lastFailureCode: "invalid_output", lastFailureCallSite: "financial" },
     ]);
   });
 });
