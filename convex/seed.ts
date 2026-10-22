@@ -1,5 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { deleteDocumentText } from "./lib/documentText";
 import { deleteStorageIfUnreferenced } from "./lib/storage";
 import { insertTranscriptRow } from "./lib/transcripts";
 
@@ -30,6 +31,8 @@ export const tagAndDedupeDoc = internalMutation({
     let deleted = 0;
     for (let i = 1; i < matches.length; i++) {
       const discarded = matches[i];
+      // 2026-10-22 (fourth): its text pieces go with it.
+      await deleteDocumentText(ctx, discarded._id);
       await ctx.db.delete(discarded._id);
       if (discarded.storageId) await deleteStorageIfUnreferenced(ctx, discarded.storageId);
       deleted++;

@@ -143,7 +143,7 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
   - Run it in batches (one per step, or a fixed number of items), reusing the transcript-section pattern.
   - Do the same for the 30-entry limit: batch instead of refuse. Needs the owner decision and a `docs/product-domain.md` entry.
 - [ ] **3. When an answer is too long, retry as smaller batches**, not "write shorter" at the same limit (`convex/ai/structured.ts`, `OutputLimitError`).
-- [ ] **4. Take each limit from the model's real maximum** instead of a hard-coded number, and stream the large calls.
+- [ ] **4. Take each limit from the model's real maximum** instead of a hard-coded number, and stream the large calls. Seen live on 2026-10-22: the post-draft QA call (`generation:post_qa`, 4,096-token answer limit in `convex/lib/generationSteps.ts`) was cut off on Emily's PD.
 - [ ] **5. Show writers which documents were left out more clearly.** The Inputs band already tracks it.
 
 ### P1: make evidence searchable (core of the MVP)

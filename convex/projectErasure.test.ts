@@ -368,6 +368,8 @@ async function seedProjectRows(
     const documentId = await ctx.db.insert("projectDocuments", {
       projectId, fileName: "doc.txt", fileType: "txt", content: "doc", storageId, source: "upload", uploadedBy: "u", createdAt: now,
     });
+    // 2026-10-22 (fourth): a file's text piece.
+    await ctx.db.insert("projectDocumentTexts", { documentId, projectId, start: 0, text: "doc" });
     await ctx.db.insert("documentUploadAttempts", {
       projectId, attemptKey: "11111111-1111-4111-8111-111111111111", fileName: "doc.txt", origin: "chat_upload",
       status: "succeeded", documentId, createdBy: userId, createdAt: now, updatedAt: now,

@@ -200,6 +200,8 @@ export const PROJECT_SCOPED_TABLES = [
     ],
   },
   // Documents (blob-owning) and their upload receipts.
+  // 2026-10-22 (fourth): a file's text pieces, before the file row.
+  { table: "projectDocumentTexts", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "projectDocuments", field: "projectId", disposition: "delete", index: "by_projectId", blob: "storageId" },
   { table: "documentUploadAttempts", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Financials and identity evidence.

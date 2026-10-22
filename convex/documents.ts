@@ -1,4 +1,5 @@
 import { countTextWords } from "../shared/wordCount";
+import { deleteDocumentText } from "./lib/documentText";
 import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
@@ -321,6 +322,8 @@ export const deleteDocument = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     const { user } = await requireReportEditAccess(ctx, doc.projectId);
+    // 2026-10-22 (fourth): its text pieces go with it.
+    await deleteDocumentText(ctx, args.documentId);
     await ctx.db.delete(args.documentId);
     if (doc.storageId) await deleteStorageIfUnreferenced(ctx, doc.storageId);
     await requestBriefPreparation(ctx, doc.projectId, { userId: user._id, reason: "document_deleted" });

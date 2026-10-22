@@ -3938,6 +3938,78 @@ Amends the first 2026-10-22 entry above and the run 4 rule of 2026-09-28 ("One b
 - **Review.** Design, before code: Claude Opus 5.5 (high effort) and gpt-6-astra (medium effort), both "go with changes". Adopted: a separate answer ceiling in place of removing the raw check outright, the input limit named as a known limitation, the corrected figures, the echo read in any shape, the tests above. Code review, after: Claude Opus 5.5 (high effort), "ship", with four P3s, all fixed (the size log moved into the request with its Line, answer, counts and projection; an encoded-answer test title; two comments; one test comment); gpt-6-astra (medium effort), "ship", no findings.
 - **Approval:** Product owner, 2026-10-22 (chat: "start and ensure we properly research, review and thoroughly check own work before and after implementation ... fix the plan right now"; the plan's P0 item 2, including checking larger Briefs instead of refusing them).
 
+### 2026-10-22 (fourth): A document's text moves to its own table, so lists, chat and uploads stop reading every file in full (owner)
+
+No workflow stage, transition or permission is added, `projects.createdBy` is untouched, and no AI tool writes report prose. Decision 60 (files stay per project) is unchanged by this entry.
+
+- **What happened.** A review on 2026-10-22 found that each project file's whole extracted text sits on its `projectDocuments` row (`content`), and reading a row reads all of it:
+  - every chat turn reads every file of the project in full (`getChatContextV2`, `convex/chatV2.ts`), then shows at most 12, cut to about 20,000 characters each;
+  - every upload reads every file of the project in full to look for a duplicate (`uploadDocument`, `convex/documents.ts`);
+  - the live file list reads every file in full to show its size (`listDocuments`);
+  - starting a generation, the inputs check and the export count do the same.
+
+  Convex refuses a function that reads more than 16 MiB. A test with 50 files of 400,000 characters (`convex/documentScale.test.ts`) fails while uploading them: past about 40 such files, the project accepts no more uploads ("Read too much data in a single function execution"). A row may not pass 1 MiB either, so a 400,000-character file mostly in a 3-byte script (Chinese, Japanese, Thai), or a large intake file (up to 900,000 characters), is refused when stored.
+- **Change.**
+  - **A text table.** A file's text is kept in `projectDocumentTexts`. It is stored in pieces of at most 32,000 characters, each with its exact starting position, and no piece ever splits a character. Each piece also carries its project. The pattern is the one intake drafts already use (`intakeSourceTexts`).
+  - **Facts on the row.** The file row keeps only facts about its text:
+    - its length;
+    - whether it holds any text other than spaces;
+    - a sha256 fingerprint of the exact stored text;
+    - its word count and processing status;
+    - its opening 2,000 characters, leading spaces removed;
+    - when its text moved.
+
+    `content` becomes optional.
+  - **One way to read text.** Every reader goes through one helper (`convex/lib/documentText.ts`). It returns exactly what `content.slice(start, end)` returns today, reading only the pieces the range covers. A row whose text has not moved is read from `content`. A guard test fails on any other read of a document's `content`.
+  - **Readers that need only facts:**
+    - the file list;
+    - the blank checks at generation start and in the inputs band;
+    - the debug tools.
+
+    The export count stays a count of files that are not archived.
+  - **Readers that need text read only their range:**
+    - the evidence frozen at generation start (the same 200,000-character slices, so rule 2 and decision 26 placeholders are unchanged);
+    - PD review inputs;
+    - the Reference PD comparison;
+    - research, including its no-search fallback;
+    - chat's file reading tool;
+    - the preview and download in the Files panel, which still gets the whole text;
+    - the unused generation context query, which is removed.
+  - **Chat reads only what it shows.** Each turn reads every file's facts. It reads text only for the files it shows:
+    - the writer settings document, in full;
+    - the first 12 files with text, each read to just past the part shown, so the cut, the word boundary and the "N of M characters" notice match today.
+
+    A file the writer pinned is read in pieces up to the reply's reading allowance, whether or not the reading tools are on. The one difference: a forged evidence marker beyond the part read no longer changes the notice's character total.
+  - **Search keeps its results.** Chat search and research query a new index on the pieces, limited to the project, and group hits by file. A hit is dropped when its file is missing, archived or in another project. They keep the first 16 distinct files, from this index and, during the move, from the old one. Each kept file is then read whole and split into excerpts as today, so excerpts and their positions do not change. Search ranking may differ slightly, since a piece is ranked rather than a whole file; convex-test cannot show production ranking, so this is checked live.
+  - **Every writer writes pieces and stops writing `content`.** Uploads, intake, the OneDrive import, reports reused as a previous PD, project copies and review-from-project.
+  - **Uploads.** An upload is a duplicate when it has the same project, the same file name and exactly the same text, as today. That is now found through an index on the fingerprint. Empty text is never treated as a duplicate, and a retry with the same attempt key returns the file the attempt made. Files uploaded before the change are compared by their text until they move, so until the backfill finishes a project's old files still cost a full read on upload.
+  - **Deleting.** Deleting a file deletes its pieces, and erasing a project deletes them with it. Archiving keeps the pieces, which chat, search and generation skip as before.
+- **Moving existing files.** Two one-off internal mutations, run by hand on dev and then production. Each works through files in pages of at most 4 MiB read, skips projects being deleted, and schedules its own next page:
+  1. **Copy** (`documents:backfillDocumentTexts`, `cursor`, `pageSize`, `dryRun`). For each file not yet moved, it writes the pieces and the facts, including the word count and processing status if missing. It keeps `content`. It is safe to run twice, and files uploaded during the run are already moved.
+  2. **Clear** (`documents:clearMovedDocumentContent`, `dryRun`). This is a separate pass, run only after the copy is checked on production. It clears `content` for each moved file whose pieces match its fingerprint, and leaves any other file as it is.
+- **Unchanged.**
+  - The 400,000-character browser cap and the 900,000 intake cap.
+  - Statuses and archiving.
+  - Trust (`uploaderRole`, CAP-3).
+  - What chat shows, except the marker case above.
+  - Search excerpts.
+  - The exact slices frozen into `generationSources` (rule 2).
+  - Decision 26 placeholders.
+- **Order of work.** Each step is correct on its own:
+  1. the table and the helper, plus deletes;
+  2. every reader through the helper;
+  3. every writer to pieces;
+  4. the copy pass;
+  5. the clear pass.
+
+  Dropping `content` and the old search index is a separate entry after both passes are checked on production.
+- **Migration and compatibility.** Widen only: a new table, optional fields and new indexes. No reader breaks on a row that has not moved.
+- **Known limitations.**
+  - Starting a generation still copies up to 50 files of 200,000 characters each, plus the transcripts, into `generationSources` in one mutation, which is close to the write limit. The next change gives the frozen evidence a byte budget, with any file left out named in the Inputs band.
+  - Copying a project reads and writes up to 250 files' text in one mutation, so copying a project of about 40 large files still fails. The fix is copying the text in scheduled batches; it is listed in the plan.
+- **Review.** Design, before code: Claude Opus 5.5 (high effort) and gpt-6-astra (medium effort), both "go with changes". Adopted: the missing readers (PD reviews, the Reference PD comparison, research's fallback, the preview, the context query, the debug tools, the status fallback), deletes, exact slicing, positions on pieces, the separate clear pass, upload identity, the unchanged export count, the search grouping, the chat read window, the corrected size claim, 32,000-character pieces and the commit order.
+- **Tests and approval.** Tests are listed with each commit. Approval: Product owner, 2026-10-22 (chat, "Stop reading every file's full text", chosen as the next change).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

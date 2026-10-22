@@ -2186,6 +2186,18 @@ export default defineSchema({
     // 2026-09-27 (fourth) widen: words in `content`, stored at upload for the
     // start dialog; older rows are counted when listed.
     wordCount: v.optional(v.number()),
+    // 2026-10-22 (fourth) widen: facts about the text, set when it moves to
+    // `projectDocumentTexts`, so lists and checks never read it. Read them
+    // through convex/lib/documentText.ts, which falls back to `content` for a
+    // row whose text has not moved (`textMovedAt` absent).
+    textLength: v.optional(v.number()),
+    /** Whether the text holds anything other than whitespace. */
+    hasText: v.optional(v.boolean()),
+    /** sha256 hex of the exact stored text (UTF-8). */
+    textHash: v.optional(v.string()),
+    /** The opening characters of the text, leading whitespace removed. */
+    textPreview: v.optional(v.string()),
+    textMovedAt: v.optional(v.number()),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
@@ -2255,8 +2267,27 @@ export default defineSchema({
   })
     .index("by_storageId", ["storageId"])
     .index("by_projectId", ["projectId"])
+    // 2026-10-22 (fourth): duplicate uploads are found by fingerprint.
+    .index("by_projectId_and_textHash", ["projectId", "textHash"])
     .searchIndex("search_content", {
       searchField: "content",
+      filterFields: ["projectId"],
+    }),
+
+  // 2026-10-22 (fourth): a project file's text, in pieces of at most
+  // DOCUMENT_TEXT_PIECE_CHARS characters that never split a character, each
+  // with its exact starting position. Written and read only through
+  // convex/lib/documentText.ts.
+  projectDocumentTexts: defineTable({
+    documentId: v.id("projectDocuments"),
+    projectId: v.id("projects"),
+    start: v.number(),
+    text: v.string(),
+  })
+    .index("by_documentId_and_start", ["documentId", "start"])
+    .index("by_projectId", ["projectId"])
+    .searchIndex("search_text", {
+      searchField: "text",
       filterFields: ["projectId"],
     }),
 
