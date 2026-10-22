@@ -41,7 +41,7 @@ import {
   MalformedOutputError,
   type GenerationMessageParams,
 } from "./ai/openrouterCore";
-import { currentPromptVersion } from "./ai/promptProgram";
+import { legacyPromptVersion } from "./ai/promptProgram";
 import { buildConsistencyUserMessage, FACTS_NOTHING_SHOWN_REASON, sourceFactsFor, summaryPlanSelfCheckSchemaFor, TARGETS_NOTHING_SHOWN_REASON } from "./ai/selfCheck";
 import { summarizeSlotUsage } from "./ai/instrument";
 import {
@@ -2076,7 +2076,7 @@ describe("seed Summary sign-off and recovery", () => {
         .take(3),
     }));
     expect(after.generation?.productionOrder).toEqual(["246", "242", "244"]);
-    expect(after.generation?.promptVersion).toBe(await currentPromptVersion());
+    expect(after.generation?.promptVersion).toBe(await legacyPromptVersion());
     expect(after.generation?.promptVersion).not.toBe("initialization-program");
     expect(after.artifacts).toEqual(initialized.artifacts);
     expect(after.candidates).toHaveLength(1);
@@ -2545,7 +2545,7 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       expectedSeedStageVersion: await stageVersion(s),
     });
-    const executingProgram = await currentPromptVersion();
+    const executingProgram = await legacyPromptVersion();
     let providerBoundary: {
       promptVersion?: string;
       candidateIds: string[];
@@ -3693,7 +3693,7 @@ describe("seed Summary sign-off and recovery", () => {
         generationId: targetGenerationId,
         candidateRunId: actionArgs.candidateRunId,
         section: actionArgs.section,
-        promptVersion: await currentPromptVersion(),
+        promptVersion: await legacyPromptVersion(),
         payload: actionArgs.payload,
         payloadId: actionArgs.payloadId,
       })).rejects.toMatchObject({
@@ -7128,7 +7128,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(second?.writerSettings).toEqual(originFrozen.generation?.writerSettings);
     expect(second?.singleModelId).toEqual(originFrozen.generation?.singleModelId);
     expect(second?.lengthTarget).toEqual(originFrozen.generation?.lengthTarget);
-    expect(first?.promptVersion).toBe(await currentPromptVersion());
+    expect(first?.promptVersion).toBe(await legacyPromptVersion());
     const retryArtifacts = await s.t.run(async (ctx) =>
       (await ctx.db.query("generationArtifacts")
         .withIndex("by_generationId_and_kind", (q) => q.eq("generationId", retry1))

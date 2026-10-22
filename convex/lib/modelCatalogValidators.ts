@@ -28,6 +28,28 @@ export const modelRoleValidator = v.union(
   v.literal("feedback_summary")
 );
 
+/** shared/modelTracks.ts MODEL_TRACK_IDS (2026-10-22 decision). */
+export const modelTrackValidator = v.union(
+  v.literal("claude-opus"),
+  v.literal("claude-sonnet"),
+  v.literal("claude-haiku"),
+  v.literal("gpt-sol"),
+  v.literal("gpt-luna"),
+  v.literal("gemini-pro"),
+  v.literal("gemini-flash")
+);
+
+/**
+ * A generation's frozen model that its provider stopped listing, and the
+ * track model its calls go to instead (2026-10-22 decision). The frozen
+ * entry and the prompt version stay as reserved.
+ */
+export const modelRedirectValidator = v.object({
+  fromModelId: v.string(),
+  toModelId: v.string(),
+  at: v.number(),
+});
+
 export const catalogStatusValidator = v.union(
   v.literal("candidate"),
   v.literal("enabled"),

@@ -1,8 +1,12 @@
 /**
  * Database side of the model catalog for queries and mutations: which model
  * a role resolves to, which models a writer may pick, what a generation
- * freezes at reservation, and the switch and rollback writes. Actions reach
+ * freezes at reservation, and the track and switch writes. Actions reach
  * these through convex/modelCatalog.ts.
+ *
+ * 2026-10-22 decision (models follow the newest version of their tier): a
+ * role follows a track (shared/modelTracks.ts) and runs that track's current
+ * model; the picker lists exactly the seven tracks' current models.
  *
  * Every read here goes to the catalog table and falls back to the static seed
  * (`CANDIDATE_MODELS`) for ids the table does not hold yet, so the app keeps
@@ -11,14 +15,21 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
-  CANDIDATE_MODELS,
-  MODEL,
+  LEGACY_MODEL,
+  LEGACY_RETRIEVAL_BRIEF_MODEL,
   seedModelById,
   type ModelEntry,
   type ModelGateway,
 } from "../../shared/generationModels";
 import {
-  AUTOMATION_THRESHOLDS,
+  MODEL_TRACKS,
+  MODEL_TRACK_IDS,
+  TRACK_SEED_MODEL_IDS,
+  trackLabelFor,
+  trackOf,
+  type ModelTrackId,
+} from "../../shared/modelTracks";
+import {
   MODEL_ROLES,
   ROLE_POLICIES,
   ROLE_PREDECESSORS,
@@ -39,7 +50,6 @@ type ReadCtx = QueryCtx | MutationCtx;
 
 export const AUTO_SWITCH_KEY = "models.autoSwitch";
 export const EVAL_BUDGET_KEY = "models.evalBudgetUsdMonthly";
-export const LEGACY_DEFAULT_MODEL_KEY = "defaultModel";
 export const costCapKey = (role: ModelRole) => `models.costCap.${role}`;
 
 async function setting(ctx: ReadCtx, key: string): Promise<string | undefined> {
@@ -69,35 +79,98 @@ export async function catalogEntry(
   return row ? entryFromCatalog(row) : seedModelById(modelId);
 }
 
-/** A writer may pick an enabled catalog model, or a seed the table lacks. */
+// ─── Tracks (2026-10-22 decision) ───────────────────────────────────────────
+
+export async function trackRow(
+  ctx: ReadCtx,
+  track: ModelTrackId
+): Promise<Doc<"modelTracks"> | null> {
+  return await ctx.db
+    .query("modelTracks")
+    .withIndex("by_track", (q) => q.eq("track", track))
+    .unique();
+}
+
+/**
+ * The model a track runs now: its row, else (a deployment whose track table
+ * was never written) the track's 2026-10-22 model.
+ */
+export async function trackModelId(ctx: ReadCtx, track: ModelTrackId): Promise<string> {
+  return (await trackRow(ctx, track))?.modelId ?? TRACK_SEED_MODEL_IDS[track];
+}
+
+/** The track row, written from the seed the first time anything changes it. */
+export async function ensureTrackRow(
+  ctx: MutationCtx,
+  track: ModelTrackId
+): Promise<Doc<"modelTracks">> {
+  const existing = await trackRow(ctx, track);
+  if (existing) return existing;
+  const id = await ctx.db.insert("modelTracks", {
+    track,
+    modelId: TRACK_SEED_MODEL_IDS[track],
+    rolledBackFrom: [],
+  });
+  const inserted = await ctx.db.get(id);
+  if (!inserted) throw new Error(`Track ${track} could not be written`);
+  return inserted;
+}
+
+/** Every track's current model, in picker order. */
+export async function trackModelIds(ctx: ReadCtx): Promise<Array<{ track: ModelTrackId; modelId: string }>> {
+  const result: Array<{ track: ModelTrackId; modelId: string }> = [];
+  for (const track of MODEL_TRACK_IDS) result.push({ track, modelId: await trackModelId(ctx, track) });
+  return result;
+}
+
+/**
+ * The model a writer may pick for `modelId`: the id itself when it is a
+ * track's current model, else that id's track's current model (a stale
+ * client sending a superseded id, such as claude-sonnet-5 after the Sonnet
+ * track moved on), else null.
+ */
+export async function selectableModelIdFor(ctx: ReadCtx, modelId: string): Promise<string | null> {
+  const track = trackOf(modelId);
+  if (!track) return null;
+  return await trackModelId(ctx, track);
+}
+
+/** A writer may pick exactly the seven tracks' current models. */
 export async function isSelectableModel(ctx: ReadCtx, modelId: string): Promise<boolean> {
-  const row = await catalogRow(ctx, modelId);
-  return row ? row.status === "enabled" : seedModelById(modelId) !== undefined;
+  return (await selectableModelIdFor(ctx, modelId)) === modelId;
 }
 
 export type SelectableModel = ModelEntry & { description?: string };
 
+/** One track's current model as a picker entry, labelled from its track. */
+async function trackEntry(ctx: ReadCtx, track: ModelTrackId): Promise<SelectableModel> {
+  const modelId = await trackModelId(ctx, track);
+  const definition = MODEL_TRACKS[track];
+  const entry = await catalogEntry(ctx, modelId);
+  const base: ModelEntry = entry ?? {
+    id: modelId,
+    label: modelId,
+    provider: definition.provider,
+    gateway: definition.gateway,
+    reasoning: definition.gateway === "openrouter",
+  };
+  return {
+    ...base,
+    id: modelId,
+    label: trackLabelFor(modelId) ?? base.label,
+    provider: definition.provider,
+    description: definition.description,
+  };
+}
+
 /**
- * Every model a writer may pick, seed order first, then catalog additions in
- * the order they were enabled. Bounded: the enabled set is a curated few.
+ * Every model a writer may pick: exactly one per track, the track's current
+ * model, in track order. Superseded seeds stay runnable for frozen
+ * generations and history but are never listed.
  */
 export async function listSelectableModels(ctx: ReadCtx): Promise<SelectableModel[]> {
-  const enabled = await ctx.db
-    .query("modelCatalog")
-    .withIndex("by_status", (q) => q.eq("status", "enabled"))
-    .take(100);
-  const byId = new Map(enabled.map((row) => [row.modelId, row]));
   const models: SelectableModel[] = [];
-  for (const seed of CANDIDATE_MODELS) {
-    const row = byId.get(seed.id);
-    if (row) {
-      models.push(entryFromCatalog(row));
-      byId.delete(seed.id);
-    } else if (!(await catalogRow(ctx, seed.id))) {
-      models.push(seed as ModelEntry);
-    }
-  }
-  for (const row of byId.values()) models.push(entryFromCatalog(row));
+  for (const track of MODEL_TRACK_IDS) models.push(await trackEntry(ctx, track));
   return models;
 }
 
@@ -118,83 +191,32 @@ async function usableForRole(ctx: ReadCtx, role: ModelRole, modelId: string) {
   return ROLE_POLICIES[role].gateways.includes(entry.gateway);
 }
 
-/**
- * The model a role runs today. Order: the role's assignment, then (a split
- * role not yet materialized) its predecessor's assignment, then (writing
- * only) the admin's legacy default-model setting, then the role default. A
- * stale value (a retired model, or one the role's gateway cannot serve)
- * falls through rather than breaking a call.
- */
-export async function roleModelId(ctx: ReadCtx, role: ModelRole): Promise<string> {
-  const assignment = await roleAssignment(ctx, role);
-  if (assignment && (await usableForRole(ctx, role, assignment.modelId))) {
-    return assignment.modelId;
-  }
-  const predecessor = ROLE_PREDECESSORS[role];
-  if (!assignment && predecessor) {
-    const inherited = await roleAssignment(ctx, predecessor);
-    if (inherited && (await usableForRole(ctx, role, inherited.modelId))) {
-      return inherited.modelId;
-    }
-  }
-  if (role === "writing") {
-    const legacy = await setting(ctx, LEGACY_DEFAULT_MODEL_KEY);
-    if (legacy && (await isSelectableModel(ctx, legacy))) return legacy;
-  }
-  return ROLE_POLICIES[role].defaultModelId;
+/** Whether `role` may follow `track`: chat runs direct Anthropic models only. */
+export function roleCanFollowTrack(role: ModelRole, track: ModelTrackId): boolean {
+  return ROLE_POLICIES[role].gateways.includes(MODEL_TRACKS[track].gateway);
 }
 
 /**
- * Materialize every split role that has no assignment yet: it gets its
- * predecessor's current assignment when that was customised, or its own
- * default, marked origin "role_split". Idempotent. Runs before anything
- * can change a role (every switch, rollback, evaluation plan and refresh),
- * so a predecessor's later switch never drags a split role with it and an
- * admin's earlier choice is never silently dropped (round 3, item 2).
- *
- * A carried-over model keeps its rollback watch (round 4): the
- * predecessor's rollback target (when this role can run it), the switch
- * time the production error window starts from and the last error notice.
- * The predecessor's history up to its last switch is recorded once, in
- * `inheritedHistory`, which no later switch changes (round 5); it reaches
- * the role through lastRoleSwitch and rolledBackFrom. A role that already
- * has an assignment keeps it; one still marked "role_split" from before
- * that field existed only gets the field, here, before any switch can
- * clear the marker it is derived from (round 6).
+ * The track a role follows: the track an admin pointed it at, else its
+ * policy track. An assignment written before the tracks (no `track` field,
+ * which includes every evaluation switch) no longer applies, so a role an
+ * evaluation moved to another vendor is back on its Claude track before the
+ * one-off migration (convex/modelCatalog.ts pointRolesAtTracks) even runs.
  */
-export async function ensureRoleSplit(ctx: MutationCtx): Promise<number> {
-  let written = 0;
-  for (const [role, predecessor] of Object.entries(ROLE_PREDECESSORS) as Array<[ModelRole, ModelRole]>) {
-    const existing = await roleAssignment(ctx, role);
-    if (existing) {
-      if (existing.origin === "role_split" && existing.inheritedHistory === undefined) {
-        await ctx.db.patch(existing._id, { inheritedHistory: legacyInheritedHistory(existing, predecessor) });
-        written += 1;
-      }
-      continue;
-    }
-    const modelId = await roleModelId(ctx, role);
-    const inherited = await roleAssignment(ctx, predecessor);
-    const carried = inherited?.modelId === modelId ? inherited : null;
-    const previousModelId =
-      carried?.previousModelId !== undefined &&
-      carried.previousModelId !== modelId &&
-      (await usableForRole(ctx, role, carried.previousModelId))
-        ? carried.previousModelId
-        : undefined;
-    await ctx.db.insert("modelRoleAssignments", {
-      role,
-      modelId,
-      ...(previousModelId !== undefined ? { previousModelId } : {}),
-      assignedAt: carried?.assignedAt ?? Date.now(),
-      ...(carried?.errorNoticeAt !== undefined ? { errorNoticeAt: carried.errorNoticeAt } : {}),
-      assignedBy: "system",
-      origin: "role_split",
-      ...(inherited ? { inheritedHistory: { role: predecessor, until: inherited.assignedAt } } : {}),
-    });
-    written += 1;
-  }
-  return written;
+export async function roleTrack(ctx: ReadCtx, role: ModelRole): Promise<ModelTrackId> {
+  const assigned = (await roleAssignment(ctx, role))?.track;
+  return assigned && roleCanFollowTrack(role, assigned) ? assigned : ROLE_POLICIES[role].track;
+}
+
+/**
+ * The model a role runs today: its track's current model. A stale value (a
+ * retired model, or one the role's gateway cannot serve) falls back to the
+ * role's 2026-10-22 default rather than breaking a call.
+ */
+export async function roleModelId(ctx: ReadCtx, role: ModelRole): Promise<string> {
+  const modelId = await trackModelId(ctx, await roleTrack(ctx, role));
+  if (await usableForRole(ctx, role, modelId)) return modelId;
+  return ROLE_POLICIES[role].defaultModelId;
 }
 
 type InheritedHistory = NonNullable<Doc<"modelRoleAssignments">["inheritedHistory"]>;
@@ -219,31 +241,6 @@ function inheritedHistoryOf(assignment: Doc<"modelRoleAssignments"> | null): Inh
   return assignment.origin === "role_split" && predecessor
     ? legacyInheritedHistory(assignment, predecessor)
     : null;
-}
-
-/**
- * The switch behind a role's current assignment, for the production error
- * check: the role's own newest event or, for a split role with none of its
- * own yet, its predecessor's newest event up to the split. A rollback made
- * there before the split so still stops the check from flipping it back.
- */
-export async function lastRoleSwitch(
-  ctx: ReadCtx,
-  role: ModelRole
-): Promise<Doc<"modelSwitchEvents"> | null> {
-  const own = await ctx.db
-    .query("modelSwitchEvents")
-    .withIndex("by_role_and_at", (q) => q.eq("role", role))
-    .order("desc")
-    .first();
-  if (own) return own;
-  const inherited = inheritedHistoryOf(await roleAssignment(ctx, role));
-  if (!inherited) return null;
-  return await ctx.db
-    .query("modelSwitchEvents")
-    .withIndex("by_role_and_at", (q) => q.eq("role", inherited.role).lte("at", inherited.until))
-    .order("desc")
-    .first();
 }
 
 /** Every gateway; the Record keeps the list complete if one is added. */
@@ -318,72 +315,6 @@ export async function roleCostCap(ctx: ReadCtx, role: ModelRole): Promise<CostCa
 export async function autoSwitchEnabled(ctx: ReadCtx): Promise<boolean> {
   return (await setting(ctx, AUTO_SWITCH_KEY)) !== "off";
 }
-
-export async function monthlyEvalBudgetUsd(ctx: ReadCtx): Promise<number> {
-  const raw = (await setting(ctx, EVAL_BUDGET_KEY))?.trim() ?? "";
-  const parsed = /^(?:\d+\.?\d*|\.\d+)$/.test(raw) ? Number(raw) : NaN;
-  return Number.isFinite(parsed) && parsed >= 0
-    ? parsed
-    : AUTOMATION_THRESHOLDS.defaultMonthlyEvalBudgetUsd;
-}
-
-/** Start of the UTC calendar month containing `now`. */
-export function monthStart(now: number): number {
-  const date = new Date(now);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
-}
-
-/**
- * USD committed to evaluations this UTC month, counted once per row:
- * - every queued or running row, whatever month it was planned or claimed
- *   in: an active reservation holds budget until it settles, so a claim
- *   made before midnight still blocks the new month (round 3, item 4);
- * - settled rows by the month their spend was last accounted
- *   (`accountedAt`: planned, claimed or settled);
- * - rows written before `accountedAt` existed by `createdAt`, the date
- *   they were accounted under before it (round 3, item 1).
- * Queued rows count their planning estimate, running rows their
- * reservation, settled rows what they spent. `excluding` leaves one row
- * out (the row being claimed, whose own reservation is being decided).
- */
-export async function evalSpendThisMonth(
-  ctx: ReadCtx,
-  now: number,
-  excluding?: Id<"modelEvaluations">
-): Promise<number> {
-  const counted = new Set<string>(excluding ? [excluding] : []);
-  let spent = 0;
-  const add = (evaluation: Doc<"modelEvaluations">) => {
-    if (counted.has(evaluation._id)) return;
-    counted.add(evaluation._id);
-    spent +=
-      evaluation.status === "running"
-        ? (evaluation.reservedCostUsd ?? evaluation.estimatedCostUsd)
-        : evaluation.status === "queued"
-          ? evaluation.estimatedCostUsd
-          : (evaluation.evalCostUsd ?? 0);
-  };
-  for (const status of ["queued", "running"] as const) {
-    for await (const evaluation of ctx.db
-      .query("modelEvaluations")
-      .withIndex("by_status", (q) => q.eq("status", status))) {
-      add(evaluation);
-    }
-  }
-  const start = monthStart(now);
-  for await (const evaluation of ctx.db
-    .query("modelEvaluations")
-    .withIndex("by_accountedAt", (q) => q.gte("accountedAt", start))) {
-    add(evaluation);
-  }
-  for await (const evaluation of ctx.db
-    .query("modelEvaluations")
-    .withIndex("by_createdAt", (q) => q.gte("createdAt", start))) {
-    if (evaluation.accountedAt === undefined) add(evaluation);
-  }
-  return spent;
-}
-
 function frozenEntry(
   entry: ModelEntry,
   prices: { inputUsdPerMTok?: number; outputUsdPerMTok?: number },
@@ -494,17 +425,28 @@ export function entryFromFrozen(entry: FrozenModelEntry): ModelEntry {
   };
 }
 
-/** Models of a generation as frozen at reservation (legacy rows: the seed). */
+/**
+ * Models of a generation as frozen at reservation. A legacy row (reserved
+ * before models were frozen) ran every helper on the pre-catalog constants,
+ * Sonnet 5 and Haiku 4.5, and keeps them whatever the defaults are today, so
+ * its prompt version never changes. `defaults` replaces those two for a
+ * freeze built on today's defaults (promptProgram.ts currentPromptVersion).
+ */
 export function generationModelFreeze(
-  generation: Pick<Doc<"generations">, "modelFreeze" | "singleModelId" | "compareModelIds">
+  generation: Pick<Doc<"generations">, "modelFreeze" | "singleModelId" | "compareModelIds">,
+  defaults: { model: string; retrievalBriefModel: string } = {
+    model: LEGACY_MODEL,
+    retrievalBriefModel: LEGACY_RETRIEVAL_BRIEF_MODEL,
+  }
 ): ModelFreeze {
   if (generation.modelFreeze) return generation.modelFreeze;
+  const MODEL = defaults.model;
   const ids = [
     ...new Set([
       ...(generation.singleModelId ? [generation.singleModelId] : []),
       ...(generation.compareModelIds ?? []),
       MODEL,
-      ROLE_POLICIES.retrieval_brief.defaultModelId,
+      defaults.retrievalBriefModel,
     ]),
   ];
   const entries: FrozenModelEntry[] = ids.flatMap((id) => {
@@ -532,7 +474,7 @@ export function generationModelFreeze(
     roles: {
       writing: MODEL,
       condense: MODEL,
-      retrieval_brief: ROLE_POLICIES.retrieval_brief.defaultModelId,
+      retrieval_brief: defaults.retrievalBriefModel,
       analysis: MODEL,
     },
     frozenAt: 0,
@@ -541,76 +483,114 @@ export function generationModelFreeze(
 
 // ─── Switch writes ──────────────────────────────────────────────────────────
 
-export type SwitchInput = {
-  role: ModelRole;
+/**
+ * Point a role at a track by hand (2026-10-22): the role then follows that
+ * track's newest version. Chat follows Claude tracks only. Logged as a
+ * manual switch.
+ */
+export async function assignRoleTrackByHand(
+  ctx: MutationCtx,
+  role: ModelRole,
+  track: ModelTrackId,
+  userId: Id<"users">
+): Promise<void> {
+  if (!roleCanFollowTrack(role, track)) domainError("INVALID_INPUT", "This role cannot run that model");
+  const assignment = await roleAssignment(ctx, role);
+  if (assignment?.track === track) return;
+  const now = Date.now();
+  const fromModelId = await roleModelId(ctx, role);
+  const toModelId = await trackModelId(ctx, track);
+  const next = {
+    modelId: toModelId,
+    previousModelId: fromModelId,
+    track,
+    assignedAt: now,
+    assignedBy: "user" as const,
+    assignedByUserId: userId,
+  };
+  if (assignment) {
+    await ctx.db.patch(assignment._id, { ...next, origin: undefined, errorNoticeAt: undefined });
+  } else {
+    await ctx.db.insert("modelRoleAssignments", { role, ...next });
+  }
+  await ctx.db.insert("modelSwitchEvents", {
+    role,
+    track,
+    fromModelId,
+    toModelId,
+    kind: "manual",
+    reason: "admin_choice",
+    actor: "user",
+    actorUserId: userId,
+    at: now,
+  });
+}
+
+/**
+ * Point a role at the track of `modelId` (any form of a tracked id), for
+ * callers that still send a model id: the admin "Default model" select.
+ */
+export async function assignRoleModelByHand(
+  ctx: MutationCtx,
+  role: ModelRole,
+  modelId: string,
+  userId: Id<"users">
+): Promise<void> {
+  const track = trackOf(modelId);
+  if (!track) domainError("INVALID_INPUT", "Unknown model id");
+  await assignRoleTrackByHand(ctx, role, track, userId);
+}
+
+export type TrackMoveInput = {
+  track: ModelTrackId;
   toModelId: string;
-  kind: "promotion" | "rollback" | "manual";
+  kind: "upgrade" | "rollback";
   reason: string;
   actor: "system" | "user";
   actorUserId?: Id<"users">;
-  evaluationId?: Id<"modelEvaluations">;
-  evalResults?: Doc<"modelSwitchEvents">["evalResults"];
   errorRate?: Doc<"modelSwitchEvents">["errorRate"];
 };
 
 /**
- * Point `role` at `toModelId`, keep the replaced model as the rollback
- * target, enable the new model in the catalog and write the audit event.
- * The caller has already decided the switch is allowed.
+ * Move a track to `toModelId` and log it. An upgrade keeps the replaced
+ * model as the track's previous model (the "Move back" target). A rollback
+ * records the model it left in `rolledBackFrom`, so the daily job never
+ * moves the track to it again, and clears the previous model: there is
+ * nothing left to move back to.
  */
-export async function switchRoleModel(
+export async function moveTrack(
   ctx: MutationCtx,
-  input: SwitchInput
+  input: TrackMoveInput
 ): Promise<Id<"modelSwitchEvents">> {
-  // Split roles take their inherited model before either side can move.
-  await ensureRoleSplit(ctx);
+  const row = await ensureTrackRow(ctx, input.track);
   const now = Date.now();
-  const fromModelId = await roleModelId(ctx, input.role);
-  const [fromRow, toRow] = await Promise.all([
-    catalogRow(ctx, fromModelId),
-    catalogRow(ctx, input.toModelId),
-  ]);
+  const fromModelId = row.modelId;
+  const [fromRow, toRow] = await Promise.all([catalogRow(ctx, fromModelId), catalogRow(ctx, input.toModelId)]);
   const fromPricing = pricingFor(fromModelId);
   const toPricing = pricingFor(input.toModelId);
-  const evaluation = input.evaluationId ? await ctx.db.get(input.evaluationId) : null;
-  const assignment = await roleAssignment(ctx, input.role);
-  const next = {
+  await ctx.db.patch(row._id, {
     modelId: input.toModelId,
-    previousModelId: fromModelId,
-    assignedAt: now,
-    assignedBy: input.actor,
-    ...(input.actorUserId ? { assignedByUserId: input.actorUserId } : {}),
-  };
-  if (assignment) {
-    await ctx.db.patch(assignment._id, {
-      ...next,
-      assignedByUserId: input.actorUserId,
-      origin: undefined,
-      // A notice about the model it replaced must not silence one about
-      // the new model (round 9).
-      errorNoticeAt: undefined,
-    });
-  } else {
-    await ctx.db.insert("modelRoleAssignments", { role: input.role, ...next });
-  }
+    previousModelId: input.kind === "upgrade" ? fromModelId : undefined,
+    switchedAt: now,
+    errorNoticeAt: undefined,
+    ...(input.kind === "rollback" && !row.rolledBackFrom.includes(fromModelId)
+      ? { rolledBackFrom: [...row.rolledBackFrom, fromModelId] }
+      : {}),
+  });
   if (toRow && toRow.status !== "enabled") {
     await ctx.db.patch(toRow._id, { status: "enabled", updatedAt: now });
   }
   return await ctx.db.insert("modelSwitchEvents", {
-    role: input.role,
+    track: input.track,
     fromModelId,
     toModelId: input.toModelId,
     kind: input.kind,
     reason: input.reason,
-    ...(input.evaluationId ? { evaluationId: input.evaluationId } : {}),
-    ...(input.evalResults ? { evalResults: input.evalResults } : {}),
     costComparison: {
       fromInputUsdPerMTok: fromRow?.inputUsdPerMTok ?? fromPricing?.input,
       fromOutputUsdPerMTok: fromRow?.outputUsdPerMTok ?? fromPricing?.output,
       toInputUsdPerMTok: toRow?.inputUsdPerMTok ?? toPricing?.input,
       toOutputUsdPerMTok: toRow?.outputUsdPerMTok ?? toPricing?.output,
-      ...(evaluation?.incumbent ? { fromEvalCostUsd: evaluation.incumbent.costUsd } : {}),
-      ...(evaluation?.candidate ? { toEvalCostUsd: evaluation.candidate.costUsd } : {}),
     },
     ...(input.errorRate ? { errorRate: input.errorRate } : {}),
     actor: input.actor,
@@ -619,61 +599,20 @@ export async function switchRoleModel(
   });
 }
 
-/** Point a role at a model by hand. Chat accepts direct Anthropic models only. */
-export async function assignRoleModelByHand(
+/**
+ * An admin-only line in the model log on /admin/models (2026-10-22
+ * decision). Nothing model related goes to the alerts board (errorReports):
+ * writers saw these notices there as bugs.
+ */
+export async function raiseAdminNotice(
   ctx: MutationCtx,
-  role: ModelRole,
-  modelId: string,
-  userId: Id<"users">
+  message: string,
+  about: { track?: ModelTrackId; modelId?: string } = {}
 ): Promise<void> {
-  const row = await catalogRow(ctx, modelId);
-  const entry = row ? entryFromCatalog(row) : seedModelById(modelId);
-  if (!entry || row?.status === "retired") domainError("INVALID_INPUT", "Unknown model id");
-  if (!ROLE_POLICIES[role].gateways.includes(entry.gateway)) {
-    domainError("INVALID_INPUT", "This role cannot run that model");
-  }
-  if (role === "writing" && !row && !(await isSelectableModel(ctx, modelId))) {
-    domainError("INVALID_INPUT", "Unknown model id");
-  }
-  if ((await roleModelId(ctx, role)) === modelId) return;
-  await switchRoleModel(ctx, {
-    role,
-    toModelId: modelId,
-    kind: "manual",
-    reason: "admin_choice",
-    actor: "user",
-    actorUserId: userId,
-  });
-}
-
-/**
- * One-call rollback: the role returns to the model it ran before its last
- * switch. Returns null when there is nothing to roll back to.
- */
-export async function rollbackRoleModel(
-  ctx: MutationCtx,
-  input: Omit<SwitchInput, "toModelId" | "kind">
-): Promise<Id<"modelSwitchEvents"> | null> {
-  const assignment = await roleAssignment(ctx, input.role);
-  const target = assignment?.previousModelId;
-  if (!assignment || !target || target === assignment.modelId) return null;
-  return await switchRoleModel(ctx, { ...input, toModelId: target, kind: "rollback" });
-}
-
-/**
- * Admin notice through the existing alerts board (/alerts reads
- * errorReports). Automatic model changes and catalog problems land there so
- * admins see them next to every other operational alert.
- */
-export async function raiseAdminNotice(ctx: MutationCtx, message: string): Promise<void> {
-  await ctx.db.insert("errorReports", {
-    kind: "auto",
-    reportType: "bug",
-    message: `Model catalog: ${message}`,
-    source: "model-catalog",
-    url: "/admin/models",
-    breadcrumbs: [],
-    status: "open",
-    createdAt: Date.now(),
+  await ctx.db.insert("modelAdminNotices", {
+    message,
+    ...(about.track ? { track: about.track } : {}),
+    ...(about.modelId ? { modelId: about.modelId } : {}),
+    at: Date.now(),
   });
 }

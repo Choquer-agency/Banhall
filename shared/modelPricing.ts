@@ -80,6 +80,12 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "claude-opus-5": anthropic(5, 25),
   "claude-opus-4-8": anthropic(5, 25),
   "claude-sonnet-5": anthropic(2, 10),
+  // 2026-10-22 track models: Anthropic's model table read that day (Sonnet
+  // 5.5 $2/$10, cache reads $0.20; Haiku 5.5 $0.10/$0.50 up to 100K prompt
+  // tokens). Later versions a track moves to are priced from their catalog
+  // row (aiUsage.ts), so they need no entry here.
+  "claude-sonnet-5-5": anthropic(2, 10),
+  "claude-haiku-5-5": anthropic(0.1, 0.5),
   // Historical rows only; no longer in the picker.
   "claude-sonnet-4-6": anthropic(3, 15),
   "claude-haiku-4-5": anthropic(1, 5),
@@ -87,6 +93,9 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "voyage-3-large": inputOnly(0.18),
   "rerank-2.5": inputOnly(0.05),
   // OpenRouter fallbacks (native usage.cost wins).
+  // GPT-6.1 Sol and Gemini 3.8 Flash: OpenRouter's list, read 2026-10-22.
+  "openai/gpt-6.1-sol": gateway(2, 10, 0.05),
+  "google/gemini-3.8-flash": gateway(0.825, 4.125, 0.1),
   "openai/gpt-6-sol": gateway(2, 10, 0.1),
   "openai/gpt-6-luna": gateway(0.1, 0.5, 0.1),
   "openai/gpt-5.6-sol": gateway(5, 30, 0.25),

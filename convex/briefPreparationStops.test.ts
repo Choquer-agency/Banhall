@@ -500,10 +500,11 @@ describe("stopping out-of-date readings", () => {
 
   test("a call on the OpenRouter gateway is stopped the same way", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "synthetic-stop-openrouter");
+    // GPT-6 Sol names the GPT Sol tier, whose model on 2026-10-22 is GPT-6.1 Sol.
     const s = await projectSetup({ planningModel: "openai/gpt-6-sol" });
     plan.push("hang", "chat");
     const first = await claim(s);
-    expect(first.planningModel).toBe("openai/gpt-6-sol");
+    expect(first.planningModel).toBe("openai/gpt-6.1-sol");
     await startCall();
     expect(requests[0].url).toContain("openrouter.ai/api/v1/chat/completions");
     await supersede(s);

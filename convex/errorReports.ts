@@ -61,8 +61,9 @@ const RETENTION_SCAN_SLACK = 20;
 
 /**
  * Sources the server itself writes notices under (convex/transcripts.ts
- * storage sweep, convex/lib/modelRoles.ts catalog notices,
- * convex/providerCredit.ts direct Anthropic credit latch). Some are raised
+ * storage sweep, convex/providerCredit.ts direct Anthropic credit latch;
+ * "model-catalog" rows were written before 2026-10-22, when model notices
+ * moved to the admin-only log on /admin/models). Some are raised
  * once, so an open one is kept past the retention window; a report a browser
  * sends can never claim one of these sources.
  */

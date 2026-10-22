@@ -15,6 +15,7 @@ import { CONTEXT_INPUTS_GUIDANCE } from "./ai/prompts";
 import { CONDENSE_VERSION } from "./lib/transcripts";
 import {
   currentPromptVersion,
+  legacyPromptVersion,
   generationPromptProgram,
   hashPromptProgram,
 } from "./ai/promptProgram";
@@ -444,7 +445,9 @@ describe("generation provenance", () => {
       });
     }
 
-    const expectedVersion = await currentPromptVersion();
+    // These rows carry no model freeze, so they keep the pre-catalog Sonnet 5
+    // models whatever today's defaults are (2026-10-22).
+    const expectedVersion = await legacyPromptVersion();
     const generations = await t.run(async (ctx) =>
       Promise.all(runtimeRows.map((row) => ctx.db.get(row.generationId))),
     );

@@ -34,7 +34,8 @@ const CONTENT = [
 type Body = {
   model: string;
   system?: unknown;
-  tool_choice?: { name: string };
+  tool_choice?: { type?: string; name?: string };
+  tools?: Array<{ name: string }>;
   messages: Array<{ content: unknown }>;
 };
 
@@ -131,7 +132,9 @@ function stubNetwork(network: Network) {
       const request = new Request(input, init);
       if (!request.url.includes("anthropic")) return new Response("offline", { status: 503 });
       const body = (await request.json()) as Body;
-      const tool = body.tool_choice?.name;
+      // Sonnet 5.5, the default from 2026-10-22, takes no forced tool call:
+      // its requests carry `auto` and the one tool (toolRequestForModel).
+      const tool = body.tool_choice?.name ?? (body.tool_choice ? body.tools?.[0]?.name : undefined);
       if (!tool) {
         network.calls.push({ kind: "facts", body });
         return network.failFacts ? new Response("bad", { status: 400 }) : factsAnswer();

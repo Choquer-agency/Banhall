@@ -27,6 +27,7 @@ import {
   SETTINGS_CLASSIFIER_VERSION,
   resolveGenerationWriterSettings,
   settingsClassifierVersion,
+  settingsClassifierVersionFor,
   type SettingsClassifierInputs,
 } from "./writerSettings";
 import {
@@ -36,6 +37,7 @@ import {
   buildStyleAnalysisPrompt,
 } from "./styleAnalysis";
 import { MODEL } from "./model";
+import { LEGACY_MODEL } from "../../shared/generationModels";
 import { APPLYING_WRITER_STYLE_LOG, waivingHouseRulesLog } from "./writerStyle";
 import type { OrderedProfileContext } from "../lib/orderedChain";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
@@ -572,7 +574,8 @@ describe("classifier caching (AD-27)", () => {
     expect(cache).toHaveLength(1);
     expect(cache[0]).toMatchObject({
       projectId: ids.projectId,
-      classifierVersion: SETTINGS_CLASSIFIER_VERSION,
+      // A generation without a freeze classifies on the pre-catalog Sonnet 5.
+      classifierVersion: settingsClassifierVersionFor(LEGACY_MODEL),
       addressedCategories: ADDRESSED,
     });
     expect(SETTINGS_CLASSIFIER_VERSION).toMatch(/^style-classifier-[0-9a-f]{16}$/);

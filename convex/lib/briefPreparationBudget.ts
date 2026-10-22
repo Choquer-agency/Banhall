@@ -18,10 +18,17 @@ import { BRIEF_REQUEST, BRIEF_SYSTEM_PROMPT } from "./briefRequest";
 
 type Ctx = QueryCtx | MutationCtx;
 
-/** Spend one project's preparations may hold per firm day, in USD. */
-export const PREPARATION_PROJECT_DAILY_USD = 0.5;
-/** Spend one user's preparations may hold per firm day, in USD. */
-export const PREPARATION_USER_DAILY_USD = 5;
+/**
+ * Spend one project's preparations may hold per firm day, in USD. Raised
+ * from $0.50 on 2026-10-22: the planning role moved to Sonnet 5.5, whose
+ * thinking is always on, so one Brief's reservation includes four times its
+ * 16,000-token answer budget (about $0.70 at Sonnet's price) and no longer
+ * fit. Four times the old limits keep the same number of preparations a day;
+ * actual spend is still settled from the usage rows.
+ */
+export const PREPARATION_PROJECT_DAILY_USD = 2;
+/** Spend one user's preparations may hold per firm day, in USD (see above). */
+export const PREPARATION_USER_DAILY_USD = 20;
 /** Paid preparation starts one user may trigger per firm day. */
 export const PREPARATION_USER_DAILY_STARTS = 20;
 /**

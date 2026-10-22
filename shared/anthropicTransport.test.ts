@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import fixture from "./__fixtures__/openrouter-models-2026-09-24.json";
+import fixture from "./__fixtures__/openrouter-models-2026-10-22.json";
 import {
   OPENROUTER_ANTHROPIC_PROVIDER,
   OPENROUTER_ANTHROPIC_REQUEST_IDS,
@@ -68,6 +68,14 @@ describe("OpenRouter model ids", () => {
     }
     // Never mapped: OpenRouter lists no such snapshot, so it fails as configuration.
     expect(openRouterAnthropicRequestId("claude-sonnet-4-20250514")).toBeUndefined();
+  });
+
+  it("maps a Claude version a track moves to later by its own id (2026-10-22)", () => {
+    expect(openRouterAnthropicRequestId("claude-opus-6")).toBe("anthropic/claude-opus-6");
+    expect(openRouterAnthropicRequestId("claude-sonnet-6-1")).toBe("anthropic/claude-sonnet-6.1");
+    // The top tiers and ids on no Claude track stay unmapped.
+    expect(openRouterAnthropicRequestId("claude-mythos-5-1")).toBeUndefined();
+    expect(openRouterAnthropicRequestId("claude-fable-6")).toBeUndefined();
   });
 
   it("follows OpenRouter's naming for every mapping: no date suffix, version digits joined by a dot", () => {

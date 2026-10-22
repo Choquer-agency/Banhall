@@ -21,6 +21,7 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { assignRoleModelByHand, freezeModelsForGeneration } from "./lib/modelRoles";
 import type { ModelFreeze } from "./lib/modelCatalogValidators";
+import { alwaysThinkingMaxTokens } from "../shared/generationModels";
 import {
   CONSISTENCY_REQUEST,
   COMPRESSION_REQUEST,
@@ -67,6 +68,9 @@ type T = ReturnType<typeof convexTest<typeof schema.tables>>;
 const SONNET = "claude-sonnet-5";
 const OPUS = "claude-opus-5-5";
 const HAIKU = "claude-haiku-4-5-20251001";
+// The Sonnet and Haiku tiers' models on 2026-10-22.
+const SONNET_TODAY = "claude-sonnet-5-5";
+const HAIKU_TODAY = "claude-haiku-5-5";
 
 const generateBatchRef = makeFunctionReference<"action", { batchId: Id<"seedBatches"> }, unknown>(
   "ai/seeds:generateBatch"
@@ -541,11 +545,20 @@ async function fixture(options: {
   model: string;
   freeze?: FreezeKind;
   roles?: Partial<Record<"planning" | "checking", string>>;
+  tracks?: "pinned" | "today";
 }) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId: "routing-writer", role: "admin" });
+    // The pins below were captured with the helper roles on Sonnet 5 and
+    // Haiku 4.5. From 2026-10-22 roles follow their tier, so the pinned
+    // scenarios run the two tiers on those models (as a tier moved back to
+    // them would); "today" runs them on their 2026-10-22 models.
+    if ((options.tracks ?? "pinned") === "pinned") {
+      await ctx.db.insert("modelTracks", { track: "claude-sonnet", modelId: SONNET, rolledBackFrom: [] });
+      await ctx.db.insert("modelTracks", { track: "claude-haiku", modelId: HAIKU, rolledBackFrom: [] });
+    }
     for (const [role, modelId] of Object.entries(options.roles ?? {}) as Array<["planning" | "checking", string]>) {
       await assignRoleModelByHand(ctx, role, modelId, userId);
     }
@@ -657,10 +670,11 @@ async function runOneShot(
   mode: "single" | "compare",
   model: string,
   freeze: FreezeKind = "current",
-  roles?: Partial<Record<"planning" | "checking", string>>
+  roles?: Partial<Record<"planning" | "checking", string>>,
+  tracks: "pinned" | "today" = "pinned"
 ) {
   const wire = installFetch();
-  const f = await fixture({ mode, model, freeze, ...(roles ? { roles } : {}) });
+  const f = await fixture({ mode, model, freeze, tracks, ...(roles ? { roles } : {}) });
   await f.t.action(internal.ai.pipeline.generateReport, { generationId: f.generationId });
   await drain(f.t);
   if (mode === "single") {
@@ -841,6 +855,53 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       }
     }
   );
+
+  it("on today's tiers a Single draft sends the pinned Sonnet 5 requests with only the model and Sonnet 5.5's always-thinking fields changed (2026-10-22)", async () => {
+    const before = (await runOneShot("single", SONNET)).wire.sent;
+    const after = (await runOneShot("single", SONNET_TODAY, "current", undefined, "today")).wire.sent;
+    expect(new Set(after.map((request) => String(request.json.model)))).toEqual(new Set([SONNET_TODAY, HAIKU_TODAY]));
+    // Count and body hash per stage; the model list names the unedited ids.
+    const bodies = async (stages: Promise<Record<string, Pin>>) =>
+      Object.fromEntries(Object.entries(await stages).map(([stage, pin]) => [stage, { count: pin.count, hash: pin.hash }]));
+    // Haiku 5.5 takes a forced tool call: only the model id changed, so the
+    // edited body hashes to the 771af202 pin.
+    const haiku = (sent: Sent[], from: string) =>
+      bodies(stagesOf(
+        sent.filter((request) => request.json.model === from),
+        (json) => ({ ...asPinned(json), model: HAIKU })
+      ));
+    expect((await haiku(after, HAIKU_TODAY)).submit_retrieval_brief?.hash).toBe(PINNED_771AF202[`single:${SONNET}`].submit_retrieval_brief.hash);
+    expect(await haiku(after, HAIKU_TODAY)).toEqual(await haiku(before, HAIKU));
+    // Sonnet 5.5 refuses a forced tool call and `thinking: disabled`, so the
+    // direct gateway sends it the unforced path (adaptAnthropicRequest): an
+    // `auto` tool choice with one system line, no `thinking: disabled` but
+    // low effort, and four times the answer budget as thinking room. With
+    // those fields set aside, every request is byte for byte the pinned one.
+    const replyLine = /\\n\\nReply only by calling (the \w+ tool|one of the provided tools), exactly once\. A tool call is the only valid reply\./g;
+    const lineBlock = /,\{"type":"text","text":"Reply only by calling (the \w+ tool|one of the provided tools), exactly once\. A tool call is the only valid reply\."\}/g;
+    const sonnet = (sent: Sent[], from: string) =>
+      bodies(stagesOf(
+        sent.filter((request) => request.json.model === from),
+        (json) => {
+          const { max_tokens: _max, tool_choice: _choice, thinking: _thinking, output_config: _config, ...rest } = asPinned(json);
+          return JSON.parse(JSON.stringify({ ...rest, model: SONNET }).replace(replyLine, "").replace(lineBlock, "")) as Record<string, unknown>;
+        }
+      ));
+    expect(await sonnet(after, SONNET_TODAY)).toEqual(await sonnet(before, SONNET));
+    const sonnetBudgets = (sent: Sent[], from: string, scale: (tokens: number) => number) =>
+      sent
+        .filter((request) => request.json.model === from)
+        .map((request) => `${stageOf(request.json)}:${scale(Number(request.json.max_tokens))}`)
+        .sort();
+    expect(sonnetBudgets(after, SONNET_TODAY, (tokens) => tokens)).toEqual(
+      sonnetBudgets(before, SONNET, (tokens) => alwaysThinkingMaxTokens(SONNET_TODAY, tokens))
+    );
+    for (const request of after.filter((item) => item.json.model === SONNET_TODAY)) {
+      const choice = request.json.tool_choice as { type?: string } | undefined;
+      expect(choice === undefined || choice.type === "auto", stageOf(request.json)).toBe(true);
+      expect(request.json.thinking).toBeUndefined();
+    }
+  });
 
   it.each(["seeds", "single"] as const)(
     "an Opus 5.5 pick runs the %s helpers on Sonnet 5 exactly as a Sonnet 5 pick does, and writes on Opus 5.5",

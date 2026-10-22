@@ -405,7 +405,7 @@ function stubProviders(options: {
   }));
 }
 
-describe("evaluation action", () => {
+describe("evaluation action (ended 2026-10-22)", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
     vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
@@ -417,7 +417,7 @@ describe("evaluation action", () => {
     resetRegisteredModelEntries();
   });
 
-  async function setup(role: "writing" | "condense", candidate = "x-ai/grok-4.7") {
+  it("stops an evaluation still queued at its claim: nothing is sent, spent or switched", async () => {
     const t = convexTest(schema, modules);
     await t.mutation(applyCatalogRefreshRef, {
       models: parseOpenRouterModels(fixture, NOW).models,
@@ -425,210 +425,6 @@ describe("evaluation action", () => {
       complete: false,
     });
     const evaluationId = await t.run((ctx) =>
-      ctx.db.insert("modelEvaluations", {
-        role,
-        modelId: candidate,
-        incumbentModelId: "claude-sonnet-5",
-        evalSetVersion: "banhall-eval/v1",
-        status: "queued",
-        estimatedCostUsd: 0.5,
-        createdAt: NOW,
-      })
-    );
-    return { t, evaluationId };
-  }
-
-  it("runs candidate and incumbent through both gateways, judges on the writing model and promotes on a pass", async () => {
-    const { t, evaluationId } = await setup("writing");
-    const hits: string[] = [];
-    stubProviders({ hits });
-    await t.action(runEvaluationRef, { evaluationId });
-    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
-    expect(evaluation).toMatchObject({ status: "passed", outcome: "promoted" });
-    // Judged 9 on its draft and 7 on the shared seed batch: mean 8.
-    expect(evaluation?.candidate).toMatchObject({ schemaValidity: 1, contractPassRate: 1, rubricScore: 8 });
-    expect(evaluation?.incumbent).toMatchObject({ rubricScore: 7 });
-    expect(evaluation?.evalCostUsd).toBeGreaterThan(0);
-    expect(evaluation?.reservedCostUsd).toBeUndefined();
-    expect(hits.filter((hit) => hit.startsWith("openrouter:x-ai/grok-4.7"))).toHaveLength(3);
-    expect(hits.filter((hit) => hit === "anthropic:claude-sonnet-5").length).toBeGreaterThanOrEqual(3 + 4);
-    const assignment = await t.run((ctx) =>
-      ctx.db.query("modelRoleAssignments").withIndex("by_role", (q) => q.eq("role", "writing")).unique()
-    );
-    expect(assignment?.modelId).toBe("x-ai/grok-4.7");
-  });
-
-  it("finding 9: evaluates the condense role on condensing, and promotes on its own task", async () => {
-    const { t, evaluationId } = await setup("condense");
-    const hits: string[] = [];
-    stubProviders({
-      hits,
-      openRouterOverrides: { digest: { ...VALID_DIGEST, namesAndSystems: ["distributed negotiation", "GROK MARKER"] } },
-    });
-    await t.action(runEvaluationRef, { evaluationId });
-    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
-    expect(evaluation).toMatchObject({ status: "passed", outcome: "promoted" });
-    expect(evaluation?.candidate).toMatchObject({ tasks: 1, schemaValidity: 1, contractPassRate: 1, rubricScore: 9 });
-    // Only the condense task ran: one call per model plus one judge call each.
-    expect(hits.filter((hit) => hit.startsWith("openrouter:"))).toHaveLength(1);
-    expect(hits.filter((hit) => hit.startsWith("anthropic:"))).toHaveLength(3);
-  });
-
-  it("finding 3: meters a catalog-only model without a native cost at its catalog price", async () => {
-    const { t, evaluationId } = await setup("writing");
-    const grok = await t.run((ctx) =>
-      ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", "x-ai/grok-4.7")).first()
-    );
-    // The static table does not know this model; the catalog lists it at $5/$25.
-    await t.run((ctx) => ctx.db.patch(grok!._id, { inputUsdPerMTok: 5, outputUsdPerMTok: 25 }));
-    stubProviders({ openRouterCost: null });
-    await t.action(runEvaluationRef, { evaluationId });
-    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
-    const perCall = (100 * 5 + 20 * 25) / 1_000_000;
-    const sonnetCall = (100 * 2 + 20 * 10) / 1_000_000;
-    expect(evaluation?.candidate?.costUsd).toBeCloseTo(3 * perCall, 12);
-    expect(evaluation?.incumbent?.costUsd).toBeCloseTo(3 * sonnetCall, 12);
-    // Two judged tasks per side, on Sonnet.
-    expect(evaluation?.evalCostUsd).toBeCloseTo(3 * perCall + 3 * sonnetCall + 4 * sonnetCall, 12);
-    // $0.003 against a $0.0012 incumbent is 2.5 times: over the 2x cap.
-    expect(evaluation).toMatchObject({ status: "failed", outcome: "held back: cost" });
-  });
-
-  it("round 9: a model that is both judge and incumbent is reserved and sent at the higher of its caps", async () => {
-    const t = convexTest(schema, modules);
-    await t.mutation(applyCatalogRefreshRef, {
-      models: parseOpenRouterModels(fixture, NOW).models,
-      fetchedAt: NOW,
-      complete: false,
-    });
-    // Writing was promoted to an OpenRouter model that condense runs too:
-    // it is condense's incumbent and, as the writing model, the judge.
-    const shared = "x-ai/grok-4.7";
-    const candidate = "openai/gpt-5.6-luna";
-    const writingCap = ROLE_POLICIES.writing.defaultCostCap;
-    const condenseCap = ROLE_POLICIES.condense.defaultCostCap;
-    const insertEvaluation = () =>
-      t.run((ctx) =>
-        ctx.db.insert("modelEvaluations", {
-          role: "condense",
-          modelId: candidate,
-          incumbentModelId: shared,
-          evalSetVersion: "banhall-eval/v1",
-          status: "queued",
-          estimatedCostUsd: 0.5,
-          createdAt: NOW,
-        })
-      );
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", shared)).first();
-      // Listed under both caps, so each role's max_price is its own cap.
-      await ctx.db.patch(row!._id, { inputUsdPerMTok: 0.3, outputUsdPerMTok: 1.2 });
-      for (const role of ["writing", "condense"] as const) {
-        await ctx.db.insert("modelRoleAssignments", { role, modelId: shared, assignedAt: NOW, assignedBy: "system" });
-      }
-    });
-    const claimed = await insertEvaluation();
-    const run = await insertEvaluation();
-
-    // The claim: requests to the shared model carry one max_price, so both
-    // copies are frozen, and reserved, at the writing cap, not condense's.
-    const claim = await t.mutation(claimEvaluationRef, { evaluationId: claimed, envelope: EVAL_ENVELOPE });
-    const atWritingCap = { prompt: writingCap.maxInputUsdPerMTok, completion: writingCap.maxOutputUsdPerMTok };
-    expect(claim?.incumbent).toMatchObject({ id: shared, maxPrice: atWritingCap });
-    expect(claim?.judge).toMatchObject({ id: shared, maxPrice: atWritingCap });
-    expect(claim?.candidate.maxPrice).toEqual(maxPriceFor(condenseCap, { inputUsdPerMTok: 1, outputUsdPerMTok: 6 }));
-    const priced = (entry: NonNullable<typeof claim>["candidate"]) => {
-      const ceiling = chargeCeiling(entry, claim!.pricing[entry.id]);
-      return {
-        gateway: entry.gateway,
-        reasoning: entry.reasoning,
-        ...(entry.maxCompletionTokens !== undefined ? { maxCompletionTokens: entry.maxCompletionTokens } : {}),
-        inputUsdPerMTok: ceiling.input,
-        outputUsdPerMTok: ceiling.output,
-      };
-    };
-    const sharedAtWritingCap = {
-      ...priced(claim!.incumbent),
-      inputUsdPerMTok: writingCap.maxInputUsdPerMTok,
-      outputUsdPerMTok: writingCap.maxOutputUsdPerMTok,
-    };
-    expect(claim?.reservedCostUsd).toBeCloseTo(
-      maxEvaluationCostUsd({
-        tasks: ROLE_POLICIES.condense.evalTasks,
-        envelope: EVAL_ENVELOPE,
-        candidate: priced(claim!.candidate),
-        incumbent: sharedAtWritingCap,
-        judge: sharedAtWritingCap,
-      }),
-      10
-    );
-
-    // On the wire: every request to the shared model carries the writing
-    // cap; the candidate keeps condense's own max_price.
-    const bodies: WireBody[] = [];
-    stubProviders({ bodies });
-    await t.action(runEvaluationRef, { evaluationId: run });
-    const sharedBodies = bodies.filter((body) => body.model === shared);
-    const candidateBodies = bodies.filter((body) => body.model === candidate);
-    expect(sharedBodies.length).toBeGreaterThanOrEqual(2);
-    expect(candidateBodies.length).toBeGreaterThanOrEqual(1);
-    for (const body of sharedBodies) expect(body.provider?.max_price).toEqual(atWritingCap);
-    for (const body of candidateBodies) {
-      expect(body.provider?.max_price).toEqual({ prompt: condenseCap.maxInputUsdPerMTok, completion: condenseCap.maxOutputUsdPerMTok });
-    }
-  });
-
-  it("round 8: a provider charging up to the request's max_price never takes the month over budget", async () => {
-    const { t, evaluationId } = await setup("writing");
-    const grok = await t.run((ctx) =>
-      ctx.db.query("modelCatalog").withIndex("by_modelId", (q) => q.eq("modelId", "x-ai/grok-4.7")).first()
-    );
-    // Listed far under the writing cap: OpenRouter may still route its
-    // requests to a provider charging up to the cap, the max_price they carry.
-    await t.run((ctx) => ctx.db.patch(grok!._id, { inputUsdPerMTok: 0.3, outputUsdPerMTok: 1.2 }));
-    const cap = ROLE_POLICIES.writing.defaultCostCap;
-    const sonnet = { gateway: "anthropic" as const, reasoning: false, inputUsdPerMTok: 2, outputUsdPerMTok: 10 };
-    const reservation = (input: number, output: number) =>
-      maxEvaluationCostUsd({
-        tasks: ROLE_POLICIES.writing.evalTasks,
-        envelope: EVAL_ENVELOPE,
-        candidate: {
-          gateway: "openrouter",
-          reasoning: grok!.reasoning,
-          maxCompletionTokens: grok!.maxCompletionTokens,
-          inputUsdPerMTok: input,
-          outputUsdPerMTok: output,
-        },
-        incumbent: sonnet,
-        judge: sonnet,
-      });
-    const atListedPrice = reservation(0.3, 1.2);
-    const atCap = reservation(cap.maxInputUsdPerMTok, cap.maxOutputUsdPerMTok);
-    const setBudget = (usd: number) =>
-      t.run(async (ctx) => {
-        const userId = await ctx.db.insert("users", { authId: `budget-${usd}`, role: "admin" });
-        const existing = await ctx.db.query("appSettings").withIndex("by_key", (q) => q.eq("key", "models.evalBudgetUsdMonthly")).unique();
-        const row = { value: String(usd), updatedBy: userId, updatedAt: NOW };
-        if (existing) await ctx.db.patch(existing._id, row);
-        else await ctx.db.insert("appSettings", { key: "models.evalBudgetUsdMonthly", ...row });
-      });
-    const bodies: WireBody[] = [];
-    stubProviders({ bodies, openRouterChargesMaxPrice: true });
-
-    // A budget that covers the reservation only at the listed price: the run
-    // never starts, so nothing is sent and nothing is spent.
-    await setBudget(atListedPrice);
-    await t.action(runEvaluationRef, { evaluationId });
-    const refused = await t.run((ctx) => ctx.db.get(evaluationId));
-    expect(refused).toMatchObject({ status: "error", evalCostUsd: 0 });
-    expect(refused?.error).toMatch(/^Over the monthly evaluation budget/);
-    expect(bodies).toHaveLength(0);
-
-    // With room for the reservation at the cap it runs. The provider charges
-    // more than the listed-price reservation would have covered, and the
-    // month still ends inside the budget.
-    await setBudget(atCap);
-    const second = await t.run((ctx) =>
       ctx.db.insert("modelEvaluations", {
         role: "writing",
         modelId: "x-ai/grok-4.7",
@@ -639,17 +435,19 @@ describe("evaluation action", () => {
         createdAt: NOW,
       })
     );
-    await t.action(runEvaluationRef, { evaluationId: second });
-    const settled = await t.run((ctx) => ctx.db.get(second));
-    expect(settled?.status).not.toBe("error");
-    expect(settled!.evalCostUsd!).toBeGreaterThan(atListedPrice);
-    expect(settled!.evalCostUsd!).toBeLessThanOrEqual(atCap);
-    // Evaluation requests keep the max_price production sends for the role.
-    const openRouterBodies = bodies.filter((body) => body.model === "x-ai/grok-4.7");
-    expect(openRouterBodies.length).toBeGreaterThan(0);
-    for (const body of openRouterBodies) {
-      expect(body.provider?.max_price).toEqual({ prompt: cap.maxInputUsdPerMTok, completion: cap.maxOutputUsdPerMTok });
-    }
+    const hits: string[] = [];
+    stubProviders({ hits });
+    await t.action(runEvaluationRef, { evaluationId });
+    expect(hits).toEqual([]);
+    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
+    expect(evaluation).toMatchObject({ status: "error", evalCostUsd: 0 });
+    expect(evaluation?.error).toContain("Evaluations ended on 2026-10-22");
+    expect(await t.mutation(claimEvaluationRef, { evaluationId, envelope: EVAL_ENVELOPE })).toBeNull();
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query("modelRoleAssignments").collect()).toEqual([]);
+      expect(await ctx.db.query("modelSwitchEvents").collect()).toEqual([]);
+      expect(await ctx.db.query("errorReports").collect()).toEqual([]);
+    });
   });
 });
 
@@ -819,33 +617,6 @@ describe("second review: C, a lost response keeps its reservation", () => {
     expect(meter.unsettledUsd).toBeGreaterThan((16_384 * 25) / 1_000_000);
   });
 
-  it("an evaluation whose calls were lost records their maximum as spend", async () => {
-    const t = convexTest(schema, modules);
-    await t.mutation(applyCatalogRefreshRef, {
-      models: parseOpenRouterModels(fixture, NOW).models,
-      fetchedAt: NOW,
-      complete: false,
-    });
-    const evaluationId = await t.run((ctx) =>
-      ctx.db.insert("modelEvaluations", {
-        role: "writing",
-        modelId: "x-ai/grok-4.7",
-        incumbentModelId: "claude-sonnet-5",
-        evalSetVersion: "banhall-eval/v1",
-        status: "queued",
-        estimatedCostUsd: 0.5,
-        createdAt: NOW,
-      })
-    );
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      throw new TypeError("fetch failed");
-    }));
-    await t.action(runEvaluationRef, { evaluationId });
-    const evaluation = await t.run((ctx) => ctx.db.get(evaluationId));
-    expect(evaluation?.unsettledCostUsd).toBeGreaterThan(0);
-    expect(evaluation?.evalCostUsd).toBe(evaluation?.unsettledCostUsd);
-    expect(evaluation?.reservedCostUsd).toBeUndefined();
-  });
 });
 
 describe("round 3: an answer without usage keeps its maximum cost", () => {

@@ -49,7 +49,9 @@ import {
   evalSummaryValidator,
   gateResultValidator,
   modelFreezeValidator,
+  modelRedirectValidator,
   modelRoleValidator,
+  modelTrackValidator,
 } from "./lib/modelCatalogValidators";
 import { placeholderMapValidator, storedSpeakerNamesValidator } from "./lib/placeholderValidators";
 
@@ -1114,6 +1116,10 @@ export default defineSchema({
     // frozen at reservation. Absent on older rows, which resolve from the
     // seed registry exactly as before.
     modelFreeze: v.optional(modelFreezeValidator),
+    // 2026-10-22 widen (model tracks): frozen models whose provider stopped
+    // listing them, and the track model their calls went to instead. At
+    // most one per frozen model. modelFreeze itself is never rewritten.
+    modelRedirects: v.optional(v.array(modelRedirectValidator)),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),
@@ -4132,17 +4138,54 @@ export default defineSchema({
     // history, so a rollback made before the split keeps that model out of
     // this role's evaluations. No switch ever changes it.
     inheritedHistory: v.optional(v.object({ role: modelRoleValidator, until: v.number() })),
+    // 2026-10-22 widen (model tracks): the track an admin pointed this role
+    // at. A row without it (every row written before the tracks) no longer
+    // applies: the role follows its policy track (shared/modelCatalog.ts
+    // ROLE_POLICIES). modelId then records the track's model at the time.
+    track: v.optional(modelTrackValidator),
   }).index("by_role", ["role"]),
 
-  // Append-only audit log of every role switch, automatic or manual.
+  // 2026-10-22 (model tracks): one row per track, the model the track runs
+  // now. Absent rows run the track's 2026-10-22 model
+  // (shared/modelTracks.ts TRACK_SEED_MODEL_IDS) until the first write.
+  // `rolledBackFrom` lists every model the track moved back from (a few per
+  // year at most); the daily job never moves the track to one again.
+  modelTracks: defineTable({
+    track: modelTrackValidator,
+    modelId: v.string(),
+    previousModelId: v.optional(v.string()),
+    switchedAt: v.optional(v.number()),
+    lastCheckedAt: v.optional(v.number()),
+    // What the last daily check found, for the admin page.
+    lastCheckNote: v.optional(v.string()),
+    rolledBackFrom: v.array(v.string()),
+    // Last admin log line about this track's error rate while automatic
+    // updates were off, so it is written at most once a day.
+    errorNoticeAt: v.optional(v.number()),
+  }).index("by_track", ["track"]),
+
+  // 2026-10-22: the admin-only model log on /admin/models. Catalog
+  // problems (a rename, an expiry, a missing endpoint, a held rollback) are
+  // written here instead of the user-facing alerts board.
+  modelAdminNotices: defineTable({
+    message: v.string(),
+    track: v.optional(modelTrackValidator),
+    modelId: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_at", ["at"]),
+
+  // Append-only audit log of every role switch and track move, automatic or
+  // manual. Track moves (2026-10-22 widen) carry `track` and no `role`.
   modelSwitchEvents: defineTable({
-    role: modelRoleValidator,
+    role: v.optional(modelRoleValidator),
+    track: v.optional(modelTrackValidator),
     fromModelId: v.optional(v.string()),
     toModelId: v.string(),
     kind: v.union(
       v.literal("promotion"),
       v.literal("rollback"),
-      v.literal("manual")
+      v.literal("manual"),
+      v.literal("upgrade")
     ),
     reason: v.string(),
     evaluationId: v.optional(v.id("modelEvaluations")),
@@ -4165,7 +4208,9 @@ export default defineSchema({
     .index("by_at", ["at"])
     // Whether a role was ever rolled back from a model (up to a time), read
     // as one row however long the role's history is.
-    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"]),
+    .index("by_role_and_kind_and_fromModelId_and_at", ["role", "kind", "fromModelId", "at"])
+    // A track's moves, newest first (2026-10-22).
+    .index("by_track_and_at", ["track", "at"]),
 
   // One candidate evaluated for one role against the incumbent on the fixed
   // eval set. Pending rows are queued or running; the rest carry results.
