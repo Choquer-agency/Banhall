@@ -20,6 +20,7 @@
 - `--base <ref>`: the code to import under. Default: the merge base of the target and `origin/main`.
 - `--snapshot <zip>`: use this snapshot instead of exporting one.
 - `--port <n>`: the app port. Default 5180.
+- `--public-host <host>`: serve the app on this address instead of localhost, such as this machine's Tailscale IP, so a browser on another machine can use it. The app's backend URLs and the trusted login origin use the same host. Only this address answers; localhost does not.
 - `--only <a,b>`: run only these scenarios (names in `scenarios.mjs`).
 - `--keep-artifacts`: keep the screenshots and report.
 - `--serve`: keep the app running after the scenarios for a person to try (see step 9).

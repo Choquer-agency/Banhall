@@ -30,6 +30,12 @@ const serve = flag("--serve");
 const serveHours = Number(option("--serve-hours", "4"));
 if (serve && !(serveHours > 0 && serveHours <= 24)) throw new Error("--serve-hours takes a number of hours from 0 to 24.");
 const skipScenarios = flag("--skip-scenarios");
+// The address a person on another machine opens, such as this Mac's
+// Tailscale IP. The app and the local backend are then reached through it,
+// not localhost, so a browser elsewhere can load the report.
+const publicHost = option("--public-host");
+if (publicHost && !/^[A-Za-z0-9.-]+$/.test(publicHost)) throw new Error("--public-host takes a host name or IP address.");
+const appOrigin = `http://${publicHost ?? "localhost"}:${port}`;
 
 const git = (...a) => execFileSync("git", a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const target = git("rev-parse", "--short", option("--target", "HEAD"));
@@ -278,8 +284,8 @@ try {
     setSecret(key, value);
   }
   setSecret("BETTER_AUTH_SECRET", crypto.randomBytes(32).toString("hex"));
-  local("npx", ["convex", "env", "set", "SITE_URL", `http://localhost:${port}`]);
-  local("npx", ["convex", "env", "set", "BETTER_AUTH_TRUSTED_ORIGINS", `http://localhost:${port}`]);
+  local("npx", ["convex", "env", "set", "SITE_URL", appOrigin]);
+  local("npx", ["convex", "env", "set", "BETTER_AUTH_TRUSTED_ORIGINS", [...new Set([`http://localhost:${port}`, appOrigin])].join(",")]);
   const emptyFile = path.join(work, "empty.jsonl");
   fs.writeFileSync(emptyFile, "");
   local("npx", ["convex", "import", "--component", "betterAuth", "--table", "jwks", "--replace", "--format", "jsonLines", "-y", emptyFile], { stdio: "ignore" });
@@ -301,22 +307,36 @@ try {
   run("invites:confirmInviteNames", { token: invite.token, firstName: "Live", lastName: "Tester" });
   const password = `${crypto.randomBytes(18).toString("base64url")}Aa1`;
 
-  // 7. The app on localhost.
+  // 7. The app, on localhost or on --public-host. With a public host, the
+  // browser's backend URLs name that host too (the local backend listens on
+  // every interface).
+  const webEnv = { ...localEnv };
+  if (publicHost) {
+    const treeEnv = fs.readFileSync(path.join(tree, ".env.local"), "utf8");
+    for (const name of ["PUBLIC_CONVEX_URL", "PUBLIC_CONVEX_SITE_URL"]) {
+      const value = (treeEnv.match(new RegExp(`^${name}=(\\S+)`, "m")) ?? [])[1];
+      if (!value) throw new Error(`The worktree's .env.local has no ${name}.`);
+      const url = new URL(value);
+      url.hostname = publicHost;
+      webEnv[name] = url.origin;
+    }
+    webEnv.__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS = publicHost;
+  }
   const webLog = fs.openSync(path.join(work, "web.log"), "w");
-  const web = spawn("npx", ["vite", "dev", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
+  const web = spawn("npx", ["vite", "dev", "--host", publicHost ?? "127.0.0.1", "--port", String(port), "--strictPort"], {
     cwd: tree,
     detached: true,
     stdio: ["ignore", webLog, webLog],
-    env: localEnv,
+    env: webEnv,
   });
   children.push(web);
   for (let i = 0; i < 120; i++) {
     if (/ready in/.test(fs.readFileSync(path.join(work, "web.log"), "utf8"))) break;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  const signUp = await fetch(`http://localhost:${port}/api/auth/sign-up/email`, {
+  const signUp = await fetch(`${appOrigin}/api/auth/sign-up/email`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Origin: `http://localhost:${port}` },
+    headers: { "Content-Type": "application/json", Origin: appOrigin },
     body: JSON.stringify({ email, password, name: "Live Tester", inviteToken: invite.token }),
   });
   if (!signUp.ok) throw new Error(`Sign-up failed: ${signUp.status}`);
@@ -356,7 +376,7 @@ try {
   const other = users.find((u) => u.authId && u._id !== me._id && ["writer", "manager"].includes(u.role));
   if (!skipScenarios) {
     const results = await runScenarios({
-      base: `http://localhost:${port}`,
+      base: appOrigin,
       email,
       password,
       projectId,
@@ -379,8 +399,8 @@ try {
   // to a private file, never to the output.
   if (serve) {
     const loginFile = path.join(work, "login.txt");
-    fs.writeFileSync(loginFile, `http://localhost:${port}/login\nemail: ${email}\npassword: ${password}\n`, { mode: 0o600 });
-    log(`the app is running at http://localhost:${port}/project/${projectId}`);
+    fs.writeFileSync(loginFile, `${appOrigin}/login\nemail: ${email}\npassword: ${password}\n`, { mode: 0o600 });
+    log(`the app is running at ${appOrigin}/project/${projectId}`);
     log(`the test login (an admin) is in ${loginFile}`);
     log(`stop with Ctrl-C or a SIGTERM; it stops by itself after ${serveHours} h, then deletes everything`);
     await new Promise((resolve) => {
