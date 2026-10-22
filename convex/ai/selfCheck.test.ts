@@ -83,6 +83,7 @@ import {
   MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
   serializeFrozenSummaryPlanChecks,
@@ -671,7 +672,6 @@ describe("Self-check before display (CAP-9)", () => {
         properties.storylineQuestion.properties.storylineAlternative,
         properties.planVerdicts.items.properties.itemId,
         properties.planVerdicts.items.properties.skippedRoleId,
-        properties.planVerdicts.items.properties.mergedItemIds.items,
         properties.planVerdicts.items.properties.reason,
         properties.planVerdicts.items.properties.repairGuidance,
       ];
@@ -1040,11 +1040,12 @@ describe("Self-check before display (CAP-9)", () => {
     });
     expect(accepted.create).toHaveBeenCalledTimes(1);
 
-    // Only an answer whose root is malformed or over the byte budget is
-    // unreadable and rejects the whole check (2026-09-28, run 4).
+    // Only an answer whose root is malformed or over the answer's ceiling is
+    // unreadable and rejects the whole check (2026-09-28, run 4; the ceiling
+    // since 2026-10-22, third).
     const malformed: Array<[string, (response: typeof valid) => void]> = [
-      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
-      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1) }); }],
+      ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1) }); }],
+      ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1) }); }],
       ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
     ];
     for (const [name, mutate] of malformed) {
@@ -1061,12 +1062,10 @@ describe("Self-check before display (CAP-9)", () => {
     // not checked, while every other row is kept.
     const invalidRows: Array<[string, (response: typeof valid) => void]> = [
       ["omitted ordinary reason", (response) => { Reflect.deleteProperty(response.verdicts[0], "reason"); }],
-      ["omitted Skip merge array", (response) => { Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds"); }],
       ["duplicate ordinary row", (response) => { response.verdicts[4] = { ...response.verdicts[0] }; }],
       ["unknown ordinary label", (response) => { response.verdicts[0].instruction = "unknown"; }],
       ["duplicate plan row", (response) => { response.planVerdicts[2] = { ...response.planVerdicts[0] }; }],
       ["unknown plan reference", (response) => { response.planVerdicts[0].itemId = "unknown-item"; }],
-      ["incomplete merge ids", (response) => { response.planVerdicts[0].mergedItemIds = ["item-a"]; }],
       ["overlong returned id", (response) => { response.planVerdicts[0].itemId = "x".repeat(65); }],
       ["ordinary paragraph numeric limit", (response) => { response.verdicts[0].paragraph = 10_000_000_000; }],
       ["plan paragraph numeric limit", (response) => { response.planVerdicts[0].paragraph = 10_000_000_000; }],
@@ -1089,6 +1088,55 @@ describe("Self-check before display (CAP-9)", () => {
       expect(notChecked, name).toHaveLength(1);
       expect(notChecked[0]?.outcome, name).toBe("not_applied");
       expect(value.storylineQuestion?.question, name).toBe("Which result is supported?");
+    }
+
+    // 2026-10-22 (third): the answer no longer repeats merged ids. One that
+    // omits them, sends the wrong ones or sends another shape is accepted
+    // as it is, in one request, and every row keeps the frozen check's ids.
+    const echoes: Array<[string, (response: typeof valid) => void]> = [
+      ["no merged ids anywhere", (response) => {
+        for (const verdict of response.planVerdicts) Reflect.deleteProperty(verdict, "mergedItemIds");
+      }],
+      ["omitted Skip merge array", (response) => { Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds"); }],
+      ["incomplete merge ids", (response) => { response.planVerdicts[0].mergedItemIds = ["item-a"]; }],
+      ["unknown merge ids", (response) => { response.planVerdicts[1].mergedItemIds = ["item-z", "x".repeat(65)]; }],
+      ["merge ids as a string", (response) => { Object.assign(response.planVerdicts[0], { mergedItemIds: "item-a, item-b" }); }],
+      ["merge ids as null", (response) => { Object.assign(response.planVerdicts[1], { mergedItemIds: null }); }],
+    ];
+    for (const [name, mutate] of echoes) {
+      const response = structuredClone(valid);
+      mutate(response);
+      const echoed = await execute(response);
+      await expect(echoed.result, name).resolves.toMatchObject({
+        planVerdicts: [
+          { itemId: "item-a", mergedItemIds: ["item-a", "item-b"], outcome: "applied" },
+          { itemId: "item-b", mergedItemIds: ["item-a", "item-b"], outcome: "applied" },
+          { skippedRoleId: "prior_year_status", mergedItemIds: [], outcome: "applied" },
+        ],
+      });
+      expect(echoed.create, name).toHaveBeenCalledTimes(1);
+    }
+
+    // 2026-10-22 (third): an answer over the 32,768-byte admission budget,
+    // because its free text runs past the reservations as real answers do,
+    // is accepted in one request and its free text clipped.
+    const longText = structuredClone(valid);
+    for (const verdict of [...longText.verdicts, ...longText.planVerdicts]) {
+      verdict.reason = `Reason ${"r".repeat(4_000)}`;
+    }
+    expect(new TextEncoder().encode(JSON.stringify(longText)).byteLength)
+      .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    expect(new TextEncoder().encode(JSON.stringify(longText)).byteLength)
+      .toBeLessThan(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES);
+    const overBudget = await execute(longText);
+    const overBudgetValue = await overBudget.result;
+    expect(overBudget.create).toHaveBeenCalledTimes(1);
+    expect(overBudgetValue.verdicts.some((verdict) => verdict.notChecked)).toBe(false);
+    expect(overBudgetValue.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(["applied", "applied", "applied"]);
+    for (const verdict of [...overBudgetValue.verdicts, ...overBudgetValue.planVerdicts]) {
+      expect(jsonEscapedUtf8Bytes(verdict.reason))
+        .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES);
     }
 
     // An invalid Storyline question is dropped; every verdict stands and
@@ -2081,7 +2129,7 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     expect(sentReasons.filter((reason) =>
       jsonEscapedUtf8Bytes(reason) > MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES
     ).length).toBeGreaterThanOrEqual(10);
-    // The whole response still fits the 16,384-byte limit.
+    // The whole answer also fits the 32,768-byte admission budget.
     expect(new TextEncoder().encode(JSON.stringify(response)).byteLength)
       .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
 
@@ -2241,14 +2289,6 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       missing: { plan: 2 },
     },
     {
-      name: "empty mergedItemIds",
-      mutate: (response: ReturnType<typeof replayResponse>) => {
-        response.planVerdicts[0].mergedItemIds = [];
-      },
-      detail: `plan verdict 1 (item ${planCoverageReplay.case.items[0]?.itemId}): mergedItemIds has 0 ids, expected [${planCoverageReplay.case.items[0]?.itemId}] in that order`,
-      missing: { plan: 0 },
-    },
-    {
       name: "a duplicate label",
       mutate: (response: ReturnType<typeof replayResponse>) => {
         response.verdicts[2] = { ...response.verdicts[1] };
@@ -2325,10 +2365,27 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
     }
   });
 
+  // 2026-10-22 (third): an empty or wrong merged-id echo is no longer a
+  // reason to drop a verdict (run 4's final check was rejected for one).
+  it("accepts an answer whose merged-id echo is empty, wrong or absent in one request", async () => {
+    const response = replayResponse();
+    response.planVerdicts[0].mergedItemIds = [];
+    response.planVerdicts[1].mergedItemIds = ["not-a-signed-off-item"];
+    Reflect.deleteProperty(response.planVerdicts[2], "mergedItemIds");
+    const client = replayClient(response);
+    const result = await runModelSelfCheck(client as GenerationClient, replayInput());
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    expect(result.planVerdicts.map((verdict) => verdict.outcome))
+      .toEqual(["applied", "applied", "applied", "applied"]);
+    expect(result.planVerdicts.map((verdict) => verdict.mergedItemIds)).toEqual(
+      replayInput().planChecks?.map((check) => check.mergedItemIds)
+    );
+  });
+
   it("keeps a follow-up's valid verdict when the first answer's was dropped", async () => {
     const response = replayResponse();
     const good = structuredClone(response.planVerdicts[1]);
-    response.planVerdicts[1].mergedItemIds = [];
+    response.planVerdicts[1].itemId = "not-a-signed-off-item";
     const client = {
       messages: {
         create: vi.fn()
@@ -2361,11 +2418,13 @@ describe("Summary plan coverage replay (recorded Opus 244 case)", () => {
       detail: "10 of 14 verdicts invalid; first ordinary verdict 1: label of 11 escaped bytes matches no supplied label",
     },
     {
-      name: "a response over 32,768 bytes",
+      // 2026-10-22 (third): the answer's own ceiling, four times the
+      // admission budget (MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES).
+      name: "an answer over 131,072 bytes",
       mutate: (response: ReturnType<typeof replayResponse>) => {
-        response.verdicts[0].reason = "The section matches the Storyline. ".repeat(960);
+        response.verdicts[0].reason = "The section matches the Storyline. ".repeat(3_760);
       },
-      detail: "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
+      detail: "response failed validation: (root) Summary Self-check answer exceeds its UTF-8 byte ceiling",
     },
   ])("still rejects the whole check for $name and names why", async ({ mutate, detail }) => {
     const response = replayResponse();

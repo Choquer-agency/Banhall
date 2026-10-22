@@ -128,7 +128,11 @@ function literalSummaryEnvelopeOracle(args: {
   ordinaryLabels: readonly string[];
   planChecks: readonly FrozenSummaryPlanCheck[];
   includeStorylineQuestion: boolean;
-  mutation?: "omit_storyline" | "omit_repeated_merge" | "short_reason";
+  /**
+   * "repeat_merged_ids" puts back the merged-id echo every plan verdict
+   * carried before 2026-10-22 (third).
+   */
+  mutation?: "omit_storyline" | "repeat_merged_ids" | "short_reason";
 }): string {
   assertClosedPlanFixture(args.planChecks);
   const paragraph = 9_999_999_999;
@@ -142,21 +146,15 @@ function literalSummaryEnvelopeOracle(args: {
     reason,
     repairGuidance,
   }));
-  let removedRepeatedMerge = false;
   const planRows = args.planChecks.map((check) => {
-    const mergedItemIds = [...check.mergedItemIds];
-    if (
-      args.mutation === "omit_repeated_merge" &&
-      !removedRepeatedMerge &&
-      mergedItemIds.length > 1
-    ) {
-      mergedItemIds.pop();
-      removedRepeatedMerge = true;
-    }
+    // 2026-10-22 (third): a plan verdict names only its own reference.
+    const echo = args.mutation === "repeat_merged_ids"
+      ? { mergedItemIds: [...check.mergedItemIds] }
+      : {};
     return check.itemId
       ? JSON.stringify({
           itemId: check.itemId,
-          mergedItemIds,
+          ...echo,
           outcome: "not_applied",
           paragraph,
           reason,
@@ -165,7 +163,7 @@ function literalSummaryEnvelopeOracle(args: {
       : check.droppedSeedId
         ? JSON.stringify({
             droppedSeedId: check.droppedSeedId,
-            mergedItemIds,
+            ...echo,
             outcome: "not_applied",
             paragraph,
             reason,
@@ -173,7 +171,7 @@ function literalSummaryEnvelopeOracle(args: {
           })
         : check.ruleId
           ? JSON.stringify({
-              mergedItemIds,
+              ...echo,
               outcome: "not_applied",
               paragraph,
               reason,
@@ -181,7 +179,7 @@ function literalSummaryEnvelopeOracle(args: {
               ruleId: check.ruleId,
             })
           : JSON.stringify({
-              mergedItemIds,
+              ...echo,
               outcome: "not_applied",
               paragraph,
               reason,
@@ -907,7 +905,7 @@ describe("seed revisions", () => {
     };
     for (const mutation of [
       "omit_storyline",
-      "omit_repeated_merge",
+      "repeat_merged_ids",
       "short_reason",
     ] as const) {
       const replay = literalSummaryEnvelopeOracle({
@@ -919,11 +917,13 @@ describe("seed revisions", () => {
       expect(replay).not.toBe(projected);
       oracleMutationHashes[mutation] = await testSha256(replay);
     }
+    // 2026-10-22 (third): the envelope with the merged-id echo put back is
+    // byte for byte the envelope pinned before (restored 6eb9f7df...).
     expect(oracleMutationHashes).toEqual({
-      restored: "6eb9f7dfd21fc4bfe480978805eddb75c9d9f7ea5cbd46361f594d58e7d926fb",
-      omit_storyline: "a27c1366027d30e5572e425e1610eb9cc5254bb859fa9f8ec283915274864122",
-      omit_repeated_merge: "642ec120b6e08de5cc9b4728a8a00b3fea6cf2fa15ac947e0d165ba0cb528fb2",
-      short_reason: "3ff6e138af257344cc22f2d40ec6dbc99f710cd6a7d625ed3d2f67410e139104",
+      restored: "8d91abc6dfbc475a184e928dd2adda31f8037e0978c359d34e398c49cc41b373",
+      omit_storyline: "72b5ec8736df712e502a7c333187f1a74c5b6dafbacf5403cc44ecefd48c3e18",
+      repeat_merged_ids: "6eb9f7dfd21fc4bfe480978805eddb75c9d9f7ea5cbd46361f594d58e7d926fb",
+      short_reason: "2277f8c3279f051df186ac8e5395eafcf89eada39e5731e67af66031e3a24a26",
     });
     expect(literalSummaryEnvelopeOracle({
       ordinaryLabels: ordinary.map((check) => check.label),
@@ -1558,14 +1558,15 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       fillers.push(item(`i${fillers.length}`));
     }
     let gap = MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES - bytes(envelope([...fillers, leaveOut("d"), rule]));
-    // A dropped id appears once in its verdict; an item id twice.
+    // A dropped id and an item id each appear once in their verdict (since
+    // 2026-10-22, third, an item id is no longer repeated as a merged id).
     let droppedId = "d";
-    const grow = Math.min(gap % 2 === 0 ? 60 : 61, gap);
+    const grow = Math.min(60, gap);
     droppedId += "d".repeat(grow);
     gap -= grow;
     const padded = fillers.map((check) => {
-      const extra = Math.min(gap / 2, 60);
-      gap -= extra * 2;
+      const extra = Math.min(gap, 60);
+      gap -= extra;
       return item(`${check.itemId}${"p".repeat(extra)}`);
     });
     expect(gap).toBe(0);
@@ -1643,8 +1644,8 @@ describe("results stated against their targets (2026-09-30, third)", () => {
     // since the repair text comes from the entries.
     // Review P3-5: a 64-byte draft quote, an 80-byte target and correction.
     const entry = { correction: "c".repeat(80), draftQuote: "d".repeat(64), sourceQuote: "s".repeat(160), targetQuote: "t".repeat(80) };
+    // 2026-10-22 (third): no merged ids, 19 bytes fewer than before.
     const verdict = JSON.stringify({
-      mergedItemIds: [],
       outcome: "not_applied",
       paragraph: 9_999_999_999,
       reason: "r".repeat(64),
@@ -1653,7 +1654,7 @@ describe("results stated against their targets (2026-09-30, third)", () => {
     });
     expect([MAX_TARGET_FINDINGS, MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES]).toEqual([2, 80]);
     expect(bytes(envelope([...plan.checks, targets("s244")])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
-    expect(bytes(verdict) + 1).toBe(1_102);
+    expect(bytes(verdict) + 1).toBe(1_083);
     expect(envelope([...plan.checks, targets("s244")])).toContain(verdict);
   });
 });
@@ -1720,15 +1721,15 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       // Round 2 review (P3-1): no paragraph per finding, a 160-byte source
       // quote, two findings and no repairGuidance: about half the size.
       const finding = { correction: "c".repeat(120), draftQuote: "d".repeat(128), sourceQuote: "s".repeat(160) };
+      // 2026-10-22 (third): no merged ids, 19 bytes fewer than before.
       const verdict = JSON.stringify({
         findings: [finding, finding],
-        mergedItemIds: [],
         outcome: "not_applied",
         paragraph: 9_999_999_999,
         reason: "r".repeat(64),
         ruleId: FACTS_MATCH_SOURCES_RULE_ID,
       });
-      expect(bytes(verdict) + 1).toBe(1_106);
+      expect(bytes(verdict) + 1).toBe(1_087);
       expect(bytes(envelope([...plan.checks, facts(section)])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
       expect(envelope([...plan.checks, facts(section)])).toContain(verdict);
     }
@@ -1850,17 +1851,30 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
       };
     });
 
+  // 2026-10-22 (third): a plan verdict no longer repeats its step's merged
+  // ids. The bytes each echo took, so the figures recorded before the change
+  // can be checked against today's projection.
+  const echoBytes = (checks: readonly FrozenSummaryPlanCheck[]) =>
+    checks.reduce((total, check) =>
+      total + bytes(`"mergedItemIds":${JSON.stringify(check.mergedItemIds)},`), 0);
+
   it("admits every Line of the refused plan, whose Line 244 was 741 bytes over the old 16,384-byte limit", () => {
-    expect(ordinary).toHaveLength(MAX_SUMMARY_ORDINARY_VERDICTS);
+    // The Brief was exactly at the old limit of 30 ordinary checks.
+    expect(ordinary).toHaveLength(30);
     // Two advancements answer the first uncertainty, one each the others.
     const lines = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
     expect(lines.map((line) => line.checks.length)).toEqual([12, 17, 15]);
-    expect(lines.map((line) => line.bytes)).toEqual([14_651, 17_125, 16_316]);
-    // The cause: Line 244 crossed the old limit by 741 bytes, and Line 246
+    // With the echo put back, the figures read from the dev deployment on
+    // 2026-10-22: Line 244 crossed the old limit by 741 bytes, and Line 246
     // was 68 bytes under it.
-    expect(lines[1]!.bytes - 16_384).toBe(741);
-    expect(16_384 - lines[2]!.bytes).toBe(68);
+    const withEcho = lines.map((line) => line.bytes + echoBytes(line.checks));
+    expect(withEcho).toEqual([14_651, 17_125, 16_316]);
+    expect(withEcho[1]! - 16_384).toBe(741);
+    expect(16_384 - withEcho[2]!).toBe(68);
+    // Without it, every Line of that plan fits the old 16,384-byte limit.
+    expect(lines.map((line) => line.bytes)).toEqual([13_419, 15_626, 15_063]);
     for (const line of lines) {
+      expect(line.bytes).toBeLessThanOrEqual(16_384);
       expect(() => summarySelfCheckWorstCaseResponse({
         ordinaryChecks: ordinary,
         planChecks: line.checks,
@@ -1872,8 +1886,87 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
   it("still admits the same Brief with five picks in every step", () => {
     const five = Object.fromEntries(Object.keys(picks).map((roleId) => [roleId, 5]));
     const lines = lineEnvelopes(planShape(five, (index) => index));
-    expect(Math.max(...lines.map((line) => line.bytes))).toBe(22_253);
-    expect(Math.max(...lines.map((line) => line.bytes)))
-      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    const largest = lines.reduce((top, line) => (line.bytes > top.bytes ? line : top));
+    expect(largest.bytes).toBe(17_409);
+    // 22,253 with the echo, as recorded on 2026-10-22 (first).
+    expect(largest.bytes + echoBytes(largest.checks)).toBe(22_253);
+    expect(largest.bytes).toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+  });
+
+  // 2026-10-22 (third): one more pick adds the same bytes however many picks
+  // already share its step: its own verdict, with no merged ids.
+  it("adds the same bytes for a pick however many picks share its step", () => {
+    const pickBytes = bytes(JSON.stringify({
+      itemId: realId("it", 0),
+      outcome: "not_applied",
+      paragraph: 9_999_999_999,
+      reason: "r".repeat(64),
+      repairGuidance: "g".repeat(96),
+    })) + 1;
+    expect(pickBytes).toBe(285);
+    const line242 = (goalPicks: number) =>
+      lineEnvelopes(planShape({ ...picks, goal_problem: goalPicks }, (index) => [0, 0, 1, 2][index]!))[0]!;
+    for (const [from, to] of [[1, 2], [5, 6], [19, 20], [29, 30]] as const) {
+      expect(line242(to).bytes - line242(from).bytes).toBe(pickBytes);
+    }
+    // 30 picks in one step fit the budget; with the echo they did not.
+    const thirty = line242(30);
+    expect(thirty.bytes).toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    expect(thirty.bytes + echoBytes(thirty.checks)).toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+  });
+
+  // 2026-10-22 (third), known limitation: the CONTENT PLAN CHECKS block sent
+  // to the model still lists each check's merged ids, so one very large step
+  // reaches the 64,000-byte input limit first.
+  it("refuses one step of 40 picks by the plan-check input limit, not the response budget", () => {
+    expect(() => lineEnvelopes(planShape({ ...picks, goal_problem: 30 }, (index) => [0, 0, 1, 2][index]!)))
+      .not.toThrow();
+    expect(() => lineEnvelopes(planShape({ ...picks, goal_problem: 40 }, (index) => [0, 0, 1, 2][index]!)))
+      .toThrow(expect.objectContaining({ limit: "summary_plan_check_input_utf8_bytes" }));
+  });
+
+  // 2026-10-22 (third): older Briefs on the dev deployment carry 37 to 46
+  // Confidence Map entries and Glossary Terms, which 30 refused.
+  it("admits a 46-entry Brief beside the refused plan, and refuses 65 ordinary checks", () => {
+    const large = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: Array.from({ length: 23 }, () => ({ text: "Confidence" })),
+      glossaryTerms: Array.from({ length: 23 }, () => "Term"),
+      writerFlavor: "Plain words.",
+      rules: Array.from({ length: 3 }, () => ({ instruction: "Rule." })),
+    });
+    expect(large).toHaveLength(51);
+    for (const section of ["242", "244", "246"] as const) {
+      const plan = buildFrozenSummaryPlan({
+        section: `s${section}`,
+        items: planShape(picks, (index) => [0, 0, 1, 2][index]!),
+        skippedRoleIds: [],
+        referencesBySeedId: new Map(planShape(picks, (index) => [0, 0, 1, 2][index]!)
+          .map((item) => [item.seedId, item.bullets] as const)),
+        droppedUncertainties: [],
+        ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        resultsAgainstTargets: true,
+        factsMatchSources: true,
+      });
+      expect(() => summarySelfCheckWorstCaseResponse({
+        ordinaryChecks: large,
+        planChecks: plan.checks,
+        includeStorylineQuestion: true,
+      })).not.toThrow();
+    }
+    expect(MAX_SUMMARY_ORDINARY_VERDICTS).toBe(64);
+    const rules = (count: number) => projectSummaryOrdinaryChecks({
+      storylineText: "",
+      confidenceMap: [],
+      glossaryTerms: [],
+      rules: Array.from({ length: count }, () => ({ instruction: "Rule." })),
+    });
+    expect(() => summarySelfCheckWorstCaseResponse({
+      ordinaryChecks: rules(64), planChecks: [], includeStorylineQuestion: false,
+    })).not.toThrow();
+    expect(() => summarySelfCheckWorstCaseResponse({
+      ordinaryChecks: rules(65), planChecks: [], includeStorylineQuestion: false,
+    })).toThrow(expect.objectContaining({ limit: "summary_self_check_ordinary_count" }));
   });
 });

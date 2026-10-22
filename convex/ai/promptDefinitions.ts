@@ -1035,17 +1035,6 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
               MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
             ),
           },
-          mergedItemIds: {
-            type: "array",
-            items: {
-              type: "string",
-              maxLength: MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES,
-              description: summaryEscapedUtf8Description(
-                "Return one exact signed-off merged-item identifier supplied in the input.",
-                MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
-              ),
-            },
-          },
           paragraph: {
             type: "integer",
             minimum: 0,
@@ -1071,7 +1060,7 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
             ),
           },
         },
-        required: ["mergedItemIds", "outcome", "reason"],
+        required: ["outcome", "reason"],
         oneOf: [
           { required: ["itemId"] },
           { required: ["skippedRoleId"] },
@@ -1085,10 +1074,13 @@ export const SUMMARY_PLAN_SELF_CHECK_SCHEMA = {
 
 /**
  * Output token allowance for the Summary-plan Self-check only. It equals the
- * admitted worst-case response bytes, and a byte-level tokenizer never needs
- * more tokens than bytes, so an admitted response fits the allowance (on
- * OpenRouter reasoning models, reasoning shares a four times larger one).
- * The legacy Self-check keeps SELF_CHECK_REQUEST.maxTokens.
+ * admission budget in bytes. Since 2026-10-22 (third) it is the only bound
+ * on the answer's length besides MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES:
+ * an answer cut off at it fails the whole check. Compact JSON runs about
+ * three to four bytes a token, so the allowance holds roughly 100 KB of
+ * answer. A model that thinks gets it times REASONING_TOKEN_MULTIPLIER,
+ * clipped to the model's output cap, and its thinking shares that. The
+ * legacy Self-check keeps SELF_CHECK_REQUEST.maxTokens.
  */
 export const SUMMARY_PLAN_SELF_CHECK_MAX_TOKENS =
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES;
@@ -1114,8 +1106,9 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     planIntro:
       "Return exactly {{runtime.count}} {{runtime.noun}}, one for each plan check below:",
     planNoun: { one: "planVerdict", other: "planVerdicts" },
+    // 2026-10-22 (third): every item, merged or not; its verdict no longer
+    // repeats the merged ids.
     itemLine: "- itemId {{runtime.id}}",
-    mergedItemLine: "- itemId {{runtime.id}} with mergedItemIds [{{runtime.ids}}] in that order",
     skipLine: "- skippedRoleId {{runtime.id}}",
     // 2026-09-30 (first): only present when the request has such a check.
     leaveOutLine: "- droppedSeedId {{runtime.id}}",

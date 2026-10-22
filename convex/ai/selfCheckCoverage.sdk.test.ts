@@ -941,3 +941,125 @@ describe("a verdict list of the wrong type is asked for again (real SDK, fetch s
     })).diagnostic).toMatch(/^response failed validation: \(root\) unrecognized_keys/);
   });
 });
+
+// 2026-10-22 (third): a plan verdict no longer repeats merged ids, and a
+// Brief may carry up to 64 ordinary checks; every label's verdict is kept.
+describe("larger Briefs and merged groups through the SDK boundary (2026-10-22, third)", () => {
+  const largeInput = (): SelfCheckModelInput => {
+    const planChecks = planChecksFor(CASE_242);
+    return {
+      ...inputFor(CASE_242),
+      confidenceMap: Array.from({ length: 23 }, (_, index) => ({
+        text: `Tessel bench result ${index + 1} is recorded in the lab notebook.`,
+        confidence: "established",
+      })),
+      glossaryCandidates: Array.from({ length: 23 }, (_, index) => `Tessel term ${index + 1}`),
+      rules: Array.from({ length: 3 }, (_, index) => ({ instruction: `Writer rule ${index + 1}.` })),
+      planChecks,
+      planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
+    };
+  };
+  const withoutEcho = (check: SelfCheckPlanCheck, index: number) => {
+    const { mergedItemIds: _echo, ...verdict } = planVerdictFor(check, index);
+    return verdict;
+  };
+
+  it("keeps all 50 ordinary verdicts of a 46-entry Brief, the last ten from the follow-up", async () => {
+    const input = largeInput();
+    const ordinary = ordinaryOf(input);
+    const plans = input.planChecks ?? [];
+    expect(ordinary).toHaveLength(50);
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    let logged: string[] = [];
+    const { result, bodies } = await runThroughSdk(input, [
+      { verdicts: ordinary.slice(0, 40).map(verdictFor), planVerdicts: plans.map(withoutEcho) },
+      { verdicts: ordinary.slice(40).map(verdictFor), planVerdicts: [] },
+    ]).finally(() => {
+      logged = info.mock.calls.map((call) => call.join(" "));
+      info.mockRestore();
+    });
+    expect(bodies).toHaveLength(2);
+    // Each answer's size is logged beside its request's projection, as
+    // numbers only, never the model's words.
+    const sizes = logged.filter((line) => line.includes("answer") && line.includes("UTF-8 bytes"));
+    expect(sizes).toEqual([
+      expect.stringMatching(
+        new RegExp(`Line 242 first answer \\d+ UTF-8 bytes for 50 labels and ${plans.length} plan checks \\(projected \\d+, ceiling 131072\\)$`)
+      ),
+      expect.stringMatching(/Line 242 follow-up answer \d+ UTF-8 bytes for 10 labels and 0 plan checks \(projected \d+, ceiling 131072\)$/),
+    ]);
+    expect(sizes.join("\n")).not.toContain("Not mentioned");
+    const first = schemaOf(bodies[0]!);
+    expect([first.verdicts.minItems, first.verdicts.maxItems]).toEqual([50, 50]);
+    // The request asks for no merged ids anywhere.
+    expect(JSON.stringify(bodies[0]!.tools)).not.toContain("mergedItemIds");
+    expect(JSON.stringify(bodies[0]!.system)).not.toContain("Preserve every supplied item id");
+    expect(userOf(bodies[0]!)).not.toContain("with mergedItemIds");
+    // The follow-up names only the ten labels the first answer left out.
+    expect(userOf(bodies[1]!)).toContain(
+      checklistLines(ordinary.slice(40), [])
+    );
+    expect(result.verdicts).toHaveLength(50);
+    expect(result.verdicts.some((verdict) => verdict.notChecked)).toBe(false);
+    expect(result.verdicts.map((verdict) => verdict.instruction).sort()).toEqual(
+      ordinary.map((check) => check.instruction).sort()
+    );
+    expect(result.planVerdicts.every((verdict) => verdict.outcome === "applied")).toBe(true);
+  });
+
+  it("still keeps only the first 30 verdicts of the legacy Self-check", async () => {
+    const input: SelfCheckModelInput = { ...inputFor(CASE_242), planChecks: undefined, planChecksBlock: undefined };
+    const verdicts = Array.from({ length: 35 }, (_, index) => ({
+      paragraph: (index % PARAGRAPHS.length) + 1,
+      check: "instruction",
+      instruction: `Instruction ${index + 1}`,
+      outcome: "applied",
+      reason: "Applied.",
+    }));
+    const { result, bodies } = await runThroughSdk(input, [{ verdicts }]);
+    expect(bodies).toHaveLength(1);
+    expect(result.verdicts).toHaveLength(30);
+  });
+
+  it.each([
+    { name: "a step's merged picks", section: "242" as const, roleId: "technological_objective" as const },
+    { name: "advancements merged by their uncertainty", section: "246" as const, roleId: "specific_advancements" as const },
+  ])("records a member of $name with no verdict as not checked, though another member is applied", async ({ section, roleId }) => {
+    const merged = [`item-${section}-a`, `item-${section}-b`];
+    const planChecks: SelfCheckPlanCheck[] = merged.map((itemId) => ({
+      itemId,
+      roleId,
+      mergedItemIds: [...merged],
+      instruction: "cover",
+      confirmedExclusion: false,
+      support: "source_supported",
+      wording: [`Signed-off Tessel point ${itemId}.`],
+      relationshipReferences: [],
+      sourceReferences: [],
+    }));
+    const input: SelfCheckModelInput = {
+      ...inputFor(CASE_242),
+      section,
+      planChecks,
+      planChecksBlock: serializeFrozenSummaryPlanChecks(planChecks),
+    };
+    const ordinary = ordinaryOf(input);
+    const covered = withoutEcho(planChecks[0]!, 0);
+    const { result, bodies } = await runThroughSdk(input, [
+      { verdicts: ordinary.map(verdictFor), planVerdicts: [covered] },
+      { verdicts: [], planVerdicts: [] },
+    ]);
+    expect(bodies).toHaveLength(2);
+    // Both members are listed as items; neither asks for the other's id.
+    expect(userOf(bodies[0]!)).toContain(`- itemId ${merged[0]}\n- itemId ${merged[1]}`);
+    expect(result.planVerdicts).toEqual([
+      expect.objectContaining({ itemId: merged[0], outcome: "applied", mergedItemIds: merged }),
+      expect.objectContaining({
+        itemId: merged[1],
+        outcome: "not_applied",
+        reason: PLAN_ITEM_NOT_CHECKED_REASON,
+        mergedItemIds: merged,
+      }),
+    ]);
+  });
+});

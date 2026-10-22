@@ -53,8 +53,10 @@ import {
   MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
   MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   projectSummaryOrdinaryChecks,
+  projectSummarySelfCheckWorstCaseResponse,
   RESULTS_AGAINST_TARGETS_RULE_ID,
   SeedContextLimitError,
   sameSummaryPlanRef,
@@ -157,7 +159,6 @@ type RawPlanVerdict = {
   droppedSeedId?: string;
   /** 2026-09-30 (first): Line 246's advancement check. */
   ruleId?: string;
-  mergedItemIds: string[];
   paragraph?: number;
   outcome: "applied" | "not_applied";
   reason: string;
@@ -208,7 +209,10 @@ const summaryPlanVerdictOutputSchema = z.object({
   skippedRoleId: z.string().optional(),
   droppedSeedId: z.string().optional(),
   ruleId: z.string().optional(),
-  mergedItemIds: z.array(z.string()),
+  // 2026-10-22 (third): the answer no longer repeats a step's merged ids;
+  // code takes them from the frozen check. One sent anyway, in any shape, is
+  // read and ignored, never a reason to drop the verdict.
+  mergedItemIds: z.unknown().optional(),
   // AC11 deliberately treats absent or non-evidentiary numeric paragraph
   // values as not_applied. All other Summary fields remain required.
   paragraph: z.number().optional(),
@@ -327,6 +331,7 @@ function decodeSummaryItems(value: {
     const parsed = summaryPlanVerdictOutputSchema.safeParse(candidate);
     if (parsed.success) {
       const { findings, targetFindings, ...rest } = parsed.data;
+      delete rest.mergedItemIds;
       const read = factsFindingsOf(findings);
       const targets = targetFindingsOf(targetFindings);
       planVerdicts.push({
@@ -374,10 +379,11 @@ const decodedSummaryPlanSelfCheckOutputSchema = z.object({
  * Real reasons run 90 to 280 bytes while the reservations allow 64 (reason)
  * and 96 (guidance, Storyline question fields). Over-long free text is
  * clipped to its reservation here, after placeholder restoration and after
- * the raw response was measured against the whole-response limit, so the
- * stored evidence keeps the per-field limits the sign-off capacity proof
- * reserved. Labels, ids, counts and paragraphs are never clipped: the
- * completeness assertion still rejects them.
+ * the raw answer was measured against its ceiling
+ * (MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES), so the stored evidence keeps
+ * the per-field limits the sign-off admission budget reserved. Labels, ids,
+ * counts and paragraphs are never clipped: the completeness assertion still
+ * rejects them.
  *
  * A verdict whose reason or guidance was clipped also keeps its text as sent,
  * in memory only, so the one repair call works from the whole instruction.
@@ -450,29 +456,40 @@ export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
   };
 }
 
-const summaryPlanSelfCheckOutputSchema: z.ZodType<RawSelfCheck> = z.unknown()
-  .superRefine((value, ctx) => {
-    let serialized: string | undefined;
-    try {
-      serialized = JSON.stringify(value);
-    } catch {
-      serialized = undefined;
-    }
-    const bytes = serialized === undefined
-      ? undefined
-      : new TextEncoder().encode(serialized).byteLength;
-    if (bytes === undefined || bytes > MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: bytes === undefined
-          ? "Summary Self-check response exceeds its UTF-8 byte budget (not serializable)"
-          : `Summary Self-check response exceeds its UTF-8 byte budget (${bytes} bytes, limit ${MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES})`,
-      });
-    }
-  })
-  .transform(normalizeInvalidPlanParagraphs)
-  .pipe(decodedSummaryPlanSelfCheckOutputSchema)
-  .transform(clipSummarySelfCheckFreeText);
+/**
+ * The Summary answer's validator for one request. 2026-10-22 (third): the
+ * raw answer is measured against its own ceiling, not the admission budget
+ * its free text runs past, and its size is handed to `onAnswerBytes` so the
+ * request can log it beside its projection.
+ */
+function summaryPlanSelfCheckOutputSchemaFor(
+  onAnswerBytes: (bytes: number) => void
+): z.ZodType<RawSelfCheck> {
+  return z.unknown()
+    .superRefine((value, ctx) => {
+      let serialized: string | undefined;
+      try {
+        serialized = JSON.stringify(value);
+      } catch {
+        serialized = undefined;
+      }
+      const bytes = serialized === undefined
+        ? undefined
+        : new TextEncoder().encode(serialized).byteLength;
+      if (bytes !== undefined) onAnswerBytes(bytes);
+      if (bytes === undefined || bytes > MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: bytes === undefined
+            ? "Summary Self-check answer exceeds its UTF-8 byte ceiling (not serializable)"
+            : `Summary Self-check answer exceeds its UTF-8 byte ceiling (${bytes} bytes, limit ${MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES})`,
+        });
+      }
+    })
+    .transform(normalizeInvalidPlanParagraphs)
+    .pipe(decodedSummaryPlanSelfCheckOutputSchema)
+    .transform(clipSummarySelfCheckFreeText);
+}
 
 type RawFinding = {
   section: SectionNumber;
@@ -1111,14 +1128,10 @@ export function summaryChecklist(
       }),
       ...planChecks.map((check) =>
         check.itemId
-          ? // A merged item names its merged ids, which its verdict must
-            // repeat in that order (2026-09-28, run 4).
-            check.mergedItemIds.length === 1 && check.mergedItemIds[0] === check.itemId
-            ? fillRuntime(list.itemLine, { id: check.itemId })
-            : fillRuntime(list.mergedItemLine, {
-                id: check.itemId,
-                ids: check.mergedItemIds.length ? check.mergedItemIds.join(", ") : "none",
-              })
+          ? // 2026-10-22 (third): a merged item is listed like any other; its
+            // verdict no longer repeats the merged ids (run 4 was rejected
+            // for an incomplete repeat).
+            fillRuntime(list.itemLine, { id: check.itemId })
           : check.droppedSeedId !== undefined
             ? fillRuntime(list.leaveOutLine, { id: check.droppedSeedId })
             : check.ruleId !== undefined
@@ -1267,7 +1280,8 @@ export type ModelSelfCheckResult = {
 /**
  * Summary only: the text the one repair call should use for a `not_applied`
  * verdict whose reason or guidance was clipped, when it differs from the
- * stored `stored` text. Kept in memory only; bounded by the raw response limit.
+ * stored `stored` text. Kept in memory only; bounded by the answer's ceiling
+ * (MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES, 2026-10-22 third).
  */
 function unclippedRepairText(
   verdict: { outcome: "applied" | "not_applied"; unclipped?: UnclippedFreeText } | undefined,
@@ -1446,21 +1460,12 @@ function validateSummaryOutput(args: {
       if (verdict.paragraph !== undefined && !withinSummaryNumberReservation(verdict.paragraph)) {
         return "paragraph is past the numeric limit";
       }
-      if (JSON.stringify(verdict.mergedItemIds) !== JSON.stringify(expected.mergedItemIds)) {
-        return `mergedItemIds has ${verdict.mergedItemIds.length} ids, expected ` +
-          (expected.mergedItemIds.length
-            ? `[${expected.mergedItemIds.join(", ")}] in that order`
-            : "none");
-      }
       return (
         overLimit(
           "id",
           field?.id ?? "",
           MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES
         ) ??
-        verdict.mergedItemIds
-          .map((id) => overLimit("merged id", id, MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES))
-          .find((found) => found !== null) ??
         overLimit("reason", verdict.reason, MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES) ??
         (verdict.repairGuidance === undefined
           ? null
@@ -1974,12 +1979,16 @@ async function completeSummarySelfCheck(
     actualParagraphCount: number;
   }
 ): Promise<{ raw: RawSelfCheck; notChecked: SummaryCoverageGap }> {
-  const ask = (
+  const allowStorylineQuestion =
+    input.storylineText.trim().length > 0 && input.confidenceMap.length > 0;
+  const ask = async (
     user: string,
     ordinary: readonly SummaryOrdinaryCheck[],
-    plans: readonly SelfCheckPlanCheck[]
-  ) =>
-    generateStructured<RawSelfCheck>(client, {
+    plans: readonly SelfCheckPlanCheck[],
+    answer: "first" | "follow-up"
+  ) => {
+    let answerBytes: number | undefined;
+    const raw = await generateStructured<RawSelfCheck>(client, {
       system: SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT,
       user,
       toolName: SELF_CHECK_REQUEST.toolName,
@@ -1987,18 +1996,31 @@ async function completeSummarySelfCheck(
       schema: summaryPlanSelfCheckSchemaFor(ordinary, plans) as unknown as Anthropic.Tool.InputSchema,
       maxTokens: SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens,
       model: input.model,
-      validate: summaryPlanSelfCheckOutputSchema,
+      validate: summaryPlanSelfCheckOutputSchemaFor((bytes) => { answerBytes = bytes; }),
       attempts: 1,
       encodedJsonRecovery: false,
     });
+    // 2026-10-22 (third): numbers only, so the admission budget can be
+    // checked against real answers (real free text runs past it).
+    const projected = new TextEncoder().encode(projectSummarySelfCheckWorstCaseResponse({
+      ordinaryChecks: ordinary,
+      planChecks: plans,
+      includeStorylineQuestion: answer === "first" && allowStorylineQuestion,
+    })).byteLength;
+    console.info(
+      `${SELF_CHECK_REQUEST.toolName}: Line ${input.section} ${answer} answer ` +
+        `${answerBytes ?? "unmeasured"} UTF-8 bytes for ${ordinary.length} labels and ${plans.length} plan checks ` +
+        `(projected ${projected}, ceiling ${MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES})`
+    );
+    return raw;
+  };
   // Invalid verdicts are dropped here and their labels and plan checks
   // count as missing (2026-09-28, run 4).
   const firstAnswer = validateSummaryOutput({
-    raw: await ask(args.user, args.ordinaryChecks, args.planChecks),
+    raw: await ask(args.user, args.ordinaryChecks, args.planChecks, "first"),
     ordinaryChecks: args.ordinaryChecks,
     planChecks: args.planChecks,
-    allowStorylineQuestion:
-      input.storylineText.trim().length > 0 && input.confidenceMap.length > 0,
+    allowStorylineQuestion,
     actualParagraphCount: args.actualParagraphCount,
   });
   const first = firstAnswer.raw;
@@ -2014,7 +2036,7 @@ async function completeSummarySelfCheck(
   let followUp: RawSelfCheck;
   let stillMissing: SummaryCoverageGap;
   try {
-    const answer = await ask(followUpMessage(args.data, gap), gap.labels, gap.plans);
+    const answer = await ask(followUpMessage(args.data, gap), gap.labels, gap.plans, "follow-up");
     // A verdict for a label or plan check the first answer already covered
     // is dropped without counting as invalid; any other invalid verdict is
     // dropped as in the first answer, and only a follow-up with more invalid
@@ -2107,8 +2129,12 @@ export async function runModelSelfCheck(
         }),
         notChecked: { labels: [], plans: [] } satisfies SummaryCoverageGap,
       };
-  const verdicts: ModelVerdict[] = raw.verdicts
-    .slice(0, SELF_CHECK_REQUEST.maxVerdicts)
+  // 2026-10-22 (third): in Summary mode every label's verdict is kept (up to
+  // MAX_SUMMARY_ORDINARY_VERDICTS, already validated one per label); only
+  // the legacy Self-check keeps its first SELF_CHECK_REQUEST.maxVerdicts.
+  const verdicts: ModelVerdict[] = (hasSummaryPlan
+    ? raw.verdicts
+    : raw.verdicts.slice(0, SELF_CHECK_REQUEST.maxVerdicts))
     .map((verdict) => {
       const repairText = hasSummaryPlan
         ? unclippedRepairText(

@@ -24,6 +24,7 @@ import {
   emptySelectionRevision,
   MAX_SEED_PROMPT_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
@@ -882,10 +883,10 @@ function literalSummaryResponseOracle(args: {
   const paragraph = 9_999_999_999;
   const reason = "r".repeat(64);
   const repairGuidance = "g".repeat(96);
+  // 2026-10-22 (third): a plan verdict names only its own reference.
   const planVerdicts = args.planChecks.map((check) => check.itemId
     ? JSON.stringify({
         itemId: check.itemId,
-        mergedItemIds: [...check.mergedItemIds],
         outcome: "not_applied",
         paragraph,
         reason,
@@ -894,7 +895,6 @@ function literalSummaryResponseOracle(args: {
     : check.droppedSeedId
       ? JSON.stringify({
           droppedSeedId: check.droppedSeedId,
-          mergedItemIds: [],
           outcome: "not_applied",
           paragraph,
           reason,
@@ -914,7 +914,6 @@ function literalSummaryResponseOracle(args: {
                   })),
                 }
               : {}),
-            mergedItemIds: [],
             outcome: "not_applied",
             paragraph,
             reason,
@@ -936,7 +935,6 @@ function literalSummaryResponseOracle(args: {
               : {}),
           })
         : JSON.stringify({
-            mergedItemIds: [],
             outcome: "not_applied",
             paragraph,
             reason,
@@ -982,16 +980,16 @@ function independentOutputReachability(actualItemId: string) {
   const repairGuidance = "g".repeat(96);
   const idWidth = utf8Bytes(JSON.stringify(actualItemId));
   const placeholderId = "i".repeat(idWidth - 2);
-  const itemRow = (groupSize: number) => JSON.stringify({
+  // 2026-10-22 (third): an item row no longer repeats its group's merged
+  // ids, so every item row has the same width whatever its group's size.
+  const itemRow = () => JSON.stringify({
     itemId: placeholderId,
-    mergedItemIds: Array.from({ length: groupSize }, () => placeholderId),
     outcome: "not_applied",
     paragraph,
     reason,
     repairGuidance,
   });
   const skipRow = (skippedRoleId: string) => JSON.stringify({
-    mergedItemIds: [],
     outcome: "not_applied",
     paragraph,
     reason,
@@ -1022,7 +1020,7 @@ function independentOutputReachability(actualItemId: string) {
       : 0) +
     utf8Bytes(',"verdicts":[') + ordinaryRowsBytes + utf8Bytes("]}");
   const minimumRowBytes = Math.min(
-    utf8Bytes(itemRow(1)),
+    utf8Bytes(itemRow()),
     utf8Bytes(skipRow("workplan"))
   );
   let firstPrunedPlanRows = 1;
@@ -1042,7 +1040,7 @@ function independentOutputReachability(actualItemId: string) {
       const size = index + 1;
       return {
         rows: size,
-        rowBytesWithDelimiters: size * (utf8Bytes(itemRow(size)) + 1),
+        rowBytesWithDelimiters: size * (utf8Bytes(itemRow()) + 1),
         groups: [size],
         skips: [] as string[],
       };
@@ -1099,7 +1097,7 @@ function independentOutputReachability(actualItemId: string) {
     (_, index) => ({
       rows: index + 1,
       rowBytesWithDelimiters:
-        (index + 1) * (utf8Bytes(itemRow(1)) + 1),
+        (index + 1) * (utf8Bytes(itemRow()) + 1),
       groups: Array.from({ length: index + 1 }, () => 1),
       skips: [],
     })
@@ -1118,7 +1116,7 @@ function independentOutputReachability(actualItemId: string) {
         state,
       ])
     );
-    const groupRowBytes = groupSize * (utf8Bytes(itemRow(groupSize)) + 1);
+    const groupRowBytes = groupSize * (utf8Bytes(itemRow()) + 1);
     for (const base of snapshot) {
       for (
         let copies = 1;
@@ -1417,19 +1415,20 @@ async function frozenS244OracleChecks(
 
 function mutateSerializedProductionEnvelope(
   serialized: string,
-  mutation: "omit_storyline" | "omit_repeated_merge" | "short_reason"
+  mutation: "omit_storyline" | "repeat_merged_ids" | "short_reason"
 ): string {
   const envelope = JSON.parse(serialized) as {
     storylineQuestion?: unknown;
-    planVerdicts: Array<{ mergedItemIds: string[]; reason: string }>;
+    planVerdicts: Array<{ itemId?: string; mergedItemIds?: string[]; reason: string }>;
     verdicts: Array<{ reason: string }>;
   };
   if (mutation === "omit_storyline") {
     Reflect.deleteProperty(envelope, "storylineQuestion");
-  } else if (mutation === "omit_repeated_merge") {
-    const repeated = envelope.planVerdicts.find((row) => row.mergedItemIds.length > 1);
-    if (!repeated) throw new Error("Missing repeated merge contribution");
-    repeated.mergedItemIds = repeated.mergedItemIds.slice(0, -1);
+  } else if (mutation === "repeat_merged_ids") {
+    // 2026-10-22 (third): the echo every item verdict carried before.
+    const item = envelope.planVerdicts.find((row) => row.itemId !== undefined);
+    if (!item?.itemId) throw new Error("Missing item verdict");
+    item.mergedItemIds = [item.itemId];
   } else {
     const row = envelope.verdicts[0] ?? envelope.planVerdicts[0];
     if (!row) throw new Error("Missing maximum-text contribution");
@@ -1598,10 +1597,11 @@ async function frozenSectionPlan(
     if (!generation?.summaryVersionId) throw new Error("Missing signed Summary");
     const summary = await ctx.db.get(generation.summaryVersionId);
     if (!summary) throw new Error("Missing Summary version");
+    // 2026-10-22 (third): room for the 110 corrupted experimentation items.
     const items = await ctx.db.query("summaryItems")
       .withIndex("by_summaryVersionId_and_order", (q) =>
         q.eq("summaryVersionId", summary._id))
-      .take(64);
+      .take(300);
     const referencesBySeedId = new Map(
       items.map((item) => [item.seedId, item.bullets] as const)
     );
@@ -1928,6 +1928,20 @@ async function addFrozenS242Items(
   s: Awaited<ReturnType<typeof decisionFixture>>,
   count: number
 ): Promise<void> {
+  await addFrozenRoleItems(s, "company_context", count);
+}
+
+/**
+ * Frozen items added to one role after sign-off, as a corrupted Summary.
+ * 2026-10-22 (third): Line 244's experimentation role signs off each item on
+ * its own (no merged ids), so many of them reach the response budget before
+ * the plan-check input limit; merged company items no longer can.
+ */
+async function addFrozenRoleItems(
+  s: Awaited<ReturnType<typeof decisionFixture>>,
+  roleId: "company_context" | "experimentation",
+  count: number
+): Promise<void> {
   await s.t.run(async (ctx) => {
     const generation = await ctx.db.get(s.generationId);
     if (!generation?.summaryVersionId) throw new Error("Missing frozen Summary");
@@ -1935,19 +1949,19 @@ async function addFrozenS242Items(
       .withIndex("by_summaryVersionId_and_order", (q) =>
         q.eq("summaryVersionId", generation.summaryVersionId!))
       .take(300);
-    const company = existing.find((item) => item.roleId === "company_context");
-    if (!company) throw new Error("Missing frozen company item");
+    const first = existing.find((item) => item.roleId === roleId);
+    if (!first) throw new Error(`Missing frozen ${roleId} item`);
     const nextOrder = Math.max(...existing.map((item) => item.order)) + 1;
     for (let index = 0; index < count; index += 1) {
       await ctx.db.insert("summaryItems", {
         projectId: s.projectId,
         generationId: s.generationId,
         summaryVersionId: generation.summaryVersionId,
-        roleId: "company_context",
-        kind: "standard",
+        roleId,
+        kind: first.kind,
         order: nextOrder + index,
-        seedId: company.seedId,
-        bullets: [`Additional frozen company item ${index + 1}.`],
+        seedId: first.seedId,
+        bullets: [`Additional frozen ${roleId} item ${index + 1}.`],
         support: "source_supported",
         tags: ["technical"],
       });
@@ -2948,23 +2962,28 @@ describe("seed Summary sign-off and recovery", () => {
     expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(32_768);
     const selectedShape = {
       extraSelected: {
+        company_context: 6,
+        goal_problem: 7,
+        passive_limitations: 7,
         technological_objective: 13,
         active_uncertainties: 14,
       },
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
-    // 2026-10-22 (alerts triage): at the 32,768-byte limit, a Line 242 plan
-    // of 32 items (14 and 15 in its two merged roles), its facts verdict
-    // (1,106 bytes with its comma), nine confidence labels (293 each), ten
-    // Glossary labels (nine of 291, one of 292) and three rule labels (287)
-    // keep the response at exactly 32,768 bytes, and swapping the ninth
-    // confidence label (293) for the writer label (294) still adds exactly
-    // one byte.
+    // 2026-10-22 (third): with no merged-id echo, each item verdict is 285
+    // bytes with its comma. At the 32,768-byte limit, a Line 242 plan of 52
+    // items (7, 8, 8, 14 and 15 in its five roles), its facts verdict (1,087
+    // bytes with its comma), two confidence labels (293 each), five Glossary
+    // labels (291) and 49 rule labels (nine of 287, forty of 288) keep the
+    // response at exactly 32,768 bytes, and swapping the second confidence
+    // label (293) for the writer label (294) still adds exactly one byte.
+    // (2026-10-22, first: 32 items, nine confidence, ten Glossary and three
+    // rule labels, when every item repeated its step's merged ids.)
     await configureS242Ordinary(accepted, {
-      additionalConfidence: 8,
-      glossaryTerms: 10,
-      rules: 3,
+      additionalConfidence: 1,
+      glossaryTerms: 5,
+      rules: 49,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2975,7 +2994,7 @@ describe("seed Summary sign-off and recovery", () => {
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
       checks.filter((check) => check.itemId && check.roleId === role.roleId).length
-    )).toEqual([1, 1, 1, 14, 15]);
+    )).toEqual([7, 8, 8, 14, 15]);
     expect(checks.at(-1)?.ruleId).toBe("facts_match_sources");
     expect(new Set(checks.filter((check) => check.itemId).flatMap((check) => [
       utf8Bytes(JSON.stringify(check.itemId)),
@@ -2986,19 +3005,22 @@ describe("seed Summary sign-off and recovery", () => {
       .toBe(true);
     expect(reachability.reachable.has(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1))
       .toBe(true);
-    // Receipt recomputed 2026-10-22 from the independent formula above at
-    // the 32,768-byte limit (the 16,384-byte receipt was 41,099 plan
-    // lengths, 56/57 enumerated/pruned rows and a 16,391-byte pruning bound;
-    // the 4,096-byte one 535, 14/15 and 4,337).
+    // Receipt recomputed 2026-10-22 (third) from the independent formula
+    // above: 64 ordinary checks and item rows of one width, so far fewer
+    // distinct plan lengths. (2026-10-22, first, with the echo and 30
+    // ordinary checks: 19,871 distributions, 4,930 ordinary and 359,577 plan
+    // lengths, 114/115 rows and a 33,037-byte bound; the 16,384-byte receipt
+    // was 41,099 plan lengths, 56/57 rows and 16,391; the 4,096-byte one 535,
+    // 14/15 and 4,337.)
     expect(reachability.receipt).toMatchObject({
       actualEscapedIdBytes: 34,
-      ordinaryDistributions: 19_871,
-      distinctOrdinaryLengths: 4_930,
-      distinctPlanLengths: 359_577,
-      maximumEnumeratedPlanRows: 114,
-      firstPrunedPlanRows: 115,
+      ordinaryDistributions: 183_105,
+      distinctOrdinaryLengths: 22_346,
+      distinctPlanLengths: 476,
+      maximumEnumeratedPlanRows: 122,
+      firstPrunedPlanRows: 123,
       persistedPlanRowCap: MAX_SUMMARY_PLAN_VERDICTS,
-      pruningLowerBound: 33_037,
+      pruningLowerBound: 32_996,
     });
     expect(reachability.receipt.maximumEnumeratedPlanRows)
       .toBe(reachability.receipt.firstPrunedPlanRows - 1);
@@ -3006,11 +3028,11 @@ describe("seed Summary sign-off and recovery", () => {
       .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
     const acceptedLabels = [
       "storyline",
-      ...Array.from({ length: 9 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 3 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 2 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 49 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(23);
+    expect(acceptedLabels).toHaveLength(57);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -3053,10 +3075,10 @@ describe("seed Summary sign-off and recovery", () => {
     // adds exactly one byte and keeps the plan and ordinary count fixed.
     const refusedLabels = [
       "storyline",
-      ...Array.from({ length: 8 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 1 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 3 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 49 }, (_, index) => `rule:R${index + 1}`),
     ];
     expect(refusedLabels).toHaveLength(acceptedLabels.length);
     const refusedOracle = literalSummaryResponseOracle({
@@ -3079,10 +3101,10 @@ describe("seed Summary sign-off and recovery", () => {
     const refused = await decisionFixture();
     await makeReady(refused, selectedShape);
     await configureS242Ordinary(refused, {
-      additionalConfidence: 7,
-      glossaryTerms: 10,
+      additionalConfidence: 0,
+      glossaryTerms: 5,
       writerFlavor: "Profile",
-      rules: 3,
+      rules: 49,
     });
     const refusedPersistedShape = await persistedFrozenPlanShape(refused);
     expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
@@ -3105,6 +3127,8 @@ describe("seed Summary sign-off and recovery", () => {
         code: "INVALID_INPUT",
         reason: "SUMMARY_CAPACITY_EXCEEDED",
         limit: "summary_self_check_response_utf8_bytes",
+        // 2026-10-22 (first): the refusal names the Line that did not fit.
+        section: "242",
       },
     });
     expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
@@ -3149,8 +3173,9 @@ describe("seed Summary sign-off and recovery", () => {
     expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
       .toBe(acceptedOracle);
     // 2026-10-04 (second, round 2 review): 1,106 bytes more than 8,150 for
-    // Line 242's facts verdict and its two findings.
-    expect(utf8Bytes(acceptedOracle)).toBe(9_256);
+    // Line 242's facts verdict and its two findings, 9,256 in all; since
+    // 2026-10-22 (third) 530 fewer, with no merged-id echo.
+    expect(utf8Bytes(acceptedOracle)).toBe(8_726);
     // The previous 4,096-byte limit refused this ordinary Brief.
     expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
     expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
@@ -3165,17 +3190,37 @@ describe("seed Summary sign-off and recovery", () => {
     expect(acceptedAfter.sections).toHaveLength(3);
     expect(acceptedAfter.jobs).toHaveLength(1);
 
-    // The same Brief beside a larger Section 242 plan still crosses the
-    // limit and refuses with nothing written.
+    // A Brief at the 64-label limit beside a 50-item Section 242 plan still
+    // crosses the limit and refuses with nothing written. (Since 2026-10-22,
+    // third, a pick costs the same however many share its step, so the
+    // realistic Brief above needs a far larger plan to cross it.)
+    const refusedOrdinary = {
+      additionalConfidence: 19,
+      glossaryTerms: 20,
+      rules: 23,
+    } as const;
+    const refusedLabels = [
+      "storyline",
+      ...Array.from({ length: 20 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 20 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 23 }, (_, index) => `rule:R${index + 1}`),
+    ];
+    expect(refusedLabels).toHaveLength(MAX_SUMMARY_ORDINARY_VERDICTS);
     const refused = await decisionFixture();
     await makeReady(refused, {
-      extraSelected: { technological_objective: 15, active_uncertainties: 16 },
+      extraSelected: {
+        company_context: 9,
+        goal_problem: 9,
+        passive_limitations: 9,
+        technological_objective: 9,
+        active_uncertainties: 9,
+      },
     });
-    await configureS242Ordinary(refused, realisticOrdinary);
+    await configureS242Ordinary(refused, refusedOrdinary);
     const refusedShape = await persistedFrozenPlanShape(refused);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
       refusedShape.core.items.filter((item) => item.roleId === role.roleId).length
-    )).toEqual([1, 1, 1, 16, 17]);
+    )).toEqual([10, 10, 10, 10, 10]);
     const idWidth = checks[0]!.itemId!.length;
     let nextId = 0;
     const refusedChecks: FrozenSummaryPlanCheck[] = PD_SUBSECTIONS
@@ -3209,13 +3254,13 @@ describe("seed Summary sign-off and recovery", () => {
       sourceReferences: [],
     });
     const refusedOracle = literalSummaryResponseOracle({
-      ordinaryLabels: realisticLabels,
+      ordinaryLabels: refusedLabels,
       planChecks: refusedChecks,
       includeStorylineQuestion: true,
     });
     expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
       .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(36_838);
+    expect(utf8Bytes(refusedOracle)).toBe(34_371);
     expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3228,6 +3273,8 @@ describe("seed Summary sign-off and recovery", () => {
         code: "INVALID_INPUT",
         reason: "SUMMARY_CAPACITY_EXCEEDED",
         limit: "summary_self_check_response_utf8_bytes",
+        // 2026-10-22 (first): the refusal names the Line that did not fit.
+        section: "242",
       },
     });
     expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
@@ -3290,7 +3337,7 @@ describe("seed Summary sign-off and recovery", () => {
     };
     for (const mutation of [
       "omit_storyline",
-      "omit_repeated_merge",
+      "repeat_merged_ids",
       "short_reason",
     ] as const) {
       const mutatedProduction = mutateSerializedProductionEnvelope(
@@ -3310,14 +3357,16 @@ describe("seed Summary sign-off and recovery", () => {
     // again in round 4: the targets verdict reserves its three entries in
     // place of its repairGuidance (shorter fields since its review, P3-5,
     // and two entries since the lead decision on Greptile at 12d67e49).
+    // Re-pinned 2026-10-22 (third): no plan verdict repeats merged ids, and
+    // the old repeat is now one of the mutations.
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "1b7203ec554ce6ec7a8a61a1260929db510f76d30923aaa19cd15f9b81dc36dd",
-      omit_storyline: "5bdd42200702e99c48652723fea883f07fac725e584fcbe1eaaf7d915e558d32",
-      omit_repeated_merge: "57af7b8946c675bd5f8d1a469b90d1ca48099561a587628492b8b6e0f9ed3b77",
-      short_reason: "ffea5ff55ec7579e091e41eda334300e0bcb4f6a4f8167c22d38987282a2c24e",
+      restored: "1b11482f00b81f4f5518ad7bb96fc0b60a180e212acb4109b0f46702c33ba4e1",
+      omit_storyline: "650bdbdb5757655f5173831aed0e3c26bd3194279317f13676aaa2929aa55748",
+      repeat_merged_ids: "fdceffd79c176b2b8fcda56d65a6f5b860879bcd7c3074a11c6bb41efb5107ec",
+      short_reason: "e17d525e3837407de275b940606b6352ac9cc1a9cb124ef7c13066ba11fc84b5",
     });
   });
 
@@ -3567,10 +3616,12 @@ describe("seed Summary sign-off and recovery", () => {
           generationId: targetGenerationId,
         });
       }
-      await addFrozenS242Items(s, 25);
-      const plan = await frozenSectionPlan(s, "s242");
+      // 2026-10-22 (third): 25 merged company items no longer cross the
+      // response budget; 110 experimentation items, each its own check, do.
+      await addFrozenRoleItems(s, "experimentation", 110);
+      const plan = await frozenSectionPlan(s, "s244");
       const expandedInput = literalPlanChecksOracle(plan.checks);
-      const output = await projectedFixtureOutputEnvelope(s, "242", plan.checks);
+      const output = await projectedFixtureOutputEnvelope(s, "244", plan.checks);
       expect(utf8Bytes(expandedInput)).toBeLessThanOrEqual(
         MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
       );
@@ -3909,13 +3960,15 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       error: "prepare byte-incompatible recovery",
     });
-    await addFrozenS242Items(s, 25);
-    const plan = await frozenSectionPlan(s, "s242");
+    // 2026-10-22 (third): experimentation items, each its own check, cross
+    // the response budget before the plan-check input limit.
+    await addFrozenRoleItems(s, "experimentation", 110);
+    const plan = await frozenSectionPlan(s, "s244");
     expect(plan.checks.length).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_VERDICTS);
     expect(utf8Bytes(literalPlanChecksOracle(plan.checks))).toBeLessThanOrEqual(
       MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
     );
-    const projectedOutput = await projectedFixtureOutputEnvelope(s, "242", plan.checks);
+    const projectedOutput = await projectedFixtureOutputEnvelope(s, "244", plan.checks);
     expect(utf8Bytes(projectedOutput)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
@@ -3952,6 +4005,65 @@ describe("seed Summary sign-off and recovery", () => {
     await expect(s.writer.mutation(api.generations.retryFromSummary, {
       failedGenerationId: recoveryId,
     })).resolves.toEqual(expect.any(String));
+  });
+
+  // 2026-10-22 (third): runtime admission counts ordinary checks the way
+  // sign-off does: 64 are admitted, and a Brief grown past that since
+  // sign-off is refused before any provider work, naming the count.
+  it.each([
+    { total: 64, admitted: true },
+    { total: 65, admitted: false },
+  ])("admits $total ordinary checks at Summary recovery only within the 64-check limit", async ({ total, admitted }) => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare a Brief grown since sign-off",
+    });
+    // The Storyline, 31 Confidence Map entries, 30 Glossary Terms and the
+    // rest as writer rules.
+    await configureS242Ordinary(s, {
+      additionalConfidence: 30,
+      glossaryTerms: 30,
+      rules: total - 62,
+    });
+    const plan = await frozenSectionPlan(s, "s242");
+    const output = await projectedFixtureOutputEnvelope(s, "242", plan.checks)
+      .then((envelope) => envelope, (error: unknown) => error);
+    if (admitted) {
+      expect(typeof output).toBe("string");
+      expect(JSON.parse(output as string).verdicts).toHaveLength(total);
+    } else {
+      expect(output).toMatchObject({ limit: "summary_self_check_ordinary_count" });
+    }
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    network.create.mockReset();
+    await s.t.action(internal.ai.orderedGeneration.startSummaryRecovery, {
+      generationId: recoveryId,
+    });
+    expect(network.create).not.toHaveBeenCalled();
+    const state = await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(recoveryId),
+      sections: await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", recoveryId))
+        .take(4),
+    }));
+    if (admitted) {
+      expect(state.generation?.status).not.toBe("failed");
+      expect(state.sections).toHaveLength(3);
+    } else {
+      expect(state.generation).toMatchObject({ status: "failed" });
+      expect(state.generation?.error).toContain(
+        `Summary Self-check requires more than ${MAX_SUMMARY_ORDINARY_VERDICTS} ordinary verdicts`
+      );
+      expect(state.sections).toEqual([]);
+    }
   });
 
   it("rejects a nonfirst Section expanded-input overflow during recovery startup while output remains admitted", async () => {
@@ -5653,19 +5765,6 @@ describe("seed Summary sign-off and recovery", () => {
         "itemId of 21 escaped bytes matches no plan check",
     },
     {
-      name: "empty mergedItemIds",
-      mutate: (input: SummaryCheckInput, checks: ProviderPlanCheck[]) => {
-        const index = checks.findIndex((check) => check.itemId);
-        Object.assign(input.planVerdicts[index] ?? {}, { mergedItemIds: [] });
-      },
-      detail: (checks: ProviderPlanCheck[]) => {
-        const index = checks.findIndex((check) => check.itemId);
-        const check = checks[index];
-        return `plan verdict ${index + 1} (item ${check?.itemId}): mergedItemIds has 0 ids, ` +
-          `expected [${check?.mergedItemIds.join(", ")}] in that order`;
-      },
-    },
-    {
       name: "a duplicate label",
       mutate: (input: SummaryCheckInput) => {
         input.verdicts[1] = { ...input.verdicts[0]! };
@@ -5734,7 +5833,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(summary.modelCheck).toBe("ok");
     const notChecked = state.rows.filter((row) => row.reason.startsWith("Not checked:"));
     expect(notChecked).toHaveLength(1);
-    const planTarget = name === "a wrong item id" || name === "empty mergedItemIds";
+    const planTarget = name === "a wrong item id";
     expect(Boolean(notChecked[0]?.planRef)).toBe(planTarget);
     expect(notChecked[0]).toMatchObject({ outcome: "not_applied", repaired: false });
     // Only a plan check left not checked keeps Line 246's coverage
@@ -5749,12 +5848,14 @@ describe("seed Summary sign-off and recovery", () => {
 
   it.each([
     {
-      name: "a response over 32,768 bytes",
+      // 2026-10-22 (third): the answer's own ceiling, four times the
+      // admission budget; an answer over the budget alone is accepted.
+      name: "an answer over 131,072 bytes",
       mutate: (input: SummaryCheckInput) => {
-        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(960);
+        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(3_760);
       },
       detail: () =>
-        "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
+        "response failed validation: (root) Summary Self-check answer exceeds its UTF-8 byte ceiling",
     },
   ])("keeps plan coverage unavailable for $name and records why", async ({ mutate, detail }) => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -6291,7 +6392,10 @@ describe("seed Summary sign-off and recovery", () => {
     });
   });
 
-  it("accepts an admitted decoded Summary control and rejects its exact 16,385-byte encoded form", async () => {
+  // 2026-10-22 (third): the encoded string is rejected because its root is
+  // not an object (encodedJsonRecovery is off), not for its size, which is
+  // under the answer's ceiling; "oversized encoded root" below covers size.
+  it("accepts an admitted decoded Summary control and rejects the same answer sent as an encoded string", async () => {
     const execute = async (encoded: boolean) => {
       const s = await decisionFixture();
       await makeReady(s);
@@ -6518,9 +6622,10 @@ describe("seed Summary sign-off and recovery", () => {
           outcome: "applied",
           reason: "Covered.",
         }));
+        // 2026-10-22 (third): "oversized" is over the answer's own ceiling.
         if (failureMode === "oversized nested extras") {
           Object.assign(planVerdicts[0] ?? {}, {
-            unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
+            unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1),
           });
         }
         const validInput = {
@@ -6530,14 +6635,14 @@ describe("seed Summary sign-off and recovery", () => {
         const input = failureMode === "oversized raw extras"
           ? {
               ...validInput,
-              unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
+              unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1),
             }
           : failureMode === "encoded root"
             ? JSON.stringify(validInput)
             : failureMode === "oversized encoded root"
               ? encodedSummaryInputAtRawBytes(
                   validInput,
-                  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1
+                  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1
                 )
               : validInput;
         return {

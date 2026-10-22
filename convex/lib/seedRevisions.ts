@@ -11,25 +11,41 @@ export const MAX_SEED_CONTEXT_SNAPSHOT_UTF8_BYTES = 512_000;
 export const MAX_SEED_PROMPT_UTF8_BYTES = 600_000;
 export const MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES = 64_000;
 /**
- * Worst-case compact-JSON bytes of one Summary Self-check response. Real
- * Briefs carry 10 to 20 ordinary checks per Section, so 4,096 bytes refused
- * every real sign-off (2026-09-25). 16,384 bytes fit 30 ordinary checks,
- * about 10 plan rows and the Storyline question, until the facts check
- * (1,106 bytes) and the targets check (1,102 bytes) took about 2,200 of it
- * (2026-10-04). On 2026-10-09 a writer's full plan (30 ordinary checks, 14
- * Line 244 items) was refused twice: its Line 244 worst case was 17,125
- * bytes, 741 over. 32,768 bytes fits 30 ordinary checks, the Storyline
- * question, every rule check and about 50 plan rows per Line; her plan's
- * largest Line uses 17,125, and five picks in every step 22,253.
- * The Summary-plan Self-check request sends the same number as its output
- * token allowance (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens), so a response
- * within this byte limit never needs more tokens than the request allows.
- * Every model enabled on 2026-10-22 allows at least 64,000 output tokens,
- * and a reasoning model's multiplied allowance is clipped to its own cap.
+ * Projected compact-JSON bytes of one Summary Self-check response: the
+ * admission budget sign-off and runtime admission size each Line's request
+ * by. Real Briefs carry 10 to 20 ordinary checks per Section, so 4,096
+ * bytes refused every real sign-off (2026-09-25). 16,384 bytes fit 30
+ * ordinary checks, about 10 plan rows and the Storyline question, until the
+ * facts check (1,106 bytes) and the targets check (1,102 bytes) took about
+ * 2,200 of it (2026-10-04). On 2026-10-09 a writer's full plan (30 ordinary
+ * checks, 14 Line 244 items) was refused twice: its Line 244 projection was
+ * 17,125 bytes, 741 over, and the limit became 32,768 (2026-10-22, first).
+ * Since 2026-10-22 (third) a plan verdict no longer repeats its step's
+ * merged ids, so each pick adds the same bytes however many picks share its
+ * step, and the answer itself is no longer measured against this budget:
+ * real free text runs past its reservations, so the answer has its own
+ * ceiling (MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES). The Summary-plan
+ * Self-check request sends the same number as its output token allowance
+ * (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).
  */
 export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 32_768;
+/**
+ * 2026-10-22 (third): the raw answer of one Summary Self-check request is
+ * rejected whole above this many UTF-8 bytes, four times the admission
+ * budget. Real reasons and guidance run two to four times their
+ * reservations, so a real answer to an admitted request is expected to stay
+ * well under it; the ceiling bounds what an answer can hand to the repair
+ * (unclipped guidance, facts corrections).
+ */
+export const MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES =
+  4 * MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES;
 export const MAX_SUMMARY_PLAN_VERDICTS = 256;
-export const MAX_SUMMARY_ORDINARY_VERDICTS = 30;
+/**
+ * 2026-10-22 (third): older Briefs on the dev deployment carry 37 to 46
+ * Confidence Map entries and Glossary Terms, which 30 refused at sign-off.
+ * The response budget still bounds how many fit beside a Line's plan.
+ */
+export const MAX_SUMMARY_ORDINARY_VERDICTS = 64;
 export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;
 export const MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES = 64;
@@ -702,10 +718,11 @@ export function projectSummarySelfCheckWorstCaseResponse(
     sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
     targetQuote: repeated(MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES, "t"),
   }));
+  // 2026-10-22 (third): a plan verdict names only its own reference; code
+  // takes its merged ids from the frozen check, so none are reserved.
   const planVerdicts = args.planChecks.map((check) => ({
     ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     ...(check.itemId ? { itemId: check.itemId } : {}),
-    mergedItemIds: [...check.mergedItemIds],
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
     reason,

@@ -36,7 +36,7 @@ describe("sign-off refusal message", () => {
     const message = signOffErrorMessage(
       refusal({ limit: "summary_self_check_ordinary_count", section: "242" })
     );
-    expect(message).toContain("Brief has more Confidence Map entries and Glossary Terms");
+    expect(message).toContain("Brief and writer instructions have more entries");
     expect(message).toContain("Please report this");
   });
 

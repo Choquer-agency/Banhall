@@ -282,11 +282,17 @@ async function hashesOf(asSent: Sent[]): Promise<{
   // allowance moved from 16,384 to 32,768 tokens on purpose, with its
   // response byte limit. The pins hash it at the old allowance, so every
   // other byte of each request is still pinned as before.
+  // 2026-10-22 (third): the Summary-plan Self-check no longer asks the
+  // answer to repeat merged ids, on purpose: its tool schema lost the plan
+  // verdict's mergedItemIds property and required entry, and its system
+  // prompt lost one sentence. Exactly those spans are put back, so every
+  // other byte is still pinned (these fixtures list no merged item, so the
+  // checklist is unchanged).
   const sent = asSent.map((request) => {
     const body = withPinnedLine242Opening(request.body);
     return {
       ...request,
-      body: request.stage === "selfCheck" ? body.split('"max_tokens":32768').join('"max_tokens":16384') : body,
+      body: request.stage === "selfCheck" ? withPinnedMergedIdEcho(body.split('"max_tokens":32768').join('"max_tokens":16384')) : body,
     };
   });
   let additionsFound = true;
@@ -303,6 +309,28 @@ async function hashesOf(asSent: Sent[]): Promise<{
     finalIsFirstCheckOnFinalText: firstCheckOnFinalText(sent),
     additionsFound,
   };
+}
+
+/** The plan verdict's mergedItemIds schema property as sent before 2026-10-22 (third). */
+const MERGED_ITEM_IDS_PROPERTY_BEFORE =
+  '"mergedItemIds":{"type":"array","items":{"type":"string","maxLength":64,"description":"Return one exact signed-off merged-item identifier supplied in the input. Return at most 64 JSON-escaped UTF-8 bytes, measured after JSON string escaping and excluding the surrounding quotes. Escapes such as \\\\n count as two bytes, and non-ASCII text counts by its UTF-8 encoding. maxLength=64 is a conservative character bound; the escaped-byte limit is authoritative."}}';
+const PLAN_PARAGRAPH_PROPERTY = ',"paragraph":{"type":"integer","minimum":0,"maximum":9999999999,"description":"Item:';
+const MERGED_ID_SENTENCE_BEFORE = " Preserve every supplied item id in mergedItemIds.";
+const JUDGE_COVERAGE_SENTENCE = "Judge coverage against each item's frozen role, wording and supporting references.";
+
+/**
+ * A Summary-plan Self-check body with the merged-id echo put back as it was
+ * sent before 2026-10-22 (third). A body that is not a Summary-plan request
+ * holds none of these spans and is returned unchanged; each span is put back
+ * only where it is found exactly once.
+ */
+function withPinnedMergedIdEcho(body: string): string {
+  const once = (text: string, find: string, replace: string) =>
+    text.split(find).length === 2 ? text.split(find).join(replace) : text;
+  let restored = once(body, PLAN_PARAGRAPH_PROPERTY, `,${MERGED_ITEM_IDS_PROPERTY_BEFORE}${PLAN_PARAGRAPH_PROPERTY}`);
+  restored = once(restored, '"required":["outcome","reason"],"oneOf"', '"required":["mergedItemIds","outcome","reason"],"oneOf"');
+  restored = once(restored, JUDGE_COVERAGE_SENTENCE, `${JUDGE_COVERAGE_SENTENCE}${MERGED_ID_SENTENCE_BEFORE}`);
+  return restored;
 }
 
 /** Whether the last request is the first Self-check's request on REPAIRED in place of DRAFT. */

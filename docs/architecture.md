@@ -649,6 +649,7 @@ When a change comes in, ask four questions:
 | --- | --- |
 | Draft stuck on "Generating" | The `generations` row status; the 10-minute cron fails it after 30 idle minutes (`convex/lib/generations/reapers.ts`) |
 | Step by step stops after the Seeds | It is waiting for the writer to sign off (`awaiting_input`); see `convex/lib/generations/seedStage.ts` |
+| "Sign off and generate PD" is refused as too large | The final check's size budget for one Line (`projectSummarySelfCheckWorstCaseResponse` in `convex/lib/seedRevisions.ts`); the refusal names the limit and the Line (`SUMMARY_CAPACITY_EXCEEDED`). See the 2026-10-22 entries in `docs/product-domain.md` |
 | Chat reply never arrives | The `chatTurns` row; `convex/chatV2.ts` and `convex/ai/chatAgentV2.ts` |
 | Apply on a chat card fails or says stale | The target text changed since the card was made; `chatV2.applyProposal` |
 | A stage change is refused | The rule in `shared/workflowTransitions.ts`; Submitted and Delivered are always refused today |

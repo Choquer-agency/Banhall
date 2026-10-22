@@ -38,7 +38,9 @@ export function signOffErrorMessage(error: unknown): string {
     return `${where} has more picks than the final check can read at once. Untick a few picks in ${steps}, then sign off again. ${kept}`;
   }
   if (limit === "summary_self_check_ordinary_count") {
-    return `This project's Brief has more Confidence Map entries and Glossary Terms than the final check can read at once, so sign-off cannot finish. ${kept} Please report this so we can fix it.`;
+    // 2026-10-22 (third): ordinary checks also count the writer profile,
+    // writer rules and Feedback terms, so the message names both sources.
+    return `This project's Brief and writer instructions have more entries than the final check can read at once, so sign-off cannot finish. ${kept} Please report this so we can fix it.`;
   }
   return `The Summary could not be made ready for its final check. ${kept} Please report this so we can fix it.`;
 }

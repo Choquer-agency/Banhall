@@ -622,9 +622,13 @@ describe("admin log", () => {
 describe("prompt versions", () => {
   it("leave the program and every generation reserved before the change exactly as they were", async () => {
     // Read on e6e287d4, the commit before tracks: the program hash and the
-    // version of a generation with no freeze (Sonnet 5, Haiku 4.5).
-    expect(await hashPromptProgram()).toBe("sha256:af60a9729413c53458ae2221eae8fc43b9a382955b4f2f2f8f8388d165fd4520");
-    expect(await legacyPromptVersion()).toBe("sha256:3be5d07a3053f50cfe0ec6ce18d325267017498caaf55fc2bd7ab3c69f5000a0");
+    // version of a generation with no freeze (Sonnet 5, Haiku 4.5). Re-read
+    // after 2026-10-22 (third), which moves the Summary Self-check program on
+    // purpose (no merged-id echo, 64 ordinary checks, the answer's own
+    // ceiling); at e6e287d4 they were sha256:af60a972... and
+    // sha256:3be5d07a....
+    expect(await hashPromptProgram()).toBe("sha256:3f2fa8ea2d166d52d45df3d46adada72754e340d91a5ee5a9fbbd5d7ff11e09d");
+    expect(await legacyPromptVersion()).toBe("sha256:1612a2fd0d53371585c1c849e8d5da8fdef26a2099d54e20e7b1fec9090e4459");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });
