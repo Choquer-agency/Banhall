@@ -1,6 +1,13 @@
 import { countTextWords } from "../shared/wordCount";
-import { deleteDocumentText } from "./lib/documentText";
-import { query, mutation, internalQuery } from "./_generated/server";
+import {
+  deleteDocumentText,
+  documentHasText,
+  documentTextEquals,
+  documentTextLength,
+  findDocumentWithText,
+  readDocumentText,
+} from "./lib/documentText";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import {
@@ -130,22 +137,16 @@ export const uploadDocument = mutation({
       madeByAttempt.projectId === args.projectId &&
       madeByAttempt.fileName === args.fileName &&
       (!canDedupe ||
-        madeByAttempt.content.trim().length === 0 ||
-        madeByAttempt.content === args.content)
+        !documentHasText(madeByAttempt) ||
+        (await documentTextEquals(madeByAttempt, args.content)))
         ? madeByAttempt
         : null;
-    const existingDocs = canDedupe && !retried
-      ? await ctx.db
-          .query("projectDocuments")
-          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-          .collect()
-      : [];
+    // 2026-10-22 (fourth): found by fingerprint, without reading every
+    // file's text (convex/lib/documentText.ts findDocumentWithText).
     const dup =
       retried ??
       (canDedupe
-        ? existingDocs.find(
-            (d) => d.fileName === args.fileName && d.content === args.content
-          )
+        ? ((await findDocumentWithText(ctx, args.projectId, args.fileName, args.content)) ?? undefined)
         : undefined);
     const derived = deriveProcessingStatus({
       fileName: args.fileName,
@@ -264,7 +265,7 @@ export const listDocuments = query({
         // status on day one, and the backfill is only a persistence step.
         const derived = d.processingStatus
           ? { status: d.processingStatus, detail: d.processingDetail ?? null }
-          : deriveStoredProcessing(d);
+          : deriveStoredProcessing({ ...d, content: await readDocumentText(ctx, d) });
         return {
           _id: d._id,
           fileName: d.fileName,
@@ -272,10 +273,11 @@ export const listDocuments = query({
           source: d.source,
           category: d.category ?? null,
           createdAt: d.createdAt,
-          sizeChars: d.content.length,
+          // 2026-10-22 (fourth): from the row's facts once its text moved.
+          sizeChars: documentTextLength(d),
           // The project page's start dialog names each file's length
           // (2026-09-27, fourth): stored at upload, counted for older rows.
-          wordCount: d.wordCount ?? countTextWords(d.content),
+          wordCount: d.wordCount ?? countTextWords(await readDocumentText(ctx, d)),
           hasFile: !!d.storageId,
           mimeType: d.mimeType ?? null,
           url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,
@@ -312,7 +314,7 @@ export const getDocumentContent = query({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) return null;
     if (!(await getInternalProjectAccessOrNull(ctx, doc.projectId))) return null;
-    return { fileName: doc.fileName, fileType: doc.fileType, content: doc.content };
+    return { fileName: doc.fileName, fileType: doc.fileType, content: await readDocumentText(ctx, doc) };
   },
 });
 
@@ -330,23 +332,3 @@ export const deleteDocument = mutation({
   },
 });
 
-/**
- * Internal: categorized contextual-input docs for the generation pipeline
- * (BNH-9). Returns category + text (capped) so the analyzer can weight them.
- */
-export const getContextDocsForGeneration = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
-    const docs = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    return docs
-      .filter((d) => !d.archived && d.category && d.content.trim().length > 0)
-      .map((d) => ({
-        category: d.category!,
-        fileName: d.fileName,
-        content: d.content.slice(0, 15000),
-      }));
-  },
-});

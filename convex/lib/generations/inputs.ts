@@ -21,6 +21,7 @@ import { sourceInclusion } from "../../ai/trustedContext";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { createReadBudget } from "../readBudget";
 import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclusion";
+import { documentHasText } from "../documentText";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
 export const getGenerationPlaceholdersArgs = { generationId: v.id("generations") };
@@ -308,7 +309,7 @@ export async function getContextInclusionHandler(
       if (frozenDocumentIds.has(document._id)) return [];
       const reason = document.archived
         ? ("archived" as const)
-        : !document.content.trim()
+        : !documentHasText(document)
           ? ("unreadable" as const)
           : ("not_captured" as const);
       return [{ _id: document._id, fileName: document.fileName, reason }];

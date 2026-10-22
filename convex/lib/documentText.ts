@@ -127,6 +127,47 @@ export async function readDocumentText(
   return joined.slice(from - covering.start, to - covering.start);
 }
 
+/** The sha256 of the exact text: the stored fingerprint once it moved. */
+export async function documentTextHash(
+  doc: Pick<Doc<"projectDocuments">, "content" | "textMovedAt" | "textHash">
+): Promise<string> {
+  if (documentTextMoved(doc) && doc.textHash !== undefined) return doc.textHash;
+  return await sha256(doc.content ?? "");
+}
+
+/** Whether the file holds exactly `text`, as `content === text` was. */
+export async function documentTextEquals(
+  doc: Pick<Doc<"projectDocuments">, "content" | "textMovedAt" | "textHash" | "textLength" | "hasText">,
+  text: string
+): Promise<boolean> {
+  if (!documentTextMoved(doc)) return (doc.content ?? "") === text;
+  return documentTextLength(doc) === text.length && (await documentTextHash(doc)) === (await sha256(text));
+}
+
+const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
+
+/**
+ * A range that never splits a character, and its text: the same range and
+ * text `safeRange(content, start, end)` and `content.slice` gave, reading
+ * only one character past each edge.
+ */
+export async function readDocumentTextSafeRange(
+  ctx: QueryCtx,
+  doc: TextFields & { _id: Id<"projectDocuments"> },
+  start: number,
+  end: number
+): Promise<{ start: number; end: number; text: string }> {
+  const length = documentTextLength(doc);
+  let from = Math.max(0, Math.min(start, length));
+  let to = Math.max(from, Math.min(end, length));
+  const windowStart = Math.max(0, from - 1);
+  const window = await readDocumentText(ctx, doc, windowStart, to);
+  const codeAt = (offset: number) => window.charCodeAt(offset - windowStart);
+  if (from > 0 && from < length && isLowSurrogate(codeAt(from))) from -= 1;
+  if (to > from && to < length && isHighSurrogate(codeAt(to - 1))) to -= 1;
+  return { start: from, end: to, text: window.slice(from - windowStart, to - windowStart) };
+}
+
 /** `String.prototype.slice` offset rules for a non-negative length. */
 function clampOffset(offset: number, length: number): number {
   const whole = Number.isFinite(offset) ? Math.trunc(offset) : offset > 0 ? length : 0;
@@ -173,4 +214,31 @@ export async function deleteDocumentText(
     .take(MAX_DOCUMENT_TEXT_PIECES + 1);
   if (pieces.length > MAX_DOCUMENT_TEXT_PIECES) throw new Error("Document text has too many pieces");
   for (const piece of pieces) await ctx.db.delete(piece._id);
+}
+
+/**
+ * The project's file with this name and exactly this text, as the upload
+ * dedupe found it by comparing every file's text. A moved file is found by
+ * its fingerprint; a file whose text has not moved yet (no fingerprint) is
+ * compared by its text, so until the backfill finishes those still cost a
+ * full read.
+ */
+export async function findDocumentWithText(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  fileName: string,
+  text: string
+): Promise<Doc<"projectDocuments"> | null> {
+  const hash = await sha256(text);
+  for await (const doc of ctx.db
+    .query("projectDocuments")
+    .withIndex("by_projectId_and_textHash", (q) => q.eq("projectId", projectId).eq("textHash", hash))) {
+    if (doc.fileName === fileName && documentTextMoved(doc) && doc.textLength === text.length) return doc;
+  }
+  for await (const doc of ctx.db
+    .query("projectDocuments")
+    .withIndex("by_projectId_and_textHash", (q) => q.eq("projectId", projectId).eq("textHash", undefined))) {
+    if (doc.fileName === fileName && !documentTextMoved(doc) && (doc.content ?? "") === text) return doc;
+  }
+  return null;
 }

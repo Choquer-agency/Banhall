@@ -43,10 +43,15 @@ What changed: the check that runs after "Sign off and generate PD" no longer rep
   - The one follow-up was used twice: Line 242 had 5 labels missing, and Line 246 had 3 plan checks missing. Both were filled.
   - Cost: 18 AI calls, $1.61.
   - Found, not caused by this change: the post-draft QA call stopped at its 4,096-token answer limit (`generation:post_qa`, `stopReason` max_tokens). This is the same fixed-limit bug class; it is added to P0 item 4.
-- [ ] Release suite, all six fixtures. Each one:
-  - signs off;
-  - shows "The model Self-check ran on every Section" as passing;
-  - has no row reading "did not complete".
+- [x] **Release suite, all six fixtures** (2026-10-22, local copy running commit 6ab0eafc's functions, $5.84). Packs are in `/tmp/seed-plan-eval-out/2026-10-22/`, a private folder, fictional data only.
+  - carried-old-selections: 14 of 14 passed.
+  - changed-advancement-links: 22 of 22 passed.
+  - skipped-role-supported: 12 of 12 passed.
+  - withdrawn-feedback: 12 of 13 passed. The miss is a wording heuristic on the Seeds, before sign-off.
+  - writer-settings-document: 15 of 16 passed. The miss is a wording heuristic: one required term was never used.
+  - exclusion-conflict: inconclusive. The AI-written Brief derived no Claim Exclusion, so the fixture stopped before sign-off. To be rerun.
+  - "The model Self-check ran on every Section" passed in every fixture that drafted. Self-check requests took about 4 seconds each.
+- [ ] **Human verdicts.** The reviewing manager judges each fixture's pack pass or fail (`docs/release-checklist.md`). The suite is release-blocking.
 - [ ] A new large-plan fixture (to be added): 20 picks in one step and a 46-entry Brief. Pass when it signs off and drafts with no "Not checked" rows.
 - [ ] The local backend's logs show one line per Line's final check, in this form: "Line 244 first answer N UTF-8 bytes for X labels and Y plan checks (projected P, ceiling 131072)". Pass when N stays well under 131,072 and no line carries report text.
 
@@ -101,3 +106,28 @@ What changed: a new `projectDocumentTexts` table and the one helper every reader
 ### Manual on localhost
 
 - [ ] Nothing visible changes. Upload, preview, archive and delete a file, and confirm each works as before.
+
+## Commit 3: readers go through the helper, except chat and search (step 2 of 5 of the text move)
+
+What changed: the file list, the Files panel preview, upload duplicate checks, PD reviews, the Reference PD comparison, chat's file reading tool, the evidence frozen at generation start, the blank checks, intake's fingerprint check and the debug tools all read text through `convex/lib/documentText.ts`. Rows still keep their text, so nothing visible changes yet. An unused query (`getContextDocsForGeneration`) is removed.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,116 tests in 459 files.
+- [x] `convex/documentTextReaders.test.ts`. A file whose text lives only in pieces, with `content` cleared as after the clear pass, gives the same answer as the same file still on its row, for each of these:
+  - the file list's sizes, word counts and statuses;
+  - the preview's whole text;
+  - chat file reads at piece edges and across an emoji;
+  - the frozen evidence: the same text, hash, `truncated` and `originalLength`, including an emoji cut at 199,999 / 200,000;
+  - upload duplicates: the same name and text are found; the same text under another name, other text and blank files stay new.
+- [x] `tests/documentTextGuard.test.ts`: the TypeScript checker finds every direct read of a document's `content` outside the helper. Only the paths of the next steps remain, and they are listed:
+  - chat context, 2;
+  - search, 5;
+  - project copy, 1.
+
+### Manual on localhost
+
+- [ ] **Files panel.** Preview a long file and download it as text. Both show the whole file.
+- [ ] **Upload.** Upload the same file twice. It's kept once. Upload it under a new name. A second file appears.
+- [ ] **PD review.** Start a PD review. It runs on the chosen PD.
+- [ ] **Reference PD.** In chat, ask for the comparison with a Reference PD. It finds and compares it.

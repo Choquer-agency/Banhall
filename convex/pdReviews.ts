@@ -12,8 +12,9 @@ import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
 } from "./lib/auth";
-import { domainError, sha256 } from "./lib/contracts";
+import { domainError } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
+import { documentHasText, documentTextHash, readDocumentText } from "./lib/documentText";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import {
@@ -56,7 +57,7 @@ export const startPdReview = mutation({
       !doc ||
       doc.projectId !== args.projectId ||
       doc.archived ||
-      !doc.content.trim()
+      !documentHasText(doc)
     ) {
       domainError("INVALID_INPUT", "An active, non-empty project document is required");
     }
@@ -81,7 +82,7 @@ export const startPdReview = mutation({
       sourceFileName: doc.fileName,
       status: "running",
       revisionNumber: 0,
-      contentHash: await sha256(doc.content),
+      contentHash: await documentTextHash(doc),
       createdBy: user._id,
       createdAt: now,
       ...(excludedSources ? { excludedSources } : {}),
@@ -127,7 +128,7 @@ export const retryPdReview = mutation({
       domainError("INVALID_INPUT", "A review is already running for this project");
     }
     const doc = await ctx.db.get(failed.documentId);
-    if (!doc || doc.archived || !doc.content.trim()) {
+    if (!doc || doc.archived || !documentHasText(doc)) {
       domainError("INVALID_INPUT", "The reviewed PD document is no longer available");
     }
     await limitUserAction(ctx, "pdReviewPerUser", user._id);
@@ -139,7 +140,7 @@ export const retryPdReview = mutation({
       sourceFileName: doc.fileName,
       status: "running",
       revisionNumber: 0,
-      contentHash: await sha256(doc.content),
+      contentHash: await documentTextHash(doc),
       createdBy: user._id,
       createdAt: now,
       ...(failed.excludedSources ? { excludedSources: failed.excludedSources } : {}),
@@ -214,7 +215,7 @@ export const getReviewSourceDocument = query({
     return {
       _id: doc._id,
       fileName: doc.fileName,
-      hasText: doc.content.trim().length > 0,
+      hasText: documentHasText(doc),
     };
   },
 });
@@ -295,27 +296,24 @@ export const getReviewInput = internalQuery({
       project && (await transcriptPlaceholdersEnabled(ctx))
         ? [...(await projectPlaceholderMap(ctx, project, allRows))]
         : [];
-    // The context documents the review reads (the same rule as
-    // documents.getContextDocsForGeneration), minus the left-out ones.
+    // The context documents the review reads (archived, uncategorized and
+    // empty files skipped), minus the left-out ones.
     const documents = await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", review.projectId))
       .take(200);
-    const contextDocs = documents
-      .filter(
-        (d) =>
-          !d.archived &&
-          d.category &&
-          d.content.trim().length > 0 &&
-          !excludedDocuments.has(d._id)
-      )
-      .map((d) => ({
-        category: d.category!,
+    const contextDocs = [];
+    for (const d of documents) {
+      if (d.archived || !d.category || !documentHasText(d) || excludedDocuments.has(d._id)) continue;
+      contextDocs.push({
+        category: d.category,
         fileName: d.fileName,
-        content: d.content.slice(0, 15000),
-      }));
+        // 2026-10-22 (fourth): only the part the review reads.
+        content: await readDocumentText(ctx, d, 0, 15000),
+      });
+    }
     return {
-      pdContent: doc?.content ?? "",
+      pdContent: doc ? await readDocumentText(ctx, doc) : "",
       // Usage attribution: the user who started (or retried) this review.
       createdBy: review.createdBy,
       fileName: review.sourceFileName,

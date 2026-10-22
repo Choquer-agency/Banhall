@@ -19,6 +19,7 @@ import { internalMutation, internalQuery, type QueryCtx } from "./_generated/ser
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isProjectDeleting } from "./lib/projectDeletion";
+import { documentHasText, documentTextLength, readDocumentTextSafeRange } from "./lib/documentText";
 import { chatDocumentToolsEnabled, chatVisionEnabled } from "./appSettings";
 import { chatViewMedia, type ChatMediaKind, type ChatMediaType } from "./lib/chatMedia";
 import { MAX_ACTIVE_TRANSCRIPT_ROWS_READ, projectTranscriptsFrom, transcriptLabel } from "./lib/transcripts";
@@ -287,21 +288,27 @@ export const readDocumentForChat = internalQuery({
     if (!scope) return { status: "unavailable" };
     const doc = await ctx.db.get(args.documentId);
     if (!doc || doc.projectId !== scope.projectId || doc.archived) return { status: "not_found" };
-    const content = doc.content;
-    if (content.trim() === "") return { status: "no_text", fileName: doc.fileName };
-    if (args.start >= content.length) {
-      return { status: "past_end", fileName: doc.fileName, totalChars: content.length };
+    // 2026-10-22 (fourth): facts and only the range read, never the whole text.
+    const totalChars = documentTextLength(doc);
+    if (!documentHasText(doc)) return { status: "no_text", fileName: doc.fileName };
+    if (args.start >= totalChars) {
+      return { status: "past_end", fileName: doc.fileName, totalChars };
     }
-    const range = safeRange(content, args.start, args.start + Math.max(0, Math.floor(args.maxChars)));
+    const range = await readDocumentTextSafeRange(
+      ctx,
+      doc,
+      args.start,
+      args.start + Math.max(0, Math.floor(args.maxChars))
+    );
     return {
       status: "ok",
       fileName: doc.fileName,
       ...(doc.category ? { category: doc.category } : {}),
       ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
-      totalChars: content.length,
+      totalChars,
       start: range.start,
       end: range.end,
-      text: content.slice(range.start, range.end),
+      text: range.text,
     };
   },
 });

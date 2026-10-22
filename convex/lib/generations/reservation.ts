@@ -62,6 +62,7 @@ import { transitionGeneration } from "../generationTransitions";
 import { restorableProjectStatus } from "./restoreStatus";
 import { userDisplayLabel } from "../teamRoster";
 import type { QueryCtx } from "../../_generated/server";
+import { documentHasText } from "../documentText";
 
 /**
  * The user-safe summary of a project's active run (F6): who started it, which
@@ -292,7 +293,7 @@ export async function reserveGeneration(
       .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
       .collect();
     const usable = docs.filter(
-      (d) => !d.archived && d.content.trim() && !excludedDocuments.has(d._id)
+      (d) => !d.archived && documentHasText(d) && !excludedDocuments.has(d._id)
     );
     if (usable.length === 0 && transcripts.length === 0) {
       domainError(

@@ -90,6 +90,7 @@ import {
 } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
+import { documentTextHash } from "./lib/documentText";
 
 /** Characters one promotion step installs; the rest follow in the next step. */
 const PROMOTION_STEP_CHARS = 1_500_000;
@@ -476,7 +477,7 @@ export const attachIntakeOriginal = mutation({
         }
       } else if (link.projectDocumentId) {
         const document = await ctx.db.get(link.projectDocumentId);
-        if (document && !document.storageId && (await sha256(document.content)) === args.contentHash) {
+        if (document && !document.storageId && (await documentTextHash(document)) === args.contentHash) {
           await ctx.db.patch(document._id, { storageId: args.storageId, ...(mimeType ? { mimeType } : {}) });
           return true;
         }

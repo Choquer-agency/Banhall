@@ -28,6 +28,7 @@ import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { provenanceForEdit } from "./lib/editProvenance";
+import { documentHasText, readDocumentText } from "./lib/documentText";
 import {
   applyReplacements,
   headingEditRefusal,
@@ -2860,7 +2861,7 @@ function isComparableReference(row: Doc<"projectDocuments">): boolean {
   ) {
     return false;
   }
-  return (row.content ?? "").trim().length > 0;
+  return documentHasText(row);
 }
 
 /**
@@ -3050,7 +3051,7 @@ export const getDeviationInventoryContext = internalQuery({
 
     let reference: { fileName: string; sections: InventorySections } | null = null;
     if (selected) {
-      const parsed = extractReportSections(selected.content ?? "");
+      const parsed = extractReportSections(await readDocumentText(ctx, selected));
       // Text that carries no `Line 242/244/246` skeleton has nothing this
       // comparison can anchor. Saying so beats inventing a difference per
       // paragraph against an empty section.

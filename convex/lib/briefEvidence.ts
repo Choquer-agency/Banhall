@@ -20,6 +20,7 @@ import { transcriptPlaceholdersEnabled } from "../appSettings";
 import { projectPlaceholderMap } from "./transcriptPlaceholders";
 import type { PlaceholderEntry } from "./deidentify";
 import { dashboardFiscalYear } from "../../shared/dashboardProjection";
+import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -65,11 +66,13 @@ export async function selectFrozenEvidence(
     .query("projectDocuments")
     .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
     .take(FROZEN_DOCUMENT_ROWS);
-  const frozenDocuments = documents.flatMap((document) =>
-    document.archived || !document.content.trim() || excludedDocuments.has(document._id)
-      ? []
-      : [{ document, content: document.content.slice(0, FROZEN_DOCUMENT_CHARS) }]
-  );
+  // 2026-10-22 (fourth): the same slices, read through the text helper,
+  // which returns exactly `content.slice(0, FROZEN_DOCUMENT_CHARS)` (rule 2).
+  const frozenDocuments: FrozenEvidence["frozenDocuments"] = [];
+  for (const document of documents) {
+    if (document.archived || !documentHasText(document) || excludedDocuments.has(document._id)) continue;
+    frozenDocuments.push({ document, content: await readDocumentText(ctx, document, 0, FROZEN_DOCUMENT_CHARS) });
+  }
   return { projectTranscripts, transcripts, frozenTranscripts, frozenDocuments };
 }
 
@@ -141,8 +144,8 @@ export async function frozenSourceFields(evidence: FrozenEvidence): Promise<Froz
       label: `${document.category ?? "other"}:${document.fileName}`,
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== document.content.length,
-      originalLength: document.content.length,
+      truncated: content.length !== documentTextLength(document),
+      originalLength: documentTextLength(document),
       // CAP-3: trust is pinned to the freeze, never re-read live. Absent
       // (legacy document rows) means client trust downstream.
       ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
