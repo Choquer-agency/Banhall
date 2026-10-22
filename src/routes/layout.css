@@ -1141,8 +1141,9 @@ textarea.input-chromeless:focus-visible {
   border-radius: 0.25rem;
   transition: background-color 150ms ease-out;
 }
+/* Owner, 2026-10-21: a lighter wash than gray-50. */
 .report-reading .tiptap-editor[contenteditable="true"] > p:not(.not-drafted-placeholder):hover {
-  background-color: var(--color-gray-50);
+  background-color: color-mix(in srgb, var(--color-gray-50) 55%, var(--color-surface));
 }
 /* Owner, 2026-10-21: more space between Sections, and the label sits a
    little closer to its first paragraph. */
