@@ -196,6 +196,14 @@ describe("search and chat with edge cases of moved files", () => {
       const context = await f.t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread-moved" });
       expect(context.documents.find((doc) => doc.fileName === "bench.txt")?.content).toBe("");
       expect(context.documents.find((doc) => doc.fileName === "trial.txt")?.content).toContain("calibration");
+      // Opening or pinning it reads as unavailable, not a failed turn.
+      const benchId = context.documents.find((doc) => doc.fileName === "bench.txt")!.documentId!;
+      const read = makeFunctionReference("chatDocuments:readDocumentForChat") as unknown as FunctionReference<
+        "query", "internal", { agentThreadId: string; documentId: Id<"projectDocuments">; start: number; maxChars: number },
+        { status: string }
+      >;
+      expect(await f.t.query(read, { agentThreadId: "thread-moved", documentId: benchId, start: 0, maxChars: 1_000 }))
+        .toEqual({ status: "unavailable" });
     } finally {
       warn.mockRestore();
     }

@@ -240,7 +240,10 @@ Each pass reads at most 4 MiB a page, skips projects being deleted and schedules
     - the search terms;
     - three chat searches.
   - **Found:** the local backend refused some pages ("limited to 4 MiB bytes written per second"). They went through on retry, and pages are now 2 MiB, 1.5 seconds apart.
-- [ ] Rerun the writer-settings-document release fixture on the new code.
+- [x] **The same local copy, moved to commit 34cbb600 with its data already cleared:** the file list, texts, chat context and searches still match the snapshot from before the move.
+- [x] **writer-settings-document on commit 34cbb600:** 16 of 16 checks passed (15 of 16 on the earlier code), and 0 of the settings document's 20 rules were broken. The uploaded settings document is stored as pieces and read by the Brief and the drafting.
+- [ ] **exclusion-conflict, inconclusive again.** On both the earlier and the new code, the AI-written Brief derived no Claim Exclusion, so the fixture stops before sign-off. The text move doesn't cause it: the first run predates the move. It is likely the newer model (PR #29 moved Briefs to Sonnet 5.5). Listed as its own item.
+- Live cost so far: $1.61 (Emily's PD) + $5.84 (release suite) + $2.10 (two fixtures) = $9.55.
 
 ## Commit 8: fixes from the code review of the text move
 
@@ -267,3 +270,20 @@ Two code reviewers, Claude Opus 5.5 (high effort) and gpt-6-astra (medium effort
   - the near-limit row;
   - a chat turn compared with the old full-text evidence: byte for byte the same.
 - [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,134 tests in 463 files.
+
+## Commit 9: fixes from round 2 of the code review
+
+Claude Opus 5.5 (high effort), round 2: "ship after fixes". Fixed:
+
+- **The copy pass no longer applies the new 1,000,000-character cap to text already stored.** An older row may hold up to about 1,048,000 characters, and the cap would have stopped the pass on that page for good. Such rows are moved and counted (`overCap`), and a dry run counts them too. Project copies keep any length the source has.
+- **Opening or pinning a damaged file reads as "unavailable".** It no longer fails the chat turn.
+- **Research's matching pieces have their own 2 MiB budget,** so file rows always have room. A file left out by the evidence budget is logged.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,136 tests in 463 files.
+- [x] New tests:
+  - a 1,040,000-character older row is moved, and a dry run counts it;
+  - the near-limit row is made realistic (1.044 MB, which with its facts would pass the limit);
+  - a damaged file opened through the reading tool returns "unavailable";
+  - a searched research request over 12 large matching files stays in bounds.

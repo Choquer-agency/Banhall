@@ -20,6 +20,7 @@ import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import {
+  DocumentTextIncompleteError,
   documentHasText,
   documentTextLength,
   readDocumentTextOrNull,
@@ -301,12 +302,21 @@ export const readDocumentForChat = internalQuery({
     if (args.start >= totalChars) {
       return { status: "past_end", fileName: doc.fileName, totalChars };
     }
-    const range = await readDocumentTextSafeRange(
-      ctx,
-      doc,
-      args.start,
-      args.start + Math.max(0, Math.floor(args.maxChars))
-    );
+    // A file whose pieces are incomplete reads as unavailable, never failing
+    // the turn that opens or pins it.
+    let range: { start: number; end: number; text: string };
+    try {
+      range = await readDocumentTextSafeRange(
+        ctx,
+        doc,
+        args.start,
+        args.start + Math.max(0, Math.floor(args.maxChars))
+      );
+    } catch (error) {
+      if (!(error instanceof DocumentTextIncompleteError)) throw error;
+      console.warn(`readDocumentForChat: ${doc._id} has incomplete pieces`);
+      return { status: "unavailable" };
+    }
     return {
       status: "ok",
       fileName: doc.fileName,

@@ -154,6 +154,8 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
 - [ ] **9. Keep source links all the way through.** Anthropic's citation feature can't be combined with its strict JSON answer format, so keep Banhall's own quote fields in the structured steps.
 - [ ] **10. Lighter evidence snapshots.** Each run copies all evidence text into `generationSources`; saving a fingerprint and parser version per file would be much lighter. This touches rule 2 ("every draft traces to exact inputs"), so discuss with the owner first.
 
+- [ ] **Release fixture "exclusion-conflict" stopped twice on 2026-10-22.** The AI-written Brief derived no Claim Exclusion, likely since Briefs moved to Sonnet 5.5 (PR #29). Check the fixture or the Brief prompt on the new model.
+
 ### P2: prove it at scale
 
 - [ ] **11. Test at the largest real cases and beyond:** 50 documents of 400k characters each, a 3-hour transcript, 20 picks in one step, a 46-entry Brief, every check failing at once. Record each AI answer's size and why it stopped, per step.

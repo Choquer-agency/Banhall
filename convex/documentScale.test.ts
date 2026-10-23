@@ -7,7 +7,7 @@
  */
 import { convexTest } from "convex-test";
 import type { GenericMutationCtx } from "convex/server";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import schema from "./schema";
@@ -187,5 +187,46 @@ describe("research reads within the limit (2026-10-22, fourth, review fix)", () 
       return ids;
     });
     await expect(t.mutation(internal.research.collectProjectEvidence, { sessionId })).resolves.toBeNull();
+  });
+
+  test("a searched research request over twelve large matching files stays in bounds", { timeout: 180_000 }, async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const ids = await t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", { authId: "auth-research-search", email: "s@banhall.com", role: "writer" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Research search", clientName: "Client", status: "draft", createdBy: userId, ownerId: userId,
+        shareToken: "research-search-token", createdAt: now, updatedAt: now,
+      });
+      const reportId = await ctx.db.insert("reports", {
+        projectId, content: JSON.stringify({ type: "doc", content: [] }), version: 1, generatedAt: now, updatedAt: now, revisionNumber: 0,
+      });
+      const sessionId = await ctx.db.insert("researchSessions", {
+        projectId, reportId, requestedBy: userId, selectedText: "calibration drift", selectionFrom: 0, selectionTo: 17,
+        surroundingContext: "", instruction: "Find calibration drift evidence", externalBrief: "", reportRevisionNumber: 0,
+        status: "researching", createdAt: now, updatedAt: now,
+      });
+      return { projectId, sessionId };
+    });
+    for (let index = 0; index < 12; index += 1) {
+      await t.run(async (ctx) => {
+        // `content: ""`: convex-test cannot search the old index over a row
+        // with no `content` field.
+        const documentId = await ctx.db.insert("projectDocuments", {
+          projectId: ids.projectId, fileName: `match-${index}.txt`, fileType: "txt", content: "", source: "upload",
+          uploadedBy: "writer", createdAt: Date.now(),
+        });
+        const text = Array.from({ length: 9 }, () => `${"語".repeat(30_000)} calibration drift `).join("");
+        await ctx.db.patch(documentId, await writeDocumentText(ctx, { _id: documentId, projectId: ids.projectId }, text));
+      });
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(t.mutation(internal.research.collectProjectEvidence, { sessionId: ids.sessionId })).resolves.toBeNull();
+    } finally {
+      warn.mockRestore();
+    }
+    const sources = await t.run(async (ctx) => await ctx.db.query("researchSources").take(20));
+    expect(sources.length).toBeGreaterThan(0);
   });
 });

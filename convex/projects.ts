@@ -1496,7 +1496,7 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
       // into internal direction.
       ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
       createdAt: now,
-    }, text, now);
+    }, text, now, { storedText: true });
     docIdMap.set(doc._id, documentId);
     copies.push({
       sourceId: doc._id,

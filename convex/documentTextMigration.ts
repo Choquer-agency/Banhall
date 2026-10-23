@@ -26,7 +26,9 @@ import { deriveStoredProcessing } from "../shared/documentStatus";
 import {
   copyRowTextToPieces,
   documentKeepsRowText,
+  documentTextLength,
   documentTextMoved,
+  MAX_DOCUMENT_TEXT_CHARS,
   piecesMatchRowText,
 } from "./lib/documentText";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -78,6 +80,8 @@ export const backfillDocumentTexts = internalMutation({
     scanned: v.number(),
     moved: v.number(),
     clearedAtOnce: v.number(),
+    /** Files longer than new uploads may be (moved all the same; a dry run counts them). */
+    overCap: v.number(),
     isDone: v.boolean(),
     continueCursor: v.string(),
   }),
@@ -91,10 +95,12 @@ export const backfillDocumentTexts = internalMutation({
     const now = Date.now();
     let moved = 0;
     let clearedAtOnce = 0;
+    let overCap = 0;
     for (const doc of page.page) {
       if (documentTextMoved(doc)) continue;
       if (await isProjectDeleting(ctx, doc.projectId)) continue;
       moved += 1;
+      if (documentTextLength(doc) > MAX_DOCUMENT_TEXT_CHARS) overCap += 1;
       if (args.dryRun) continue;
       const fields = await copyRowTextToPieces(ctx, doc, (text) => {
         const derived = deriveStoredProcessing({ fileName: doc.fileName, content: text });
@@ -114,7 +120,7 @@ export const backfillDocumentTexts = internalMutation({
         ...(args.pageSize !== undefined ? { pageSize } : {}),
       });
     }
-    return { scanned: page.page.length, moved, clearedAtOnce, isDone: page.isDone, continueCursor: page.continueCursor };
+    return { scanned: page.page.length, moved, clearedAtOnce, overCap, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });
 

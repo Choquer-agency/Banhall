@@ -55,6 +55,8 @@ import {
  * text, each counted at its worst case before it is read.
  */
 const RESEARCH_CANDIDATE_READ_BYTES = 5 * 1024 * 1024;
+/** Of which the matching pieces may take this much, so file rows always fit. */
+const RESEARCH_PIECE_READ_BYTES = 2 * 1024 * 1024;
 const RESEARCH_EVIDENCE_READ_BYTES = 8 * 1024 * 1024;
 
 const ACTIVE_STATUSES = new Set(["queued", "researching", "reviewing"]);
@@ -405,7 +407,14 @@ export const collectProjectEvidence = internalMutation({
     // during the move cannot pass the function's read limit either.
     const candidateBudget = documentReadBudget(RESEARCH_CANDIDATE_READ_BYTES);
     const documents = evidenceQuery
-      ? await searchProjectDocuments(ctx, session.projectId, evidenceQuery, 12, candidateBudget)
+      ? await searchProjectDocuments(
+          ctx,
+          session.projectId,
+          evidenceQuery,
+          12,
+          candidateBudget,
+          documentReadBudget(RESEARCH_PIECE_READ_BYTES)
+        )
       : (await candidateBudget.list(
           ctx.db
             .query("projectDocuments")
@@ -423,7 +432,10 @@ export const collectProjectEvidence = internalMutation({
       if (document.archived || !documentHasText(document)) continue;
       // A file whose text has not moved was read with its row already.
       const worstCase = documentTextMoved(document) ? documentTextLength(document) * 3 : 0;
-      if (worstCase > bytesLeft) continue;
+      if (worstCase > bytesLeft) {
+        console.warn(`collectProjectEvidence: ${document._id} left out; the evidence read budget is used up`);
+        continue;
+      }
       const content = await readDocumentTextOrNull(ctx, document);
       if (content === null) continue;
       bytesLeft -= worstCase;

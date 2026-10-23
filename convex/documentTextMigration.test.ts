@@ -17,7 +17,7 @@ const modules = import.meta.glob("./**/*.ts");
 type PageArgs = { cursor?: string | null; pageSize?: number; dryRun?: boolean };
 const backfill = makeFunctionReference("documentTextMigration:backfillDocumentTexts") as unknown as FunctionReference<
   "mutation", "internal", PageArgs,
-  { scanned: number; moved: number; clearedAtOnce: number; isDone: boolean; continueCursor: string }
+  { scanned: number; moved: number; clearedAtOnce: number; overCap: number; isDone: boolean; continueCursor: string }
 >;
 const clear = makeFunctionReference("documentTextMigration:clearMovedDocumentContent") as unknown as FunctionReference<
   "mutation", "internal", PageArgs,
@@ -148,8 +148,9 @@ describe("moving old files' text (2026-10-22, fourth, steps 4 and 5)", () => {
 
   test("a row near the 1 MiB limit has its text cleared with the copy, since it cannot also take the facts", async () => {
     const f = await setup();
-    // About 1.02 MB of UTF-8 in 340,000 characters.
-    const wide = "語".repeat(340_000);
+    // About 1.044 MB of UTF-8 in 348,000 characters: with its facts the row
+    // would pass the 1,048,576-byte limit.
+    const wide = "語".repeat(348_000);
     const nearLimitId = await f.t.run(async (ctx) => await ctx.db.insert("projectDocuments", {
       projectId: f.projectId, fileName: "wide.txt", fileType: "txt", content: wide,
       source: "upload", uploadedBy: "writer", processingStatus: "ready", createdAt: Date.now(),
@@ -162,6 +163,24 @@ describe("moving old files' text (2026-10-22, fourth, steps 4 and 5)", () => {
     expect(row.content).toBeUndefined();
     expect(row.textLength).toBe(wide.length);
     expect(await f.t.run(async (ctx) => await readDocumentText(ctx, row))).toBe(wide);
+    vi.useRealTimers();
+  });
+
+  test("an older row longer than new uploads may be is still moved, and a dry run counts it", async () => {
+    const f = await setup();
+    // 1,040,000 characters: over the 1,000,000 cap on new text, within the
+    // old row limit.
+    const long = "a ".repeat(520_000);
+    const longId = await f.t.run(async (ctx) => await ctx.db.insert("projectDocuments", {
+      projectId: f.projectId, fileName: "very-long.txt", fileType: "txt", content: long,
+      source: "upload", uploadedBy: "writer", processingStatus: "ready", createdAt: Date.now(),
+    }));
+    expect(await f.t.mutation(backfill, { dryRun: true })).toMatchObject({ overCap: 1 });
+    expect(await f.t.mutation(backfill, {})).toMatchObject({ overCap: 1 });
+    await run(f.t);
+    const row = await f.t.run(async (ctx) => (await ctx.db.get(longId))!);
+    expect(row.textLength).toBe(long.length);
+    expect(await f.t.run(async (ctx) => await readDocumentText(ctx, row))).toBe(long);
     vi.useRealTimers();
   });
 });

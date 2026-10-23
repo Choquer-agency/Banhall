@@ -261,9 +261,15 @@ export async function writeDocumentText(
   ctx: MutationCtx,
   doc: { _id: Id<"projectDocuments">; projectId: Id<"projects"> },
   text: string,
-  now = Date.now()
+  now = Date.now(),
+  /**
+   * Text already stored (the copy pass, a project copy) is not held to
+   * MAX_DOCUMENT_TEXT_CHARS: an older row may hold up to about 1,048,000
+   * characters, which the row limit allowed. New text is.
+   */
+  options: { storedText?: boolean } = {}
 ): Promise<DocumentTextFacts & { textMovedAt: number }> {
-  assertDocumentTextFits(text);
+  if (!options.storedText) assertDocumentTextFits(text);
   await deleteDocumentText(ctx, doc._id);
   await insertDocumentTextPieces(ctx, doc, text);
   return { ...(await documentTextFacts(text)), textMovedAt: now };
@@ -307,9 +313,11 @@ export async function insertDocumentWithText(
   ctx: MutationCtx,
   fields: DocumentRowFields,
   text: string,
-  now = Date.now()
+  now = Date.now(),
+  /** A copy of text already stored (a project copy) keeps any length it has. */
+  options: { storedText?: boolean } = {}
 ): Promise<Id<"projectDocuments">> {
-  assertDocumentTextFits(text);
+  if (!options.storedText) assertDocumentTextFits(text);
   const documentId = await ctx.db.insert("projectDocuments", {
     ...fields,
     ...(await documentTextFacts(text)),
@@ -377,9 +385,11 @@ export async function searchProjectDocuments(
   projectId: Id<"projects">,
   search: string,
   files: number,
-  budget: DocumentReadBudget = UNBOUNDED_READS
+  budget: DocumentReadBudget = UNBOUNDED_READS,
+  /** The matching pieces' own budget, so row loads always have room left. */
+  pieceBudget: DocumentReadBudget = budget
 ): Promise<Doc<"projectDocuments">[]> {
-  const pieces = await budget.list(
+  const pieces = await pieceBudget.list(
     untilDistinctDocuments(
       ctx.db
         .query("projectDocumentTexts")
@@ -467,7 +477,7 @@ export async function copyRowTextToPieces(
   now = Date.now()
 ): Promise<Partial<Doc<"projectDocuments">>> {
   const text = doc.content ?? "";
-  const facts = await writeDocumentText(ctx, doc, text, now);
+  const facts = await writeDocumentText(ctx, doc, text, now, { storedText: true });
   return { ...facts, ...(doc.processingStatus ? {} : deriveStatus(text)) };
 }
 
