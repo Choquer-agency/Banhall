@@ -9,7 +9,8 @@
  */
 import { convexTest } from "convex-test";
 import { makeFunctionReference, type FunctionReference } from "convex/server";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import type { SearchDocumentsResult } from "./chatDocuments";
@@ -135,5 +136,68 @@ describe("search over moved files (2026-10-22, fourth, step 2)", () => {
     expect(new Set(files.map((doc) => doc._id)).size).toBe(files.length);
     expect(files).toHaveLength(4);
     expect(files.some((doc) => doc.fileName === "long.txt")).toBe(true);
+  });
+});
+
+// 2026-10-22 (fourth), code review fixes.
+describe("search and chat with edge cases of moved files", () => {
+  test("a word that falls at a piece edge is still found once content is cleared", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", { authId: "auth-text-edge", role: "writer" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "edge", clientName: "Kestrel", status: "review", createdBy: userId, shareToken: "edge-token",
+        createdAt: now, updatedAt: now,
+      });
+      const reportId = await ctx.db.insert("reports", {
+        projectId, content: JSON.stringify({ type: "doc", content: [] }), version: 1, generatedAt: now, updatedAt: now, revisionNumber: 0,
+      });
+      await ctx.db.insert("agentChatThreads", { projectId, reportId, agentThreadId: "thread-edge", title: "Chat", createdAt: now });
+      // A plain cut at 32,000 would leave "calib" and "ration" in two pieces.
+      const text = `${"word ".repeat(6_399)}calibration drift reappeared.`;
+      // `content: ""`: convex-test cannot search the old index over a row
+      // with no `content` field (a real backend leaves such rows out of it;
+      // the 2026-10-22 live run searched after the clear pass).
+      const documentId = await ctx.db.insert("projectDocuments", {
+        projectId, fileName: "edge.txt", fileType: "txt", content: "", source: "upload", uploadedBy: "writer", createdAt: now,
+      });
+      await ctx.db.patch(documentId, await writeDocumentText(ctx, { _id: documentId, projectId }, text));
+      return { projectId };
+    });
+    const pieces = await t.run(async (ctx) => await ctx.db.query("projectDocumentTexts").take(5));
+    expect(pieces.some((piece) => piece.text.includes("calibration"))).toBe(true);
+    const result = excerptsOf(await t.query(search, { agentThreadId: "thread-edge", query: "calibration", maxChars: 6_000 }));
+    expect(result.map((excerpt) => "file" in excerpt && excerpt.file)).toEqual(["edge.txt"]);
+    const files = await t.run(async (ctx) => await searchProjectDocuments(ctx, projectId, "calibration", 12));
+    expect(files).toHaveLength(1);
+  });
+
+  test("a file with incomplete pieces is left out of search and chat, never the whole call", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      // Break bench.txt: delete its first piece.
+      const bench = (await ctx.db.query("projectDocuments")
+        .withIndex("by_projectId", (q) => q.eq("projectId", f.movedProjectId))
+        .take(20)).find((doc) => doc.fileName === "bench.txt");
+      if (!bench) throw new Error("missing");
+      const first = await ctx.db.query("projectDocumentTexts")
+        .withIndex("by_documentId_and_start", (q) => q.eq("documentId", bench._id).eq("start", 0))
+        .unique();
+      if (first) await ctx.db.delete(first._id);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const result = await f.t.query(search, { agentThreadId: "thread-moved", query: "calibration drift", maxChars: 6_000 });
+      expect(result.status).toBe("ok");
+      expect(excerptsOf(result).map((excerpt) => "file" in excerpt && excerpt.file)).toEqual(["trial.txt"]);
+      const reportId = await f.t.run(async (ctx) =>
+        (await ctx.db.query("agentChatThreads").collect()).find((row) => row.agentThreadId === "thread-moved")!.reportId);
+      const context = await f.t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread-moved" });
+      expect(context.documents.find((doc) => doc.fileName === "bench.txt")?.content).toBe("");
+      expect(context.documents.find((doc) => doc.fileName === "trial.txt")?.content).toContain("calibration");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

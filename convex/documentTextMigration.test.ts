@@ -16,10 +16,12 @@ const modules = import.meta.glob("./**/*.ts");
 
 type PageArgs = { cursor?: string | null; pageSize?: number; dryRun?: boolean };
 const backfill = makeFunctionReference("documentTextMigration:backfillDocumentTexts") as unknown as FunctionReference<
-  "mutation", "internal", PageArgs, { scanned: number; moved: number; isDone: boolean; continueCursor: string }
+  "mutation", "internal", PageArgs,
+  { scanned: number; moved: number; clearedAtOnce: number; isDone: boolean; continueCursor: string }
 >;
 const clear = makeFunctionReference("documentTextMigration:clearMovedDocumentContent") as unknown as FunctionReference<
-  "mutation", "internal", PageArgs, { scanned: number; cleared: number; mismatched: number; isDone: boolean; continueCursor: string }
+  "mutation", "internal", PageArgs,
+  { scanned: number; cleared: number; mismatched: number; mismatchedIds: string[]; isDone: boolean; continueCursor: string }
 >;
 const status = makeFunctionReference("documentTextMigration:documentTextMoveStatus") as unknown as FunctionReference<
   "query", "internal", { cursor?: string | null },
@@ -106,7 +108,11 @@ describe("moving old files' text (2026-10-22, fourth, steps 4 and 5)", () => {
       if (piece) await ctx.db.patch(piece._id, { text: `X${piece.text.slice(1)}` });
     });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    expect(await f.t.mutation(clear, { dryRun: true })).toMatchObject({ cleared: 2, mismatched: 1 });
+    expect(await f.t.mutation(clear, { dryRun: true })).toMatchObject({
+      cleared: 2,
+      mismatched: 1,
+      mismatchedIds: [f.truncatedId],
+    });
     expect(await f.t.run(async (ctx) => (await ctx.db.get(f.longId))!.content)).toBe(before);
     expect(await f.t.mutation(clear, {})).toMatchObject({ cleared: 2, mismatched: 1 });
     await run(f.t);
@@ -137,6 +143,25 @@ describe("moving old files' text (2026-10-22, fourth, steps 4 and 5)", () => {
     expect(first.isDone).toBe(false);
     await run(f.t);
     expect(await f.t.query(status, {})).toMatchObject({ unmoved: 1 });
+    vi.useRealTimers();
+  });
+
+  test("a row near the 1 MiB limit has its text cleared with the copy, since it cannot also take the facts", async () => {
+    const f = await setup();
+    // About 1.02 MB of UTF-8 in 340,000 characters.
+    const wide = "語".repeat(340_000);
+    const nearLimitId = await f.t.run(async (ctx) => await ctx.db.insert("projectDocuments", {
+      projectId: f.projectId, fileName: "wide.txt", fileType: "txt", content: wide,
+      source: "upload", uploadedBy: "writer", processingStatus: "ready", createdAt: Date.now(),
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    expect(await f.t.mutation(backfill, {})).toMatchObject({ clearedAtOnce: 1 });
+    await run(f.t);
+    warn.mockRestore();
+    const row = await f.t.run(async (ctx) => (await ctx.db.get(nearLimitId))!);
+    expect(row.content).toBeUndefined();
+    expect(row.textLength).toBe(wide.length);
+    expect(await f.t.run(async (ctx) => await readDocumentText(ctx, row))).toBe(wide);
     vi.useRealTimers();
   });
 });

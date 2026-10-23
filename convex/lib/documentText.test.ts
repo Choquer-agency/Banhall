@@ -17,9 +17,12 @@ import {
   documentTextFacts,
   documentTextLength,
   documentTextPieceEnds,
+  MAX_DOCUMENT_TEXT_CHARS,
   readDocumentText,
+  readDocumentTextSafeRange,
   writeDocumentText,
 } from "./documentText";
+import { safeRange } from "../chatDocuments";
 
 const modules = import.meta.glob("../**/*.ts");
 const writerAuthId = "auth-writer-document-text";
@@ -185,6 +188,61 @@ describe("document text pieces (2026-10-22, fourth)", () => {
     await t.run(async (ctx) => {
       expect(await ctx.db.get(documentId)).toBeNull();
       expect(await ctx.db.query("projectDocumentTexts").take(1)).toEqual([]);
+    });
+  });
+});
+
+// 2026-10-22 (fourth), code review fixes.
+describe("document text pieces after review", () => {
+  test("pieces end between words when a break is near, and the text still joins exactly", () => {
+    const text = `${"word ".repeat(7_000)}calibration${"x".repeat(40_000)}`;
+    const ends = documentTextPieceEnds(text);
+    expect(text[ends[0]! - 1]).toBe(" ");
+    let at = 0;
+    const joined = ends.map((end) => {
+      const piece = text.slice(at, end);
+      at = end;
+      return piece;
+    }).join("");
+    expect(joined).toBe(text);
+    // A run with no break is cut where it is.
+    expect(documentTextPieceEnds("y".repeat(70_000))).toEqual([32_000, 64_000, 70_000]);
+  });
+
+  test("refuses text past the cap, and a file with extra pieces can still be deleted", async () => {
+    const { t, insertDocument, writer } = await setup();
+    const documentId = await insertDocument("seed");
+    await t.run(async (ctx) => {
+      const doc = await ctx.db.get(documentId);
+      if (!doc) throw new Error("missing");
+      await expect(writeDocumentText(ctx, doc, "z".repeat(MAX_DOCUMENT_TEXT_CHARS + 1))).rejects.toMatchObject({
+        data: { code: "INVALID_INPUT", reason: "DOCUMENT_TEXT_TOO_LONG" },
+      });
+      // 70 pieces, more than a file should ever have.
+      for (let index = 0; index < 70; index += 1) {
+        await ctx.db.insert("projectDocumentTexts", { documentId, projectId: doc.projectId, start: index, text: "a" });
+      }
+    });
+    await writer.mutation(api.documents.deleteDocument, { documentId });
+    expect(await t.run(async (ctx) => await ctx.db.query("projectDocumentTexts").take(1))).toEqual([]);
+  });
+
+  test("the safe range read matches safeRange for integer offsets, empty ranges included", async () => {
+    const { t, insertDocument } = await setup();
+    const text = textWithPairsAtEdges(DOCUMENT_TEXT_PIECE_CHARS * 2);
+    const documentId = await insertDocument(text);
+    await move(t, documentId, text);
+    await t.run(async (ctx) => {
+      const doc = await ctx.db.get(documentId);
+      if (!doc) throw new Error("missing");
+      const edge = DOCUMENT_TEXT_PIECE_CHARS - 1;
+      for (const [start, end] of [[edge + 1, edge + 1], [edge + 1, edge], [edge, edge + 2], [0, 0], [5, 10], [edge + 1, edge + 30]]) {
+        const expected = safeRange(text, start!, end!);
+        expect(await readDocumentTextSafeRange(ctx, doc, start!, end!), `${start}..${end}`).toEqual({
+          ...expected,
+          text: text.slice(expected.start, expected.end),
+        });
+      }
     });
   });
 });

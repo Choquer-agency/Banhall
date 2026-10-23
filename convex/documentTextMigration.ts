@@ -8,16 +8,20 @@
  *   npx convex run documentTextMigration:backfillDocumentTexts '{}'
  *   (check the status until every file is moved)
  *   npx convex run documentTextMigration:clearMovedDocumentContent '{"dryRun":true}'
+ *   (a dry run reports one page: pass each page's continueCursor back in
+ *   until isDone, and stop if any page names mismatchedIds)
  *   npx convex run documentTextMigration:clearMovedDocumentContent '{}'
  *
  * The copy pass keeps `content`, so readers can fall back until the clear
- * pass. Each pass reads at most MIGRATION_PAGE_MAX_BYTES_READ of rows a page,
+ * pass. Files whose project no longer exists are skipped and stay counted as
+ * unmoved (a live run on 2026-10-22 found 31 such leftovers among 303). Each pass reads at most MIGRATION_PAGE_MAX_BYTES_READ of rows a page,
  * skips projects being deleted and schedules its own next page; a dry run
  * reports one page and writes nothing. Both are safe to run twice.
  */
-import { v } from "convex/values";
+import { getConvexSize, v } from "convex/values";
 import { makeFunctionReference, type FunctionReference } from "convex/server";
 import { internalMutation, internalQuery } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { deriveStoredProcessing } from "../shared/documentStatus";
 import {
   copyRowTextToPieces,
@@ -30,10 +34,20 @@ import { isProjectDeleting } from "./lib/projectDeletion";
 /** Files per page; pages are also bounded by bytes read. */
 const MIGRATION_PAGE_SIZE = 25;
 /**
- * A page writes about what it reads (the pieces, then the row rewritten) and
- * the clear pass reads the pieces too, so 4 MiB keeps both under 16 MiB.
+ * A page writes about twice what it reads (the pieces, then the row
+ * rewritten) and the clear pass reads the pieces too. 2 MiB keeps both well
+ * under 16 MiB, and with MIGRATION_PAGE_DELAY_MS between pages, under the
+ * 4 MiB a second a local backend accepts (seen on a live run 2026-10-22).
  */
-const MIGRATION_PAGE_MAX_BYTES_READ = 4 * 1024 * 1024;
+const MIGRATION_PAGE_MAX_BYTES_READ = 2 * 1024 * 1024;
+/** Milliseconds between pages, so the writes are spread out. */
+const MIGRATION_PAGE_DELAY_MS = 1_500;
+/**
+ * A row this close to Convex's 1 MiB document limit cannot also take the
+ * facts (the preview alone is up to about 6 KB), so its text is cleared in
+ * the same patch: the pieces were just written from that very text.
+ */
+const ROW_SAFE_BYTES = 1_000_000;
 
 const pageArgs = {
   cursor: v.optional(v.union(v.string(), v.null())),
@@ -63,6 +77,7 @@ export const backfillDocumentTexts = internalMutation({
   returns: v.object({
     scanned: v.number(),
     moved: v.number(),
+    clearedAtOnce: v.number(),
     isDone: v.boolean(),
     continueCursor: v.string(),
   }),
@@ -75,6 +90,7 @@ export const backfillDocumentTexts = internalMutation({
     });
     const now = Date.now();
     let moved = 0;
+    let clearedAtOnce = 0;
     for (const doc of page.page) {
       if (documentTextMoved(doc)) continue;
       if (await isProjectDeleting(ctx, doc.projectId)) continue;
@@ -84,15 +100,21 @@ export const backfillDocumentTexts = internalMutation({
         const derived = deriveStoredProcessing({ fileName: doc.fileName, content: text });
         return { processingStatus: derived.status, processingDetail: derived.detail ?? undefined };
       }, now);
-      await ctx.db.patch(doc._id, fields);
+      if (getConvexSize({ ...doc, ...fields }) > ROW_SAFE_BYTES) {
+        clearedAtOnce += 1;
+        console.warn(`backfillDocumentTexts: ${doc._id} is near the row limit; its text was cleared with the copy`);
+        await ctx.db.patch(doc._id, { ...fields, content: undefined });
+      } else {
+        await ctx.db.patch(doc._id, fields);
+      }
     }
     if (!page.isDone && !args.dryRun) {
-      await ctx.scheduler.runAfter(0, backfillRef, {
+      await ctx.scheduler.runAfter(MIGRATION_PAGE_DELAY_MS, backfillRef, {
         cursor: page.continueCursor,
         ...(args.pageSize !== undefined ? { pageSize } : {}),
       });
     }
-    return { scanned: page.page.length, moved, isDone: page.isDone, continueCursor: page.continueCursor };
+    return { scanned: page.page.length, moved, clearedAtOnce, isDone: page.isDone, continueCursor: page.continueCursor };
   },
 });
 
@@ -108,6 +130,8 @@ export const clearMovedDocumentContent = internalMutation({
     scanned: v.number(),
     cleared: v.number(),
     mismatched: v.number(),
+    /** The files whose pieces differ, so a dry run can name them. */
+    mismatchedIds: v.array(v.id("projectDocuments")),
     isDone: v.boolean(),
     continueCursor: v.string(),
   }),
@@ -120,11 +144,13 @@ export const clearMovedDocumentContent = internalMutation({
     });
     let cleared = 0;
     let mismatched = 0;
+    const mismatchedIds: Id<"projectDocuments">[] = [];
     for (const doc of page.page) {
       if (!documentKeepsRowText(doc)) continue;
       if (await isProjectDeleting(ctx, doc.projectId)) continue;
       if (!(await piecesMatchRowText(ctx, doc))) {
         mismatched += 1;
+        mismatchedIds.push(doc._id);
         console.warn(`clearMovedDocumentContent: ${doc._id} pieces differ from its content; left as it is`);
         continue;
       }
@@ -132,7 +158,7 @@ export const clearMovedDocumentContent = internalMutation({
       if (!args.dryRun) await ctx.db.patch(doc._id, { content: undefined });
     }
     if (!page.isDone && !args.dryRun) {
-      await ctx.scheduler.runAfter(0, clearRef, {
+      await ctx.scheduler.runAfter(MIGRATION_PAGE_DELAY_MS, clearRef, {
         cursor: page.continueCursor,
         ...(args.pageSize !== undefined ? { pageSize } : {}),
       });
@@ -141,6 +167,7 @@ export const clearMovedDocumentContent = internalMutation({
       scanned: page.page.length,
       cleared,
       mismatched,
+      mismatchedIds,
       isDone: page.isDone,
       continueCursor: page.continueCursor,
     };

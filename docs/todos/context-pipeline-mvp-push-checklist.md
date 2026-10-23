@@ -223,12 +223,47 @@ Each pass reads at most 4 MiB a page, skips projects being deleted and schedules
 1. [ ] `npx convex run documentTextMigration:documentTextMoveStatus '{}'`, then each page by its `continueCursor`, to count unmoved files.
 2. [ ] `npx convex run documentTextMigration:backfillDocumentTexts '{"dryRun":true}'`, then `'{}'`. Check the status until every file is moved.
 3. [ ] Use the app for a day: chat, search, previews and drafts on old projects.
-4. [ ] `npx convex run documentTextMigration:clearMovedDocumentContent '{"dryRun":true}'`. It must report `mismatched: 0`. Then `'{}'`.
+4. [ ] `npx convex run documentTextMigration:clearMovedDocumentContent '{"dryRun":true}'`, page by page: pass each page's `continueCursor` back in until `isDone`. Every page must report `mismatched: 0` and an empty `mismatchedIds`. Then `'{}'`.
 5. [ ] A later entry drops `content` and the old search index.
 
 ### Automated, live on localhost
 
-- [ ] On a local copy of dev:
-  1. run the copy pass, the status and the clear pass;
-  2. check that the file list, a chat turn's context, chat search and a preview give the same results before and after;
-  3. rerun the writer-settings-document release fixture.
+- [x] **On a local copy of dev** (2026-10-22, 17:44 to 18:10, commit d9735be5).
+  - **Files:** 303 in all. 31 belong to projects that no longer exist; both passes skip them, and they stay counted as unmoved.
+  - **Status before:** 301 unmoved, plus the 2 harness fixture files already stored the new way.
+  - **Copy pass:** moved every file of a live project.
+  - **Clear pass:** a dry run of every page would clear 270 and found 0 mismatches. The real pass then cleared all 270.
+  - **Same at all three points.** A script recorded these for the project with the most files (27 files), before the copy, after it and after the clear, and all five matched:
+    - the file list;
+    - every file's whole text;
+    - the chat turn's context;
+    - the search terms;
+    - three chat searches.
+  - **Found:** the local backend refused some pages ("limited to 4 MiB bytes written per second"). They went through on retry, and pages are now 2 MiB, 1.5 seconds apart.
+- [ ] Rerun the writer-settings-document release fixture on the new code.
+
+## Commit 8: fixes from the code review of the text move
+
+Two code reviewers, Claude Opus 5.5 (high effort) and gpt-6-astra (medium effort), both said "ship after fixes". Every finding is fixed:
+
+- The server refuses text over 1,000,000 characters, with a message the writer can act on. Deleting a file removes its pieces in batches, so any file can be deleted.
+- One file whose pieces are incomplete is left out of a chat turn, a search or research, never failing the whole call. Frozen evidence and previews still fail rather than read wrong text.
+- Pieces end between words where they can, so search never misses a word that falls on a piece edge.
+- Research reads its candidates within 5 MiB and the moved files' text within 8 MiB. Eight 900,000-character files in a 3-byte script used to pass the 16 MiB read limit.
+- A row near the 1 MiB limit has its text cleared in the copy pass itself, so the pass never stalls. The clear pass names any file whose pieces differ.
+- Migration pages are spaced out (seen live).
+- Pinned files say why they are not shown.
+- The safe-range read matches `safeRange` for empty ranges too.
+- The design record names the right functions and the right pinned-file rule.
+
+### Automated, offline
+
+- [x] The new tests:
+  - a word at a piece edge is still found once `content` is cleared;
+  - a damaged file is left out of search and chat;
+  - research with eight very large files stays in bounds. It fails with "Read too much data" when the budget is removed;
+  - the cap, and deleting a file with 70 pieces;
+  - the safe range;
+  - the near-limit row;
+  - a chat turn compared with the old full-text evidence: byte for byte the same.
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,134 tests in 463 files.

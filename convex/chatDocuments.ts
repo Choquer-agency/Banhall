@@ -22,7 +22,7 @@ import { isProjectDeleting } from "./lib/projectDeletion";
 import {
   documentHasText,
   documentTextLength,
-  readDocumentText,
+  readDocumentTextOrNull,
   readDocumentTextSafeRange,
   searchPieceCap,
   untilDistinctDocuments,
@@ -743,10 +743,15 @@ export const searchForChat = internalQuery({
       filesRead += 1;
       const current = doc;
       // Charged as the text it returns (an object, which the budget sizes).
-      const read = await budget.read(async () => ({ text: await readDocumentText(ctx, current) }));
+      const read = await budget.read(async () => ({ text: await readDocumentTextOrNull(ctx, current) }));
       if (!read.ok) {
         complete = false;
         break;
+      }
+      // A file whose pieces are incomplete is left out, never the search.
+      if (read.value.text === null) {
+        complete = false;
+        continue;
       }
       const content = read.value.text;
       for (const span of chunkSpans(content, CHAT_SEARCH_EXCERPT_CHARS)) {

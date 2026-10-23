@@ -11,6 +11,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { writeDocumentText } from "./lib/documentText";
 
 const modules = import.meta.glob("./**/*.ts");
 const writerAuthId = "auth-writer-document-scale";
@@ -150,5 +151,41 @@ describe("50 files of 400,000 characters (2026-10-22, fourth)", () => {
         .take(FILES + 5));
     expect(rows).toHaveLength(FILES + 1);
     expect(duplicate.bytesRead).toBeLessThan(METADATA_READ_BUDGET + FILE_CHARS * 2);
+  });
+});
+
+describe("research reads within the limit (2026-10-22, fourth, review fix)", () => {
+  test("eight 900,000-character files in a 3-byte script do not pass the read limit", { timeout: 180_000 }, async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { sessionId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const userId = await ctx.db.insert("users", { authId: "auth-research-scale", email: "w@banhall.com", role: "writer" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Research scale", clientName: "Client", status: "draft", createdBy: userId, ownerId: userId,
+        shareToken: "research-scale-token", createdAt: now, updatedAt: now,
+      });
+      const reportId = await ctx.db.insert("reports", {
+        projectId, content: JSON.stringify({ type: "doc", content: [] }), version: 1, generatedAt: now, updatedAt: now, revisionNumber: 0,
+      });
+      const sessionId = await ctx.db.insert("researchSessions", {
+        projectId, reportId, requestedBy: userId, selectedText: "", selectionFrom: 0, selectionTo: 0,
+        surroundingContext: "", instruction: "", externalBrief: "", reportRevisionNumber: 0,
+        status: "researching", createdAt: now, updatedAt: now,
+      });
+      return { sessionId, projectId };
+    }).then(async (ids) => {
+      // About 2.7 MB of text each, written one file per transaction.
+      for (let index = 0; index < 8; index += 1) {
+        await t.run(async (ctx) => {
+          const documentId = await ctx.db.insert("projectDocuments", {
+            projectId: ids.projectId, fileName: `wide-${index}.txt`, fileType: "txt", source: "upload",
+            uploadedBy: "writer", createdAt: Date.now(),
+          });
+          await ctx.db.patch(documentId, await writeDocumentText(ctx, { _id: documentId, projectId: ids.projectId }, "語".repeat(900_000)));
+        });
+      }
+      return ids;
+    });
+    await expect(t.mutation(internal.research.collectProjectEvidence, { sessionId })).resolves.toBeNull();
   });
 });

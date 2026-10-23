@@ -17,7 +17,7 @@ import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { countTextWords } from "../../shared/wordCount";
-import { sha256 } from "./contracts";
+import { domainError, sha256 } from "./contracts";
 
 /** Characters per stored piece: one piece covers a chat file's shown part. */
 export const DOCUMENT_TEXT_PIECE_CHARS = 32_000;
@@ -33,6 +33,25 @@ export const DOCUMENT_TEXT_PREVIEW_CHARS = 2_000;
  * Reading or deleting more fails closed.
  */
 export const MAX_DOCUMENT_TEXT_PIECES = 64;
+/**
+ * 2026-10-22 (fourth, code review): the most text a file may store, checked
+ * on the server. The 1 MiB row limit used to cap it; the largest real path
+ * is an intake file of 900,000 characters. Well inside
+ * MAX_DOCUMENT_TEXT_PIECES pieces even when every piece moves back to a
+ * word break.
+ */
+export const MAX_DOCUMENT_TEXT_CHARS = 1_000_000;
+
+/** Refuses text longer than MAX_DOCUMENT_TEXT_CHARS, in words a writer can act on. */
+export function assertDocumentTextFits(text: string): void {
+  if (text.length > MAX_DOCUMENT_TEXT_CHARS) {
+    domainError(
+      "INVALID_INPUT",
+      `This file's text is too long to keep (${text.length.toLocaleString("en-US")} characters; the most is ${MAX_DOCUMENT_TEXT_CHARS.toLocaleString("en-US")}). Split it into smaller files.`,
+      { reason: "DOCUMENT_TEXT_TOO_LONG" }
+    );
+  }
+}
 
 type TextFields = Pick<
   Doc<"projectDocuments">,
@@ -82,17 +101,68 @@ export function documentHasText(doc: TextFields): boolean {
 
 const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
 
-/** Where each piece of `text` ends: never inside a surrogate pair. */
+/**
+ * How far back a piece's end may move to fall between words, so the search
+ * index (one per piece) never sees half a word. Text with no break that
+ * close is cut where it is.
+ */
+const PIECE_WORD_BREAK_CHARS = 1_000;
+const isBreak = (char: string) => /[\s.,;:!?()[\]{}"'\u2013\u2014/\\|]/u.test(char);
+
+/**
+ * Where each piece of `text` ends: never inside a surrogate pair, and
+ * between words when a break falls in the last PIECE_WORD_BREAK_CHARS
+ * characters, so a word is never split across two pieces' search entries.
+ */
 export function documentTextPieceEnds(text: string, pieceChars = DOCUMENT_TEXT_PIECE_CHARS): number[] {
   const ends: number[] = [];
   let at = 0;
   while (at < text.length) {
     let end = Math.min(text.length, at + pieceChars);
+    if (end < text.length && !isBreak(text[end - 1]!) && !isBreak(text[end]!)) {
+      const floor = Math.max(at + 1, end - PIECE_WORD_BREAK_CHARS);
+      for (let candidate = end - 1; candidate >= floor; candidate -= 1) {
+        if (isBreak(text[candidate - 1]!)) {
+          end = candidate;
+          break;
+        }
+      }
+    }
     if (end < text.length && end - 1 > at && isHighSurrogate(text.charCodeAt(end - 1))) end -= 1;
     ends.push(end);
     at = end;
   }
   return ends;
+}
+
+/**
+ * A moved file whose pieces do not cover what was asked. Readers that can do
+ * without one file (chat, search, research) catch it and leave the file out;
+ * readers that need exact text (frozen evidence, previews) let it fail.
+ */
+export class DocumentTextIncompleteError extends Error {
+  constructor(message = "Document text pieces are incomplete") {
+    super(message);
+    this.name = "DocumentTextIncompleteError";
+  }
+}
+
+/** The text, or null when a moved file's pieces are incomplete. */
+export async function readDocumentTextOrNull(
+  ctx: QueryCtx,
+  doc: TextFields & { _id: Id<"projectDocuments"> },
+  start = 0,
+  end?: number
+): Promise<string | null> {
+  try {
+    return await readDocumentText(ctx, doc, start, end);
+  } catch (error) {
+    if (error instanceof DocumentTextIncompleteError) {
+      console.warn(`document text: ${doc._id} has incomplete pieces; left out`);
+      return null;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -117,21 +187,21 @@ export async function readDocumentText(
     .withIndex("by_documentId_and_start", (q) => q.eq("documentId", doc._id).lte("start", from))
     .order("desc")
     .first();
-  if (!covering) throw new Error("Document text pieces are incomplete");
+  if (!covering) throw new DocumentTextIncompleteError();
   const after = await ctx.db
     .query("projectDocumentTexts")
     .withIndex("by_documentId_and_start", (q) =>
       q.eq("documentId", doc._id).gt("start", covering.start).lt("start", to))
     .take(MAX_DOCUMENT_TEXT_PIECES + 1);
-  if (after.length > MAX_DOCUMENT_TEXT_PIECES) throw new Error("Document text has too many pieces");
+  if (after.length > MAX_DOCUMENT_TEXT_PIECES) throw new DocumentTextIncompleteError("Document text has too many pieces");
   let joined = covering.text;
   for (const piece of after) {
     if (piece.start !== covering.start + joined.length) {
-      throw new Error("Document text pieces are incomplete");
+      throw new DocumentTextIncompleteError();
     }
     joined += piece.text;
   }
-  if (covering.start + joined.length < to) throw new Error("Document text pieces are incomplete");
+  if (covering.start + joined.length < to) throw new DocumentTextIncompleteError();
   return joined.slice(from - covering.start, to - covering.start);
 }
 
@@ -156,8 +226,8 @@ const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
 /**
  * A range that never splits a character, and its text: the same range and
- * text `safeRange(content, start, end)` and `content.slice` gave, reading
- * only one character past each edge.
+ * text `safeRange(content, start, end)` and `content.slice` gave for integer
+ * offsets, reading only one character past each edge.
  */
 export async function readDocumentTextSafeRange(
   ctx: QueryCtx,
@@ -169,7 +239,8 @@ export async function readDocumentTextSafeRange(
   let from = Math.max(0, Math.min(start, length));
   let to = Math.max(from, Math.min(end, length));
   const windowStart = Math.max(0, from - 1);
-  const window = await readDocumentText(ctx, doc, windowStart, to);
+  // Through `from` itself even for an empty range, which safeRange checks.
+  const window = await readDocumentText(ctx, doc, windowStart, Math.min(length, Math.max(to, from + 1)));
   const codeAt = (offset: number) => window.charCodeAt(offset - windowStart);
   if (from > 0 && from < length && isLowSurrogate(codeAt(from))) from -= 1;
   if (to > from && to < length && isHighSurrogate(codeAt(to - 1))) to -= 1;
@@ -192,6 +263,7 @@ export async function writeDocumentText(
   text: string,
   now = Date.now()
 ): Promise<DocumentTextFacts & { textMovedAt: number }> {
+  assertDocumentTextFits(text);
   await deleteDocumentText(ctx, doc._id);
   await insertDocumentTextPieces(ctx, doc, text);
   return { ...(await documentTextFacts(text)), textMovedAt: now };
@@ -237,6 +309,7 @@ export async function insertDocumentWithText(
   text: string,
   now = Date.now()
 ): Promise<Id<"projectDocuments">> {
+  assertDocumentTextFits(text);
   const documentId = await ctx.db.insert("projectDocuments", {
     ...fields,
     ...(await documentTextFacts(text)),
@@ -252,12 +325,16 @@ export async function deleteDocumentText(
   ctx: MutationCtx,
   documentId: Id<"projectDocuments">
 ): Promise<void> {
-  const pieces = await ctx.db
-    .query("projectDocumentTexts")
-    .withIndex("by_documentId_and_start", (q) => q.eq("documentId", documentId))
-    .take(MAX_DOCUMENT_TEXT_PIECES + 1);
-  if (pieces.length > MAX_DOCUMENT_TEXT_PIECES) throw new Error("Document text has too many pieces");
-  for (const piece of pieces) await ctx.db.delete(piece._id);
+  // In batches until none are left, so a file with more pieces than
+  // expected can still be deleted.
+  for (;;) {
+    const pieces = await ctx.db
+      .query("projectDocumentTexts")
+      .withIndex("by_documentId_and_start", (q) => q.eq("documentId", documentId))
+      .take(MAX_DOCUMENT_TEXT_PIECES);
+    for (const piece of pieces) await ctx.db.delete(piece._id);
+    if (pieces.length < MAX_DOCUMENT_TEXT_PIECES) return;
+  }
 }
 
 /**
@@ -299,31 +376,62 @@ export async function searchProjectDocuments(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   search: string,
-  files: number
+  files: number,
+  budget: DocumentReadBudget = UNBOUNDED_READS
 ): Promise<Doc<"projectDocuments">[]> {
-  const pieces: Doc<"projectDocumentTexts">[] = [];
-  for await (const piece of untilDistinctDocuments(
+  const pieces = await budget.list(
+    untilDistinctDocuments(
+      ctx.db
+        .query("projectDocumentTexts")
+        .withSearchIndex("search_text", (q) => q.search("text", search).eq("projectId", projectId)),
+      files
+    ),
+    searchPieceCap(files)
+  );
+  const unmoved = await budget.list(
     ctx.db
-      .query("projectDocumentTexts")
-      .withSearchIndex("search_text", (q) => q.search("text", search).eq("projectId", projectId)),
+      .query("projectDocuments")
+      .withSearchIndex("search_content", (q) => q.search("content", search).eq("projectId", projectId)),
     files
-  )) {
-    pieces.push(piece);
-    if (pieces.length >= searchPieceCap(files)) break;
-  }
-  const unmoved = await ctx.db
-    .query("projectDocuments")
-    .withSearchIndex("search_content", (q) => q.search("content", search).eq("projectId", projectId))
-    .take(files);
-  const byId = new Map(unmoved.map((doc) => [doc._id, doc] as const));
+  );
+  const byId = new Map(unmoved.rows.map((doc) => [doc._id, doc] as const));
   const found: Doc<"projectDocuments">[] = [];
-  for (const documentId of new Set([...pieces.map((piece) => piece.documentId), ...unmoved.map((doc) => doc._id)])) {
+  for (const documentId of new Set([...pieces.rows.map((piece) => piece.documentId), ...unmoved.rows.map((doc) => doc._id)])) {
     if (found.length >= files) break;
-    const doc = byId.get(documentId) ?? (await ctx.db.get(documentId));
+    let doc = byId.get(documentId) ?? null;
+    if (!doc) {
+      const loaded = await budget.read(() => ctx.db.get(documentId));
+      if (!loaded.ok) break;
+      doc = loaded.value;
+    }
     if (doc && doc.projectId === projectId) found.push(doc);
   }
   return found;
 }
+
+/**
+ * The read budget a search may take (documentReadBudget in
+ * convex/chatDocuments.ts has this shape).
+ */
+export type DocumentReadBudget = {
+  read<T>(fn: () => Promise<T>, extraBytes?: number): Promise<{ ok: true; value: T } | { ok: false }>;
+  list<T>(source: AsyncIterable<T>, cap: number): Promise<{ rows: T[]; complete: boolean }>;
+};
+
+/** No budget: reads as many rows as asked for. */
+const UNBOUNDED_READS: DocumentReadBudget = {
+  async read(fn) {
+    return { ok: true, value: await fn() };
+  },
+  async list(source, cap) {
+    const rows = [];
+    for await (const row of source) {
+      if (rows.length >= cap) return { rows, complete: false };
+      rows.push(row);
+    }
+    return { rows, complete: true };
+  },
+};
 
 /**
  * Pieces a search reads for `files` files: enough to pass one file whose

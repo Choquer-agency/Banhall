@@ -23,7 +23,15 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { listProjectTranscripts } from "./lib/transcripts";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
-import { documentHasText, readDocumentText, searchProjectDocuments } from "./lib/documentText";
+import {
+  documentHasText,
+  documentTextLength,
+  documentTextMoved,
+  readDocumentTextOrNull,
+  searchProjectDocuments,
+} from "./lib/documentText";
+import { documentReadBudget } from "./chatDocuments";
+
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
   MAX_CONTEXT_TEXT,
@@ -40,6 +48,14 @@ import {
   vetNoteTooLongMessage,
   vetWriterNote,
 } from "../shared/researchPresets";
+
+/**
+ * 2026-10-22 (fourth): research's reads for its project evidence, within the
+ * 16 MiB a function may read: candidate pieces and rows, then the moved files'
+ * text, each counted at its worst case before it is read.
+ */
+const RESEARCH_CANDIDATE_READ_BYTES = 5 * 1024 * 1024;
+const RESEARCH_EVIDENCE_READ_BYTES = 8 * 1024 * 1024;
 
 const ACTIVE_STATUSES = new Set(["queued", "researching", "reviewing"]);
 
@@ -385,21 +401,33 @@ export const collectProjectEvidence = internalMutation({
     const evidenceQuery = projectEvidenceSearchQuery(query);
     // 2026-10-22 (fourth): found through the pieces' index too, and read
     // through the text helper.
+    // The candidate reads (pieces, rows) share one budget, so a search
+    // during the move cannot pass the function's read limit either.
+    const candidateBudget = documentReadBudget(RESEARCH_CANDIDATE_READ_BYTES);
     const documents = evidenceQuery
-      ? await searchProjectDocuments(ctx, session.projectId, evidenceQuery, 12)
-      : await ctx.db
-          .query("projectDocuments")
-          .withIndex("by_projectId", (q) => q.eq("projectId", session.projectId))
-          .order("desc")
-          .take(8);
+      ? await searchProjectDocuments(ctx, session.projectId, evidenceQuery, 12, candidateBudget)
+      : (await candidateBudget.list(
+          ctx.db
+            .query("projectDocuments")
+            .withIndex("by_projectId", (q) => q.eq("projectId", session.projectId))
+            .order("desc"),
+          8
+        )).rows;
+    // At most RESEARCH_EVIDENCE_READ_BYTES of text, each file counted at
+    // its worst case (3 bytes a character) before it is read, so a few very
+    // large files cannot pass the function's read limit. A file whose pieces
+    // are incomplete is left out.
     const readable = [];
+    let bytesLeft = RESEARCH_EVIDENCE_READ_BYTES;
     for (const document of documents) {
       if (document.archived || !documentHasText(document)) continue;
-      readable.push({
-        id: document._id,
-        title: document.fileName,
-        content: await readDocumentText(ctx, document),
-      });
+      // A file whose text has not moved was read with its row already.
+      const worstCase = documentTextMoved(document) ? documentTextLength(document) * 3 : 0;
+      if (worstCase > bytesLeft) continue;
+      const content = await readDocumentTextOrNull(ctx, document);
+      if (content === null) continue;
+      bytesLeft -= worstCase;
+      readable.push({ id: document._id, title: document.fileName, content });
     }
     const evidence = selectProjectEvidence(readable, query, 6);
     const now = Date.now();

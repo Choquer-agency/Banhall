@@ -33,6 +33,7 @@ import {
   documentTextLength,
   documentTextPreview,
   readDocumentText,
+  readDocumentTextOrNull,
 } from "./lib/documentText";
 
 /**
@@ -3290,18 +3291,22 @@ export const getChatContextV2 = internalQuery({
     // order and by the rule `buildChatEvidence` spends them: the settings
     // document whole, then the first `maxDocuments` files with text, each to
     // just past the part shown so its cut and notice match the whole text.
+    // Bounded without the read budget: the settings document (at most
+    // 1,000,000 characters) and 12 files of about 21,000 characters each.
     const shownText = new Map<number, string>();
     const perDocumentChars = evidenceBudget.perDocumentTokens * CHARS_PER_TOKEN;
     let readable = 0;
     for (const entry of chatFileOrder(documentViews)) {
       const document = activeDocuments[entry.index];
       if (!document) continue;
+      // A file whose pieces are incomplete is shown with no text, so one
+      // damaged file never stops the turn.
       if (entry.settings) {
-        shownText.set(entry.index, await readDocumentText(ctx, document));
+        shownText.set(entry.index, (await readDocumentTextOrNull(ctx, document)) ?? "");
       } else if (documentTextLength(document) > 0 && readable++ < evidenceBudget.maxDocuments) {
         shownText.set(
           entry.index,
-          await readDocumentText(ctx, document, 0, perDocumentChars + CHAT_DOCUMENT_READ_SLACK_CHARS)
+          (await readDocumentTextOrNull(ctx, document, 0, perDocumentChars + CHAT_DOCUMENT_READ_SLACK_CHARS)) ?? ""
         );
       }
     }

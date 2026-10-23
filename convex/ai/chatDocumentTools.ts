@@ -995,7 +995,15 @@ export async function pinnedFilesMessage(
     const read = await ctx.runQuery(readDocumentRef, { agentThreadId, documentId, start: 0, maxChars: granted });
     if (read.status !== "ok") {
       releaseReading(turn, granted);
-      notices.push(`${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`);
+      notices.push(
+        read.status === "no_text"
+          ? `${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`
+          : read.status === "off"
+            ? `${ref} is not shown: opening files was turned off for this workspace.`
+            : read.status === "not_found"
+              ? "One pinned file is no longer in this project's files, so it is not shown."
+              : `${ref} could not be read just now, so it is not shown.`
+      );
       continue;
     }
     const end = read.end;

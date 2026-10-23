@@ -97,6 +97,18 @@ describe("the chat turn's evidence when files moved (2026-10-22, fourth, step 2)
     expect(JSON.stringify(movedTurn.messages)).toBe(JSON.stringify(legacyTurn.messages));
     expect(JSON.stringify(movedTurn.report)).toBe(JSON.stringify(legacyTurn.report));
     expect(movedTurn.system).toBe(legacyTurn.system);
+    // And the same as the old path, which handed every file's whole text to
+    // the turn (code review: compare with the full-text evidence directly).
+    const wholeTextContext = {
+      ...legacyContext,
+      documents: legacyContext.documents.map((doc) => ({
+        ...doc,
+        content: FILES.find((file) => file.fileName === doc.fileName)!.text,
+      })),
+    };
+    const wholeTextTurn = buildChatTurnRequest({ context: wholeTextContext });
+    expect(JSON.stringify(movedTurn.messages)).toBe(JSON.stringify(wholeTextTurn.messages));
+    expect(JSON.stringify(movedTurn.report)).toBe(JSON.stringify(wholeTextTurn.report));
     // The turn really shows a cut file with its notice, the settings
     // document, and lists the files past the twelfth without their text.
     const evidence = JSON.stringify(movedTurn.messages);
