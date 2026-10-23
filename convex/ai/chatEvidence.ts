@@ -68,6 +68,12 @@ import {
  */
 export interface ChatEvidenceDoc {
   fileName: string;
+  /**
+   * 2026-10-22 (fourth): from `getChatContextV2`, the whole text only for the
+   * writer settings document; for each file the turn shows, its opening part
+   * read to just past what is shown; for every other file, its opening
+   * preview (enough for the settings rule). `textLength` is the whole length.
+   */
   content: string;
   category?: ContextDocCategory;
   uploaderRole?: string;
@@ -730,13 +736,19 @@ function spend(
   text: string,
   capChars: number,
   remaining: number,
-  extra: Partial<TrustedContextSource> = {}
+  extra: Partial<TrustedContextSource> = {},
+  /**
+   * 2026-10-22 (fourth): the whole text's length when `text` is only its
+   * opening part (a project file read to just past what is shown). The
+   * notice's totals count the rest as unchanged by neutralization.
+   */
+  fullLength?: number
 ): Spend {
   const base: TrustedContextSource = {
     kind,
     label,
     trust,
-    originalLength: text.length,
+    originalLength: fullLength ?? text.length,
     includedLength: 0,
     included: false,
     truncated: false,
@@ -749,14 +761,15 @@ function spend(
   const allowance = Math.min(capChars, remaining);
   if (allowance <= 0) return { body: null, source: base };
   const safe = neutralizeMarkers(text);
+  const safeTotal = safe.length + Math.max(0, (fullLength ?? text.length) - text.length);
   const kept = cutToBudget(safe, allowance);
   // A one-code-unit allowance in front of a surrogate pair keeps nothing:
   // report that as omitted rather than rendering an empty block.
-  if (!kept.length && safe.length > 0) return { body: null, source: base };
-  const truncated = kept.length < safe.length;
+  if (!kept.length && safeTotal > 0) return { body: null, source: base };
+  const truncated = kept.length < safeTotal;
   // The notice is scaffolding, not source text: only kept characters are charged.
   const body = truncated
-    ? `${kept}\n${truncationNotice(safe.length - kept.length, safe.length)}`
+    ? `${kept}\n${truncationNotice(safeTotal - kept.length, safeTotal)}`
     : kept;
   return {
     body,
@@ -1000,12 +1013,14 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   others.forEach(({ doc, handle }) => {
     const extra = { category: docCategory(doc) };
     const viewable = viewing && chatViewableKind(doc) !== null;
-    if (doc.content.length > 0 && readableRank++ >= budget.maxDocuments) {
+    // 2026-10-22 (fourth): from the stored length, since `content` holds
+    // only the opening part of a file the turn does not show.
+    if (textLengthOf(doc) > 0 && readableRank++ >= budget.maxDocuments) {
       const source: TrustedContextSource = {
         kind: "document",
         label: doc.fileName,
         trust: docTrust(doc),
-        originalLength: doc.content.length,
+        originalLength: textLengthOf(doc),
         includedLength: 0,
         included: false,
         truncated: false,
@@ -1027,7 +1042,8 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         doc.content,
         perDocChars,
         headRemaining,
-        extra
+        extra,
+        textLengthOf(doc)
       )
     );
     handleOfSource.set(source, handle);

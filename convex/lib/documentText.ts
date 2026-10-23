@@ -67,6 +67,13 @@ export function documentTextLength(doc: TextFields): number {
   return documentTextMoved(doc) ? (doc.textLength ?? 0) : (doc.content ?? "").length;
 }
 
+/** The opening characters, leading whitespace removed: the stored preview. */
+export function documentTextPreview(doc: TextFields & Pick<Doc<"projectDocuments">, "textPreview">): string {
+  return documentTextMoved(doc)
+    ? (doc.textPreview ?? "")
+    : (doc.content ?? "").trimStart().slice(0, DOCUMENT_TEXT_PREVIEW_CHARS);
+}
+
 /** Whether the text holds anything other than whitespace. */
 export function documentHasText(doc: TextFields): boolean {
   return documentTextMoved(doc) ? doc.hasText === true : (doc.content ?? "").trim() !== "";

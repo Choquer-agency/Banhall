@@ -131,3 +131,25 @@ What changed: the file list, the Files panel preview, upload duplicate checks, P
 - [ ] **Upload.** Upload the same file twice. It's kept once. Upload it under a new name. A second file appears.
 - [ ] **PD review.** Start a PD review. It runs on the chosen PD.
 - [ ] **Reference PD.** In chat, ask for the comparison with a Reference PD. It finds and compares it.
+
+## Commit 4: a chat turn reads text only for the files it shows (step 2, part 2, of the text move)
+
+What changed: each chat turn reads every file's facts. It reads text only for:
+- the writer settings document, in full;
+- the first 12 files with text, to just past the part shown;
+- every other file's opening 2,000-character preview, which the settings rule needs.
+
+A pinned file is read through the same scoped file read the chat's tools use. The evidence the model sees is unchanged.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,117 tests in 460 files.
+- [x] `convex/chatContextText.test.ts`. A project of 17 files was built twice, with each file's text moved in one copy and kept on the row in the other. The files include a settings document with leading spaces, long files with a forged marker inside the part shown, a blank file and an image. Both copies give the same chat messages, the same record of what was cut and kept, and the same system text. The moved copy carries the full text only for the settings document; every other file carries at most 21,000 characters.
+- [x] Pinned files keep their cut and their notice (`convex/ai/chatViewFile.test.ts`).
+- [x] The guard's list no longer includes the chat context.
+
+### Manual on localhost
+
+- [ ] **Chat.** In a project with more than 12 files, ask the Assistant about a file near the end of the list. It names the file in its list and can open it with its reading tool.
+- [ ] **Pinned files.** Pin a long file to a message. The reply quotes it, and says where it was cut if the file is longer than the allowance.
+- [ ] **Settings document.** A writer settings document still applies in chat.

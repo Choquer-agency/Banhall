@@ -28,7 +28,19 @@ import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { provenanceForEdit } from "./lib/editProvenance";
-import { documentHasText, readDocumentText } from "./lib/documentText";
+import {
+  documentHasText,
+  documentTextLength,
+  documentTextPreview,
+  readDocumentText,
+} from "./lib/documentText";
+
+/**
+ * 2026-10-22 (fourth): characters a shown chat file is read past its share,
+ * so the word-boundary cut and marker neutralizing see what they did when
+ * the whole text was read.
+ */
+const CHAT_DOCUMENT_READ_SLACK_CHARS = 1_000;
 import {
   applyReplacements,
   headingEditRefusal,
@@ -98,10 +110,13 @@ import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
 import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../shared/chatLimits";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
 import {
+  chatFileOrder,
   DEFAULT_CHAT_EVIDENCE_BUDGET,
+  type ChatEvidenceDoc,
   type ChatOpenQuestion,
   type ChatOpenQuestionsOmitted,
 } from "./ai/chatEvidence";
+import { CHARS_PER_TOKEN } from "./ai/trustedContext";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
@@ -3252,28 +3267,52 @@ export const getChatContextV2 = internalQuery({
     // Phase C (W1): whether the chat may see PDFs and images.
     const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
 
+    // BNH-24: archived docs are out of AI context.
+    const activeDocuments = documents.filter((d) => !d.archived);
+    // CAP-3/CAP-4: provenance travels with the document. Trust and the
+    // marker label are derived from stored facts, so the action never
+    // invents them; absent fields fail closed in `chatEvidence`.
+    const documentViews: ChatEvidenceDoc[] = activeDocuments.map((d) => ({
+      fileName: d.fileName,
+      content: documentTextPreview(d),
+      ...(d.category ? { category: d.category } : {}),
+      ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
+      // 2026-10-19 (chat parity Phase A): stored facts for the FILES IN
+      // THIS PROJECT list. The id and the original's presence are for the
+      // later file tools; the list renders name, category, status, size.
+      documentId: d._id,
+      fileType: d.fileType,
+      ...(d.processingStatus ? { processingStatus: d.processingStatus } : {}),
+      textLength: documentTextLength(d),
+      hasOriginal: d.storageId !== undefined,
+    }));
+    // 2026-10-22 (fourth): text only for the files the turn shows, in the
+    // order and by the rule `buildChatEvidence` spends them: the settings
+    // document whole, then the first `maxDocuments` files with text, each to
+    // just past the part shown so its cut and notice match the whole text.
+    const shownText = new Map<number, string>();
+    const perDocumentChars = evidenceBudget.perDocumentTokens * CHARS_PER_TOKEN;
+    let readable = 0;
+    for (const entry of chatFileOrder(documentViews)) {
+      const document = activeDocuments[entry.index];
+      if (!document) continue;
+      if (entry.settings) {
+        shownText.set(entry.index, await readDocumentText(ctx, document));
+      } else if (documentTextLength(document) > 0 && readable++ < evidenceBudget.maxDocuments) {
+        shownText.set(
+          entry.index,
+          await readDocumentText(ctx, document, 0, perDocumentChars + CHAT_DOCUMENT_READ_SLACK_CHARS)
+        );
+      }
+    }
+
     return {
       reportContent: report.content ?? null,
       agentOutputs: agentOutputs ?? null,
-      documents: documents
-        .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
-        // CAP-3/CAP-4: provenance travels with the document. Trust and the
-        // marker label are derived from stored facts, so the action never
-        // invents them; absent fields fail closed in `chatEvidence`.
-        .map((d) => ({
-          fileName: d.fileName,
-          content: d.content,
-          ...(d.category ? { category: d.category } : {}),
-          ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
-          // 2026-10-19 (chat parity Phase A): stored facts for the FILES IN
-          // THIS PROJECT list. The id and the original's presence are for the
-          // later file tools; the list renders name, category, status, size.
-          documentId: d._id,
-          fileType: d.fileType,
-          ...(d.processingStatus ? { processingStatus: d.processingStatus } : {}),
-          textLength: d.content.length,
-          hasOriginal: d.storageId !== undefined,
-        })),
+      documents: documentViews.map((view, index) => ({
+        ...view,
+        content: shownText.get(index) ?? view.content,
+      })),
       decisions,
       // CAP-14: the unresolved and unreliable Confidence Map facts of THIS
       // report's Brief. The trigger is a question, so under the prompt's own

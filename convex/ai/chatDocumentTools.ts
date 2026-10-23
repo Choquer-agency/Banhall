@@ -42,7 +42,6 @@ import {
   CHAT_SEARCH_EXCERPT_CHARS,
   CHAT_SEARCH_MAX_EXCERPTS,
   CHAT_TRANSCRIPT_READ_CHARS,
-  safeRange,
   type ReadDocumentResult,
   type ReadTranscriptResult,
   type SearchDocumentsResult,
@@ -984,20 +983,29 @@ export async function pinnedFilesMessage(
       notices.push(`${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`);
       continue;
     }
-    const content = doc.content;
-    const granted = reserveReading(turn, content.length);
+    const totalChars = doc.textLength ?? doc.content.length;
+    const granted = reserveReading(turn, totalChars);
     if (granted === 0) {
       notices.push(`${ref} is not shown: this reply's reading allowance of ${formatCount(CHAT_READ_MAX_TURN_CHARS)} characters is used up.`);
       continue;
     }
-    const end = safeRange(content, 0, granted).end;
+    // 2026-10-22 (fourth): the turn's context carries only part of a file's
+    // text, so a pinned file is read here, through the thread's scope, to the
+    // same character-safe end the whole text gave.
+    const read = await ctx.runQuery(readDocumentRef, { agentThreadId, documentId, start: 0, maxChars: granted });
+    if (read.status !== "ok") {
+      releaseReading(turn, granted);
+      notices.push(`${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`);
+      continue;
+    }
+    const end = read.end;
     releaseReading(turn, granted - end);
     chars += end;
-    parts.push({ type: "text", text: openedDocumentBlock(meta, `${place}, pinned`, content.slice(0, end)) });
+    parts.push({ type: "text", text: openedDocumentBlock(meta, `${place}, pinned`, read.text) });
     shown.push(`${ref} (text${reason ? `, because ${reason}` : ""})`);
-    if (end < content.length) {
+    if (end < totalChars) {
       notices.push(
-        `${ref} is cut at ${formatCount(end)} of ${formatCount(content.length)} characters because this reply's reading allowance ran out. To read on, call readDocument with part ${partAt(end)}.`
+        `${ref} is cut at ${formatCount(end)} of ${formatCount(totalChars)} characters because this reply's reading allowance ran out. To read on, call readDocument with part ${partAt(end)}.`
       );
     }
   }
