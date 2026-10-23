@@ -34,7 +34,7 @@ function ref<Export>(name: string): RefOf<Export> {
   return makeFunctionReference(name) as unknown as RefOf<Export>;
 }
 
-// Internal: the daily job.
+// Internal: the daily refresh, the Monday move and the hourly rollback check.
 export const seedCatalogRef = ref<typeof catalog.seedCatalog>("modelCatalog:seedCatalog");
 export const applyCatalogRefreshRef = ref<typeof catalog.applyCatalogRefresh>(
   "modelCatalog:applyCatalogRefresh"
@@ -62,6 +62,9 @@ export const applyTrackUpgradeRef = ref<typeof catalog.applyTrackUpgrade>(
   "modelCatalog:applyTrackUpgrade"
 );
 export const noteTrackCheckRef = ref<typeof catalog.noteTrackCheck>("modelCatalog:noteTrackCheck");
+export const allowTrackModelAgainRef = ref<typeof catalog.allowTrackModelAgain>(
+  "modelCatalog:allowTrackModelAgain"
+);
 export const generationModelRedirectsRef = ref<typeof catalog.generationModelRedirects>(
   "modelCatalog:generationModelRedirects"
 );

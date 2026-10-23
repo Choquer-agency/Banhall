@@ -3,18 +3,19 @@
 /**
  * The readiness check a track's newer version passes before the track moves
  * to it (2026-10-22 decision: models follow the newest version of their
- * tier). Run once a day from convex/modelCatalog.ts refreshCatalog.
+ * tier). Run on Mondays from convex/modelCatalog.ts refreshCatalog (weekly
+ * since 2026-10-23).
  *
  * For each track with a newer version on OpenRouter:
  * 1. A Claude track first confirms the direct Anthropic id exists, through
  *    Anthropic's models API (GET /v1/models) with the deployment's own key.
- *    Absent: the track stays put and is checked again tomorrow. A Claude
+ *    Absent: the track stays put and is checked again next Monday. A Claude
  *    track never moves to the OpenRouter gateway.
  * 2. One tiny plain request through the real transport (the direct gateway
  *    for Claude, with adaptive thinking on as chat sends it), and one forced
  *    tool request. A forced call refused with a 400 marks the model as one
  *    that runs on the unforced path (as Opus 5.5 does); any other failure
- *    holds the track for a day.
+ *    holds the track until next Monday.
  *
  * Reasoning, the output cap, the context and the prices all come from the
  * OpenRouter listing, so a discovered version needs no code change.

@@ -418,6 +418,11 @@ export const AUTOMATION_THRESHOLDS = {
   errorWindowMs: 24 * 60 * 60 * 1000,
   errorMinCalls: 20,
   maxErrorRate: 0.2,
+  /**
+   * 2026-10-23 (owner): a tier moves back on its own only this long after it
+   * moved. Later, an admin's "Move back" still can.
+   */
+  rollbackPeriodMs: 7 * 24 * 60 * 60 * 1000,
   /** A refresh that returns fewer models than this is treated as partial. */
   minPlausibleCatalogSize: 50,
 } as const;
@@ -1597,7 +1602,7 @@ export type ReadinessResult = {
  * must answer, and the forced tool request must either answer with a tool
  * call or be refused with a 400 (the model then runs on the unforced path,
  * as Opus 5.5 does). Any other failure (a timeout, a rate limit, a 5xx)
- * says nothing yet, so the track waits for tomorrow.
+ * says nothing yet, so the track waits for next Monday's check.
  */
 export function readinessAllowsMove(result: ReadinessResult): boolean {
   return result.plainOk && (result.forcedToolChoice || result.forcedRejected) && !result.failure;

@@ -5,11 +5,13 @@
  * A daily cron (convex/crons.ts) runs `refreshCatalog`: it pulls OpenRouter's
  * public model list (and Artificial Analysis scores when AA_API_KEY is set),
  * upserts the catalog, logs catalog problems for admins (renamed, expiring
- * or gone models, missing endpoints), checks per-provider endpoint support
- * for tools and structured outputs, moves a track back when its new model is
- * failing in production, and moves each track (shared/modelTracks.ts) to its
- * newest version once that version passes a readiness check
- * (convex/ai/modelReadiness.ts). Every move is logged in modelSwitchEvents.
+ * or gone models, missing endpoints) and checks per-provider endpoint
+ * support for tools and structured outputs. On Mondays only (amended
+ * 2026-10-23) it also moves each track (shared/modelTracks.ts) to its newest
+ * version once that version passes a readiness check
+ * (convex/ai/modelReadiness.ts). An hourly cron moves a track back when its
+ * new model is failing in production. Every move is logged in
+ * modelSwitchEvents.
  *
  * Nothing here writes to the alerts board (errorReports): model notices go
  * to the admin-only log on /admin/models (modelAdminNotices). Evaluations no
@@ -105,7 +107,6 @@ import {
 } from "./lib/modelCatalogValidators";
 import {
   applyCatalogRefreshRef,
-  checkProductionErrorsRef,
   endpointCheckTargetsRef,
   pruneCallOutcomesRef,
   recordEndpointSupportRef,
@@ -417,11 +418,12 @@ export const recordEndpointSupport = internalMutation({
 const HOUR_MS = 60 * 60 * 1000;
 const hourStartOf = (at: number) => Math.floor(at / HOUR_MS) * HOUR_MS;
 /**
- * The daily check reaches a role at a slightly different time each day, so
- * "at most daily" allows an hour of slack: a notice a few minutes short of
- * 24 hours after the last one still goes out (round 9).
+ * "At most daily" allows a little slack, so a notice a few minutes short of
+ * 24 hours after the last one still goes out (round 9). The check runs
+ * hourly since 2026-10-23, so the slack is five minutes, not an hour, or the
+ * notice would come an hour earlier each day.
  */
-const ERROR_NOTICE_MARGIN_MS = HOUR_MS;
+const ERROR_NOTICE_MARGIN_MS = 5 * 60 * 1000;
 
 /** Per-request outcome rows are kept this long (the window plus a day). */
 const OUTCOME_ROW_RETENTION_MS = 2 * AUTOMATION_THRESHOLDS.errorWindowMs;
@@ -474,9 +476,16 @@ export async function outcomeCountsSince(
  * per track): over the last day, or since the move if later, at least
  * `errorMinCalls` calls were attempted and more than `maxErrorRate` of them
  * failed. The track returns to its previous model and the failing model is
- * recorded in `rolledBackFrom`, so the daily job never chooses it again for
- * that track. With the kill switch on, admins get a line in the model log
- * instead, at most daily. Nothing is written to the alerts board.
+ * recorded in `rolledBackFrom`, so the weekly move never chooses it again
+ * for that track (until an admin allows it again). With the kill switch on,
+ * admins get a line in the model log instead, at most daily. Nothing is
+ * written to the alerts board.
+ *
+ * 2026-10-23 (owner): runs hourly. It writes a missing track row first, so
+ * the deploy-day move (each tier's first row keeps its pre-deploy model as
+ * the previous one) is watched from the first hour without waiting for the
+ * one-off migration. A tier moves back on its own only within
+ * `rollbackPeriodMs` of its move.
  */
 export async function runProductionErrorCheck(
   ctx: MutationCtx,
@@ -488,10 +497,11 @@ export async function runProductionErrorCheck(
   // are deleted in bounded batches that continue until none are left.
   await ctx.scheduler.runAfter(0, pruneCallOutcomesRef, { before: now - OUTCOME_ROW_RETENTION_MS });
   for (const track of MODEL_TRACK_IDS) {
-    const row = await trackRow(ctx, track);
+    const row = await ensureTrackRow(ctx, track);
     // Only a track that moved forward has a previous model to return to; a
     // move back clears it.
-    if (!row?.previousModelId || row.switchedAt === undefined) continue;
+    if (!row.previousModelId || row.switchedAt === undefined) continue;
+    if (now - row.switchedAt > AUTOMATION_THRESHOLDS.rollbackPeriodMs) continue;
     const since = Math.max(now - AUTOMATION_THRESHOLDS.errorWindowMs, row.switchedAt);
     const verdict = productionErrorVerdict(await outcomeCountsSince(ctx, row.modelId, since, now));
     if (!verdict.rollback) continue;
@@ -809,7 +819,7 @@ export const applyTrackUpgrade = internalMutation({
       return await hold(`${candidate.label} was moved back from before, so it is not used again.`);
     }
     if (!readinessAllowsMove(readiness)) {
-      return await hold(`${candidate.label} is not ready yet: ${readiness.failure ?? "the check failed"}. Checked again tomorrow.`);
+      return await hold(`${candidate.label} is not ready yet: ${readiness.failure ?? "the check failed"}. Checked again next Monday.`);
     }
     const forcedToolChoice = readiness.forcedToolChoice && !readiness.forcedRejected;
     const existing = await catalogRow(ctx, candidate.toModelId);
@@ -843,6 +853,32 @@ export const applyTrackUpgrade = internalMutation({
   },
 });
 
+/**
+ * 2026-10-23 (review): lets the weekly move choose a model again that a
+ * track was moved back from, for when the move back was not the model's
+ * fault (a provider outage, say). The track does not move now; next
+ * Monday's check may move it, after a fresh readiness check. Run by hand:
+ * `npx convex run modelCatalog:allowTrackModelAgain '{"track":"claude-sonnet","modelId":"claude-sonnet-5-5"}'`.
+ * Returns whether the model was on the track's moved-back list.
+ */
+export const allowTrackModelAgain = internalMutation({
+  args: { track: modelTrackValidator, modelId: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const row = await trackRow(ctx, args.track);
+    if (!row || !row.rolledBackFrom.includes(args.modelId)) return false;
+    await ctx.db.patch(row._id, {
+      rolledBackFrom: row.rolledBackFrom.filter((id) => id !== args.modelId),
+    });
+    await raiseAdminNotice(
+      ctx,
+      `${modelLabelOf(args.modelId)} may be chosen again for ${MODEL_TRACKS[args.track].name} at the next Monday check.`,
+      { track: args.track, modelId: args.modelId }
+    );
+    return true;
+  },
+});
+
 /** Records why the readiness check could not run for a candidate. */
 export const noteTrackCheck = internalMutation({
   args: { track: modelTrackValidator, note: v.string() },
@@ -863,6 +899,10 @@ export const noteTrackCheck = internalMutation({
  * roleTrack). The replaced model is kept as previousModelId for the record.
  * Idempotent. Run with
  * `npx convex run modelCatalog:pointRolesAtTracks`.
+ *
+ * 2026-10-23 (review): only a row written before the change (no `track`)
+ * is rewritten, so running it again after an admin points a role at
+ * another tier never undoes that choice.
  */
 export const pointRolesAtTracks = internalMutation({
   args: {},
@@ -873,7 +913,7 @@ export const pointRolesAtTracks = internalMutation({
     for (const role of MODEL_ROLES) {
       const assignment = await roleAssignment(ctx, role);
       const track = ROLE_POLICIES[role].track;
-      if (!assignment || assignment.track === track) continue;
+      if (!assignment || assignment.track !== undefined) continue;
       await ctx.db.patch(assignment._id, {
         track,
         modelId: await trackModelId(ctx, track),
@@ -1076,7 +1116,7 @@ export const recordGenerationModelRedirects = internalMutation({
     return added.length;
   },
 });
-// ─── The daily job ──────────────────────────────────────────────────────────
+// ─── The daily refresh and the Monday move ──────────────────────────────────
 
 async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
   const response = await fetch(url, {
@@ -1090,18 +1130,19 @@ async function fetchJson(url: string, headers: Record<string, string> = {}): Pro
 /**
  * The daily refresh. OpenRouter's catalog needs no key. Artificial Analysis
  * is read only when AA_API_KEY is set (internal use; attribution on the
- * admin page; never shown to clients). After the refresh, a failing new
- * track model is moved back, then every track is checked for a newer
- * version (convex/ai/modelReadiness.ts upgradeTracks).
+ * admin page; never shown to clients). With `moveTiers` (the Monday cron
+ * only, 2026-10-23), every track is then checked for a newer version
+ * (convex/ai/modelReadiness.ts upgradeTracks). Moving a failing new model
+ * back is the hourly cron's job (checkProductionErrors).
  */
 export const refreshCatalog = internalAction({
-  args: {},
+  args: { moveTiers: v.optional(v.boolean()) },
   returns: v.object({
     fetched: v.number(),
     summary: refreshSummaryValidator,
     tracksMoved: v.number(),
   }),
-  handler: async (ctx): Promise<{
+  handler: async (ctx, args): Promise<{
     fetched: number;
     summary: { added: number; updated: number; renamed: number; expiring: number; gone: number; returned: number };
     tracksMoved: number;
@@ -1148,9 +1189,11 @@ export const refreshCatalog = internalAction({
         console.warn(`Endpoint check failed for ${target.modelId}`, error);
       }
     }
-    await ctx.runMutation(checkProductionErrorsRef, {});
-    // A partial pull could make an old version look newest; wait a day.
-    if (!complete) return { fetched: parsed.models.length, summary, tracksMoved: 0 };
+    // Tiers move only on the Monday run (2026-10-23), and never from a
+    // partial pull, which could make an old version look newest.
+    if (args.moveTiers !== true || !complete) {
+      return { fetched: parsed.models.length, summary, tracksMoved: 0 };
+    }
     // The readiness check sends real requests through the Node SDKs.
     const moved = await ctx.runAction(upgradeTracksRef, {});
     return {
@@ -1383,7 +1426,7 @@ export const setEvalBudget = mutation({
 
 /**
  * Moves a track back to its previous model, by an admin. The model it left
- * is recorded as moved back from, so the daily job does not move the track
+ * is recorded as moved back from, so the weekly move does not move the track
  * forward to it again.
  */
 export const moveTrackBack = mutation({

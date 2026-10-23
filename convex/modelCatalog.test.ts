@@ -17,8 +17,10 @@ import fixture from "../shared/__fixtures__/openrouter-models-2026-10-22.json";
 import { MODEL_ROLES, ROLE_POLICIES, directRowFromListing, parseOpenRouterModels } from "../shared/modelCatalog";
 import { MODEL_TRACK_IDS, TRACK_SEED_MODEL_IDS } from "../shared/modelTracks";
 import { requestModelId, resetRegisteredModelEntries } from "../shared/generationModels";
+import crons from "./crons";
 import {
   adminStateRef,
+  allowTrackModelAgainRef,
   applyCatalogRefreshRef,
   applyTrackUpgradeRef,
   checkProductionErrorsRef,
@@ -202,7 +204,7 @@ describe("catalog refresh", () => {
     expect(argon?.missingSince).toBeUndefined();
   });
 
-  it("runs the daily job end to end: every track is checked, none moves while each is newest, nothing is evaluated", async () => {
+  it("runs the Monday job end to end: every track is checked, none moves while each is newest, nothing is evaluated", async () => {
     const { t } = await setup();
     const urls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -216,7 +218,7 @@ describe("catalog refresh", () => {
       }
       throw new Error(`Unexpected request to ${url}`);
     }));
-    const result = await t.action(refreshCatalogRef, {});
+    const result = await t.action(refreshCatalogRef, { moveTiers: true });
     expect(result.fetched).toBe(parsed.length);
     expect(result.tracksMoved).toBe(0);
     expect(urls[0]).toBe("https://openrouter.ai/api/v1/models");
@@ -229,6 +231,50 @@ describe("catalog refresh", () => {
       expect(await ctx.db.query("modelSwitchEvents").collect()).toEqual([]);
       expect(await ctx.db.query("errorReports").collect()).toEqual([]);
     });
+  });
+
+  // 2026-10-23 (owner): tiers move weekly, not daily.
+  it("refreshes every day but checks and moves tiers only on the Monday run", async () => {
+    const { t } = await setup();
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith("/api/v1/models")) return Response.json({ data: [...rawRows, { ...rawRows.find((item) => item.id === "openai/gpt-6.1-sol")!, id: "openai/gpt-6.2-sol", canonical_slug: "openai/gpt-6.2-sol-20261101", name: "OpenAI: GPT-6.2 Sol" }] });
+      if (url.includes("/endpoints")) return Response.json({ data: { endpoints: [] } });
+      throw new Error(`Unexpected request to ${url}`);
+    }));
+    const result = await t.action(refreshCatalogRef, {});
+    expect(result.tracksMoved).toBe(0);
+    // No track was checked and no readiness request went out.
+    for (const track of MODEL_TRACK_IDS) expect((await trackRow(t, track))?.lastCheckedAt, track).toBeUndefined();
+    expect(urls.every((url) => url.startsWith("https://openrouter.ai/api/v1/models"))).toBe(true);
+    expect(await row(t, "openai/gpt-6.2-sol")).toMatchObject({ status: "candidate" });
+  });
+
+  it("schedules the refresh daily except Monday, the tier move on Monday, and the rollback check hourly", () => {
+    const jobs = (crons as unknown as {
+      crons: Record<string, { name: string; args: unknown[]; schedule: { type: string; cron?: string } }>;
+    }).crons;
+    const job = (identifier: string) => jobs[identifier];
+    expect(job("refresh model catalog")).toMatchObject({
+      name: "modelCatalog:refreshCatalog",
+      args: [{}],
+      schedule: { type: "cron", cron: "45 8 * * 0,2-6" },
+    });
+    expect(job("move model tiers to their newest version")).toMatchObject({
+      name: "modelCatalog:refreshCatalog",
+      args: [{ moveTiers: true }],
+      schedule: { type: "cron", cron: "45 8 * * 1" },
+    });
+    expect(job("move a failing model tier back")).toMatchObject({
+      name: "modelCatalog:checkProductionErrors",
+      args: [{}],
+      schedule: { type: "cron", cron: "15 * * * *" },
+    });
+    // No other job moves tiers.
+    const movers = Object.values(jobs).filter((item) => item.name === "modelCatalog:refreshCatalog");
+    expect(movers.filter((item) => (item.args[0] as { moveTiers?: boolean } | undefined)?.moveTiers === true)).toHaveLength(1);
   });
 });
 
@@ -304,6 +350,16 @@ describe("tracks and the picker", () => {
       modelId: "claude-sonnet-5-5",
       previousModelId: "xiaomi/mimo-v2.6-pro",
     });
+  });
+
+  // 2026-10-23 (review): running the migration again never undoes an admin's choice.
+  it("leaves a role an admin pointed at another tier when the migration runs again", async () => {
+    const { t, admin } = await setup();
+    await evaluationSwitchedRoles(t);
+    await t.mutation(pointRolesAtTracksRef, {});
+    await admin.mutation(setRoleTrackRef, { role: "writing", track: "claude-opus" });
+    expect(await t.mutation(pointRolesAtTracksRef, {})).toBe(0);
+    expect(await t.run(async (ctx) => await roleModelId(ctx, "writing"))).toBe("claude-opus-5-5");
   });
 
   it("lets an admin point the writing role at another track, and keeps chat on Claude", async () => {
@@ -407,6 +463,37 @@ describe("reservation and frozen generations", () => {
     // A new reservation picks up the moved track.
     const next = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
     expect((await t.run((ctx) => ctx.db.get(next)))?.singleModelId).toBe("claude-sonnet-6");
+  });
+
+  // 2026-10-23 (owner): a writer never starts over because a tier moved back.
+  it("retries a failed generation on the tier's current model when its tier was moved back from the frozen one", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const frozen = (await t.run((ctx) => ctx.db.get(first)))?.modelFreeze;
+    expect(frozen?.entries.map((entry) => entry.id)).toContain("claude-sonnet-5-5");
+    await freshGeneration(t, projectId, first);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    // The failed generation itself is never rewritten.
+    expect((await t.run((ctx) => ctx.db.get(first)))?.modelFreeze).toEqual(frozen);
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    const retried = await t.run((ctx) => ctx.db.get(retry));
+    expect(retried?.singleModelId).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+    expect(retried?.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    const progress = await t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", retry)).collect()
+    );
+    expect(progress.map((line) => line.message)).toEqual([
+      "Generation request reserved.",
+      "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.",
+    ]);
+    // Moving the tier forward again leaves the retry on its own freeze.
+    await freshGeneration(t, projectId, retry);
+    const again = await writer.mutation(api.generations.retryGeneration, { generationId: retry });
+    expect((await t.run((ctx) => ctx.db.get(again)))?.modelFreeze).toEqual(retried?.modelFreeze);
   });
 
   it("runs a frozen model OpenRouter no longer lists on its track's current model, recorded once, without touching the freeze", async () => {
@@ -569,6 +656,87 @@ describe("track upgrades and rollback", () => {
     expect(await trackRow(t, "claude-sonnet")).toMatchObject({ modelId: "claude-sonnet-5", rolledBackFrom: ["claude-sonnet-5-5"] });
     await admin.mutation(moveTrackBackRef, { track: "claude-haiku" });
     expect((await trackRow(t, "claude-haiku"))?.modelId).toBe("claude-haiku-4-5-20251001");
+    expect(await errorReports(t)).toEqual([]);
+  });
+
+  // 2026-10-23 (owner and review): the hourly check watches the deploy-day
+  // move from its first run, without waiting for the one-off migration.
+  it("watches the deploy-day move from the first hourly check, with no migration run", async () => {
+    const { t } = await setup(parsed);
+    expect(await trackRow(t, "claude-sonnet")).toBeNull();
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    expect(await trackRow(t, "claude-sonnet")).toMatchObject({
+      modelId: "claude-sonnet-5-5",
+      previousModelId: "claude-sonnet-5",
+      switchedAt: NOW,
+    });
+    vi.setSystemTime(NOW + 60 * 60 * 1000);
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model: "claude-sonnet-5-5",
+        callSite: "generation:analyzer",
+        outcome: i % 4 === 0 ? "failure" : "success",
+        code: "malformed_output",
+      });
+    }
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    expect((await trackRow(t, "claude-sonnet"))?.modelId).toBe("claude-sonnet-5");
+    expect(await errorReports(t)).toEqual([]);
+  });
+
+  it("moves a tier back on its own only in the first 7 days after its move", async () => {
+    const { t } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    const failing = async () => {
+      for (let i = 0; i < 20; i += 1) {
+        await t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+      }
+    };
+    vi.setSystemTime(NOW + 8 * 24 * 60 * 60 * 1000);
+    await failing();
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    expect((await trackRow(t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.2-sol");
+    // An admin can still move it back by hand.
+    expect((await trackRow(t, "gpt-sol"))?.previousModelId).toBe("openai/gpt-6.1-sol");
+  });
+
+  it("with automatic updates off, the hourly check logs a failing model about once a day, not an hour earlier each day", async () => {
+    const { t, admin } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    await admin.mutation(setAutoSwitchRef, { enabled: false });
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+    }
+    const notices = async () => (await adminNotices(t)).filter((message) => message.includes("not moved back")).length;
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await notices()).toBe(1);
+    vi.setSystemTime(NOW + 23 * 60 * 60 * 1000);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await notices()).toBe(1);
+    vi.setSystemTime(NOW + (23 * 60 + 56) * 60 * 1000);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await notices()).toBe(2);
+  });
+
+  it("lets a model its tier moved back from be chosen again at the next Monday check", async () => {
+    const { t } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "gpt-sol", toModelId: "openai/gpt-6.1-sol", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    expect(await t.mutation(planTrackUpgradesRef, {})).toEqual([]);
+    expect(await t.mutation(allowTrackModelAgainRef, { track: "gpt-sol", modelId: "openai/gpt-6.2-sol" })).toBe(true);
+    expect(await t.mutation(allowTrackModelAgainRef, { track: "gpt-sol", modelId: "openai/gpt-6.2-sol" })).toBe(false);
+    expect((await trackRow(t, "gpt-sol"))?.rolledBackFrom).toEqual([]);
+    // The track stays put until the Monday check moves it after a fresh readiness check.
+    expect((await trackRow(t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.1-sol");
+    expect((await t.mutation(planTrackUpgradesRef, {})).map((item) => item.toModelId)).toEqual(["openai/gpt-6.2-sol"]);
+    expect((await adminNotices(t)).filter((message) => message.includes("may be chosen again"))).toHaveLength(1);
     expect(await errorReports(t)).toEqual([]);
   });
 });

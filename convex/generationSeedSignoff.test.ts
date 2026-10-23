@@ -19,6 +19,7 @@ import type { MutationCtx } from "./_generated/server";
 import { AI_RATE_LIMITS, aiRateLimiter } from "./lib/aiRateLimits";
 import { refill, spendAll } from "./aiRateLimits.fixture";
 import { restorePlaceholders } from "./lib/deidentify";
+import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
 import {
   emptyContextRevision,
   emptySelectionRevision,
@@ -3440,6 +3441,74 @@ describe("seed Summary sign-off and recovery", () => {
     const fact = facts.get("F1-1")!;
     expect(fact.transcript.sourceId).toBe(transcript._id);
     expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+  });
+
+  // 2026-10-23 (owner): a writer never starts over on a signed-off plan
+  // because the tier of its frozen model was moved back.
+  it("recovers a signed-off plan on the tier's current model when its tier was moved back from the frozen one", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const frozen = await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      return modelFreeze;
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.singleModelId).toBe("claude-sonnet-5");
+    expect(recovery?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+    expect(recovery?.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    // Everything else the writer signed off is carried as before.
+    expect(recovery).toMatchObject({
+      summaryVersionId: (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.summaryVersionId,
+      gatedWorkflow: "seeds",
+      candidateMode: "iterative",
+    });
+    expect((await s.t.run((ctx) => ctx.db.get(s.generationId)))?.modelFreeze).toEqual(frozen);
+    const progress = await s.t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", recoveryId)).collect()
+    );
+    expect(progress.map((line) => line.message)).toEqual([
+      "Summary recovery reserved from frozen inputs.",
+      "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.",
+    ]);
+  });
+
+  it("recovers a signed-off plan on exactly its frozen models while no tier moved back from them", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const frozen = await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      // A tier moving forward is not a move back: the freeze is kept.
+      await moveTrack(ctx, { track: "claude-opus", toModelId: "claude-opus-5-5", kind: "upgrade", reason: "newer_version", actor: "system" });
+      return modelFreeze;
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.singleModelId).toBe("claude-sonnet-5-5");
+    expect(recovery?.modelFreeze).toEqual(frozen);
   });
 
   it("carries the failed generation's placeholder map to Summary recovery as frozen, mark or no mark (review 2026-09-25)", async () => {

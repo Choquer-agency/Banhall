@@ -1,6 +1,6 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
-import { refreshCatalogRef } from "./lib/modelCatalogRefs";
+import { checkProductionErrorsRef, refreshCatalogRef } from "./lib/modelCatalogRefs";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
@@ -88,15 +88,32 @@ crons.interval(
   internal.myWorkBackfill.sweepStalled
 );
 
-// Model catalog (owner decision 21, amended 2026-10-22): refresh from
-// OpenRouter, log expiring or removed models for admins, move a failing new
-// track model back, and move each tier to its newest version once it passes
-// a readiness check. Never switches a role to another vendor or tier. After
+// Model catalog (owner decision 21, amended 2026-10-22 and 2026-10-23):
+// refresh from OpenRouter and log expiring or removed models for admins
+// every day; move each tier to its newest version, once it passes a
+// readiness check, on Mondays only (08:45 UTC, 04:45 Toronto in summer and
+// 03:45 in winter). Never switches a role to another vendor or tier. After
 // the learning digests, still outside working hours.
 crons.cron(
   "refresh model catalog",
-  "45 8 * * *",
-  refreshCatalogRef
+  "45 8 * * 0,2-6",
+  refreshCatalogRef,
+  {}
+);
+crons.cron(
+  "move model tiers to their newest version",
+  "45 8 * * 1",
+  refreshCatalogRef,
+  { moveTiers: true }
+);
+// A tier's new model that fails too often in its first 7 days is moved
+// back within the hour (2026-10-23), at a quarter past so it never runs
+// beside the refresh.
+crons.cron(
+  "move a failing model tier back",
+  "15 * * * *",
+  checkProductionErrorsRef,
+  {}
 );
 
 // Files no row holds once they are a day old (an upload whose save never

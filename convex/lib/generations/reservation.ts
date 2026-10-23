@@ -18,6 +18,9 @@ import {
   listSelectableModels,
   freezeModelsForGeneration,
   generationModelFreeze,
+  movedBackModels,
+  movedBackProgress,
+  movedBackReplacement,
 } from "../modelRoles";
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
@@ -353,10 +356,13 @@ export async function reserveGeneration(
       : [singleModelId ?? MODEL]; // singleModelId is always resolved here; ?? is a type guard
   const now = Date.now();
   // Every model this generation will call, frozen now (owner decision 21):
-  // a retry inherits its original's freeze when it runs the same models.
+  // a retry inherits its original's freeze when it runs the same models,
+  // unless the freeze holds a model its tier was moved back from
+  // (2026-10-23): then the retry freezes today's models.
   const modelFreeze =
     retriedFreeze &&
-    requestedModelIds.every((id) => retriedFreeze.entries.some((entry) => entry.id === id))
+    requestedModelIds.every((id) => retriedFreeze.entries.some((entry) => entry.id === id)) &&
+    (await movedBackModels(ctx, retriedFreeze)).length === 0
       ? retriedFreeze
       : await freezeModelsForGeneration(ctx, requestedModelIds, now);
   if (
@@ -551,6 +557,12 @@ export async function retryGenerationHandler(
     domainError("INVALID_INPUT", "Use Summary recovery for a signed-off seed generation");
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
+  // 2026-10-23 (owner): a model its tier was moved back from is replaced by
+  // the tier's current model, so the retry can finish instead of the writer
+  // starting over. Every other model runs as frozen.
+  const replaced = async (id: string | undefined) =>
+    id === undefined ? undefined : ((await movedBackReplacement(ctx, id)) ?? id);
+  const moved = await movedBackModels(ctx, failed.modelFreeze);
   return await reserveGeneration(
     ctx,
     project,
@@ -560,16 +572,18 @@ export async function retryGenerationHandler(
     await persistedSingleModelId(
       ctx,
       failed.candidateMode ?? "compare",
-      failed.singleModelId,
+      await replaced(failed.singleModelId),
       failed.modelFreeze
     ),
-    failed.compareModelIds,
+    failed.compareModelIds
+      ? await Promise.all(failed.compareModelIds.map(async (id) => (await replaced(id))!))
+      : undefined,
     failed._id,
     undefined,
     0,
     undefined,
     resolveGatedWorkflow(failed),
-    undefined,
+    ["Generation request reserved.", ...movedBackProgress(moved)],
     failed.excludedSources
   );
 }
@@ -654,6 +668,22 @@ export async function retryFromSummaryHandler(
   await limitGenerationStart(ctx, user._id, project._id);
   const currentById = new Map(currentSources.map((source) => [source._id, source]));
   const now = Date.now();
+  // Summary recovery drafts on exactly the models the original froze, except
+  // a model its tier was moved back from (2026-10-23, owner): then it
+  // freezes today's models, the single model replaced by its tier's current
+  // one, so the recovery can finish instead of the writer starting over.
+  const moved = await movedBackModels(ctx, failed.modelFreeze);
+  const singleModelId =
+    failed.singleModelId === undefined
+      ? undefined
+      : ((await movedBackReplacement(ctx, failed.singleModelId)) ?? failed.singleModelId);
+  const modelFreeze =
+    moved.length > 0
+      ? await freezeModelsForGeneration(ctx, [singleModelId ?? (await defaultModelId(ctx))], now)
+      : failed.modelFreeze;
+  if (moved.length > 0 && modelFreeze?.entries.some((entry) => entry.gateway === "openrouter")) {
+    requireOpenRouterConfigured();
+  }
   const generationId = await ctx.db.insert("generations", {
     projectId: failed.projectId,
     transcriptId: failed.transcriptId,
@@ -676,9 +706,8 @@ export async function retryFromSummaryHandler(
     briefVersionId: failed.briefVersionId,
     summaryVersionId: failed.summaryVersionId,
     originGenerationId,
-    singleModelId: failed.singleModelId,
-    // Summary recovery drafts on exactly the models the original froze.
-    ...(failed.modelFreeze ? { modelFreeze: failed.modelFreeze } : {}),
+    singleModelId,
+    ...(modelFreeze ? { modelFreeze } : {}),
     retryOfGenerationId: failed._id,
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Preparing Summary recovery",
@@ -691,7 +720,7 @@ export async function retryFromSummaryHandler(
   await appendGenerationProgress(
     ctx,
     { _id: generationId, projectId: failed.projectId },
-    ["Summary recovery reserved from frozen inputs."],
+    ["Summary recovery reserved from frozen inputs.", ...movedBackProgress(moved)],
     now
   );
   const nextMap: Array<{

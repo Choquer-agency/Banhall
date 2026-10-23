@@ -121,6 +121,43 @@ export async function ensureTrackRow(
   return inserted;
 }
 
+/**
+ * 2026-10-23 (owner): the model a retry or a Summary recovery runs in place
+ * of `modelId`, a model its failed attempt froze. When the tier was moved
+ * back from `modelId` (a failing new version, or an admin's Move back), it
+ * is the tier's current model; otherwise null, and the frozen model runs as
+ * before. The new attempt freezes its models afresh, so every request is
+ * built for the model it is sent to.
+ */
+export async function movedBackReplacement(ctx: ReadCtx, modelId: string): Promise<string | null> {
+  const track = trackOf(modelId);
+  if (!track) return null;
+  const row = await trackRow(ctx, track);
+  if (!row || !row.rolledBackFrom.includes(modelId) || row.modelId === modelId) return null;
+  return row.modelId;
+}
+
+/** Each model `freeze` holds that its tier was moved back from, with its replacement. */
+export async function movedBackModels(
+  ctx: ReadCtx,
+  freeze: ModelFreeze | undefined
+): Promise<Array<{ fromModelId: string; toModelId: string }>> {
+  const moved: Array<{ fromModelId: string; toModelId: string }> = [];
+  for (const entry of freeze?.entries ?? []) {
+    const toModelId = await movedBackReplacement(ctx, entry.id);
+    if (toModelId) moved.push({ fromModelId: entry.id, toModelId });
+  }
+  return moved;
+}
+
+/** The progress lines a retry or recovery adds for the models it left. */
+export function movedBackProgress(moved: ReadonlyArray<{ fromModelId: string; toModelId: string }>): string[] {
+  return moved.map(
+    ({ fromModelId, toModelId }) =>
+      `${trackLabelFor(fromModelId) ?? fromModelId} is no longer used for its tier, so this attempt runs on ${trackLabelFor(toModelId) ?? toModelId}.`
+  );
+}
+
 /** Every track's current model, in picker order. */
 export async function trackModelIds(ctx: ReadCtx): Promise<Array<{ track: ModelTrackId; modelId: string }>> {
   const result: Array<{ track: ModelTrackId; modelId: string }> = [];
@@ -559,7 +596,7 @@ export type TrackMoveInput = {
 /**
  * Move a track to `toModelId` and log it. An upgrade keeps the replaced
  * model as the track's previous model (the "Move back" target). A rollback
- * records the model it left in `rolledBackFrom`, so the daily job never
+ * records the model it left in `rolledBackFrom`, so the Monday job never
  * moves the track to it again, and clears the previous model: there is
  * nothing left to move back to.
  */

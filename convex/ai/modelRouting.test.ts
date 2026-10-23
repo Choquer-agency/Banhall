@@ -384,11 +384,13 @@ describe("model outcome recording", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const t = await setup();
     // The GPT Sol tier moved to GPT-5.6 Sol an hour ago (a stand-in for a
-    // newly moved version) from GPT-6 Sol.
+    // newly moved version) from GPT-6 Sol. Only timers are fake here, so
+    // "an hour ago" is read from the real clock: a tier moves back on its
+    // own only in the first 7 days after its move (2026-10-23).
     await roleOnTrack(t, "writing", {
       modelId: "openai/gpt-5.6-sol",
       previousModelId: "openai/gpt-6-sol",
-      switchedAt: NOW - 60 * 60 * 1000,
+      switchedAt: Date.now() - 60 * 60 * 1000,
     });
     let call = 0;
     // Every response is billed (usage.cost present); every fourth carries

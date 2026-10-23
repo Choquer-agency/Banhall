@@ -394,7 +394,7 @@ stateDiagram-v2
 
 A cron checks every 10 minutes and fails any run with no progress for 30 minutes (`convex/lib/generations/reapers.ts`), so a crash never leaves a project stuck on "Generating".
 
-**Which AI model does what** (`shared/modelCatalog.ts`, `convex/lib/generationSteps.ts`): the writer's chosen model drafts, repairs and shortens; a "planning" model runs the analyzer, Brief and Seeds; a "checking" model runs self-check, consistency and QA. The default writing model is `claude-sonnet-5`. Admins change role assignments on `/admin/models`.
+**Which AI model does what** (`shared/modelCatalog.ts`, `convex/lib/generationSteps.ts`): the writer's chosen model drafts, repairs and shortens; a "planning" model runs the analyzer, Brief and Seeds; a "checking" model runs self-check, consistency and QA. Each role follows a tier (Claude Sonnet, Haiku or Opus), which runs that tier's newest version; the default writing model is the Claude Sonnet tier's (`claude-sonnet-5-5` on 2026-10-22). A run keeps the models frozen at its start; a retry or Summary recovery of a failed run leaves a model its tier was moved back from for the tier's current one. Admins point roles at tiers on `/admin/models`.
 
 **Cost and limits.** Every AI call is recorded in `aiUsage` (see `/admin/usage`). Rate limits live in `convex/lib/aiRateLimits.ts`, for example 12 drafts per person per hour and 6 per project per hour.
 
@@ -582,7 +582,7 @@ flowchart TD
 | Clean up | Expire intake drafts (every 15 min), purge failed Brief preparations (hourly), release unreferenced files, prune error reports and notifications older than 30 days (daily) |
 | Learn | Refresh the QA calibration and draft style digests (daily, 08:00 and 08:15 UTC) |
 | Keep views correct | Rebuild the "waiting on others" view and My Work backfills (every 5 min) |
-| Models | Refresh the model catalog from OpenRouter (daily, 08:45 UTC) |
+| Models | Refresh the model catalog from OpenRouter (daily but Monday, 08:45 UTC); the same refresh plus each tier's move to its newest version (Monday, 08:45 UTC); move a failing new tier model back (hourly at :15, in the first 7 days after a move) |
 
 **Outside services** and the environment variable names Convex reads (values are never in the repo):
 

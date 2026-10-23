@@ -4010,6 +4010,37 @@ No workflow stage, transition or permission is added, `projects.createdBy` is un
 - **Review.** Design, before code: Claude Opus 5.5 (high effort) and gpt-6-astra (medium effort), both "go with changes". Code review, after: Claude Opus 5.5 (high effort) and gpt-6-astra (medium effort), both "ship after fixes". Fixed: the server cap and batch deletes; a damaged file left out of chat, search and research; pieces ending between words; research's read budgets; near-limit rows in the copy pass; mismatched files named; separate pinned-file notices; the safe-range edge case; these docs. A live run on a local copy of dev on 2026-10-22 (303 files) gave the same file list, texts, chat context and searches before, after the copy and after the clear, with no mismatch, and showed the pages needed spacing (a local backend accepts 4 MiB of writes a second). Design review adopted: the missing readers (PD reviews, the Reference PD comparison, research's fallback, the preview, the context query, the debug tools, the status fallback), deletes, exact slicing, positions on pieces, the separate clear pass, upload identity, the unchanged export count, the search grouping, the chat read window, the corrected size claim, 32,000-character pieces and the commit order.
 - **Tests and approval.** Tests are listed with each commit. Approval: Product owner, 2026-10-22 (chat, "Stop reading every file's full text", chosen as the next change).
 
+### 2026-10-23: Tiers move weekly, a failing new version moves back within the hour, and a retry leaves a model its tier moved back from (owner)
+
+Amends the 2026-10-22 (second) entry: its daily job, its rollback rule and its rule for frozen generations. The rest of that entry is unchanged.
+
+- **Owner's intent.** "This cron should run weekly not daily. We want the transition to be seamless and not disruptive in any way that writers would need to start over on a PD." (chat, 2026-10-23)
+- **Schedule** (`convex/crons.ts`):
+  - Every day but Monday at 08:45 UTC: refresh the catalog from OpenRouter, log renamed, expiring and gone models for admins, and check endpoint support. No tier moves.
+  - Monday at 08:45 UTC (04:45 Toronto in summer, 03:45 in winter): the same refresh, then each tier moves to its newest version once it passes the readiness check (`refreshCatalog` with `moveTiers: true`).
+  - Hourly at a quarter past: the production error check (`checkProductionErrors`). The refresh no longer runs it.
+  - The admin refresh button refreshes only and never moves a tier. A failed readiness check holds the tier until the next Monday.
+- **Rollback rule.**
+  - Unchanged: a tier's new model that fails more than 20 percent of at least 20 calls over the last day (or since the move, if later) moves the tier back to its previous model. The errors counted are as before, overloaded answers after every retry included, since moving back puts writers on a model that answers.
+  - New: a tier moves back on its own only in the first 7 days after its move (`AUTOMATION_THRESHOLDS.rollbackPeriodMs`). After that, an admin's "Move back" still can.
+  - New: the hourly check writes a missing tier row first. A tier the deploy moved keeps its pre-deploy model as its previous one, so the deploy-day move (Sonnet 5 to Sonnet 5.5, Haiku 4.5 to Haiku 5.5) is watched from the first hour without waiting for the one-off migration.
+  - New: a model a tier moved back from can be allowed again (`modelCatalog:allowTrackModelAgain`, run by hand) when the move back was not the model's fault, such as a provider outage. The tier does not move until next Monday's readiness check passes.
+  - With the kill switch off, the "not moved back" notice comes about once a day. The slack is now five minutes, so the hourly check does not send it an hour earlier each day.
+- **Retries after a move back.**
+  - A retry (`retryGeneration`) or a Summary recovery (`retryFromSummary`) of a failed generation whose freeze holds a model its tier was moved back from freezes today's models instead. The single model, or each compare model, is replaced by its tier's current one, and the progress log says so ("Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.").
+  - The Brief, the Summary, the picks, the frozen sources, the placeholders and the writer settings carry over as before. The failed generation is never rewritten.
+  - A retry or recovery whose models are all still on their tiers keeps the original freeze exactly, as before.
+  - A running generation keeps its frozen models; nothing is redirected per call. Considered and rejected in review: sending a frozen model's calls to the tier's current model mid-run, because every request decision (tool path, thinking, output budget, prices, usage attribution) reads the frozen id.
+  - Known limits: a compare retry whose two slots map to the same model draws a new pair, as a compare request with an invalid pair does. A direct Anthropic model that Anthropic retires (rather than one its tier moved back from) is still not replaced, so a generation frozen on it needs a new run.
+- **One-off migration.** `pointRolesAtTracks` now rewrites only role rows written before the 2026-10-22 change (no `track`), so running it again never undoes an admin's tier choice. It runs right after the deploy.
+- **Checked on 2026-10-23.**
+  - The Anthropic account is not enforced on Anthropic's preserved-thinking history check: an edited replay on Sonnet 5.5 without the beta header returned 200, and with the header alone it listed `thinking_mismatch_allowed`. Dev and production use the same key. Chat, which rebuilds its context every turn, keeps working after the move. If the key ever moves to an account created on or after 2026-08-31, chat needs append-only history or `drop_block` first.
+  - Sonnet 5.5 reads Sonnet 5's thinking blocks, so a chat thread keeps its reasoning across the move. A move back to Sonnet 5 drops Sonnet 5.5's blocks without failing the request (Anthropic's migration notes).
+- **Invariants.** Tiers move only on the Monday run, forward within their tier, after a readiness check. No writer starts a PD over because a tier moved or moved back: a running generation finishes on its frozen models, and a retry or recovery of a failed one runs on models its tiers still use. No model change touches report prose.
+- **Tests.** `convex/modelCatalog.test.ts`: the cron table; the refresh without tier moves; the Monday run; the deploy-day move watched from the first hourly check; the 7-day period; the notice about once a day; allowing a model again; the migration keeping an admin's choice; a retry after a move back. `convex/generationSeedSignoff.test.ts`: Summary recovery after a move back, and on exactly its frozen models otherwise.
+- **Review.** Design, before code: Claude Opus 5.5 (high effort requested; it reported running at low effort) and gpt-6-astra (medium effort), both "go with changes". Adopted: no per-call redirect (a fresh freeze at the retry instead), the deploy-day watch, the 7-day period, allowing a model again, the migration guard, the notice slack and the time-zone wording. Not adopted: leaving overloaded answers out of the count (see the rollback rule).
+- **Approval:** Product owner, 2026-10-23 (chat).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
