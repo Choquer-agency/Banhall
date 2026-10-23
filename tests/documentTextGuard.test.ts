@@ -19,9 +19,6 @@ const HELPER = path.join(convexDir, "lib", "documentText.ts");
 
 /** Reads still to convert, per file (relative to the repo root). */
 const PENDING: Readonly<Record<string, number>> = {
-  // Step 2c: search.
-  "convex/chatDocuments.ts": 3,
-  "convex/research.ts": 2,
   // Step 3: the project copy, with the writers.
   "convex/projects.ts": 1,
 };

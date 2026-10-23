@@ -31,7 +31,7 @@ export const DOCUMENT_TEXT_PREVIEW_CHARS = 2_000;
  * Pieces one file may have: a 900,000-character intake file needs 29.
  * Reading or deleting more fails closed.
  */
-const MAX_DOCUMENT_TEXT_PIECES = 64;
+export const MAX_DOCUMENT_TEXT_PIECES = 64;
 
 type TextFields = Pick<
   Doc<"projectDocuments">,
@@ -248,4 +248,63 @@ export async function findDocumentWithText(
     if (doc.fileName === fileName && !documentTextMoved(doc) && (doc.content ?? "") === text) return doc;
   }
   return null;
+}
+
+/**
+ * The project's files a full text search finds, best first, at most `files`
+ * of them (archived ones included, as the old index returned them). Pieces
+ * are grouped by file, best piece first; while files are still moving, the
+ * old index on `content` adds the files whose text has not moved, and a file
+ * both return is listed once. A piece whose file is gone or in another
+ * project is dropped.
+ */
+export async function searchProjectDocuments(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  search: string,
+  files: number
+): Promise<Doc<"projectDocuments">[]> {
+  const pieces: Doc<"projectDocumentTexts">[] = [];
+  for await (const piece of untilDistinctDocuments(
+    ctx.db
+      .query("projectDocumentTexts")
+      .withSearchIndex("search_text", (q) => q.search("text", search).eq("projectId", projectId)),
+    files
+  )) {
+    pieces.push(piece);
+    if (pieces.length >= searchPieceCap(files)) break;
+  }
+  const unmoved = await ctx.db
+    .query("projectDocuments")
+    .withSearchIndex("search_content", (q) => q.search("content", search).eq("projectId", projectId))
+    .take(files);
+  const byId = new Map(unmoved.map((doc) => [doc._id, doc] as const));
+  const found: Doc<"projectDocuments">[] = [];
+  for (const documentId of new Set([...pieces.map((piece) => piece.documentId), ...unmoved.map((doc) => doc._id)])) {
+    if (found.length >= files) break;
+    const doc = byId.get(documentId) ?? (await ctx.db.get(documentId));
+    if (doc && doc.projectId === projectId) found.push(doc);
+  }
+  return found;
+}
+
+/**
+ * Pieces a search reads for `files` files: enough to pass one file whose
+ * every piece matches, so a long file cannot take every file slot.
+ */
+export function searchPieceCap(files: number): number {
+  return files * 3 + MAX_DOCUMENT_TEXT_PIECES;
+}
+
+/** Search hits until they name `files` different files. */
+export async function* untilDistinctDocuments<Piece extends { documentId: Id<"projectDocuments"> }>(
+  source: AsyncIterable<Piece>,
+  files: number
+): AsyncGenerator<Piece> {
+  const seen = new Set<string>();
+  for await (const piece of source) {
+    yield piece;
+    seen.add(piece.documentId);
+    if (seen.size >= files) return;
+  }
 }

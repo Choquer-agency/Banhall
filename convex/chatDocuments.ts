@@ -19,7 +19,14 @@ import { internalMutation, internalQuery, type QueryCtx } from "./_generated/ser
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import { documentHasText, documentTextLength, readDocumentTextSafeRange } from "./lib/documentText";
+import {
+  documentHasText,
+  documentTextLength,
+  readDocumentText,
+  readDocumentTextSafeRange,
+  searchPieceCap,
+  untilDistinctDocuments,
+} from "./lib/documentText";
 import { chatDocumentToolsEnabled, chatVisionEnabled } from "./appSettings";
 import { chatViewMedia, type ChatMediaKind, type ChatMediaType } from "./lib/chatMedia";
 import { MAX_ACTIVE_TRANSCRIPT_ROWS_READ, projectTranscriptsFrom, transcriptLabel } from "./lib/transcripts";
@@ -692,18 +699,58 @@ export const searchForChat = internalQuery({
       if (score > 0) candidates.push({ score, order: order++, source, excerpt });
     };
 
-    // Project files: the full text index narrows the candidates.
-    const files = await budget.list(
+    // Project files: the full text indexes narrow the candidates. 2026-10-22
+    // (fourth): the pieces' index, grouped by file with its best piece first,
+    // and, while files are still moving, the old index on `content`; a file
+    // both return is one candidate. Each kept file is then read whole and
+    // split as before, so its excerpts and their positions do not change.
+    const pieces = await budget.list(
+      untilDistinctDocuments(
+        ctx.db
+          .query("projectDocumentTexts")
+          .withSearchIndex("search_text", (q) => q.search("text", index).eq("projectId", scope.projectId)),
+        SEARCH_FILE_CANDIDATES
+      ),
+      searchPieceCap(SEARCH_FILE_CANDIDATES)
+    );
+    if (!pieces.complete && pieces.rows.length < searchPieceCap(SEARCH_FILE_CANDIDATES)) complete = false;
+    const unmoved = await budget.list(
       ctx.db
         .query("projectDocuments")
         .withSearchIndex("search_content", (q) => q.search("content", index).eq("projectId", scope.projectId)),
       SEARCH_FILE_CANDIDATES
     );
-    if (!files.complete && files.rows.length < SEARCH_FILE_CANDIDATES) complete = false;
-    for (const doc of files.rows) {
-      if (doc.archived || doc.projectId !== scope.projectId || doc.content.trim() === "") continue;
-      for (const span of chunkSpans(doc.content, CHAT_SEARCH_EXCERPT_CHARS)) {
-        const text = doc.content.slice(span.start, span.end);
+    if (!unmoved.complete && unmoved.rows.length < SEARCH_FILE_CANDIDATES) complete = false;
+    const loadedRows = new Map(unmoved.rows.map((doc) => [doc._id, doc] as const));
+    const candidateIds = [...new Set([
+      ...pieces.rows.map((piece) => piece.documentId),
+      ...unmoved.rows.map((doc) => doc._id),
+    ])];
+    let filesRead = 0;
+    for (const documentId of candidateIds) {
+      if (filesRead >= SEARCH_FILE_CANDIDATES) break;
+      let doc = loadedRows.get(documentId) ?? null;
+      if (!doc) {
+        const loaded = await budget.read(() => ctx.db.get(documentId));
+        if (!loaded.ok) {
+          complete = false;
+          break;
+        }
+        doc = loaded.value;
+      }
+      // A piece whose file is gone, archived or in another project is dropped.
+      if (!doc || doc.archived || doc.projectId !== scope.projectId || !documentHasText(doc)) continue;
+      filesRead += 1;
+      const current = doc;
+      // Charged as the text it returns (an object, which the budget sizes).
+      const read = await budget.read(async () => ({ text: await readDocumentText(ctx, current) }));
+      if (!read.ok) {
+        complete = false;
+        break;
+      }
+      const content = read.value.text;
+      for (const span of chunkSpans(content, CHAT_SEARCH_EXCERPT_CHARS)) {
+        const text = content.slice(span.start, span.end);
         consider(`file:${doc._id}`, text, {
           kind: "file",
           documentId: doc._id,

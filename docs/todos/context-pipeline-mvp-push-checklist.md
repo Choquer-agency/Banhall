@@ -153,3 +153,28 @@ A pinned file is read through the same scoped file read the chat's tools use. Th
 - [ ] **Chat.** In a project with more than 12 files, ask the Assistant about a file near the end of the list. It names the file in its list and can open it with its reading tool.
 - [ ] **Pinned files.** Pin a long file to a message. The reply quotes it, and says where it was cut if the file is longer than the allowance.
 - [ ] **Settings document.** A writer settings document still applies in chat.
+
+## Commit 5: search finds files through the text pieces (step 2, part 3, of the text move)
+
+What changed: chat search and research search a new index on the text pieces, limited to the project. While files are still moving, they also search the old index. Hits are grouped by file, and pieces are read until they name 16 different files (12 for research), never past 112 pieces, so one long file can't take every slot. Each kept file is read whole and split into excerpts as before. A hit whose file is gone, archived or in another project is dropped.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,120 tests in 461 files.
+- [x] `convex/documentTextSearch.test.ts`:
+  - the same excerpts at the same positions for moved and unmoved copies of a project;
+  - each file once when one file is mid-move, one moved and one not;
+  - archived files and a gone file's pieces never found;
+  - a file with 25 matching pieces doesn't crowd out 3 short files.
+
+  The first version of the crowding test failed and caught a real gap, which is now fixed.
+- [x] The guard's list now holds only the project copy (step 3).
+
+### Automated, live on localhost
+
+- [ ] Search ranking on a real backend. convex-test doesn't rank like production. Run chat search on a project with many files and compare its top excerpts with the same search on the old code.
+
+### Manual on localhost
+
+- [ ] **Chat search.** Ask the Assistant to search the files for a phrase that appears in an older, longer file. It finds and quotes the right file.
+- [ ] **Research.** Run a research request with a selected sentence. Its project evidence lists the right files.

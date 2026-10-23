@@ -23,6 +23,7 @@ import { getEffectiveWriterStyle } from "./writerProfiles";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { listProjectTranscripts } from "./lib/transcripts";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import { documentHasText, readDocumentText, searchProjectDocuments } from "./lib/documentText";
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
   MAX_CONTEXT_TEXT,
@@ -382,29 +383,25 @@ export const collectProjectEvidence = internalMutation({
     if (await isProjectDeleting(ctx, session.projectId)) return null;
     const query = `${session.instruction}\n${session.selectedText}`;
     const evidenceQuery = projectEvidenceSearchQuery(query);
+    // 2026-10-22 (fourth): found through the pieces' index too, and read
+    // through the text helper.
     const documents = evidenceQuery
-      ? await ctx.db
-          .query("projectDocuments")
-          .withSearchIndex("search_content", (q) =>
-            q.search("content", evidenceQuery).eq("projectId", session.projectId)
-          )
-          .take(12)
+      ? await searchProjectDocuments(ctx, session.projectId, evidenceQuery, 12)
       : await ctx.db
           .query("projectDocuments")
           .withIndex("by_projectId", (q) => q.eq("projectId", session.projectId))
           .order("desc")
           .take(8);
-    const evidence = selectProjectEvidence(
-      documents
-        .filter((document) => !document.archived && document.content.trim())
-        .map((document) => ({
-          id: document._id,
-          title: document.fileName,
-          content: document.content,
-        })),
-      query,
-      6
-    );
+    const readable = [];
+    for (const document of documents) {
+      if (document.archived || !documentHasText(document)) continue;
+      readable.push({
+        id: document._id,
+        title: document.fileName,
+        content: await readDocumentText(ctx, document),
+      });
+    }
+    const evidence = selectProjectEvidence(readable, query, 6);
     const now = Date.now();
     for (const item of evidence) {
       const documentId = ctx.db.normalizeId("projectDocuments", item.documentId);
