@@ -345,8 +345,8 @@ What changes:
 
 ### Automated, offline
 
-- [x] Design reviewed before code by Claude Opus 5.5 (high effort requested; it reported low) and gpt-6-astra (medium effort): both "go with changes", all adopted but two (see the decision record). Code review after: Opus "ship", Astra "ship after fixes"; all fixed.
-- [x] `bash scripts/loop-verify.sh` on 82f56c1a: all 9 steps pass, 7,170 tests in 463 files.
+- [x] Design reviewed before code by Claude Opus 5.5 (high effort requested; it reported low) and gpt-6-astra (medium effort): both "go with changes", all adopted but two (see the decision record). Code review after, two rounds: round 1 Opus "ship", Astra "ship after fixes"; round 2 Astra "ship", Opus "ship after one fix" (Opus reported low effort each time). All fixed.
+- [x] `bash scripts/loop-verify.sh` on 1a0bc2bf (after both review rounds): all 9 steps pass, 7,172 tests in 463 files. One earlier run timed out two slow tests while the machine was loaded (load average 17); both passed alone and on the rerun.
 - [x] New tests: the rewrite and its record; a model already frozen kept exactly; a comparison; a row with no freeze; QA leaving the writer model and waiting out a redraft; a retry after the rewrite; the redirect kept for a model the generation left; chained moves; a new action reading the changed freeze; sign-off after a move back keeping exactly the picks with every first-Line request on Sonnet 5; the settings beside sign-off; a Seeds request; the drafting-inputs retry; the Seeds-start retry with its analysis on the new model; a Batch queued before the move running on its own model; "Draft the rest"; the legacy section flow.
 
 ### Automated, live on localhost (2026-10-23, 20:15 to 20:34 UTC, a copy of dev, $1.79)
