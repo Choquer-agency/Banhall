@@ -741,6 +741,30 @@ describe("track upgrades and rollback", () => {
     expect((await trackRow(t, "claude-sonnet"))?.modelId).toBe("claude-sonnet-5");
   });
 
+  it("keeps counting the deploy-day model's earlier failures when the migration writes the rows first, across checks", async () => {
+    const { t } = await setup(parsed);
+    const record = async (outcome: "failure" | "success", times: number) => {
+      for (let i = 0; i < times; i += 1) {
+        await t.mutation(recordCallOutcomeRef, { model: "claude-sonnet-5-5", callSite: "generation:analyzer", outcome, code: "malformed_output" });
+      }
+    };
+    await record("failure", 19);
+    vi.setSystemTime(NOW + 10 * 60 * 1000);
+    await t.mutation(pointRolesAtTracksRef, {});
+    expect(await trackRow(t, "claude-sonnet")).toMatchObject({ deployMove: true, switchedAt: NOW + 10 * 60 * 1000 });
+    vi.setSystemTime(NOW + 20 * 60 * 1000);
+    // 19 calls: under the minimum, so nothing moves yet.
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    vi.setSystemTime(NOW + 30 * 60 * 1000);
+    await record("success", 1);
+    vi.setSystemTime(NOW + 80 * 60 * 1000);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    // The move back clears the flag.
+    expect((await trackRow(t, "claude-sonnet"))?.deployMove).toBeUndefined();
+  });
+
   it("still moves a failing tier back on day 6, and after day 7 only tells admins", async () => {
     const day = 24 * 60 * 60 * 1000;
     const failingAt = async (at: number) => {
@@ -769,6 +793,9 @@ describe("track upgrades and rollback", () => {
       { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: false },
     ]);
     expect((await trackRow(late.t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.2-sol");
+    // The next hourly check does not repeat it.
+    vi.setSystemTime(NOW + 8 * day + 60 * 60 * 1000);
+    await late.t.mutation(checkProductionErrorsRef, {});
     expect((await adminNotices(late.t)).filter((message) => message.includes("moved more than 7 days ago"))).toHaveLength(1);
     expect(await errorReports(late.t)).toEqual([]);
   });

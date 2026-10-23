@@ -3485,6 +3485,31 @@ describe("seed Summary sign-off and recovery", () => {
     ]);
   });
 
+  it("recovers a plan with no stored single model on the writing role's current model after a move back", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: undefined, modelFreeze });
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.singleModelId).toBe("claude-sonnet-5");
+    expect(recovery?.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    expect(recovery?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+  });
+
   it("recovers a signed-off plan on exactly its frozen models while no tier moved back from them", async () => {
     const s = await decisionFixture();
     await makeReady(s);

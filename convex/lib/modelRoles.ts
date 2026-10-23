@@ -114,7 +114,7 @@ export async function ensureTrackRow(
     track,
     modelId: TRACK_SEED_MODEL_IDS[track],
     rolledBackFrom: [],
-    ...(previousModelId ? { previousModelId, switchedAt: Date.now() } : {}),
+    ...(previousModelId ? { previousModelId, switchedAt: Date.now(), deployMove: true } : {}),
   });
   const inserted = await ctx.db.get(id);
   if (!inserted) throw new Error(`Track ${track} could not be written`);
@@ -178,6 +178,25 @@ export function movedBackProgress(moved: ReadonlyArray<{ fromModelId: string; to
   return moved.map(
     ({ fromModelId, toModelId }) =>
       `${trackLabelFor(fromModelId) ?? fromModelId} is no longer used for its tier, so this attempt runs on ${trackLabelFor(toModelId) ?? toModelId}.`
+  );
+}
+
+/**
+ * The progress lines a comparison retry adds (2026-10-23 review): a slot
+ * that runs again on its frozen moved-back model, because its replacement
+ * is the other slot's model, says so; every other moved-back model gets the
+ * usual line. `pair` is the retry's pair and `runSlots` the slots it drafts.
+ */
+export function compareRetryProgress(
+  moved: ReadonlyArray<{ fromModelId: string; toModelId: string }>,
+  pair: readonly string[],
+  runSlots: ReadonlySet<string>
+): string[] {
+  const label = (id: string) => trackLabelFor(id) ?? id;
+  return moved.map(({ fromModelId, toModelId }) =>
+    pair.includes(fromModelId) && runSlots.has(fromModelId)
+      ? `${label(fromModelId)} is no longer used for its tier, but this comparison already has ${label(toModelId)}, so this draft runs on ${label(fromModelId)} again.`
+      : movedBackProgress([{ fromModelId, toModelId }])[0]!
   );
 }
 
@@ -638,6 +657,7 @@ export async function moveTrack(
     previousModelId: input.kind === "upgrade" ? fromModelId : undefined,
     switchedAt: now,
     errorNoticeAt: undefined,
+    deployMove: undefined,
     ...(input.kind === "rollback" && !row.rolledBackFrom.includes(fromModelId)
       ? { rolledBackFrom: [...row.rolledBackFrom, fromModelId] }
       : {}),

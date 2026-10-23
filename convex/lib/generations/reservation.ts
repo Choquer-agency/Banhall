@@ -22,6 +22,7 @@ import {
   movedBackProgress,
   movedBackReplacement,
   retryComparePair,
+  compareRetryProgress,
 } from "../modelRoles";
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
@@ -566,11 +567,10 @@ export async function retryGenerationHandler(
   const comparePair = failed.compareModelIds
     ? await retryComparePair(ctx, failed.compareModelIds)
     : undefined;
-  // A slot that keeps its frozen model (its replacement would repeat the
-  // other slot's) gets no "no longer used" line.
-  const moved = (await movedBackModels(ctx, failed.modelFreeze)).filter(
-    ({ fromModelId }) => !comparePair?.pair.includes(fromModelId)
-  );
+  const moved = await movedBackModels(ctx, failed.modelFreeze);
+  const movedLines = comparePair
+    ? compareRetryProgress(moved, comparePair.pair, new Set(comparePair.pair))
+    : movedBackProgress(moved);
   return await reserveGeneration(
     ctx,
     project,
@@ -589,7 +589,7 @@ export async function retryGenerationHandler(
     0,
     undefined,
     resolveGatedWorkflow(failed),
-    ["Generation request reserved.", ...movedBackProgress(moved)],
+    ["Generation request reserved.", ...movedLines],
     failed.excludedSources
   );
 }
@@ -844,8 +844,10 @@ export async function retryFailedCandidatesHandler(
   // their models are kept as they are.
   const retryPair = await retryComparePair(ctx, compareModelIds, new Set(failedModelIds));
   const retryModelIds = failedModelIds.map((id) => retryPair.replaced.get(id) ?? id);
-  const moved = (await movedBackModels(ctx, generationModelFreeze(generation))).filter(
-    ({ fromModelId }) => !retryPair.pair.includes(fromModelId)
+  const movedLines = compareRetryProgress(
+    await movedBackModels(ctx, generationModelFreeze(generation)),
+    retryPair.pair,
+    new Set(retryModelIds)
   );
   const sourceCandidates = await ctx.db
     .query("reportCandidates")
@@ -904,7 +906,7 @@ export async function retryFailedCandidatesHandler(
       successfulCandidates.length > 0
         ? `Kept ${successfulCandidates.length} completed draft${successfulCandidates.length === 1 ? "" : "s"}.`
         : "Retrying all failed drafts.",
-      ...movedBackProgress(moved),
+      ...movedLines,
     ],
     generation.excludedSources,
     false

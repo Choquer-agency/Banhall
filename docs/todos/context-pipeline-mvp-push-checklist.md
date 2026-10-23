@@ -23,6 +23,7 @@ Two isolated setups. Neither writes to the dev or production deployment.
    - It deletes everything when it stops.
    - The copy holds client data, so it needs the owner's approval each time.
    - AI calls are real and cost money. The harness's own guide puts a full chat run at a few dollars.
+   - From an agent session, start it detached (`nohup node scripts/chat-live/run.mjs ... &`). A tool time limit that kills it skips its cleanup and leaves the copy of dev data in the temporary folder (seen on 2026-10-23; removed by hand).
 2. **Fictional projects only (for the automated release suite).** `node scripts/seed-plan-eval.mjs --deployment local --as <internal email> --confirm-spend` runs the scripted Step by step fixtures end to end on a local backend and writes a judging pack under `_bmad-output/test-artifacts/seed-plan-eval/`. It uses no client data. Each fixture costs real model calls.
 
 ## Commit 1: the final check's answer grows by a fixed amount per pick (6ab0eafc)
@@ -296,3 +297,53 @@ Claude Opus 5.5 (high effort), round 2: "ship after fixes". Fixed:
   - the research test does not assert the log line for a file left out;
   - copying and deleting an over-cap project file are shown by reading the code.
 - [ ] Manual check of the gaps above: pin a damaged file on a local copy. This needs a file with a piece deleted by hand, so the agent can set it up on request.
+
+## Commits 11 to 13: tiers move on Mondays only, a failing new model moves back within the hour, and a retry leaves a moved-back model (c4d36c08, 6df764ef and the round 2 fixes)
+
+Owner, 2026-10-23: "This cron should run weekly not daily. We want the transition to be seamless and not disruptive in any way that writers would need to start over on a PD." Decision record: `docs/product-domain.md`, entry "2026-10-23".
+
+What changes:
+
+- The model list still refreshes daily. Tiers move only on the Monday run (08:45 UTC: 04:45 Toronto in summer, 03:45 in winter).
+- An hourly check moves a failing new model back, only in the first 7 days after a move; after that admins get a daily notice. It watches the deploy-day move from its first run.
+- A model a tier moved back from can be allowed again (`modelCatalog:allowTrackModelAgain`, by hand).
+- A retry, "Retry failed drafts" or a Summary recovery of a failed draft moves off a model its tier moved back from and says so in the progress log. A running draft keeps its models.
+- The one-off role migration never undoes an admin's tier choice.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,156 tests in 463 files. Admin component tests: 14 of 14.
+- [x] Design reviewed before code, and code reviewed after in two rounds (both rounds' findings fixed), by Claude Opus 5.5 (high effort requested; it reported low) and gpt-6-astra (medium effort). Both rounds ended "ship after fixes".
+- [x] New tests: the cron table; refresh without tier moves; the Monday run; the deploy-day move watched from the first check, with earlier failures counted; day 6.9 and day 8; the daily notice; allow again; the migration keeping an admin choice; retries after a move back (single, helper role only, comparison, failed drafts, a slot that keeps its frozen model, Summary recovery and its control).
+
+### Automated, live on localhost (2026-10-23, 18:07 to 18:32 UTC, a copy of dev, $3.25)
+
+- [x] **Account check.** Dev's Anthropic key is not held to Anthropic's history check for newer models (edited replay returned 200; with the beta header alone it listed `thinking_mismatch_allowed`). So chat keeps working when it moves to Sonnet 5.5. Cost about $0.01.
+- [x] **Deploy mid-draft.** The copy started on `origin/main` (`bbbb2710`). Emily's plan (frozen on GPT-6.1 Sol, Sonnet 5 and Haiku 4.5) was signed off at 18:07:11; the new code was pushed at 18:07:38. The draft completed at 18:10:54 on its frozen models: three Lines drafted with their final checks, plan coverage complete, consistency pass with 0 findings, QA 58 of 100. 11 calls, $0.93, none cut off.
+- [x] **Schedules accepted.** The local backend accepted all three cron strings on push.
+- [x] **Chat across the deploy.** A chat turn on an old thread (earlier turns on Sonnet 5) started on the old code and finished on the new one, on Sonnet 5.5.
+- [x] **Old thread, new model.** Three more turns on another Sonnet 5 thread ran on Sonnet 5.5: an edit card, applied; a follow-up after the edit; a file search.
+- [x] **Move back (simulated failures).** 10 failed and 10 successful Sonnet 5.5 calls recorded through `recordCallOutcome`, then the hourly check: the Sonnet tier moved back to Sonnet 5 (42 percent of 24 calls). The admin log shows it; no alerts-board rows.
+- [x] **Old thread after the move back.** A turn on the thread full of Sonnet 5.5 history ran on Sonnet 5 and answered correctly ("We edited paragraph 1 of Line 242").
+- [x] **Retry after the move back.** A Single draft frozen on Sonnet 5.5, marked failed by hand (simulated), was retried: the retry froze Sonnet 5, logged "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.", and completed (22 calls, $1.20, QA 78 of 100, none cut off).
+- [x] **Allow again, then the Monday move.** `allowTrackModelAgain` returned true, then false. A real daily refresh moved nothing. A real Monday run (`moveTiers: true`) passed Sonnet 5.5's readiness check and moved the tier forward; every other tier was up to date.
+- [x] **Picking a candidate** on the October 15 comparison frozen on six older models (MiMo included) completed and created the report.
+- [x] **Admin page** (`/admin/models`, in a browser): the new wording, every tier's state and the log of the move back, the allow-again notice and the Monday move.
+- [x] **Errors.** No alerts-board rows; the only failed model calls were the 10 injected; no "outcome not recorded" or "Could not record a model redirect" lines. "Brain search failed" lines come from the copy having no Voyage key (the harness copies only the Anthropic and OpenRouter keys).
+- Not run live, covered by tests: Summary recovery after a move back, "Retry failed drafts" after a move back, the round 2 fixes (the live copy ran 6df764ef), and a Step by step plan without a stored freeze.
+- [ ] **Owner decision.** A plan not yet signed off, whose draft fails on a model its tier then moves back from, has to be cancelled and retried, which starts a new Seeds stage. Accept this limit, or ask for the in-run retries to leave a moved-back model (a separate, reviewed change).
+
+### Manual on localhost
+
+- [ ] **Admin page.** Open `/admin/models`. The Automatic updates text says "Every Monday morning". Each tier shows its model, the one before it and "Move back".
+- [ ] **A draft started before the deploy.** Sign off a plan, deploy, and confirm it finishes without anyone doing anything.
+- [ ] **Chat on an old conversation.** Continue a conversation from before the deploy. It answers and remembers earlier turns.
+
+### Owner actions, in order (production)
+
+1. [ ] Run the account check on production's Anthropic key: `ANTHROPIC_API_KEY="$(npx convex env get ANTHROPIC_API_KEY --prod)" node scripts/anthropic-history-check.mjs` from a machine whose Convex CLI reaches production (about $0.01; on dev it says "NOT HELD"). If it says "HELD", stop: chat would fail after the move until it sends append-only history.
+2. [ ] Deploy. If production does not yet run the 2026-10-22 tier change, the deploy moves Sonnet 5 to 5.5 and Haiku 4.5 to 5.5 at once; drafts in progress keep their models.
+3. [ ] Right after the deploy: `npx convex run modelCatalog:pointRolesAtTracks '{}'` and `npx convex run modelCatalog:resolveModelCatalogAlerts '{}'` (both safe to run again).
+4. [ ] Within the first hour, `/admin/models` shows "Move back" for the moved tiers. Watch the model log for a day.
+5. [ ] If a tier moves back for a reason that was not the model (an outage), allow it again: `npx convex run modelCatalog:allowTrackModelAgain '{"track":"claude-sonnet","modelId":"claude-sonnet-5-5"}'`.
+

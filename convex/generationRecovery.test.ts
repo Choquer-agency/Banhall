@@ -167,7 +167,36 @@ describe("retrying failed drafts after a tier moved back (2026-10-23)", () => {
     const retry = await t.run((ctx) => ctx.db.get(retryId));
     expect(retry?.compareModelIds).toEqual(["claude-sonnet-5", "claude-sonnet-5-5"]);
     expect(retry?.retryModelIds).toEqual(["claude-sonnet-5-5"]);
-    expect((await progressOf(t, retryId)).some((line) => line.includes("no longer used"))).toBe(false);
+    expect(await progressOf(t, retryId)).toContain(
+      "Sonnet 5.5 is no longer used for its tier, but this comparison already has Sonnet 5, so this draft runs on Sonnet 5.5 again."
+    );
+  });
+
+  it("keeps the pair and drafts nothing again when only the completed draft's model was moved back", async () => {
+    const { t, generationId } = await setupMovedBackPartial(["claude-sonnet-5-5", "claude-opus-5-5"], "claude-opus-5-5");
+    const retryId = await t.withIdentity({ subject: authId }).mutation(api.generations.retryFailedCandidates, { generationId });
+    const retry = await t.run((ctx) => ctx.db.get(retryId));
+    expect(retry?.compareModelIds).toEqual(["claude-sonnet-5-5", "claude-opus-5-5"]);
+    expect(retry?.retryModelIds).toEqual(["claude-opus-5-5"]);
+    expect(retry?.seededCandidates).toBe(1);
+    // The helper roles leave the moved-back model; the kept draft is not redrafted.
+    expect(retry?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(await progressOf(t, retryId)).toContain(
+      "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5."
+    );
+  });
+
+  it("retries a whole failed comparison keeping a slot whose replacement would repeat the other", async () => {
+    const { t, projectId, generationId } = await setupMovedBackPartial(["claude-sonnet-5", "claude-sonnet-5-5"], "claude-sonnet-5-5");
+    await t.run(async (ctx) => {
+      await ctx.db.patch(generationId, { status: "failed" });
+      await ctx.db.patch(projectId, { activeGenerationId: undefined, status: "draft" });
+    });
+    const retryId = await t.withIdentity({ subject: authId }).mutation(api.generations.retryGeneration, { generationId });
+    expect((await t.run((ctx) => ctx.db.get(retryId)))?.compareModelIds).toEqual(["claude-sonnet-5", "claude-sonnet-5-5"]);
+    expect(await progressOf(t, retryId)).toContain(
+      "Sonnet 5.5 is no longer used for its tier, but this comparison already has Sonnet 5, so this draft runs on Sonnet 5.5 again."
+    );
   });
 });
 

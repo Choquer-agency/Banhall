@@ -87,8 +87,10 @@
           A generation already running keeps the models it started with. In the first 7 days after a
           move, a tier moves back on its own, within the hour, when its new model fails more than
           {errorPercent} percent of at least {admin.thresholds.errorMinCalls} calls in a day. After a
-          tier moves back, trying a failed draft again runs on the tier's current model. Turning this
-          off stops every update and move back.
+          tier moves back, retrying a failed generation (Retry, Retry failed drafts or Summary recovery)
+          runs on the tier's current model, unless both drafts of a comparison would then use the same
+          one. A step retried inside a running generation keeps its models. Turning this off stops
+          every update and move back.
         </p>
       </div>
       <label class="flex items-center gap-3 text-sm text-gray-800">

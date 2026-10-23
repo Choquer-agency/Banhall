@@ -4196,6 +4196,11 @@ export default defineSchema({
     // Last admin log line about this track's error rate while automatic
     // updates were off, so it is written at most once a day.
     errorNoticeAt: v.optional(v.number()),
+    // 2026-10-23 widen (review): true on a row first written for the
+    // deploy-day move, which happened before the row existed, so the new
+    // model's calls count over the whole last day rather than from
+    // `switchedAt`. Cleared by the next move.
+    deployMove: v.optional(v.boolean()),
   }).index("by_track", ["track"]),
 
   // 2026-10-22: the admin-only model log on /admin/models. Catalog
