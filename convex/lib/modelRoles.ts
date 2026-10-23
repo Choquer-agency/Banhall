@@ -317,9 +317,11 @@ export async function leaveMovedBackModels(
 }
 
 /**
- * The frozen entry a row pinned to `modelId` (a Section run) runs on now:
- * the model the generation continues on after leaving `modelId`, following
- * every later move, or null when it never left it (2026-10-23, second).
+ * The frozen entry a Section row pinned to the writer model `modelId` runs
+ * on now: the writer model the generation continues on after leaving
+ * `modelId`, following every later writer move, or null when it never left
+ * it (2026-10-23, second). A move of helper roles only (a QA run) is not
+ * followed: the writer model stayed (review round 2).
  */
 export function continuedModelEntry(
   generation: Pick<Doc<"generations">, "modelFreeze" | "modelMoves">,
@@ -327,7 +329,7 @@ export function continuedModelEntry(
 ): FrozenModelEntry | null {
   let current = modelId;
   for (const move of generation.modelMoves ?? []) {
-    if (move.fromModelId === current) current = move.toModelId;
+    if (move.writer === true && move.fromModelId === current) current = move.toModelId;
   }
   if (current === modelId) return null;
   return generation.modelFreeze?.entries.find((entry) => entry.id === current) ?? null;

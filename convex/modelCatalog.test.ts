@@ -714,6 +714,17 @@ describe("reservation and frozen generations", () => {
     const returned = { ...generation, modelMoves: [generation.modelMoves[0], { fromModelId: "b", toModelId: "a", at: 2, roles: [], writer: true }] };
     expect(continuedModelEntry(returned, "a")).toBeNull();
     expect(continuedModelEntry(returned, "b")?.id).toBe("a");
+    // A QA run moved helper roles only, then a later step moved the writer
+    // elsewhere: a Section row follows the writer's move, not the QA one.
+    const afterQa = {
+      ...generation,
+      modelMoves: [
+        { fromModelId: "a", toModelId: "b", at: 1, roles: ["checking"] },
+        { fromModelId: "a", toModelId: "c", at: 2, roles: ["writing"], writer: true },
+      ],
+    };
+    expect(continuedModelEntry(afterQa, "a")?.id).toBe("c");
+    expect(continuedModelEntry({ ...generation, modelMoves: [afterQa.modelMoves[0]] }, "a")).toBeNull();
   });
 
   it("still redirects a model the generation left once OpenRouter stops listing it, for work queued before the move", async () => {
