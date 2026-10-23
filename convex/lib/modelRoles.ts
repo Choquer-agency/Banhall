@@ -150,6 +150,29 @@ export async function movedBackModels(
   return moved;
 }
 
+/**
+ * A compare pair for a retry (2026-10-23 review): each model in `slots` (by
+ * default both) that its tier was moved back from is replaced by the tier's
+ * current model, unless both slots would then be the same model; that slot
+ * keeps its frozen model. `replaced` maps each replaced id to its new one.
+ */
+export async function retryComparePair(
+  ctx: ReadCtx,
+  pair: readonly string[],
+  slots: ReadonlySet<string> = new Set(pair)
+): Promise<{ pair: string[]; replaced: Map<string, string> }> {
+  const result = [...pair];
+  const replaced = new Map<string, string>();
+  for (const [index, modelId] of pair.entries()) {
+    if (!slots.has(modelId)) continue;
+    const toModelId = await movedBackReplacement(ctx, modelId);
+    if (!toModelId || result.some((other, at) => at !== index && other === toModelId)) continue;
+    result[index] = toModelId;
+    replaced.set(modelId, toModelId);
+  }
+  return { pair: result, replaced };
+}
+
 /** The progress lines a retry or recovery adds for the models it left. */
 export function movedBackProgress(moved: ReadonlyArray<{ fromModelId: string; toModelId: string }>): string[] {
   return moved.map(

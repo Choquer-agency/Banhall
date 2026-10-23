@@ -7,6 +7,8 @@ import { refreshProjectGenerationActivity } from "./lib/dashboardProjection";
 import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
 import { refill, spendAll } from "./aiRateLimits.fixture";
+import { seedCatalogRef } from "./lib/modelCatalogRefs";
+import { freezeModelsForGeneration } from "./lib/modelRoles";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "recovery-user";
@@ -102,6 +104,72 @@ async function setupPartial() {
   });
   return { t, ...ids };
 }
+
+/**
+ * 2026-10-23 (owner): retrying failed drafts after a tier moved back from
+ * the failed draft's model. `pair` is the comparison, `failed` the slot
+ * that failed; the Sonnet tier has moved back from Sonnet 5.5 to Sonnet 5.
+ */
+async function setupMovedBackPartial(pair: [string, string], failed: string) {
+  const { t, projectId, generationId } = await setupPartial();
+  // A deployment always holds the seeded catalog, superseded models included.
+  await t.mutation(seedCatalogRef, {});
+  await t.run(async (ctx) => {
+    const runs = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+      .take(10);
+    const candidates = await ctx.db
+      .query("reportCandidates")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+      .take(10);
+    const succeeded = pair.find((model) => model !== failed)!;
+    // Frozen when the generation was reserved, before the tier moved back.
+    const modelFreeze = await freezeModelsForGeneration(ctx, pair, Date.now());
+    await ctx.db.patch(generationId, { compareModelIds: pair, modelFreeze });
+    for (const run of runs) {
+      await ctx.db.patch(run._id, { model: run.status === "failed" ? failed : succeeded });
+    }
+    for (const candidate of candidates) await ctx.db.patch(candidate._id, { model: succeeded });
+    await ctx.db.insert("modelTracks", {
+      track: "claude-sonnet",
+      modelId: "claude-sonnet-5",
+      rolledBackFrom: ["claude-sonnet-5-5"],
+    });
+  });
+  return { t, projectId, generationId };
+}
+
+const progressOf = (t: ReturnType<typeof convexTest>, generationId: string) =>
+  t.run(async (ctx) =>
+    (await ctx.db.query("generationProgress").collect())
+      .filter((row) => row.generationId === generationId)
+      .map((row) => row.message)
+  );
+
+describe("retrying failed drafts after a tier moved back (2026-10-23)", () => {
+  it("retries the failed draft on the tier's current model and keeps the completed one", async () => {
+    const { t, generationId } = await setupMovedBackPartial(["claude-opus-5-5", "claude-sonnet-5-5"], "claude-sonnet-5-5");
+    const retryId = await t.withIdentity({ subject: authId }).mutation(api.generations.retryFailedCandidates, { generationId });
+    const retry = await t.run((ctx) => ctx.db.get(retryId));
+    expect(retry?.compareModelIds).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+    expect(retry?.retryModelIds).toEqual(["claude-sonnet-5"]);
+    expect(retry?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+    expect(retry?.seededCandidates).toBe(1);
+    expect(await progressOf(t, retryId)).toContain(
+      "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5."
+    );
+  });
+
+  it("keeps the failed draft's frozen model when its replacement would repeat the completed draft's", async () => {
+    const { t, generationId } = await setupMovedBackPartial(["claude-sonnet-5", "claude-sonnet-5-5"], "claude-sonnet-5-5");
+    const retryId = await t.withIdentity({ subject: authId }).mutation(api.generations.retryFailedCandidates, { generationId });
+    const retry = await t.run((ctx) => ctx.db.get(retryId));
+    expect(retry?.compareModelIds).toEqual(["claude-sonnet-5", "claude-sonnet-5-5"]);
+    expect(retry?.retryModelIds).toEqual(["claude-sonnet-5-5"]);
+    expect((await progressOf(t, retryId)).some((line) => line.includes("no longer used"))).toBe(false);
+  });
+});
 
 describe("generation recovery", () => {
   it("projects per-model state without raw provider errors", async () => {

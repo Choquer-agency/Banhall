@@ -497,17 +497,25 @@ export async function runProductionErrorCheck(
   // are deleted in bounded batches that continue until none are left.
   await ctx.scheduler.runAfter(0, pruneCallOutcomesRef, { before: now - OUTCOME_ROW_RETENTION_MS });
   for (const track of MODEL_TRACK_IDS) {
+    // A row this check writes is the deploy-day move, which happened before
+    // the row existed, so the whole last day of the new model's calls counts
+    // (review 2026-10-23); later checks count from the move.
+    const existed = (await trackRow(ctx, track)) !== null;
     const row = await ensureTrackRow(ctx, track);
     // Only a track that moved forward has a previous model to return to; a
     // move back clears it.
     if (!row.previousModelId || row.switchedAt === undefined) continue;
-    if (now - row.switchedAt > AUTOMATION_THRESHOLDS.rollbackPeriodMs) continue;
-    const since = Math.max(now - AUTOMATION_THRESHOLDS.errorWindowMs, row.switchedAt);
+    const since = existed
+      ? Math.max(now - AUTOMATION_THRESHOLDS.errorWindowMs, row.switchedAt)
+      : now - AUTOMATION_THRESHOLDS.errorWindowMs;
     const verdict = productionErrorVerdict(await outcomeCountsSince(ctx, row.modelId, since, now));
     if (!verdict.rollback) continue;
     const rate = `${Math.round(verdict.errorRate * 100)} percent of ${verdict.calls} calls`;
     const name = MODEL_TRACKS[track].name;
-    if (!enabled) {
+    // Past its first 7 days a tier no longer moves back on its own, but
+    // admins still hear about a failing model, at most daily.
+    const settled = now - row.switchedAt > AUTOMATION_THRESHOLDS.rollbackPeriodMs;
+    if (!enabled || settled) {
       if (
         row.errorNoticeAt === undefined ||
         now - row.errorNoticeAt >= AUTOMATION_THRESHOLDS.errorWindowMs - ERROR_NOTICE_MARGIN_MS
@@ -515,7 +523,9 @@ export async function runProductionErrorCheck(
         await ctx.db.patch(row._id, { errorNoticeAt: now });
         await raiseAdminNotice(
           ctx,
-          `${modelLabelOf(row.modelId)} failed ${rate} on ${name}. Automatic updates are off, so it was not moved back.`,
+          !enabled
+            ? `${modelLabelOf(row.modelId)} failed ${rate} on ${name}. Automatic updates are off, so it was not moved back.`
+            : `${modelLabelOf(row.modelId)} failed ${rate} on ${name}. It moved more than 7 days ago, so it was not moved back on its own; an admin can use Move back.`,
           { track, modelId: row.modelId }
         );
       }

@@ -490,10 +490,47 @@ describe("reservation and frozen generations", () => {
       "Generation request reserved.",
       "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.",
     ]);
-    // Moving the tier forward again leaves the retry on its own freeze.
+    // A second retry inherits the first retry's freeze, which holds no model
+    // its tier moved back from.
     await freshGeneration(t, projectId, retry);
     const again = await writer.mutation(api.generations.retryGeneration, { generationId: retry });
     expect((await t.run((ctx) => ctx.db.get(again)))?.modelFreeze).toEqual(retried?.modelFreeze);
+  });
+
+  it("retries on fresh helper models when only a helper role's model was moved back, keeping the writer's model", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "single",
+      singleModelId: "claude-opus-5-5",
+    });
+    expect((await t.run((ctx) => ctx.db.get(first)))?.modelFreeze?.roles.planning).toBe("claude-sonnet-5-5");
+    await freshGeneration(t, projectId, first);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    const retried = await t.run((ctx) => ctx.db.get(retry));
+    expect(retried?.singleModelId).toBe("claude-opus-5-5");
+    expect(retried?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+  });
+
+  it("retries a failed comparison with the moved-back slot on its tier's current model", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "compare",
+      compareModelIds: ["claude-opus-5-5", "claude-sonnet-5-5"],
+    });
+    await freshGeneration(t, projectId, first);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    expect((await t.run((ctx) => ctx.db.get(retry)))?.compareModelIds).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
   });
 
   it("runs a frozen model OpenRouter no longer lists on its track's current model, recorded once, without touching the freeze", async () => {
@@ -686,6 +723,56 @@ describe("track upgrades and rollback", () => {
     expect(await errorReports(t)).toEqual([]);
   });
 
+  it("counts the deploy-day model's failures from before the first hourly check", async () => {
+    const { t } = await setup(parsed);
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model: "claude-sonnet-5-5",
+        callSite: "generation:analyzer",
+        outcome: i % 4 === 0 ? "failure" : "success",
+        code: "malformed_output",
+      });
+    }
+    vi.setSystemTime(NOW + 50 * 60 * 1000);
+    expect(await trackRow(t, "claude-sonnet")).toBeNull();
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    expect((await trackRow(t, "claude-sonnet"))?.modelId).toBe("claude-sonnet-5");
+  });
+
+  it("still moves a failing tier back on day 6, and after day 7 only tells admins", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const failingAt = async (at: number) => {
+      vi.setSystemTime(at);
+      for (let i = 0; i < 20; i += 1) {
+        await t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+      }
+    };
+    const { t } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    await failingAt(NOW + 6.9 * day);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: true },
+    ]);
+    // Later, a tier that moved more than 7 days ago only gets a notice.
+    const late = await setup([SOL_62, ...parsed]);
+    vi.setSystemTime(NOW);
+    const [lateCandidate] = await late.t.mutation(planTrackUpgradesRef, {});
+    await late.t.mutation(applyTrackUpgradeRef, { candidate: lateCandidate, readiness: passed });
+    vi.setSystemTime(NOW + 8 * day);
+    for (let i = 0; i < 20; i += 1) {
+      await late.t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+    }
+    expect(await late.t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: false },
+    ]);
+    expect((await trackRow(late.t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.2-sol");
+    expect((await adminNotices(late.t)).filter((message) => message.includes("moved more than 7 days ago"))).toHaveLength(1);
+    expect(await errorReports(late.t)).toEqual([]);
+  });
+
   it("moves a tier back on its own only in the first 7 days after its move", async () => {
     const { t } = await setup([SOL_62, ...parsed]);
     const [candidate] = await t.mutation(planTrackUpgradesRef, {});
@@ -697,7 +784,9 @@ describe("track upgrades and rollback", () => {
     };
     vi.setSystemTime(NOW + 8 * 24 * 60 * 60 * 1000);
     await failing();
-    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: false },
+    ]);
     expect((await trackRow(t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.2-sol");
     // An admin can still move it back by hand.
     expect((await trackRow(t, "gpt-sol"))?.previousModelId).toBe("openai/gpt-6.1-sol");

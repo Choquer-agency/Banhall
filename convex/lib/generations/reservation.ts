@@ -21,6 +21,7 @@ import {
   movedBackModels,
   movedBackProgress,
   movedBackReplacement,
+  retryComparePair,
 } from "../modelRoles";
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
@@ -562,7 +563,14 @@ export async function retryGenerationHandler(
   // starting over. Every other model runs as frozen.
   const replaced = async (id: string | undefined) =>
     id === undefined ? undefined : ((await movedBackReplacement(ctx, id)) ?? id);
-  const moved = await movedBackModels(ctx, failed.modelFreeze);
+  const comparePair = failed.compareModelIds
+    ? await retryComparePair(ctx, failed.compareModelIds)
+    : undefined;
+  // A slot that keeps its frozen model (its replacement would repeat the
+  // other slot's) gets no "no longer used" line.
+  const moved = (await movedBackModels(ctx, failed.modelFreeze)).filter(
+    ({ fromModelId }) => !comparePair?.pair.includes(fromModelId)
+  );
   return await reserveGeneration(
     ctx,
     project,
@@ -575,9 +583,7 @@ export async function retryGenerationHandler(
       await replaced(failed.singleModelId),
       failed.modelFreeze
     ),
-    failed.compareModelIds
-      ? await Promise.all(failed.compareModelIds.map(async (id) => (await replaced(id))!))
-      : undefined,
+    comparePair?.pair,
     failed._id,
     undefined,
     0,
@@ -664,26 +670,29 @@ export async function retryFromSummaryHandler(
   } catch {
     domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
   }
-  // Audit wave 2: spent once every refusal above has had its say.
-  await limitGenerationStart(ctx, user._id, project._id);
-  const currentById = new Map(currentSources.map((source) => [source._id, source]));
-  const now = Date.now();
   // Summary recovery drafts on exactly the models the original froze, except
   // a model its tier was moved back from (2026-10-23, owner): then it
   // freezes today's models, the single model replaced by its tier's current
   // one, so the recovery can finish instead of the writer starting over.
+  const freezeAt = Date.now();
   const moved = await movedBackModels(ctx, failed.modelFreeze);
   const singleModelId =
-    failed.singleModelId === undefined
-      ? undefined
-      : ((await movedBackReplacement(ctx, failed.singleModelId)) ?? failed.singleModelId);
+    moved.length === 0
+      ? failed.singleModelId
+      : failed.singleModelId === undefined
+        ? await defaultModelId(ctx)
+        : ((await movedBackReplacement(ctx, failed.singleModelId)) ?? failed.singleModelId);
   const modelFreeze =
-    moved.length > 0
-      ? await freezeModelsForGeneration(ctx, [singleModelId ?? (await defaultModelId(ctx))], now)
+    moved.length > 0 && singleModelId !== undefined
+      ? await freezeModelsForGeneration(ctx, [singleModelId], freezeAt)
       : failed.modelFreeze;
   if (moved.length > 0 && modelFreeze?.entries.some((entry) => entry.gateway === "openrouter")) {
     requireOpenRouterConfigured();
   }
+  // Audit wave 2: spent once every refusal above has had its say.
+  await limitGenerationStart(ctx, user._id, project._id);
+  const currentById = new Map(currentSources.map((source) => [source._id, source]));
+  const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
     projectId: failed.projectId,
     transcriptId: failed.transcriptId,
@@ -829,6 +838,15 @@ export async function retryFailedCandidatesHandler(
       "This older comparison cannot retry individual drafts. Start a fresh generation instead"
     );
   }
+  // 2026-10-23 (owner): a failed draft whose model its tier was moved back
+  // from is retried on the tier's current model, unless both drafts would
+  // then share one model (it keeps its frozen model). Completed drafts and
+  // their models are kept as they are.
+  const retryPair = await retryComparePair(ctx, compareModelIds, new Set(failedModelIds));
+  const retryModelIds = failedModelIds.map((id) => retryPair.replaced.get(id) ?? id);
+  const moved = (await movedBackModels(ctx, generationModelFreeze(generation))).filter(
+    ({ fromModelId }) => !retryPair.pair.includes(fromModelId)
+  );
   const sourceCandidates = await ctx.db
     .query("reportCandidates")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -875,9 +893,9 @@ export async function retryFailedCandidatesHandler(
     generation.lengthTarget ?? "standard",
     "compare",
     undefined,
-    compareModelIds,
+    retryPair.pair,
     generation._id,
-    failedModelIds,
+    retryModelIds,
     successfulCandidates.length,
     undefined,
     undefined,
@@ -886,6 +904,7 @@ export async function retryFailedCandidatesHandler(
       successfulCandidates.length > 0
         ? `Kept ${successfulCandidates.length} completed draft${successfulCandidates.length === 1 ? "" : "s"}.`
         : "Retrying all failed drafts.",
+      ...movedBackProgress(moved),
     ],
     generation.excludedSources,
     false

@@ -86,9 +86,9 @@
           gets two small test requests first, and every role on that tier moves to it once they pass.
           A generation already running keeps the models it started with. In the first 7 days after a
           move, a tier moves back on its own, within the hour, when its new model fails more than
-          {errorPercent} percent of at least {admin.thresholds.errorMinCalls} calls in a day. A retry
-          after a tier moves back runs on the tier's current model. Turning this off stops every update
-          and move back.
+          {errorPercent} percent of at least {admin.thresholds.errorMinCalls} calls in a day. After a
+          tier moves back, trying a failed draft again runs on the tier's current model. Turning this
+          off stops every update and move back.
         </p>
       </div>
       <label class="flex items-center gap-3 text-sm text-gray-800">
