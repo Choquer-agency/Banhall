@@ -87,6 +87,7 @@ import type { TranscriptSourceFormat } from "../shared/transcriptParse";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { activeClientIdForName } from "./lib/clients";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import { insertDocumentWithText, readDocumentText } from "./lib/documentText";
 
 type TranscriptInput =
   | {
@@ -1395,11 +1396,11 @@ async function insertPreviousYearReport(
     extractionFailed: false,
     intake: "file",
   });
-  return await ctx.db.insert("projectDocuments", {
+  // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+  return await insertDocumentWithText(ctx, {
     projectId: target._id,
     fileName,
     fileType: "txt",
-    content,
     category: "previous_pd",
     // A context file, so Replace on the Files panel treats it like one.
     source: "context_input",
@@ -1409,7 +1410,7 @@ async function insertPreviousYearReport(
     // CAP-3: the acting internal user chose to bring this report in.
     ...(user.role ? { uploaderRole: user.role } : {}),
     createdAt: args.now,
-  });
+  }, content, args.now);
 }
 
 /**
@@ -1473,14 +1474,16 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
     // A duplicate must report the same truth as its source. Rows that predate
     // PSOS-04 carry no status, so derive it from the copied content — the same
     // function the read-time fallback and the backfill use.
+    // 2026-10-22 (fourth): the copy's text is read through the text helper
+    // and stored as the new file's pieces.
+    const text = await readDocumentText(ctx, doc);
     const processing = doc.processingStatus
       ? { status: doc.processingStatus, detail: doc.processingDetail }
-      : deriveStoredProcessing(doc);
-    const documentId = await ctx.db.insert("projectDocuments", {
+      : deriveStoredProcessing({ fileName: doc.fileName, content: text });
+    const documentId = await insertDocumentWithText(ctx, {
       projectId: args.toProjectId,
       fileName: doc.fileName,
       fileType: doc.fileType,
-      content: doc.content,
       ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
       ...(doc.category ? { category: doc.category } : {}),
       ...(doc.archived !== undefined ? { archived: doc.archived } : {}),
@@ -1493,7 +1496,7 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
       // into internal direction.
       ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
       createdAt: now,
-    });
+    }, text, now);
     docIdMap.set(doc._id, documentId);
     copies.push({
       sourceId: doc._id,

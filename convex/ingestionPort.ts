@@ -17,6 +17,7 @@ import {
 import { generateShareToken } from "./projects";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { activeClientIdForName } from "./lib/clients";
+import { insertDocumentWithText } from "./lib/documentText";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -228,11 +229,11 @@ export const finalizePort = internalMutation({
       extractionFailed: false,
       intake: "file",
     });
-    const documentId = await ctx.db.insert("projectDocuments", {
+    // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+    const documentId = await insertDocumentWithText(ctx, {
       projectId,
       fileName: item.name,
       fileType: FILE_TYPES[ext] ?? "other",
-      content: args.content,
       ...(args.copiedStorageId ? { storageId: args.copiedStorageId } : {}),
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       source: "ingestion_port",
@@ -243,7 +244,7 @@ export const finalizePort = internalMutation({
       // CAP-3: the porting admin is the internal author of this row.
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
-    });
+    }, args.content, now);
 
     await ctx.db.patch(item._id, {
       portedProjectId: projectId,

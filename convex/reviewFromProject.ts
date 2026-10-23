@@ -18,6 +18,7 @@ import {
 import { generateShareToken } from "./projects";
 import { activeClientIdForName } from "./lib/clients";
 import { copyProjectContentBetween } from "./projectDuplication";
+import { insertDocumentWithText } from "./lib/documentText";
 import {
   copyTranscriptRow,
   listProjectTranscripts,
@@ -187,11 +188,11 @@ export const createReviewProjectRecord = internalMutation({
       extractionFailed: false,
       intake: "file",
     });
-    const documentId = await ctx.db.insert("projectDocuments", {
+    // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+    const documentId = await insertDocumentWithText(ctx, {
       projectId,
       fileName,
       fileType: "txt",
-      content: pdText,
       source: "review_pd",
       processingStatus: derived.status,
       processingDetail: derived.detail,
@@ -199,7 +200,7 @@ export const createReviewProjectRecord = internalMutation({
       // CAP-3: the acting internal user authored this review PD.
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
-    });
+    }, pdText, now);
 
     // Start the review through the same guarded path startPdReview uses. The
     // double-run guard is vacuous on a project created in this transaction

@@ -178,3 +178,24 @@ What changed: chat search and research search a new index on the text pieces, li
 
 - [ ] **Chat search.** Ask the Assistant to search the files for a phrase that appears in an older, longer file. It finds and quotes the right file.
 - [ ] **Research.** Run a research request with a selected sentence. Its project evidence lists the right files.
+
+## Commit 6: every writer stores text as pieces (step 3 of 5 of the text move)
+
+What changed: uploads, intake, the OneDrive import, reports reused as a previous PD, project copies and review-from-project now store a file's text as pieces with its facts on the row, and no `content`. `content` is optional in the schema. A new file looks up no pieces, so a blank upload still runs 2 database queries.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,124 tests in 462 files.
+- [x] `convex/documentScale.test.ts`, with `transactionLimits: true` and 50 files of 400,000 characters. It failed on the old code while uploading, past about 40 files. Now:
+  - the file list reads under 1 MiB;
+  - a new upload reads under 1 MiB, and a duplicate upload is found without a new row;
+  - a chat turn's context reads under 2 MiB;
+  - a 400,000-character file in a 3-byte script (about 1.2 MB) is stored and read back whole. convex-test doesn't enforce the 1 MiB row limit, so this shows the new path works, not that the old one failed.
+- [x] The guard's list is empty: no code outside the helper reads a document's `content`.
+- [x] Tests that checked text on the row now read it through the helper.
+
+### Manual on localhost
+
+- [ ] **New uploads.** Upload a PDF, a Word file and a pasted note. Each shows its size and word count, previews in full, can be searched in chat, and is read by a new draft.
+- [ ] **Old files.** A file uploaded before this change still previews, searches and drafts.
+- [ ] **Project copy.** Duplicate a project with files. The copies preview in full.

@@ -715,7 +715,7 @@ describe("getDeviationInventoryContext read budget", () => {
         for await (const row of ctx.db
           .query("projectDocuments")
           .withIndex("by_projectId", (q) => q.eq("projectId", projectId))) {
-          n += row.content.length > 0 ? 1 : 0;
+          n += (row.content ?? "").length > 0 ? 1 : 0;
         }
         return n;
       })

@@ -80,7 +80,6 @@ import {
 import { deriveProcessingStatus } from "../shared/documentStatus";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { firmDayNumber } from "../shared/firmTime";
-import { countTextWords } from "../shared/wordCount";
 import { insertNewProject } from "./projects";
 import {
   confirmQueuedPreparation,
@@ -90,7 +89,7 @@ import {
 } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
-import { documentTextHash } from "./lib/documentText";
+import { documentTextHash, insertDocumentWithText } from "./lib/documentText";
 
 /** Characters one promotion step installs; the rest follow in the next step. */
 const PROMOTION_STEP_CHARS = 1_500_000;
@@ -1291,12 +1290,11 @@ async function installDocument(
     extractionFailed: source.extractionOutcome === "failed",
     intake: source.intake,
   });
-  const projectDocumentId = await ctx.db.insert("projectDocuments", {
+  // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+  const projectDocumentId = await insertDocumentWithText(ctx, {
     projectId,
     fileName: source.label,
     fileType: source.fileType ?? "other",
-    content,
-    wordCount: countTextWords(content),
     ...(source.storageId ? { storageId: source.storageId } : {}),
     ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     ...(source.category ? { category: source.category } : {}),
@@ -1306,7 +1304,7 @@ async function installDocument(
     uploadedBy: owner._id,
     ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
     createdAt: now,
-  });
+  }, content, now);
   await ctx.db.insert("intakeSourceLinks", {
     draftId: draft._id,
     projectId,

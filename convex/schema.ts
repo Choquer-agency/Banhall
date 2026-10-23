@@ -2182,7 +2182,10 @@ export default defineSchema({
       v.literal("image"),
       v.literal("other")
     ),
-    content: v.string(),
+    // 2026-10-22 (fourth), step 3: optional. New rows keep their text in
+    // `projectDocumentTexts`; older rows keep it here until the backfill moves
+    // it. Read it only through convex/lib/documentText.ts.
+    content: v.optional(v.string()),
     // 2026-09-27 (fourth) widen: words in `content`, stored at upload for the
     // start dialog; older rows are counted when listed.
     wordCount: v.optional(v.number()),

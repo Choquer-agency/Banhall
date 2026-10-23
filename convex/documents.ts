@@ -5,6 +5,7 @@ import {
   documentTextEquals,
   documentTextLength,
   findDocumentWithText,
+  insertDocumentWithText,
   readDocumentText,
 } from "./lib/documentText";
 import { query, mutation } from "./_generated/server";
@@ -208,13 +209,12 @@ export const uploadDocument = mutation({
       return dup._id;
     }
 
-    const documentId = await ctx.db.insert("projectDocuments", {
+    // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+    const documentId = await insertDocumentWithText(ctx, {
       projectId: args.projectId,
       ...(args.reportId ? { reportId: args.reportId } : {}),
       fileName: args.fileName,
       fileType: args.fileType,
-      content: args.content,
-      wordCount: countTextWords(args.content),
       ...(args.storageId ? { storageId: args.storageId } : {}),
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       ...(args.category ? { category: args.category } : {}),
@@ -228,7 +228,7 @@ export const uploadDocument = mutation({
       // `requireReportEditAccess` above already rejected a roleless user.
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: Date.now(),
-    });
+    }, args.content);
 
     if (args.attemptKey) {
       await resolveUploadAttempt(

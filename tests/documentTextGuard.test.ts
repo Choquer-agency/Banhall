@@ -19,8 +19,6 @@ const HELPER = path.join(convexDir, "lib", "documentText.ts");
 
 /** Reads still to convert, per file (relative to the repo root). */
 const PENDING: Readonly<Record<string, number>> = {
-  // Step 3: the project copy, with the writers.
-  "convex/projects.ts": 1,
 };
 
 /** A `projectDocuments` row: only that table has `textMovedAt` and `content`. */

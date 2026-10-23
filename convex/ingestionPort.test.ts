@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { fiscalYearEndFromLabel } from "./lib/ingestionClassify";
+import { readDocumentText } from "./lib/documentText";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -111,10 +112,11 @@ describe("ingestion port to project", () => {
         .collect()
     );
     expect(docs).toHaveLength(1);
+    // 2026-10-22 (fourth): the text is stored as pieces.
+    expect(await f.t.run(async (ctx) => await readDocumentText(ctx, docs[0]!))).toBe("Historical PD body text");
     expect(docs[0]).toMatchObject({
       fileName: "PD1 - Widget.docx",
       fileType: "docx",
-      content: "Historical PD body text",
       source: "ingestion_port",
       category: "previous_pd",
       // CAP-3: the porting admin is the internal author of this row.

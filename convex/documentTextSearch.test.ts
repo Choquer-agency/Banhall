@@ -73,7 +73,7 @@ async function setup() {
     const both = await file(mixedProjectId, "both.txt", "Both: calibration drift.", false);
     const bothDoc = await ctx.db.get(both);
     if (!bothDoc) throw new Error("missing");
-    await ctx.db.patch(both, await writeDocumentText(ctx, bothDoc, bothDoc.content));
+    await ctx.db.patch(both, await writeDocumentText(ctx, bothDoc, bothDoc.content ?? ""));
     await file(mixedProjectId, "moved.txt", "Moved: calibration drift.", true);
     await file(mixedProjectId, "unmoved.txt", "Unmoved: calibration drift.", false);
     return { movedProjectId, legacyProjectId, mixedProjectId };

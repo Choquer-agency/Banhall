@@ -13,6 +13,7 @@
  * returns exactly what `content.slice(start, end)` returns, so frozen
  * evidence, placeholders and fingerprints are unchanged by the move.
  */
+import type { WithoutSystemFields } from "convex/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { countTextWords } from "../../shared/wordCount";
@@ -192,6 +193,16 @@ export async function writeDocumentText(
   now = Date.now()
 ): Promise<DocumentTextFacts & { textMovedAt: number }> {
   await deleteDocumentText(ctx, doc._id);
+  await insertDocumentTextPieces(ctx, doc, text);
+  return { ...(await documentTextFacts(text)), textMovedAt: now };
+}
+
+/** Inserts the pieces of a file that has none yet. */
+async function insertDocumentTextPieces(
+  ctx: MutationCtx,
+  doc: { _id: Id<"projectDocuments">; projectId: Id<"projects"> },
+  text: string
+): Promise<void> {
   const encoder = new TextEncoder();
   let at = 0;
   for (const end of documentTextPieceEnds(text)) {
@@ -207,7 +218,33 @@ export async function writeDocumentText(
     });
     at = end;
   }
-  return { ...(await documentTextFacts(text)), textMovedAt: now };
+}
+
+/** A file row's fields other than its text and the facts about it. */
+export type DocumentRowFields = Omit<
+  WithoutSystemFields<Doc<"projectDocuments">>,
+  "content" | "wordCount" | "textLength" | "hasText" | "textHash" | "textPreview" | "textMovedAt"
+>;
+
+/**
+ * 2026-10-22 (fourth), step 3: inserts a file row with the facts about
+ * `text` and stores the text as pieces; the row carries no `content`. Every
+ * writer of a project file goes through here.
+ */
+export async function insertDocumentWithText(
+  ctx: MutationCtx,
+  fields: DocumentRowFields,
+  text: string,
+  now = Date.now()
+): Promise<Id<"projectDocuments">> {
+  const documentId = await ctx.db.insert("projectDocuments", {
+    ...fields,
+    ...(await documentTextFacts(text)),
+    textMovedAt: now,
+  });
+  // A new row has no pieces to replace, so none are looked up.
+  await insertDocumentTextPieces(ctx, { _id: documentId, projectId: fields.projectId }, text);
+  return documentId;
 }
 
 /** Deletes a file's text pieces. */

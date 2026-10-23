@@ -7,6 +7,7 @@ import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import * as projectsModule from "./projects";
 import { buildTiptapDocument } from "./lib/tiptapReport";
+import { readDocumentText } from "./lib/documentText";
 
 /**
  * Duplicate from a project card (2026-09-25). The card opens
@@ -620,9 +621,12 @@ describe("last year's report", () => {
       processingStatus: "ready",
     });
     expect(previous[0].storageId).toBeUndefined();
-    expect(previous[0].content.startsWith("[Previous-year report — fiscal 2024]\n\n")).toBe(true);
-    expect(previous[0].content).toContain("Whether the alloy would crack under repeated heating.");
-    expect(previous[0].content).not.toContain('"type"');
+    // 2026-10-22 (fourth): the text is stored as pieces, read through the helper.
+    expect(previous[0].content).toBeUndefined();
+    const previousText = await f.t.run(async (ctx) => await readDocumentText(ctx, previous[0]!));
+    expect(previousText.startsWith("[Previous-year report — fiscal 2024]\n\n")).toBe(true);
+    expect(previousText).toContain("Whether the alloy would crack under repeated heating.");
+    expect(previousText).not.toContain('"type"');
 
     // A draft reads it as a previous-year report.
     const generationId = await f.writer.mutation(api.generations.requestGeneration, {

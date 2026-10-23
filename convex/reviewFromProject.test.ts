@@ -7,6 +7,7 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
+import { readDocumentText } from "./lib/documentText";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -151,8 +152,11 @@ describe("createReviewFromProject", () => {
     expect(reviewPd).toBeDefined();
     expect(reviewPd?.fileName).toBe("Alpha PD (report v2).txt");
     expect(reviewPd?.fileType).toBe("txt");
-    expect(reviewPd?.content).toContain("Uncertainty prose.");
-    expect(reviewPd?.content).toContain(
+    // 2026-10-22 (fourth): the text is stored as pieces, read through the helper.
+    expect(reviewPd?.content).toBeUndefined();
+    const reviewText = await t.run(async (ctx) => (reviewPd ? await readDocumentText(ctx, reviewPd) : ""));
+    expect(reviewText).toContain("Uncertainty prose.");
+    expect(reviewText).toContain(
       "Line 244 — Work Performed"
     );
     expect(reviewPd?.processingStatus).toBe("ready");
@@ -170,7 +174,7 @@ describe("createReviewFromProject", () => {
 
     if (!reviewPd || !state.report) throw new Error("Review artifacts missing");
     expect(state.reviews[0].revisionNumber).toBe(0);
-    expect(state.reviews[0].contentHash).toBe(await sha256(reviewPd.content));
+    expect(state.reviews[0].contentHash).toBe(await sha256(reviewText));
     expect(state.reviews[0].contentHash).not.toBe(await sha256(state.report.content));
 
     // Every transcript of the source is inherited, in order, byte-identical
@@ -198,7 +202,7 @@ describe("createReviewFromProject", () => {
     // so the PD renders in the editor.
     const copiedNotes = state.docs.find((d) => d.fileName === "notes.txt");
     const sourceNotes = state.sourceDocs.find((d) => d.fileName === "notes.txt");
-    expect(copiedNotes?.content).toBe("Scoping notes");
+    expect(await t.run(async (ctx) => (copiedNotes ? await readDocumentText(ctx, copiedNotes) : ""))).toBe("Scoping notes");
     expect(copiedNotes?.storageId).toBeDefined();
     expect(copiedNotes?.storageId).not.toEqual(sourceNotes?.storageId);
     expect(state.report?.content).toContain("Uncertainty prose.");

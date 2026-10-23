@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
+import { readDocumentText } from "./lib/documentText";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -572,7 +573,11 @@ describe("copied running PD reviews", () => {
   async function snapshot(t: Awaited<ReturnType<typeof setup>>["t"]) {
     return await t.run(async (ctx) => ({
       projects: await ctx.db.query("projects").collect(),
-      documents: await ctx.db.query("projectDocuments").collect(),
+      // 2026-10-22 (fourth): each file with its text, read through the helper.
+      documents: await Promise.all((await ctx.db.query("projectDocuments").collect()).map(async (row) => ({
+        ...row,
+        text: await readDocumentText(ctx, row),
+      }))),
       transcripts: await ctx.db.query("transcripts").collect(),
       reviews: await ctx.db.query("pdReviews").collect(),
       events: await ctx.db.query("pdReviewEvents").collect(),
@@ -616,7 +621,7 @@ describe("copied running PD reviews", () => {
       if (!sourceDocument) throw new Error("Missing identified source document");
       expect(after.documents.find((doc) => doc._id === row.documentId)).toMatchObject({
         projectId: otherProjectId, source: "review_pd",
-        fileName: sourceDocument.fileName, content: sourceDocument.content,
+        fileName: sourceDocument.fileName, text: sourceDocument.text,
       });
       expect(row.documentId).not.toBe(source.documentId);
       const rowEvents = events.filter((event) => event.reviewId === row._id);
@@ -686,7 +691,7 @@ describe("copied running PD reviews", () => {
       if (!originalDocument) throw new Error("Missing source PD");
       expect(after.documents.find((doc) => doc._id === copied.documentId)).toMatchObject({
         projectId: otherProjectId, fileName: originalDocument.fileName,
-        content: originalDocument.content,
+        text: originalDocument.text,
       });
       expect(after.reviews.find((row) => row._id === copied._id)).toEqual(copied);
       expect(after.jobs).toEqual([expect.objectContaining({
