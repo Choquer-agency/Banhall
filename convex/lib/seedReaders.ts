@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { movedBackReplacement } from "./modelRoles";
+import { catalogEntry, movedBackReplacement } from "./modelRoles";
 import {
   PD_SUBSECTIONS,
   type PdSubsectionRoleId,
@@ -950,10 +950,13 @@ export async function listBatchesData(
  * (2026-10-23, second; sign-off makes the switch). */
 export async function frozenSeedSettings(ctx: QueryCtx, generation: Doc<"generations">) {
   const frozenModel = generation.singleModelId;
-  const modelId =
+  const replacement =
     frozenModel && generation.summaryVersionId === undefined && generation.modelFreeze
-      ? ((await movedBackReplacement(ctx, frozenModel)) ?? frozenModel)
-      : (frozenModel ?? null);
+      ? await movedBackReplacement(ctx, frozenModel)
+      : null;
+  // Only a model sign-off can freeze (one the catalog or the seed knows).
+  const modelId =
+    replacement && (await catalogEntry(ctx, replacement)) ? replacement : (frozenModel ?? null);
   return {
     lengthTarget: generation.lengthTarget ?? "standard",
     modelId,

@@ -331,7 +331,34 @@ What changes:
 - [x] **Admin page** (`/admin/models`, in a browser): the new wording, every tier's state and the log of the move back, the allow-again notice and the Monday move.
 - [x] **Errors.** No alerts-board rows; the only failed model calls were the 10 injected; no "outcome not recorded" or "Could not record a model redirect" lines. "Brain search failed" lines come from the copy having no Voyage key (the harness copies only the Anthropic and OpenRouter keys).
 - Not run live, covered by tests: Summary recovery after a move back, "Retry failed drafts" after a move back, the round 2 fixes (the live copy ran 6df764ef), and a Step by step plan without a stored freeze.
-- [ ] **Owner decision.** A plan not yet signed off, whose draft fails on a model its tier then moves back from, has to be cancelled and retried, which starts a new Seeds stage. Accept this limit, or ask for the in-run retries to leave a moved-back model (a separate, reviewed change).
+- [x] **Owner decision.** A plan not yet signed off had to be cancelled and retried after a move back, starting a new Seeds stage. The owner asked for the picks to be kept and drafting to use the new model instead: commit 14 below.
+
+## Commit 14: a plan keeps the writer's picks after a move back, and drafts on the tier's current model (82f56c1a)
+
+Owner, 2026-10-23: "instead of needing the writer to start over to keep their selects but when generation after sign-off uses the new model." Decision record: `docs/product-domain.md`, entry "2026-10-23 (second)".
+
+What changes:
+
+- A step the writer starts in a draft (a Seeds request, sign-off, "Draft the rest", a QA run, a retry of the drafting inputs or the Seeds start) moves the draft off a model its tier moved back from, onto the tier's current model. The progress log says so once.
+- The writer's picks, wording, Feedback, Summary and finished Lines stay exactly as they are. Work already running finishes on its model.
+- The settings beside sign-off show the model the draft will run on.
+
+### Automated, offline
+
+- [x] Design reviewed before code by Claude Opus 5.5 (high effort requested; it reported low) and gpt-6-astra (medium effort): both "go with changes", all adopted but two (see the decision record). Code review after: Opus "ship", Astra "ship after fixes"; all fixed.
+- [x] `bash scripts/loop-verify.sh` on 82f56c1a: all 9 steps pass, 7,170 tests in 463 files.
+- [x] New tests: the rewrite and its record; a model already frozen kept exactly; a comparison; a row with no freeze; QA leaving the writer model and waiting out a redraft; a retry after the rewrite; the redirect kept for a model the generation left; chained moves; a new action reading the changed freeze; sign-off after a move back keeping exactly the picks with every first-Line request on Sonnet 5; the settings beside sign-off; a Seeds request; the drafting-inputs retry; the Seeds-start retry with its analysis on the new model; a Batch queued before the move running on its own model; "Draft the rest"; the legacy section flow.
+
+### Automated, live on localhost (2026-10-23, 20:15 to 20:34 UTC, a copy of dev, $1.79)
+
+- [x] **A plan frozen on Sonnet 5.5.** A new Step-by-step plan on "Integrated Ore Sorting Grade Uplift Advancements" froze Sonnet 5.5 for the writer model and five roles (Haiku 5.5 for the retrieval Brief). Three Seeds picked on Sonnet 5.5.
+- [x] **Move back mid-plan.** 12 failed and 8 successful Sonnet 5.5 calls recorded through `recordCallOutcome`, then the hourly check moved the Sonnet tier back to Sonnet 5 (20:24 UTC). The plan was not touched until the writer's next step.
+- [x] **Before the next step,** the settings beside sign-off already named Sonnet 5.
+- [x] **The next Seeds request** moved the plan's writer model and five roles to Sonnet 5, kept the Sonnet 5.5 entry, wrote one `modelMoves` record and one progress line. Every later Batch ran on Sonnet 5; the three Sonnet 5.5 picks stayed picked.
+- [x] **Sign-off** (20:30 UTC): the signed-off Summary held exactly the 11 picks; the three Lines were created on Sonnet 5; no second move line. The draft completed at 20:33 with all three Lines checked, no "Not drafted" Section, QA 58 of 100.
+- [x] **Calls by phase:** before the move 5 on Sonnet 5.5 and 1 on Haiku 5.5 ($0.29); Seeds after the move 12 on Sonnet 5 ($0.40); after sign-off 16 on Sonnet 5 plus QA. After the move, no call went to Sonnet 5.5. 35 calls, $1.79 in all.
+- [x] **Errors.** No alerts-board rows. Four Sonnet 5 calls failed in ways seen before: three Seeds answers with a bullet over 25 words (one Batch failed and its retry was shown, 2 failures in about 86 Sonnet 5 Batches on this copy's history), and one QA answer cut off at its output limit (QA still finished, 58 of 100; the open post-QA limit item). "Brain search failed" is the copy's missing Voyage key.
+- Not run live, covered by tests: "Draft the rest" and a QA run after a move back, the drafting-inputs and Seeds-start retries, and the legacy section flow. The live copy ran 82f56c1a; the review fixes after it are covered by tests.
 
 ### Manual on localhost
 

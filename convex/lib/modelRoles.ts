@@ -227,8 +227,9 @@ export function compareRetryProgress(
  * now, with the highest cap of its new uses. `modelMoves` records each
  * change, with the roles it moved. A compare pair is never rewritten here
  * (its retry is a new attempt), and `writer: false` leaves the writer model
- * as it is (a QA run on a finished report). A row without a freeze, or with
- * nothing moved back, is returned unchanged.
+ * and the writing role as they are (a QA run on a finished report moves its
+ * helper roles only). A row without a freeze, or with nothing moved back, is
+ * returned unchanged.
  */
 export async function leaveMovedBackModels(
   ctx: MutationCtx,
@@ -239,8 +240,9 @@ export async function leaveMovedBackModels(
   if (!freeze) return generation;
   const writer =
     options.writer === false || generation.candidateMode === "compare" ? undefined : generation.singleModelId;
+  const movable = FROZEN_GENERATION_ROLES.filter((role) => options.writer !== false || role !== "writing");
   const inUse = new Set<string>([
-    ...FROZEN_GENERATION_ROLES.flatMap((role) => freeze.roles[role] ?? []),
+    ...movable.flatMap((role) => freeze.roles[role] ?? []),
     ...(writer ? [writer] : []),
   ]);
   const replaced = new Map<string, string>();
@@ -249,8 +251,7 @@ export async function leaveMovedBackModels(
     if (toModelId) replaced.set(modelId, toModelId);
   }
   if (replaced.size === 0) return generation;
-  const movedRoles = (fromModelId: string) =>
-    FROZEN_GENERATION_ROLES.filter((role) => freeze.roles[role] === fromModelId);
+  const movedRoles = (fromModelId: string) => movable.filter((role) => freeze.roles[role] === fromModelId);
   // A model the generation never had is frozen with the highest cap of
   // the uses it takes over, as at reservation.
   const added: FrozenModelEntry[] = [];
@@ -282,7 +283,7 @@ export async function leaveMovedBackModels(
   }
   if (replaced.size === 0) return generation;
   const roles = { ...freeze.roles };
-  for (const role of FROZEN_GENERATION_ROLES) {
+  for (const role of movable) {
     const modelId = freeze.roles[role];
     const toModelId = modelId === undefined ? undefined : replaced.get(modelId);
     if (toModelId) roles[role] = toModelId;

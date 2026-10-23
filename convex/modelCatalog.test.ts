@@ -658,19 +658,23 @@ describe("reservation and frozen generations", () => {
     const qa = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!, { writer: false }));
     expect(qa.modelFreeze?.entries).toEqual(marked.entries);
     expect(qa.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    // The QA run moves the helper roles only: not the writer model, nor the
+    // writing role that names it.
     expect(qa.singleModelId).toBe("claude-sonnet-5-5");
+    expect(qa.modelFreeze?.roles.writing).toBe("claude-sonnet-5-5");
     expect(qa.modelMoves).toEqual([
       {
         fromModelId: "claude-sonnet-5-5",
         toModelId: "claude-sonnet-5",
         at: expect.any(Number),
-        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        roles: ["planning", "checking", "condense", "analysis"],
       },
     ]);
     // A later writer-started step moves the writer model too, once.
     const next = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
     expect(next.singleModelId).toBe("claude-sonnet-5");
-    expect(next.modelMoves?.[1]).toMatchObject({ fromModelId: "claude-sonnet-5-5", roles: [], writer: true });
+    expect(next.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    expect(next.modelMoves?.[1]).toMatchObject({ fromModelId: "claude-sonnet-5-5", roles: ["writing"], writer: true });
     expect(next.modelFreeze?.entries).toEqual(marked.entries);
   });
 
@@ -706,9 +710,13 @@ describe("reservation and frozen generations", () => {
     expect(continuedModelEntry(generation, "b")?.id).toBe("c");
     expect(continuedModelEntry(generation, "c")).toBeNull();
     expect(continuedModelEntry({ modelFreeze: generation.modelFreeze, modelMoves: undefined }, "a")).toBeNull();
+    // Back on a model it left earlier: a row on it runs on it again.
+    const returned = { ...generation, modelMoves: [generation.modelMoves[0], { fromModelId: "b", toModelId: "a", at: 2, roles: [], writer: true }] };
+    expect(continuedModelEntry(returned, "a")).toBeNull();
+    expect(continuedModelEntry(returned, "b")?.id).toBe("a");
   });
 
-  it("asks for no redirect for a model the generation left, even once OpenRouter stops listing it", async () => {
+  it("still redirects a model the generation left once OpenRouter stops listing it, for work queued before the move", async () => {
     const { t, projectId, writerId } = await setup();
     const generationId = await t.run(async (ctx) => {
       const modelFreeze = await freezeModelsForGeneration(ctx, ["openai/gpt-5.6-sol", "openai/gpt-6-luna"], NOW);
@@ -730,7 +738,9 @@ describe("reservation and frozen generations", () => {
       fetchedAt: NOW,
       complete: true,
     });
-    expect(await t.query(generationModelRedirectsRef, { generationId })).toEqual([]);
+    expect((await t.query(generationModelRedirectsRef, { generationId })).map((redirect) => redirect.fromModelId)).toEqual([
+      "openai/gpt-5.6-sol",
+    ]);
   });
 
   it("runs a frozen model OpenRouter no longer lists on its track's current model, recorded once, without touching the freeze", async () => {
