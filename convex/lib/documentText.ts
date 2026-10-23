@@ -345,3 +345,36 @@ export async function* untilDistinctDocuments<Piece extends { documentId: Id<"pr
     if (seen.size >= files) return;
   }
 }
+
+/**
+ * Step 4 (the copy pass) for one file not yet moved: writes its pieces from
+ * `content` and returns the fields the row takes (its facts, and the
+ * processing status `deriveStatus` gives when the row has none). The row
+ * keeps `content`.
+ */
+export async function copyRowTextToPieces(
+  ctx: MutationCtx,
+  doc: Doc<"projectDocuments">,
+  deriveStatus: (text: string) => Pick<Doc<"projectDocuments">, "processingStatus" | "processingDetail">,
+  now = Date.now()
+): Promise<Partial<Doc<"projectDocuments">>> {
+  const text = doc.content ?? "";
+  const facts = await writeDocumentText(ctx, doc, text, now);
+  return { ...facts, ...(doc.processingStatus ? {} : deriveStatus(text)) };
+}
+
+/** Whether a moved file still holds the copy of its text on the row. */
+export function documentKeepsRowText(doc: Pick<Doc<"projectDocuments">, "content" | "textMovedAt">): boolean {
+  return documentTextMoved(doc) && doc.content !== undefined;
+}
+
+/**
+ * Step 5 (the clear pass) for one moved file: whether its pieces read back
+ * exactly the text on its row, with the stored fingerprint, so `content`
+ * may be cleared. Missing or different pieces answer false.
+ */
+export async function piecesMatchRowText(ctx: QueryCtx, doc: Doc<"projectDocuments">): Promise<boolean> {
+  if (!documentKeepsRowText(doc)) return false;
+  const pieces = await readDocumentText(ctx, doc).catch(() => null);
+  return pieces !== null && pieces === doc.content && (await sha256(pieces)) === doc.textHash;
+}

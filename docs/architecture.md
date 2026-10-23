@@ -148,6 +148,8 @@ flowchart LR
     direction LR
     transcripts["transcripts<br/>interviews"]:::child
     projectDocuments["projectDocuments<br/>supporting files"]:::child
+    projectDocumentTexts["projectDocumentTexts<br/>file text, in pieces"]:::child
+    projectDocuments --> projectDocumentTexts
   end
 
   subgraph drafting["Drafting"]
@@ -198,6 +200,8 @@ Users also have `notifications` (their inbox) and the `workItems` assigned to th
 | `generationActivity` | Same as above, copied for dashboard badges | The drafting engine only |
 | `status` | Old field (draft, generating, review, client_review, final) | Kept for compatibility; do not build on it |
 
+**A file's text lives apart from its row (2026-10-22).** A `projectDocuments` row keeps facts about its text (length, a fingerprint, word count, an opening preview). The text itself is stored in `projectDocumentTexts`, in pieces of at most 32,000 characters. Every read goes through `convex/lib/documentText.ts`, so lists, uploads and chat read only what they need. Older rows keep their text on the row until the one-off backfill in `convex/documentTextMigration.ts` moves it.
+
 **Clients are new (2026-10-14).** Projects now store both `clientName` and `clientId`, and every write keeps the two in step. Grouping on the Projects page still reads `clientName`; nothing groups by `clientId` yet.
 
 **Tables by area**
@@ -206,7 +210,7 @@ Users also have `notifications` (their inbox) and the `workItems` assigned to th
 | --- | --- | --- |
 | People and access | 5 | `users`, `invites`, `userActivity` |
 | Clients and projects | 8 | `clients`, `projects`, `projectEvents`, `dashboardCompanies`, `tags` |
-| Evidence (inputs) | 19 | `transcripts` and their turns, speakers, facts and digests; `projectDocuments`; `intakeDrafts`; financial uploads |
+| Evidence (inputs) | 20 | `transcripts` and their turns, speakers, facts and digests; `projectDocuments` and their text (`projectDocumentTexts`); `intakeDrafts`; financial uploads |
 | Report and editing | 9 | `reports`, `reportSnapshots`, `comments`, `reportExports`, `reportProvenance` |
 | Drafting engine | 32 | `generations`, `generationSources`, `generationSectionRuns`, `generationBriefs`, `briefPreparations`, `seeds`, `reportCandidates`, `complianceNotes` |
 | Chat and research | 13 | `agentChatThreads`, `chatTurns`, `chatProposals`, `researchSessions` |
@@ -281,7 +285,7 @@ The page asks for data with `useQuery` and keeps listening. When anyone writes w
 
 ### Uploading files
 
-Text is pulled out in the browser before anything is sent: PDFs with pdf.js, Word files with mammoth (`src/lib/parseDocument.ts`), spreadsheets in a Web Worker (`src/lib/spreadsheet.worker.ts`), transcripts in `src/lib/transcriptUpload.ts`. The original file is uploaded separately: `documents.generateUploadUrl`, then a direct POST to Convex storage, then `claimUpload` (`src/lib/uploads/originalUpload.ts`).
+Text is pulled out in the browser before anything is sent: PDFs with pdf.js, Word files with mammoth (`src/lib/parseDocument.ts`), spreadsheets in a Web Worker (`src/lib/spreadsheet.worker.ts`), transcripts in `src/lib/transcriptUpload.ts`. The original file is uploaded separately: `documents.generateUploadUrl`, then a direct POST to Convex storage, then `claimUpload` (`src/lib/uploads/originalUpload.ts`). On the server, `documents.uploadDocument` stores the text as pieces and finds a duplicate (same name, same text) by its fingerprint, without reading other files' text.
 
 ---
 

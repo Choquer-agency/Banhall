@@ -199,3 +199,36 @@ What changed: uploads, intake, the OneDrive import, reports reused as a previous
 - [ ] **New uploads.** Upload a PDF, a Word file and a pasted note. Each shows its size and word count, previews in full, can be searched in chat, and is read by a new draft.
 - [ ] **Old files.** A file uploaded before this change still previews, searches and drafts.
 - [ ] **Project copy.** Duplicate a project with files. The copies preview in full.
+
+## Commit 7: the one-off copy and clear passes for existing files (steps 4 and 5 of 5 of the text move)
+
+What changed: `convex/documentTextMigration.ts` adds three internal functions, run by hand, never on a schedule:
+- `backfillDocumentTexts`, the copy pass: moves old files' text to pieces and keeps `content`;
+- `clearMovedDocumentContent`, the clear pass: clears `content` only where the pieces read back exactly;
+- `documentTextMoveStatus`: counts per page.
+
+Each pass reads at most 4 MiB a page, skips projects being deleted and schedules its own next page. The architecture map's data section names the new table.
+
+### Automated, offline
+
+- [x] `bash scripts/loop-verify.sh`: all 9 steps pass, 7,127 tests in 463 files.
+- [x] `convex/documentTextMigration.test.ts`:
+  - a dry run writes nothing;
+  - the copy pass keeps `content`, fills a missing processing status (a truncated file reads "ready_truncated"), skips a deleting project, and moves nothing on a second run;
+  - the clear pass clears 2 files and leaves the one whose piece was changed, and readers return the same text after the clear;
+  - eight 900,000-character files are handled across pages within the 16 MiB read limit.
+
+### Owner actions (by hand, dev first, then production)
+
+1. [ ] `npx convex run documentTextMigration:documentTextMoveStatus '{}'`, then each page by its `continueCursor`, to count unmoved files.
+2. [ ] `npx convex run documentTextMigration:backfillDocumentTexts '{"dryRun":true}'`, then `'{}'`. Check the status until every file is moved.
+3. [ ] Use the app for a day: chat, search, previews and drafts on old projects.
+4. [ ] `npx convex run documentTextMigration:clearMovedDocumentContent '{"dryRun":true}'`. It must report `mismatched: 0`. Then `'{}'`.
+5. [ ] A later entry drops `content` and the old search index.
+
+### Automated, live on localhost
+
+- [ ] On a local copy of dev:
+  1. run the copy pass, the status and the clear pass;
+  2. check that the file list, a chat turn's context, chat search and a preview give the same results before and after;
+  3. rerun the writer-settings-document release fixture.
