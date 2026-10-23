@@ -285,5 +285,14 @@ Claude Opus 5.5 (high effort), round 2: "ship after fixes". Fixed:
 - [x] New tests:
   - a 1,040,000-character older row is moved, and a dry run counts it;
   - the near-limit row is made realistic (1.044 MB, which with its facts would pass the limit);
-  - a damaged file opened through the reading tool returns "unavailable";
+  - a damaged file read through `readDocumentForChat`, the query behind the reading tool and pinned files, returns "unavailable". The full tool and pinned flow is checked by reading the code, not by a test;
   - a searched research request over 12 large matching files stays in bounds.
+
+### Review round 3
+
+- [x] gpt-6-astra (medium effort): "ship", no blocking findings.
+- Coverage gaps it noted, none blocking:
+  - the damaged-file test calls the query, not the whole tool or pinned flow;
+  - the research test does not assert the log line for a file left out;
+  - copying and deleting an over-cap project file are shown by reading the code.
+- [ ] Manual check of the gaps above: pin a damaged file on a local copy. This needs a file with a piece deleted by hand, so the agent can set it up on request.
