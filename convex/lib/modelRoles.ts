@@ -45,6 +45,7 @@ import {
 import { pricingFor } from "../../shared/modelPricing";
 import type { FrozenModelEntry, ModelFreeze } from "./modelCatalogValidators";
 import { domainError } from "./contracts";
+import { appendGenerationProgress } from "./generationProgress";
 import { GENERATION_STEP_POLICY_VERSION } from "./generationSteps";
 
 type ReadCtx = QueryCtx | MutationCtx;
@@ -134,18 +135,32 @@ export async function movedBackReplacement(ctx: ReadCtx, modelId: string): Promi
   if (!track) return null;
   const row = await trackRow(ctx, track);
   if (!row || !row.rolledBackFrom.includes(modelId) || row.modelId === modelId) return null;
+  // Review 2026-10-23 (second): never to a retired model, as roles refuse one.
+  if ((await catalogRow(ctx, row.modelId))?.status === "retired") return null;
   return row.modelId;
 }
 
-/** Each model `freeze` holds that its tier was moved back from, with its replacement. */
+/**
+ * Each model a generation uses (its roles and candidate models, read from
+ * `freeze`, by default its own) that its tier was moved back from, with its
+ * replacement. A model the generation already left (modelMoves) stays an
+ * entry of its freeze but is no longer used, so it is not listed.
+ */
 export async function movedBackModels(
   ctx: ReadCtx,
-  freeze: ModelFreeze | undefined
+  generation: Pick<Doc<"generations">, "modelFreeze" | "singleModelId" | "compareModelIds"> | null | undefined,
+  freeze: ModelFreeze | undefined = generation?.modelFreeze
 ): Promise<Array<{ fromModelId: string; toModelId: string }>> {
+  if (!freeze) return [];
+  const inUse = new Set<string>([
+    ...FROZEN_GENERATION_ROLES.flatMap((role) => freeze.roles[role] ?? []),
+    ...(generation?.singleModelId ? [generation.singleModelId] : []),
+    ...(generation?.compareModelIds ?? []),
+  ]);
   const moved: Array<{ fromModelId: string; toModelId: string }> = [];
-  for (const entry of freeze?.entries ?? []) {
-    const toModelId = await movedBackReplacement(ctx, entry.id);
-    if (toModelId) moved.push({ fromModelId: entry.id, toModelId });
+  for (const modelId of [...inUse].sort()) {
+    const toModelId = await movedBackReplacement(ctx, modelId);
+    if (toModelId) moved.push({ fromModelId: modelId, toModelId });
   }
   return moved;
 }
@@ -198,6 +213,123 @@ export function compareRetryProgress(
       ? `${label(fromModelId)} is no longer used for its tier, but this comparison already has ${label(toModelId)}, so this draft runs on ${label(fromModelId)} again.`
       : movedBackProgress([{ fromModelId, toModelId }])[0]!
   );
+}
+
+/**
+ * 2026-10-23 (owner, second): before a step the writer starts in a
+ * generation (a Seeds request, a retry, the sign-off, "Draft the rest", a QA
+ * run), every model it uses that its tier was moved back from is replaced in
+ * its own freeze by the tier's current model, so that step and every later
+ * one run on a model the tier still uses. Picks, the Summary and drafts are
+ * not touched. Every entry already frozen stays as it was (a step that
+ * started before still resolves its model, and a model the generation
+ * already had runs exactly as frozen); only a model it never had is frozen
+ * now, with the highest cap of its new uses. `modelMoves` records each
+ * change, with the roles it moved. A compare pair is never rewritten here
+ * (its retry is a new attempt), and `writer: false` leaves the writer model
+ * as it is (a QA run on a finished report). A row without a freeze, or with
+ * nothing moved back, is returned unchanged.
+ */
+export async function leaveMovedBackModels(
+  ctx: MutationCtx,
+  generation: Doc<"generations">,
+  options: { writer?: boolean } = {}
+): Promise<Doc<"generations">> {
+  const freeze = generation.modelFreeze;
+  if (!freeze) return generation;
+  const writer =
+    options.writer === false || generation.candidateMode === "compare" ? undefined : generation.singleModelId;
+  const inUse = new Set<string>([
+    ...FROZEN_GENERATION_ROLES.flatMap((role) => freeze.roles[role] ?? []),
+    ...(writer ? [writer] : []),
+  ]);
+  const replaced = new Map<string, string>();
+  for (const modelId of [...inUse].sort()) {
+    const toModelId = await movedBackReplacement(ctx, modelId);
+    if (toModelId) replaced.set(modelId, toModelId);
+  }
+  if (replaced.size === 0) return generation;
+  const movedRoles = (fromModelId: string) =>
+    FROZEN_GENERATION_ROLES.filter((role) => freeze.roles[role] === fromModelId);
+  // A model the generation never had is frozen with the highest cap of
+  // the uses it takes over, as at reservation.
+  const added: FrozenModelEntry[] = [];
+  for (const toModelId of new Set(replaced.values())) {
+    if (freeze.entries.some((entry) => entry.id === toModelId)) continue;
+    let cap: CostCap | undefined;
+    const noteCap = (next: CostCap) => {
+      cap = cap
+        ? {
+            maxInputUsdPerMTok: Math.max(cap.maxInputUsdPerMTok, next.maxInputUsdPerMTok),
+            maxOutputUsdPerMTok: Math.max(cap.maxOutputUsdPerMTok, next.maxOutputUsdPerMTok),
+            maxCostRatio: Math.max(cap.maxCostRatio, next.maxCostRatio),
+          }
+        : next;
+    };
+    for (const [fromModelId, target] of replaced) {
+      if (target !== toModelId) continue;
+      for (const role of movedRoles(fromModelId)) noteCap(await roleCostCap(ctx, role));
+      if (writer === fromModelId) noteCap(await roleCostCap(ctx, "writing"));
+    }
+    const entry = cap ? await frozenEntryForModel(ctx, toModelId, cap) : null;
+    if (entry) added.push(entry);
+  }
+  // A model that cannot be frozen (unknown to the catalog and the seed) is
+  // not moved to; its uses keep their frozen model.
+  const frozenIds = new Set([...freeze.entries, ...added].map((entry) => entry.id));
+  for (const [fromModelId, toModelId] of [...replaced]) {
+    if (!frozenIds.has(toModelId)) replaced.delete(fromModelId);
+  }
+  if (replaced.size === 0) return generation;
+  const roles = { ...freeze.roles };
+  for (const role of FROZEN_GENERATION_ROLES) {
+    const modelId = freeze.roles[role];
+    const toModelId = modelId === undefined ? undefined : replaced.get(modelId);
+    if (toModelId) roles[role] = toModelId;
+  }
+  const entries = [...freeze.entries, ...added].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const now = Date.now();
+  const moves = [...replaced].map(([fromModelId, toModelId]) => ({
+    fromModelId,
+    toModelId,
+    at: now,
+    roles: movedRoles(fromModelId),
+    ...(writer === fromModelId ? { writer: true } : {}),
+  }));
+  const patch = {
+    modelFreeze: { ...freeze, entries, roles },
+    ...(writer && replaced.has(writer) ? { singleModelId: replaced.get(writer)! } : {}),
+    modelMoves: [...(generation.modelMoves ?? []), ...moves],
+  };
+  await ctx.db.patch(generation._id, patch);
+  const label = (id: string) => trackLabelFor(id) ?? id;
+  await appendGenerationProgress(
+    ctx,
+    generation,
+    moves.map(
+      ({ fromModelId, toModelId }) =>
+        `${label(fromModelId)} is no longer used for its tier, so this generation continues on ${label(toModelId)}.`
+    ),
+    now
+  );
+  return { ...generation, ...patch };
+}
+
+/**
+ * The frozen entry a row pinned to `modelId` (a Section run) runs on now:
+ * the model the generation continues on after leaving `modelId`, following
+ * every later move, or null when it never left it (2026-10-23, second).
+ */
+export function continuedModelEntry(
+  generation: Pick<Doc<"generations">, "modelFreeze" | "modelMoves">,
+  modelId: string
+): FrozenModelEntry | null {
+  let current = modelId;
+  for (const move of generation.modelMoves ?? []) {
+    if (move.fromModelId === current) current = move.toModelId;
+  }
+  if (current === modelId) return null;
+  return generation.modelFreeze?.entries.find((entry) => entry.id === current) ?? null;
 }
 
 /** Every track's current model, in picker order. */

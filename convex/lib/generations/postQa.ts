@@ -25,6 +25,8 @@ import { domainError } from "../contracts";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitUserAction } from "../aiRateLimits";
+import { leaveMovedBackModels } from "../modelRoles";
+import { isRedraftLive } from "./redraft";
 import { internal } from "../../_generated/api";
 import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 import { latestQaResult, qaResultIsCurrent, recordQaResult } from "../qaResults";
@@ -341,8 +343,15 @@ export async function requestReportQaHandler(
   if (generation.postQaStatus === "running") return null;
   // Audit wave 2: 20 QA runs an hour per user.
   await limitUserAction(ctx, "qaPerUser", user._id);
+  // 2026-10-23 (owner, second): the QA pass runs off a helper model its
+  // tier was moved back from. The report's writer model is not touched, and
+  // nothing moves while "Draft the rest" is drafting (review 2026-10-23).
+  const current =
+    generation.redraft && isRedraftLive(generation.redraft, Date.now())
+      ? generation
+      : await leaveMovedBackModels(ctx, generation, { writer: false });
   const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
-  await transitionPostQa(ctx, generation, "running", {
+  await transitionPostQa(ctx, current, "running", {
     postQaStartedAt: attemptStartedAt,
   });
   await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {

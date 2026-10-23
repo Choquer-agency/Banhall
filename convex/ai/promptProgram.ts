@@ -21,7 +21,7 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import { generationModelFreeze } from "../lib/modelRoles";
-import { generationModelsRef } from "../lib/modelCatalogRefs";
+import { readGenerationFreeze } from "./generationFreezeRead";
 import {
   CHARS_PER_LINE,
   DRAFT_WORD_CAP_SHARE,
@@ -1097,7 +1097,8 @@ export async function generationPromptVersion(
   ctx: Pick<ActionCtx, "runQuery">,
   generationId: Id<"generations">
 ): Promise<string> {
-  const freeze = await ctx.runQuery(generationModelsRef, { generationId });
+  // The same read the action's routing uses (2026-10-23, second).
+  const freeze = await readGenerationFreeze(ctx, generationId);
   if (!freeze) throw new Error("Generation not found for its prompt version");
   return await promptVersionForModels(freeze);
 }

@@ -15,6 +15,7 @@ import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
 import { notifyIdeasReady } from "./lib/generations/notifications";
 import { resolveGenerationStep } from "./lib/generationSteps";
+import { leaveMovedBackModels } from "./lib/modelRoles";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
 import { checkSeedSpeakers, checkedCitations, citationSpeakerReader } from "./lib/citationSpeakers";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
@@ -413,6 +414,9 @@ export async function dispatchSeedAttempt(
     })
   );
   const attemptId = crypto.randomUUID();
+  // 2026-10-23 (owner, second): a new Batch runs off a model its tier was
+  // moved back from; Batches already queued keep theirs.
+  const current = await leaveMovedBackModels(ctx, generation);
   const batchId = await ctx.db.insert("seedBatches", {
     projectId: project._id,
     generationId: generation._id,
@@ -433,9 +437,9 @@ export async function dispatchSeedAttempt(
     // Owner decision 43: seed cards run on the generation's frozen planning
     // model; a generation frozen before step routing keeps the writer's.
     model: resolveGenerationStep({
-      freeze: generation.modelFreeze,
+      freeze: current.modelFreeze,
       step: args.operation === "feedback" ? "seedFeedback" : "seeds",
-      writerModel: generation.singleModelId ?? MODEL,
+      writerModel: current.singleModelId ?? MODEL,
     }).model,
     slot:
       args.operation === "feedback"

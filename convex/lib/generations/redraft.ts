@@ -41,6 +41,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { domainError, sha256 } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
+import { continuedModelEntry, leaveMovedBackModels } from "../modelRoles";
 import { findActiveGeneration } from "../activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../../../shared/generationTransitions";
 import {
@@ -549,6 +550,9 @@ export async function redraftMissingSectionsHandler(
   // Audit wave 2: "Draft the rest" counts as a generation start when it
   // drafts something; finishing carried Sections alone makes no model call.
   if (missing.length > 0) await limitGenerationStart(ctx, user._id, project._id);
+  // 2026-10-23 (owner, second): Sections drafted again run off a model its
+  // tier was moved back from, on the model the generation continues on.
+  const current = missing.length > 0 ? await leaveMovedBackModels(ctx, generation) : generation;
   const summaryVersionId = generation.summaryVersionId as Id<"summaryVersions">;
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   const carriedKeys = new Set<string>(carried.map((row) => row.section));
@@ -557,8 +561,10 @@ export async function redraftMissingSectionsHandler(
     .map(sectionNumberOfRow);
   const attemptStartedAt = Math.max(now, (previous?.attemptStartedAt ?? 0) + 1);
   for (const [index, row] of missing.entries()) {
+    const model = continuedModelEntry(current, row.model);
     await ctx.db.patch(row._id, {
       status: index === 0 ? "queued" : "pending",
+      ...(model ? { model: model.id, label: model.label } : {}),
       attempt: row.attempt + 1,
       queuedAt: now,
       draftText: undefined,

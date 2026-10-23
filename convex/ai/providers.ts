@@ -38,6 +38,7 @@ import {
   type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { readGenerationFreeze, resetGenerationFreezeReads } from "./generationFreezeRead";
 import { ActionTimeBudgetError, wasStoppedByDeadline } from "./actionDeadline";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
@@ -61,7 +62,6 @@ import {
 } from "../lib/generationSteps";
 import {
   generationModelRedirectsRef,
-  generationModelsRef,
   modelEntryForCallRef,
   recordCallOutcomeRef,
   recordGenerationModelRedirectsRef,
@@ -243,13 +243,11 @@ export function createAnthropicClient(
 
 type RunQueryCtx = Pick<ActionCtx, "runQuery">;
 
-/** A generation's freeze never changes, so one read per isolate suffices. */
-const freezeCache = new Map<string, Promise<ModelFreeze | null>>();
 const FREEZE_CACHE_LIMIT = 200;
 
 /** Test seam: forget cached generation freezes (ids repeat across tests). */
 export function resetGenerationModelCache(): void {
-  freezeCache.clear();
+  resetGenerationFreezeReads();
   resetModelRedirectCache();
 }
 
@@ -263,16 +261,8 @@ export async function registerGenerationModels(
   ctx: RunQueryCtx,
   generationId: Id<"generations">
 ): Promise<ModelFreeze | null> {
-  let pending = freezeCache.get(generationId);
-  if (!pending) {
-    if (freezeCache.size >= FREEZE_CACHE_LIMIT) freezeCache.clear();
-    pending = ctx.runQuery(generationModelsRef, { generationId }).catch((error: unknown) => {
-      freezeCache.delete(generationId);
-      throw error;
-    });
-    freezeCache.set(generationId, pending);
-  }
-  const freeze = await pending;
+  // One read per action (generationFreezeRead.ts, 2026-10-23 second).
+  const freeze = await readGenerationFreeze(ctx, generationId);
   if (freeze) {
     registerModelEntries(freeze.entries.map(entryFromFrozen));
     await registerModelRedirects(ctx, generationId);

@@ -49,6 +49,7 @@ import {
   evalSummaryValidator,
   gateResultValidator,
   modelFreezeValidator,
+  modelMoveValidator,
   modelRedirectValidator,
   modelRoleValidator,
   modelTrackValidator,
@@ -1114,12 +1115,17 @@ export default defineSchema({
     singleModelId: v.optional(v.string()),
     // 2026-09-24 widen (model catalog): every model this generation uses,
     // frozen at reservation. Absent on older rows, which resolve from the
-    // seed registry exactly as before.
+    // seed registry exactly as before. Rewritten only to leave a model its
+    // tier was moved back from (modelMoves, 2026-10-23 second).
     modelFreeze: v.optional(modelFreezeValidator),
     // 2026-10-22 widen (model tracks): frozen models whose provider stopped
     // listing them, and the track model their calls went to instead. At
-    // most one per frozen model. modelFreeze itself is never rewritten.
+    // most one per frozen model. A redirect never rewrites modelFreeze.
     modelRedirects: v.optional(v.array(modelRedirectValidator)),
+    // 2026-10-23 widen (owner, second): each model this generation left,
+    // before a step the writer started, because its tier was moved back
+    // from it, and the model it continues on. Absent: never rewritten.
+    modelMoves: v.optional(v.array(modelMoveValidator)),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),

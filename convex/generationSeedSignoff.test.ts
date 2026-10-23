@@ -3536,6 +3536,138 @@ describe("seed Summary sign-off and recovery", () => {
     expect(recovery?.modelFreeze).toEqual(frozen);
   });
 
+  // 2026-10-23 (owner, second): a plan not yet signed off keeps the writer's
+  // picks when the tier of its frozen model is moved back, and its drafting
+  // runs on the tier's current model.
+  const freezeOnSonnet55 = async (s: ReadyFixture, moveBack: boolean) =>
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      if (moveBack) {
+        await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      }
+      return modelFreeze;
+    });
+  const pickedSeedIds = async (s: ReadyFixture) =>
+    (await s.t.run(async (ctx) =>
+      await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId))
+        .take(100)))
+      .filter((row) => row.selected)
+      .map((row) => row.seedId)
+      .sort();
+
+  it("keeps the writer's picks and drafts on the tier's current model when its tier moved back before sign-off", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    await freezeOnSonnet55(s, true);
+    const picked = await pickedSeedIds(s);
+    expect(picked.length).toBeGreaterThan(0);
+    // Beside sign-off the writer already sees the model drafting will use.
+    const outline = await s.writer.query(api.seeds.getOutline, { generationId: s.generationId });
+    expect(outline.frozen.modelId).toBe("claude-sonnet-5");
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const state = await signoffState(s);
+    // No start over: the signed-off plan is exactly the writer's picks.
+    expect(state.items.map((item) => item.seedId).sort()).toEqual(picked);
+    expect(state.generation?.singleModelId).toBe("claude-sonnet-5");
+    expect(state.generation?.modelFreeze?.roles).toMatchObject({
+      writing: "claude-sonnet-5",
+      planning: "claude-sonnet-5",
+      checking: "claude-sonnet-5",
+    });
+    expect(state.generation?.modelMoves).toEqual([
+      {
+        fromModelId: "claude-sonnet-5-5",
+        toModelId: "claude-sonnet-5",
+        at: expect.any(Number),
+        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        writer: true,
+      },
+    ]);
+    expect(state.candidates.map((run) => run.model)).toEqual(["claude-sonnet-5"]);
+    expect(state.sections.map((row) => row.model)).toEqual(["claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5"]);
+    const lines = (await s.t.run((ctx) =>
+      ctx.db.query("generationProgress")
+        .withIndex("by_generationId_and_at", (q) => q.eq("generationId", s.generationId))
+        .collect())).map((line) => line.message);
+    expect(lines.slice(-2)).toEqual([
+      "Summary signed off. Drafting 246 → 242 → 244 in Build Order.",
+      "Sonnet 5.5 is no longer used for its tier, so this generation continues on Sonnet 5.",
+    ]);
+    // Every request of the first Line, its checks included, goes to Sonnet 5.
+    configureSuccessfulSummaryFinalization("Moved");
+    await runNextSectionAction(s, s.generationId);
+    const models = network.create.mock.calls.map(([params]) => (params as GenerationMessageParams).model);
+    expect(models.length).toBeGreaterThan(1);
+    expect(new Set(models)).toEqual(new Set(["claude-sonnet-5"]));
+    expect(await s.t.run(async (ctx) => (await ctx.db.get(s.generationId))?.status)).toBe("running");
+    vi.useRealTimers();
+  });
+
+  it("signs off on exactly its frozen models while no tier moved back from them", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    const frozen = await freezeOnSonnet55(s, false);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const state = await signoffState(s);
+    expect(state.generation?.modelFreeze).toEqual(frozen);
+    expect(state.generation?.singleModelId).toBe("claude-sonnet-5-5");
+    expect(state.generation?.modelMoves).toBeUndefined();
+    expect(state.sections.map((row) => row.model)).toEqual(["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5"]);
+    vi.useRealTimers();
+  });
+
+  it("queues a new Seeds request on the tier's current model after a move back, keeping the writer's picks", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    await freezeOnSonnet55(s, true);
+    const picked = await pickedSeedIds(s);
+    const result = await s.t.mutation(dispatchRef, {
+      generationId: s.generationId,
+      roleId: "company_context",
+      operation: "regenerate",
+      commandId: "after-move-back",
+      actorUserId: s.userId,
+    });
+    expect(result).toMatchObject({ kind: "dispatched" });
+    const batch = await s.t.run(async (ctx) =>
+      "batchId" in result ? await ctx.db.get(result.batchId) : null);
+    expect(batch?.model).toBe("claude-sonnet-5");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.status).toBe("awaiting_input");
+    expect(generation?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(await pickedSeedIds(s)).toEqual(picked);
+    vi.useRealTimers();
+  });
+
+  it("retries the drafting inputs on the tier's current model after a move back", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    await freezeOnSonnet55(s, true);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.generationId, {
+        draftingInputs: { status: "failed", attempt: 1, startedAt: Date.now() - 1_000, settledAt: Date.now(), failureCode: "unknown" },
+      });
+    });
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.draftingInputs).toMatchObject({ status: "preparing", attempt: 2 });
+    expect(generation?.singleModelId).toBe("claude-sonnet-5");
+    expect(generation?.modelFreeze?.roles.analysis).toBe("claude-sonnet-5");
+    vi.useRealTimers();
+  });
+
   it("carries the failed generation's placeholder map to Summary recovery as frozen, mark or no mark (review 2026-09-25)", async () => {
     // Frozen before bare ids restored (no mark), and since then (marked).
     const legacy = [
@@ -8953,6 +9085,78 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
       generationId: s.generationId,
     })).toMatchObject({ status: "started" });
     expect(await pendingJobs(s, "ai/orderedGeneration:redraftSeedSection")).toHaveLength(0);
+  });
+
+  // 2026-10-23 (owner, second): after a move back, "Draft the rest" and a
+  // QA run leave the moved-back model; the drafted Line keeps its model.
+  it("drafts the rest and runs QA again on the tier's current model after a move back", async () => {
+    const { s } = await stopAfterFirstSection("MovedRest");
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze, postQaStatus: "failed" });
+      for (const row of await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10)) {
+        await ctx.db.patch(row._id, { model: "claude-sonnet-5-5", label: "Sonnet 5.5" });
+      }
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    configureSuccessfulSummaryFinalization("MovedRest redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    const rows = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10));
+    expect(Object.fromEntries(rows.map((row) => [row.section, [row.model, row.label]]))).toEqual({
+      s246: ["claude-sonnet-5-5", "Sonnet 5.5"],
+      s242: ["claude-sonnet-5", "Sonnet 5"],
+      s244: ["claude-sonnet-5", "Sonnet 5"],
+    });
+    network.create.mockClear();
+    await runRedraftSection(s);
+    const models = network.create.mock.calls.map(([params]) => (params as GenerationMessageParams).model);
+    expect(models.length).toBeGreaterThan(0);
+    expect(new Set(models)).toEqual(new Set(["claude-sonnet-5"]));
+    // The QA panel's run again: the checking role left Sonnet 5.5 already.
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    expect(generation?.modelMoves).toHaveLength(1);
+  });
+
+  it("runs QA again off a moved-back helper model while the report keeps its writer model, and moves nothing while Draft the rest drafts", async () => {
+    const { s } = await stopAfterFirstSection("MovedQa");
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze, postQaStatus: "failed" });
+    });
+    // Draft the rest starts before the move back, then QA is asked for
+    // while it is still drafting: the freeze stays as it is.
+    configureSuccessfulSummaryFinalization("MovedQa redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toMatchObject({ status: "started" });
+    const before = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    await s.t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const during = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(during?.modelFreeze).toEqual(before?.modelFreeze);
+    expect(during?.modelMoves).toBeUndefined();
+    // Once the redraft is over, a QA run moves the helper roles only.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.generationId, { redraft: undefined, postQaStatus: "failed" });
+    });
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const after = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(after?.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    expect(after?.singleModelId).toBe("claude-sonnet-5-5");
+    expect(after?.modelMoves).toHaveLength(1);
+    expect(after?.modelMoves?.[0]).toMatchObject({ fromModelId: "claude-sonnet-5-5", toModelId: "claude-sonnet-5" });
+    expect(after?.modelMoves?.[0]?.writer).toBeUndefined();
   });
 
   it("redrafts only the Not drafted Sections into the same report and keeps the writer's edits", async () => {

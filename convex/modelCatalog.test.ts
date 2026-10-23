@@ -35,7 +35,9 @@ import {
   setRoleTrackRef,
 } from "./lib/modelCatalogRefs";
 import {
+  continuedModelEntry,
   freezeModelsForGeneration,
+  leaveMovedBackModels,
   listSelectableModels,
   moveTrack,
   raiseAdminNotice,
@@ -531,6 +533,204 @@ describe("reservation and frozen generations", () => {
     });
     const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
     expect((await t.run((ctx) => ctx.db.get(retry)))?.compareModelIds).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+  });
+
+  // 2026-10-23 (owner, second): a step the writer starts in a generation
+  // leaves a model its tier was moved back from, in the generation's own
+  // freeze, so the writer never starts over.
+  it("moves an open generation's roles and writer model off a model its tier moved back from, once, keeping earlier entries", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const id = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const before = await t.run((ctx) => ctx.db.get(id));
+    const frozen = before!.modelFreeze!;
+    // Nothing moved back: nothing is written.
+    const unchanged = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    expect(unchanged).toEqual(before);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const left = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    const stored = await t.run((ctx) => ctx.db.get(id));
+    expect(left).toEqual(stored);
+    expect(stored?.singleModelId).toBe("claude-sonnet-5");
+    expect(stored?.modelFreeze?.roles).toEqual({
+      writing: "claude-sonnet-5",
+      condense: "claude-sonnet-5",
+      retrieval_brief: "claude-haiku-5-5",
+      analysis: "claude-sonnet-5",
+      planning: "claude-sonnet-5",
+      checking: "claude-sonnet-5",
+    });
+    // The moved-back entry stays, so a step already running still resolves it.
+    expect(stored?.modelFreeze?.entries.map((entry) => entry.id)).toEqual(
+      [...frozen.entries.map((entry) => entry.id), "claude-sonnet-5"].sort()
+    );
+    expect(stored?.modelFreeze?.entries.find((entry) => entry.id === "claude-sonnet-5")).toMatchObject({
+      gateway: "anthropic",
+      label: "Sonnet 5",
+    });
+    expect(stored?.modelFreeze).toMatchObject({ frozenAt: frozen.frozenAt, stepPolicyVersion: frozen.stepPolicyVersion });
+    expect(stored?.modelMoves).toEqual([
+      {
+        fromModelId: "claude-sonnet-5-5",
+        toModelId: "claude-sonnet-5",
+        at: expect.any(Number),
+        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        writer: true,
+      },
+    ]);
+    const progress = await t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", id)).collect()
+    );
+    expect(progress.map((line) => line.message)).toContain(
+      "Sonnet 5.5 is no longer used for its tier, so this generation continues on Sonnet 5."
+    );
+    // Once moved, a second step finds nothing to change.
+    const again = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    expect(again).toEqual(stored);
+    expect((await t.run((ctx) => ctx.db.get(id)))?.modelMoves).toHaveLength(1);
+  });
+
+  it("moves only the helper roles of a comparison, never its pair, and leaves a row without a freeze alone", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const pair = await writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "compare",
+      compareModelIds: ["claude-opus-5-5", "claude-sonnet-5-5"],
+    });
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const moved = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(pair))!));
+    expect(moved.compareModelIds).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
+    expect(moved.singleModelId).toBeUndefined();
+    expect(moved.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    await freshGeneration(t, projectId, pair);
+    const legacy = await t.run(async (ctx) => {
+      const legacyId = await ctx.db.insert("generations", {
+        projectId,
+        status: "failed",
+        candidateMode: "single",
+        singleModelId: "claude-sonnet-5-5",
+        requestedAt: NOW,
+        startedAt: NOW,
+      });
+      return await leaveMovedBackModels(ctx, (await ctx.db.get(legacyId))!);
+    });
+    expect(legacy.modelFreeze).toBeUndefined();
+    expect(legacy.singleModelId).toBe("claude-sonnet-5-5");
+    expect(legacy.modelMoves).toBeUndefined();
+  });
+
+  it("reads a generation's freeze afresh in each new action, so a step started after the move routes on the new model", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const id = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const read = () => t.action(async (ctx) => (await registerGenerationModels(ctx, id))?.roles.checking);
+    expect(await read()).toBe("claude-sonnet-5-5");
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      await leaveMovedBackModels(ctx, (await ctx.db.get(id))!);
+    });
+    // No cache reset: the next action is a new invocation.
+    expect(await read()).toBe("claude-sonnet-5");
+  });
+
+  it("keeps a model the generation already had exactly as frozen, and a QA run leaves the writer model alone", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const id = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    // A generation that already froze Sonnet 5 for one use (a role pinned to
+    // it); the marker shows whether its entry is rebuilt.
+    const marked = await t.run(async (ctx) => {
+      const generation = (await ctx.db.get(id))!;
+      const freeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5", "claude-sonnet-5"], NOW);
+      const modelFreeze = {
+        ...freeze,
+        entries: freeze.entries.map((entry) => (entry.id === "claude-sonnet-5" ? { ...entry, maxCompletionTokens: 12_345 } : entry)),
+      };
+      await ctx.db.patch(generation._id, { modelFreeze });
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      return modelFreeze;
+    });
+    const qa = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!, { writer: false }));
+    expect(qa.modelFreeze?.entries).toEqual(marked.entries);
+    expect(qa.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    expect(qa.singleModelId).toBe("claude-sonnet-5-5");
+    expect(qa.modelMoves).toEqual([
+      {
+        fromModelId: "claude-sonnet-5-5",
+        toModelId: "claude-sonnet-5",
+        at: expect.any(Number),
+        roles: ["writing", "planning", "checking", "condense", "analysis"],
+      },
+    ]);
+    // A later writer-started step moves the writer model too, once.
+    const next = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    expect(next.singleModelId).toBe("claude-sonnet-5");
+    expect(next.modelMoves?.[1]).toMatchObject({ fromModelId: "claude-sonnet-5-5", roles: [], writer: true });
+    expect(next.modelFreeze?.entries).toEqual(marked.entries);
+  });
+
+  it("retries a generation that already left a moved-back model on its own freeze, with no move line", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const left = await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      return await leaveMovedBackModels(ctx, (await ctx.db.get(first))!);
+    });
+    await freshGeneration(t, projectId, first);
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    const retried = await t.run((ctx) => ctx.db.get(retry));
+    expect(retried?.singleModelId).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze).toEqual(left.modelFreeze);
+    const progress = await t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", retry)).collect()
+    );
+    expect(progress.map((line) => line.message)).toEqual(["Generation request reserved."]);
+  });
+
+  it("follows every later move to the model a pinned row runs on now", () => {
+    const entry = (id: string) => ({ id, label: id, provider: "anthropic" as const, gateway: "anthropic" as const, reasoning: true });
+    const generation = {
+      modelFreeze: { entries: [entry("a"), entry("b"), entry("c")], roles: { writing: "c", condense: "c", retrieval_brief: "c", analysis: "c" }, frozenAt: 1 },
+      modelMoves: [
+        { fromModelId: "a", toModelId: "b", at: 1, roles: [], writer: true },
+        { fromModelId: "b", toModelId: "c", at: 2, roles: [], writer: true },
+      ],
+    };
+    expect(continuedModelEntry(generation, "a")?.id).toBe("c");
+    expect(continuedModelEntry(generation, "b")?.id).toBe("c");
+    expect(continuedModelEntry(generation, "c")).toBeNull();
+    expect(continuedModelEntry({ modelFreeze: generation.modelFreeze, modelMoves: undefined }, "a")).toBeNull();
+  });
+
+  it("asks for no redirect for a model the generation left, even once OpenRouter stops listing it", async () => {
+    const { t, projectId, writerId } = await setup();
+    const generationId = await t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["openai/gpt-5.6-sol", "openai/gpt-6-luna"], NOW);
+      return await ctx.db.insert("generations", {
+        projectId,
+        status: "completed",
+        candidateMode: "compare",
+        compareModelIds: ["openai/gpt-5.6-sol", "openai/gpt-6-luna"],
+        requestedAt: NOW,
+        startedAt: NOW,
+        requestedBy: writerId,
+        previousProjectStatus: "draft",
+        modelFreeze,
+        modelMoves: [{ fromModelId: "openai/gpt-5.6-sol", toModelId: "openai/gpt-6.1-sol", at: NOW, roles: ["writing"] }],
+      });
+    });
+    await t.mutation(applyCatalogRefreshRef, {
+      models: parsed.filter((model) => model.openRouterId !== "openai/gpt-5.6-sol"),
+      fetchedAt: NOW,
+      complete: true,
+    });
+    expect(await t.query(generationModelRedirectsRef, { generationId })).toEqual([]);
   });
 
   it("runs a frozen model OpenRouter no longer lists on its track's current model, recorded once, without touching the freeze", async () => {

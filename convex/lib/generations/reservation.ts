@@ -364,7 +364,7 @@ export async function reserveGeneration(
   const modelFreeze =
     retriedFreeze &&
     requestedModelIds.every((id) => retriedFreeze.entries.some((entry) => entry.id === id)) &&
-    (await movedBackModels(ctx, retriedFreeze)).length === 0
+    (await movedBackModels(ctx, retried)).length === 0
       ? retriedFreeze
       : await freezeModelsForGeneration(ctx, requestedModelIds, now);
   if (
@@ -567,7 +567,7 @@ export async function retryGenerationHandler(
   const comparePair = failed.compareModelIds
     ? await retryComparePair(ctx, failed.compareModelIds)
     : undefined;
-  const moved = await movedBackModels(ctx, failed.modelFreeze);
+  const moved = await movedBackModels(ctx, failed);
   const movedLines = comparePair
     ? compareRetryProgress(moved, comparePair.pair, new Set(comparePair.pair))
     : movedBackProgress(moved);
@@ -675,7 +675,7 @@ export async function retryFromSummaryHandler(
   // freezes today's models, the single model replaced by its tier's current
   // one, so the recovery can finish instead of the writer starting over.
   const freezeAt = Date.now();
-  const moved = await movedBackModels(ctx, failed.modelFreeze);
+  const moved = await movedBackModels(ctx, failed);
   const singleModelId =
     moved.length === 0
       ? failed.singleModelId
@@ -845,7 +845,7 @@ export async function retryFailedCandidatesHandler(
   const retryPair = await retryComparePair(ctx, compareModelIds, new Set(failedModelIds));
   const retryModelIds = failedModelIds.map((id) => retryPair.replaced.get(id) ?? id);
   const movedLines = compareRetryProgress(
-    await movedBackModels(ctx, generationModelFreeze(generation)),
+    await movedBackModels(ctx, generation, generationModelFreeze(generation)),
     retryPair.pair,
     new Set(retryModelIds)
   );

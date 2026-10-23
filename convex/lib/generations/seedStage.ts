@@ -59,7 +59,7 @@ import { chooseDroppedUncertainties, deselectedSeedIds, relatedSeedsOfDropped } 
 import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { MODEL, seedModelById } from "../../../shared/generationModels";
-import { generationModelFreeze, entryFromFrozen } from "../modelRoles";
+import { generationModelFreeze, entryFromFrozen, leaveMovedBackModels } from "../modelRoles";
 import { persistOrderedPayload } from "../orderedPayloadStore";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
@@ -681,7 +681,11 @@ export async function signOffSeedStageHandler(
   await appendGenerationProgress(ctx, generation, [
     `Summary signed off. Drafting ${payload.orderedContext.buildOrder.join(" → ")} in Build Order.`,
   ]);
-  await transitionGeneration(ctx, generation, "running", {
+  // 2026-10-23 (owner, second): the picks above are kept, and the drafting
+  // runs on the models its tiers use now when a tier was moved back from
+  // one this plan froze.
+  const drafting = await leaveMovedBackModels(ctx, generation);
+  await transitionGeneration(ctx, drafting, "running", {
     summaryVersionId,
     currentStep: `Drafting ${payload.orderedContext.buildOrder[0]}…`,
     totalCandidates: 1,
@@ -692,7 +696,7 @@ export async function signOffSeedStageHandler(
   });
   const chain = await createFrozenOrderedChain(
     ctx,
-    generation,
+    drafting,
     summaryVersionId,
     payload
   );
@@ -891,6 +895,8 @@ export async function retryInitializeSeedStageHandler(
   await requireFrozenSeedArtifacts(ctx, generation);
   // Audit wave 2: a retry counts as a generation start.
   await limitGenerationStart(ctx, user._id, existing.projectId);
+  // 2026-10-23 (owner, second): off a model its tier was moved back from.
+  await leaveMovedBackModels(ctx, generation);
   await ctx.db.patch(generation._id, { seedStageError: undefined, currentStep: "Preparing seeds" });
   await ctx.scheduler.runAfter(0, internal.ai.iterative.resumeSeedInitialization, args);
   return null;

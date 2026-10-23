@@ -385,6 +385,10 @@ async function openFirstRole(s: Fixture) {
     }
   });
   await s.t.action(generateBatchRef, { batchId: batch._id });
+  // The first-step Batch (owner decision 65) may already be running from
+  // its scheduled job, which the cancel above cannot stop; its request
+  // lands only once that job finishes.
+  await s.t.finishInProgressScheduledFunctions();
   return batch._id;
 }
 

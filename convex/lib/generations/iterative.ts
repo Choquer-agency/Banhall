@@ -35,6 +35,7 @@ import { SEED_INITIALIZATION_ERROR } from "./seedStage";
 import { domainError, sha256 } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
+import { continuedModelEntry, leaveMovedBackModels } from "../modelRoles";
 import { deidentify } from "../deidentify";
 import { internal } from "../../_generated/api";
 import { buildTiptapDocument } from "../tiptapReport";
@@ -580,12 +581,20 @@ export async function approveSectionDraftHandler(
 
   const nextSection =
     SECTION_ORDER[SECTION_ORDER.indexOf(args.section) + 1] ?? null;
+  // 2026-10-23 (owner, second): the next section (or the closing QA pass)
+  // runs off a model its tier was moved back from.
+  const current = await leaveMovedBackModels(ctx, generation);
   if (nextSection) {
     const next = await getSectionRun(ctx, generation._id, nextSection);
     if (!next || next.status !== "pending") {
       domainError("INVALID_STATE", "The next section is not ready to draft");
     }
-    await ctx.db.patch(next._id, { status: "queued", queuedAt: now });
+    const model = continuedModelEntry(current, next.model);
+    await ctx.db.patch(next._id, {
+      status: "queued",
+      queuedAt: now,
+      ...(model ? { model: model.id, label: model.label } : {}),
+    });
     await appendGenerationProgress(ctx, generation, [
       `✓ ${SECTION_TITLES[args.section]} approved by the writer.`,
       `Drafting ${SECTION_TITLES[nextSection]}…`,
@@ -777,9 +786,12 @@ export async function regenerateSectionDraftHandler(
   }
   // Audit wave 2: a section redraft counts as a generation start.
   await limitGenerationStart(ctx, user._id, project._id);
+  // 2026-10-23 (owner, second): off a model its tier was moved back from.
+  const model = continuedModelEntry(await leaveMovedBackModels(ctx, generation), run.model);
   const guidance = args.guidance?.trim();
   const now = Date.now();
   await ctx.db.patch(run._id, {
+    ...(model ? { model: model.id, label: model.label } : {}),
     status: "queued",
     attempt: run.attempt + 1,
     guidance: guidance || undefined,

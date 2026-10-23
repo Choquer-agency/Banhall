@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { movedBackReplacement } from "./modelRoles";
 import {
   PD_SUBSECTIONS,
   type PdSubsectionRoleId,
@@ -943,11 +944,19 @@ export async function listBatchesData(
 }
 
 /** The generation settings the Summary shows read-only beside sign-off. A
- * recovery generation carries the origin's frozen copies of these fields. */
-export function frozenSeedSettings(generation: Doc<"generations">) {
+ * recovery generation carries the origin's frozen copies of these fields.
+ * Before sign-off the model is the one drafting will run on: the tier's
+ * current model when its tier was moved back from the frozen one
+ * (2026-10-23, second; sign-off makes the switch). */
+export async function frozenSeedSettings(ctx: QueryCtx, generation: Doc<"generations">) {
+  const frozenModel = generation.singleModelId;
+  const modelId =
+    frozenModel && generation.summaryVersionId === undefined && generation.modelFreeze
+      ? ((await movedBackReplacement(ctx, frozenModel)) ?? frozenModel)
+      : (frozenModel ?? null);
   return {
     lengthTarget: generation.lengthTarget ?? "standard",
-    modelId: generation.singleModelId ?? null,
+    modelId,
     writerProfile: generation.writerSettings
       ? {
           state: generation.writerSettings.profileState,
@@ -1136,7 +1145,7 @@ export async function getSummaryData(
       // Shown beside the model only from version 2 on (PRD FR-21).
       summaryVersion: version.version,
       seedStageVersion: generation.seedStageVersion ?? 0,
-      settings: frozenSeedSettings(generation),
+      settings: await frozenSeedSettings(ctx, generation),
       budget: budget.snapshot(),
     };
   }
@@ -1193,7 +1202,7 @@ export async function getSummaryData(
       summaryVersionId: null,
       summaryVersion: null,
       seedStageVersion: generation.seedStageVersion ?? 0,
-      settings: frozenSeedSettings(generation),
+      settings: await frozenSeedSettings(ctx, generation),
       budget: budget.snapshot(),
     };
   }
@@ -1286,7 +1295,7 @@ export async function getSummaryData(
     summaryVersionId: null,
     summaryVersion: null,
     seedStageVersion: generation.seedStageVersion ?? 0,
-    settings: frozenSeedSettings(generation),
+    settings: await frozenSeedSettings(ctx, generation),
     budget: budget.snapshot(),
   };
 }

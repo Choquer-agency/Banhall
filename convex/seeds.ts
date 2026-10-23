@@ -1268,7 +1268,7 @@ export const getOutline = query({
       frozen: {
         briefVersionId: generation.briefVersionId ?? null,
         summaryVersionId: generation.summaryVersionId ?? null,
-        ...frozenSeedSettings(generation),
+        ...(await frozenSeedSettings(ctx, generation)),
       },
     };
   },

@@ -21,6 +21,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { domainError } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
+import { leaveMovedBackModels } from "../modelRoles";
 import {
   draftingInputsStateOf,
   transitionDraftingInputs,
@@ -400,6 +401,9 @@ export async function retryDraftingInputsHandler(
   // Audit wave 2: a retry counts as a generation start. A refusal also
   // rolls back the lease settle above.
   await limitGenerationStart(ctx, user._id, existing.projectId);
+  // 2026-10-23 (owner, second): the new attempt runs off a model its tier
+  // was moved back from; the writer's picks are kept.
+  current = await leaveMovedBackModels(ctx, current);
   const attempt = drafting.attempt + 1;
   const shorterAnalysis =
     drafting.shorterAnalysis === true || drafting.failureCode === "output_limit";

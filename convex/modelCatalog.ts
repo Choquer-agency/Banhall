@@ -1061,7 +1061,11 @@ export const generationModelRedirects = internalQuery({
     const freeze = generationModelFreeze(generation);
     const cap = await roleCostCap(ctx, "writing");
     const redirects: Array<Infer<typeof modelRedirectEntryValidator>> = [];
+    // A model the generation left (modelMoves, 2026-10-23 second) is kept
+    // as an entry but no longer used, so it needs no redirect.
+    const left = new Set((generation.modelMoves ?? []).map((move) => move.fromModelId));
     for (const frozen of freeze.entries) {
+      if (left.has(frozen.id)) continue;
       if (frozen.gateway !== "openrouter" || !goneFromProvider(await catalogRow(ctx, frozen.id))) continue;
       const track = trackOf(frozen.id);
       if (!track) continue;
@@ -1098,7 +1102,8 @@ export const generationModelRedirects = internalQuery({
 
 /**
  * Records on the generation, once per frozen model, which track model its
- * calls went to, and logs it for admins. The freeze is never rewritten.
+ * calls went to, and logs it for admins. A redirect never rewrites the
+ * freeze (only leaving a moved-back model does, 2026-10-23 second).
  */
 export const recordGenerationModelRedirects = internalMutation({
   args: {
