@@ -32,9 +32,11 @@ import { placeholderMapValidator } from "./lib/placeholderValidators";
 import { MAX_UPLOAD_BYTES } from "./lib/storage";
 
 const OFF_THE_LABEL_QUEUE = { labelsDue: undefined, labelsNextAt: undefined } as const;
-/** Projects and merged companies whose names a company file's labels hide. */
+/** Live projects whose people a company file's labels hide, newest first, and the rows read to find them. */
 const NAME_PROJECTS = 50;
-const NAME_MERGED_COMPANIES = 20;
+const NAME_PROJECT_READ = 200;
+/** Companies merged into one, at any depth, whose names its labels hide. */
+const NAME_MERGED_COMPANIES = 100;
 
 /** Whether a company file holds read text, reading at most a short text whole. */
 async function companyFileHasReadText(ctx: QueryCtx, file: Doc<"companyFiles">): Promise<boolean> {
@@ -81,7 +83,12 @@ export const saveCompanyFileReading = internalMutation({
   returns: v.union(v.literal("kept"), v.literal("not_better"), v.literal("changed"), v.literal("failed")),
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.companyFileId);
-    if (!file || file.archived || file.textHash !== args.expectedTextHash) return "changed";
+    if (!file || file.textHash !== args.expectedTextHash) return "changed";
+    // Archived meanwhile: the claim is released, so restoring it reads it.
+    if (file.archived) {
+      await ctx.db.patch(file._id, { serverReadStartedAt: undefined });
+      return "changed";
+    }
     if (args.failed) {
       await ctx.db.patch(file._id, { serverReadStartedAt: undefined });
       return "failed";
@@ -209,29 +216,60 @@ export const failCompanyFileSearchPieces = internalMutation({
 // ─── Labels ─────────────────────────────────────────────────────────────────
 
 /**
- * The names a company file's labels hide: the company's name, the names it
- * had before merges, the firm's names, and the people on its projects
+ * The company's other names: those it had before renames and those of the
+ * companies merged into it, from its name history (`formerNames`) and, for
+ * merges made before that history was kept, its merge tombstones at any
+ * depth. Throws when the tombstones are too many to read, so no label call
+ * goes out with a name it could not hide (the call is tried again, then
+ * left).
+ */
+async function companyOtherNames(ctx: QueryCtx, client: Doc<"clients">): Promise<string[]> {
+  const names = new Set(client.formerNames ?? []);
+  const queue: Id<"clients">[] = [client._id];
+  let seen = 0;
+  while (queue.length > 0) {
+    const into = queue.shift()!;
+    const merged = await ctx.db
+      .query("clients")
+      .withIndex("by_mergedIntoClientId", (q) => q.eq("mergedIntoClientId", into))
+      .take(NAME_MERGED_COMPANIES + 1 - seen);
+    for (const old of merged) {
+      seen += 1;
+      names.add(old.name);
+      for (const name of old.formerNames ?? []) names.add(name);
+      queue.push(old._id);
+    }
+    if (seen > NAME_MERGED_COMPANIES) {
+      throw new Error(`More than ${NAME_MERGED_COMPANIES} companies were merged into this one; labels wait so no name goes out unhidden`);
+    }
+  }
+  names.delete(client.name);
+  return [...names];
+}
+
+/**
+ * The names a company file's labels hide: the company's name and its other
+ * names, the firm's names, and the people on its newest projects
  * (interviewer, writer, interviewees). Transcripts are not read.
  */
 async function companyPlaceholderMap(ctx: QueryCtx, client: Doc<"clients">, texts: readonly string[]) {
   const projects = await ctx.db
     .query("projects")
     .withIndex("by_clientId", (q) => q.eq("clientId", client._id))
-    .take(NAME_PROJECTS);
-  const merged = await ctx.db
-    .query("clients")
-    .withIndex("by_mergedIntoClientId", (q) => q.eq("mergedIntoClientId", client._id))
-    .take(NAME_MERGED_COMPANIES);
+    .order("desc")
+    .take(NAME_PROJECT_READ);
   const people: string[] = [];
-  const organizations = new Set<string>();
+  const organizations = new Set<string>(await companyOtherNames(ctx, client));
+  let used = 0;
   for (const project of projects) {
     if (project.deletionStartedAt !== undefined) continue;
+    if (used >= NAME_PROJECTS) break;
+    used += 1;
     for (const name of [project.interviewer, project.writer, ...(project.interviewees ?? [])]) {
       if (name?.trim()) people.push(name.trim());
     }
     if (project.clientName !== client.name) organizations.add(project.clientName);
   }
-  for (const old of merged) if (old.name !== client.name) organizations.add(old.name);
   return await placeholderMapFrom(
     ctx,
     { clientName: client.name },

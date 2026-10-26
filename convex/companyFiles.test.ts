@@ -16,6 +16,7 @@ import { getEffectiveCapabilityLevel } from "../shared/capabilities";
 import { readCompanyFileText } from "./lib/companyFileText";
 import { searchCompanyPieces } from "./lib/searchPieces";
 import { MERGE_COMPANY_FILE_LIMIT } from "./clients";
+import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { SERVER_READER_VERSION } from "./lib/serverReading";
 import { textPdf } from "./ai/testFiles.fixture";
 
@@ -36,6 +37,7 @@ async function setup() {
     const now = Date.now();
     const writerId = await ctx.db.insert("users", { authId: "cf-writer", role: "writer", email: "wendy@firm.com", name: "Wendy" });
     const managerId = await ctx.db.insert("users", { authId: "cf-manager", role: "manager", email: "mina@firm.com" });
+    await ctx.db.insert("users", { authId: "cf-admin", role: "admin", email: "ada@firm.com" });
     await ctx.db.insert("users", { authId: "cf-roleless" });
     const client = (name: string) =>
       ctx.db.insert("clients", { name, nameKey: dashboardCompanyKey(name), status: "active", createdBy: managerId, createdAt: now, updatedAt: now });
@@ -70,6 +72,7 @@ async function setup() {
     ...ids,
     writer: t.withIdentity({ subject: "cf-writer" }),
     manager: t.withIdentity({ subject: "cf-manager" }),
+    admin: t.withIdentity({ subject: "cf-admin" }),
     roleless: t.withIdentity({ subject: "cf-roleless" }),
   };
 }
@@ -126,15 +129,21 @@ describe("who may use company files", () => {
 
   test("a user with no role can do nothing; a Consultant cannot archive or remove", async () => {
     const s = await setup();
-    await expect(s.roleless.query(api.companyFiles.listCompanyFiles, { clientId: s.acmeId })).rejects.toThrow();
-    await expect(
-      s.roleless.mutation(api.companyFiles.addCompanyFile, { clientId: s.acmeId, fileName: "a.txt", fileType: "txt", content: "x" })
-    ).rejects.toThrow();
     const fileId = await add(s, s.acmeId, "history.txt", "Acme has sealed pumps since 2010.");
-    await expect(s.writer.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: true })).rejects.toThrow(
-      /permission/
-    );
-    await expect(s.writer.mutation(api.companyFiles.removeCompanyFile, { companyFileId: fileId })).rejects.toThrow(/permission/);
+    const refusals = [
+      s.roleless.query(api.companyFiles.listCompanyFiles, { clientId: s.acmeId }),
+      s.roleless.query(api.companyFiles.getCompanyFileContent, { companyFileId: fileId }),
+      s.roleless.query(api.companyFiles.companyForKey, { key: "acme" }),
+      s.roleless.mutation(api.companyFiles.ensureCompanyForKey, { key: "acme" }),
+      s.roleless.mutation(api.companyFiles.generateCompanyUploadUrl, {}),
+      s.roleless.mutation(api.companyFiles.addCompanyFile, { clientId: s.acmeId, fileName: "a.txt", fileType: "txt", content: "x" }),
+      s.roleless.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: true }),
+      s.roleless.mutation(api.companyFiles.removeCompanyFile, { companyFileId: fileId }),
+      s.writer.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: true }),
+      s.writer.mutation(api.companyFiles.removeCompanyFile, { companyFileId: fileId }),
+    ];
+    for (const refusal of refusals) await expect(refusal).rejects.toThrow(/role is required|permission/);
+    expect((await s.t.run(async (ctx) => ctx.db.get(fileId)))?.archived).toBeUndefined();
   });
 });
 
@@ -204,6 +213,109 @@ describe("adding company files", () => {
   });
 });
 
+describe("company rows, duplicates and retries (review, 2026-10-26)", () => {
+  test("projects with no company name never get a company row", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("dashboardCompanies", { companyKey: DASHBOARD_UNNAMED_COMPANY_KEY, clientName: "", projectCount: 2, updatedAt: Date.now() });
+    });
+    await expect(s.writer.mutation(api.companyFiles.ensureCompanyForKey, { key: DASHBOARD_UNNAMED_COMPANY_KEY })).rejects.toThrow(
+      /no company name/
+    );
+    const rows = await s.t.run(async (ctx) => ctx.db.query("clients").withIndex("by_nameKey", (q) => q.eq("nameKey", DASHBOARD_UNNAMED_COMPANY_KEY)).collect());
+    expect(rows).toEqual([]);
+  });
+
+  test("a company with more than one page of projects links them all", async () => {
+    const s = await setup();
+    const count = 230;
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("dashboardCompanies", { companyKey: "cedar", clientName: "Cedar", projectCount: count, updatedAt: now });
+      for (let i = 0; i < count; i++) {
+        await ctx.db.insert("projects", {
+          title: `Cedar ${i}`, clientName: "Cedar", dashboardCompanyKey: "cedar", status: "draft",
+          createdBy: s.writerId, ownerId: s.writerId, shareToken: `cedar-${i}`, createdAt: now, updatedAt: now,
+          ...(i < 5 ? { deletionStartedAt: now } : {}),
+        });
+      }
+    });
+    const made = await s.writer.mutation(api.companyFiles.ensureCompanyForKey, { key: "cedar" });
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const projects = await s.t.run(async (ctx) =>
+      ctx.db.query("projects").withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", "cedar")).collect()
+    );
+    expect(projects.filter((project) => project.deletionStartedAt === undefined && project.clientId !== made.clientId)).toEqual([]);
+    expect(projects.filter((project) => project.clientId === made.clientId)).toHaveLength(count - 5);
+  });
+
+  test("an archived copy never hides the active file with the same name and text", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      const { companyFileTextFacts } = await import("./lib/companyFileText");
+      const facts = await companyFileTextFacts("Acme history.");
+      for (let i = 0; i < 25; i++) {
+        await ctx.db.insert("companyFiles", {
+          clientId: s.acmeId, fileName: "history.txt", fileType: "txt", ...facts, processingStatus: "ready",
+          archived: true, uploadedBy: s.writerId, createdAt: Date.now(),
+        });
+      }
+    });
+    const active = await add(s, s.acmeId, "history.txt", "Acme history.");
+    expect(await add(s, s.acmeId, "history.txt", "Acme history.")).toBe(active);
+  });
+
+  test("a retried save of an unreadable file finds the row the first save made", async () => {
+    const s = await setup();
+    const attemptKey = "33333333-3333-4333-8333-333333333333";
+    const save = () =>
+      s.writer.mutation(api.companyFiles.addCompanyFile, { clientId: s.acmeId, fileName: "scan.pdf", fileType: "pdf", content: "", attemptKey });
+    const first = await save();
+    expect(await save()).toBe(first);
+    // Another file under the same key is a new file.
+    const other = await s.writer.mutation(api.companyFiles.addCompanyFile, {
+      clientId: s.acmeId, fileName: "other.pdf", fileType: "pdf", content: "", attemptKey,
+    });
+    expect(other).not.toBe(first);
+    expect((await events(s, s.acmeId)).filter((event) => event.action === "add")).toHaveLength(2);
+  });
+
+  test("a repeat brings only an original the first lacked, and a second original is thrown away", async () => {
+    const s = await setup();
+    const store = () => s.t.run(async (ctx) => ctx.storage.store(new Blob(["bytes"])));
+    const textOnly = await add(s, s.acmeId, "history.txt", "Acme history.");
+    const first = await store();
+    expect(await add(s, s.acmeId, "history.txt", "Acme history.", { storageId: first })).toBe(textOnly);
+    expect((await s.t.run(async (ctx) => ctx.db.get(textOnly)))?.storageId).toBe(first);
+    const second = await store();
+    expect(await add(s, s.acmeId, "history.txt", "Acme history.", { storageId: second })).toBe(textOnly);
+    expect(await s.t.run(async (ctx) => (await ctx.db.system.get(second)) !== null)).toBe(false);
+    expect(await s.t.run(async (ctx) => (await ctx.db.system.get(first)) !== null)).toBe(true);
+  });
+
+  test("another user's claimed upload cannot be attached", async () => {
+    const s = await setup();
+    const storageId = await s.t.run(async (ctx) => {
+      const id = await ctx.storage.store(new Blob(["bytes"]));
+      await ctx.db.insert("uploadClaims", { storageId: id, userId: s.managerId, claimedAt: Date.now() });
+      return id;
+    });
+    await expect(add(s, s.acmeId, "history.txt", "Acme history.", { storageId })).rejects.toThrow(/already in use/);
+  });
+
+  test("a company merged into one that was merged again points to the company it ended up in", async () => {
+    const s = await setup();
+    const thirdId = await s.t.run(async (ctx) =>
+      ctx.db.insert("clients", { name: "Cascade", nameKey: "cascade", status: "active", createdBy: s.managerId, createdAt: 1, updatedAt: 1 })
+    );
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.otherId, { status: "merged", mergedIntoClientId: s.acmeId });
+      await ctx.db.patch(s.acmeId, { status: "merged", mergedIntoClientId: thirdId });
+    });
+    await expect(add(s, s.otherId, "late.txt", "Late.")).rejects.toThrow(/merged into Cascade/);
+  });
+});
+
 describe("archiving, restoring and removing", () => {
   test("a Manager archives and restores; each change is logged; archived files list apart", async () => {
     const s = await setup();
@@ -233,13 +345,59 @@ describe("archiving, restoring and removing", () => {
     expect((await events(s, s.acmeId)).map((event) => event.action)).toEqual(["add", "remove"]);
   });
 
-  test("erasing a company's last project leaves its company files", async () => {
+  test("erasing a company's last project leaves its company files, their text and pieces", async () => {
     const s = await setup();
-    const fileId = await add(s, s.acmeId, "history.txt", "Acme history.");
-    const { PROJECT_SCOPED_TABLES } = await import("./lib/projectScopedTables");
-    const tables = PROJECT_SCOPED_TABLES.map((entry: { table: string }) => entry.table);
-    for (const table of ["companyFiles", "companyFileTexts", "companyFileEvents"]) expect(tables).not.toContain(table);
-    expect(await s.t.run(async (ctx) => ctx.db.get(fileId))).not.toBeNull();
+    const fileId = await add(s, s.acmeId, "history.txt", "Acme sealed pumps with graphite.");
+    await sweep(s);
+    await s.admin.mutation(api.projects.deleteProject, { projectId: s.acmeProjectId });
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await s.t.run(async (ctx) => ({
+      project: await ctx.db.get(s.acmeProjectId),
+      file: await ctx.db.get(fileId),
+      texts: (await ctx.db.query("companyFileTexts").withIndex("by_companyFileId_and_start", (q) => q.eq("companyFileId", fileId)).collect()).length,
+      pieces: (await ctx.db.query("documentSearchPieces").withIndex("by_companyFileId_and_order", (q) => q.eq("companyFileId", fileId)).collect()).length,
+    }));
+    expect(left.project).toBeNull();
+    expect(left.file?.clientId).toBe(s.acmeId);
+    expect(left.texts).toBeGreaterThan(0);
+    expect(left.pieces).toBeGreaterThan(0);
+    expect((await search(s, s.acmeId, "graphite")).hits).toHaveLength(1);
+  });
+
+  test("restoring a file resumes the work skipped while it was archived", async () => {
+    const s = await setup();
+    const fileId = await add(s, s.acmeId, "history.txt", "Acme graphite.");
+    await s.manager.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: true });
+    await sweep(s);
+    // Cut while archived; the label sweep retires an archived file.
+    await s.t.mutation(internal.fileLabels.sweepDueFileLabels, {});
+    expect((await s.t.run(async (ctx) => ctx.db.get(fileId)))?.labelsDue).toBeUndefined();
+    await s.manager.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: false });
+    expect((await s.t.run(async (ctx) => ctx.db.get(fileId)))?.labelsDue).toBe(true);
+  });
+
+  test("a scan archived while it was being read is read once it is restored", async () => {
+    const s = await setup();
+    const storageId = await s.t.run(async (ctx) =>
+      ctx.storage.store(new Blob([textPdf(PAGES) as BlobPart], { type: "application/pdf" }))
+    );
+    const fileId = await add(s, s.acmeId, "trials.pdf", "", { storageId, fileType: "pdf" });
+    const claim = await s.t.mutation(internal.companyFileWork.startCompanyFileReading, { companyFileId: fileId });
+    expect(claim).not.toBeNull();
+    await s.manager.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: true });
+    expect(
+      await s.t.mutation(internal.companyFileWork.saveCompanyFileReading, {
+        companyFileId: fileId, expectedTextHash: claim!.textHash, text: PAGES.join("\n"), reader: SERVER_READER_VERSION,
+      })
+    ).toBe("changed");
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      }
+    });
+    await s.manager.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: false });
+    const jobs = await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(jobs.filter((job) => job.state.kind === "pending" && job.name.includes("readStoredCompanyFile"))).toHaveLength(1);
   });
 });
 
@@ -267,6 +425,26 @@ describe("search pieces and labels", () => {
     expect((await search(s, s.acmeId, "graphite")).hits).toEqual([]);
   });
 
+  test("a file moved to another company while it is being cut files its pieces under the new company", async () => {
+    const s = await setup();
+    const fileId = await add(s, s.otherId, "valves.txt", "Borealis tested graphite valves.");
+    const target = (await s.t.query(internal.companyFileWork.companyFileToIndex, { companyFileId: fileId }))!;
+    await s.t.run(async (ctx) => ctx.db.patch(fileId, { clientId: s.acmeId }));
+    await s.t.mutation(internal.companyFileWork.writeCompanyFileSearchPieces, { companyFileId: fileId, textHash: target.textHash });
+    expect((await search(s, s.acmeId, "graphite")).hits).toEqual([expect.objectContaining({ companyFileId: fileId })]);
+    expect((await search(s, s.otherId, "graphite")).hits).toEqual([]);
+  });
+
+  test("the sweeps give company files the places project files leave", async () => {
+    const s = await setup();
+    const fileId = await add(s, s.acmeId, "history.txt", "Acme graphite.");
+    expect(await s.t.mutation(internal.searchPieces.sweepDueSearchPieces, {})).toBe(1);
+    const jobs = await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(jobs.filter((job) => job.name.includes("indexCompanyFile"))).toEqual([
+      expect.objectContaining({ args: [{ companyFileId: fileId }] }),
+    ]);
+  });
+
   test("a file not cut yet makes the search incomplete; cutting marks labels due", async () => {
     const s = await setup();
     const fileId = await add(s, s.acmeId, "history.txt", "Acme graphite.");
@@ -290,6 +468,34 @@ describe("search pieces and labels", () => {
     for (const name of ["Acme", "Acme Holdings", "Quentin Quill", "Ivy Interviewer"]) expect(hidden).toContain(name);
     // The other company's names are not in this company's map.
     expect(hidden).not.toContain("Borealis");
+  });
+
+  test("a label call hides names from merges of merges and renames, and waits when the history is too long", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      const old = await ctx.db.insert("clients", {
+        name: "Acme Old Works", nameKey: "acme old works", status: "merged", mergedIntoClientId: s.otherId,
+        createdBy: s.managerId, createdAt: 1, updatedAt: 1,
+      });
+      void old;
+      await ctx.db.patch(s.otherId, { status: "merged", mergedIntoClientId: s.acmeId });
+      await ctx.db.patch(s.acmeId, { formerNames: ["Acme Pumps Incorporated"] });
+    });
+    const fileId = await add(s, s.acmeId, "history.txt", "Acme Old Works, Borealis and Acme Pumps Incorporated.");
+    const hidden = (await s.t.query(internal.companyFileWork.companyLabelInput, { companyFileId: fileId }))!.placeholders.map(
+      (entry) => entry.value
+    );
+    for (const name of ["Acme Old Works", "Borealis", "Acme Pumps Incorporated"]) expect(hidden).toContain(name);
+
+    await s.t.run(async (ctx) => {
+      for (let i = 0; i < 101; i++) {
+        await ctx.db.insert("clients", {
+          name: `Merged ${i}`, nameKey: `merged ${i}`, status: "merged", mergedIntoClientId: s.acmeId,
+          createdBy: s.managerId, createdAt: 1, updatedAt: 1,
+        });
+      }
+    });
+    await expect(s.t.query(internal.companyFileWork.companyLabelInput, { companyFileId: fileId })).rejects.toThrow(/labels wait/);
   });
 
   test("labels are kept only for the text and name they were made from", async () => {
@@ -369,6 +575,16 @@ describe("merging companies", () => {
     expect((await events(s, s.acmeId)).filter((event) => event.action === "merge_in")).toHaveLength(2);
     // The merged company takes no new files.
     await expect(add(s, s.otherId, "late.txt", "Late.")).rejects.toThrow(/merged into Acme/);
+  });
+
+  test("the kept company keeps every former name: its own before a rename and the merged companies'", async () => {
+    const s = await setup();
+    await companyKeys(s);
+    await s.t.run(async (ctx) => ctx.db.patch(s.otherId, { formerNames: ["Borealis Old"] }));
+    const result = await s.manager.mutation(api.clients.mergeClients, { keepKey: "acme", mergeKeys: ["borealis"], name: "Acme Group" });
+    const kept = await s.t.run(async (ctx) => ctx.db.get(result.clientId));
+    expect(kept?.name).toBe("Acme Group");
+    expect([...(kept?.formerNames ?? [])].sort()).toEqual(["Acme", "Borealis", "Borealis Old"]);
   });
 
   test("a merge that would move more than the file limit is refused whole", async () => {

@@ -403,6 +403,10 @@ export default defineSchema({
     mergedIntoClientId: v.optional(v.id("clients")),
     mergedAt: v.optional(v.number()),
     mergedBy: v.optional(v.id("users")),
+    // 2026-10-26 (Phase C): every name this company had before a rename,
+    // and every name of the companies merged into it (theirs included),
+    // so company file labels hide them all. Written by mergeClients.
+    formerNames: v.optional(v.array(v.string())),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -2453,9 +2457,13 @@ export default defineSchema({
     labelsNextAt: v.optional(v.number()),
     labelsAttempts: v.optional(v.number()),
     labelsLastError: v.optional(v.string()),
+    /** The browser's key for the save that made this row, so a retried save finds it. */
+    attemptKey: v.optional(v.string()),
   })
     .index("by_clientId_and_archived", ["clientId", "archived"])
-    .index("by_clientId_and_textHash", ["clientId", "textHash"])
+    // The same file: one company, text, name, not archived.
+    .index("by_clientId_and_textHash_and_fileName_and_archived", ["clientId", "textHash", "fileName", "archived"])
+    .index("by_clientId_and_attemptKey", ["clientId", "attemptKey"])
     .index("by_clientId_and_searchPiecesDue", ["clientId", "searchPiecesDue"])
     .index("by_storageId", ["storageId"])
     .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])

@@ -3,6 +3,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { storeCompanyFile, type StoreCompanyFileDeps } from "./storeCompanyFile";
 
 const clientId = "client-1" as Id<"clients">;
+const attemptKey = "22222222-2222-4222-8222-222222222222";
 
 function deps(overrides: Partial<StoreCompanyFileDeps> = {}) {
   return {
@@ -25,6 +26,7 @@ describe("storeCompanyFile", () => {
     const stored = await storeCompanyFile(d, {
       clientId,
       file: new File(["Acme seals pumps."], "history.txt", { type: "text/plain" }),
+      attemptKey,
     });
     expect(stored).toEqual({ companyFileId: "company-file-1", extractionFailed: false });
     expect(d.addCompanyFile).toHaveBeenCalledWith({
@@ -33,6 +35,7 @@ describe("storeCompanyFile", () => {
       fileType: "txt",
       content: "Acme seals pumps.",
       extractionOutcome: "ok",
+      attemptKey,
       storageId: "stored-bytes",
       mimeType: "text/plain",
     });
@@ -42,13 +45,13 @@ describe("storeCompanyFile", () => {
     const d = deps({
       parse: vi.fn(async () => ({ fileName: "plan.docx", fileType: "docx" as const, content: "# Plan", textFormat: "markdown" as const })),
     });
-    await storeCompanyFile(d, { clientId, file: new File(["PK"], "plan.docx") });
+    await storeCompanyFile(d, { clientId, file: new File(["PK"], "plan.docx"), attemptKey });
     expect(vi.mocked(d.addCompanyFile).mock.calls[0]?.[0]).toMatchObject({ fileType: "docx", textFormat: "markdown" });
   });
 
   it("still saves a file it could not read, with no text and the failure as a code", async () => {
     const d = deps({ parse: vi.fn(async () => { throw new Error("parser exploded at line 3"); }) });
-    const stored = await storeCompanyFile(d, { clientId, file: new File(["%PDF"], "scan.pdf") });
+    const stored = await storeCompanyFile(d, { clientId, file: new File(["%PDF"], "scan.pdf"), attemptKey });
     expect(stored.extractionFailed).toBe(true);
     const [args] = vi.mocked(d.addCompanyFile).mock.calls[0] as unknown as [Record<string, unknown>];
     expect(args).toMatchObject({ fileType: "pdf", content: "", extractionOutcome: "failed", storageId: "stored-bytes" });
@@ -58,7 +61,7 @@ describe("storeCompanyFile", () => {
   it("saves the text when the original could not be stored", async () => {
     vi.mocked(globalThis.fetch).mockImplementation(async () => new Response("no", { status: 500 }));
     const d = deps();
-    await storeCompanyFile(d, { clientId, file: new File(["Text."], "a.txt") });
+    await storeCompanyFile(d, { clientId, file: new File(["Text."], "a.txt"), attemptKey });
     const [args] = vi.mocked(d.addCompanyFile).mock.calls[0] as unknown as [Record<string, unknown>];
     expect(args.content).toBe("Text.");
     expect(args).not.toHaveProperty("storageId");

@@ -27,7 +27,13 @@ export type StoreCompanyFileDeps = {
 
 export async function storeCompanyFile(
   deps: StoreCompanyFileDeps,
-  input: { clientId: Id<"clients">; file: File; signal?: AbortSignal }
+  input: {
+    clientId: Id<"clients">;
+    file: File;
+    /** One key per picked file, reused by Try again, so a save whose answer was lost is not made twice. */
+    attemptKey: string;
+    signal?: AbortSignal;
+  }
 ): Promise<{ companyFileId: Id<"companyFiles">; extractionFailed: boolean }> {
   const { file, signal } = input;
   const parse = deps.parse ?? parseFileToText;
@@ -66,6 +72,7 @@ export async function storeCompanyFile(
       // A validated enum, never the error itself.
       extractionOutcome: extractionFailed ? "failed" : "ok",
       ...(textFormat ? { textFormat } : {}),
+      attemptKey: input.attemptKey,
       ...(storageId ? { storageId } : {}),
       ...(file.type ? { mimeType: file.type } : {}),
     })

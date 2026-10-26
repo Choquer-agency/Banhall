@@ -191,3 +191,53 @@ describe("a file's labels (2026-10-26)", () => {
     expect(doc?.labelsDue).toBeUndefined();
   });
 });
+
+describe("a company file's labels (Phase C, 2026-10-26)", () => {
+  it("hides the company's names, old ones included, and its projects' people, then saves the labels with real names", async () => {
+    answer = (body) => {
+      const content = JSON.stringify(body.messages);
+      return toolAnswer({
+        documentType: "prior SR&ED report",
+        fiscalYear: 2024,
+        title: `History of ${tokenIn(content, "CLIENT")}`,
+        summary: `${tokenIn(content, "PERSON")} led the seal work.`,
+      });
+    };
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    await t.mutation(applyCatalogRefreshRef, { models: parseOpenRouterModels(fixture, NOW).models, fetchedAt: NOW, complete: false });
+    const companyFileId = await t.run(async (ctx) => {
+      const { companyFileTextFacts, insertCompanyFileTextPieces } = await import("../lib/companyFileText");
+      const writerId = await ctx.db.insert("users", { authId: "company-labels-writer", role: "writer" });
+      const clientId = await ctx.db.insert("clients", {
+        name: "Acme Seals", nameKey: "acme seals", status: "active", formerNames: ["Northgate Gaskets"],
+        createdBy: writerId, createdAt: NOW, updatedAt: NOW,
+      });
+      await ctx.db.insert("projects", {
+        title: "Cold seal", clientName: "Acme Seals", clientId, interviewees: ["Priya Raman"], status: "draft",
+        createdBy: writerId, ownerId: writerId, shareToken: "company-labels-token", createdAt: NOW, updatedAt: NOW,
+      });
+      const text = "Acme Seals history. Northgate Gaskets became Acme Seals in 2019. Priya Raman led the seal work.";
+      const id = await ctx.db.insert("companyFiles", {
+        clientId, fileName: "Acme Seals history.txt", fileType: "txt", ...(await companyFileTextFacts(text)),
+        processingStatus: "ready", uploadedBy: writerId, createdAt: NOW, labelsDue: true,
+      });
+      await insertCompanyFileTextPieces(ctx, id, text);
+      return id;
+    });
+    await t.action(internal.ai.fileLabels.labelCompanyFile, { companyFileId });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.body).toMatchObject({ thinking: { type: "disabled" }, tool_choice: { type: "tool", name: "submit_file_labels" } });
+    const sent = JSON.stringify(seen[0]!.body);
+    for (const name of ["Acme Seals", "Northgate Gaskets", "Priya Raman"]) expect(sent).not.toContain(name);
+    const file = await t.run(async (ctx) => ctx.db.get(companyFileId));
+    expect(file?.labels).toMatchObject({
+      documentType: "prior SR&ED report",
+      title: "History of Acme Seals",
+      summary: "Priya Raman led the seal work.",
+      promptVersion: FILE_LABELS_PROMPT_VERSION,
+    });
+    expect(file?.labelsDue).toBeUndefined();
+  });
+});

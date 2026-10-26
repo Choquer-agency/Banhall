@@ -67,12 +67,14 @@
   const failed = $derived(Boolean(companyQ.error || filesQ.error));
 
   // ─── Uploads ──────────────────────────────────────────────────────────────
-  type Upload = { id: number; name: string; error: string | null };
+  // One at a time, in the order picked. Each file keeps its own key, so Try
+  // again after a lost answer finds the row the first save made.
+  type Upload = { id: number; name: string; file: File; attemptKey: string; error: string | null };
   let uploads = $state<Upload[]>([]);
   let nextUploadId = 0;
   let inputEl: HTMLInputElement | null = $state(null);
-  /** Files picked while others are still being added wait their turn. */
-  const pending: Array<{ file: File; upload: Upload }> = [];
+  /** Files waiting their turn while another is being added. */
+  const pending: Upload[] = [];
   let running = false;
 
   async function companyIdForUpload(): Promise<Id<"clients">> {
@@ -82,19 +84,20 @@
     return made.clientId;
   }
 
-  async function addFiles(picked: File[]) {
-    const queued = picked.map((file) => ({ file, upload: { id: nextUploadId++, name: file.name, error: null } as Upload }));
-    uploads = [...uploads, ...queued.map((entry) => entry.upload)];
-    pending.push(...queued);
-    if (running) return;
+  function queue(entries: Upload[]) {
+    pending.push(...entries);
+    if (!running) void drain();
+  }
+
+  async function drain() {
     running = true;
     while (pending.length > 0) {
-      const { file, upload } = pending.shift()!;
+      const upload = pending.shift()!;
       try {
         const target = await companyIdForUpload();
         await storeCompanyFile(
           { generateUploadUrl: () => generateUploadUrl({}), addCompanyFile: (args) => addCompanyFile(args) },
-          { clientId: target, file }
+          { clientId: target, file: upload.file, attemptKey: upload.attemptKey }
         );
         uploads = uploads.filter((entry) => entry.id !== upload.id);
       } catch (error) {
@@ -103,6 +106,19 @@
       }
     }
     running = false;
+  }
+
+  function addFiles(picked: File[]) {
+    const entries = picked.map((file) => ({ id: nextUploadId++, name: file.name, file, attemptKey: crypto.randomUUID(), error: null }));
+    uploads = [...uploads, ...entries];
+    queue(entries);
+  }
+
+  function retryUpload(id: number) {
+    const upload = uploads.find((entry) => entry.id === id);
+    if (!upload) return;
+    uploads = uploads.map((entry) => (entry.id === id ? { ...entry, error: null } : entry));
+    queue([{ ...upload, error: null }]);
   }
 
   function dismissUpload(id: number) {
@@ -286,7 +302,7 @@
         accept={SUPPORTED_ACCEPT}
         onchange={(event) => {
           const input = event.currentTarget;
-          if (input.files?.length) void addFiles(Array.from(input.files));
+          if (input.files?.length) addFiles(Array.from(input.files));
           input.value = "";
         }}
       />
@@ -301,6 +317,7 @@
           <span class="min-w-0 truncate text-ink">{upload.name}</span>
           {#if upload.error}
             <span class="min-w-0 flex-1 truncate text-danger-ink-muted">{upload.error}</span>
+            <button type="button" onclick={() => retryUpload(upload.id)} class={textButton}>Try again</button>
             <button type="button" onclick={() => dismissUpload(upload.id)} class={textButton}>Dismiss</button>
           {:else}
             <span class="text-ink-muted">Adding...</span>

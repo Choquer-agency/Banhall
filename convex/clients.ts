@@ -46,6 +46,8 @@ const CLIENT_NAME_MAX_LENGTH = 200;
 const MERGE_PROJECT_LIMIT = 200;
 /** Company files one merge may move (2026-10-26, Phase C); more refuses the merge. */
 export const MERGE_COMPANY_FILE_LIMIT = 500;
+/** Former names one company keeps (Phase C); a merge that would need more is refused. */
+export const MAX_FORMER_NAMES = 200;
 /**
  * Most project index rows one merge reads per key while looking for live
  * projects. Rows of projects being deleted are skipped but still read; a key
@@ -645,6 +647,22 @@ export const mergeClients = mutation({
         `This merge would move more than ${MERGE_COMPANY_FILE_LIMIT} company files. Merge fewer companies at a time.`
       );
     }
+    // The kept company's name history (Phase C): its own, its old name when
+    // renamed, and each merged company's name and history, so company file
+    // labels hide every name its files may carry.
+    const formerNames = new Set(plan.keep.client?.formerNames ?? []);
+    if (plan.keptName !== sideName(plan.keep)) formerNames.add(sideName(plan.keep));
+    for (const side of plan.merged) {
+      formerNames.add(sideName(side));
+      for (const name of side.client?.formerNames ?? []) formerNames.add(name);
+    }
+    formerNames.delete(plan.keptName);
+    if (formerNames.size > MAX_FORMER_NAMES) {
+      domainError(
+        "INVALID_INPUT",
+        `The kept company would carry more than ${MAX_FORMER_NAMES} former names. Merge fewer companies at a time.`
+      );
+    }
     const now = Date.now();
 
     // 1. The kept client exists as an active row (created from its company
@@ -708,6 +726,8 @@ export const mergeClients = mutation({
         });
       }
     }
+
+    if (formerNames.size > 0) await ctx.db.patch(keptClientId, { formerNames: [...formerNames] });
 
     // 3. A new name renames the kept client.
     if (plan.keptName !== sideName(plan.keep) || plan.keptKey !== plan.keep.key) {

@@ -8,13 +8,17 @@
  * pieces (convex/lib/companyFileText.ts); search pieces and labels follow
  * as for project files.
  */
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
-import { activeClientForKey, dashboardCompanyForKey, linkKeyProjects } from "./lib/clients";
+import { activeClientForKey, dashboardCompanyForKey } from "./lib/clients";
+import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
+import { requireAttemptKey } from "./lib/uploadAttempts";
+import { labelsCurrent } from "./lib/fileLabels";
+import { companyFileNeedsServerReading } from "./companyFileWork";
 import { deriveProcessingStatus } from "../shared/documentStatus";
 import {
   companyFileTextFacts,
@@ -34,8 +38,10 @@ import { hasReadText, needsServerReading } from "./lib/serverReading";
 const MAX_FILE_NAME_CHARS = 300;
 /** Files one company page lists; more are counted, not listed. */
 export const COMPANY_FILE_LIST_LIMIT = 500;
-/** Projects a company row links when it is made from a company's name. */
-const LINK_PROJECT_LIMIT = 200;
+/** Projects one step links to a company row made from a company's name. */
+const LINK_PROJECT_PAGE = 200;
+/** Merges followed to name the company a merged one ended up in. */
+const MERGE_CHAIN_HOPS = 10;
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -57,19 +63,25 @@ const categoryValidator = v.union(
   v.literal("other")
 );
 
-/** The company, active; a merged one is refused with the name of the company it joined. */
+/**
+ * The company, active; a merged one is refused with the name of the active
+ * company it ended up in (following merges of merges, bounded).
+ */
 async function requireActiveClient(ctx: QueryCtx, clientId: Id<"clients">): Promise<Doc<"clients">> {
   const client = await ctx.db.get(clientId);
   if (!client) domainError("NOT_FOUND", "This company no longer exists.");
-  if (client.status !== "active") {
-    const kept = client.mergedIntoClientId ? await ctx.db.get(client.mergedIntoClientId) : null;
-    domainError(
-      "INVALID_STATE",
-      kept ? `This company was merged into ${kept.name}. Add the file there.` : "This company was merged into another one.",
-      { reason: "COMPANY_MERGED" }
-    );
+  if (client.status === "active") return client;
+  let kept: Doc<"clients"> | null = client;
+  for (let hop = 0; kept && kept.status !== "active" && hop < MERGE_CHAIN_HOPS; hop++) {
+    kept = kept.mergedIntoClientId ? await ctx.db.get(kept.mergedIntoClientId) : null;
   }
-  return client;
+  domainError(
+    "INVALID_STATE",
+    kept?.status === "active"
+      ? `This company was merged into ${kept.name}. Add the file there.`
+      : "This company was merged into another one.",
+    { reason: "COMPANY_MERGED" }
+  );
 }
 
 async function logEvent(
@@ -107,28 +119,69 @@ export const companyForKey = query({
 /**
  * The company row for a company page, made from the company's projects when
  * it has none yet (as merging does), with its projects linked to it so they
- * reach its files.
+ * reach its files: the first page now, the rest in scheduled steps. Projects
+ * with no company name share no company and get no row.
  */
 export const ensureCompanyForKey = mutation({
   args: { key: v.string() },
   returns: v.object({ clientId: v.id("clients"), name: v.string() }),
   handler: async (ctx, args) => {
     const { user } = await requireCapability(ctx, "companyFiles.add");
+    if (args.key === DASHBOARD_UNNAMED_COMPANY_KEY) {
+      domainError("INVALID_INPUT", "Projects with no company name share no company files. Name their company first.");
+    }
     const existing = await activeClientForKey(ctx, args.key);
     if (existing) return { clientId: existing._id, name: existing.name };
     const company = await dashboardCompanyForKey(ctx, args.key);
     if (!company) domainError("NOT_FOUND", "This company has no projects yet. Add a project first.");
+    // As the clients backfill names a company made from its projects.
+    const name = company.clientName.trim() || args.key;
     const now = Date.now();
     const clientId = await ctx.db.insert("clients", {
-      name: company.clientName,
+      name,
       nameKey: args.key,
       status: "active",
       createdBy: user._id,
       createdAt: now,
       updatedAt: now,
     });
-    await linkKeyProjects(ctx, args.key, clientId, LINK_PROJECT_LIMIT);
-    return { clientId, name: company.clientName };
+    await linkKeyProjectsPage(ctx, args.key, clientId, null);
+    return { clientId, name };
+  },
+});
+
+/**
+ * Links one page of a key's live projects to its company row and schedules
+ * the next page. A company row that is no longer the key's active one (it
+ * was merged meanwhile) stops the chain: the merge links projects itself.
+ */
+async function linkKeyProjectsPage(
+  ctx: MutationCtx,
+  key: string,
+  clientId: Id<"clients">,
+  cursor: string | null
+): Promise<void> {
+  const page = await ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
+    .paginate({ numItems: LINK_PROJECT_PAGE, cursor });
+  for (const project of page.page) {
+    if (project.deletionStartedAt !== undefined || project.clientId === clientId) continue;
+    await ctx.db.patch(project._id, { clientId });
+  }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(0, internal.companyFiles.linkKeyProjectsStep, { key, clientId, cursor: page.continueCursor });
+  }
+}
+
+export const linkKeyProjectsStep = internalMutation({
+  args: { key: v.string(), clientId: v.id("clients"), cursor: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.status !== "active" || client.nameKey !== args.key) return null;
+    await linkKeyProjectsPage(ctx, args.key, args.clientId, args.cursor);
+    return null;
   },
 });
 
@@ -158,6 +211,8 @@ export const addCompanyFile = mutation({
     category: v.optional(categoryValidator),
     textFormat: v.optional(v.literal("markdown")),
     extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
+    /** The browser's key for this save; a retry with the same key finds the row it made. */
+    attemptKey: v.optional(v.string()),
   },
   returns: v.id("companyFiles"),
   handler: async (ctx, args) => {
@@ -167,16 +222,27 @@ export const addCompanyFile = mutation({
     if (!fileName) domainError("INVALID_INPUT", "A file needs a name");
     const facts = await companyFileTextFacts(args.content);
     const readText = hasReadText(args.content);
-    // The same name with the same read text is the same file. Files with
-    // nothing read are never merged: two unreadable files are two files.
-    const duplicate = readText
-      ? (
-          await ctx.db
+    const attemptKey = args.attemptKey === undefined ? undefined : requireAttemptKey(args.attemptKey);
+    // A retried save (its answer was lost) gets the row it made, when it is
+    // the same file. Otherwise the same name with the same read text is the
+    // same file. Files with nothing read are never merged: two unreadable
+    // files are two files.
+    const retried = attemptKey
+      ? await ctx.db
+          .query("companyFiles")
+          .withIndex("by_clientId_and_attemptKey", (q) => q.eq("clientId", client._id).eq("attemptKey", attemptKey))
+          .first()
+      : null;
+    const duplicate =
+      (retried && retried.fileName === fileName && (!retried.hasText || retried.textHash === facts.textHash) ? retried : null) ??
+      (readText
+        ? await ctx.db
             .query("companyFiles")
-            .withIndex("by_clientId_and_textHash", (q) => q.eq("clientId", client._id).eq("textHash", facts.textHash))
-            .take(20)
-        ).find((file) => file.fileName === fileName && !file.archived)
-      : undefined;
+            .withIndex("by_clientId_and_textHash_and_fileName_and_archived", (q) =>
+              q.eq("clientId", client._id).eq("textHash", facts.textHash).eq("fileName", fileName).eq("archived", undefined)
+            )
+            .first()
+        : null);
     if (args.storageId && duplicate?.storageId !== args.storageId) {
       await requireFreshUpload(ctx, args.storageId);
       if (!duplicate?.storageId) {
@@ -219,6 +285,7 @@ export const addCompanyFile = mutation({
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
       ...(facts.hasText ? { searchPiecesDue: true as const, searchPiecesNextAt: 0 } : {}),
+      ...(attemptKey ? { attemptKey } : {}),
     });
     await insertCompanyFileTextPieces(ctx, companyFileId, args.content);
     await logEvent(ctx, { _id: companyFileId, clientId: client._id, fileName }, "add", user._id);
@@ -339,6 +406,22 @@ export const setCompanyFileArchived = mutation({
     if ((file.archived === true) === args.archived) return null;
     await ctx.db.patch(file._id, { archived: args.archived ? true : undefined });
     await logEvent(ctx, file, args.archived ? "archive" : "restore", user._id);
+    if (!args.archived) {
+      // Work skipped while it was archived resumes: stale pieces and labels
+      // are due again, and an original nothing was read from is read.
+      const restored = { ...file, archived: undefined };
+      await ctx.db.patch(file._id, {
+        ...(file.hasText && file.searchPiecesTextHash !== file.textHash
+          ? { searchPiecesDue: true as const, searchPiecesNextAt: 0, searchPiecesAttempts: undefined }
+          : {}),
+        ...(file.hasText && !labelsCurrent(file, file.textHash)
+          ? { labelsDue: true as const, labelsNextAt: 0, labelsAttempts: undefined }
+          : {}),
+      });
+      if (file.storageId && (await companyFileNeedsServerReading(ctx, restored))) {
+        await ctx.scheduler.runAfter(0, internal.ai.fileReading.readStoredCompanyFile, { companyFileId: file._id });
+      }
+    }
     return null;
   },
 });

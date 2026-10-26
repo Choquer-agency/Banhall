@@ -204,6 +204,23 @@ describe("a company's Files tab", () => {
     await expect.poll(() => document.querySelector("[data-company-file-uploads]")).toBeNull();
   });
 
+  it("Try again saves the same file under the same key", async () => {
+    seed("writer");
+    __setMutationResult("companyFiles:generateCompanyUploadUrl", "https://upload.test/bytes");
+    __setMutationError("companyFiles:addCompanyFile", new Error("Network lost"));
+    await mount();
+    await openFiles();
+    choose(new File(["Text."], "notes.txt", { type: "text/plain" }));
+    await expect.element(page.getByText("Network lost")).toBeVisible();
+    __setMutationResult("companyFiles:addCompanyFile", "f-new");
+    await page.getByRole("button", { name: "Try again" }).click();
+    await expect.poll(() => document.querySelector("[data-company-file-uploads]")).toBeNull();
+    const calls = __mutationCalls("companyFiles:addCompanyFile") as Array<{ attemptKey: string; fileName: string }>;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.attemptKey).toBe(calls[0]!.attemptKey);
+    expect(calls[0]!.attemptKey).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
   it("previews a Word file formatted", async () => {
     seed("writer", [listed("f1", "plan.docx", { fileType: "docx", textFormat: "markdown" })]);
     __setQueryData("companyFiles:getCompanyFileContent", {
