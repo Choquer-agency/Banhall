@@ -484,3 +484,26 @@ What changes:
 ### Owner actions
 
 - [ ] Deploy, then on dev and then production run `npx convex run searchPieces:markSearchPiecesDue '{"dryRun":true}'` and the same without `dryRun`. The sweeps cut the pieces and label the files over the next minutes (about $0.003 a file in Haiku calls).
+
+## Phase C, step 1: company files stored, with permissions, a log and merging
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (sixth)".
+
+What changes:
+
+- **A company can hold files** for every project linked to it, with their text, search pieces and labels kept like project files.
+- **Consultants, Managers and Admins read and add them; only Managers and Admins archive, restore or remove them.** Financial users cannot see them. Every change is logged with who and when.
+- **Merging companies moves their files** to the kept company in the same step.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] On a local copy of dev: add files to a company, see them cut and labelled, search them, merge two companies and see the files move.
+
+### Manual on localhost
+
+- [ ] Nothing to see yet: step 2 adds the company page's Files tab.

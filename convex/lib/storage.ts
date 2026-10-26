@@ -21,6 +21,8 @@ export const STORAGE_REFERENCE_FIELDS = [
   // 2026-09-26 (tenth): an original file saved to a private intake draft;
   // promotion moves it to the project row, the intake purge deletes it.
   "intakeSources.storageId",
+  // 2026-10-26 (Phase C): a company file's original.
+  "companyFiles.storageId",
 ] as const;
 
 /**
@@ -44,6 +46,8 @@ export async function isStorageReferenced(
   if (await ctx.db.query("users")
     .withIndex("by_imageStorageId", (q) => q.eq("imageStorageId", storageId)).first()) return true;
   if (await ctx.db.query("intakeSources")
+    .withIndex("by_storageId", (q) => q.eq("storageId", storageId)).first()) return true;
+  if (await ctx.db.query("companyFiles")
     .withIndex("by_storageId", (q) => q.eq("storageId", storageId)).first()) return true;
   return false;
 }

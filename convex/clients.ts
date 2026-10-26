@@ -12,7 +12,7 @@ import { requireInternalActor, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
 import { syncProjectDashboardFields } from "./lib/dashboardProjection";
-import { activeClientForKey, dashboardCompanyForKey } from "./lib/clients";
+import { activeClientForKey, dashboardCompanyForKey, linkKeyProjects } from "./lib/clients";
 import { validatedIndustry } from "./projects";
 import {
   DASHBOARD_NO_FISCAL_YEAR_RANK,
@@ -44,6 +44,8 @@ const SIMILAR_CLIENT_LIMIT = 5;
 const CLIENT_NAME_MAX_LENGTH = 200;
 /** A merge that would move more projects than this is refused. */
 const MERGE_PROJECT_LIMIT = 200;
+/** Company files one merge may move (2026-10-26, Phase C); more refuses the merge. */
+export const MERGE_COMPANY_FILE_LIMIT = 500;
 /**
  * Most project index rows one merge reads per key while looking for live
  * projects. Rows of projects being deleted are skipped but still read; a key
@@ -289,23 +291,6 @@ export const createClient = mutation({
     return { clientId, key, name };
   },
 });
-
-/** Sets `clientId` on up to `limit` live projects of a key (no updatedAt bump). */
-async function linkKeyProjects(
-  ctx: MutationCtx,
-  key: string,
-  clientId: Id<"clients">,
-  limit: number
-) {
-  const projects = await ctx.db
-    .query("projects")
-    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
-    .take(limit);
-  for (const project of projects) {
-    if (project.deletionStartedAt !== undefined || project.clientId === clientId) continue;
-    await ctx.db.patch(project._id, { clientId });
-  }
-}
 
 // ─── Merge ──────────────────────────────────────────────────────────────────
 
@@ -569,6 +554,27 @@ async function mergeNumberCollisions(ctx: Ctx, plan: MergePlan) {
   return { collisions, complete };
 }
 
+/**
+ * The merged companies' files, which move to the kept company (Phase C),
+ * read up to one past MERGE_COMPANY_FILE_LIMIT.
+ */
+async function mergedCompanyFiles(ctx: QueryCtx, plan: MergePlan): Promise<Doc<"companyFiles">[]> {
+  const files: Doc<"companyFiles">[] = [];
+  for (const side of plan.merged) {
+    if (!side.client) continue;
+    const clientId = side.client._id;
+    const room = MERGE_COMPANY_FILE_LIMIT + 1 - files.length;
+    if (room <= 0) break;
+    files.push(
+      ...(await ctx.db
+        .query("companyFiles")
+        .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId))
+        .take(room))
+    );
+  }
+  return files;
+}
+
 export const previewClientMerge = query({
   args: mergeArgs,
   returns: v.object({
@@ -587,12 +593,16 @@ export const previewClientMerge = query({
     ),
     /** The collision check hit its read bound: numbers may repeat unlisted. */
     collisionCheckIncomplete: v.boolean(),
+    /** Company files that move to the kept company (read up to one past the cap). */
+    companyFileCount: v.number(),
+    tooManyCompanyFiles: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // "Merge clients": Manager and Admin only.
     await requireRole(ctx, ["manager", "admin"]);
     const plan = await planClientMerge(ctx, args, { strictName: false });
     const check = await mergeNumberCollisions(ctx, plan);
+    const files = await mergedCompanyFiles(ctx, plan);
     return {
       projectCount: plan.projectCount,
       // Projects whose client name changes; capped reads stop just past 200.
@@ -603,6 +613,8 @@ export const previewClientMerge = query({
       nameConflict: plan.nameConflict,
       numberCollisions: check.collisions,
       collisionCheckIncomplete: !check.complete,
+      companyFileCount: files.length,
+      tooManyCompanyFiles: files.length > MERGE_COMPANY_FILE_LIMIT,
     };
   },
 });
@@ -624,6 +636,13 @@ export const mergeClients = mutation({
       domainError(
         "INVALID_INPUT",
         `This merge would move more than ${MERGE_PROJECT_LIMIT} projects. Merge fewer companies at a time.`
+      );
+    }
+    const movingFiles = await mergedCompanyFiles(ctx, plan);
+    if (movingFiles.length > MERGE_COMPANY_FILE_LIMIT) {
+      domainError(
+        "INVALID_INPUT",
+        `This merge would move more than ${MERGE_COMPANY_FILE_LIMIT} company files. Merge fewer companies at a time.`
       );
     }
     const now = Date.now();
@@ -661,6 +680,31 @@ export const mergeClients = mutation({
           createdBy: user._id,
           createdAt: now,
           ...tombstone,
+        });
+      }
+    }
+
+    // 2b. The merged companies' files move to the kept company in the same
+    //     step (2026-10-26, Phase C), each logged on both companies. Their
+    //     search pieces are cut again under the kept company; until then
+    //     search skips them (a piece counts only for the file's company).
+    for (const file of movingFiles) {
+      await ctx.db.patch(file._id, {
+        clientId: keptClientId,
+        ...(file.hasText ? { searchPiecesDue: true as const, searchPiecesNextAt: 0, searchPiecesAttempts: undefined } : {}),
+      });
+      for (const [clientId, action, otherClientId] of [
+        [file.clientId, "merge_out", keptClientId],
+        [keptClientId, "merge_in", file.clientId],
+      ] as const) {
+        await ctx.db.insert("companyFileEvents", {
+          clientId,
+          companyFileId: file._id,
+          fileName: file.fileName,
+          action,
+          otherClientId,
+          userId: user._id,
+          at: now,
         });
       }
     }

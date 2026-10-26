@@ -1,11 +1,49 @@
 /**
- * Searching project files' search pieces within one project (2026-10-26,
- * context pipeline plan Phase B4). Writing them is convex/searchPieces.ts;
- * deleting them goes with the file's text (lib/documentText.ts).
+ * Search pieces (2026-10-26, context pipeline plan Phase B4): writing one
+ * file's pieces, and searching a project's files or a company's files
+ * (Phase C). The queues are convex/searchPieces.ts and
+ * convex/companyFileWork.ts; deleting pieces goes with the file's text
+ * (lib/documentText.ts, lib/companyFileText.ts).
  */
 import type { Doc, Id } from "../_generated/dataModel";
-import type { QueryCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { documentTextHash } from "./documentText";
+import { checkedPageStarts, searchTextOf, splitSearchPieces, type PieceTextKind } from "../../shared/searchPieces";
+
+/** Whose pieces: a project file in its project, or a company file in its company. */
+export type PieceOwner =
+  | { documentId: Id<"projectDocuments">; projectId: Id<"projects"> }
+  | { companyFileId: Id<"companyFiles">; clientId: Id<"clients"> };
+
+/**
+ * Cuts a text into pieces and stores them for their owner. The caller has
+ * deleted the owner's older pieces and checked that `textHash` is the
+ * text's fingerprint. Returns how many pieces were written.
+ */
+export async function insertSearchPieces(
+  ctx: MutationCtx,
+  owner: PieceOwner,
+  text: string,
+  options: { kind: PieceTextKind; textHash: string; textFormat?: "markdown"; pageStarts?: number[] }
+): Promise<number> {
+  const pageStarts = options.kind === "pdf" ? checkedPageStarts(text, options.pageStarts) : null;
+  const pieces = splitSearchPieces(text, { kind: options.kind, ...(pageStarts ? { pageStarts } : {}) });
+  for (const [order, piece] of pieces.entries()) {
+    const { prefixChars, searchText } = searchTextOf(text, piece, options.textFormat);
+    await ctx.db.insert("documentSearchPieces", {
+      ...owner,
+      textHash: options.textHash,
+      order,
+      start: piece.start,
+      end: piece.end,
+      ...(piece.page !== undefined ? { page: piece.page, pageEnd: piece.pageEnd ?? piece.page } : {}),
+      ...(piece.label ? { label: piece.label } : {}),
+      searchText,
+      prefixChars,
+    });
+  }
+  return pieces.length;
+}
 
 /** Convex full text search reads at most this many terms. */
 const MAX_TERMS = 16;
@@ -77,19 +115,21 @@ export async function searchProjectPieces(
   const hits: PieceHit[] = [];
   for (const piece of scanned) {
     if (hits.length >= limit) break;
-    let file = files.get(piece.documentId);
+    const documentId = piece.documentId;
+    if (!documentId) continue;
+    let file = files.get(documentId);
     if (!file) {
-      const doc = await ctx.db.get(piece.documentId);
+      const doc = await ctx.db.get(documentId);
       file = { doc, textHash: doc ? await documentTextHash(doc) : null };
-      files.set(piece.documentId, file);
+      files.set(documentId, file);
     }
     const { doc, textHash } = file;
     if (!doc || doc.archived || doc.projectId !== args.projectId || textHash !== piece.textHash) continue;
-    const count = perFileCount.get(piece.documentId) ?? 0;
+    const count = perFileCount.get(documentId) ?? 0;
     if (count >= perFile) continue;
-    perFileCount.set(piece.documentId, count + 1);
+    perFileCount.set(documentId, count + 1);
     hits.push({
-      documentId: piece.documentId,
+      documentId,
       fileName: doc.fileName,
       textHash: piece.textHash,
       start: piece.start,
@@ -104,5 +144,62 @@ export async function searchProjectPieces(
     .withIndex("by_projectId_and_searchPiecesDue", (q) => q.eq("projectId", args.projectId).eq("searchPiecesDue", true))
     .first();
   // Complete when every match was read, or the hits asked for were found.
+  return { hits, complete: notIndexed === null && (scanned.length < scanCap || hits.length >= limit) };
+}
+
+export type CompanyPieceHit = Omit<PieceHit, "documentId"> & { companyFileId: Id<"companyFiles"> };
+
+/**
+ * A company's pieces a keyword search finds, best first (Phase C): only
+ * files the company holds now, not archived, and pieces cut from their
+ * current text; at most `perFile` pieces of one file, `limit` in all. The
+ * caller has checked that the asking project belongs to this company.
+ */
+export async function searchCompanyPieces(
+  ctx: QueryCtx,
+  args: { clientId: Id<"clients">; query: string; limit?: number; perFile?: number }
+): Promise<{ hits: CompanyPieceHit[]; complete: boolean }> {
+  const terms = searchTerms(args.query);
+  const limit = Math.max(1, Math.min(args.limit ?? 8, 50));
+  const perFile = Math.max(1, args.perFile ?? 2);
+  if (terms.length === 0) return { hits: [], complete: true };
+  const scanCap = Math.min(256, limit * 8);
+  const scanned = await ctx.db
+    .query("documentSearchPieces")
+    .withSearchIndex("search_text", (q) => q.search("searchText", terms.join(" ")).eq("clientId", args.clientId))
+    .take(scanCap);
+  const files = new Map<string, Doc<"companyFiles"> | null>();
+  const perFileCount = new Map<string, number>();
+  const hits: CompanyPieceHit[] = [];
+  for (const piece of scanned) {
+    if (hits.length >= limit) break;
+    const companyFileId = piece.companyFileId;
+    if (!companyFileId) continue;
+    let file = files.get(companyFileId);
+    if (file === undefined) {
+      file = await ctx.db.get(companyFileId);
+      files.set(companyFileId, file);
+    }
+    // A file moved to another company by a merge keeps pieces under its
+    // old company until they are cut again: never shown here.
+    if (!file || file.archived || file.clientId !== args.clientId || file.textHash !== piece.textHash) continue;
+    const count = perFileCount.get(companyFileId) ?? 0;
+    if (count >= perFile) continue;
+    perFileCount.set(companyFileId, count + 1);
+    hits.push({
+      companyFileId,
+      fileName: file.fileName,
+      textHash: piece.textHash,
+      start: piece.start,
+      end: piece.end,
+      ...(piece.page !== undefined ? { page: piece.page, pageEnd: piece.pageEnd ?? piece.page } : {}),
+      ...(piece.label ? { label: piece.label } : {}),
+      text: piece.searchText.slice(piece.prefixChars),
+    });
+  }
+  const notIndexed = await ctx.db
+    .query("companyFiles")
+    .withIndex("by_clientId_and_searchPiecesDue", (q) => q.eq("clientId", args.clientId).eq("searchPiecesDue", true))
+    .first();
   return { hits, complete: notIndexed === null && (scanned.length < scanCap || hits.length >= limit) };
 }

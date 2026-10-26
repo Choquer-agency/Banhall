@@ -8,20 +8,14 @@
  * into older text. No AI writes any of this.
  */
 import { internalMutation, internalQuery } from "./_generated/server";
-import { searchProjectPieces } from "./lib/searchPieces";
+import { insertSearchPieces, searchProjectPieces } from "./lib/searchPieces";
 import { labelsCurrent } from "./lib/fileLabels";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { deleteSearchPiecesOf, documentHasText, documentTextHash, readDocumentText } from "./lib/documentText";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import {
-  checkedPageStarts,
-  SEARCH_PIECES_VERSION,
-  searchTextOf,
-  splitSearchPieces,
-  type PieceTextKind,
-} from "../shared/searchPieces";
+import { SEARCH_PIECES_VERSION, type PieceTextKind } from "../shared/searchPieces";
 import { MAX_UPLOAD_BYTES } from "./lib/storage";
 
 /** A claim older than this was stopped; the sweep may claim the file again. */
@@ -35,7 +29,9 @@ const SWEEP_FILES = 40;
 const SWEEP_SPACING_MS = 1_500;
 
 /** The kind of text, which decides the structure markers that count. */
-export function pieceTextKind(doc: Pick<Doc<"projectDocuments">, "fileName" | "fileType" | "textFormat">): PieceTextKind {
+export function pieceTextKind(
+  doc: Pick<Doc<"projectDocuments"> | Doc<"companyFiles">, "fileName" | "fileType" | "textFormat">
+): PieceTextKind {
   if (doc.textFormat === "markdown") return "markdown";
   const name = doc.fileName.toLowerCase();
   if (doc.fileType === "pdf" || name.endsWith(".pdf")) return "pdf";
@@ -46,8 +42,9 @@ export function pieceTextKind(doc: Pick<Doc<"projectDocuments">, "fileName" | "f
 
 /**
  * Starts the due files' indexing, a few at a time (crons.ts, every minute):
- * the files whose next try has come, oldest first. Claiming one moves its
- * next try on by SEARCH_INDEX_CLAIM_MS, so a stopped indexing is tried
+ * the files whose next try has come, oldest first, project files before
+ * company files. Claiming one moves its next try on by
+ * SEARCH_INDEX_CLAIM_MS, so a stopped indexing is tried
  * again then and never holds a place in the queue.
  */
 export const sweepDueSearchPieces = internalMutation({
@@ -67,7 +64,22 @@ export const sweepDueSearchPieces = internalMutation({
         documentId: doc._id,
       });
     }
-    return due.length;
+    // Company files (Phase C) take the places project files left.
+    const room = SWEEP_FILES - due.length;
+    if (room <= 0) return due.length;
+    const companyDue = await ctx.db
+      .query("companyFiles")
+      .withIndex("by_searchPiecesDue_and_searchPiecesNextAt", (q) =>
+        q.eq("searchPiecesDue", true).lte("searchPiecesNextAt", now)
+      )
+      .take(room);
+    for (const [index, file] of companyDue.entries()) {
+      await ctx.db.patch(file._id, { searchPiecesNextAt: now + SEARCH_INDEX_CLAIM_MS });
+      await ctx.scheduler.runAfter((due.length + index) * SWEEP_SPACING_MS, internal.ai.searchIndexing.indexCompanyFile, {
+        companyFileId: file._id,
+      });
+    }
+    return due.length + companyDue.length;
   },
 });
 
@@ -169,24 +181,12 @@ export const writeSearchPieces = internalMutation({
     }
     await deleteSearchPiecesOf(ctx, doc._id);
     const text = documentHasText(doc) ? await readDocumentText(ctx, doc) : "";
-    const kind = pieceTextKind(doc);
-    const pageStarts = kind === "pdf" ? checkedPageStarts(text, args.pageStarts) : null;
-    const pieces = splitSearchPieces(text, { kind, ...(pageStarts ? { pageStarts } : {}) });
-    for (const [order, piece] of pieces.entries()) {
-      const { prefixChars, searchText } = searchTextOf(text, piece, doc.textFormat);
-      await ctx.db.insert("documentSearchPieces", {
-        documentId: doc._id,
-        projectId: doc.projectId,
-        textHash: args.textHash,
-        order,
-        start: piece.start,
-        end: piece.end,
-        ...(piece.page !== undefined ? { page: piece.page, pageEnd: piece.pageEnd ?? piece.page } : {}),
-        ...(piece.label ? { label: piece.label } : {}),
-        searchText,
-        prefixChars,
-      });
-    }
+    await insertSearchPieces(ctx, { documentId: doc._id, projectId: doc.projectId }, text, {
+      kind: pieceTextKind(doc),
+      textHash: args.textHash,
+      ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
+      ...(args.pageStarts ? { pageStarts: args.pageStarts } : {}),
+    });
     await ctx.db.patch(doc._id, {
       searchPiecesTextHash: args.textHash,
       searchPiecesVersion: SEARCH_PIECES_VERSION,

@@ -131,6 +131,16 @@ const holders: Record<(typeof STORAGE_REFERENCE_FIELDS)[number], (ctx: MutationC
       label: "notes.txt", contentHash: "hash", contentLength: 6, hasText: true, storageId, createdAt: 1, updatedAt: 1,
     });
   },
+  "companyFiles.storageId": async (ctx, storageId) => {
+    const userId = await ctx.db.insert("users", { authId: `sweep-company-${Math.random()}`, role: "writer" });
+    const clientId = await ctx.db.insert("clients", {
+      name: "Sweep Co", nameKey: "sweep co", status: "active", createdBy: userId, createdAt: 1, updatedAt: 1,
+    });
+    return await ctx.db.insert("companyFiles", {
+      clientId, fileName: "notes.txt", fileType: "txt", storageId, textLength: 0, hasText: false, textHash: "empty",
+      textPreview: "", wordCount: 0, processingStatus: "could_not_read", uploadedBy: userId, createdAt: 1,
+    });
+  },
 };
 
 function ingestionItem(files: { storageId?: Id<"_storage">; textStorageId?: Id<"_storage"> }) {
@@ -179,6 +189,7 @@ const KNOWN_SERVER_STORAGE_WRITERS: Record<string, string> = {
   "./ingestionPort.ts": "projectDocuments.storageId (the copied original)",
   "./projectDuplication.ts": "projectDocuments.storageId and transcripts.originalStorageId (projects.finishProjectContentCopy)",
   "./documents.ts": "generateUploadUrl: the browser uploads, then saves the id (below); a profile photo lands in users.imageStorageId (account.setMyPhoto)",
+  "./companyFiles.ts": "generateCompanyUploadUrl: the company page uploads, then addCompanyFile saves the id in companyFiles.storageId",
 };
 
 /** Browser code that uploads through `documents.generateUploadUrl`, and where the id is saved. */

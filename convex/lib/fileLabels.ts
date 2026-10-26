@@ -35,7 +35,10 @@ const OPENING_CHARS = 12_000;
 const SAMPLE_CHARS = 2_000;
 
 /** Whether a file's labels describe its current text, name and prompt. */
-export function labelsCurrent(doc: Doc<"projectDocuments">, textHash: string): boolean {
+export function labelsCurrent(
+  doc: Pick<Doc<"projectDocuments"> | Doc<"companyFiles">, "labels" | "fileName">,
+  textHash: string
+): boolean {
   return (
     doc.labels !== undefined &&
     doc.labels.textHash === textHash &&

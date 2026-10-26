@@ -2,13 +2,15 @@
 
 /**
  * One label call for one project file (2026-10-26, Phase B4; see
- * convex/fileLabels.ts). Names are hidden with the project's placeholder
- * map before the call and put back after it; a placeholder the map does
+ * convex/fileLabels.ts) or company file (Phase C, convex/companyFileWork.ts).
+ * Names are hidden with the project's (or company's) placeholder map before
+ * the call and put back after it; a placeholder the map does
  * not hold is dropped, never shown. Thinking is off (Haiku 5.5 thinks by
  * default and would spend the short answer budget). The answer is a forced
  * tool call, checked strictly; anything else is a failed try.
  */
-import { internalAction } from "../_generated/server";
+import { internalAction, type ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { z } from "zod";
@@ -105,6 +107,73 @@ function restored(text: string, map: Parameters<typeof restorePlaceholders>[1], 
   return plain.length <= max ? plain : `${clipText(plain, max - 1).trimEnd()}…`;
 }
 
+type LabelInput = Parameters<typeof labelUserMessage>[0] & {
+  textHash: string;
+  placeholders: Parameters<typeof restorePlaceholders>[1];
+};
+
+/**
+ * One label call: names hidden, the forced tool answer read forgivingly,
+ * names put back. Throws on a cut-off or unreadable answer.
+ */
+async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"projects">) {
+  const map = input.placeholders;
+  const masked = {
+    ...input,
+    fileName: pseudonymize(input.fileName, map),
+    samples: {
+      opening: pseudonymize(input.samples.opening, map),
+      ...(input.samples.middle ? { middle: pseudonymize(input.samples.middle, map) } : {}),
+      ...(input.samples.end ? { end: pseudonymize(input.samples.end, map) } : {}),
+    },
+  };
+  const { client, model } = await clientForRole(ctx, "file_labels", {
+    callSite: "file_labels",
+    ...(projectId ? { projectId } : {}),
+    deferOutcome: true,
+  });
+  const response = await client.messages.create({
+    model,
+    max_tokens: LABEL_MAX_TOKENS,
+    thinking: { type: "disabled" },
+    system: FILE_LABELS_SYSTEM,
+    tools: [TOOL],
+    tool_choice: { type: "tool", name: TOOL_NAME },
+    messages: [{ role: "user", content: labelUserMessage(masked) }],
+  } as Parameters<typeof client.messages.create>[0]);
+  if (isCutOffStopReason(response.stop_reason)) {
+    await response.settleOutcome?.({ ok: false, code: "output_limit" });
+    throw new Error("The label answer was cut off");
+  }
+  const call = response.content.find((block) => block.type === "tool_use" && "name" in block && block.name === TOOL_NAME);
+  const parsed = labelsSchema.safeParse(call && "input" in call ? call.input : undefined);
+  if (!parsed.success) {
+    await response.settleOutcome?.({ ok: false, code: "invalid_output" });
+    // Field paths and issue codes only, never the answer's text.
+    const where = parsed.error.issues.map((issue) => `${issue.path.join(".") || "answer"}:${issue.code}`).join(", ");
+    throw new Error(`The label answer did not match its schema (${where})`);
+  }
+  await response.settleOutcome?.({ ok: true });
+  return {
+    textHash: input.textHash,
+    fileName: input.fileName,
+    model,
+    promptVersion: FILE_LABELS_PROMPT_VERSION,
+    labels: {
+      documentType: parsed.data.documentType,
+      fiscalYear: parsed.data.fiscalYear,
+      title: restored(parsed.data.title, map, MAX_LABEL_TITLE_CHARS),
+      summary: restored(parsed.data.summary, map, MAX_LABEL_SUMMARY_CHARS),
+    },
+  };
+}
+
+/** A failure as the queue records it. */
+function failureReason(error: unknown): string {
+  const normalized = normalizeProviderError(error);
+  return `${normalized.code}: ${normalized.message}`.slice(0, 300);
+}
+
 export const labelFile = internalAction({
   args: { documentId: v.id("projectDocuments") },
   returns: v.null(),
@@ -117,62 +186,38 @@ export const labelFile = internalAction({
         await ctx.runMutation(internal.fileLabels.retireFileLabels, { documentId: args.documentId });
         return null;
       }
-      const map = input.placeholders;
-      const masked = {
-        ...input,
-        fileName: pseudonymize(input.fileName, map),
-        samples: {
-          opening: pseudonymize(input.samples.opening, map),
-          ...(input.samples.middle ? { middle: pseudonymize(input.samples.middle, map) } : {}),
-          ...(input.samples.end ? { end: pseudonymize(input.samples.end, map) } : {}),
-        },
-      };
-      const { client, model } = await clientForRole(ctx, "file_labels", {
-        callSite: "file_labels",
-        projectId: input.projectId,
-        deferOutcome: true,
-      });
-      const response = await client.messages.create({
-        model,
-        max_tokens: LABEL_MAX_TOKENS,
-        thinking: { type: "disabled" },
-        system: FILE_LABELS_SYSTEM,
-        tools: [TOOL],
-        tool_choice: { type: "tool", name: TOOL_NAME },
-        messages: [{ role: "user", content: labelUserMessage(masked) }],
-      } as Parameters<typeof client.messages.create>[0]);
-      if (isCutOffStopReason(response.stop_reason)) {
-        await response.settleOutcome?.({ ok: false, code: "output_limit" });
-        throw new Error("The label answer was cut off");
-      }
-      const call = response.content.find((block) => block.type === "tool_use" && "name" in block && block.name === TOOL_NAME);
-      const parsed = labelsSchema.safeParse(call && "input" in call ? call.input : undefined);
-      if (!parsed.success) {
-        await response.settleOutcome?.({ ok: false, code: "invalid_output" });
-        // Field paths and issue codes only, never the answer's text.
-        const where = parsed.error.issues.map((issue) => `${issue.path.join(".") || "answer"}:${issue.code}`).join(", ");
-        throw new Error(`The label answer did not match its schema (${where})`);
-      }
-      await response.settleOutcome?.({ ok: true });
-      const outcome = await ctx.runMutation(internal.fileLabels.saveFileLabels, {
-        documentId: args.documentId,
-        textHash: input.textHash,
-        fileName: input.fileName,
-        model,
-        promptVersion: FILE_LABELS_PROMPT_VERSION,
-        labels: {
-          documentType: parsed.data.documentType,
-          fiscalYear: parsed.data.fiscalYear,
-          title: restored(parsed.data.title, map, MAX_LABEL_TITLE_CHARS),
-          summary: restored(parsed.data.summary, map, MAX_LABEL_SUMMARY_CHARS),
-        },
-      });
+      const result = await callForLabels(ctx, input, input.projectId);
+      const outcome = await ctx.runMutation(internal.fileLabels.saveFileLabels, { documentId: args.documentId, ...result });
       console.info(`labelFile: ${outcome}`);
     } catch (error) {
-      const normalized = normalizeProviderError(error);
-      await ctx.runMutation(internal.fileLabels.failFileLabels, {
-        documentId: args.documentId,
-        reason: `${normalized.code}: ${normalized.message}`.slice(0, 300),
+      await ctx.runMutation(internal.fileLabels.failFileLabels, { documentId: args.documentId, reason: failureReason(error) });
+    }
+    return null;
+  },
+});
+
+/** One label call for one company file (Phase C), as labelFile does. */
+export const labelCompanyFile = internalAction({
+  args: { companyFileId: v.id("companyFiles") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    startActionDeadline(ctx);
+    try {
+      const input = await ctx.runQuery(internal.companyFileWork.companyLabelInput, { companyFileId: args.companyFileId });
+      if (!input) {
+        await ctx.runMutation(internal.companyFileWork.retireCompanyFileLabels, { companyFileId: args.companyFileId });
+        return null;
+      }
+      const result = await callForLabels(ctx, input);
+      const outcome = await ctx.runMutation(internal.companyFileWork.saveCompanyFileLabels, {
+        companyFileId: args.companyFileId,
+        ...result,
+      });
+      console.info(`labelCompanyFile: ${outcome}`);
+    } catch (error) {
+      await ctx.runMutation(internal.companyFileWork.failCompanyFileLabels, {
+        companyFileId: args.companyFileId,
+        reason: failureReason(error),
       });
     }
     return null;

@@ -408,7 +408,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_status_and_nameKey", ["status", "nameKey"])
-    .index("by_nameKey", ["nameKey"]),
+    .index("by_nameKey", ["nameKey"])
+    // 2026-10-26 (Phase C): the companies merged into one, whose names its
+    // files may still carry (company file labels hide them).
+    .index("by_mergedIntoClientId", ["mergedIntoClientId"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
@@ -2348,8 +2351,13 @@ export default defineSchema({
   // `prefixChars` characters) then the piece as the AI reads it. Written
   // only by convex/searchPieces.ts.
   documentSearchPieces: defineTable({
-    documentId: v.id("projectDocuments"),
-    projectId: v.id("projects"),
+    // The file the piece is cut from: a project file (documentId, projectId)
+    // or, since Phase C, a company file (companyFileId, clientId); exactly
+    // one pair is set.
+    documentId: v.optional(v.id("projectDocuments")),
+    projectId: v.optional(v.id("projects")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
     textHash: v.string(),
     order: v.number(),
     start: v.number(),
@@ -2361,11 +2369,125 @@ export default defineSchema({
     prefixChars: v.number(),
   })
     .index("by_documentId_and_order", ["documentId", "order"])
+    .index("by_companyFileId_and_order", ["companyFileId", "order"])
     .index("by_projectId", ["projectId"])
     .searchIndex("search_text", {
       searchField: "searchText",
-      filterFields: ["projectId"],
+      filterFields: ["projectId", "clientId"],
     }),
+
+  // 2026-10-26 (Phase C; decision "2026-10-26", part 1): a file a company
+  // (a `clients` row) holds, for every project linked to it. Its text is in
+  // companyFileTexts; search pieces and labels work as for project files.
+  // Read and add: companyFiles.read / companyFiles.add; archive, restore and
+  // remove: companyFiles.manage. Written only by convex/companyFiles.ts and
+  // the merge in convex/clients.ts.
+  companyFiles: defineTable({
+    clientId: v.id("clients"),
+    fileName: v.string(),
+    fileType: v.union(
+      v.literal("txt"),
+      v.literal("md"),
+      v.literal("pdf"),
+      v.literal("docx"),
+      v.literal("msg"),
+      v.literal("eml"),
+      v.literal("xlsx"),
+      v.literal("image"),
+      v.literal("other")
+    ),
+    category: v.optional(
+      v.union(
+        v.literal("previous_pd"),
+        v.literal("scoping_notes"),
+        v.literal("writer_notes"),
+        v.literal("background"),
+        v.literal("other")
+      )
+    ),
+    mimeType: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    textFormat: v.optional(v.literal("markdown")),
+    textLength: v.number(),
+    hasText: v.boolean(),
+    textHash: v.string(),
+    textPreview: v.string(),
+    wordCount: v.number(),
+    pageCount: v.optional(v.number()),
+    // The server's reading of the original, as for project files
+    // (convex/lib/serverReading.ts).
+    serverReader: v.optional(v.string()),
+    serverReadStartedAt: v.optional(v.number()),
+    serverReadAt: v.optional(v.number()),
+    processingStatus: v.union(
+      v.literal("ready"),
+      v.literal("ready_truncated"),
+      v.literal("reference_only"),
+      v.literal("could_not_read"),
+      v.literal("skipped_unsupported")
+    ),
+    processingDetail: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+    uploadedBy: v.id("users"),
+    uploaderRole: v.optional(v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))),
+    createdAt: v.number(),
+    searchPiecesDue: v.optional(v.literal(true)),
+    searchPiecesNextAt: v.optional(v.number()),
+    searchPiecesAttempts: v.optional(v.number()),
+    searchPiecesTextHash: v.optional(v.string()),
+    searchPiecesVersion: v.optional(v.number()),
+    labels: v.optional(
+      v.object({
+        documentType: v.string(),
+        fiscalYear: v.union(v.number(), v.null()),
+        title: v.string(),
+        summary: v.string(),
+        model: v.string(),
+        promptVersion: v.string(),
+        textHash: v.string(),
+        fileName: v.string(),
+        labeledAt: v.number(),
+      })
+    ),
+    labelsDue: v.optional(v.literal(true)),
+    labelsNextAt: v.optional(v.number()),
+    labelsAttempts: v.optional(v.number()),
+    labelsLastError: v.optional(v.string()),
+  })
+    .index("by_clientId_and_archived", ["clientId", "archived"])
+    .index("by_clientId_and_textHash", ["clientId", "textHash"])
+    .index("by_clientId_and_searchPiecesDue", ["clientId", "searchPiecesDue"])
+    .index("by_storageId", ["storageId"])
+    .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])
+    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"]),
+
+  // A company file's text, in pieces (as projectDocumentTexts), keyed by the
+  // file only, so moving a file to another company moves no text.
+  companyFileTexts: defineTable({
+    companyFileId: v.id("companyFiles"),
+    start: v.number(),
+    text: v.string(),
+  }).index("by_companyFileId_and_start", ["companyFileId", "start"]),
+
+  // Every add, archive, restore, removal and merge move of a company file,
+  // with who and when; the file name is kept because removal deletes the row.
+  companyFileEvents: defineTable({
+    clientId: v.id("clients"),
+    companyFileId: v.id("companyFiles"),
+    fileName: v.string(),
+    action: v.union(
+      v.literal("add"),
+      v.literal("archive"),
+      v.literal("restore"),
+      v.literal("remove"),
+      v.literal("merge_in"),
+      v.literal("merge_out")
+    ),
+    /** The other company of a merge move. */
+    otherClientId: v.optional(v.id("clients")),
+    userId: v.id("users"),
+    at: v.number(),
+  }).index("by_clientId_and_at", ["clientId", "at"]),
 
   // 2026-10-22 (fourth): a project file's text, in pieces of at most
   // DOCUMENT_TEXT_PIECE_CHARS characters that never split a character, each

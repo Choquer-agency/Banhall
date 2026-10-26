@@ -47,3 +47,20 @@ export async function dashboardCompanyForKey(
     .withIndex("by_companyKey", (q) => q.eq("companyKey", companyKey))
     .unique();
 }
+
+/** Sets `clientId` on up to `limit` live projects of a key (no updatedAt bump). */
+export async function linkKeyProjects(
+  ctx: MutationCtx,
+  key: string,
+  clientId: Id<"clients">,
+  limit: number
+) {
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
+    .take(limit);
+  for (const project of projects) {
+    if (project.deletionStartedAt !== undefined || project.clientId === clientId) continue;
+    await ctx.db.patch(project._id, { clientId });
+  }
+}

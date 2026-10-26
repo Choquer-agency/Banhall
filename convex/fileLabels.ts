@@ -37,8 +37,9 @@ const OFF_THE_QUEUE = { labelsDue: undefined, labelsNextAt: undefined } as const
 
 /**
  * Starts the due files' labels, a few at a time (crons.ts, every minute):
- * the files whose next try has come, oldest first. A file that no longer
- * needs labels (archived, empty, already labelled) leaves the queue here.
+ * the files whose next try has come, oldest first, project files before
+ * company files. A file that no longer needs labels (archived, empty,
+ * already labelled) leaves the queue here.
  * Claiming one moves its next try on by LABEL_CLAIM_MS, so a stopped call
  * is tried again then and never holds a place in the queue.
  */
@@ -60,6 +61,24 @@ export const sweepDueFileLabels = internalMutation({
       }
       await ctx.db.patch(doc._id, { labelsNextAt: now + LABEL_CLAIM_MS });
       await ctx.scheduler.runAfter(started * LABEL_SWEEP_SPACING_MS, internal.ai.fileLabels.labelFile, { documentId: doc._id });
+      started += 1;
+    }
+    // Company files (Phase C) take the places project files left.
+    const room = LABEL_SWEEP_FILES - due.length;
+    if (room <= 0) return started;
+    const companyDue = await ctx.db
+      .query("companyFiles")
+      .withIndex("by_labelsDue_and_labelsNextAt", (q) => q.eq("labelsDue", true).lte("labelsNextAt", now))
+      .take(room);
+    for (const file of companyDue) {
+      if (file.archived || !file.hasText || labelsCurrent(file, file.textHash)) {
+        await ctx.db.patch(file._id, OFF_THE_QUEUE);
+        continue;
+      }
+      await ctx.db.patch(file._id, { labelsNextAt: now + LABEL_CLAIM_MS });
+      await ctx.scheduler.runAfter(started * LABEL_SWEEP_SPACING_MS, internal.ai.fileLabels.labelCompanyFile, {
+        companyFileId: file._id,
+      });
       started += 1;
     }
     return started;

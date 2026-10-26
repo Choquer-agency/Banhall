@@ -542,6 +542,8 @@ describe("previewClientMerge and mergeClients", () => {
         { fiscalYear: 2025, projectNumber: "1", titles: ["Acme one", "Inc one"] },
       ],
       collisionCheckIncomplete: false,
+      companyFileCount: 0,
+      tooManyCompanyFiles: false,
     });
   });
 

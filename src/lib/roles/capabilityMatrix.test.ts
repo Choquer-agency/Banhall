@@ -36,6 +36,10 @@ const expected: Record<Capability, Record<CapabilityRole, CapabilityLevel>> = {
   "settings.configure": { writer: "none", manager: "none", admin: "all", financial: "none" },
   "ops.viewAlerts": { writer: "none", manager: "none", admin: "all", financial: "none" },
   "analytics.viewManager": { writer: "none", manager: "all", admin: "all", financial: "none" },
+  // Decision "2026-10-26", part 1: company files.
+  "companyFiles.read": { writer: "all", manager: "all", admin: "all", financial: "none" },
+  "companyFiles.add": { writer: "all", manager: "all", admin: "all", financial: "none" },
+  "companyFiles.manage": { writer: "none", manager: "all", admin: "all", financial: "none" },
 };
 
 describe("role capability matrix", () => {
