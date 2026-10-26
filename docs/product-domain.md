@@ -4075,6 +4075,75 @@ Amends the first 2026-10-23 entry (its known limit on steps inside an open gener
 - **Live rehearsal** (2026-10-23, a local copy of dev, $1.79): a plan frozen on Sonnet 5.5 had three Seeds picked, the hourly check moved the Sonnet tier back (injected failures), the settings beside sign-off then named Sonnet 5, the next Seeds request moved the plan to Sonnet 5 with one progress line, sign-off kept exactly the 11 picks, and the draft completed on Sonnet 5 (QA 58 of 100). After the move no call went to Sonnet 5.5. No alerts-board rows. Details in `docs/todos/context-pipeline-mvp-push-checklist.md`.
 - **Approval:** Product owner, 2026-10-23 (chat).
 
+### 2026-10-26: Company files, reading every file on the server, search-first evidence, and writer memory (owner)
+
+Replaces decision 60 (2026-09-26, "files stay per project"). Amends the 2026-08-17 learning amendment ("Per-writer activation requires a separately approved scope and privacy contract": this entry is that contract) and rule 2's storage (not its promise). No workflow stage or transition is added, `projects.createdBy` is untouched, and no AI tool writes report prose: every AI suggestion still goes through a person.
+
+- **Owner's intent.** By the MVP, Banhall reads every file a writer adds, keeps files at company level so every PD for that company can use them, learns from writers' choices and proves it, and writes better PDs than a writer using ChatGPT or Claude Projects with the same files (`docs/todos/context-pipeline-mvp-push.md`, decisions of 2026-10-22 and answers of 2026-10-26).
+
+**1. Company files**
+
+- A company (a `clients` row) can hold files that every project linked to it can use. A project with no company (`projects.clientId` unset) gets no company files until someone links it.
+- Who may do what (new matrix rows):
+
+  | Operation | Consultant | Manager | Admin | Financial |
+  |---|---|---|---|---|
+  | Read company files | All | All | All | No |
+  | Add a company file | Yes | Yes | Yes | No |
+  | Archive, restore or remove a company file | No | All | All | No |
+
+  Owner and Developer accounts act through their Admin role (decision 48). Every add, archive, restore and removal is logged with who and when.
+- Merging companies moves the merged companies' files to the kept company in the same step.
+- **In a draft.** When a draft starts, the linked company's files are frozen into its evidence as their own kind (company files), the same way project files are, so the draft still traces to exact inputs. The AI is told they are about the company, not necessarily this project or year, and they rank below the project's own current-year evidence. They never count as the current-year source that decision 42 requires.
+- **Names.** Company file text goes through the same placeholder map as project files before any AI call (decision 26).
+- **Chat** reaches company files only through its search and reading tools, limited to the project's own company. It never loads them whole on every message.
+- **Inputs band** names the company files a draft used.
+- **Privacy.** Company files never enter the Brain or the lesson sets, are never searched from another company's project, and never reach another company. Erasing a company's last project does not erase its company files; removing a company file does.
+- **Company page** (Paper Z8a): the company's projects and a Files tab to add, open, archive and restore files. The owner has not confirmed the UI and UX for every case, so the page will change.
+
+**2. Reading every file on the server**
+
+- Every file added to a project or company is read once on the server: PDFs with text (unpdf), Word (mammoth, kept as Markdown), Excel and CSV (SheetJS), email (.eml and .mbox with postal-mime, Outlook .msg with msgreader; each attachment is read as its own file). Transcripts keep their parser. This also fixes OneDrive imports of PDFs, which arrive empty today.
+- **No AI writes text that can be quoted.** Quotes are still checked by exact match against the stored text.
+- **Scans.** A scanned page, photo or image-only page goes to Azure Document Intelligence in Canada Central (Read; Layout for pages with tables), only when the Azure key is set. Until the owner records that client agreements allow it, no deployment that holds client files gets the key; testing uses made-up or public documents only. The key lives only in Convex environment settings.
+- **Kept per file:** the original; the raw reading, never changed (pages, words, cells or turns, positions, OCR confidence, tool and version); the cleaned text as one exact string with a map of where each page, sheet, email part or turn starts; searchable pieces of about 400 to 800 tokens split along the document's structure; labels on the file (fiscal year, document type, page count, fingerprint, reader version, whether OCR was used, low-confidence word count).
+- **Labels** the folder and file name don't give (document type, fiscal year, title, a two-line summary) come from Claude Haiku 5.5, with names hidden as placeholders. Anthropic's batch service is not used (owner, 2026-10-26: no 29-day retention).
+- **Upgrading a reader makes a new version** instead of overwriting. Old text stays, so saved quotes and past drafts keep matching; files already frozen into a draft are never read again for it.
+- Not for the MVP (owner, 2026-10-26): AI descriptions of charts and pictures, and audio files (transcripts already cover meetings).
+
+**3. Drafting and chat find evidence by search**
+
+- Drafting and chat get a short list of every file (name, kind, labels, size) plus tools to search the pieces and read exact ranges, instead of the first files in upload order. Search is keyword search limited to the project and its company; vector search is added only if tests show the AI missing evidence.
+- The fact-finding step still reads every piece of every file, so nothing is missed because it was not searched for.
+- Source links stay exact: every quote keeps its file, version and position.
+
+**4. Each draft's record of its evidence (rule 2)**
+
+- The promise is unchanged: every draft traces to the exact text it used.
+- How it is kept changes, the way document and records platforms keep versions: each file's text version is stored once and never changed, and a draft records which versions and ranges it used with their fingerprints, instead of its own full copy. A version a draft uses is kept even after the file is removed from the project, until the project (or, for company files, the company file and every draft using it) is erased.
+- Drafts made before the change keep their own copies. Nothing is converted until a pass proves byte for byte that a draft's copy matches the stored version.
+
+**5. Writer memory**
+
+- From a writer's own picks, edits, Feedback and chat, the AI may suggest a short saved preference ("Prefers 'we' to 'the company'"). The writer approves, edits or dismisses each one. Only approved preferences are used.
+- Private to that writer: used only in their own drafts, Seeds and chat; never shown to another writer; never in the firm-wide lesson sets or the Brain. The writer can see, turn off, edit and delete each one, on the Writing preferences page.
+- A preference holds only how the writer likes to write, never facts about a company or project. The server refuses a suggestion that contains a name, placeholder or figure from the project it came from, so a writer's memory carries nothing from one company to another.
+- Personal lesson sets still cannot be published firm-wide.
+
+**6. Learning and proof**
+
+- Step-by-step choices (picks, rewrites, rejections and Feedback) become signals for the firm-wide lesson sets, with names removed, under the existing rules: admitted only across two or more writers and two or more projects, and published only by an Admin.
+- Chat reads the published lesson sets, as drafting does.
+- Reviewer approve and return decisions and review comments are kept as learning signals.
+- Removing a Brain source withdraws the lessons drawn from it; a published lesson set drawn from it is turned off until an Admin publishes a new one.
+- Proof: each report edit's size is recorded with the lesson-set and prompt versions in force, and a set of test cases compares drafts with and without each change. The blind test against Claude Projects needs the owner's past cases and a judge.
+
+- **Migration and compatibility.** Widen only: new tables (company files, text versions, reading results, pieces, writer memory) and optional fields. Existing files are read on the server by a one-off pass, run by hand, dev first. Existing drafts keep their copies.
+- **Authorization.** The three new matrix rows above; writer memory is readable and changeable only by its writer. No existing cell is loosened.
+- **Tickets.** None in futur-board yet; the work is `docs/todos/context-pipeline-mvp-push.md`.
+- **Details** (functions, limits, tests, reviews) are recorded with each change as it is built.
+- **Approval:** Product owner, 2026-10-26 (chat): all four parts approved as shown (company files; reading files on the server, with Azure for scans; each draft's record kept as shared versions; writer memory and learning).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

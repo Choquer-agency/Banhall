@@ -1,6 +1,8 @@
 # Context pipeline and company files: MVP push
 
-Written 2026-10-22. **Status: plan only, nothing built yet.** None of the decisions below are recorded in `docs/product-domain.md` yet, so no code should start on company files, writer memory or Azure until that entry is approved.
+Written 2026-10-22. **Status (2026-10-26): in progress on branch `fix/summary-self-check-linear`.** Built so far: P0 item 1 (the text move, migration not yet run), the first half of P0 item 2, and the weekly tier moves. Progress per commit is in `docs/todos/context-pipeline-mvp-push-checklist.md`. No code starts on company files, writer memory or Azure until their `docs/product-domain.md` entry is approved.
+
+Owner, 2026-10-26: "yes continue and finish all, babysit until finish and ensure everything works as expected with proper live localhost testing, qa, stresstest".
 
 Code line numbers are as of 2026-10-22 (`origin/main` at bbbb2710) and will drift.
 
@@ -36,12 +38,12 @@ With 10 to 50 times more files, these break next:
 
 | Needed | Who | Blocks | Status |
 |---|---|---|---|
-| Approve the `docs/product-domain.md` entry (company files, permissions, writer memory, Azure OCR) | Owner | All company-file, writer-memory and Azure work | Not drafted |
-| Decide the 30-entry Brief limit: check in batches instead of refusing | Owner | Week 1 sign-off fix | Raised to 64 on 2026-10-22 (branch `fix/summary-self-check-linear`); batches come with the split |
+| Approve the `docs/product-domain.md` entry (company files, permissions, writer memory, Azure OCR) | Owner | All company-file, writer-memory and Azure work | Approved 2026-10-26 (entry "2026-10-26") |
+| Decide the 30-entry Brief limit: check in batches instead of refusing | Owner | Week 1 sign-off fix | Owner chose batches on 2026-10-26 |
 | Log the agent into Convex (`npx convex dev`) so it can check data and account flags | Owner | Company backfill dry run | Not done |
 | Run the company backfill (`api.clients.backfillClients`): dry run on dev, then prod | Admin | Week 2 company files | Not run as of 2026-10-14; check |
 | Create the Azure account and free OCR resource (steps below) | Owner | Week 2 scan reading | Not done |
-| Give the go to build the company page (Paper Z8) | Owner | Week 2 company file upload | Designed, not built |
+| Give the go to build the company page (Paper Z8) | Owner | Week 2 company file upload | Go given 2026-10-26; UI may change |
 | Add a card to the Voyage account | Owner | Bulk import of past reports into the Brain | `docs/the-brain.md` says no card, capped at 3 requests a minute (BNH-17); may be out of date |
 | 50 to 100 test pages for the OCR side-by-side: made-up, public, or from a client who agrees | Owner | OCR test | Not gathered |
 | 20 to 50 real past cases (inputs plus the final approved PD) and someone to judge a blind test | Owner, senior writer | Week 4 proof | Not gathered |
@@ -69,11 +71,20 @@ Company files replace decision 60 (2026-09-26, "Not now. Files stay per project"
 
 ## Still open
 
-1. **Do any clients require Canadian data residency?** Claude runs in the US or globally only, so full residency isn't reachable while Claude drafts. If yes, it's a bigger change: a new Convex deployment in Canada (30% extra; an existing deployment can't move).
-2. **Should the AI describe charts and images?** Descriptions would be stored separately and marked "AI description, not quotable".
-3. **Accept audio files?** Azure Speech in Canada Central is the candidate. Its retention terms aren't confirmed.
-4. **Anthropic's batch service:** half price for labels and context notes, but it keeps data for 29 days. Acceptable?
-5. **The 30-entry Brief limit** (see the table above).
+Answered by the owner on 2026-10-26:
+
+| Question | Answer |
+|---|---|
+| Canadian data residency | Not that the owner knows. Build as planned. |
+| AI descriptions of charts and images | Not for the MVP. |
+| Audio files | Not for the MVP; transcripts already cover meetings. |
+| Anthropic's batch service (29-day retention) | No. Pay full price. |
+| The Brief limit at sign-off | Check in batches instead of refusing. |
+| The company page (Paper Z8) | Build it. The UI and UX are not confirmed for every case, so expect changes. |
+| Projects with no company | No company files until the project is linked to a company. |
+| Each draft's own copy of the evidence | The owner left it to the agent: "Do what you think and enterprise platforms do to ensure we have a seamless process and migration once all works." |
+
+Still with the owner: the Azure account, a card on the Voyage account, test pages for the OCR test, past cases and a judge for the blind test, and the client-agreement check before real client files go to Azure.
 
 ## Azure setup
 
