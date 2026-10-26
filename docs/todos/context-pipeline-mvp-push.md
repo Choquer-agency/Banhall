@@ -141,6 +141,43 @@ Banhall sends only picture pages, one at a time, so this covers development, the
 
 **Until the `docs/product-domain.md` entry approves Azure, test only with made-up or public documents.**
 
+## Run order (2026-10-26)
+
+The owner asked for everything to be finished with live tests on localhost, QA and stress tests. Each step is designed, reviewed, built, tested offline, reviewed again and, where it calls AI, run live on a local copy. Tick each step here when its commit lands; the checklist file holds the evidence.
+
+**Phase A: answers that never hit a fixed limit (P0)**
+- [ ] A1. Each step's answer limit comes from the model's real maximum, and large calls stream (P0 item 4, the post-QA cut-off).
+- [ ] A2. A too-long answer is retried as smaller batches (P0 item 3), including a dense transcript stretch (failure 6).
+- [ ] A3. The sign-off check runs in batches, in parallel, and lists each merged group once; a Brief over 64 entries is checked in batches instead of refused (P0 item 2, second half).
+
+**Phase B: files are read once, on the server, and kept as versions**
+- [ ] B1. Text versions that never change, and each draft records the versions and ranges it used (decision entry 2026-10-26, part 4).
+- [ ] B2. Server reading: PDF, Word, Excel and CSV, email, with the raw reading kept; OneDrive PDFs fixed; a one-off pass for existing files (P1 item 6).
+- [ ] B3. Azure scan reading behind its key, tested with public documents (needs the owner's Azure account for the live test).
+- [ ] B4. Searchable pieces split along structure, labels from Haiku 5.5, keyword search limited to project and company (P1 item 7).
+
+**Phase C: company files**
+- [ ] C1. Company files table, permissions, log, merge and erasure rules.
+- [ ] C2. Company page with the Files tab (Paper Z8a).
+- [ ] C3. Company files in drafts, chat and the Inputs band.
+
+**Phase D: search-first evidence**
+- [ ] D1. Drafting gets a file list and search and read tools; fact-finding still reads every piece (P1 item 8).
+- [ ] D2. Chat searches and reads pieces instead of loading 12 files; source links stay exact (P1 item 9). Writers see what each draft used (P0 item 5).
+
+**Phase E: learning**
+- [ ] E1. Writer memory: suggestions, approval on Writing preferences, use in drafts, Seeds and chat.
+- [ ] E2. Step-by-step choices and reviewer outcomes feed the lesson sets; chat reads them; removing a Brain source withdraws its lessons.
+- [ ] E3. Edit size by version, and a test-case set comparing drafts with and without each change.
+
+**Phase F: scale and release**
+- [ ] F1. Request size from Anthropic's token count endpoint (P2 item 12).
+- [ ] F2. Project copies in scheduled batches (known limit of the text move).
+- [ ] F3. Brain company and fiscal-year filters; the Voyage model comparison (P2 item 13).
+- [ ] F4. The exclusion-conflict fixture.
+- [ ] F5. Stress test at and past the largest real cases, live (P2 item 11).
+- [ ] F6. Release suite live; human verdicts and manual checks with the owner at the end.
+
 ## Work plan
 
 Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. Update that file in the same change.
