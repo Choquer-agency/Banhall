@@ -475,7 +475,7 @@ What changes:
 
 ### Automated, live on localhost
 
-- [ ] **On a local copy of dev:** the two one-off passes cut every file's pieces and label them; searches on real questions find the expected files; a sample of labels is right and names no one; the usage rows show the cost.
+- [x] **On local copies of dev, 2026-10-26.** At f6bcb74e: the backfill marked 266 files; 236 were cut into 2,210 pieces; 30 files of deleted projects stayed due forever (the queue problem both reviewers found); 159 files labelled for about $0.0007 a file; labels read right (kind, fiscal year end, title, summary); searches for "ore sorting sensor calibration", "grade uplift rejection rate" and "XRT sensor throughput trial" on Emily's project found her ore sorting files. At a61e1489 (the fixes): 237 files cut into 2,210 pieces with no retry, and the 30 files of deleted projects left the queue without being cut; labels ran on their own each minute. A writer settings file was labelled with a kind outside the list, fixed in 13e698a1 (read as "other").
 
 ### Manual on localhost
 
