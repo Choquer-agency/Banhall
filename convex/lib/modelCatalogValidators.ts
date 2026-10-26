@@ -25,7 +25,8 @@ export const modelRoleValidator = v.union(
   v.literal("chat"),
   v.literal("learning_digest"),
   v.literal("science_code"),
-  v.literal("feedback_summary")
+  v.literal("feedback_summary"),
+  v.literal("file_labels")
 );
 
 /** shared/modelTracks.ts MODEL_TRACK_IDS (2026-10-22 decision). */

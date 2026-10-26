@@ -17,6 +17,22 @@ crons.interval(
   {}
 );
 
+// 2026-10-26 (Phase B4): files whose text changed get their search pieces.
+crons.interval(
+  "cut search pieces of changed files",
+  { minutes: 1 },
+  internal.searchPieces.sweepDueSearchPieces,
+  {}
+);
+
+// 2026-10-26 (Phase B4): files with new text get labels.
+crons.interval(
+  "label changed files",
+  { minutes: 1 },
+  internal.fileLabels.sweepDueFileLabels,
+  {}
+);
+
 crons.interval(
   "purge stale Brief preparations",
   { hours: 1 },

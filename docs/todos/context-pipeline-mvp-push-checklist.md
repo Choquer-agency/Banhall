@@ -457,3 +457,30 @@ What changes:
 - [ ] **Upload a Word file with headings, bold text and a table.** Open its preview: the headings, bold, italic and table show formatted, with no stars or pipes.
 - [ ] **Draft with it.** A Brief entry or Seed quoting a bolded sentence links to the right place in the file.
 - [ ] **Upload a Word PD for review** whose Line headings are bold or styled as headings. The three Sections are found.
+
+## Phase B4, step 2: search pieces, project search and file labels
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (fifth)".
+
+What changes:
+
+- **Each project file is cut into search pieces** of about 600 tokens along its pages, sheets, messages and headings, a minute after its text is written.
+- **A search within one project** finds the pieces best first, never from another project, an archived file or older text.
+- **Claude Haiku labels each file** (kind, fiscal year, title, two-line summary) with names hidden. Labels describe files; they are never evidence.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers (model and effort recorded in the decision record).
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] **On a local copy of dev:** the two one-off passes cut every file's pieces and label them; searches on real questions find the expected files; a sample of labels is right and names no one; the usage rows show the cost.
+
+### Manual on localhost
+
+- [ ] Nothing to see yet: Phase D shows the file list and search in drafting and chat.
+
+### Owner actions
+
+- [ ] Deploy, then on dev and then production run `npx convex run searchPieces:markSearchPiecesDue '{"dryRun":true}'` and the same without `dryRun`. The sweeps cut the pieces and label the files over the next minutes (about $0.003 a file in Haiku calls).

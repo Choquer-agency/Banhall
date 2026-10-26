@@ -199,8 +199,15 @@ const CANDIDATE_MODE_ROUTING = {
   single: { ...LIVE_CANDIDATE_MODE_ROUTING.single, fallbackModelId: LEGACY_MODEL },
   iterative: { ...LIVE_CANDIDATE_MODE_ROUTING.iterative, fallbackModelId: LEGACY_MODEL },
 } as const;
+/**
+ * Roles added after the program's role defaults were recorded that no
+ * generation step uses (2026-10-26: file_labels labels files, outside any
+ * generation). They stay out of the program, so adding one does not move
+ * every generation's prompt version.
+ */
+const ROLES_OUTSIDE_PROGRAM: ReadonlySet<string> = new Set(["file_labels"]);
 const LEGACY_ROLE_DEFAULTS = Object.fromEntries(
-  MODEL_ROLES.map((role) => [
+  MODEL_ROLES.filter((role) => !ROLES_OUTSIDE_PROGRAM.has(role)).map((role) => [
     role,
     ROLE_POLICIES[role].track === "claude-haiku" ? LEGACY_RETRIEVAL_BRIEF_MODEL : LEGACY_MODEL,
   ])

@@ -370,6 +370,9 @@ async function seedProjectRows(
     });
     // 2026-10-22 (fourth): a file's text piece.
     await ctx.db.insert("projectDocumentTexts", { documentId, projectId, start: 0, text: "doc" });
+    await ctx.db.insert("documentSearchPieces", {
+      documentId, projectId, textHash: "hash", order: 0, start: 0, end: 3, searchText: "doc", prefixChars: 0,
+    });
     await ctx.db.insert("documentUploadAttempts", {
       projectId, attemptKey: "11111111-1111-4111-8111-111111111111", fileName: "doc.txt", origin: "chat_upload",
       status: "succeeded", documentId, createdBy: userId, createdAt: now, updatedAt: now,

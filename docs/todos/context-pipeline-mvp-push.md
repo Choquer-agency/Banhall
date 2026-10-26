@@ -156,7 +156,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [ ] B1. Text versions that never change, and each draft records the versions and ranges it used (decision entry 2026-10-26, part 4).
 - [x] B2. Server reading: PDF, Word, Excel and CSV, email; OneDrive PDFs fixed; a one-off pass for existing files (P1 item 6). Done 2026-10-26 (decision entry "2026-10-26 (third)"). Moved to later steps: re-reading a PDF the browser stopped part way and the raw reading kept (B1), Word as Markdown and each email attachment as its own file (B4).
 - [ ] B3. Azure scan reading behind its key, tested with public documents (needs the owner's Azure account for the live test).
-- [ ] B4. Searchable pieces split along structure, labels from Haiku 5.5, keyword search limited to project and company (P1 item 7). First step, Word as Markdown (owner, 2026-10-26: "should be properly markdown so we can see italic, bolds and headings and properly backfilled"): decision entry "2026-10-26 (fourth)"; the backfill of older Word files runs with B1.
+- [ ] B4. Searchable pieces split along structure, labels from Haiku 5.5, keyword search limited to project and company (P1 item 7). First step, Word as Markdown (owner, 2026-10-26: "should be properly markdown so we can see italic, bolds and headings and properly backfilled"): decision entry "2026-10-26 (fourth)"; the backfill of older Word files runs with B1. Second step, search pieces, project search and labels: decision entry "2026-10-26 (fifth)". Each email attachment as its own file moves to after Phase D.
 
 **Phase C: company files**
 - [ ] C1. Company files table, permissions, log, merge and erasure rules.

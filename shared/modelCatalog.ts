@@ -65,6 +65,7 @@ export const MODEL_ROLES = [
   "learning_digest",
   "science_code",
   "feedback_summary",
+  "file_labels",
 ] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
 
@@ -353,6 +354,22 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     manualOnlyReason:
       "More than one science code can be right for a project and the writer always confirms it, so no fixture has a single correct answer; an admin chooses its model.",
     defaultCostCap: { maxInputUsdPerMTok: 5, maxOutputUsdPerMTok: 25, maxCostRatio: 2 },
+    evalTasks: [],
+    frozenPerGeneration: false,
+  },
+  file_labels: {
+    label: "File labels",
+    description:
+      "Labels each project file for the file list drafting and chat read: its kind, fiscal year, title and a two-line summary.",
+    defaultModelId: HAIKU,
+    track: "claude-haiku",
+    gateways: ["anthropic", "openrouter"],
+    minContextTokens: 128_000,
+    minOutputTokens: 1_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "No evaluation covers file labels yet (2026-10-26, Phase B4), so an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
     evalTasks: [],
     frozenPerGeneration: false,
   },

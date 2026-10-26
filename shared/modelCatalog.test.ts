@@ -558,9 +558,10 @@ const liveRow = (id: string) => {
 };
 
 describe("roles follow tracks", () => {
-  test("every Sonnet role follows claude-sonnet and the four Haiku roles follow claude-haiku", () => {
+  test("every Sonnet role follows claude-sonnet and the five Haiku roles follow claude-haiku", () => {
     const haikuRoles = MODEL_ROLES.filter((role) => ROLE_POLICIES[role].track === "claude-haiku").sort();
-    expect(haikuRoles).toEqual(["brain_context", "feedback_summary", "retrieval_brief", "structured_helper"]);
+    // file_labels: 2026-10-26, Phase B4.
+    expect(haikuRoles).toEqual(["brain_context", "feedback_summary", "file_labels", "retrieval_brief", "structured_helper"]);
     for (const role of MODEL_ROLES) {
       const policy = ROLE_POLICIES[role];
       expect(policy.track === "claude-haiku" || policy.track === "claude-sonnet", role).toBe(true);

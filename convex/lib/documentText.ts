@@ -268,11 +268,12 @@ export async function writeDocumentText(
    * characters, which the row limit allowed. New text is.
    */
   options: { storedText?: boolean } = {}
-): Promise<DocumentTextFacts & { textMovedAt: number }> {
+): Promise<DocumentTextFacts & { textMovedAt: number; searchPiecesDue: true }> {
   if (!options.storedText) assertDocumentTextFits(text);
   await deleteDocumentText(ctx, doc._id);
   await insertDocumentTextPieces(ctx, doc, text);
-  return { ...(await documentTextFacts(text)), textMovedAt: now };
+  // 2026-10-26 (Phase B4): new text, so new search pieces (the sweep cuts them).
+  return { ...(await documentTextFacts(text)), textMovedAt: now, searchPiecesDue: true };
 }
 
 /** Inserts the pieces of a file that has none yet. */
@@ -322,6 +323,8 @@ export async function insertDocumentWithText(
     ...fields,
     ...(await documentTextFacts(text)),
     textMovedAt: now,
+    // 2026-10-26 (Phase B4): text to search, so the sweep cuts its pieces.
+    ...(text.trim() ? { searchPiecesDue: true as const } : {}),
   });
   // A new row has no pieces to replace, so none are looked up.
   await insertDocumentTextPieces(ctx, { _id: documentId, projectId: fields.projectId }, text);
@@ -341,7 +344,22 @@ export async function deleteDocumentText(
       .withIndex("by_documentId_and_start", (q) => q.eq("documentId", documentId))
       .take(MAX_DOCUMENT_TEXT_PIECES);
     for (const piece of pieces) await ctx.db.delete(piece._id);
-    if (pieces.length < MAX_DOCUMENT_TEXT_PIECES) return;
+    if (pieces.length < MAX_DOCUMENT_TEXT_PIECES) break;
+  }
+  // 2026-10-26 (Phase B4): its search pieces go with its text, so a removed
+  // file, or text being replaced, is never found by a search.
+  await deleteSearchPiecesOf(ctx, documentId);
+}
+
+/** A file's search pieces (documentSearchPieces), deleted. */
+export async function deleteSearchPiecesOf(ctx: MutationCtx, documentId: Id<"projectDocuments">): Promise<void> {
+  for (;;) {
+    const pieces = await ctx.db
+      .query("documentSearchPieces")
+      .withIndex("by_documentId_and_order", (q) => q.eq("documentId", documentId))
+      .take(500);
+    for (const piece of pieces) await ctx.db.delete(piece._id);
+    if (pieces.length < 500) return;
   }
 }
 

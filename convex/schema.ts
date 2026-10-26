@@ -2225,6 +2225,36 @@ export default defineSchema({
     // marks (quotableWordText), so quotes are checked as before. Absent:
     // plain text, as every file read before.
     textFormat: v.optional(v.literal("markdown")),
+    // 2026-10-26 widen (Phase B4): search pieces (documentSearchPieces).
+    // Every text write marks the file due; the sweep claims it
+    // (searchPiecesClaimedAt), cuts its pieces and records the text and
+    // splitter they were cut with. Absent: never indexed.
+    searchPiecesDue: v.optional(v.literal(true)),
+    searchPiecesClaimedAt: v.optional(v.number()),
+    searchPiecesTextHash: v.optional(v.string()),
+    searchPiecesVersion: v.optional(v.number()),
+    // 2026-10-26 widen (Phase B4): labels from the file_labels model role
+    // (convex/fileLabels.ts): what the file is, for the file list drafting
+    // and chat read. Never evidence: no draft or quote may cite them. They
+    // describe the text, name and prompt version recorded with them.
+    labels: v.optional(
+      v.object({
+        documentType: v.string(),
+        /** The year the fiscal year the file is about ends in; null when it does not say. */
+        fiscalYear: v.union(v.number(), v.null()),
+        title: v.string(),
+        summary: v.string(),
+        model: v.string(),
+        promptVersion: v.string(),
+        textHash: v.string(),
+        fileName: v.string(),
+        labeledAt: v.number(),
+      })
+    ),
+    labelsDue: v.optional(v.literal(true)),
+    labelsClaimedAt: v.optional(v.number()),
+    labelsAttempts: v.optional(v.number()),
+    labelsRetryAt: v.optional(v.number()),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
@@ -2296,8 +2326,39 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     // 2026-10-22 (fourth): duplicate uploads are found by fingerprint.
     .index("by_projectId_and_textHash", ["projectId", "textHash"])
+    // 2026-10-26 (Phase B4): files waiting for their search pieces.
+    .index("by_searchPiecesDue", ["searchPiecesDue"])
+    .index("by_projectId_and_searchPiecesDue", ["projectId", "searchPiecesDue"])
+    .index("by_labelsDue", ["labelsDue"])
     .searchIndex("search_content", {
       searchField: "content",
+      filterFields: ["projectId"],
+    }),
+
+  // 2026-10-26 (Phase B4): a project file's search pieces, about 600 tokens
+  // each, cut along its structure (shared/searchPieces.ts), covering its
+  // text exactly once. `start`/`end` are positions in the text whose
+  // fingerprint is `textHash`; a search drops a piece when its file's text
+  // changed since. `searchText` is the label and sheet header (its first
+  // `prefixChars` characters) then the piece as the AI reads it. Written
+  // only by convex/searchPieces.ts.
+  documentSearchPieces: defineTable({
+    documentId: v.id("projectDocuments"),
+    projectId: v.id("projects"),
+    textHash: v.string(),
+    order: v.number(),
+    start: v.number(),
+    end: v.number(),
+    page: v.optional(v.number()),
+    pageEnd: v.optional(v.number()),
+    label: v.optional(v.string()),
+    searchText: v.string(),
+    prefixChars: v.number(),
+  })
+    .index("by_documentId_and_order", ["documentId", "order"])
+    .index("by_projectId", ["projectId"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
       filterFields: ["projectId"],
     }),
 
