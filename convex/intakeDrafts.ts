@@ -89,7 +89,8 @@ import {
 } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
-import { documentTextHash, insertDocumentWithText } from "./lib/documentText";
+import { documentTextHash, insertDocumentWithText, readDocumentText } from "./lib/documentText";
+import { queueServerReadingIfNeeded } from "./lib/serverReading";
 
 /** Characters one promotion step installs; the rest follow in the next step. */
 const PROMOTION_STEP_CHARS = 1_500_000;
@@ -478,6 +479,13 @@ export const attachIntakeOriginal = mutation({
         const document = await ctx.db.get(link.projectDocumentId);
         if (document && !document.storageId && (await documentTextHash(document)) === args.contentHash) {
           await ctx.db.patch(document._id, { storageId: args.storageId, ...(mimeType ? { mimeType } : {}) });
+          // 2026-10-26 (Phase B2): the original arrived after the file.
+          await queueServerReadingIfNeeded(
+            ctx,
+            document._id,
+            { ...document, storageId: args.storageId },
+            await readDocumentText(ctx, document)
+          );
           return true;
         }
       }
@@ -1305,6 +1313,13 @@ async function installDocument(
     ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
     createdAt: now,
   }, content, now);
+  // 2026-10-26 (Phase B2): a file the browser could not read is read again.
+  await queueServerReadingIfNeeded(
+    ctx,
+    projectDocumentId,
+    { fileName: source.label, ...(source.storageId ? { storageId: source.storageId } : {}) },
+    content
+  );
   await ctx.db.insert("intakeSourceLinks", {
     draftId: draft._id,
     projectId,
@@ -1334,6 +1349,13 @@ async function linkMergedDocument(
       storageId: source.storageId,
       ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     });
+    // 2026-10-26 (Phase B2): the original arrived after the file.
+    await queueServerReadingIfNeeded(
+      ctx,
+      projectDocumentId,
+      { ...document, storageId: source.storageId },
+      await readDocumentText(ctx, document)
+    );
   }
   await ctx.db.insert("intakeSourceLinks", {
     draftId: draft._id,

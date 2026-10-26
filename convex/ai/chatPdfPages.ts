@@ -16,25 +16,13 @@ import { v } from "convex/values";
 import { makeFunctionReference, type FunctionReference } from "convex/server";
 import type { Id } from "../_generated/dataModel";
 import { safeErrorDetails } from "../lib/safeErrorDetails";
+// 2026-10-26: one pdf.js loader for the server, shared with the file reader.
+import { loadPdfJs } from "./fileReader";
 
 /** pdf.js gives up on a file it cannot open within this time. */
 const PDF_COUNT_TIMEOUT_MS = 20_000;
 
 type PdfJs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
-
-let pdfjsLoad: Promise<PdfJs> | null = null;
-
-/** pdf.js with its worker set up in this thread, loaded once per instance. */
-function loadPdfJs(): Promise<PdfJs> {
-  pdfjsLoad ??= (async () => {
-    // A static specifier, so the bundler includes the worker module.
-    // @ts-expect-error pdfjs-dist ships no type declarations for its worker module.
-    const worker: unknown = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = worker;
-    return await import("pdfjs-dist/legacy/build/pdf.mjs");
-  })();
-  return pdfjsLoad;
-}
 
 /**
  * The number of pages pdf.js finds in `bytes`, or null when it cannot open
@@ -45,7 +33,6 @@ export async function countPdfPagesWithPdfJs(bytes: Uint8Array): Promise<number 
   try {
     pdfjs = await loadPdfJs();
   } catch (error) {
-    pdfjsLoad = null;
     console.error("chat pdf page count could not load pdf.js", safeErrorDetails(error));
     return null;
   }

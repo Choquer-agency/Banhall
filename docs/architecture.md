@@ -287,6 +287,8 @@ The page asks for data with `useQuery` and keeps listening. When anyone writes w
 
 Text is pulled out in the browser before anything is sent: PDFs with pdf.js, Word files with mammoth (`src/lib/parseDocument.ts`), spreadsheets in a Web Worker (`src/lib/spreadsheet.worker.ts`), transcripts in `src/lib/transcriptUpload.ts`. The original file is uploaded separately: `documents.generateUploadUrl`, then a direct POST to Convex storage, then `claimUpload` (`src/lib/uploads/originalUpload.ts`). On the server, `documents.uploadDocument` stores the text as pieces and finds a duplicate (same name, same text) by its fingerprint, without reading other files' text.
 
+When the browser gets no text from a supported file, or stops reading a PDF part way, the server reads the stored original once (`convex/lib/serverReading.ts` decides, `convex/ai/fileReading.ts` reads with `readFileOnServer` from `convex/ai/fileReader.ts`, `convex/documentReading.ts` saves). It keeps the server's text only when the file had none, or when the new text starts with exactly the text read so far. The OneDrive import (`convex/ingestionSync.ts`) reads its files with the same reader. The reading helpers both sides use are in `shared/` (`spreadsheetText.ts`, `emailText.ts`, `documentContent.ts`).
+
 ---
 
 ## 5. The report page
@@ -664,6 +666,7 @@ When a change comes in, ask four questions:
 | Someone cannot edit a report | They are not the owner and hold no open work item; `convex/lib/roleCapabilities.ts` |
 | Export is refused | Revision mismatch, missing Line 206 science code, or filing readiness; `reports.preflightExport` in `convex/reports.ts` |
 | An upload fails | Browser-side text extraction in `src/lib/parseDocument.ts`, then `src/lib/uploads/` |
+| A file still shows no text, or stops at a page | Whether the server read it: `projectDocuments.serverReadAt` and the `readStoredDocument` log line (`kept`, `not_better`, `changed`); the rules are in `convex/lib/serverReading.ts`. A scan has no text until the Azure reader (Phase B3) |
 | The old interface appears | The URL has `?workspace=current`, or the access check failed; `src/lib/workspace/WorkspaceGate.svelte` |
 | AI cost jumps | `/admin/usage`, backed by `aiUsage` in `convex/aiUsage.ts` |
 | A person gets signed out | The 15-minute token cookie and the proxy; `src/lib/server/auth.ts`, `convex/auth.ts` |

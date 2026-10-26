@@ -2212,6 +2212,11 @@ export default defineSchema({
     /** The opening characters of the text, leading whitespace removed. */
     textPreview: v.optional(v.string()),
     textMovedAt: v.optional(v.number()),
+    // 2026-10-26 widen (Phase B2): the server read the stored original
+    // (convex/documentReading.ts) with this reader, at this time, whether or
+    // not it kept the text. Absent: never read on the server.
+    serverReader: v.optional(v.string()),
+    serverReadAt: v.optional(v.number()),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),

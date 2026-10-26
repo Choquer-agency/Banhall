@@ -18,6 +18,7 @@ import { generateShareToken } from "./projects";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { activeClientIdForName } from "./lib/clients";
 import { insertDocumentWithText } from "./lib/documentText";
+import { queueServerReadingIfNeeded } from "./lib/serverReading";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -245,6 +246,13 @@ export const finalizePort = internalMutation({
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
     }, args.content, now);
+    // 2026-10-26 (Phase B2): a file the import could not read is read again.
+    await queueServerReadingIfNeeded(
+      ctx,
+      documentId,
+      { fileName: item.name, ...(args.copiedStorageId ? { storageId: args.copiedStorageId } : {}) },
+      args.content
+    );
 
     await ctx.db.patch(item._id, {
       portedProjectId: projectId,

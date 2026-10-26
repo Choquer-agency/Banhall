@@ -31,8 +31,8 @@ import {
   classify,
   extensionOf,
 } from "./lib/ingestionClassify";
-import mammoth from "mammoth";
 import { createHash } from "node:crypto";
+import { readFileOnServer } from "./ai/fileReader";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 // Full extracted text is byte-capped (UTF-8) and stored as a blob; only a
@@ -42,6 +42,11 @@ const PREVIEW_CHARS = 8_000;
 const PROCESS_BATCH = 20;
 const BATCHES_PER_INVOCATION = 6; // ~120 files, then reschedule
 const PAGES_PER_INVOCATION = 40; // ~8k delta items, then reschedule
+// One slow PDF stops at this many ms with the pages read so far (2026-10-26,
+// Phase B2); past PROCESS_TIME_BUDGET_MS a run stops between files and
+// reschedules, well inside the 10-minute action limit.
+const INGEST_PDF_TIMEOUT_MS = 60_000;
+const PROCESS_TIME_BUDGET_MS = 6 * 60_000;
 
 type DriveItem = {
   id: string;
@@ -143,27 +148,15 @@ function truncateUtf8(text: string, maxBytes: number): { text: string; truncated
   };
 }
 
-async function extractText(
+/** The server reader (convex/ai/fileReader.ts), shared with project files. */
+export async function extractText(
   bytes: ArrayBuffer,
   fileName: string
 ): Promise<{ text?: string; note?: string }> {
-  const ext = extensionOf(fileName);
-  if (ext === "txt" || ext === "vtt") {
-    return { text: new TextDecoder("utf-8").decode(bytes) };
-  }
-  if (ext === "docx") {
-    const result = await mammoth.extractRawText({
-      buffer: Buffer.from(bytes),
-    });
-    return { text: result.value };
-  }
-  if (ext === "pdf") {
-    return { note: "PDF — text extraction not yet supported server-side" };
-  }
-  if (ext === "doc") {
-    return { note: "Legacy .doc — re-save as .docx to extract text" };
-  }
-  return { note: `Unsupported type .${ext}` };
+  const reading = await readFileOnServer(new Uint8Array(bytes), fileName, {
+    pdfTimeoutMs: INGEST_PDF_TIMEOUT_MS,
+  });
+  return { text: reading.text, ...(reading.note ? { note: reading.note } : {}) };
 }
 
 /** Store extracted text (bounded) and mark the item reviewed-ready. */
@@ -206,6 +199,7 @@ async function processBatches(
   token: string,
   runId: Id<"oneDriveSyncRuns">
 ): Promise<{ done: boolean }> {
+  const startedAt = Date.now();
   const groupKeys = new Set<string>();
   const flushGroups = async () => {
     const keys = [...groupKeys];
@@ -228,7 +222,12 @@ async function processBatches(
     }
 
     let processed = 0;
+    let outOfTime = false;
     for (const item of items) {
+      if (Date.now() - startedAt > PROCESS_TIME_BUDGET_MS) {
+        outOfTime = true;
+        break;
+      }
       try {
         if (item.size > MAX_FILE_BYTES) {
           await ctx.runMutation(internal.ingestion.markItemFailed, {
@@ -262,6 +261,7 @@ async function processBatches(
       runId,
       addProcessed: processed,
     });
+    if (outOfTime) break;
   }
   await flushGroups();
   return { done: false };

@@ -11,6 +11,7 @@ import {
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
+import { queueServerReadingIfNeeded } from "./lib/serverReading";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
@@ -178,6 +179,9 @@ export const uploadDocument = mutation({
           storageId: args.storageId,
           ...(args.mimeType ? { mimeType: args.mimeType } : {}),
         });
+        // 2026-10-26 (Phase B2): the server reads an original whose text
+        // the browser could not get, now that there is one.
+        await queueServerReadingIfNeeded(ctx, dup._id, { ...dup, storageId: args.storageId }, args.content);
       } else if (args.storageId && dup.storageId !== args.storageId) {
         // Already have the file; reclaim the supplied bytes only if
         // unreferenced and not another user's claimed upload.
@@ -238,6 +242,14 @@ export const uploadDocument = mutation({
         documentId
       );
     }
+    // 2026-10-26 (Phase B2): no text, or a PDF the browser stopped reading
+    // early: the server reads the stored original.
+    await queueServerReadingIfNeeded(
+      ctx,
+      documentId,
+      { fileName: args.fileName, ...(args.storageId ? { storageId: args.storageId } : {}) },
+      args.content
+    );
     // Decision 65: readable new evidence may change the prepared Brief.
     if (args.content.trim()) {
       await requestBriefPreparation(ctx, args.projectId, { userId: user._id, reason: "document_added" });

@@ -408,3 +408,31 @@ What changes:
 ### Owner actions
 
 - [ ] None before release beyond the earlier commits' steps. The prompt version moves on deploy, so a Brief prepared just before the deploy is prepared again once.
+
+## Phase B2: files the browser could not read are read again on the server
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (third)".
+
+What changes:
+
+- **A file with no text, or a PDF the browser stopped reading part way,** is read again on the server from its stored original, once. The server's text is kept when the file had none, or when it starts with exactly the text read so far.
+- **OneDrive imports read PDFs.** Before, every imported PDF arrived empty.
+- **Existing files** are read by a one-off pass, run by hand.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers (model and effort recorded in the decision record).
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] **The one-off pass on a copy of dev:** a dry run counts the files that need a reading; the real run reads them; files that had no text show their text, and no file whose text was whole changes.
+
+### Manual on localhost
+
+- [ ] **Upload a long PDF** that the browser stops reading (the status says "stopped reading at page N"). Wait a minute and reload: the file shows its whole text and is ready.
+- [ ] **Upload a scanned PDF.** It stays without text (the Azure reader comes later), and nothing breaks.
+
+### Owner actions
+
+- [ ] Deploy, then run the one-off pass on dev, then on production: `npx convex run documentReading:queueServerReadings '{"dryRun":true}'` to count, then the same without `dryRun`. Reading costs no AI.
