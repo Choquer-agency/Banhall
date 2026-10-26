@@ -5,7 +5,7 @@
 import type { Doc } from "../_generated/dataModel";
 
 /** Bumped with any change to the label request; older labels are made again. */
-export const FILE_LABELS_PROMPT_VERSION = "file-labels-1";
+export const FILE_LABELS_PROMPT_VERSION = "file-labels-2";
 
 export const FILE_DOCUMENT_TYPES = [
   "technical report",
@@ -44,12 +44,25 @@ export function labelsCurrent(doc: Doc<"projectDocuments">, textHash: string): b
   );
 }
 
-/** A slice of `text` near [from, to), widened to whitespace so no word (or name) is cut. */
+/**
+ * A slice of `text` near [from, to), widened to a line break (within 1,000
+ * characters), else to a space, so no name is cut in half before the names
+ * are hidden.
+ */
 function sampleAt(text: string, from: number, to: number): string {
+  const widen = (at: number, step: -1 | 1, test: RegExp, limit: number): number => {
+    let index = at;
+    while (index > 0 && index < text.length && Math.abs(index - at) < limit && !test.test(text[step < 0 ? index - 1 : index]!)) {
+      index += step;
+    }
+    return index;
+  };
   let start = Math.max(0, from);
   let end = Math.min(text.length, to);
-  while (start > 0 && start > from - 200 && !/\s/.test(text[start - 1]!)) start -= 1;
-  while (end < text.length && end < to + 200 && !/\s/.test(text[end]!)) end += 1;
+  const lineStart = widen(start, -1, /\n/, 1_000);
+  start = lineStart === 0 || text[lineStart - 1] === "\n" ? lineStart : widen(start, -1, /\s/, 200);
+  const lineEnd = widen(end, 1, /\n/, 1_000);
+  end = lineEnd >= text.length || text[lineEnd] === "\n" ? lineEnd : widen(end, 1, /\s/, 200);
   return text.slice(start, end);
 }
 

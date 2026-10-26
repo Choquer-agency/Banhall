@@ -470,8 +470,8 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers (model and effort recorded in the decision record).
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [x] Code review of f6bcb74e by gpt-6-astra (medium) and Claude Opus 5.5 (below the requested high effort): both "ship after fixes"; every finding fixed (see the decision record).
+- [x] `bash scripts/loop-verify.sh` on the final code: all 9 steps pass, 477 test files, 7,306 tests.
 
 ### Automated, live on localhost
 

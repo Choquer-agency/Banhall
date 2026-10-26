@@ -160,12 +160,23 @@ describe("a file's labels (2026-10-26)", () => {
     });
   });
 
+  it("a summary longer than asked is clipped after names are put back, not refused", async () => {
+    answer = () =>
+      toolAnswer({ documentType: "technical report", fiscalYear: null, title: "Seal log", summary: `${"The seal held. ".repeat(60)}` });
+    const { t, documentId } = await setup();
+    await t.action(internal.ai.fileLabels.labelFile, { documentId });
+    const doc = await t.run(async (ctx) => ctx.db.get(documentId));
+    expect(doc?.labels?.summary.length).toBeLessThanOrEqual(300);
+    expect(doc?.labels?.summary.endsWith("…")).toBe(true);
+  });
+
   it("an answer that breaks its schema is tried again later, and left after four tries", async () => {
     answer = () => toolAnswer({ documentType: "novel", fiscalYear: 2025, title: "x", summary: "y" });
     const { t, documentId } = await setup();
     await t.action(internal.ai.fileLabels.labelFile, { documentId });
     let doc = await t.run(async (ctx) => ctx.db.get(documentId));
-    expect(doc).toMatchObject({ labelsDue: true, labelsAttempts: 1, labelsRetryAt: NOW + LABEL_RETRY_DELAYS_MS[0] });
+    expect(doc).toMatchObject({ labelsDue: true, labelsAttempts: 1, labelsNextAt: NOW + LABEL_RETRY_DELAYS_MS[0] });
+    expect(doc?.labelsLastError).toMatch(/schema/);
     expect(doc?.labels).toBeUndefined();
     for (let i = 0; i < 3; i++) await t.action(internal.ai.fileLabels.labelFile, { documentId });
     doc = await t.run(async (ctx) => ctx.db.get(documentId));

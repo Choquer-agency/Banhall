@@ -26,6 +26,10 @@ import { MAX_UPLOAD_BYTES } from "./lib/storage";
 
 /** A claim older than this was stopped; the sweep may claim the file again. */
 export const SEARCH_INDEX_CLAIM_MS = 10 * 60_000;
+/** Waits before the 2nd, 3rd and 4th try; after the 4th failure the file leaves the queue. */
+export const SEARCH_INDEX_RETRY_DELAYS_MS = [60_000, 10 * 60_000, 60 * 60_000] as const;
+/** Bytes one sweep may read: a row that still holds its own text is heavy. */
+const SWEEP_PAGE_BYTES = 4 * 1024 * 1024;
 /** Files one sweep starts, spaced so a large import does not start at once. */
 const SWEEP_FILES = 40;
 const SWEEP_SPACING_MS = 1_500;
@@ -40,27 +44,66 @@ export function pieceTextKind(doc: Pick<Doc<"projectDocuments">, "fileName" | "f
   return "text";
 }
 
-/** Starts the due files' indexing, a few at a time (crons.ts, every minute). */
+/**
+ * Starts the due files' indexing, a few at a time (crons.ts, every minute):
+ * the files whose next try has come, oldest first. Claiming one moves its
+ * next try on by SEARCH_INDEX_CLAIM_MS, so a stopped indexing is tried
+ * again then and never holds a place in the queue.
+ */
 export const sweepDueSearchPieces = internalMutation({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
-    const due = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_searchPiecesDue", (q) => q.eq("searchPiecesDue", true))
-      .take(SWEEP_FILES * 3);
     const now = Date.now();
-    let started = 0;
-    for (const doc of due) {
-      if (started >= SWEEP_FILES) break;
-      if (doc.searchPiecesClaimedAt !== undefined && doc.searchPiecesClaimedAt > now - SEARCH_INDEX_CLAIM_MS) continue;
-      await ctx.db.patch(doc._id, { searchPiecesClaimedAt: now });
+    const { page: due } = await ctx.db
+      .query("projectDocuments")
+      .withIndex("by_searchPiecesDue_and_searchPiecesNextAt", (q) =>
+        q.eq("searchPiecesDue", true).lte("searchPiecesNextAt", now)
+      )
+      .paginate({ numItems: SWEEP_FILES, cursor: null, maximumBytesRead: SWEEP_PAGE_BYTES });
+    for (const [started, doc] of due.entries()) {
+      await ctx.db.patch(doc._id, { searchPiecesNextAt: now + SEARCH_INDEX_CLAIM_MS });
       await ctx.scheduler.runAfter(started * SWEEP_SPACING_MS, internal.ai.searchIndexing.indexDocument, {
         documentId: doc._id,
       });
-      started += 1;
     }
-    return started;
+    return due.length;
+  },
+});
+
+/**
+ * A failed cut (damaged text pieces, a reader that crashed): tried again
+ * after a wait, then the file leaves the queue after four tries; the next
+ * text write or the backfill puts it back.
+ */
+export const failSearchPieces = internalMutation({
+  args: { documentId: v.id("projectDocuments"), reason: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) return null;
+    const attempts = (doc.searchPiecesAttempts ?? 0) + 1;
+    const wait = SEARCH_INDEX_RETRY_DELAYS_MS[attempts - 1];
+    if (wait === undefined) {
+      console.warn(`searchPieces: ${doc._id} left without pieces after ${attempts} tries (${args.reason})`);
+      await ctx.db.patch(doc._id, { searchPiecesDue: undefined, searchPiecesNextAt: undefined, searchPiecesAttempts: attempts });
+    } else {
+      await ctx.db.patch(doc._id, { searchPiecesAttempts: attempts, searchPiecesNextAt: Date.now() + wait });
+    }
+    return null;
+  },
+});
+
+/** A due file with nothing to index any more (its project is being erased) leaves the queue. */
+export const retireSearchPieces = internalMutation({
+  args: { documentId: v.id("projectDocuments") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (doc && (await isProjectDeleting(ctx, doc.projectId))) {
+      await ctx.db.patch(doc._id, { searchPiecesDue: undefined, searchPiecesNextAt: undefined });
+    }
+    return null;
   },
 });
 
@@ -114,9 +157,14 @@ export const writeSearchPieces = internalMutation({
   returns: v.union(v.literal("written"), v.literal("changed")),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc || (await isProjectDeleting(ctx, doc.projectId))) return "changed";
+    if (!doc) return "changed";
+    if (await isProjectDeleting(ctx, doc.projectId)) {
+      await ctx.db.patch(doc._id, { searchPiecesDue: undefined, searchPiecesNextAt: undefined });
+      return "changed";
+    }
+    // New text arrived meanwhile: it is due again, at once.
     if ((await documentTextHash(doc)) !== args.textHash) {
-      await ctx.db.patch(doc._id, { searchPiecesClaimedAt: undefined });
+      await ctx.db.patch(doc._id, { searchPiecesDue: true, searchPiecesNextAt: 0, searchPiecesAttempts: undefined });
       return "changed";
     }
     await deleteSearchPiecesOf(ctx, doc._id);
@@ -143,10 +191,11 @@ export const writeSearchPieces = internalMutation({
       searchPiecesTextHash: args.textHash,
       searchPiecesVersion: SEARCH_PIECES_VERSION,
       searchPiecesDue: undefined,
-      searchPiecesClaimedAt: undefined,
+      searchPiecesNextAt: undefined,
+      searchPiecesAttempts: undefined,
       // Labels describe a text; new text gets new labels (convex/fileLabels.ts).
       ...(text.trim() && !doc.archived && !labelsCurrent(doc, args.textHash)
-        ? { labelsDue: true as const, labelsAttempts: undefined, labelsRetryAt: undefined }
+        ? { labelsDue: true as const, labelsNextAt: 0, labelsAttempts: undefined }
         : {}),
     });
     return "written";
@@ -192,7 +241,7 @@ export const markSearchPiecesDue = internalMutation({
     for (const doc of page.page) {
       if (!documentHasText(doc) || doc.searchPiecesDue) continue;
       if (doc.searchPiecesVersion === SEARCH_PIECES_VERSION && doc.searchPiecesTextHash === (await documentTextHash(doc))) continue;
-      if (!args.dryRun) await ctx.db.patch(doc._id, { searchPiecesDue: true });
+      if (!args.dryRun) await ctx.db.patch(doc._id, { searchPiecesDue: true, searchPiecesNextAt: 0, searchPiecesAttempts: undefined });
       marked += 1;
     }
     const verb = args.dryRun ? "would mark" : "marked";

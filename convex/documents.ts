@@ -3,6 +3,7 @@ import {
   deleteDocumentText,
   documentHasText,
   documentTextEquals,
+  documentTextHash,
   documentTextLength,
   findDocumentWithText,
   insertDocumentWithText,
@@ -12,6 +13,7 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import { hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
+import { labelsCurrent } from "./lib/fileLabels";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
@@ -315,7 +317,14 @@ export const setDocumentArchived = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     const { user } = await requireReportEditAccess(ctx, doc.projectId);
-    await ctx.db.patch(args.documentId, { archived: args.archived });
+    // 2026-10-26 (Phase B4): a restored file whose labels are missing or
+    // stale goes back in the label queue (archived files leave it).
+    const relabel =
+      !args.archived && doc.archived && documentHasText(doc) && !labelsCurrent(doc, await documentTextHash(doc));
+    await ctx.db.patch(args.documentId, {
+      archived: args.archived,
+      ...(relabel ? { labelsDue: true as const, labelsNextAt: 0, labelsAttempts: undefined } : {}),
+    });
     if (Boolean(doc.archived) !== args.archived) {
       await requestBriefPreparation(ctx, doc.projectId, {
         userId: user._id,

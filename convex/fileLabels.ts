@@ -8,15 +8,15 @@
  * after it (convex/ai/fileLabels.ts).
  *
  * A file is due when its search pieces are cut and its labels describe
- * another text, name or prompt version. A sweep every minute claims due
- * files a few at a time; a failed call is tried again after 1, 10 and 60
- * minutes, then left until the one-off pass marks it due again.
+ * another text, name or prompt version, or when it is restored with stale
+ * labels. A sweep every minute claims due files a few at a time; a failed
+ * call is tried again after 1, 10 and 60 minutes, then left until the
+ * one-off pass marks it due again.
  */
 import { internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
-  FILE_LABELS_PROMPT_VERSION,
   LABEL_CLAIM_MS,
   LABEL_RETRY_DELAYS_MS,
   LABEL_SWEEP_FILES,
@@ -32,26 +32,56 @@ import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { quotableFileText } from "../shared/wordMarkdown";
 import { placeholderMapValidator } from "./lib/placeholderValidators";
 
-/** Starts the due files' labels, a few at a time (crons.ts, every minute). */
+/** Clears a file from the label queue. */
+const OFF_THE_QUEUE = { labelsDue: undefined, labelsNextAt: undefined } as const;
+
+/**
+ * Starts the due files' labels, a few at a time (crons.ts, every minute):
+ * the files whose next try has come, oldest first. A file that no longer
+ * needs labels (archived, empty, already labelled) leaves the queue here.
+ * Claiming one moves its next try on by LABEL_CLAIM_MS, so a stopped call
+ * is tried again then and never holds a place in the queue.
+ */
 export const sweepDueFileLabels = internalMutation({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
     const now = Date.now();
-    const due = await ctx.db
+    // Bytes capped: a row that still holds its own text is heavy.
+    const { page: due } = await ctx.db
       .query("projectDocuments")
-      .withIndex("by_labelsDue", (q) => q.eq("labelsDue", true))
-      .take(LABEL_SWEEP_FILES * 3);
+      .withIndex("by_labelsDue_and_labelsNextAt", (q) => q.eq("labelsDue", true).lte("labelsNextAt", now))
+      .paginate({ numItems: LABEL_SWEEP_FILES, cursor: null, maximumBytesRead: 4 * 1024 * 1024 });
     let started = 0;
     for (const doc of due) {
-      if (started >= LABEL_SWEEP_FILES) break;
-      if (doc.labelsClaimedAt !== undefined && doc.labelsClaimedAt > now - LABEL_CLAIM_MS) continue;
-      if (doc.labelsRetryAt !== undefined && doc.labelsRetryAt > now) continue;
-      await ctx.db.patch(doc._id, { labelsClaimedAt: now });
+      if (doc.archived || !documentHasText(doc) || labelsCurrent(doc, await documentTextHash(doc))) {
+        await ctx.db.patch(doc._id, OFF_THE_QUEUE);
+        continue;
+      }
+      await ctx.db.patch(doc._id, { labelsNextAt: now + LABEL_CLAIM_MS });
       await ctx.scheduler.runAfter(started * LABEL_SWEEP_SPACING_MS, internal.ai.fileLabels.labelFile, { documentId: doc._id });
       started += 1;
     }
     return started;
+  },
+});
+
+/** A due file that a label call found nothing to label for leaves the queue. */
+export const retireFileLabels = internalMutation({
+  args: { documentId: v.id("projectDocuments") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc) return null;
+    if (
+      doc.archived ||
+      !documentHasText(doc) ||
+      (await isProjectDeleting(ctx, doc.projectId)) ||
+      labelsCurrent(doc, await documentTextHash(doc))
+    ) {
+      await ctx.db.patch(doc._id, OFF_THE_QUEUE);
+    }
+    return null;
   },
 });
 
@@ -117,6 +147,8 @@ export const saveFileLabels = internalMutation({
     textHash: v.string(),
     fileName: v.string(),
     model: v.string(),
+    /** The prompt version the call was made with. */
+    promptVersion: v.string(),
     labels: v.object({
       documentType: v.string(),
       fiscalYear: v.union(v.number(), v.null()),
@@ -127,24 +159,28 @@ export const saveFileLabels = internalMutation({
   returns: v.union(v.literal("kept"), v.literal("changed")),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc || (await isProjectDeleting(ctx, doc.projectId))) return "changed";
+    if (!doc) return "changed";
+    if (await isProjectDeleting(ctx, doc.projectId)) {
+      await ctx.db.patch(doc._id, OFF_THE_QUEUE);
+      return "changed";
+    }
+    // The file changed meanwhile: it is due again, at once.
     if (doc.fileName !== args.fileName || (await documentTextHash(doc)) !== args.textHash) {
-      await ctx.db.patch(doc._id, { labelsClaimedAt: undefined });
+      await ctx.db.patch(doc._id, { labelsDue: true, labelsNextAt: 0 });
       return "changed";
     }
     await ctx.db.patch(doc._id, {
       labels: {
         ...args.labels,
         model: args.model,
-        promptVersion: FILE_LABELS_PROMPT_VERSION,
+        promptVersion: args.promptVersion,
         textHash: args.textHash,
         fileName: args.fileName,
         labeledAt: Date.now(),
       },
-      labelsDue: undefined,
-      labelsClaimedAt: undefined,
+      ...OFF_THE_QUEUE,
       labelsAttempts: undefined,
-      labelsRetryAt: undefined,
+      labelsLastError: undefined,
     });
     return "kept";
   },
@@ -161,15 +197,10 @@ export const failFileLabels = internalMutation({
     const wait = LABEL_RETRY_DELAYS_MS[attempts - 1];
     if (wait === undefined) {
       console.warn(`fileLabels: ${doc._id} left without labels after ${attempts} tries (${args.reason})`);
-      await ctx.db.patch(doc._id, {
-        labelsDue: undefined,
-        labelsClaimedAt: undefined,
-        labelsAttempts: attempts,
-        labelsRetryAt: undefined,
-      });
+      await ctx.db.patch(doc._id, { ...OFF_THE_QUEUE, labelsAttempts: attempts, labelsLastError: args.reason });
       return null;
     }
-    await ctx.db.patch(doc._id, { labelsClaimedAt: undefined, labelsAttempts: attempts, labelsRetryAt: Date.now() + wait });
+    await ctx.db.patch(doc._id, { labelsAttempts: attempts, labelsNextAt: Date.now() + wait, labelsLastError: args.reason });
     return null;
   },
 });
@@ -194,7 +225,7 @@ export const markFileLabelsDue = internalMutation({
     for (const doc of page.page) {
       if (doc.archived || !documentHasText(doc) || doc.labelsDue) continue;
       if (labelsCurrent(doc, await documentTextHash(doc))) continue;
-      if (!args.dryRun) await ctx.db.patch(doc._id, { labelsDue: true, labelsAttempts: undefined, labelsRetryAt: undefined });
+      if (!args.dryRun) await ctx.db.patch(doc._id, { labelsDue: true, labelsNextAt: 0, labelsAttempts: undefined });
       marked += 1;
     }
     if (!page.isDone) {

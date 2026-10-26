@@ -2226,11 +2226,14 @@ export default defineSchema({
     // plain text, as every file read before.
     textFormat: v.optional(v.literal("markdown")),
     // 2026-10-26 widen (Phase B4): search pieces (documentSearchPieces).
-    // Every text write marks the file due; the sweep claims it
-    // (searchPiecesClaimedAt), cuts its pieces and records the text and
-    // splitter they were cut with. Absent: never indexed.
+    // Every text write marks the file due, to be tried from
+    // searchPiecesNextAt on; the sweep claims it by moving that time on,
+    // cuts its pieces and records the text and splitter they were cut
+    // with. Absent: never indexed.
     searchPiecesDue: v.optional(v.literal(true)),
-    searchPiecesClaimedAt: v.optional(v.number()),
+    searchPiecesNextAt: v.optional(v.number()),
+    /** Failed tries of the current text; after four the file leaves the queue. */
+    searchPiecesAttempts: v.optional(v.number()),
     searchPiecesTextHash: v.optional(v.string()),
     searchPiecesVersion: v.optional(v.number()),
     // 2026-10-26 widen (Phase B4): labels from the file_labels model role
@@ -2251,10 +2254,12 @@ export default defineSchema({
         labeledAt: v.number(),
       })
     ),
+    // Due to be labelled, from labelsNextAt on (a claim or a retry moves it on).
     labelsDue: v.optional(v.literal(true)),
-    labelsClaimedAt: v.optional(v.number()),
+    labelsNextAt: v.optional(v.number()),
     labelsAttempts: v.optional(v.number()),
-    labelsRetryAt: v.optional(v.number()),
+    /** Why the last label call failed (a provider error code or a schema failure), never file text. */
+    labelsLastError: v.optional(v.string()),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
@@ -2327,9 +2332,9 @@ export default defineSchema({
     // 2026-10-22 (fourth): duplicate uploads are found by fingerprint.
     .index("by_projectId_and_textHash", ["projectId", "textHash"])
     // 2026-10-26 (Phase B4): files waiting for their search pieces.
-    .index("by_searchPiecesDue", ["searchPiecesDue"])
+    .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])
     .index("by_projectId_and_searchPiecesDue", ["projectId", "searchPiecesDue"])
-    .index("by_labelsDue", ["labelsDue"])
+    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"])
     .searchIndex("search_content", {
       searchField: "content",
       filterFields: ["projectId"],

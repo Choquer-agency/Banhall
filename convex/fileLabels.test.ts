@@ -5,7 +5,7 @@
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { documentTextHash, insertDocumentWithText, writeDocumentText } from "./lib/documentText";
@@ -44,6 +44,7 @@ async function setup() {
       textHash: hash,
       fileName: doc.fileName,
       model: "claude-haiku-5-5",
+      promptVersion: FILE_LABELS_PROMPT_VERSION,
       labels: { documentType: "technical report", fiscalYear: 2025, title: "Seal log", summary: LABEL_ONLY },
     });
   };
@@ -89,7 +90,7 @@ describe("when a file is labelled", () => {
     });
     const save = (fileName: string, textHash: string) =>
       s.t.mutation(internal.fileLabels.saveFileLabels, {
-        documentId, textHash, fileName, model: "m",
+        documentId, textHash, fileName, model: "m", promptVersion: FILE_LABELS_PROMPT_VERSION,
         labels: { documentType: "other", fiscalYear: null, title: "t", summary: "s" },
       });
     expect(await save("log.txt", hash)).toBe("changed");
@@ -101,11 +102,36 @@ describe("when a file is labelled", () => {
   test("the sweep claims a due file once and waits out a retry", async () => {
     const s = await setup();
     const documentId = await s.addFile("log.txt", "The seal held.");
-    await s.t.run(async (ctx) => ctx.db.patch(documentId, { labelsDue: true, labelsRetryAt: Date.now() + 60_000 }));
+    await s.t.run(async (ctx) => ctx.db.patch(documentId, { labelsDue: true, labelsNextAt: Date.now() + 60_000 }));
     expect(await s.t.mutation(internal.fileLabels.sweepDueFileLabels, {})).toBe(0);
     vi.setSystemTime(Date.now() + 61_000);
     expect(await s.t.mutation(internal.fileLabels.sweepDueFileLabels, {})).toBe(1);
     expect(await s.t.mutation(internal.fileLabels.sweepDueFileLabels, {})).toBe(0);
+  });
+
+  test("archived, empty or already labelled files leave the queue instead of holding a place (review, 2026-10-26)", async () => {
+    const s = await setup();
+    const archived: Id<"projectDocuments">[] = [];
+    for (let i = 0; i < 25; i++) archived.push(await s.addFile(`old${i}.txt`, `Archived file ${i}.`));
+    const active = await s.addFile("active.txt", "The seal held.");
+    await s.t.run(async (ctx) => {
+      for (const id of archived) await ctx.db.patch(id, { archived: true, labelsDue: true, labelsNextAt: 0 });
+      await ctx.db.patch(active, { labelsDue: true, labelsNextAt: 1 });
+    });
+    // The first sweep reads 20 archived files and retires them; the next reaches the active one.
+    expect(await s.t.mutation(internal.fileLabels.sweepDueFileLabels, {})).toBe(0);
+    expect(await s.t.mutation(internal.fileLabels.sweepDueFileLabels, {})).toBe(1);
+    const left = await s.t.run(async (ctx) => Promise.all(archived.map((id) => ctx.db.get(id))));
+    expect(left.every((doc) => doc?.labelsDue === undefined)).toBe(true);
+  });
+
+  test("restoring an archived file without current labels puts it back in the queue", async () => {
+    const s = await setup();
+    const writer = s.t.withIdentity({ subject: "labels-writer" });
+    const documentId = await s.addFile("log.txt", "The seal held.");
+    await s.t.run(async (ctx) => ctx.db.patch(documentId, { archived: true }));
+    await writer.mutation(api.documents.setDocumentArchived, { documentId, archived: false });
+    expect(await s.t.run(async (ctx) => ctx.db.get(documentId))).toMatchObject({ labelsDue: true, labelsNextAt: 0 });
   });
 
   test("the backfill marks files with text and missing or stale labels", async () => {

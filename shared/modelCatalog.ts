@@ -363,7 +363,9 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
       "Labels each project file for the file list drafting and chat read: its kind, fiscal year, title and a two-line summary.",
     defaultModelId: HAIKU,
     track: "claude-haiku",
-    gateways: ["anthropic", "openrouter"],
+    // The call turns thinking off, which only the direct gateway honours
+    // (OpenRouter's conversion drops it).
+    gateways: ["anthropic"],
     minContextTokens: 128_000,
     minOutputTokens: 1_000,
     autoSwitch: false,

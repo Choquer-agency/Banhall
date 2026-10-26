@@ -57,7 +57,13 @@ function safeCut(text: string, at: number): number {
   return isHigh(text.charCodeAt(at - 1)) ? at - 1 : at;
 }
 
-const clip = (label: string) => label.replace(/\s+/g, " ").trim().slice(0, LABEL_CHARS);
+/** At most `max` UTF-16 units of `text`, never ending inside a surrogate pair. */
+export function clipText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return isHigh(text.charCodeAt(max - 1)) ? text.slice(0, max - 1) : text.slice(0, max);
+}
+
+const clip = (label: string) => clipText(label.replace(/\s+/g, " ").trim(), LABEL_CHARS);
 
 /** A Word heading's label without its marks and escapes. */
 const plainHeading = (text: string) => quotableWordText(text);
@@ -75,7 +81,7 @@ function boundaries(text: string, input: SearchPieceInput): Boundary[] {
       const headerStart = match.index + match[0].length + 1;
       const headerEnd = text.indexOf("\n", headerStart);
       const header = text.slice(headerStart, headerEnd < 0 ? text.length : headerEnd).trim();
-      found.push({ at: match.index, label: `Sheet: ${clip(match[1]!)}`, ...(header ? { header: header.slice(0, 400) } : {}) });
+      found.push({ at: match.index, label: `Sheet: ${clip(match[1]!)}`, ...(header ? { header: clipText(header, 400) } : {}) });
     }
   }
   if (input.kind === "email" && text.includes(MESSAGE_SEPARATOR)) {

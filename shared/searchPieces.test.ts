@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkedPageStarts,
+  clipText,
   MAX_SEARCH_PIECES,
   SEARCH_PIECE_MAX_CHARS,
   SEARCH_PIECE_MIN_CHARS,
@@ -136,6 +137,13 @@ describe("splitSearchPieces", () => {
     const pieces = splitSearchPieces(text, { kind: "pdf", pageStarts });
     expectCovers(text, pieces);
     expect(pieces.length).toBeLessThanOrEqual(MAX_SEARCH_PIECES);
+  });
+
+  it("never cuts a label or header between the halves of a character (review, 2026-10-26)", () => {
+    expect(clipText(`${"a".repeat(119)}😀b`, 120)).toBe("a".repeat(119));
+    const heading = `# ${"a".repeat(119)}😀 rest`;
+    const [piece] = splitSearchPieces(`${heading}\n\nBody.`, { kind: "markdown" });
+    expect(piece!.label).toBe("a".repeat(119));
   });
 
   it("uses page starts only when they fit the text", () => {

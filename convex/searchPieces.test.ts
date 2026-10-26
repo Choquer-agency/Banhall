@@ -93,7 +93,7 @@ describe("cutting a file's search pieces", () => {
     const hash = await documentTextHash(doc);
     expect(doc).toMatchObject({ searchPiecesTextHash: hash, searchPiecesVersion: SEARCH_PIECES_VERSION });
     expect(doc.searchPiecesDue).toBeUndefined();
-    expect(doc.searchPiecesClaimedAt).toBeUndefined();
+    expect(doc.searchPiecesNextAt).toBeUndefined();
     const pieces = await piecesOf(s, documentId);
     expect(pieces.length).toBeGreaterThan(3);
     expect(pieces[0]!.start).toBe(0);
@@ -209,6 +209,28 @@ describe("searching a project's pieces", () => {
   });
 });
 
+describe("query words (review, 2026-10-26)", () => {
+  test("split as Convex splits them, at most 16, no stop words, no word over 32 characters", async () => {
+    const { searchTerms } = await import("./lib/searchPieces");
+    expect(searchTerms("The fluoro-polymer seal's R&D at 4.2 bar")).toEqual(["bar", "seal", "fluoro", "polymer"]);
+    const hyphens = Array.from({ length: 9 }, (_, i) => `alpha${i}-beta${i}`).join(" ");
+    expect(searchTerms(hyphens)).toHaveLength(16);
+    expect(searchTerms(`${"x".repeat(33)} gasket`)).toEqual(["gasket"]);
+  });
+
+  test("a search that read its whole scan cap with fewer hits than asked says it may be incomplete", async () => {
+    const s = await setup();
+    // One file whose 70 pieces all match fills the scan (64 at the default
+    // limit of 8); only two of its pieces may be hits.
+    const big = Array.from({ length: 70 }, (_, i) => paragraph(`fluoropolymer ${i}`, i).repeat(5)).join("\n\n");
+    await addFile(s, s.projectId, "big.txt", big);
+    await sweep(s);
+    const result = await s.t.query(internal.searchPieces.searchProject, { projectId: s.projectId, query: "fluoropolymer" });
+    expect(result.hits.length).toBeLessThan(8);
+    expect(result.complete).toBe(false);
+  });
+});
+
 describe("the sweep and the one-off pass", () => {
   test("the sweep claims each due file once, and a stopped claim is taken again later", async () => {
     const s = await setup();
@@ -223,7 +245,7 @@ describe("the sweep and the one-off pass", () => {
     });
     vi.setSystemTime(Date.now() + 11 * 60_000);
     expect(await s.t.mutation(internal.searchPieces.sweepDueSearchPieces, {})).toBe(1);
-    expect((await s.t.run(async (ctx) => ctx.db.get(documentId)))?.searchPiecesClaimedAt).toEqual(expect.any(Number));
+    expect((await s.t.run(async (ctx) => ctx.db.get(documentId)))?.searchPiecesNextAt).toBeGreaterThan(Date.now());
   });
 
   test("the backfill marks files with text and no current pieces", async () => {

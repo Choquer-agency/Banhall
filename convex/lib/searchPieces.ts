@@ -13,16 +13,25 @@ const STOP_WORDS = new Set(
   "a an and are as at be but by for from has have in into is it its of on or that the their this to was were which with what when where who why how did does do we our you your they them not no".split(" ")
 );
 
+/** Convex does not search by a term longer than this. */
+const MAX_TERM_CHARS = 32;
+
 /**
- * The words a query searches by: lower case, no stop words, each once,
- * longest first (the rarer ones), at most 16, and a whole word last
- * (Convex matches the last term as a prefix).
+ * The words a query searches by, split the way Convex splits text (at
+ * every character that is not a letter or digit, so "fluoro-polymer" is
+ * two terms): lower case, no stop words, each once, longest first (the
+ * rarer ones) kept, at most 16, the longest last.
  */
 export function searchTerms(query: string): string[] {
-  const words = (query.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'&.-]*[\p{L}\p{N}]|[\p{L}\p{N}]/gu) ?? [])
-    .filter((word) => word.length > 1 && !STOP_WORDS.has(word));
-  const unique = [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, MAX_TERMS);
-  return unique;
+  const words = (query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+    (word) => word.length > 1 && word.length <= MAX_TERM_CHARS && !STOP_WORDS.has(word)
+  );
+  // The 16 longest (rarest) words, then the longest last: Convex matches
+  // the last term as a prefix, which a short word would match too widely.
+  return [...new Set(words)]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, MAX_TERMS)
+    .reverse();
 }
 
 export type PieceHit = {
@@ -58,10 +67,11 @@ export async function searchProjectPieces(
   const limit = Math.max(1, Math.min(args.limit ?? 8, 50));
   const perFile = Math.max(1, args.perFile ?? 2);
   if (terms.length === 0) return { hits: [], complete: true };
+  const scanCap = Math.min(256, limit * 8);
   const scanned = await ctx.db
     .query("documentSearchPieces")
     .withSearchIndex("search_text", (q) => q.search("searchText", terms.join(" ")).eq("projectId", args.projectId))
-    .take(Math.min(256, limit * 8));
+    .take(scanCap);
   const files = new Map<string, { doc: Doc<"projectDocuments"> | null; textHash: string | null }>();
   const perFileCount = new Map<string, number>();
   const hits: PieceHit[] = [];
@@ -93,5 +103,6 @@ export async function searchProjectPieces(
     .query("projectDocuments")
     .withIndex("by_projectId_and_searchPiecesDue", (q) => q.eq("projectId", args.projectId).eq("searchPiecesDue", true))
     .first();
-  return { hits, complete: notIndexed === null && scanned.length < 256 };
+  // Complete when every match was read, or the hits asked for were found.
+  return { hits, complete: notIndexed === null && (scanned.length < scanCap || hits.length >= limit) };
 }

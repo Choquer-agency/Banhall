@@ -268,12 +268,20 @@ export async function writeDocumentText(
    * characters, which the row limit allowed. New text is.
    */
   options: { storedText?: boolean } = {}
-): Promise<DocumentTextFacts & { textMovedAt: number; searchPiecesDue: true }> {
+): Promise<
+  DocumentTextFacts & { textMovedAt: number; searchPiecesDue: true; searchPiecesNextAt: number; searchPiecesAttempts: undefined }
+> {
   if (!options.storedText) assertDocumentTextFits(text);
   await deleteDocumentText(ctx, doc._id);
   await insertDocumentTextPieces(ctx, doc, text);
   // 2026-10-26 (Phase B4): new text, so new search pieces (the sweep cuts them).
-  return { ...(await documentTextFacts(text)), textMovedAt: now, searchPiecesDue: true };
+  return {
+    ...(await documentTextFacts(text)),
+    textMovedAt: now,
+    searchPiecesDue: true,
+    searchPiecesNextAt: 0,
+    searchPiecesAttempts: undefined,
+  };
 }
 
 /** Inserts the pieces of a file that has none yet. */
@@ -324,7 +332,7 @@ export async function insertDocumentWithText(
     ...(await documentTextFacts(text)),
     textMovedAt: now,
     // 2026-10-26 (Phase B4): text to search, so the sweep cuts its pieces.
-    ...(text.trim() ? { searchPiecesDue: true as const } : {}),
+    ...(text.trim() ? { searchPiecesDue: true as const, searchPiecesNextAt: 0 } : {}),
   });
   // A new row has no pieces to replace, so none are looked up.
   await insertDocumentTextPieces(ctx, { _id: documentId, projectId: fields.projectId }, text);
