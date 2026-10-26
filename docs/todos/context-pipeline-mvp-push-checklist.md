@@ -391,12 +391,12 @@ What changes:
 - [x] Design reviewed twice before code by Claude Opus 5.5 (high requested, it reported low) and gpt-6-astra (medium): both "go with changes" each round; adopted all but two findings (see the decision record).
 - [x] A regression found by the agent that rewrote the sign-off tests (a claim no longer refused a plan check too big for any request) is fixed and tested.
 - [x] Code review after, of 8c3d83dd: gpt-6-astra (medium) and Claude Opus 5.5 (high requested, it reported low), both "ship after fixes". All findings fixed but one, which is accepted and recorded (the uncounted 402 request). The fixes are the second Phase A commit.
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [x] `bash scripts/loop-verify.sh` on the final code (01a56218): all 9 steps pass, 465 test files, 7,212 tests.
 
 ### Automated, live on localhost
 
-- [ ] **Emily's plan** (the 2026-10-09 case): signs off and drafts; post-draft QA is not cut off; the usage rows show which requests streamed.
-- [ ] **A big plan**: a Brief of 70 or more entries, or 40 picks in one step, signs off; its Line's final check runs in two or more requests and every check has a verdict or a "not checked" row.
+- [x] **Emily's plan** (the 2026-10-09 case), on a local copy of dev at 01a56218, 2026-10-26: signed off and drafted in 13 requests ($1.11). Each Line's final check fit one request (18 to 26 labels, 12 to 17 plan checks); post-draft QA finished with 3,985 answer tokens, not cut off. No request asked for over 16,384 answer tokens, so none streamed.
+- [x] **A big plan**, on the same copy, 2026-10-26: a Step by step run with 40 picks in one step (passive limitations; the step was regenerated ten times and every idea picked) signed off. Line 242's final check, 10 labels and 54 plan checks, ran in 2 requests (38 and 16 plan checks), both answered, twice (before and after its repair); the other Lines fit one request. The draft completed and post-draft QA finished (2,364 answer tokens). 48 requests, $2.61, Seeds included.
 - [ ] **A long transcript** in background extraction: facts become ready, or the run is marked too dense and the draft reads the transcript.
 
 ### Manual on localhost
@@ -409,30 +409,30 @@ What changes:
 
 - [ ] None before release beyond the earlier commits' steps. The prompt version moves on deploy, so a Brief prepared just before the deploy is prepared again once.
 
-## Phase B2: files the browser could not read are read again on the server
+## Phase B2: files the browser got nothing from are read again on the server
 
 Decision record: `docs/product-domain.md`, entry "2026-10-26 (third)".
 
 What changes:
 
-- **A file with no text, or a PDF the browser stopped reading part way,** is read again on the server from its stored original, once. The server's text is kept when the file had none, or when it starts with exactly the text read so far.
-- **OneDrive imports read PDFs.** Before, every imported PDF arrived empty.
+- **A file with nothing read** (no text, or only a "stopped reading" line) is read again on the server from its stored original, once. A file with read text keeps it; a PDF stopped part way waits for text versions (B1).
+- **OneDrive imports read PDFs**, each in its own action. Before, every imported PDF arrived empty.
 - **Existing files** are read by a one-off pass, run by hand.
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers (model and effort recorded in the decision record).
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [x] Code review of 075f1cad by gpt-6-astra (medium) and Claude Opus 5.5 (high requested, it reported low): both "ship after fixes". All findings fixed but one, which is recorded (email dates); see the decision record.
+- [x] `bash scripts/loop-verify.sh` on the final code: all 9 steps pass, 470 test files, 7,243 tests (a first run lost one transcript test to a 30-second timeout while other jobs loaded the machine; the same test timed out on the commit before this change, and the rerun passed).
 
 ### Automated, live on localhost
 
-- [ ] **The one-off pass on a copy of dev:** a dry run counts the files that need a reading; the real run reads them; files that had no text show their text, and no file whose text was whole changes.
+- [ ] **The one-off pass on a copy of dev:** a dry run counts the files that need a reading; the real run reads them; files with nothing read show their text; no file with read text changes.
 
 ### Manual on localhost
 
-- [ ] **Upload a long PDF** that the browser stops reading (the status says "stopped reading at page N"). Wait a minute and reload: the file shows its whole text and is ready.
+- [ ] **Upload a PDF with no text layer you can read in the browser** (or one whose first page times out). A minute later it shows its text and is ready. Upload a long PDF the browser stops part way: it keeps its pages and says where it stopped.
 - [ ] **Upload a scanned PDF.** It stays without text (the Azure reader comes later), and nothing breaks.
 
 ### Owner actions
 
-- [ ] Deploy, then run the one-off pass on dev, then on production: `npx convex run documentReading:queueServerReadings '{"dryRun":true}'` to count, then the same without `dryRun`. Reading costs no AI.
+- [ ] Deploy, then run the one-off pass on dev, then on production: `npx convex run documentReading:queueServerReadings '{"dryRun":true}'` and read its last log line for the count, then the same without `dryRun`. Reading costs no AI.

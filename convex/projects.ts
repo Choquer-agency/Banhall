@@ -88,6 +88,7 @@ import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { activeClientIdForName } from "./lib/clients";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { insertDocumentWithText, readDocumentText } from "./lib/documentText";
+import { documentHasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
 
 type TranscriptInput =
   | {
@@ -1685,6 +1686,14 @@ export const finishProjectContentCopy = internalMutation({
         domainError("INVALID_INPUT", "Copied document does not belong to this project");
       }
       await ctx.db.patch(copy.documentId, { storageId: copy.storageId });
+      // 2026-10-26 (Phase B2): a copied file with nothing read is read once
+      // its own original arrives.
+      await queueServerReadingIfNeeded(
+        ctx,
+        copy.documentId,
+        { ...document, storageId: copy.storageId },
+        await documentHasReadText(ctx, document)
+      );
     }
     for (const copy of args.transcriptCopies ?? []) {
       const transcript = await ctx.db.get(copy.transcriptId);

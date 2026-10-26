@@ -4202,41 +4202,50 @@ Context pipeline plan (`docs/todos/context-pipeline-mvp-push.md`), Phase A: P0 i
   - Code review of 8c3d83dd: gpt-6-astra (medium), "ship after fixes", three findings, all fixed (a context-window stop in fact extraction, a malformed foreign verdict counted against a request, a too-dense transcript still queued at draft admission). Claude Opus 5.5 (high requested, it reported low), "ship after fixes": a run marked too dense for running out of time (fixed: only a stretch still cut off at its smallest pieces), streams without stall protection (fixed: the 240-second idle limit), full-room retries on unstreamed OpenRouter models (fixed: they keep the shorter repair), two comments that overstated retries and a signal listener that was never removed (fixed), and the uncounted 402 request (accepted, recorded above).
 - **Approval:** Product owner, 2026-10-26 (chat: "yes continue and finish all, babysit until finish and ensure everything works as expected with proper live localhost testing, qa, stresstest"; and the choice to check big plans in batches instead of refusing them).
 
-### 2026-10-26 (third): Files the browser could not read are read again on the server, and OneDrive imports read PDFs (owner)
+### 2026-10-26 (third): Files the browser got nothing from are read again on the server, and OneDrive imports read PDFs (owner)
 
 Context pipeline plan (`docs/todos/context-pipeline-mvp-push.md`), Phase B2: the first step of part 2 of the first 2026-10-26 entry ("Reading every file on the server"). No workflow stage, transition or permission is added, `projects.createdBy` is untouched, and no AI reads or writes any of this text.
 
 - **What happened.**
-  1. The browser reads a file once, at upload. A PDF it cannot finish in 60 seconds is kept with the pages read so far and a "Stopped reading at page N" line. A supported file it gets no text from is kept empty. Neither is read again.
+  1. The browser reads a file once, at upload. A supported file it gets no text from is kept empty, and a PDF whose first page with text does not arrive within 60 seconds is kept with only a "Stopped reading at page N" line. Neither is read again.
   2. The OneDrive import could not read PDFs at all ("PDF - text extraction not yet supported server-side"), so imported PDFs reached the Brain's review queue empty.
 - **Change: one server reader.** `readFileOnServer` (`convex/ai/fileReader.ts`) reads a stored original the way the browser does, through the same helpers, now in `shared/` (spreadsheet text, email text, the 400,000-character cap and where each PDF page starts):
-  - PDFs page by page with pdf.js (`pdfjs-dist`, already installed; unpdf, named in the decision, wraps the same pdf.js, so no dependency is added), up to 240 seconds per file instead of the browser's 60, ending with the same stop line if it runs out of time;
-  - Word with mammoth's plain text; Excel and CSV with SheetJS; .eml and .mbox with postal-mime (the first 50 messages of a mailbox); Outlook .msg with msgreader; text, Markdown and transcripts as they are;
-  - pictures, old .doc files and other types get a note and no text. A damaged or protected file gets a note too: the reader never fails.
-- **When a project file is read again.** It has a stored original of a supported type that is not a picture, its text is empty or stops early, and the server has not read it before. The server reading is queued when such a file is added (upload, a Brain item copied into a project, an intake draft made into a project) and when a text-only file gains its original later. Each file is read once (`projectDocuments.serverReadAt`, `serverReader`).
+  - PDFs page by page with pdf.js (`pdfjs-dist`, already installed; unpdf, named in the decision, wraps the same pdf.js, so no dependency is added), up to 240 seconds per file instead of the browser's 60;
+  - Word with mammoth's plain text; Excel and CSV with SheetJS; .eml and .mbox with postal-mime (the first 50 messages of a mailbox); Outlook .msg with msgreader; text, Markdown and transcripts as they are. Outlook messages are now capped like every other file, in the browser too;
+  - pictures, old .doc files and other types get a note and no text. A damaged or protected file, or a reading library that fails to load, is reported as a failed reading, never as an empty one.
+- **When a project file is read again.** It has a stored original of a supported type that is not a picture, nothing has been read from it (no text, or only the stop line), and this reader version has not read it or started reading it. The reading is queued when such a file is added (upload, a Brain item copied into a project, an intake draft made into a project) and when a file gains its original later (an upload retry, an intake original, a project copy).
 - **What is kept.**
-  - A file with no text takes the server's text, its status (ready, or ready but cut off) and its page count.
-  - A file whose reading stopped early takes the server's longer text only when it starts with exactly the text read so far, so every saved position in the file still lands on the same characters. A reading that starts any other way is not kept until each file keeps its text versions (Phase B1).
+  - The server's text is kept only for a file with nothing read, and only when the server read something. With it come the status (ready, or ready but cut off) and the page count, which chat's PDF tools use.
+  - A file with read text keeps it, even a PDF the browser stopped part way. PD reviews, upload retries and duplicate checks hold the fingerprint of a file's text, so replacing read text would break them. Reading such a file again waits for text versions (Phase B1), which keep the old text beside the new one, as the decision requires.
   - Nothing is written if the file's text changed while it was read, if the file was removed, or if the project is being erased.
   - Kept text asks the Brief preparation to follow up, as a system change: it only continues preparation someone asked for recently and never starts spend on its own.
-  - An original over 50 MB (the upload limit; older files may be larger) is not downloaded, and is recorded as read.
-- **Change: the OneDrive import** reads each file with the same reader, so PDFs arrive with their text. One PDF stops after 60 seconds with the pages read so far. A run stops between files after 6 minutes and continues in the next run, inside the 10-minute action limit.
-- **Existing files.** A one-off pass, run by hand, dev first, then production: `npx convex run documentReading:queueServerReadings '{"dryRun":true}'` counts the files that need a reading; the same call without `dryRun` queues them, 50 files per page, each reading 2 seconds after the one before.
-- **What the writer sees.** A PDF that showed "no text" or "stopped reading at page N" shows its whole text a little after upload, without uploading it again.
+  - A row that still holds its own copy of the text (from before the text moved to pieces) drops it when the server's text is kept, so the pieces stay the only text.
+- **Each file is read once per reader version.** A reading claims the file first (`serverReader`, `serverReadStartedAt`) and records when it finished (`serverReadAt`), kept or not. A reading that was stopped part way (its action ran out of time) keeps its claim, so the same version does not try it again. A failed reading releases its claim, so a later pass may try again. A newer reader version may read every file again.
+- **Change: the OneDrive import** reads each file with the same reader, so PDFs arrive with their text. Each PDF is read in its own action (the path crawler uploads already use), 2 seconds apart, so one slow PDF cannot stop a run. A damaged file is marked failed, as before. The import keeps its own limit of 700,000 bytes of text, not the 400,000 characters of project files. A run stops between files 6 minutes after it started and continues in the next run.
+- **Existing files.** A one-off pass, run by hand, dev first, then production: `npx convex run documentReading:queueServerReadings '{"dryRun":true}'` walks every file, page by page, and its last log line says how many need a reading ("would queue N server readings in all"). The same call without `dryRun` queues them, each reading 2 seconds after the one before. It costs no AI.
+- **What the writer sees.** A file that showed no text, or only a "stopped reading" line, shows its text a little after upload, without uploading it again. Two such files with the same name are no longer merged into one, since nothing in their text shows they are the same file.
 - **Not in this step** (later steps of the plan):
-  - Word is kept as plain text, the way the browser keeps it, not as Markdown. Changing how a file already read reads needs text versions (B1); Markdown comes with structured pieces (B4).
+  - A PDF the browser stopped part way keeps the pages it read until text versions (B1).
+  - Word is kept as plain text, the way the browser keeps it, not as Markdown: B4, with structured pieces.
   - Each email attachment as its own file, labels from Claude Haiku 5.5, and pieces split along the document's structure: B4.
   - The raw reading (page starts, words, positions) is not stored yet: B1 and B4.
   - Scans and pictures: B3 (Azure, behind its key).
-  - A file copied with its project is not read on its own; the one-off pass reads it.
-- **Migration and compatibility.** Widen only: `projectDocuments.serverReader` and `serverReadAt` are optional. The prompt program and the Brief preparation key do not move. The generated API also gains five modules that earlier commits on this branch added without regenerating it (`documentTextMigration`, `lib/documentText`, `ai/chatLineLengths`, `ai/generationFreezeRead`, `ai/modelReadiness`).
+- **Migration and compatibility.** Widen only: `projectDocuments.serverReader`, `serverReadStartedAt` and `serverReadAt` are optional, and `ingestion.attachUpload` gains an optional delay. The prompt program and the Brief preparation key do not move. The generated API also gains five modules that earlier commits on this branch added without regenerating it (`documentTextMigration`, `lib/documentText`, `ai/chatLineLengths`, `ai/generationFreezeRead`, `ai/modelReadiness`). Imported text is now cleaned of extra blank lines and trailing spaces, as project files are.
 - **Authorization.** None changes. Every new function is internal.
 - **Known limits.**
+  - pdf.js runs in the action's own thread, so its time limit is checked between pages; one very slow page can still run until the action's limit. The claim keeps such a file from being tried again by the same reader.
+  - An upload whose reading failed for a passing reason is read again only by the next one-off pass.
   - A scanned PDF stays empty until B3.
-  - A file whose server reading differs from the browser's at the start keeps the browser's text until B1.
-  - A missing original is skipped without being recorded as read, so the one-off pass queues it again each time it runs.
-- **Tests.** `convex/ai/fileReader.test.ts` (each file type from files built in the test, notes, the cap, the time limit), `convex/documentReading.test.ts` (when a file is read, what is kept, a file that changed or was removed, the size limit, the one-off pass), `convex/ingestionSyncText.test.ts` (the import's PDFs). The browser reader's tests (`src/lib/parseDocument.test.ts`) pass unchanged on the moved helpers.
-- **Review.** Pending.
+  - Email dates are written in the reader's locale, so an email read on the server can show its date differently from one read in the browser. Only files with nothing read take the server's text, so no text changes because of it.
+- **Tests.**
+  - `convex/ai/fileReader.test.ts` and `convex/ai/fileReaderMsg.test.ts`: each file type from files built in the test, notes, the caps, the time limit, a damaged file reported as failed.
+  - `convex/documentReading.test.ts`: when a file is read (nothing read, only the stop line, a retry bringing its original, a picture, read text), what is kept, a file with read text keeping its fingerprint, a file that changed or whose project is being erased, a failed reading releasing its claim, a stopped reading not claimed again, a row still holding its text, the size limit, the one-off pass over several pages.
+  - `convex/ingestionSyncText.test.ts`: the import's PDFs, its 700,000 limit, a damaged file failing.
+  - `src/lib/parseDocumentMsg.test.ts`: the browser caps Outlook messages. The browser reader's other tests pass unchanged on the moved helpers.
+- **Review.**
+  - Code review of 075f1cad: gpt-6-astra (medium), "ship after fixes", five findings; Claude Opus 5.5 (high requested, it reported low), "ship after fixes", eleven findings.
+  - Fixed: replacing read text broke PD reviews, upload retries and duplicate checks (both reviewers; the server now fills only files with nothing read); a file holding only the stop line was never read (both); a failed reader was recorded as read; a stopped reading was retried forever; a row still holding its text kept it beside the new pieces; the one-off pass had no read limit; the import lost text past 400,000 characters, marked damaged files processed, could stall on one slow PDF, and measured its time budget late; Outlook messages were not capped; the page count was not usable by chat; whole texts were read only to decide; project copies were never queued; the dry run did not report the whole count.
+  - Recorded, not changed: email dates (known limits above).
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, approved as shown, and "yes continue and finish all".
 
 ## Amendment process

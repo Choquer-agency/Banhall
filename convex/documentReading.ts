@@ -1,33 +1,29 @@
 /**
  * A project file's text, read again on the server (2026-10-26, Phase B2).
- * The rules for when, and when the reading replaces the text, are in
+ * The rules for when, and when the reading is kept, are in
  * convex/lib/serverReading.ts; the reading itself is
  * convex/ai/fileReading.ts. No AI writes any of this text.
  */
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
 import { deriveProcessingStatus } from "../shared/documentStatus";
-import {
-  documentHasText,
-  documentTextHash,
-  documentTextLength,
-  readDocumentText,
-  writeDocumentText,
-} from "./lib/documentText";
+import { documentTextHash, writeDocumentText } from "./lib/documentText";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
-import { needsServerReading, serverReadingReplaces, stoppedEarly } from "./lib/serverReading";
+import {
+  documentHasReadText,
+  needsServerReading,
+  SERVER_READER_VERSION,
+  serverReadingReplaces,
+} from "./lib/serverReading";
 import { isProjectDeleting } from "./lib/projectDeletion";
 
-async function readingFacts(ctx: Parameters<typeof readDocumentText>[0], doc: Doc<"projectDocuments">) {
-  const hasText = documentHasText(doc);
-  const tail = hasText ? await readDocumentText(ctx, doc, Math.max(0, documentTextLength(doc) - 400)) : "";
-  return { hasText, stoppedEarly: stoppedEarly(tail) };
-}
-
-/** What the server reads for one file, or null when it has nothing to read. */
-export const storedDocumentToRead = internalQuery({
+/**
+ * Claims one file's reading for this reader version and says what to read,
+ * or null when it needs none. A claim that is never finished (the reading
+ * was stopped) keeps the file from being read again by this version.
+ */
+export const startServerReading = internalMutation({
   args: { documentId: v.id("projectDocuments") },
   returns: v.union(
     v.null(),
@@ -35,10 +31,11 @@ export const storedDocumentToRead = internalQuery({
   ),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc?.storageId) return null;
-    if (!needsServerReading({ ...doc, ...(await readingFacts(ctx, doc)) })) return null;
+    if (!doc?.storageId || (await isProjectDeleting(ctx, doc.projectId))) return null;
+    if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) })) return null;
     const stored = await ctx.db.system.get(doc.storageId);
     if (!stored) return null;
+    await ctx.db.patch(doc._id, { serverReader: SERVER_READER_VERSION, serverReadStartedAt: Date.now() });
     return {
       storageId: doc.storageId,
       fileName: doc.fileName,
@@ -49,9 +46,10 @@ export const storedDocumentToRead = internalQuery({
 });
 
 /**
- * Keeps the server's reading when serverReadingReplaces allows it. The file
- * must not have changed since the reading started. Either way the row
- * records that the server read it, so it is not read again.
+ * Finishes a claimed reading. The text is kept only for a file with nothing
+ * read, when the server read something, and when the file has not changed
+ * since the claim. A reader that failed (`failed`) releases the claim, so a
+ * later pass may try again; any other outcome records the file as read.
  */
 export const saveServerReading = internalMutation({
   args: {
@@ -60,15 +58,19 @@ export const saveServerReading = internalMutation({
     text: v.string(),
     pageCount: v.optional(v.number()),
     reader: v.string(),
+    failed: v.optional(v.boolean()),
   },
-  returns: v.union(v.literal("kept"), v.literal("not_better"), v.literal("changed")),
+  returns: v.union(v.literal("kept"), v.literal("not_better"), v.literal("changed"), v.literal("failed")),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc || doc.archived || (await isProjectDeleting(ctx, doc.projectId))) return "changed";
     if ((await documentTextHash(doc)) !== args.expectedTextHash) return "changed";
+    if (args.failed) {
+      await ctx.db.patch(doc._id, { serverReadStartedAt: undefined });
+      return "failed";
+    }
     const now = Date.now();
-    const stored = documentHasText(doc) ? await readDocumentText(ctx, doc) : "";
-    if (!serverReadingReplaces(stored, args.text)) {
+    if (!serverReadingReplaces(await documentHasReadText(ctx, doc), args.text)) {
       await ctx.db.patch(doc._id, { serverReader: args.reader, serverReadAt: now });
       return "not_better";
     }
@@ -76,9 +78,12 @@ export const saveServerReading = internalMutation({
     const derived = deriveProcessingStatus({ fileName: doc.fileName, content: args.text });
     await ctx.db.patch(doc._id, {
       ...written,
+      // The pieces are the text now; a row that still held its own copy
+      // (not yet moved, or moved and not yet cleared) drops it.
+      content: undefined,
       processingStatus: derived.status,
       processingDetail: derived.detail,
-      ...(args.pageCount !== undefined ? { pageCount: args.pageCount } : {}),
+      ...(args.pageCount !== undefined ? { pageCount: args.pageCount, pageCountStorageId: doc.storageId } : {}),
       serverReader: args.reader,
       serverReadAt: now,
     });
@@ -88,10 +93,14 @@ export const saveServerReading = internalMutation({
   },
 });
 
+/** Bytes one page of the one-off pass may read: rows may still hold their text. */
+const PASS_PAGE_BYTES = 4 * 1024 * 1024;
+
 /**
  * One-off pass, run by hand (dev first, then production): queues a server
  * reading for every file that needs one, a page at a time, spaced so the
- * readings do not all start at once. `dryRun` only counts.
+ * readings do not all start at once. `dryRun` only counts; each page logs
+ * its running total, and the last logs the whole count.
  */
 export const queueServerReadings = internalMutation({
   args: {
@@ -101,11 +110,13 @@ export const queueServerReadings = internalMutation({
   },
   returns: v.object({ queued: v.number(), isDone: v.boolean() }),
   handler: async (ctx, args) => {
-    const page = await ctx.db.query("projectDocuments").paginate({ numItems: 50, cursor: args.cursor ?? null });
+    const page = await ctx.db
+      .query("projectDocuments")
+      .paginate({ numItems: 50, cursor: args.cursor ?? null, maximumBytesRead: PASS_PAGE_BYTES });
     let queued = args.queuedSoFar ?? 0;
     for (const doc of page.page) {
       if (!doc.storageId) continue;
-      if (!needsServerReading({ ...doc, ...(await readingFacts(ctx, doc)) })) continue;
+      if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) })) continue;
       if (!args.dryRun) {
         await ctx.scheduler.runAfter(queued * 2_000, internal.ai.fileReading.readStoredDocument, {
           documentId: doc._id,
@@ -113,14 +124,16 @@ export const queueServerReadings = internalMutation({
       }
       queued += 1;
     }
+    const verb = args.dryRun ? "would queue" : "queued";
     if (!page.isDone) {
+      console.info(`queueServerReadings: ${verb} ${queued} so far`);
       await ctx.scheduler.runAfter(0, internal.documentReading.queueServerReadings, {
         cursor: page.continueCursor,
         ...(args.dryRun ? { dryRun: true } : {}),
         queuedSoFar: queued,
       });
     } else {
-      console.info(`queueServerReadings: ${args.dryRun ? "would queue" : "queued"} ${queued} server readings`);
+      console.info(`queueServerReadings: ${verb} ${queued} server readings in all`);
     }
     return { queued, isDone: page.isDone };
   },

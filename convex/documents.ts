@@ -11,7 +11,7 @@ import {
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
-import { queueServerReadingIfNeeded } from "./lib/serverReading";
+import { hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
@@ -119,7 +119,10 @@ export const uploadDocument = mutation({
     // claiming success for a file that was never stored. There is also no text
     // to save by deduping. Two identical unreadable uploads now make two rows,
     // which is the honest answer: the user performed two uploads.
-    const canDedupe = args.content.trim().length > 0;
+    // 2026-10-26 (Phase B2): text that is only a reader's stop line counts
+    // as unread too; two such files are different files, and the server may
+    // fill one in before its upload is retried.
+    const canDedupe = hasReadText(args.content);
     // A retry of a save that committed but whose answer never arrived (a
     // timeout) carries the same attempt key: it gets the document that attempt
     // already made. Empty files are exempt from the content dedupe below, so
@@ -181,7 +184,7 @@ export const uploadDocument = mutation({
         });
         // 2026-10-26 (Phase B2): the server reads an original whose text
         // the browser could not get, now that there is one.
-        await queueServerReadingIfNeeded(ctx, dup._id, { ...dup, storageId: args.storageId }, args.content);
+        await queueServerReadingIfNeeded(ctx, dup._id, { ...dup, storageId: args.storageId }, hasReadText(args.content));
       } else if (args.storageId && dup.storageId !== args.storageId) {
         // Already have the file; reclaim the supplied bytes only if
         // unreferenced and not another user's claimed upload.
@@ -248,7 +251,7 @@ export const uploadDocument = mutation({
       ctx,
       documentId,
       { fileName: args.fileName, ...(args.storageId ? { storageId: args.storageId } : {}) },
-      args.content
+      hasReadText(args.content)
     );
     // Decision 65: readable new evidence may change the prepared Brief.
     if (args.content.trim()) {

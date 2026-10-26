@@ -230,6 +230,7 @@ import type * as lib_seedReadiness from "../lib/seedReadiness.js";
 import type * as lib_seedRevisions from "../lib/seedRevisions.js";
 import type * as lib_seedSnapshotLoader from "../lib/seedSnapshotLoader.js";
 import type * as lib_selfCheckRules from "../lib/selfCheckRules.js";
+import type * as lib_serverReading from "../lib/serverReading.js";
 import type * as lib_settingsDocument from "../lib/settingsDocument.js";
 import type * as lib_settingsExtraction from "../lib/settingsExtraction.js";
 import type * as lib_snapshots from "../lib/snapshots.js";
@@ -520,6 +521,7 @@ declare const fullApi: ApiFromModules<{
   "lib/seedRevisions": typeof lib_seedRevisions;
   "lib/seedSnapshotLoader": typeof lib_seedSnapshotLoader;
   "lib/selfCheckRules": typeof lib_selfCheckRules;
+  "lib/serverReading": typeof lib_serverReading;
   "lib/settingsDocument": typeof lib_settingsDocument;
   "lib/settingsExtraction": typeof lib_settingsExtraction;
   "lib/snapshots": typeof lib_snapshots;

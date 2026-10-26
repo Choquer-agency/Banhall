@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 /**
  * 2026-10-26 (Phase B2): the server reads a project file's stored original
- * when the browser got no text or stopped early, and keeps the reading only
- * when it is fuller and every position into the old text still holds.
+ * when nothing came out of it in the browser, and keeps its reading only for
+ * a file with nothing read. A file with read text keeps it until text
+ * versions (Phase B1).
  */
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -11,7 +12,8 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { pdfPageStopMarker } from "../shared/documentStatus";
 import { documentTextHash, readDocumentText } from "./lib/documentText";
-import { needsServerReading, serverReadingReplaces, stoppedEarly } from "./lib/serverReading";
+import { hasReadText, needsServerReading, serverReadingReplaces } from "./lib/serverReading";
+import { insertDocumentWithText } from "./lib/documentText";
 import { readFileOnServer, SERVER_READER_VERSION } from "./ai/fileReader";
 import { textPdf } from "./ai/testFiles.fixture";
 
@@ -19,6 +21,7 @@ const modules = import.meta.glob("./**/*.ts");
 const writerAuthId = "auth-writer-document-reading-tests";
 
 const PAGES = ["Trial one held at 4.2 bar.", "Trial two failed at 3.1 bar.", "Trial three held at 5.0 bar."];
+const KEY = "33333333-3333-4333-8333-333333333333";
 
 beforeEach(() => {
   // Scheduled readings run only when a test runs them.
@@ -73,33 +76,38 @@ async function browserStoppedAt(page: number): Promise<string> {
 }
 
 describe("when the server reads a file again", () => {
-  test("only a supported, stored, unread file with no text or a stopped reading", () => {
+  test("only a supported, stored, unread file with nothing read", () => {
     const storageId = "storage" as Id<"_storage">;
-    const base = { fileName: "trials.pdf", storageId, hasText: false, stoppedEarly: false };
+    const base = { fileName: "trials.pdf", storageId, hasReadText: false };
     expect(needsServerReading(base)).toBe(true);
-    expect(needsServerReading({ ...base, hasText: true })).toBe(false);
-    expect(needsServerReading({ ...base, hasText: true, stoppedEarly: true })).toBe(true);
+    expect(needsServerReading({ ...base, hasReadText: true })).toBe(false);
     expect(needsServerReading({ ...base, storageId: undefined })).toBe(false);
     expect(needsServerReading({ ...base, archived: true })).toBe(false);
-    expect(needsServerReading({ ...base, serverReadAt: 1 })).toBe(false);
+    // Read, or started and stopped, by this reader: not again.
+    expect(needsServerReading({ ...base, serverReader: SERVER_READER_VERSION, serverReadAt: 1 })).toBe(false);
+    expect(needsServerReading({ ...base, serverReader: SERVER_READER_VERSION, serverReadStartedAt: 1 })).toBe(false);
+    // An older reader's attempt does not count.
+    expect(needsServerReading({ ...base, serverReader: "server-reader-0", serverReadAt: 1 })).toBe(true);
     expect(needsServerReading({ ...base, fileName: "site.png" })).toBe(false);
     expect(needsServerReading({ ...base, fileName: "archive.zip" })).toBe(false);
   });
 
-  test("a reading replaces no text, or extends a stopped reading without moving it", async () => {
-    const stopped = await browserStoppedAt(2);
-    expect(stoppedEarly(stopped)).toBe(true);
+  test("a stop line alone is nothing read; pages before it are", async () => {
+    expect(hasReadText("")).toBe(false);
+    expect(hasReadText(" \n ")).toBe(false);
+    // The first page ran out of time: the trimmed text is the stop line.
+    expect(hasReadText(pdfPageStopMarker(1).trim())).toBe(false);
+    expect(hasReadText(await browserStoppedAt(2))).toBe(true);
+    expect(hasReadText("Trial one held at 4.2 bar.")).toBe(true);
+  });
+
+  test("a reading replaces only a file with nothing read, and only with read text", async () => {
     const whole = (await readFileOnServer(textPdf(PAGES), "trials.pdf")).text;
-    expect(serverReadingReplaces("", whole)).toBe(true);
-    expect(serverReadingReplaces("  \n", whole)).toBe(true);
-    expect(serverReadingReplaces("", "   ")).toBe(false);
-    expect(serverReadingReplaces(stopped, whole)).toBe(true);
-    // A reading that starts differently would move every saved position.
-    expect(serverReadingReplaces(stopped, ` ${whole}`)).toBe(false);
-    // A reading that stops at the same page holds nothing new.
-    expect(serverReadingReplaces(stopped, stopped)).toBe(false);
-    // A whole text is never replaced.
-    expect(serverReadingReplaces(whole, `${whole}\n\nMore.`)).toBe(false);
+    expect(serverReadingReplaces(false, whole)).toBe(true);
+    expect(serverReadingReplaces(false, "   ")).toBe(false);
+    expect(serverReadingReplaces(false, pdfPageStopMarker(1).trim())).toBe(false);
+    // A file with read text keeps it, even a PDF the browser stopped part way.
+    expect(serverReadingReplaces(true, whole)).toBe(false);
   });
 });
 
@@ -128,7 +136,23 @@ describe("reading a file on the server", () => {
       serverReadAt: expect.any(Number),
     });
     // Read once: the file is not read again.
-    expect(await t.query(internal.documentReading.storedDocumentToRead, { documentId })).toBeNull();
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
+  });
+
+  test("a PDF whose first page ran out of time in the browser is read", async () => {
+    const { t, projectId, writer } = await setup();
+    const documentId = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "trials.pdf",
+      fileType: "pdf",
+      content: pdfPageStopMarker(1).trim(),
+      storageId: await store(t, textPdf(PAGES)),
+    });
+    expect(await scheduledReadings(t)).toHaveLength(1);
+    await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
+    const { text } = await fileState(t, documentId);
+    expect(text).toContain(PAGES[2]);
+    expect(hasReadText(text)).toBe(true);
   });
 
   test("an upload with text, a picture, or no original is not queued", async () => {
@@ -153,66 +177,100 @@ describe("reading a file on the server", () => {
     expect(await scheduledReadings(t)).toEqual([]);
   });
 
-  test("a text-only file whose reading stopped is queued when it gains its original", async () => {
+  test("a retried upload that brings the original of a file with nothing read queues the reading", async () => {
     const { t, projectId, writer } = await setup();
-    const args = { projectId, fileName: "trials.pdf", fileType: "pdf" as const, content: await browserStoppedAt(2) };
+    await writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId,
+      attempts: [{ attemptKey: KEY, fileName: "trials.pdf", fileSizeBytes: 1234, origin: "chat_upload" }],
+    });
+    // The browser gave up before page 1: only its stop line was kept.
+    const args = {
+      projectId,
+      fileName: "trials.pdf",
+      fileType: "pdf" as const,
+      content: pdfPageStopMarker(1).trim(),
+      attemptKey: KEY,
+    };
     const documentId = await writer.mutation(api.documents.uploadDocument, args);
     expect(await scheduledReadings(t)).toEqual([]);
     const storageId = await store(t, textPdf(PAGES));
     expect(await writer.mutation(api.documents.uploadDocument, { ...args, storageId })).toBe(documentId);
     expect(await scheduledReadings(t)).toEqual([expect.objectContaining({ args: [{ documentId }] })]);
+    await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
+    expect((await fileState(t, documentId)).text).toContain(PAGES[0]);
+    // A retry after the server filled it in still finds the same file.
+    expect(await writer.mutation(api.documents.uploadDocument, { ...args, storageId })).toBe(documentId);
   });
 
-  test("a PDF the browser stopped reading takes the server's fuller text, starting with the same characters", async () => {
+  test("two files with nothing read but the same stop line stay two files", async () => {
+    const { t, projectId, writer } = await setup();
+    const args = { projectId, fileName: "scan.pdf", fileType: "pdf" as const, content: pdfPageStopMarker(1).trim() };
+    const first = await writer.mutation(api.documents.uploadDocument, {
+      ...args,
+      storageId: await store(t, textPdf(["One."])),
+    });
+    const second = await writer.mutation(api.documents.uploadDocument, {
+      ...args,
+      storageId: await store(t, textPdf(["Two."])),
+    });
+    expect(second).not.toBe(first);
+    expect(await scheduledReadings(t)).toHaveLength(2);
+  });
+
+  test("a PDF the browser stopped part way keeps its text and is not queued (text versions come later)", async () => {
     const { t, projectId, writer } = await setup();
     const stopped = await browserStoppedAt(2);
-    const storageId = await store(t, textPdf(PAGES));
     const documentId = await writer.mutation(api.documents.uploadDocument, {
       projectId,
       fileName: "trials.pdf",
       fileType: "pdf",
       content: stopped,
-      storageId,
+      storageId: await store(t, textPdf(PAGES)),
     });
-    expect(await scheduledReadings(t)).toHaveLength(1);
-    const before = await fileState(t, documentId);
-    expect(before.doc.processingStatus).toBe("ready_truncated");
-
-    await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
-    const { doc, text } = await fileState(t, documentId);
-    expect(stoppedEarly(text)).toBe(false);
-    expect(text).toContain(PAGES[2]);
-    // Every position into the old text still lands on the same characters.
-    const readSoFar = stopped.slice(0, stopped.indexOf("\n[Stopped reading"));
-    expect(text.startsWith(readSoFar)).toBe(true);
-    expect(doc.processingStatus).toBe("ready");
-  });
-
-  test("a reading that does not start with the stopped text is not kept, and the file is not read again", async () => {
-    const { t, projectId } = await setup();
-    const storageId = await store(t, textPdf(PAGES));
-    const stopped = `Notes typed differently.\n\n${pdfPageStopMarker(2)}`.trim();
-    const documentId = await t.run(async (ctx) => {
-      const { insertDocumentWithText } = await import("./lib/documentText");
-      return await insertDocumentWithText(
-        ctx,
-        {
-          projectId,
-          fileName: "trials.pdf",
-          fileType: "pdf",
-          storageId,
-          source: "chat_upload",
-          uploadedBy: "writer@banhall.com",
-          createdAt: Date.now(),
-        },
-        stopped
-      );
-    });
+    expect(await scheduledReadings(t)).toEqual([]);
+    // Even read on purpose, its text and fingerprint stay.
+    const hashBefore = await t.run(async (ctx) => await documentTextHash((await ctx.db.get(documentId))!));
     await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
     const { doc, text } = await fileState(t, documentId);
     expect(text).toBe(stopped);
+    expect(await documentTextHash(doc)).toBe(hashBefore);
+    expect(doc.processingStatus).toBe("ready_truncated");
+    expect(doc.serverReadAt).toBeUndefined();
+  });
+
+  test("a reading saved for a file that has read text is not kept, and the file is marked read", async () => {
+    const { t, projectId } = await setup();
+    const storageId = await store(t, textPdf(PAGES));
+    const stored = "Notes typed by hand.";
+    const documentId = await t.run(
+      async (ctx) =>
+        await insertDocumentWithText(
+          ctx,
+          {
+            projectId,
+            fileName: "trials.pdf",
+            fileType: "pdf",
+            storageId,
+            source: "chat_upload",
+            uploadedBy: "writer@banhall.com",
+            createdAt: Date.now(),
+          },
+          stored
+        )
+    );
+    const textHash = await t.run(async (ctx) => await documentTextHash((await ctx.db.get(documentId))!));
+    expect(
+      await t.mutation(internal.documentReading.saveServerReading, {
+        documentId,
+        expectedTextHash: textHash,
+        text: PAGES.join("\n\n"),
+        reader: SERVER_READER_VERSION,
+      })
+    ).toBe("not_better");
+    const { doc, text } = await fileState(t, documentId);
+    expect(text).toBe(stored);
     expect(doc.serverReadAt).toEqual(expect.any(Number));
-    expect(await t.query(internal.documentReading.storedDocumentToRead, { documentId })).toBeNull();
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
   });
 
   test("a file that changed while it was read keeps its text", async () => {
@@ -266,13 +324,95 @@ describe("reading a file on the server", () => {
   });
 });
 
+describe("claims, failures and rows that still hold their text", () => {
+  /** A file row written the way rows were before their text moved to pieces. */
+  async function legacyRow(t: Setup["t"], projectId: Id<"projects">, content: string, storageId: Id<"_storage">) {
+    return await t.run(
+      async (ctx) =>
+        await ctx.db.insert("projectDocuments", {
+          projectId,
+          fileName: "trials.pdf",
+          fileType: "pdf",
+          content,
+          storageId,
+          source: "chat_upload",
+          uploadedBy: "writer@banhall.com",
+          createdAt: Date.now(),
+        })
+    );
+  }
+
+  test("a reader that fails releases its claim, so a later pass may try again", async () => {
+    const { t, projectId, writer } = await setup();
+    const storageId = await t.run(async (ctx) => await ctx.storage.store(new Blob(["not a zip"])));
+    const documentId = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "notes.docx",
+      fileType: "docx",
+      content: "",
+      storageId,
+    });
+    await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
+    const { doc } = await fileState(t, documentId);
+    expect(doc.serverReadAt).toBeUndefined();
+    expect(doc.serverReadStartedAt).toBeUndefined();
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).not.toBeNull();
+  });
+
+  test("a reading that started and never finished is not claimed again by the same reader", async () => {
+    const { t, projectId } = await setup();
+    const documentId = await legacyRow(t, projectId, "", await store(t, textPdf(PAGES)));
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).not.toBeNull();
+    // Its action was stopped: no save came.
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
+    expect(await t.mutation(internal.documentReading.queueServerReadings, { dryRun: true })).toEqual({ queued: 0, isDone: true });
+  });
+
+  test("a row that still holds its text drops it when the reading is kept, and takes the page count for chat", async () => {
+    const { t, projectId } = await setup();
+    const storageId = await store(t, textPdf(PAGES));
+    const documentId = await legacyRow(t, projectId, pdfPageStopMarker(1).trim(), storageId);
+    await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
+    const { doc, text } = await fileState(t, documentId);
+    expect(doc.content).toBeUndefined();
+    expect(doc.textMovedAt).toEqual(expect.any(Number));
+    expect(text).toContain(PAGES[1]);
+    expect(doc).toMatchObject({ pageCount: 3, pageCountStorageId: storageId });
+    const pieces = await t.run(async (ctx) =>
+      ctx.db
+        .query("projectDocumentTexts")
+        .withIndex("by_documentId_and_start", (q) => q.eq("documentId", documentId))
+        .collect()
+    );
+    expect(pieces.map((piece) => piece.text).join("")).toBe(text);
+  });
+
+  test("nothing is written once the project is being erased", async () => {
+    const { t, projectId } = await setup();
+    const documentId = await legacyRow(t, projectId, "", await store(t, textPdf(PAGES)));
+    const target = await t.mutation(internal.documentReading.startServerReading, { documentId });
+    await t.run(async (ctx) => await ctx.db.patch(projectId, { deletionStartedAt: Date.now() }));
+    expect(
+      await t.mutation(internal.documentReading.saveServerReading, {
+        documentId,
+        expectedTextHash: target!.textHash,
+        text: PAGES.join("\n\n"),
+        reader: SERVER_READER_VERSION,
+      })
+    ).toBe("changed");
+    expect((await fileState(t, documentId)).text).toBe("");
+    // And no new reading starts for it.
+    await t.run(async (ctx) => await ctx.db.patch(documentId, { serverReadStartedAt: undefined }));
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
+  });
+});
+
 describe("a file too big to read on the server", () => {
   test("is recorded as read without being downloaded, and keeps its text", async () => {
     const { t, projectId } = await setup();
     const { MAX_SERVER_READ_BYTES } = await import("./ai/fileReading");
     // Uploads are refused above the limit; a file from before may not be.
     const storageId = await store(t, new Uint8Array(MAX_SERVER_READ_BYTES + 1));
-    const { insertDocumentWithText } = await import("./lib/documentText");
     const documentId = await t.run(
       async (ctx) =>
         await insertDocumentWithText(
@@ -297,9 +437,41 @@ describe("a file too big to read on the server", () => {
 });
 
 describe("the one-off pass over existing files", () => {
+  test("walks every page and logs the whole count", async () => {
+    const { t, projectId } = await setup();
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 60; i++) {
+        await insertDocumentWithText(
+          ctx,
+          {
+            projectId,
+            fileName: `f${i}.pdf`,
+            fileType: "pdf",
+            storageId: await ctx.storage.store(new Blob(["x"])),
+            source: "chat_upload",
+            uploadedBy: "writer@banhall.com",
+            createdAt: Date.now(),
+          },
+          ""
+        );
+      }
+    });
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      expect(await t.mutation(internal.documentReading.queueServerReadings, { dryRun: true })).toEqual({
+        queued: 50,
+        isDone: false,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(info).toHaveBeenCalledWith("queueServerReadings: would queue 60 server readings in all");
+      expect(await scheduledReadings(t)).toEqual([]);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
   test("counts on a dry run, then queues each file that needs a reading, spaced apart", async () => {
     const { t, projectId } = await setup();
-    const { insertDocumentWithText } = await import("./lib/documentText");
     const ids = await t.run(async (ctx) => {
       const ids: Id<"projectDocuments">[] = [];
       for (const [fileName, text, withOriginal] of [

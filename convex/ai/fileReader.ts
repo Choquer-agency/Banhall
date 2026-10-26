@@ -26,8 +26,10 @@ import { capContent, locatePageOffsets, MAX_CONTENT_CHARS } from "../../shared/d
 import { spreadsheetText } from "../../shared/spreadsheetText";
 import { emailToText, emlToText, fmtPerson, MAX_MBOX_MESSAGES, splitMbox } from "../../shared/emailText";
 
+import { SERVER_READER_VERSION } from "../lib/serverReading";
+
 /** Recorded with every server reading, so a better reader can read again. */
-export const SERVER_READER_VERSION = "server-reader-1";
+export { SERVER_READER_VERSION };
 
 /** pdf.js stops reading a PDF after this long; the pages read so far are kept. */
 export const SERVER_PDF_TIMEOUT_MS = 240_000;
@@ -44,6 +46,8 @@ export type ServerReading = {
   pageOffsets?: number[];
   /** Why there is no text, or why it stops early. Never file text. */
   note?: string;
+  /** The reader failed (a damaged file, or a library that did not load): not a real empty reading. */
+  failed?: true;
   reader: typeof SERVER_READER_VERSION;
 };
 
@@ -89,7 +93,7 @@ function before<T>(promise: Promise<T>, deadline: number): Promise<T> {
 
 const utf8 = (bytes: Uint8Array) => new TextDecoder("utf-8").decode(bytes);
 
-async function readPdf(bytes: Uint8Array, timeoutMs: number): Promise<ServerReading> {
+async function readPdf(bytes: Uint8Array, timeoutMs: number, maxChars: number): Promise<ServerReading> {
   const pdfjs = await loadPdfJs();
   const deadline = Date.now() + timeoutMs;
   // pdf.js takes the buffer over; give it a copy.
@@ -119,7 +123,7 @@ async function readPdf(bytes: Uint8Array, timeoutMs: number): Promise<ServerRead
         stoppedAtPage = index;
         break;
       }
-      if (text.length > MAX_CONTENT_CHARS) {
+      if (text.length > maxChars) {
         stoppedAtPage = index + 1;
         break;
       }
@@ -130,7 +134,7 @@ async function readPdf(bytes: Uint8Array, timeoutMs: number): Promise<ServerRead
     void task.destroy().catch(() => {});
   }
   if (stoppedAtPage > 0) text += pdfPageStopMarker(stoppedAtPage);
-  const content = capContent(text.trim());
+  const content = capContent(text.trim(), maxChars);
   return {
     fileType: "pdf",
     text: content,
@@ -179,9 +183,11 @@ async function readMbox(raw: string): Promise<string> {
 export async function readFileOnServer(
   bytes: Uint8Array,
   fileName: string,
-  options: { pdfTimeoutMs?: number } = {}
+  options: { pdfTimeoutMs?: number; maxChars?: number } = {}
 ): Promise<ServerReading> {
   const ext = getFileExtension(fileName);
+  // The browser's cap unless the caller keeps more (the OneDrive import).
+  const cap = (text: string) => capContent(text, options.maxChars ?? MAX_CONTENT_CHARS);
   const reading = (fileType: ServerFileType, text: string, note?: string): ServerReading => ({
     fileType,
     text,
@@ -192,27 +198,27 @@ export async function readFileOnServer(
     switch (ext) {
       case "txt":
       case "vtt":
-        return reading("txt", capContent(utf8(bytes)));
+        return reading("txt", cap(utf8(bytes)));
       case "md":
       case "markdown":
-        return reading("md", capContent(utf8(bytes)));
+        return reading("md", cap(utf8(bytes)));
       case "docx": {
         const result = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
-        return reading("docx", capContent(result.value.trim()));
+        return reading("docx", cap(result.value.trim()));
       }
       case "pdf":
-        return await readPdf(bytes, options.pdfTimeoutMs ?? SERVER_PDF_TIMEOUT_MS);
+        return await readPdf(bytes, options.pdfTimeoutMs ?? SERVER_PDF_TIMEOUT_MS, options.maxChars ?? MAX_CONTENT_CHARS);
       case "xlsx":
       case "xls":
         return reading("xlsx", spreadsheetText(bytes));
       case "csv":
-        return reading("xlsx", capContent(utf8(bytes)));
+        return reading("xlsx", cap(utf8(bytes)));
       case "msg":
-        return reading("msg", await readMsg(bytes));
+        return reading("msg", cap(await readMsg(bytes)));
       case "eml":
-        return reading("eml", capContent(await emlToText(utf8(bytes))));
+        return reading("eml", cap(await emlToText(utf8(bytes))));
       case "mbox":
-        return reading("eml", capContent(await readMbox(utf8(bytes))));
+        return reading("eml", cap(await readMbox(utf8(bytes))));
       case "doc":
         return reading("other", "", "A legacy .doc file; save it as .docx to read its text.");
       default:
@@ -221,6 +227,9 @@ export async function readFileOnServer(
     }
   } catch (error) {
     console.warn("A stored file could not be read on the server", safeErrorDetails(error));
-    return reading(ext === "pdf" ? "pdf" : "other", "", "The file could not be read; it may be damaged or protected.");
+    return {
+      ...reading(ext === "pdf" ? "pdf" : "other", "", "The file could not be read; it may be damaged or protected."),
+      failed: true,
+    };
   }
 }

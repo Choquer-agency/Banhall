@@ -613,9 +613,12 @@ export const getItem = internalQuery({
   },
 });
 
-/** Path B (crawler upload): attach stored bytes and hand off to extraction. */
+/**
+ * Path B (crawler upload), and each PDF of the Graph path since 2026-10-26:
+ * attach stored bytes and hand off to extraction in its own action.
+ */
 export const attachUpload = internalMutation({
-  args: { itemId: v.id("ingestionItems"), storageId: v.id("_storage") },
+  args: { itemId: v.id("ingestionItems"), storageId: v.id("_storage"), delayMs: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item || item.status !== "discovered") return null;
@@ -625,7 +628,7 @@ export const attachUpload = internalMutation({
       updatedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(
-      0,
+      Math.max(0, args.delayMs ?? 0),
       internal.ingestionSync.extractUploadedItem,
       { itemId: args.itemId }
     );

@@ -3,8 +3,8 @@
 /**
  * Reads one project file's stored original on the server (2026-10-26,
  * Phase B2) and hands the text to convex/documentReading.ts, which keeps it
- * only when it is fuller than what the file holds. Queued at upload and by
- * the one-off pass (queueServerReadings).
+ * only for a file with nothing read. Queued when a file is added or gains
+ * its original, and by the one-off pass (queueServerReadings).
  */
 import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
@@ -22,29 +22,30 @@ export const readStoredDocument = internalAction({
   args: { documentId: v.id("projectDocuments") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const target = await ctx.runQuery(internal.documentReading.storedDocumentToRead, { documentId: args.documentId });
+    const target = await ctx.runMutation(internal.documentReading.startServerReading, { documentId: args.documentId });
     if (!target) return null;
-    if (target.bytes > MAX_SERVER_READ_BYTES) {
-      // Recorded as read, so the file is not queued again; its text stays.
-      await ctx.runMutation(internal.documentReading.saveServerReading, {
+    const finish = (reading: { text: string; pageCount?: number; failed?: true }) =>
+      ctx.runMutation(internal.documentReading.saveServerReading, {
         documentId: args.documentId,
         expectedTextHash: target.textHash,
-        text: "",
+        text: reading.text,
+        ...(reading.pageCount !== undefined ? { pageCount: reading.pageCount } : {}),
         reader: SERVER_READER_VERSION,
+        ...(reading.failed ? { failed: true } : {}),
       });
+    if (target.bytes > MAX_SERVER_READ_BYTES) {
+      // Recorded as read, so the file is not queued again; its text stays.
+      await finish({ text: "" });
       console.info(`readStoredDocument: not read, ${target.bytes} bytes is over ${MAX_SERVER_READ_BYTES}`);
       return null;
     }
     const blob = await ctx.storage.get(target.storageId);
-    if (!blob) return null;
+    if (!blob) {
+      await finish({ text: "", failed: true });
+      return null;
+    }
     const reading = await readFileOnServer(new Uint8Array(await blob.arrayBuffer()), target.fileName);
-    const outcome = await ctx.runMutation(internal.documentReading.saveServerReading, {
-      documentId: args.documentId,
-      expectedTextHash: target.textHash,
-      text: reading.text,
-      ...(reading.pageCount !== undefined ? { pageCount: reading.pageCount } : {}),
-      reader: reading.reader,
-    });
+    const outcome = await finish(reading);
     console.info(`readStoredDocument: ${outcome}${reading.note ? ` (${reading.note})` : ""}`);
     return null;
   },

@@ -236,7 +236,8 @@ export async function parseFileToText(file: File, options: ParseOptions = {}): P
       to,
       body: data.body,
     });
-    return { fileName: name, fileType: "msg", content };
+    // Capped like every other reader (2026-10-26, Phase B2 review).
+    return { fileName: name, fileType: "msg", content: capContent(content) };
   }
 
   if (lower.endsWith(".eml")) {

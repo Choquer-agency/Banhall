@@ -18,7 +18,7 @@ import { generateShareToken } from "./projects";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { activeClientIdForName } from "./lib/clients";
 import { insertDocumentWithText } from "./lib/documentText";
-import { queueServerReadingIfNeeded } from "./lib/serverReading";
+import { hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
 
 // ─── Historical projects ported from OneDrive ingestion ─────────────────────
 // 2026-08-18 amendment (client meeting): an approved historical PD in the
@@ -251,7 +251,7 @@ export const finalizePort = internalMutation({
       ctx,
       documentId,
       { fileName: item.name, ...(args.copiedStorageId ? { storageId: args.copiedStorageId } : {}) },
-      args.content
+      hasReadText(args.content)
     );
 
     await ctx.db.patch(item._id, {

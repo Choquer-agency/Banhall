@@ -17,6 +17,18 @@ describe("the OneDrive import's text", () => {
     expect(note).toBeUndefined();
   });
 
+  it("keeps text past the project files' 400,000-character cap, up to its own 700,000", async () => {
+    const long = "word ".repeat(120_000).trim();
+    const { text } = await extractText(bytesOf(new TextEncoder().encode(long)), "long.txt");
+    expect(text).toBe(long);
+  });
+
+  it("fails a damaged file, so the item is marked failed as before", async () => {
+    await expect(extractText(bytesOf(new TextEncoder().encode("not a zip")), "Broken.docx")).rejects.toThrow(
+      /could not be read/
+    );
+  });
+
   it("reads text and transcripts, and notes an old Word file", async () => {
     expect((await extractText(bytesOf(new TextEncoder().encode("WEBVTT\n\nHello")), "call.vtt")).text).toBe(
       "WEBVTT\n\nHello"

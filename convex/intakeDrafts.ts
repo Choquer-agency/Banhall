@@ -89,8 +89,8 @@ import {
 } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
-import { documentTextHash, insertDocumentWithText, readDocumentText } from "./lib/documentText";
-import { queueServerReadingIfNeeded } from "./lib/serverReading";
+import { documentTextHash, insertDocumentWithText } from "./lib/documentText";
+import { documentHasReadText, hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
 
 /** Characters one promotion step installs; the rest follow in the next step. */
 const PROMOTION_STEP_CHARS = 1_500_000;
@@ -484,7 +484,7 @@ export const attachIntakeOriginal = mutation({
             ctx,
             document._id,
             { ...document, storageId: args.storageId },
-            await readDocumentText(ctx, document)
+            await documentHasReadText(ctx, document)
           );
           return true;
         }
@@ -1318,7 +1318,7 @@ async function installDocument(
     ctx,
     projectDocumentId,
     { fileName: source.label, ...(source.storageId ? { storageId: source.storageId } : {}) },
-    content
+    hasReadText(content)
   );
   await ctx.db.insert("intakeSourceLinks", {
     draftId: draft._id,
@@ -1354,7 +1354,7 @@ async function linkMergedDocument(
       ctx,
       projectDocumentId,
       { ...document, storageId: source.storageId },
-      await readDocumentText(ctx, document)
+      await documentHasReadText(ctx, document)
     );
   }
   await ctx.db.insert("intakeSourceLinks", {
