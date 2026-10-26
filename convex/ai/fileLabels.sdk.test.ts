@@ -170,13 +170,20 @@ describe("a file's labels (2026-10-26)", () => {
     expect(doc?.labels?.summary.endsWith("…")).toBe(true);
   });
 
+  it("reads an odd kind as other, a year written as text, and drops extra fields", async () => {
+    answer = () => toolAnswer({ documentType: "novel", fiscalYear: "2025", title: "Seal log", summary: "The seal held.", notes: "x" });
+    const { t, documentId } = await setup();
+    await t.action(internal.ai.fileLabels.labelFile, { documentId });
+    expect((await t.run(async (ctx) => ctx.db.get(documentId)))?.labels).toMatchObject({ documentType: "other", fiscalYear: 2025 });
+  });
+
   it("an answer that breaks its schema is tried again later, and left after four tries", async () => {
-    answer = () => toolAnswer({ documentType: "novel", fiscalYear: 2025, title: "x", summary: "y" });
+    answer = () => toolAnswer({ documentType: "technical report", fiscalYear: 2025, title: "", summary: "y" });
     const { t, documentId } = await setup();
     await t.action(internal.ai.fileLabels.labelFile, { documentId });
     let doc = await t.run(async (ctx) => ctx.db.get(documentId));
     expect(doc).toMatchObject({ labelsDue: true, labelsAttempts: 1, labelsNextAt: NOW + LABEL_RETRY_DELAYS_MS[0] });
-    expect(doc?.labelsLastError).toMatch(/schema/);
+    expect(doc?.labelsLastError).toMatch(/schema \(title:too_small\)/);
     expect(doc?.labels).toBeUndefined();
     for (let i = 0; i < 3; i++) await t.action(internal.ai.fileLabels.labelFile, { documentId });
     doc = await t.run(async (ctx) => ctx.db.get(documentId));

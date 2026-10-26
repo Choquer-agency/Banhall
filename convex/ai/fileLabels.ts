@@ -42,16 +42,26 @@ ${HUMAN_PROSE_FOR_OWN_WORDING}
 
 Prompt version: ${FILE_LABELS_PROMPT_VERSION}.`;
 
-const labelsSchema = z
-  .object({
-    documentType: z.enum(FILE_DOCUMENT_TYPES),
-    fiscalYear: z.number().int().min(1990).max(2100).nullable(),
-    // A longer answer is clipped after names are put back, never refused
-    // (live run, 2026-10-26: summaries ran long).
-    title: z.string().trim().min(1).max(4_000),
-    summary: z.string().trim().min(1).max(4_000),
-  })
-  .strict();
+/**
+ * The answer, read forgivingly (live run, 2026-10-26): a kind outside the
+ * list reads as "other", a year written as text is read as a number and
+ * anything else as null, and extra fields are dropped. Only a missing title
+ * or summary fails the try.
+ */
+const labelsSchema = z.object({
+  documentType: z.preprocess(
+    (value) => (typeof value === "string" && (FILE_DOCUMENT_TYPES as readonly string[]).includes(value) ? value : "other"),
+    z.enum(FILE_DOCUMENT_TYPES)
+  ),
+  fiscalYear: z.preprocess((value) => {
+    const year = typeof value === "string" && /^\d{4}$/.test(value.trim()) ? Number(value.trim()) : value;
+    return typeof year === "number" && Number.isInteger(year) && year >= 1990 && year <= 2100 ? year : null;
+  }, z.number().int().nullable()),
+  // A longer answer is clipped after names are put back, never refused
+  // (live run, 2026-10-26: summaries ran long).
+  title: z.string().trim().min(1).max(4_000),
+  summary: z.string().trim().min(1).max(4_000),
+});
 
 const TOOL = {
   name: TOOL_NAME,
@@ -139,7 +149,9 @@ export const labelFile = internalAction({
       const parsed = labelsSchema.safeParse(call && "input" in call ? call.input : undefined);
       if (!parsed.success) {
         await response.settleOutcome?.({ ok: false, code: "invalid_output" });
-        throw new Error("The label answer did not match its schema");
+        // Field paths and issue codes only, never the answer's text.
+        const where = parsed.error.issues.map((issue) => `${issue.path.join(".") || "answer"}:${issue.code}`).join(", ");
+        throw new Error(`The label answer did not match its schema (${where})`);
       }
       await response.settleOutcome?.({ ok: true });
       const outcome = await ctx.runMutation(internal.fileLabels.saveFileLabels, {
