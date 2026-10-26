@@ -390,8 +390,8 @@ What changes:
 
 - [x] Design reviewed twice before code by Claude Opus 5.5 (high requested, it reported low) and gpt-6-astra (medium): both "go with changes" each round; adopted all but two findings (see the decision record).
 - [x] A regression found by the agent that rewrote the sign-off tests (a claim no longer refused a plan check too big for any request) is fixed and tested.
+- [x] Code review after, of 8c3d83dd: gpt-6-astra (medium) and Claude Opus 5.5 (high requested, it reported low), both "ship after fixes". All findings fixed but one, which is accepted and recorded (the uncounted 402 request). The fixes are the second Phase A commit.
 - [ ] `bash scripts/loop-verify.sh` on the final code.
-- [ ] Code review after, by two reviewers on different models.
 
 ### Automated, live on localhost
 

@@ -33,7 +33,7 @@ import {
   type VerifiedFact,
 } from "../lib/transcriptFacts";
 import { TRANSCRIPT_FACT_TYPES } from "../lib/transcriptValidators";
-import { OutputLimitError, type GenerationClient } from "./openrouterCore";
+import { OutputLimitError, isCutOffStopReason, type GenerationClient } from "./openrouterCore";
 import { generateStructured } from "./structured";
 
 export const FACTS_SYSTEM_PROMPT = `You extract SR&ED evidence from one window of an interview transcript for a Canadian SR&ED consulting firm. A technical writer will draft a CRA project description from what you record, and every fact you record is checked against the transcript word for word.
@@ -134,6 +134,20 @@ export class FactWindowTimeoutError extends Error {
  * another, within the action's deadline.
  */
 export const FACT_WINDOW_SPLIT_DEPTH = 2;
+
+/**
+ * A stretch still cut off after it was split as far as it goes (code review,
+ * 2026-10-26): its text, not the time or the provider, is too dense for one
+ * answer. Only this marks a fact run too dense (transcriptFactRuns.tooDense);
+ * a window that ran out of time, or had no time left to split, fails the run
+ * so a later background run can try again.
+ */
+export class FactWindowTooDenseError extends FactWindowCutOffError {
+  constructor(cause?: unknown) {
+    super(cause);
+    this.name = "FactWindowTooDenseError";
+  }
+}
 
 /**
  * A window halved at a turn boundary, the second half starting
@@ -281,11 +295,11 @@ export type CitationsClient = {
 
 /**
  * The outcome one parsed citations answer records (review 2026-09-25,
- * P3-a): cut off at max_tokens or refused is a failure of the model, even
- * when the lines before the cut are kept; anything else is a success.
+ * P3-a): cut off (at max_tokens or, since 2026-10-26, the context window)
+ * or refused is a failure of the model; anything else is a success.
  */
 export function citationsOutcome(stopReason: string | null | undefined): { ok: true } | { ok: false; code: string } {
-  if (stopReason === "max_tokens") return { ok: false, code: "output_limit" };
+  if (isCutOffStopReason(stopReason)) return { ok: false, code: "output_limit" };
   if (stopReason === "refusal") return { ok: false, code: "refusal" };
   return { ok: true };
 }
@@ -302,7 +316,7 @@ export function citationsExtractor(
       onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
     }
     let facts: ProposedFact[];
-    const truncated = response.stop_reason === "max_tokens";
+    const truncated = isCutOffStopReason(response.stop_reason);
     try {
       facts = parseCitationsResponse(response.content, lines, { truncated });
     } catch (error) {
@@ -537,7 +551,8 @@ export async function extractTranscriptFacts(args: {
       const halves = depth < FACT_WINDOW_SPLIT_DEPTH ? splitFactWindow(window) : null;
       if (!halves) {
         console.warn(`A fact window of ${window.length} turns failed (${error.name}) and cannot be split further`);
-        throw error;
+        if (error instanceof FactWindowTooDenseError) throw error;
+        throw error instanceof FactWindowCutOffError ? new FactWindowTooDenseError(error.cause ?? error) : error;
       }
       console.warn(`A fact window of ${window.length} turns failed (${error.name}); extracting it in two halves`);
       const facts: ProposedFact[] = [];

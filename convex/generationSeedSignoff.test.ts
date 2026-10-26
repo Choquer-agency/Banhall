@@ -3256,7 +3256,10 @@ describe("seed Summary sign-off and recovery", () => {
     expect(splitAfter.summaries).toHaveLength(1);
     expect(splitAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
     expect(splitAfter.jobs).toHaveLength(1);
-  });
+    // 2026-10-26: the reachability enumeration above takes about 17 s on an
+    // idle machine and passed 30 s on a loaded one (code review), so this
+    // test alone gets more time.
+  }, 90_000);
 
   it("admits a real Brief's ordinary checks beside a 7-item Section 242 plan as one request and checks a response over the limit in 2", async () => {
     // Regression 2026-09-25: a real end-to-end run was split at sign-off

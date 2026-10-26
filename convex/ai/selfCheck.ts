@@ -466,8 +466,46 @@ export function clipSummarySelfCheckFreeText(raw: RawSelfCheck): RawSelfCheck {
  * its free text runs past, and its size is handed to `onAnswerBytes` so the
  * request can log it beside its projection.
  */
+/** The labels and plan references other requests of the same Line list. */
+type ForeignChecks = { labels: ReadonlySet<string>; planRefs: ReadonlySet<string> };
+
+/**
+ * 2026-10-26 (code review): a raw answer without the verdicts it gave for
+ * checks another request of the Line lists, removed before any item is
+ * decoded, so a malformed one never counts toward rejecting this request.
+ * A verdict whose label or reference is unknown or unreadable is kept and
+ * judged as before.
+ */
+function withoutForeignVerdicts(value: unknown, foreign: ForeignChecks | undefined): unknown {
+  if (!foreign || !isUnknownRecord(value)) return value;
+  const stringField = (item: Record<string, unknown>, key: string) =>
+    typeof item[key] === "string" ? (item[key] as string) : undefined;
+  const result: Record<string, unknown> = { ...value };
+  if (Array.isArray(value.verdicts)) {
+    result.verdicts = value.verdicts.filter((item) => {
+      if (!isUnknownRecord(item)) return true;
+      const label = stringField(item, "instruction");
+      return label === undefined || !foreign.labels.has(label);
+    });
+  }
+  if (Array.isArray(value.planVerdicts)) {
+    result.planVerdicts = value.planVerdicts.filter((item) => {
+      if (!isUnknownRecord(item)) return true;
+      const ref = planRefOf({
+        itemId: stringField(item, "itemId"),
+        skippedRoleId: stringField(item, "skippedRoleId"),
+        droppedSeedId: stringField(item, "droppedSeedId"),
+        ruleId: stringField(item, "ruleId"),
+      });
+      return ref === "" || !foreign.planRefs.has(ref);
+    });
+  }
+  return result;
+}
+
 function summaryPlanSelfCheckOutputSchemaFor(
-  onAnswerBytes: (bytes: number) => void
+  onAnswerBytes: (bytes: number) => void,
+  foreign?: ForeignChecks
 ): z.ZodType<RawSelfCheck> {
   return z.unknown()
     .superRefine((value, ctx) => {
@@ -490,7 +528,7 @@ function summaryPlanSelfCheckOutputSchemaFor(
         });
       }
     })
-    .transform(normalizeInvalidPlanParagraphs)
+    .transform((value) => normalizeInvalidPlanParagraphs(withoutForeignVerdicts(value, foreign)))
     .pipe(decodedSummaryPlanSelfCheckOutputSchema)
     .transform(clipSummarySelfCheckFreeText);
 }
@@ -2040,7 +2078,7 @@ async function checkSummaryRequest(
       schema: summaryPlanSelfCheckSchemaFor(ordinary, plans) as unknown as Anthropic.Tool.InputSchema,
       maxTokens: SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens,
       model: input.model,
-      validate: summaryPlanSelfCheckOutputSchemaFor((bytes) => { answerBytes = bytes; }),
+      validate: summaryPlanSelfCheckOutputSchemaFor((bytes) => { answerBytes = bytes; }, foreign),
       attempts: 1,
       encodedJsonRecovery: false,
     });
@@ -2062,6 +2100,13 @@ async function checkSummaryRequest(
   // Verdicts for another request's labels and plan checks, dropped.
   const ownLabels = new Set(args.ordinaryChecks.map((check) => check.label));
   const ownPlanRefs = new Set(args.planChecks.map(planRefOf));
+  // Removed before decoding (withoutForeignVerdicts), and again after, below.
+  const foreign: ForeignChecks | undefined = args.part
+    ? {
+        labels: new Set([...args.part.lineLabels].filter((label) => !ownLabels.has(label))),
+        planRefs: new Set([...args.part.linePlanRefs].filter((ref) => !ownPlanRefs.has(ref))),
+      }
+    : undefined;
   const withoutOtherRequests = (raw: RawSelfCheck): RawSelfCheck => {
     const part = args.part;
     if (!part) return raw;

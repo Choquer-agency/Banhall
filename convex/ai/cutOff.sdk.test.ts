@@ -258,21 +258,13 @@ test("OpenRouter: a length-truncated tool answer gets the same shorter-answer re
   expect(usage.map((row) => row.stopReason)).toEqual(["length", "tool_calls"]);
 });
 
-// 2026-10-26: a step that opts in asks for the model's whole allowance
-// after a cut-off. OpenRouter holds credit against max_tokens and can refuse
-// so large a request with a 402; it is then sent once more at the step's
-// own limit with the shorter-answer repair, and the refusal spends no attempt.
-test("OpenRouter: a whole-allowance repair refused with a 402 is sent again at the step's limit with the shorter repair", async () => {
+// 2026-10-26 (code review): an OpenRouter model's answer does not stream, so
+// even a step that opts in keeps the shorter repair at the same limit there.
+test("OpenRouter models keep the shorter repair after a cut-off, even for a step that opts in to more room", async () => {
   const t = convexTest(schema, modules);
   const bodies: Array<{ max_tokens: number; messages: Array<{ role: string; content: unknown }> }> = [];
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
     bodies.push(await new Request(input, init).json() as (typeof bodies)[number]);
-    if (bodies.length === 2) {
-      return Response.json(
-        { error: { code: 402, message: "Request weight exceeds the budget", metadata: { reason: "weight_exceeds_budget" } } },
-        { status: 402 }
-      );
-    }
     const cut = bodies.length === 1;
     return Response.json({
       model: "openai/gpt-6-sol",
@@ -281,10 +273,7 @@ test("OpenRouter: a whole-allowance repair refused with a 402 is sent again at t
           content: null,
           tool_calls: [{
             id: "call_synthetic",
-            function: {
-              name: options.toolName,
-              arguments: cut ? '{"summary":"The seal fa' : JSON.stringify(COMPLETE),
-            },
+            function: { name: options.toolName, arguments: cut ? '{"summary":"The seal fa' : JSON.stringify(COMPLETE) },
           }],
         },
         finish_reason: cut ? "length" : "tool_calls",
@@ -303,8 +292,41 @@ test("OpenRouter: a whole-allowance repair refused with a 402 is sent again at t
   await t.finishAllScheduledFunctions(vi.runAllTimers);
 
   expect(value).toEqual(COMPLETE);
-  // 256 with the reasoning room (x4), the model's whole 128,000, then 256 again.
-  expect(bodies.map((body) => body.max_tokens)).toEqual([1024, 128_000, 1024]);
+  // 256 with the reasoning room (x4), both times.
+  expect(bodies.map((body) => body.max_tokens)).toEqual([1024, 1024]);
+  expect(bodies[1].messages.at(-1)).toEqual({ role: "user", content: `${options.user}${REPAIR_NOTE}` });
+});
+
+// OpenRouter holds credit against max_tokens and can refuse a Claude request
+// sent over its transport for its size with a 402; the repair is then sent
+// once more at the step's own limit, and the refusal spends no attempt.
+test("Claude over the OpenRouter transport: a whole-allowance repair refused with a 402 is sent again at the step's limit", async () => {
+  vi.stubEnv("ANTHROPIC_TRANSPORT", "openrouter");
+  const t = convexTest(schema, modules);
+  const bodies: Array<{ max_tokens: number; stream?: boolean; messages: Array<{ role: string; content: unknown }> }> = [];
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    expect(request.url).toBe("https://openrouter.ai/api/v1/messages");
+    bodies.push(await request.json() as (typeof bodies)[number]);
+    if (bodies.length === 2) {
+      return Response.json(
+        { error: { code: 402, message: "Request weight exceeds the budget", metadata: { reason: "weight_exceeds_budget" } } },
+        { status: 402 }
+      );
+    }
+    return bodies.length === 1
+      ? anthropicMessage([toolUse(PARTIAL)], "max_tokens", options.maxTokens)
+      : anthropicMessage([toolUse(COMPLETE)], "tool_use", 90);
+  })));
+
+  const value = await runAction(t, async (ctx) =>
+    generateStructured(instrumentedAnthropic(ctx, { callSite: "cutoff-contract" }), { ...options, cutOffRetry: "more_room" })
+  );
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(value).toEqual(COMPLETE);
+  // The step's 256, the model's whole 128,000 (streamed), then 256 again.
+  expect(bodies.map((body) => [body.max_tokens, body.stream === true])).toEqual([[256, false], [128_000, true], [256, false]]);
   expect(JSON.stringify(bodies[1].messages)).toContain("this attempt has more room, so give the complete answer");
   expect(bodies[2].messages.at(-1)).toEqual({ role: "user", content: `${options.user}${REPAIR_NOTE}` });
 });

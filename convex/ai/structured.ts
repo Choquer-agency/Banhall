@@ -444,7 +444,8 @@ export async function generateStructured<T>(
      * answer. `more_room` sends the model's whole output allowance
      * (modelOutputCap) and asks for the complete answer: for a step whose
      * answer grows with the report and whose time limit can take a long
-     * answer. A model with no known cap, or one already asked for its whole
+     * answer. Only on the Anthropic Messages gateway, whose long answers
+     * stream; an OpenRouter model (GPT, Gemini) keeps the shorter repair. A model with no known cap, or one already asked for its whole
      * allowance, gets the shorter repair either way. When the provider
      * refuses the larger request for its size (a 402: OpenRouter holds
      * credit against `max_tokens`), it is sent once more at the step's own
@@ -551,8 +552,15 @@ async function structuredAttempts<T>(
    * would fill the window again.
    */
   const afterCutOff = (stopReason?: string | null): string => {
+    // Code review (2026-10-26): only the Anthropic Messages gateway streams
+    // a long answer; an OpenRouter model's retry (GPT, Gemini) still has 240
+    // seconds for its whole answer, so it keeps the shorter repair.
     const cap =
-      opts.cutOffRetry === "more_room" && stopReason !== CONTEXT_WINDOW_STOP_REASON ? modelOutputCap(model) : null;
+      opts.cutOffRetry === "more_room" &&
+      stopReason !== CONTEXT_WINDOW_STOP_REASON &&
+      gatewayForModel(model) === "anthropic"
+        ? modelOutputCap(model)
+        : null;
     if (cap !== null && cap > sentLimit(maxTokens)) {
       raisedFrom = maxTokens;
       maxTokens = cap;

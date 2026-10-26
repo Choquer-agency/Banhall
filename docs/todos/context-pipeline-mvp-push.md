@@ -151,6 +151,8 @@ The owner asked for everything to be finished with live tests on localhost, QA a
 - [x] A3. The sign-off check runs in parts, all at once; a Brief over 64 entries or a very large step is checked in parts instead of refused (P0 item 2, second half). Done 2026-10-26, same decision. Listing each merged group once is deferred (known limit).
 
 **Phase B: files are read once, on the server, and kept as versions**
+
+Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then D, then B1. B2 and B4 fix what writers see (OneDrive PDFs arriving empty, files the server cannot read, evidence found by upload order). B1 changes only how drafts store their evidence: about 15 readers and 40 test fixtures read the frozen copies whole (code map of 2026-10-26), and at today's volumes the copies are not a problem. B3 waits for the owner's Azure account.
 - [ ] B1. Text versions that never change, and each draft records the versions and ranges it used (decision entry 2026-10-26, part 4).
 - [ ] B2. Server reading: PDF, Word, Excel and CSV, email, with the raw reading kept; OneDrive PDFs fixed; a one-off pass for existing files (P1 item 6).
 - [ ] B3. Azure scan reading behind its key, tested with public documents (needs the owner's Azure account for the live test).

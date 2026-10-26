@@ -668,11 +668,21 @@ export function sendsLargeAnswer(request: unknown): boolean {
 export const STREAM_WITHOUT_DEADLINE_MS = ACTION_REQUEST_WINDOW_MS;
 
 /**
+ * How long a stream may send nothing at all before it is stopped and
+ * retried (2026-10-26, code review): the time a request that was not
+ * streamed had for its whole answer. A stream that keeps sending runs on.
+ */
+// A literal, not ANTHROPIC_TIMEOUT_MS: providers.ts imports this module, so
+// its constants are not ready when this one loads. A test keeps them equal.
+export const STREAM_IDLE_LIMIT_MS = 240_000;
+
+/**
  * A stream that ran past its own time limit (2026-10-26): its client's
  * timeout, or STREAM_WITHOUT_DEADLINE_MS outside a generation action. A
- * timeout, like the SDK's own, and retried like one
- * (isRetryableAnthropicError); a stream the action's deadline stopped fails
- * with ActionTimeBudgetError instead. A plain Error, not an SDK subclass, so
+ * timeout, like the SDK's own; in an action with a deadline it is retried
+ * like one (createWithinDeadline, isRetryableAnthropicError), elsewhere it
+ * is thrown as it came. A stream the action's deadline stopped fails with
+ * ActionTimeBudgetError instead. A plain Error, not an SDK subclass, so
  * the module loads where a test replaces the SDK.
  */
 export class StreamTimeLimitError extends Error {
@@ -684,10 +694,12 @@ export class StreamTimeLimitError extends Error {
 
 /**
  * A stream that ended before its answer finished (2026-10-26): the
- * connection closed part way, or the provider sent an overloaded or api
- * error event mid-stream. Retried like a dropped request
- * (isRetryableAnthropicError) and, once its retries are spent, counted
- * against the model as a dropped connection is. A plain Error, not an SDK
+ * connection closed part way, it sent nothing for STREAM_IDLE_LIMIT_MS, or
+ * the provider sent an overloaded or api error event mid-stream. In an
+ * action with a deadline it is retried like a dropped request
+ * (createWithinDeadline, isRetryableAnthropicError); elsewhere it is thrown
+ * as it came. Once its retries are spent it counts against the model as a
+ * dropped connection does. A plain Error, not an SDK
  * subclass, so the module loads where a test replaces the SDK.
  */
 export class StreamInterruptedError extends Error {
@@ -726,11 +738,15 @@ export function streamFailure(error: unknown): unknown {
 
 /**
  * One signal that aborts when either does (2026-10-26): the client's and a
- * request's own. Either alone is returned as it is.
+ * request's own. Either alone is returned as it is. `AbortSignal.any`, where
+ * the runtime has it, drops its hold on both when the result is no longer
+ * used; otherwise one listener stays on each until it aborts (code review).
  */
 export function eitherSignal(a: AbortSignal | undefined, b: AbortSignal | undefined): AbortSignal | undefined {
   if (!a || a === b) return b ?? a;
   if (!b) return a;
+  const any = (AbortSignal as { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (typeof any === "function") return any.call(AbortSignal, [a, b]);
   const combined = new AbortController();
   const abort = (source: AbortSignal) => () => combined.abort(source.reason);
   if (a.aborted) combined.abort(a.reason);
@@ -1018,7 +1034,23 @@ export function instrumentedAnthropic(
             : undefined;
           let received = 0;
           let message: unknown;
-          const progress: { partial?: unknown; receivedChars?: number } = {};
+          const progress: { partial?: unknown; receivedChars?: number; lastEventAt?: number } = {
+            lastEventAt: Date.now(),
+          };
+          // A stream that sends nothing for STREAM_IDLE_LIMIT_MS is stopped:
+          // it has stalled, and a retry may still fit (code review).
+          let stalled = false;
+          let idleTimer: ReturnType<typeof setTimeout> | undefined;
+          const watchIdle = () => {
+            const quietFor = Date.now() - (progress.lastEventAt ?? attemptStartedAt);
+            if (quietFor >= STREAM_IDLE_LIMIT_MS) {
+              stalled = true;
+              controller?.abort();
+              return;
+            }
+            idleTimer = setTimeout(watchIdle, STREAM_IDLE_LIMIT_MS - quietFor);
+          };
+          if (controller) idleTimer = setTimeout(watchIdle, STREAM_IDLE_LIMIT_MS);
           try {
             message = await collectMessageStream(
               stream,
@@ -1045,17 +1077,22 @@ export function instrumentedAnthropic(
             throw streamFailure(error);
           } finally {
             if (timer) clearTimeout(timer);
+            if (idleTimer) clearTimeout(idleTimer);
           }
           if (responseStopReason(message)) return message;
           if (callSignal?.aborted && !timedOut) throw new RequestAbortedError(message, received);
           if (anthropicUsage(message)) {
             await logUsage(message, viaOpenRouter, {
               receivedChars: received,
-              reason: timedOut ? "timeout" : "interrupted",
+              reason: timedOut ? "timeout" : stalled ? "stalled" : "interrupted",
             });
           }
           if (timedOut) throw deadlineBound ? new ActionTimeBudgetError() : new StreamTimeLimitError();
-          throw new StreamInterruptedError("The answer stream ended before the answer finished");
+          throw new StreamInterruptedError(
+            stalled
+              ? `The answer stream sent nothing for ${STREAM_IDLE_LIMIT_MS / 1000} seconds`
+              : "The answer stream ended before the answer finished"
+          );
         };
         // The caller's signal travels with the request options on every
         // transport, so the SDK stops the request (and its stream) itself.

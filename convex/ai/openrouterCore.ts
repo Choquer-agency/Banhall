@@ -169,12 +169,13 @@ const TOOL_INPUT_BLOCKS: ReadonlySet<string> = new Set(["tool_use", "server_tool
  * its `citations_delta` citations (citations-mode fact extraction reads
  * them), a thinking block its thinking text and `signature_delta`
  * signature. When the stream fails part way, `progress.partial` holds the
- * message folded so far, so its usage can still be logged.
+ * message folded so far, so its usage can still be logged, and
+ * `progress.lastEventAt` is when the stream last sent anything.
  */
 export async function collectMessageStream(
   stream: unknown,
   handlers: GenerationStreamHandlers = {},
-  progress?: { partial?: unknown; receivedChars?: number }
+  progress?: { partial?: unknown; receivedChars?: number; lastEventAt?: number }
 ): Promise<unknown> {
   if (!stream || typeof stream !== "object" || !(Symbol.asyncIterator in stream)) return stream;
   type Block = { type: string; [key: string]: unknown; partial?: string };
@@ -203,6 +204,7 @@ export async function collectMessageStream(
   handlers.onToolInput?.("");
   try {
     for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
+      if (progress) progress.lastEventAt = Date.now();
       const event = raw ?? {};
       switch (event.type) {
         case "message_start": {

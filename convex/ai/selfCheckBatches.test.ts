@@ -173,6 +173,22 @@ describe("a Line checked in several requests (2026-10-26)", () => {
     expect(result.verdicts).toHaveLength(ordinary.length);
   });
 
+  // Code review (gpt-6-astra, 2026-10-26): a malformed verdict for another
+  // request's label is removed before it is decoded, so it never counts.
+  it("ignores a malformed verdict for a label another request lists", async () => {
+    const { client: fake } = client((params) => {
+      const own = answerFor(params);
+      const ownLabels = new Set(listed(params).labels.map((entry) => entry.label));
+      const malformedForeign = ordinary
+        .filter((check) => !ownLabels.has(check.label))
+        .map((check) => ({ paragraph: 1, check: check.check, instruction: check.label, outcome: "applied" }));
+      return toolReply(params, { ...own, verdicts: [...own.verdicts, ...malformedForeign] });
+    });
+    const result = await runModelSelfCheck(fake, input);
+    expect(result.verdicts.filter((verdict) => verdict.notChecked)).toEqual([]);
+    expect(result.verdicts).toHaveLength(ordinary.length);
+  });
+
   it("leaves only an unusable request's labels and plan checks not checked", async () => {
     const { client: fake } = client((params) => {
       // The request without the facts rule is cut off at its output limit.

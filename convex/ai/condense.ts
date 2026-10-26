@@ -12,6 +12,7 @@ import {
   citationsExtractor,
   FactWindowCutOffError,
   FactWindowTimeoutError,
+  FactWindowTooDenseError,
   extractTranscriptFacts,
   FACTS_CONCURRENCY,
   FACTS_TIMEOUT_MS,
@@ -562,13 +563,14 @@ export async function ensureTranscriptFacts(
     // 2026-10-26 (failure 6): a stretch too dense for one answer fails a
     // generation's extraction instead of losing the end of its facts, and
     // background extraction, which splits such a stretch, gets it ready for
-    // the next draft. Background extraction that still fails on it marks
-    // the run too dense, so no draft tries this text again.
+    // the next draft. Only a stretch still cut off at its smallest pieces
+    // marks the run too dense, so no draft tries this text again; running
+    // out of time does not (code review, 2026-10-26).
     const dense = error instanceof FactWindowCutOffError || error instanceof FactWindowTimeoutError;
     await ctx.runMutation(internal.transcripts.failFactRun, {
       runId: claim.runId,
       error: describeGenerationFailure(error),
-      ...(dense && caller.kind === "background" ? { tooDense: true } : {}),
+      ...(error instanceof FactWindowTooDenseError && caller.kind === "background" ? { tooDense: true } : {}),
     });
     if (dense && caller.kind === "generation") {
       await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, { transcriptId });
@@ -682,6 +684,14 @@ export async function ensureFactInputs(
   const missing = input.transcripts.filter((transcript) => !transcript.frozen && !transcript.ready);
   if (missing.some((transcript) => transcript.busy)) {
     await log("Verified facts are still being prepared for a transcript, so this draft reads the transcripts the usual way.");
+    return false;
+  }
+  // 2026-10-26 (code review): a text known to be too dense is neither
+  // extracted nor queued again.
+  if (missing.some((transcript) => transcript.tooDense)) {
+    await log(
+      "Part of a transcript has more facts than the AI can extract, even in pieces, so this draft reads the transcripts the usual way."
+    );
     return false;
   }
   const inputs = await Promise.all(

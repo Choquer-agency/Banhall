@@ -19,7 +19,8 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import schema from "../schema";
 import type { ActionCtx } from "../_generated/server";
-import { instrumentedAnthropic, StreamInterruptedError, StreamTimeLimitError } from "./instrument";
+import { instrumentedAnthropic, STREAM_IDLE_LIMIT_MS, StreamInterruptedError, StreamTimeLimitError } from "./instrument";
+import { ANTHROPIC_TIMEOUT_MS } from "./providers";
 import { RequestAbortedError } from "./openrouterCore";
 import { ACTION_REQUEST_WINDOW_MS, ActionTimeBudgetError, startActionDeadline } from "./actionDeadline";
 import { LARGE_ANSWER_STREAM_THRESHOLD } from "../../shared/generationModels";
@@ -75,7 +76,12 @@ function withTimeLeft(ctx: ActionCtx, leftMs: number): void {
  * A server-sent event body that sends `text`, then either closes or stays
  * open until the request's signal aborts (as a real connection does).
  */
-function sseBody(text: string, init: RequestInit | undefined, options: { hang?: boolean } = {}): Response {
+function sseBody(
+  text: string,
+  init: RequestInit | undefined,
+  options: { hang?: boolean; dripEveryMs?: number } = {}
+): Response {
+  let drip: ReturnType<typeof setInterval> | undefined;
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(text));
@@ -83,9 +89,20 @@ function sseBody(text: string, init: RequestInit | undefined, options: { hang?: 
         controller.close();
         return;
       }
-      init?.signal?.addEventListener("abort", () =>
-        controller.error(new DOMException("The operation was aborted.", "AbortError"))
-      );
+      // A stream that keeps writing: one more piece of text now and then.
+      if (options.dripEveryMs) {
+        drip = setInterval(() => {
+          const delta = { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " more" } };
+          controller.enqueue(new TextEncoder().encode(`event: content_block_delta\ndata: ${JSON.stringify(delta)}\n\n`));
+        }, options.dripEveryMs);
+      }
+      init?.signal?.addEventListener("abort", () => {
+        clearInterval(drip);
+        controller.error(new DOMException("The operation was aborted.", "AbortError"));
+      });
+    },
+    cancel() {
+      clearInterval(drip);
     },
   });
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -246,9 +263,10 @@ test("a client's own timeout bounds the whole stream, which fails as a timeout a
   expect((await usageRows(t)).map((row) => [row.stopReason, row.partial])).toEqual([["timeout", true]]);
 });
 
-test("without a timeout of its own, a stream runs to the action's deadline and then fails with ActionTimeBudgetError", async () => {
+test("without a timeout of its own, a stream that keeps writing runs to the action's deadline and then fails with ActionTimeBudgetError", async () => {
   const t = convexTest(schema, modules);
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (_input, init) => sseBody(cutStream(), init, { hang: true })));
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (_input, init) =>
+    sseBody(cutStream(), init, { hang: true, dripEveryMs: 60_000 })));
   const result = t.action(async (ctx) => {
     // More than the 240 s request timeout, which no longer stops a stream.
     withTimeLeft(ctx, 400_000);
@@ -318,4 +336,31 @@ test("a client's own timeout counts from when the request was sent, so slow head
   expect(done).toBe(false);
   await vi.advanceTimersByTimeAsync(2_000);
   expect(await result).toBe("timeout");
+});
+
+// Code review (Claude Opus 5.5, 2026-10-26): a stream that stalls is stopped
+// after STREAM_IDLE_LIMIT_MS of silence and retried, as a request that was
+// not streamed was after its 240 seconds.
+test("a stream that sends nothing for 240 seconds is stopped, logged as stalled, and retried", async () => {
+  const t = convexTest(schema, modules);
+  expect(STREAM_IDLE_LIMIT_MS).toBe(ANTHROPIC_TIMEOUT_MS);
+  let calls = 0;
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (_input, init) => {
+    calls += 1;
+    return calls === 1 ? sseBody(cutStream(), init, { hang: true }) : sseResponse(anthropicMessageSse(ANSWER));
+  }));
+  const result = t.action(async (ctx) => {
+    withTimeLeft(ctx, 500_000);
+    return await instrumentedAnthropic(ctx, { callSite: "stream-contract" }).messages.create(params(32_000));
+  });
+  await vi.advanceTimersByTimeAsync(239_000);
+  expect(calls).toBe(1);
+  await vi.advanceTimersByTimeAsync(20_000);
+  expect(((await result) as { stop_reason: string }).stop_reason).toBe("end_turn");
+  expect(calls).toBe(2);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await usageRows(t)).map((row) => [row.stopReason, row.partial])).toEqual([
+    ["stalled", true],
+    ["end_turn", undefined],
+  ]);
 });

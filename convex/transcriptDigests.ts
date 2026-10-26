@@ -288,6 +288,13 @@ export const getFactInputs = internalQuery({
           run !== null &&
           (run.status === "running" || run.status === "queued") &&
           now - run.startedAt < FACT_RUN_STALE_MS,
+        // 2026-10-26 (failure 6): background extraction could not read this
+        // text even in pieces; it is not tried again (claimFactRun "dense").
+        tooDense:
+          run !== null &&
+          run.status === "failed" &&
+          run.tooDense === true &&
+          run.parserVersion === transcript?.parserVersion,
         digestStored: digest !== null,
       });
     }

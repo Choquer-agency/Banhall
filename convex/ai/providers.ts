@@ -797,8 +797,8 @@ export function clientForModel(
     () => {
       if (gatewayForModel(modelId) === "openrouter") {
         // 2026-10-26: the step table's timeout (ANTHROPIC_TIMEOUT_MS) on both
-        // gateways, not OpenRouter's 180 s default, so a cut-off retry with
-        // the model's whole allowance has the same room on either.
+        // gateways, not OpenRouter's 180 s default. These requests do not
+        // stream, so a cut-off retry here keeps the shorter repair.
         return instrumentedOpenRouter(ctx, meta, {
           timeoutMs: ANTHROPIC_TIMEOUT_MS,
           ...(signal ? { signal } : {}),

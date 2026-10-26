@@ -16,6 +16,8 @@ import { allGenerationProgress } from "./lib/generationProgress";
 import type { Id } from "./_generated/dataModel";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { stubFetchStreaming } from "./anthropicSse.fixture";
+import { transcriptHash } from "./lib/transcriptFactRows";
+import { FACTS_VERSION } from "./lib/transcriptFacts";
 
 // The credit latch read (decision 64) runs before or after each Anthropic
 // request; load its module first so a cold import cannot race the fake clock.
@@ -304,6 +306,42 @@ describe("a generation frozen to read facts", () => {
     // Today's path: the retrieval brief call runs as before.
     expect(network.calls.map((call) => call.kind)).toContain("submit_retrieval_brief");
     expect(result.subsections).toHaveLength(13);
+  });
+
+  // Code review (gpt-6-astra, 2026-10-26): a text background extraction
+  // could not read even in pieces is neither extracted nor queued again.
+  it("reads a transcript known to be too dense the usual way, with no facts call and nothing queued", async () => {
+    const f = await setup("all");
+    await f.t.run(async (ctx) => {
+      const transcript = (await ctx.db.get(f.transcriptId))!;
+      await ctx.db.insert("transcriptFactRuns", {
+        transcriptId: f.transcriptId,
+        projectId: f.projectId,
+        sourceContentHash: await transcriptHash(transcript),
+        factsVersion: FACTS_VERSION,
+        model: "claude-sonnet-5-5",
+        adapter: "citations",
+        status: "failed",
+        counts: { proposed: 0, verified: 0, dropped: 0 },
+        error: "too dense",
+        startedAt: 1,
+        finishedAt: 2,
+        ...(transcript.parserVersion !== undefined ? { parserVersion: transcript.parserVersion } : {}),
+        tooDense: true,
+      });
+    });
+    const network: Network = { calls: [], failFacts: false };
+    stubNetwork(network);
+    const result = await generate(f);
+    expect(network.calls.map((call) => call.kind)).not.toContain("facts");
+    expect(result.sources.some((row) => row.kind === "transcript_facts")).toBe(false);
+    expect(result.progress.some((line) => String(line).includes("more facts than the AI can extract"))).toBe(true);
+    const queued = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name === "ai/condense:extractTranscriptFactsInBackground" && job.state.kind === "pending"
+      )
+    );
+    expect(queued).toEqual([]);
   });
 
   it("changes nothing while the setting is off, and small projects wait for `all`", async () => {
