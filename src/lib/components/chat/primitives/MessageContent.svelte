@@ -106,6 +106,13 @@
   </div>
 {/snippet}
 
+<!-- Review, 2026-10-26: Streamdown shows any image whose URL starts with "/"
+     whatever the allowed prefixes say, and "//host/x" is another site. No
+     image is ever shown: every image renders as this note. -->
+{#snippet blockedImage({ token }: { token: { text?: string } })}
+  <span data-image-blocked class="text-ink-muted">[Image blocked: {token.text || "No description"}]</span>
+{/snippet}
+
 <div class={cn(roleClass, className)}>
   {#if markdown}
     <!-- One instance whether or not sources have arrived, so a reply that
@@ -119,6 +126,7 @@
       theme={CITATION_THEME}
       inlineCitationPreview={citationPreview}
       inlineCitationPopover={citationPopover}
+      image={blockedImage}
     />
   {:else if children}
     {@render children()}

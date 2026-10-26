@@ -54,6 +54,20 @@ it("shows a Word file's Markdown formatted", async () => {
   expect(preview.element().textContent).not.toContain("**");
 });
 
+it("never loads an image from a file's Markdown", async () => {
+  __setQueryData("documents:listDocuments", [listed("probe.docx", "docx")]);
+  __setQueryData("documents:getDocumentContent", {
+    fileName: "probe.docx",
+    fileType: "docx",
+    content: "A ![probe](//example.invalid/pixel) and ![local](/favicon.png).",
+    textFormat: "markdown",
+  });
+  await render(FilesPanel, { projectId, initiallyOpen: true });
+  await page.getByTitle("Preview").click();
+  await expect.element(page.getByText("[Image blocked: probe]")).toBeVisible();
+  expect(document.querySelector("[data-testid=file-preview-markdown] img")).toBeNull();
+});
+
 it("shows plain text as it is", async () => {
   __setQueryData("documents:listDocuments", [listed("notes.txt", "txt")]);
   __setQueryData("documents:getDocumentContent", {

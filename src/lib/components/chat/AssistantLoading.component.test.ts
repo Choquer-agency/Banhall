@@ -128,3 +128,15 @@ it("never loads an image from a reply", async () => {
   await expect.element(page.getByText(/Image blocked/)).toBeVisible();
   expect(document.querySelector('img[src*="outside.example"]')).toBeNull();
 });
+
+// Review, 2026-10-26: Streamdown showed any image whose URL starts with "/",
+// whatever the allowed prefixes said, and "//host/x" is another site.
+it("never loads an image from a path or a protocol-relative URL", async () => {
+  await render(MessageContent, {
+    markdown: true,
+    text: "A ![pixel](//outside.example/p.png?d=secret) and ![local](/favicon.png) here.",
+  });
+  await expect.element(page.getByText("[Image blocked: pixel]")).toBeVisible();
+  await expect.element(page.getByText("[Image blocked: local]")).toBeVisible();
+  expect(document.querySelector("img")).toBeNull();
+});

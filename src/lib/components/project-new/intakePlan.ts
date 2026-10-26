@@ -9,6 +9,7 @@
 import { CATEGORY_ORDER, type SupportingDoc } from "./supportingDocs.svelte";
 import { guessFileType } from "./shared";
 import { previousYearNoteText, previousYearReportHeader } from "../../../../shared/previousYear";
+import { escapeMarks, quotableWordText } from "../../../../shared/wordMarkdown";
 import type { ContextCategoryId } from "$lib/contextCategories";
 import type { TranscriptSourceFormat } from "../../../../shared/transcriptParse";
 
@@ -44,6 +45,14 @@ export function noteSourceKey(year: number): string {
 /** A fresh, opaque source key. */
 export function newSourceKey(): string {
   return crypto.randomUUID().replace(/-/g, "");
+}
+
+/**
+ * The year's note as it goes before a file's text: escaped for Word Markdown,
+ * so the frozen view and the preview read it as typed.
+ */
+export function markdownNote(note: string, markdown: boolean): string {
+  return markdown ? escapeMarks(note) : note;
 }
 
 /** A previous-year report's first lines: its header, then the year's note. */
@@ -98,6 +107,9 @@ export function plannedIntakeSources(input: {
     const content = doc.parsed?.content ?? "";
     const hasText = content.trim().length > 0;
     if (category === "previous_pd" && hasText) carried.add(doc.year);
+    // Word Markdown takes the note escaped, so it reads as typed (review, 2026-10-26).
+    const markdown = hasText && doc.parsed?.textFormat === "markdown";
+    const filePrefix = category === "previous_pd" ? previousYearPrefix(doc.year, markdownNote(noteOf(doc.year), markdown)) : "";
     const name = doc.file?.name ?? doc.name;
     sources.push({
       sourceKey: input.keyFor(doc.id),
@@ -105,7 +117,7 @@ export function plannedIntakeSources(input: {
       position: position++,
       label: name,
       // Only extracted text gets the header: an empty file stays empty.
-      content: hasText ? prefix + content : "",
+      content: hasText ? filePrefix + content : "",
       fileType:
         doc.restored?.fileType ??
         (doc.parsed?.fileType as FileType | undefined) ??
@@ -259,7 +271,8 @@ export function restoredIntake(
       continue;
     }
     const split = category === "previous_pd" ? splitPreviousYearText(content) : null;
-    if (split?.note) yearNotes.set(split.year, split.note);
+    // A note saved before Word Markdown was escaped; it comes back as typed.
+    if (split?.note) yearNotes.set(split.year, source.textFormat === "markdown" ? quotableWordText(split.note) : split.note);
     const body = split ? split.body : content;
     const pasted = source.intake === "pasted";
     const originalMissing = !pasted && !source.hasOriginal;

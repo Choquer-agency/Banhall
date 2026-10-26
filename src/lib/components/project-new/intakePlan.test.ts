@@ -8,6 +8,7 @@ import {
   splitPreviousYearText,
 } from "./intakePlan";
 import type { SupportingDoc } from "./supportingDocs.svelte";
+import { quotableWordText } from "../../../../shared/wordMarkdown";
 
 /**
  * Decision 65, stage 2: the intake draft holds exactly what a confirmed
@@ -243,5 +244,25 @@ describe("Word Markdown in the intake plan (2026-10-26)", () => {
     );
     expect(back.saved.find((source) => source.sourceKey === keyFor("trials"))).toMatchObject({ textFormat: "markdown" });
     expect(back.documents.find((item) => item.sourceKey === keyFor("trials"))).toMatchObject({ textFormat: "markdown" });
+  });
+
+  it("escapes a prior-year note before Word Markdown, so drafts and a reload read it as typed", () => {
+    const note = "5 * 3 rigs, path C:\\data";
+    const report = doc("report", {
+      name: "report.docx",
+      category: "previous_pd",
+      year: 2024,
+      parsed: { fileName: "report.docx", fileType: "docx", content: "# Last year\n\nThe seal **held**.", textFormat: "markdown" },
+    });
+    const notes = new Map([[2024, note]]);
+    const [source] = plannedIntakeSources({ transcripts: [], docs: [report], yearNotes: notes, previousYears: [2024], keyFor });
+    expect(source!.content.startsWith(previousYearPrefix(2024, "5 \\* 3 rigs, path C:\\\\data"))).toBe(true);
+    expect(quotableWordText(source!.content)).toContain(`Note: ${note}\n`);
+
+    const back = restoredIntake(
+      [{ sourceKey: source!.sourceKey, kind: "document", position: source!.position, label: source!.label, fileType: "docx", category: "previous_pd", intake: "file", extractionOutcome: "ok", fiscalYear: 2024, textFormat: "markdown", hasOriginal: true }],
+      new Map([[source!.sourceKey, source!.content]])
+    );
+    expect(back.yearNotes.get(2024)).toBe(note);
   });
 });

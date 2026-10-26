@@ -399,6 +399,37 @@ describe("getDeviationInventoryContext Reference PD", () => {
     expect(context.reference?.sections.s242).toContain("Reference paragraph.");
   });
 
+  test("reads a Word Markdown Reference PD with bold headings, and no mark reaches the model (2026-10-26)", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, agentThreadId } = await seedThread(t, { paragraphs: ["Draft paragraph."] });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("projectDocuments", {
+        projectId,
+        fileName: "last-year-pd.docx",
+        fileType: "docx",
+        textFormat: "markdown",
+        content: [
+          "**Line 242 - Technological Uncertainty**",
+          "The seal **held** at 5 \\* 3 bar.",
+          "**Line 244 - Work Performed**",
+          "We built *three* rigs.",
+          "**Line 246 - Technological Advancement**",
+          "A colder seal.",
+        ].join("\n\n"),
+        category: "previous_pd",
+        source: "upload",
+        uploadedBy: "Writer",
+        createdAt: Date.now(),
+      });
+    });
+    const context = await t.query(internal.chatV2.getDeviationInventoryContext, { agentThreadId });
+    expect(context.referenceStatus).toBe("resolved");
+    expect(context.reference?.sections.s242).toContain("The seal held at 5 * 3 bar.");
+    expect(context.reference?.sections.s244).toContain("We built three rigs.");
+    expect(context.reference?.sections.s246).toContain("A colder seal.");
+    expect(JSON.stringify(context.reference?.sections)).not.toContain("**");
+  });
+
   test("finds a previous_pd attached after more than 200 other documents (DW-138)", async () => {
     // The read used to take 200 rows and THEN keep the previous_pd ones, so a
     // Reference PD uploaded after 200 chat attachments was reported absent.

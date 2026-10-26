@@ -69,7 +69,8 @@ const SECTIONS: ReadonlyArray<{
   },
 ];
 
-type Candidate = { start: number; bodyStart: number; score: number };
+/** `matched` is where the pattern matched; `start` may sit earlier, on its Markdown marks. */
+type Candidate = { start: number; matched: number; bodyStart: number; score: number };
 
 /**
  * A heading's start moved back over the Markdown that opens it (`**`, `#`):
@@ -98,6 +99,7 @@ function candidatesFor(text: string, spec: (typeof SECTIONS)[number]): Candidate
       const start = withLeadingMarks(text, matched);
       out.push({
         start,
+        matched,
         bodyStart: bodyAtEnd ? matched + match[0].length : start,
         score,
       });
@@ -145,7 +147,12 @@ export function detectPdSections(
   const found: Array<Omit<DetectedPdSection, "end">> = [];
   let floor = 0;
   for (const spec of SECTIONS) {
-    const candidates = candidatesFor(text, spec).filter((c) => c.start >= floor);
+    // The match itself must come after the section before; its marks may
+    // have been read into that section's heading, so its start never moves
+    // back past the floor (review, 2026-10-26).
+    const candidates = candidatesFor(text, spec)
+      .filter((c) => c.matched >= floor)
+      .map((c) => ({ ...c, start: Math.max(c.start, floor) }));
     if (candidates.length === 0) continue;
     const best = Math.max(...candidates.map((c) => c.score));
     const pick = candidates

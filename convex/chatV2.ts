@@ -1,4 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { quotableFileText } from "../shared/wordMarkdown";
 import {
   query,
   mutation,
@@ -3067,7 +3068,9 @@ export const getDeviationInventoryContext = internalQuery({
 
     let reference: { fileName: string; sections: InventorySections } | null = null;
     if (selected) {
-      const parsed = extractReportSections(await readDocumentText(ctx, selected));
+      // 2026-10-26: Word Markdown without its marks (bold headings parse, no
+      // mark reaches the model).
+      const parsed = extractReportSections(quotableFileText(await readDocumentText(ctx, selected), selected.textFormat));
       // Text that carries no `Line 242/244/246` skeleton has nothing this
       // comparison can anchor. Saying so beats inventing a difference per
       // paragraph against an empty section.
@@ -3301,12 +3304,16 @@ export const getChatContextV2 = internalQuery({
       if (!document) continue;
       // A file whose pieces are incomplete is shown with no text, so one
       // damaged file never stops the turn.
+      // 2026-10-26: Word Markdown without its marks.
       if (entry.settings) {
-        shownText.set(entry.index, (await readDocumentTextOrNull(ctx, document)) ?? "");
+        shownText.set(entry.index, quotableFileText((await readDocumentTextOrNull(ctx, document)) ?? "", document.textFormat));
       } else if (documentTextLength(document) > 0 && readable++ < evidenceBudget.maxDocuments) {
         shownText.set(
           entry.index,
-          (await readDocumentTextOrNull(ctx, document, 0, perDocumentChars + CHAT_DOCUMENT_READ_SLACK_CHARS)) ?? ""
+          quotableFileText(
+            (await readDocumentTextOrNull(ctx, document, 0, perDocumentChars + CHAT_DOCUMENT_READ_SLACK_CHARS)) ?? "",
+            document.textFormat
+          )
         );
       }
     }

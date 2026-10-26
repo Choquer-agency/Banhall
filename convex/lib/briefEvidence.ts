@@ -21,16 +21,14 @@ import { projectPlaceholderMap } from "./transcriptPlaceholders";
 import type { PlaceholderEntry } from "./deidentify";
 import { dashboardFiscalYear } from "../../shared/dashboardProjection";
 import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
-import { quotableWordText } from "../../shared/wordMarkdown";
+import { quotableFileText } from "../../shared/wordMarkdown";
 
 /**
  * The text a draft freezes from a file's text: Word Markdown without its
  * bold and italic marks (owner, 2026-10-26), so quotes the AI gives without
  * them are checked exactly as before; any other text as it is.
  */
-export function frozenFileText(text: string, textFormat: "markdown" | undefined): string {
-  return textFormat === "markdown" ? quotableWordText(text) : text;
-}
+export const frozenFileText = quotableFileText;
 
 type Ctx = QueryCtx | MutationCtx;
 

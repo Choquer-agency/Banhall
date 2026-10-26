@@ -449,8 +449,8 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers (model and effort recorded in the decision record).
-- [ ] `bash scripts/loop-verify.sh` on the final code, and `npm run test:component` (the preview changed).
+- [x] Code review of 7498ea46 by gpt-6-astra (medium) and Claude Opus 5.5 (it reported running below the requested high effort): both "ship after fixes"; every finding fixed (see the decision record). One fix reaches chat: no reply can load an image any more.
+- [x] `bash scripts/loop-verify.sh` on the final code: all 9 steps pass, 473 test files, 7,269 tests. `npm run test:component`: 1,952 of 1,954 passed, 1 skipped, 1 failed on a sub-pixel width (16.87482 against 16.875) in the shell toast captures, which this change does not touch; that file passes on its own (6 of 6).
 
 ### Manual on localhost
 

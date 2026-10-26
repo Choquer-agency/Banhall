@@ -69,7 +69,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 </script>
 
 <script lang="ts">
-  import { Streamdown } from "svelte-streamdown";
+  import { MessageContent } from "$lib/components/chat/primitives";
+  import { quotableFileText } from "../../../../shared/wordMarkdown";
   import { createExtractionScope } from "$lib/extractionScope.svelte";
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
@@ -104,8 +105,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     statusExplanation,
   } from "$lib/uploads/processingStatus";
 
-  // A file's own Markdown never loads an image (as chat's replies, 2026-10-06).
-  const NO_IMAGES: string[] = [];
+  /** Word Markdown longer than this is shown as plain text, without its marks. */
+  const MARKDOWN_PREVIEW_MAX_CHARS = 200_000;
   let {
     projectId,
     reportId,
@@ -992,16 +993,16 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             <img src={url} alt={preview.fileName} class="mx-auto max-h-full" />
           {:else if previewContentQ.data === undefined}
             <p class="px-6 py-6 text-sm text-gray-400">Loading…</p>
-          {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim()}
+          {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
             <!-- 2026-10-26 (owner): a Word file's headings, bold, italic and
-                 tables, shown formatted. Its text is the file's, so no image
-                 loads and links need a click, as in chat. -->
-            <div class="chat-markdown chat-fluid-text px-6 py-6 text-ink" data-testid="file-preview-markdown">
-              <Streamdown content={previewContentQ.data.content} allowedImagePrefixes={NO_IMAGES} />
+                 tables, shown formatted with chat's Markdown, so no image
+                 loads and links need a click. -->
+            <div class="px-6 py-6" data-testid="file-preview-markdown">
+              <MessageContent markdown role="assistant" text={previewContentQ.data.content} />
             </div>
           {:else}
             <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-relaxed text-gray-700">{previewContentQ.data?.content
-                ? normalizeExtractedText(previewContentQ.data.content)
+                ? normalizeExtractedText(quotableFileText(previewContentQ.data.content, previewContentQ.data.textFormat))
                 : "No text content."}</pre>
           {/if}
         </div>

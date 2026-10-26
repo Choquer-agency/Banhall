@@ -1,4 +1,5 @@
 import { requireProjectSetUp } from "./lib/intakeDrafts";
+import { quotableFileText } from "../shared/wordMarkdown";
 import {
   query,
   mutation,
@@ -308,12 +309,13 @@ export const getReviewInput = internalQuery({
       contextDocs.push({
         category: d.category,
         fileName: d.fileName,
-        // 2026-10-22 (fourth): only the part the review reads.
-        content: await readDocumentText(ctx, d, 0, 15000),
+        // 2026-10-22 (fourth): only the part the review reads. 2026-10-26:
+        // Word Markdown without its marks.
+        content: quotableFileText(await readDocumentText(ctx, d, 0, 15000), d.textFormat),
       });
     }
     return {
-      pdContent: doc ? await readDocumentText(ctx, doc) : "",
+      pdContent: doc ? quotableFileText(await readDocumentText(ctx, doc), doc.textFormat) : "",
       // Usage attribution: the user who started (or retried) this review.
       createdBy: review.createdBy,
       fileName: review.sourceFileName,

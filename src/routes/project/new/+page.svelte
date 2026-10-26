@@ -93,7 +93,6 @@
     PREVIOUS_YEAR_ONLY_MESSAGE,
     PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
     previousYearNoteText,
-    previousYearReportHeader,
   } from "../../../../shared/previousYear";
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
@@ -122,9 +121,11 @@
   } from "$lib/components/project-new/intakeDraft.svelte";
   import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
   import {
+    markdownNote,
     newSourceKey,
     noteSourceKey,
     plannedIntakeSources,
+    previousYearPrefix,
     restoredIntake,
   } from "$lib/components/project-new/intakePlan";
   import { startRunModels } from "$lib/components/generation/startRunSources";
@@ -1514,7 +1515,12 @@
     const { leftOut, excludeDocumentIds, skippedFiles, savedOwn } = state;
     // One unreadable or oversized doc must never sink the whole project:
     // skip it, tell the writer which ones were skipped, and keep going.
-    const uploadDoc = async (doc: SupportingDoc, prefix = ""): Promise<"stored_text" | "stored_empty" | "failed"> => {
+    // `prefix` takes whether the text is Word Markdown: a prior-year note is
+    // escaped before Word Markdown so it reads as typed (review, 2026-10-26).
+    const uploadDoc = async (
+      doc: SupportingDoc,
+      prefix: (markdown: boolean) => string = () => ""
+    ): Promise<"stored_text" | "stored_empty" | "failed"> => {
       extractionLifetime.signal.throwIfAborted();
       const category = doc.category as ContextCategoryId;
       progress = `Uploading ${doc.name}...`;
@@ -1523,7 +1529,7 @@
           projectId,
           fileName: doc.name,
           fileType: "txt",
-          content: prefix + doc.pastedText,
+          content: prefix(false) + doc.pastedText,
           source: "context_input",
           category,
           intake: "pasted",
@@ -1543,7 +1549,7 @@
             projectId,
             fileName: doc.name,
             fileType: current.restored?.fileType ?? current.parsed?.fileType ?? guessFileType(doc.name),
-            content: hasText ? prefix + content : "",
+            content: hasText ? prefix(current.parsed?.textFormat === "markdown") + content : "",
             source: "context_input",
             category,
             extractionOutcome: current.status === "failed" ? "failed" : "ok",
@@ -1575,7 +1581,7 @@
             projectId,
             fileName: file.name,
             fileType,
-            content: hasText ? prefix + content : "",
+            content: hasText ? prefix(current.parsed?.textFormat === "markdown") + content : "",
             source: "context_input",
             category,
             extractionOutcome: extractionFailed ? "failed" : "ok",
@@ -1610,10 +1616,7 @@
     const saveOne = async (doc: SupportingDoc) => {
       if (doc.category !== "previous_pd") return uploadDoc(doc);
       const note = state.notesSaved?.has(doc.year) ? "" : (yearNotes.get(doc.year) ?? "").trim();
-      const outcome = await uploadDoc(
-        doc,
-        `${previousYearReportHeader(doc.year)}${note ? `Note: ${note}\n` : ""}\n`
-      );
+      const outcome = await uploadDoc(doc, (markdown) => previousYearPrefix(doc.year, markdownNote(note, markdown)));
       if (outcome === "stored_text") noteCarried.add(doc.year);
       return outcome;
     };
@@ -2914,6 +2917,7 @@
                       name={pdDoc.name}
                       content={pdDoc.content}
                       pageOffsets={pdDoc.pageOffsets}
+                      textFormat={pdDoc.textFormat}
                       titleFromFileName={pdTitleFromName}
                       onPreview={() => (pdPreviewOpen = true)}
                       onRemove={() => {

@@ -16,6 +16,7 @@
 // server has counted it.
 
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { quotableFileText } from "../shared/wordMarkdown";
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -325,7 +326,8 @@ export const readDocumentForChat = internalQuery({
       totalChars,
       start: range.start,
       end: range.end,
-      text: range.text,
+      // 2026-10-26: Word Markdown without its marks; the range stays the file's.
+      text: quotableFileText(range.text, doc.textFormat),
     };
   },
 });
@@ -765,7 +767,8 @@ export const searchForChat = internalQuery({
       }
       const content = read.value.text;
       for (const span of chunkSpans(content, CHAT_SEARCH_EXCERPT_CHARS)) {
-        const text = content.slice(span.start, span.end);
+        // 2026-10-26: Word Markdown without its marks; `start` stays the file's.
+        const text = quotableFileText(content.slice(span.start, span.end), doc.textFormat);
         consider(`file:${doc._id}`, text, {
           kind: "file",
           documentId: doc._id,

@@ -162,4 +162,19 @@ describe("readers of a moved file (2026-10-22, fourth, step 2)", () => {
     expect(await upload("blank.txt", "   \n ")).not.toBe(f.movedBlankId);
     expect(await count()).toBe(before + 3);
   });
+
+  test("chat reads a Word Markdown file without its marks; the range stays the file's (2026-10-26)", async () => {
+    const f = await setup();
+    const markdown = "# Rig log\n\nThe seal **held** at *4.2 bar*, 5 \\* 3.";
+    const documentId = await f.t.run(async (ctx) => {
+      const id = await ctx.db.insert("projectDocuments", {
+        projectId: f.movedProjectId, fileName: "rig.docx", fileType: "docx", textFormat: "markdown", content: "",
+        source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+      });
+      await ctx.db.patch(id, await writeDocumentText(ctx, (await ctx.db.get(id))!, markdown));
+      return id;
+    });
+    const read = await f.t.query(readDocument, { agentThreadId: "thread-moved", documentId, start: 0, maxChars: 1_000 });
+    expect(read).toMatchObject({ status: "ok", start: 0, end: markdown.length, text: "# Rig log\n\nThe seal held at 4.2 bar, 5 * 3." });
+  });
 });

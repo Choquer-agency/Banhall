@@ -5,6 +5,7 @@ import {
   query,
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
+import { quotableFileText } from "../shared/wordMarkdown";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
@@ -436,8 +437,10 @@ export const collectProjectEvidence = internalMutation({
         console.warn(`collectProjectEvidence: ${document._id} left out; the evidence read budget is used up`);
         continue;
       }
-      const content = await readDocumentTextOrNull(ctx, document);
-      if (content === null) continue;
+      const stored = await readDocumentTextOrNull(ctx, document);
+      if (stored === null) continue;
+      // 2026-10-26: Word Markdown without its marks.
+      const content = quotableFileText(stored, document.textFormat);
       bytesLeft -= worstCase;
       readable.push({ id: document._id, title: document.fileName, content });
     }

@@ -167,4 +167,9 @@ describe("detectPdSections on Word Markdown (2026-10-26)", () => {
     expect(second!.section).toBe("s244");
     expect(text.slice(first!.bodyStart, first!.end)).toBe("It held. As ");
   });
+
+  it("finds a section after an empty one in Markdown", () => {
+    const text = ["## Line 242 Technological uncertainty", "## Line 244 Work performed", "Work.", "## Line 246 Technological advancement", "Advance."].join("\n\n");
+    expect(detectPdSections(text).map((s) => s.section)).toEqual(["s242", "s244", "s246"]);
+  });
 });
