@@ -26,6 +26,7 @@
   import ProjectCard from "./ProjectCard.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
+  import CompanyFiles from "./CompanyFiles.svelte";
   import { IconArrowLeft, IconSearch } from "$lib/components/icons";
   import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
   import { popIn, popOut } from "$lib/motion/panelMotion";
@@ -57,6 +58,9 @@
     allClientsHref = "/projects",
     onShowAll = undefined,
     countLabel = null,
+    canReadCompanyFiles = false,
+    canAddCompanyFiles = false,
+    canManageCompanyFiles = false,
   }: {
     /**
      * The selected client; null for All clients. `name` is null until known.
@@ -83,6 +87,10 @@
     onShowAll?: () => void;
     /** How many projects the title stands for ("10", "1000+"), from the company list. */
     countLabel?: string | null;
+    /** The company's Files tab (2026-10-26, Phase C): companyFiles.read, .add, .manage. */
+    canReadCompanyFiles?: boolean;
+    canAddCompanyFiles?: boolean;
+    canManageCompanyFiles?: boolean;
   } = $props();
 
   const auth = useAuth();
@@ -134,6 +142,11 @@
       : "All companies"
   );
   const searchLabel = $derived("Search projects");
+
+  // ─── Tabs (Paper Z8a, 2026-10-26): a company's Projects and Files ─────────
+  let tab = $state<"projects" | "files">("projects");
+  const showTabs = $derived(Boolean(client) && !gone && canReadCompanyFiles);
+  const onFiles = $derived(showTabs && tab === "files");
 
   // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
   // Read with the company key, before the first frame, so one company's
@@ -298,6 +311,7 @@
     untrack(() => {
       clearSearch();
       endSelect();
+      tab = "projects";
     });
   });
 
@@ -407,7 +421,7 @@
 
     <!-- Paper Z3d: the company name at 20/500 with its project count, the
          search on the right, 28px above the first fiscal year. -->
-    <div class="flex flex-wrap items-center gap-3 pb-7 pt-5 max-md:pt-1" data-client-header>
+    <div class={`flex flex-wrap items-center gap-3 pt-5 max-md:pt-1 ${showTabs ? "pb-4" : "pb-7"}`} data-client-header>
       <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-lg leading-[calc(4/3)] font-medium text-ink outline-none">{displayName}</h2>
       {#if countLabel !== null && !gone}
         <span class="shrink-0 text-sm leading-[calc(10/7)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
@@ -416,7 +430,7 @@
       {#if selecting}
         {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
       {/if}
-      <div role="search" class="relative w-80 max-w-full max-md:order-last max-md:w-full">
+      <div role="search" class={`relative w-80 max-w-full max-md:order-last max-md:w-full ${onFiles ? "hidden" : ""}`}>
         <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
         <input
           bind:this={searchEl}
@@ -440,6 +454,54 @@
       </div>
     </div>
 
+    {#if showTabs}
+      <div role="tablist" aria-label={`${displayName} views`} class="flex gap-1.5 pb-7" data-client-tabs>
+        {#each [["projects", "Projects"], ["files", "Files"]] as const as [id, label] (id)}
+          {@const selectedTab = tab === id}
+          <button
+            type="button"
+            role="tab"
+            id={`client-tab-${id}`}
+            aria-selected={selectedTab}
+            aria-controls={`client-panel-${id}`}
+            tabindex={selectedTab ? 0 : -1}
+            data-client-tab={id}
+            onclick={() => {
+              if (id === "files") endSelect();
+              tab = id;
+            }}
+            onkeydown={(event) => {
+              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+              event.preventDefault();
+              const next = tab === "projects" ? "files" : "projects";
+              if (next === "files") endSelect();
+              tab = next;
+              void tick().then(() => document.getElementById(`client-tab-${next}`)?.focus());
+            }}
+            class={`flex h-[2.125rem] items-center rounded-md px-3.5 text-[0.9375rem] leading-[calc(4/3)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11 ${
+              selectedTab ? "bg-primary-selected font-medium text-white" : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
+            }`}
+          >{label}</button>
+        {/each}
+      </div>
+    {/if}
+
+    {#if onFiles && client}
+      <div role="tabpanel" id="client-panel-files" aria-labelledby="client-tab-files" data-client-files-panel>
+        <CompanyFiles
+          companyKey={client.key}
+          companyName={displayName}
+          canAdd={canAddCompanyFiles}
+          canManage={canManageCompanyFiles}
+        />
+      </div>
+    {:else}
+    <div
+      role={showTabs ? "tabpanel" : undefined}
+      id={showTabs ? "client-panel-projects" : undefined}
+      aria-labelledby={showTabs ? "client-tab-projects" : undefined}
+      class="contents"
+    >
     {#if activeQ.error}
       <div class="flex flex-col items-start gap-2 py-10" role="alert" data-projects-error>
         <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink">Projects could not be loaded.</p>
@@ -527,8 +589,10 @@
         </ul>
       </section>
     {/if}
+    </div>
+    {/if}
 
-    {#if hasMore && !activeQ.error && !loadingFirst}
+    {#if hasMore && !activeQ.error && !loadingFirst && !onFiles}
       <div class="flex justify-center pt-4">
         <button
           type="button"

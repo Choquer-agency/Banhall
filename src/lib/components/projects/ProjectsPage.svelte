@@ -33,6 +33,7 @@
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
   import { canCreateProjects, duplicateProjectSearch } from "$lib/workspace/projectDuplicate";
+  import { hasCapability } from "../../../../shared/capabilities";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
   import { clientHref, clientKeyFromUrl, type ClientEntry } from "$lib/projects/clientList";
   import { pruneRecentCompanies, rememberRecentCompany } from "$lib/workspace/recentCompanies";
@@ -74,6 +75,10 @@
   // Select and bulk edit: the roles bulkUpdateProjects accepts. Unknown (still
   // loading) reads as no.
   const canSelect = $derived(role === "writer" || role === "manager" || role === "admin");
+  // A company's Files tab (2026-10-26, Phase C): the capability matrix decides.
+  const canReadCompanyFiles = $derived(hasCapability(role, "companyFiles.read"));
+  const canAddCompanyFiles = $derived(hasCapability(role, "companyFiles.add"));
+  const canManageCompanyFiles = $derived(hasCapability(role, "companyFiles.manage"));
 
   const clients = $derived((clientsQ.data?.clients ?? []) as ClientEntry[]);
   const selectedKey = $derived(clientKeyFromUrl(page.url));
@@ -295,6 +300,9 @@
         {canCreate}
         canDuplicate={canCreate}
         {canSelect}
+        {canReadCompanyFiles}
+        {canAddCompanyFiles}
+        {canManageCompanyFiles}
         allClientsHref={clientHref(page.url, null)}
         onShowAll={() => selectClient(null)}
         {canDelete}

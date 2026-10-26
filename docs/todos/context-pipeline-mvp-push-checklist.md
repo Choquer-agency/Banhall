@@ -504,6 +504,23 @@ What changes:
 
 - [ ] On a local copy of dev: add files to a company, see them cut and labelled, search them, merge two companies and see the files move.
 
+## Phase C, step 2: the company page's Files tab
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (sixth)", the Files tab bullet.
+
+What changes:
+
+- **A company's view on the Projects page has Projects and Files tabs.** Files lists the company's files with their summary, kind, length, who added them and when.
+- **Upload files** adds files to the company. Managers and Admins can archive, restore and remove them.
+- **The merge dialog** says how many company files move.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers (with step 1's fixes).
+- [ ] `npm run test:component` and `bash scripts/loop-verify.sh` on the final code.
+
 ### Manual on localhost
 
-- [ ] Nothing to see yet: step 2 adds the company page's Files tab.
+- [ ] As a Consultant, open a company on the Projects page, choose Files, upload a PDF, a Word file and a scanned PDF; each appears, the Word file previews formatted, the scan gets its text from the server within a minute.
+- [ ] As a Manager, archive a file, find it under Show archived files, restore it, and remove another after confirming.
+- [ ] Merge two companies that both have files; the dialog says how many move, and afterwards the kept company lists them all.
