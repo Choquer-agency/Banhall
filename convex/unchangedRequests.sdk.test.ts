@@ -45,6 +45,7 @@ import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
+import { streamWhenAsked } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -59,7 +60,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn(() => { throw new Error("Unexpected HTTP transport"); })));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -172,7 +173,9 @@ function installFetch(script: { repair?: string; checks: unknown[] }): Sent[] {
   const checks = [...script.checks];
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+    // 2026-10-26: a request for a large answer (the Summary-plan
+    // Self-check's 32,768) streams; its JSON answer is sent as a stream.
+    streamWhenAsked<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       const body = await request.text();
       const json = JSON.parse(body) as Record<string, unknown>;
@@ -208,6 +211,19 @@ function installFetch(script: { repair?: string; checks: unknown[] }): Sent[] {
     })
   );
   return sent;
+}
+
+/**
+ * 2026-10-26 (P0 item 4): the older Self-check and the consistency pass ask
+ * for 16,384 answer tokens, up from 4,096, and a request for a large answer
+ * (the Summary-plan Self-check's 32,768) streams. Exactly those bytes are
+ * put back, so every other byte is still pinned. The older Self-check's
+ * limit is put back before the Summary-plan Self-check's 32,768 is taken
+ * to the 16,384 the pins hold.
+ */
+function withoutAnswerRoomOf20261026(body: string): string {
+  const unstreamed = body.endsWith(',"stream":true}') ? `${body.slice(0, -',"stream":true}'.length)}}` : body;
+  return unstreamed.split('"max_tokens":16384').join('"max_tokens":4096');
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -292,7 +308,10 @@ async function hashesOf(asSent: Sent[]): Promise<{
     const body = withPinnedLine242Opening(request.body);
     return {
       ...request,
-      body: request.stage === "selfCheck" ? withPinnedMergedIdEcho(body.split('"max_tokens":32768').join('"max_tokens":16384')) : body,
+      body:
+        request.stage === "selfCheck"
+          ? withPinnedMergedIdEcho(withoutAnswerRoomOf20261026(body).split('"max_tokens":32768').join('"max_tokens":16384'))
+          : body,
     };
   });
   let additionsFound = true;
@@ -532,7 +551,7 @@ async function consistencyHash(): Promise<string> {
     )
   );
   expect(bodies).toHaveLength(1);
-  return await sha256Hex(JSON.stringify(bodies));
+  return await sha256Hex(JSON.stringify(bodies.map(withoutAnswerRoomOf20261026)));
 }
 
 /**

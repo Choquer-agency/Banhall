@@ -10,6 +10,8 @@ import { withPlaceholders } from "./placeholderClient";
 import {
   callSlots,
   citationsExtractor,
+  FactWindowCutOffError,
+  FactWindowTimeoutError,
   extractTranscriptFacts,
   FACTS_CONCURRENCY,
   FACTS_TIMEOUT_MS,
@@ -20,7 +22,7 @@ import {
 } from "./transcriptFactsAgent";
 import type { FunctionReturnType } from "convex/server";
 import { instrumentedAnthropic } from "./instrument";
-import { startActionDeadline } from "./actionDeadline";
+import { actionDeadline, startActionDeadline } from "./actionDeadline";
 import { gatewayForModel, registerModelEntries } from "../../shared/generationModels";
 import { entryFromFrozen } from "../lib/modelRoles";
 import { roleModelEntryRef } from "../lib/modelCatalogRefs";
@@ -519,6 +521,14 @@ export async function ensureTranscriptFacts(
     excludedLabels: input.excludedLabels,
     ...(input.parserVersion !== undefined ? { parserVersion: input.parserVersion } : {}),
   });
+  if (claim.kind === "dense") {
+    // 2026-10-26 (failure 6): background extraction already split this
+    // text's dense stretch and still could not read it.
+    await options.log?.(
+      `Part of "${input.label}" has more facts than the AI can extract, even in pieces, so this draft reads the transcript the usual way.`
+    );
+    return "failed";
+  }
   if (claim.kind !== "claimed") return claim.kind;
   try {
     await options.log?.(`Extracting verified facts from "${input.label}".`);
@@ -529,6 +539,10 @@ export async function ensureTranscriptFacts(
       extractWindow: extractor,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.slots ? { slots: options.slots } : {}),
+      // 2026-10-26 (failure 6): only background extraction splits a dense
+      // window, and only while two of its pieces still fit the action's
+      // deadline; a generation's time check counted its planned windows.
+      ...(caller.kind === "background" ? { splitDenseWindows: { deadline: actionDeadline(ctx) } } : {}),
     });
     await writeFacts(ctx, claim.runId, result.facts);
     await ctx.runMutation(internal.transcripts.completeFactRun, {
@@ -545,10 +559,24 @@ export async function ensureTranscriptFacts(
     );
     return "ready";
   } catch (error) {
+    // 2026-10-26 (failure 6): a stretch too dense for one answer fails a
+    // generation's extraction instead of losing the end of its facts, and
+    // background extraction, which splits such a stretch, gets it ready for
+    // the next draft. Background extraction that still fails on it marks
+    // the run too dense, so no draft tries this text again.
+    const dense = error instanceof FactWindowCutOffError || error instanceof FactWindowTimeoutError;
     await ctx.runMutation(internal.transcripts.failFactRun, {
       runId: claim.runId,
       error: describeGenerationFailure(error),
+      ...(dense && caller.kind === "background" ? { tooDense: true } : {}),
     });
+    if (dense && caller.kind === "generation") {
+      await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, { transcriptId });
+      await options.log?.(
+        `Part of "${input.label}" had more facts than one answer holds, so this draft reads the transcript the usual way. Its facts are being prepared in smaller pieces for the next draft.`
+      );
+      return "failed";
+    }
     await options.log?.(`Facts could not be extracted from "${input.label}"; using today's transcript path.`);
     return "failed";
   }

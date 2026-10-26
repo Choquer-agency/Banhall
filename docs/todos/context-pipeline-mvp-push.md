@@ -146,9 +146,9 @@ Banhall sends only picture pages, one at a time, so this covers development, the
 The owner asked for everything to be finished with live tests on localhost, QA and stress tests. Each step is designed, reviewed, built, tested offline, reviewed again and, where it calls AI, run live on a local copy. Tick each step here when its commit lands; the checklist file holds the evidence.
 
 **Phase A: answers that never hit a fixed limit (P0)**
-- [ ] A1. Each step's answer limit comes from the model's real maximum, and large calls stream (P0 item 4, the post-QA cut-off).
-- [ ] A2. A too-long answer is retried as smaller batches (P0 item 3), including a dense transcript stretch (failure 6).
-- [ ] A3. The sign-off check runs in batches, in parallel, and lists each merged group once; a Brief over 64 entries is checked in batches instead of refused (P0 item 2, second half).
+- [x] A1. Each step's answer limit comes from the model's real maximum, and large calls stream (P0 item 4, the post-QA cut-off). Done 2026-10-26: decision "2026-10-26 (second)".
+- [x] A2. A too-long answer is retried with the model's full room (P0 item 3), and a dense transcript stretch is read in pieces in the background (failure 6). Done 2026-10-26, same decision.
+- [x] A3. The sign-off check runs in parts, all at once; a Brief over 64 entries or a very large step is checked in parts instead of refused (P0 item 2, second half). Done 2026-10-26, same decision. Listing each merged group once is deferred (known limit).
 
 **Phase B: files are read once, on the server, and kept as versions**
 - [ ] B1. Text versions that never change, and each draft records the versions and ranges it used (decision entry 2026-10-26, part 4).
@@ -185,13 +185,13 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
 ### P0: stop the outages (before MVP volume)
 
 - [ ] **1. Move each document's full text off its database row.** Keep size, word count and a file fingerprint on the row; put the text in file storage or a separate table. Find duplicates by fingerprint, as transcripts already do. Fixes failures 1 to 3.
-- [ ] **2. Make the sign-off check's answer the same size no matter how many picks.** First half done on branch `fix/summary-self-check-linear` (2026-10-22, third entry in `docs/product-domain.md`): no merged-id echo, an answer ceiling apart from the budget, 64 Brief checks. Still to do: the batches, streaming, and listing each merged group once in the input.
+- [x] **2. Make the sign-off check's answer the same size no matter how many picks.** First half done on 2026-10-22 (third entry in `docs/product-domain.md`): no merged-id echo, an answer ceiling apart from the budget, 64 Brief checks. Second half done on 2026-10-26 (second entry): the check runs in parts and streams. Still open: listing each merged group once in the input.
   - Stop repeating merged ids (`seedRevisions.ts:990`); the server already knows them.
   - Return only short numbers, pass or fail, and the failures.
   - Run it in batches (one per step, or a fixed number of items), reusing the transcript-section pattern.
   - Do the same for the 30-entry limit: batch instead of refuse. Needs the owner decision and a `docs/product-domain.md` entry.
-- [ ] **3. When an answer is too long, retry as smaller batches**, not "write shorter" at the same limit (`convex/ai/structured.ts`, `OutputLimitError`).
-- [ ] **4. Take each limit from the model's real maximum** instead of a hard-coded number, and stream the large calls. Seen live on 2026-10-22: the post-draft QA call (`generation:post_qa`, 4,096-token answer limit in `convex/lib/generationSteps.ts`) was cut off on Emily's PD.
+- [x] **3. When an answer is too long, retry with more room**, not "write shorter" at the same limit (`convex/ai/structured.ts`, `cutOffRetry`). Done 2026-10-26 for the report-sized steps; dense transcript stretches are split in the background.
+- [x] **4. Take each limit from the model's real maximum** instead of a hard-coded number, and stream the large calls. Seen live on 2026-10-22: the post-draft QA call (`generation:post_qa`, 4,096-token answer limit in `convex/lib/generationSteps.ts`) was cut off on Emily's PD. Done 2026-10-26: retries use the model's maximum (`modelOutputCap`), the judges' first limit is 16,384, and every request over 16,384 streams.
 - [ ] **5. Show writers which documents were left out more clearly.** The Inputs band already tracks it.
 
 ### P1: make evidence searchable (core of the MVP)

@@ -28,6 +28,7 @@ import { SECTION_246_REQUEST } from "./ai/section246Agent";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { lengthBudgetBlock } from "./ai/pipeline";
 import { draftWordTarget, sectionMetrics } from "./lib/lineLimits";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 type T = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -175,9 +176,7 @@ function installFetch(script: Script): Sent[] {
   const sent: Sent[] = [];
   const compressions = [...(script.compressions ?? [])];
   let checks246 = 0;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== "https://api.anthropic.com/v1/messages") {
         throw new Error(`Unexpected HTTP transport ${request.url}`);

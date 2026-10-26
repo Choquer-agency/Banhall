@@ -56,6 +56,8 @@ import {
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
   MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_BATCHES,
+  SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
@@ -639,6 +641,9 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
         maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
         // 2026-10-22 (third): the raw answer's own ceiling is in the program.
         maxAnswerUtf8Bytes: MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
+        // 2026-10-26 (P0 item 2): a Line in up to 8 requests, all at once.
+        maxRequests: MAX_SUMMARY_SELF_CHECK_BATCHES,
+        parallelRequests: SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
       },
     });
     const current = await hashPromptProgram(generationPromptProgram);

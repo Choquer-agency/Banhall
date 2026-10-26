@@ -1131,9 +1131,12 @@ describe("prompt versions", () => {
     // after 2026-10-22 (third), which moves the Summary Self-check program on
     // purpose (no merged-id echo, 64 ordinary checks, the answer's own
     // ceiling); at e6e287d4 they were sha256:af60a972... and
-    // sha256:3be5d07a....
-    expect(await hashPromptProgram()).toBe("sha256:3f2fa8ea2d166d52d45df3d46adada72754e340d91a5ee5a9fbbd5d7ff11e09d");
-    expect(await legacyPromptVersion()).toBe("sha256:1612a2fd0d53371585c1c849e8d5da8fdef26a2099d54e20e7b1fec9090e4459");
+    // sha256:3be5d07a.... Re-read after 2026-10-26 (Phase A), which moves
+    // the program on purpose (the judges' 16,384-token answers, the repair
+    // with more room, the Summary Self-check in several requests); before
+    // it they were sha256:3f2fa8ea... and sha256:1612a2fd....
+    expect(await hashPromptProgram()).toBe("sha256:9e7bbee8a790ed5305a3e6fe9a46bc4afc4d583b3ef5ef7dcc5533e936d4240b");
+    expect(await legacyPromptVersion()).toBe("sha256:b72505c936e2d7409d366410480b5bc4d7d23a4f423c1331d05d1f0341bc61ac");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

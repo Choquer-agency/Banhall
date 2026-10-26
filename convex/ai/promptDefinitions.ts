@@ -836,7 +836,11 @@ export const SELF_CHECK_REQUEST = {
   toolName: "submit_self_check",
   toolDescription:
     "Submit the Self-check verdicts for one drafted SR&ED section.",
-  maxTokens: 4096,
+  // 2026-10-26 (P0 item 4): 16,384, up from 4,096. The answer grows with the
+  // report, and post-draft QA was cut off at 4,096 on 2026-10-22 and 10-23.
+  // The first attempt's limit only guards against a runaway answer; a
+  // cut-off is retried with the model's whole allowance (cutOffRetry).
+  maxTokens: 16_384,
   maxVerdicts: 30,
   userScaffold: {
     prefix:
@@ -1240,6 +1244,18 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
    * list, names only the missing labels and plan checks, and says which list
    * comes back empty.
    */
+  /**
+   * 2026-10-26 (P0 item 2): a Line whose checks do not fit one request is
+   * checked in several (planSummarySelfCheckBatches). Each says it checks
+   * only its own list, and which list stays empty. A Line checked in one
+   * request is sent without these lines, byte for byte as before.
+   */
+  batchRequest: {
+    note:
+      "This request checks only the labels and plan checks listed below. The others are checked in a separate request, so give no verdict for them.",
+    emptyVerdicts: "Return an empty verdicts list: this request lists no labels.",
+    emptyPlanVerdicts: "Return an empty planVerdicts list: this request lists no plan checks.",
+  },
   missingFollowUp: {
     prefix:
       "\n\nYour previous answer gave no verdict for the labels and plan checks listed below. Return verdicts for only these, under the same rules. Do not repeat verdicts you already gave and leave out storylineQuestion.",
@@ -1433,7 +1449,11 @@ export const CONSISTENCY_REQUEST = {
   toolName: "submit_consistency_findings",
   toolDescription:
     "Submit the consistency findings for the assembled SR&ED draft.",
-  maxTokens: 4096,
+  // 2026-10-26 (P0 item 4): 16,384, up from 4,096. The answer grows with the
+  // report, and post-draft QA was cut off at 4,096 on 2026-10-22 and 10-23.
+  // The first attempt's limit only guards against a runaway answer; a
+  // cut-off is retried with the model's whole allowance (cutOffRetry).
+  maxTokens: 16_384,
   maxFindings: 20,
   userScaffold: {
     prefix:

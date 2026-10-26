@@ -977,6 +977,8 @@ export const claimFactRun = internalMutation({
     v.object({ kind: v.literal("ready") }),
     v.object({ kind: v.literal("busy") }),
     v.object({ kind: v.literal("gone") }),
+    // 2026-10-26 (failure 6): too dense even in pieces; not tried again.
+    v.object({ kind: v.literal("dense") }),
     v.object({ kind: v.literal("claimed"), runId: v.id("transcriptFactRuns") })
   ),
   handler: async (ctx, args) => {
@@ -984,6 +986,9 @@ export const claimFactRun = internalMutation({
     if (!transcript || (await isProjectDeleting(ctx, transcript.projectId))) return { kind: "gone" as const };
     const run = await findFactRun(ctx, transcript._id, args.sourceContentHash);
     const now = Date.now();
+    if (run?.status === "failed" && run.tooDense === true && run.parserVersion === args.parserVersion) {
+      return { kind: "dense" as const };
+    }
     // A ready run whose left-out speakers have since become clients is
     // stale: its facts are cleared and extracted again.
     if (run && (await factRunIsCurrent(ctx, run))) return { kind: "ready" as const };
@@ -1078,12 +1083,22 @@ export const completeFactRun = internalMutation({
 });
 
 export const failFactRun = internalMutation({
-  args: { runId: v.id("transcriptFactRuns"), error: v.string() },
+  args: {
+    runId: v.id("transcriptFactRuns"),
+    error: v.string(),
+    /** 2026-10-26: background extraction found a stretch too dense even split. */
+    tooDense: v.optional(v.boolean()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
     if (!run || run.status !== "running") return null;
-    await ctx.db.patch(run._id, { status: "failed", error: args.error.slice(0, 500), finishedAt: Date.now() });
+    await ctx.db.patch(run._id, {
+      status: "failed",
+      error: args.error.slice(0, 500),
+      finishedAt: Date.now(),
+      ...(args.tooDense ? { tooDense: true } : {}),
+    });
     const transcript = await ctx.db.get(run.transcriptId);
     if (transcript) await ctx.db.patch(transcript._id, { factsStatus: "failed" });
     return null;

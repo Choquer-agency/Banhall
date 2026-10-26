@@ -41,7 +41,7 @@ import {
   sha256Text,
   materializeFinalWording,
   buildFrozenSummaryPlan,
-  summarySelfCheckWorstCaseResponse,
+  planSummarySelfCheckBatches,
   stableSerialize,
   resolveFrozenSourceId,
   MAX_SEED_SNAPSHOT_ROWS,
@@ -646,7 +646,10 @@ export async function signOffSeedStageHandler(
         briefEntries,
         payload,
       });
-      summarySelfCheckWorstCaseResponse({
+      // 2026-10-26 (P0 item 2): admitted when the Line's checks fit the
+      // requests the Self-check will send (planSummarySelfCheckBatches),
+      // not only one request.
+      planSummarySelfCheckBatches({
         ordinaryChecks,
         planChecks: plan.checks,
         includeStorylineQuestion:
@@ -1485,7 +1488,8 @@ export async function assertFrozenSummaryRuntimeAdmission(
         briefEntries: loadedBrief.briefEntries,
         payload,
       });
-      summarySelfCheckWorstCaseResponse({
+      // 2026-10-26 (P0 item 2): the same batches as at sign-off.
+      planSummarySelfCheckBatches({
         ordinaryChecks,
         planChecks: plan.planChecks,
         includeStorylineQuestion:

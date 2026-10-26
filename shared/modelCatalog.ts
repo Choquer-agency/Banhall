@@ -24,6 +24,7 @@
  */
 import {
   ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
+  ANTHROPIC_MODEL_LIMITS,
   CANDIDATE_MODELS,
   FORCED_TOOL_CHOICE_REJECTED_IDS,
   HAIKU_MODEL,
@@ -520,14 +521,7 @@ export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
 };
 
 /** Seed maximum output for direct Anthropic models (published limits). */
-const ANTHROPIC_SEED_LIMITS: Readonly<Record<string, { context: number; output: number }>> = {
-  "claude-sonnet-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-haiku-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-sonnet-5": { context: 1_000_000, output: 128_000 },
-  "claude-opus-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-opus-4-8": { context: 1_000_000, output: 128_000 },
-  "claude-haiku-4-5-20251001": { context: 200_000, output: 64_000 },
-};
+const ANTHROPIC_SEED_LIMITS = ANTHROPIC_MODEL_LIMITS;
 
 /**
  * The catalog rows the table starts from: today's `CANDIDATE_MODELS`, all

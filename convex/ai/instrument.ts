@@ -5,6 +5,7 @@ import {
   createAnthropicClient,
 } from "./providers";
 import {
+  ACTION_REQUEST_WINDOW_MS,
   ActionTimeBudgetError,
   MAX_SDK_RETRY_BACKOFF_MS,
   actionDeadline,
@@ -16,6 +17,7 @@ import {
   retryWaitFitsAnyAction,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { MAX_SUMMARY_SELF_CHECK_BATCHES } from "../lib/seedRevisions";
 import {
   RequestAbortedError,
   collectMessageStream,
@@ -50,6 +52,7 @@ import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import { estimateCostFromTable, type BilledTokens } from "../../shared/modelPricing";
 import {
+  LARGE_ANSWER_STREAM_THRESHOLD,
   acceptsForcedToolChoice,
   alwaysThinkingMaxTokens,
   toolRequestForModel,
@@ -198,7 +201,9 @@ export const GENERATION_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
  */
 export const ORDERED_SLOT_ALLOWANCES: Readonly<Record<string, number>> = {
   ...GENERATION_SLOT_ALLOWANCES,
-  selfCheck: GENERATION_SLOT_ALLOWANCES.selfCheck * 2,
+  // 2026-10-26 (P0 item 2): a Line's Summary Self-check may be sent as up to
+  // MAX_SUMMARY_SELF_CHECK_BATCHES requests, each with its one follow-up.
+  selfCheck: GENERATION_SLOT_ALLOWANCES.selfCheck * 2 * MAX_SUMMARY_SELF_CHECK_BATCHES,
   compression: (COMPRESSION_REQUEST.squeezes.length + 1) * 2,
 };
 
@@ -517,6 +522,8 @@ export function adaptAnthropicRequest(params: unknown): unknown {
  * abort is never retried.
  */
 export function isRetryableAnthropicError(error: unknown): boolean {
+  // 2026-10-26: a stream that broke part way, or ran past its own limit.
+  if (error instanceof StreamInterruptedError || error instanceof StreamTimeLimitError) return true;
   if (isErrorOf(error, Anthropic.APIUserAbortError)) return false;
   if (isErrorOf(error, Anthropic.APIConnectionError)) return true;
   if (!isErrorOf(error, Anthropic.APIError)) return false;
@@ -643,6 +650,112 @@ function openRouterWireBody(body: unknown): unknown {
 }
 
 /**
+ * Whether a request, as it will be sent (after adaptAnthropicRequest's
+ * thinking room), asks for a large answer: such a request streams
+ * (2026-10-26), so a long answer is never lost to a request timeout.
+ */
+export function sendsLargeAnswer(request: unknown): boolean {
+  if (!request || typeof request !== "object") return false;
+  const maxTokens = (request as { max_tokens?: unknown }).max_tokens;
+  return typeof maxTokens === "number" && maxTokens > LARGE_ANSWER_STREAM_THRESHOLD;
+}
+
+/**
+ * How long a stream may run in an action that records no deadline
+ * (2026-10-26): the same window a generation action gives all its requests.
+ * The SDK's request timeout only covers the wait for the stream to start.
+ */
+export const STREAM_WITHOUT_DEADLINE_MS = ACTION_REQUEST_WINDOW_MS;
+
+/**
+ * A stream that ran past its own time limit (2026-10-26): its client's
+ * timeout, or STREAM_WITHOUT_DEADLINE_MS outside a generation action. A
+ * timeout, like the SDK's own, and retried like one
+ * (isRetryableAnthropicError); a stream the action's deadline stopped fails
+ * with ActionTimeBudgetError instead. A plain Error, not an SDK subclass, so
+ * the module loads where a test replaces the SDK.
+ */
+export class StreamTimeLimitError extends Error {
+  constructor() {
+    super("The answer took longer than its time limit");
+    this.name = "StreamTimeLimitError";
+  }
+}
+
+/**
+ * A stream that ended before its answer finished (2026-10-26): the
+ * connection closed part way, or the provider sent an overloaded or api
+ * error event mid-stream. Retried like a dropped request
+ * (isRetryableAnthropicError) and, once its retries are spent, counted
+ * against the model as a dropped connection is. A plain Error, not an SDK
+ * subclass, so the module loads where a test replaces the SDK.
+ */
+export class StreamInterruptedError extends Error {
+  readonly cause?: unknown;
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "StreamInterruptedError";
+    if (cause !== undefined) this.cause = cause;
+  }
+}
+
+/** The mid-stream error event types a retry can cure (Anthropic's 500 and 529 errors). */
+const RETRYABLE_STREAM_ERROR_TYPES: ReadonlySet<string> = new Set(["overloaded_error", "api_error"]);
+
+/**
+ * What a stream that failed part way throws (2026-10-26). The SDK throws an
+ * APIError with no status for an error event; an overloaded or api error
+ * becomes a retryable StreamInterruptedError, and so does anything that is
+ * not an API error (a body read that broke, a test double's error event).
+ * Any other API error (an invalid request, say) is thrown as it came.
+ */
+export function streamFailure(error: unknown): unknown {
+  if (isErrorOf(error, Anthropic.APIConnectionError) || error instanceof StreamInterruptedError) return error;
+  if (isErrorOf(error, Anthropic.APIError)) {
+    const apiError = error as InstanceType<typeof Anthropic.APIError> & { type?: unknown; error?: unknown };
+    const body = apiError.error as { error?: { type?: unknown } } | undefined;
+    const type = typeof apiError.type === "string" ? apiError.type : body?.error?.type;
+    if (apiError.status === undefined && typeof type === "string" && RETRYABLE_STREAM_ERROR_TYPES.has(type)) {
+      return new StreamInterruptedError(`The answer stream failed part way (${type})`, error);
+    }
+    return error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return new StreamInterruptedError(`The answer stream failed part way: ${message}`, error);
+}
+
+/**
+ * One signal that aborts when either does (2026-10-26): the client's and a
+ * request's own. Either alone is returned as it is.
+ */
+export function eitherSignal(a: AbortSignal | undefined, b: AbortSignal | undefined): AbortSignal | undefined {
+  if (!a || a === b) return b ?? a;
+  if (!b) return a;
+  const combined = new AbortController();
+  const abort = (source: AbortSignal) => () => combined.abort(source.reason);
+  if (a.aborted) combined.abort(a.reason);
+  else if (b.aborted) combined.abort(b.reason);
+  else {
+    a.addEventListener("abort", abort(a), { once: true });
+    b.addEventListener("abort", abort(b), { once: true });
+  }
+  return combined.signal;
+}
+
+/** The smallest of the numbers given, or undefined when none is. */
+function smallestDefined(...values: Array<number | undefined>): number | undefined {
+  const defined = values.filter((value): value is number => value !== undefined);
+  return defined.length > 0 ? Math.min(...defined) : undefined;
+}
+
+/** The abort controller of an SDK stream, when the value is one. */
+function streamController(stream: unknown): AbortController | undefined {
+  if (!stream || typeof stream !== "object" || !("controller" in stream)) return undefined;
+  const controller = (stream as { controller?: unknown }).controller;
+  return controller instanceof AbortController ? controller : undefined;
+}
+
+/**
  * Round 2 (F2, decision 57; fidelity broken behaviour 9): the body of a
  * streamed request is the same request with `stream: true`. On the direct
  * API each tool also asks for eager input streaming: without it the API
@@ -736,8 +849,21 @@ export function instrumentedAnthropic(
       // arrives, and records the same usage row from the final message.
       const streaming = property === "createStreaming";
       return async (...callArgs: unknown[]) => {
-        const handlers = streaming ? ((callArgs[1] ?? {}) as GenerationStreamHandlers) : undefined;
+        const callerHandlers = streaming ? ((callArgs[1] ?? {}) as GenerationStreamHandlers) : undefined;
         const args = streaming ? [callArgs[0]] : callArgs;
+        // 2026-10-26: the request's own options. Its signal (citations-mode
+        // fact extraction passes one per window) and the client's stop the
+        // request as one, and its timeout bounds a stream as the client's does.
+        const requestOptions =
+          args[1] && typeof args[1] === "object" ? (args[1] as Record<string, unknown>) : undefined;
+        const callSignal = eitherSignal(
+          signal,
+          requestOptions?.signal instanceof AbortSignal ? requestOptions.signal : undefined
+        );
+        const ownTimeout = smallestDefined(
+          meta.clientOptions?.timeout,
+          typeof requestOptions?.timeout === "number" ? requestOptions.timeout : undefined
+        );
         // The action's deadline (actionDeadline.ts): throws before sending
         // when too little time is left; otherwise each attempt's timeout is
         // cut to the time left and each retry is decided when it happens
@@ -754,6 +880,9 @@ export function instrumentedAnthropic(
         await recordGenerationHandoff(ctx, meta.attribution);
         const startedAt = Date.now();
         const request = adaptAnthropicRequest(args[0]);
+        // 2026-10-26: a request for a large answer streams too, read to its
+        // end here, so its caller gets the same message `create` returns.
+        const handlers = callerHandlers ?? (sendsLargeAnswer(request) ? {} : undefined);
         // A preparation's request is sent exactly as the generation's would
         // be (decision 65), cached prefix included.
         const prefixed = meta.attribution || meta.preparation ? cacheGenerationPrefix(request) : request;
@@ -762,7 +891,9 @@ export function instrumentedAnthropic(
         const logUsage = async (
           response: unknown,
           viaOpenRouter: boolean,
-          stopped?: { receivedChars: number }
+          // `reason` (2026-10-26): why a stream ended without a stop reason
+          // other than its caller's abort ("timeout", "interrupted").
+          stopped?: { receivedChars: number; reason?: string }
         ): Promise<void> => {
           const durationMs = Math.max(0, Date.now() - startedAt);
           const reported = anthropicUsage(response);
@@ -775,7 +906,7 @@ export function instrumentedAnthropic(
               ? { ...reported, outputTokens: Math.max(reported.outputTokens, Math.ceil(stopped.receivedChars / 3)) }
               : reported;
           const charge = viaOpenRouter ? openRouterAnthropicCharge(response) : {};
-          const stopReason = stopped ? "aborted" : responseStopReason(response);
+          const stopReason = stopped ? (stopped.reason ?? "aborted") : responseStopReason(response);
           const params = args[0];
           const model =
             params &&
@@ -851,42 +982,108 @@ export function instrumentedAnthropic(
         // stream that breaks is retried like a failed request. The SDK ends
         // a stream its signal stopped as if it had finished, so an answer
         // without a stop reason after an abort is not an answer.
-        const finish = async (sent: unknown) => {
+        // 2026-10-26: the SDK's timeout stops only the wait for the stream
+        // to start, so the whole stream is bounded here. A client or request
+        // given its own timeout (Seeds, model checks) keeps it as the bound
+        // on the whole attempt, counted from when it was sent; any other
+        // stream may run to the action's deadline,
+        // or STREAM_WITHOUT_DEADLINE_MS without one (the time a timed-out
+        // request and its retry would have used). A stream that ends
+        // without a stop reason is never an answer: stopped by its bound it
+        // fails as a timeout (ActionTimeBudgetError when the deadline set
+        // the bound), otherwise (closed part way, or an overloaded or api
+        // error event) as a retryable StreamInterruptedError. Either way
+        // the usage it reported is logged first.
+        const finish = async (sent: unknown, viaOpenRouter: boolean) => {
           if (!handlers) return await sent;
+          const attemptStartedAt = Date.now();
+          const stream = await sent;
+          // An answer that is not an event stream (a test double that answers
+          // with a message) is returned as it is.
+          if (!stream || typeof stream !== "object" || !(Symbol.asyncIterator in stream)) return stream;
+          const controller = streamController(stream);
+          const untilDeadline =
+            deadline === undefined ? STREAM_WITHOUT_DEADLINE_MS : Math.max(0, deadline - Date.now());
+          const bound =
+            ownTimeout === undefined
+              ? untilDeadline
+              : Math.min(Math.max(0, ownTimeout - (Date.now() - attemptStartedAt)), untilDeadline);
+          const deadlineBound = deadline !== undefined && bound === untilDeadline;
+          let timedOut = false;
+          const timer = controller
+            ? setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+              }, bound)
+            : undefined;
           let received = 0;
-          const message = await collectMessageStream(await sent, {
-            ...handlers,
-            onReceived: (chars) => {
-              received = chars;
-              handlers.onReceived?.(chars);
-            },
-          });
-          if (signal?.aborted && !responseStopReason(message)) throw new RequestAbortedError(message, received);
-          return message;
+          let message: unknown;
+          const progress: { partial?: unknown; receivedChars?: number } = {};
+          try {
+            message = await collectMessageStream(
+              stream,
+              {
+                ...handlers,
+                onReceived: (chars) => {
+                  received = chars;
+                  handlers.onReceived?.(chars);
+                },
+              },
+              progress
+            );
+          } catch (error) {
+            if (callSignal?.aborted && !timedOut) {
+              throw new RequestAbortedError(progress.partial, progress.receivedChars ?? received);
+            }
+            if (anthropicUsage(progress.partial)) {
+              await logUsage(progress.partial, viaOpenRouter, {
+                receivedChars: progress.receivedChars ?? received,
+                reason: timedOut ? "timeout" : "interrupted",
+              });
+            }
+            if (timedOut) throw deadlineBound ? new ActionTimeBudgetError() : new StreamTimeLimitError();
+            throw streamFailure(error);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+          if (responseStopReason(message)) return message;
+          if (callSignal?.aborted && !timedOut) throw new RequestAbortedError(message, received);
+          if (anthropicUsage(message)) {
+            await logUsage(message, viaOpenRouter, {
+              receivedChars: received,
+              reason: timedOut ? "timeout" : "interrupted",
+            });
+          }
+          if (timedOut) throw deadlineBound ? new ActionTimeBudgetError() : new StreamTimeLimitError();
+          throw new StreamInterruptedError("The answer stream ended before the answer finished");
         };
         // The caller's signal travels with the request options on every
         // transport, so the SDK stops the request (and its stream) itself.
-        const options: unknown = signal
-          ? { ...(args[1] && typeof args[1] === "object" ? (args[1] as Record<string, unknown>) : {}), signal }
-          : args[1];
+        const options: unknown = callSignal ? { ...(requestOptions ?? {}), signal: callSignal } : args[1];
         /** One send on one transport, retries and the deadline included. */
         const sendOn = async (transport: "direct" | "openrouter"): Promise<unknown> => {
           const viaOpenRouter = transport === "openrouter";
           const create = viaOpenRouter && !forcedOpenRouter ? openRouterCreate() : originalCreate;
           const wire = viaOpenRouter ? openRouterWireBody(prefixed) : prefixed;
-          const body = handlers ? streamedBody(wire, viaOpenRouter) : wire;
+          // 2026-10-26: a request streamed only for its size gains
+          // `stream: true` alone. Eager tool input is for a caller that reads
+          // the tool input as it arrives (the Brief); without it the API still
+          // checks each key before sending it.
+          const body = !handlers ? wire : callerHandlers ? streamedBody(wire, viaOpenRouter) : { ...(wire as Record<string, unknown>), stream: true };
           const sendRequest = async (): Promise<unknown> =>
             deadline === undefined || !defaults
               ? await finish(
-                  Reflect.apply(create, target, signal ? [body, options, ...rest] : [body, ...args.slice(1)])
+                  Reflect.apply(create, target, callSignal ? [body, options, ...rest] : [body, ...args.slice(1)]),
+                  viaOpenRouter
                 )
               : await createWithinDeadline(
-                  (requestOptions) => finish(Reflect.apply(create, target, [body, requestOptions, ...rest])),
+                  (requestOptions) =>
+                    finish(Reflect.apply(create, target, [body, requestOptions, ...rest]), viaOpenRouter),
                   options,
                   deadline,
                   defaults
                 );
-          return viaOpenRouter ? await sendViaOpenRouter(sendRequest, deadline, signal) : await sendRequest();
+          return viaOpenRouter ? await sendViaOpenRouter(sendRequest, deadline, callSignal) : await sendRequest();
         };
         // The billing fallback (decision 64) only for a model OpenRouter
         // lists; any other model's call goes direct and fails as before.
@@ -913,7 +1110,7 @@ export function instrumentedAnthropic(
                 // Stopped by its caller: not a refusal, so no fallback. A
                 // probe says nothing about direct, so its claim is given up
                 // at once and the next call may probe.
-                if (signal?.aborted) {
+                if (callSignal?.aborted) {
                   if (route === "probe") await abandonDirectProbe(ctx);
                   throw error;
                 }
@@ -937,7 +1134,7 @@ export function instrumentedAnthropic(
         } catch (error) {
           // A stream stopped part way keeps the usage it had reported
           // (2026-09-27, second): billed input is logged, never dropped.
-          if (signal?.aborted && error instanceof RequestAbortedError && anthropicUsage(error.partial)) {
+          if (callSignal?.aborted && error instanceof RequestAbortedError && anthropicUsage(error.partial)) {
             await logUsage(error.partial, viaOpenRouter, { receivedChars: error.receivedChars });
             error.usageRecorded = true;
           }

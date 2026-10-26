@@ -32,6 +32,7 @@ import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { generateStructured } from "./structured";
 import { guardProviderNetwork } from "../../tests/providerNetworkGuard";
+import { stubFetchStreaming } from "../anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before each Anthropic request;
 // load its module first so a cold import cannot race the fake clock.
@@ -93,9 +94,7 @@ beforeEach(() => {
   resetGenerationModelCache();
   captured = [];
   reply = () => toolReply();
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetchStreaming(vi, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       captured.push({ url: request.url, body: (await request.json()) as Record<string, unknown> });
       return reply(request.url);

@@ -34,6 +34,7 @@ import { buildFrozenSummaryPlan, RESULTS_AGAINST_TARGETS_RULE_ID } from "./lib/s
 import { renderBriefBlock } from "./lib/briefRender";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { RULES_REPORT_FACTS, SOURCE_TALK, TARGET_MET_RULE } from "../shared/humanProse";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -49,7 +50,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -173,9 +174,7 @@ function systemOf(json: Record<string, unknown>): string {
 function installFetch(script: { draft: string; repair?: string; compressed?: string; checks: unknown[] }): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);

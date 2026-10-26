@@ -374,3 +374,37 @@ What changes:
 4. [ ] Within the first hour, `/admin/models` shows "Move back" for the moved tiers. Watch the model log for a day.
 5. [ ] If a tier moves back for a reason that was not the model (an outage), allow it again: `npx convex run modelCatalog:allowTrackModelAgain '{"track":"claude-sonnet","modelId":"claude-sonnet-5-5"}'`.
 
+
+## Phase A: AI answers no longer fail on fixed size limits
+
+Owner, 2026-10-26: "continue and finish all ... ensure everything works as expected", and check big plans in batches instead of refusing them. Decision record: `docs/product-domain.md`, entry "2026-10-26 (second)". One commit, because its three parts share their request pins and tests.
+
+What changes:
+
+- **Long answers stream** and are read to the end, so they are not lost to the 240-second request timeout. Quotes, thinking and its signature come through the stream intact.
+- **A cut-off answer gets the model's full room** on its retry, for the analyzer, the Brief, QA (and post-draft QA), chronology, the older Self-check, consistency and PD review. The judges also ask for 16,384 answer tokens first, up from 4,096.
+- **A dense stretch of transcript is never kept part way.** A draft reads the transcript the usual way; background extraction reads the stretch in halves or quarters; a text still too dense is marked and not tried again.
+- **A big Line's final check runs in parts**, up to 8 at once, instead of being refused at sign-off.
+
+### Automated, offline
+
+- [x] Design reviewed twice before code by Claude Opus 5.5 (high requested, it reported low) and gpt-6-astra (medium): both "go with changes" each round; adopted all but two findings (see the decision record).
+- [x] A regression found by the agent that rewrote the sign-off tests (a claim no longer refused a plan check too big for any request) is fixed and tested.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [ ] Code review after, by two reviewers on different models.
+
+### Automated, live on localhost
+
+- [ ] **Emily's plan** (the 2026-10-09 case): signs off and drafts; post-draft QA is not cut off; the usage rows show which requests streamed.
+- [ ] **A big plan**: a Brief of 70 or more entries, or 40 picks in one step, signs off; its Line's final check runs in two or more requests and every check has a verdict or a "not checked" row.
+- [ ] **A long transcript** in background extraction: facts become ready, or the run is marked too dense and the draft reads the transcript.
+
+### Manual on localhost
+
+- [ ] **Sign off a big plan.** Pick 40 ideas in one step (or use a Brief with many entries). Sign-off works. The PD drafts, and the Compliance Note lists every plan check.
+- [ ] **Post-draft QA on a long PD.** Run QA on a finished PD. It finishes with a scorecard, no "cut off" error.
+- [ ] **A long interview.** Upload a 1 to 3 hour transcript and draft. The draft finishes. The progress log either uses verified facts or says the transcript was read the usual way.
+
+### Owner actions
+
+- [ ] None before release beyond the earlier commits' steps. The prompt version moves on deploy, so a Brief prepared just before the deploy is prepared again once.

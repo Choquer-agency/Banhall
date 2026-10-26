@@ -18,9 +18,11 @@ import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
  * escape is a word edge before a name (2026-09-29, second, privacy). 7: any
  * escape is an edge, labels open strings and split names are hidden
  * (2026-09-29, second, privacy re-check). 8: placeholder algorithm 7 (final
- * privacy round).
+ * privacy round). 9: a cut-off answer's repair may ask for the model's whole
+ * output allowance (STRUCTURED_OUTPUT_PROGRAM cutOffMoreRoomSummary,
+ * 2026-10-26, P0 item 3).
  */
-export const BRIEF_DERIVATION_VERSION = 8;
+export const BRIEF_DERIVATION_VERSION = 9;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

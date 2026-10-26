@@ -4144,6 +4144,62 @@ Replaces decision 60 (2026-09-26, "files stay per project"). Amends the 2026-08-
 - **Details** (functions, limits, tests, reviews) are recorded with each change as it is built.
 - **Approval:** Product owner, 2026-10-26 (chat): all four parts approved as shown (company files; reading files on the server, with Azure for scans; each draft's record kept as shared versions; writer memory and learning).
 
+### 2026-10-26 (second): AI answers no longer fail on fixed size limits: large answers stream, a cut-off answer gets the model's full room, dense transcripts are read in pieces, and a big Line's final check runs in parts (owner)
+
+Context pipeline plan (`docs/todos/context-pipeline-mvp-push.md`), Phase A: P0 items 2 (second half), 3 and 4, and failures 6 and 7. Amends the third 2026-10-22 entry ("One request per Line", the refusals at 32,768 response bytes, 64,000 plan-check bytes and 64 ordinary checks) and the 2026-09-25 cut-off rule ("a cut-off is retried once at the same limit and asked for a shorter answer"). No workflow stage, transition or permission is added, `projects.createdBy` is untouched, and no AI tool writes report prose.
+
+- **What happened.**
+  1. Post-draft QA was cut off at its 4,096-token limit on 2026-10-22 and again on 2026-10-23, and chat answers stopped at exactly 16,384 tokens. Every AI step has a fixed answer limit set by hand, and a cut-off answer was retried at the same limit with "write a shorter answer".
+  2. Requests waited for the whole answer and gave up after 240 seconds, so a long answer was lost (failure 7). Only the Brief streamed.
+  3. In citations mode, a dense stretch of transcript whose answer was cut off kept the facts before the cut without a word, so the end of that stretch was lost (failure 6).
+  4. A Line whose final check (the Summary Self-check) did not fit one request was refused at sign-off: more than 64 Brief entries and writer rules, a step of about 40 picks, or a response projection over 32,768 bytes. The owner chose on 2026-10-26 to check such a Line in parts instead.
+- **Change: answer limits and streaming.**
+  - **Each model's real output limit is known** (`modelOutputCap` in `shared/generationModels.ts`): the catalog row's limit, else the published limit of the direct Anthropic models (`ANTHROPIC_MODEL_LIMITS`, 128,000 tokens, 64,000 for Haiku 4.5), else 128,000 for a Claude model that always thinks, else unknown. The limits are kept apart from the model seeds, so frozen model entries do not change.
+  - **Large answers stream.** A request whose answer limit, as sent, is over 16,384 tokens streams and is read to its end inside the request (`instrumentedAnthropic`). The caller gets the same message as before: quotes (citations), thinking and its signature included. Such a request gains only `stream: true`.
+  - **A stream is bounded as a whole.** A client or request with its own time limit (Seeds 90 seconds, fact windows 150 seconds, model checks) keeps it, counted from when the request was sent. Any other stream may run to the action's deadline, which is about the time a timed-out request and its retry used before.
+  - **A stream that ends without a stop reason is never an answer.** Stopped by its time limit, it fails as a timeout (or "ran out of time" when the action's deadline set the limit). Broken part way, or by an overloaded or server error mid-stream, it is retried like a dropped connection (`StreamInterruptedError`). The tokens it used are logged either way, marked partial. The caller's own stop, from the client or the request, is reported as a stop.
+  - **The judges ask for more room first.** QA, post-draft QA, chronology, the older Self-check and the consistency pass ask for 16,384 answer tokens, up from 4,096. Anthropic counts only the tokens a model writes toward its output rate limit and its bill (rate-limits page, read 2026-10-26: "The `max_tokens` parameter does not factor into OTPM rate limit calculations"), so the larger limit costs nothing unless it is used.
+  - **A cut-off answer gets the model's full room.** The analyzer, the Brief, QA, chronology, the older Self-check, consistency and PD review retry a cut-off answer with the model's full output limit, and the retry says "this attempt has more room, so give the complete answer" (`cutOffRetry: "more_room"`). Every other step keeps "write a shorter answer" at the same limit: Seeds, the small helpers and model checks, whose time limits cannot take a long answer. An answer that filled the model's context window (`model_context_window_exceeded`) counts as cut off and never gets more room. If OpenRouter refuses the larger request for its size (a 402), the retry is sent once more at the step's own limit.
+  - **OpenRouter models (GPT, Gemini)** get the 240-second step time limit instead of 180 seconds. They do not stream yet.
+- **Change: dense transcript stretches (failure 6).**
+  - A fact window whose answer is cut off or runs out of time is never kept part way.
+  - **During a draft** nothing is split, so the draft's time budget holds. The draft reads the transcript the usual way, and background extraction is queued for that transcript.
+  - **Background extraction** splits such a window at a turn boundary into two halves that overlap by three turns, and asks each half in turn, at most twice (a window becomes at most four pieces), and only while two pieces still fit before the action's deadline.
+  - A text that still fails is marked too dense (`transcriptFactRuns.tooDense`). While its text, `FACTS_VERSION` and parser version stay the same, no draft or background run tries it again, and drafts read the transcript the usual way.
+- **Change: a big Line's final check runs in parts.**
+  - `planSummarySelfCheckBatches` (`convex/lib/seedRevisions.ts`) plans the requests. Sign-off, the section claim and every request use it, so they agree.
+  - A Line that fits one request is checked in one request, byte for byte as before.
+  - Otherwise the first request holds every rule check (facts, targets and the Line 242 answers, which read the same sources) and may ask the Storyline question. Brief entries and writer rules, then the other plan checks in signed-off order, fill each request up to the same per-request limits as before (32,768 response bytes, 64,000 plan-check bytes, 64 labels, 256 plan checks), then start the next.
+  - Each request carries the same section draft and Brief, marks only its own labels, lists only its own checks and says the others are checked separately. Up to 8 requests run at once, so the check still takes one request and one follow-up in a row.
+  - Verdicts are merged in the Line's order. A verdict for another request's check is ignored, not counted as invalid.
+  - **When a request fails.** If its answer is unusable (cut off, malformed or mostly invalid), its checks are recorded as not checked, one by one, and the other requests' verdicts stand. If every request fails, or any request or follow-up fails for time, a stop, the provider or the account, the whole check fails as before. This now also holds for the one follow-up of a Line checked in one request: before, such a failure left the missing checks not checked.
+  - **Still refused at sign-off, with the Line named:** a Line needing more than 8 requests ("has more picks and Brief entries than the final check can read, even in parts"), or one plan check too big for a request on its own. Freezing a Line refuses the second case before any AI call, at sign-off and at each section claim.
+- **What the writer sees.** Big plans sign off. A 46-entry Brief beside 30 picks in one step still fits one request; beside 40 picks it is checked in two. A failed part shows its checks as "not checked" in the Compliance Note.
+- **Unchanged.** Seeds requests, chat (which uses its own client) and every request at or under 16,384 answer tokens are sent as before. `SUMMARY_PLAN_SERIALIZER_VERSION` stays v5: a Line in one request sends the same plan block. `FACTS_VERSION` stays the same.
+- **Migration and compatibility.** Widen only: `transcriptFactRuns.tooDense` is optional. The prompt program moves (the larger limits, the retry text, the request split), so `promptVersion` moves and a reserved generation reruns runtime admission, which now admits more. The Brief preparation key moves (`BRIEF_DERIVATION_VERSION` 9), so a Brief prepared before the deploy is prepared again once. Model evaluation's QA task sends what production sends, so its results are not comparable with runs before this change.
+- **Authorization.** None changes.
+- **Known limits.**
+  - The first request of each judge still has a fixed limit (16,384 tokens). It guards against a runaway answer; a cut-off answer gets the full room on its retry.
+  - OpenRouter models do not stream, so their answers are still limited to 240 seconds.
+  - Condensing a transcript (one attempt, 120 seconds) keeps no retry.
+  - Fact packs extracted before this change keep any stretch that was silently shortened, because `FACTS_VERSION` did not change.
+  - The CONTENT PLAN CHECKS block still repeats each step's merged ids for every check in the step, so a very large step needs more requests. Listing each merged group once is deferred.
+  - A request that fails for a rate limit after the transport's own retries fails the whole check; it is not retried again on its own.
+  - The requests of one Line do not share a cached prompt, since each lists its own tool schema.
+  - A stream outside a generation action (no deadline) is not retried after it breaks part way.
+- **Tests.**
+  - `convex/ai/largeAnswerStream.sdk.test.ts` (real SDK, `fetch` stubbed): the 16,384 threshold, citations, thinking and signature through a stream, retry after a stream closes part way or an overloaded event, no retry for an invalid-request event, the client's limit counted from the send with slow headers, the action's deadline, a request's own stop.
+  - `convex/ai/cutOff.sdk.test.ts`, `convex/ai/thinkingHeadroom.sdk.test.ts`: the full-room retry on both gateways, the 402 fallback, the judges' 16,384 limits.
+  - `convex/ai/transcriptFactsAgent.test.ts`, `convex/factOutcomes.test.ts`: halves and quarters, a timed-out window, no split near the deadline, the too-dense mark, background splitting through a real stream.
+  - `convex/lib/seedRevisions.test.ts`, `convex/ai/selfCheckBatches.test.ts`, `convex/generationSeedSignoff.test.ts`: the partition (every check once, rules first, each request full and within limits, the same split every time), each request's own message, merging, failed parts, a failed follow-up, and sign-off and recovery at the old boundaries now admitting in two requests.
+  - Request pins: `convex/unchangedRequests.sdk.test.ts` and `convex/generationStepRouting.sdk.test.ts` put back exactly the larger limits and `stream: true` and match their earlier pins; `convex/modelCatalog.test.ts` re-pins the program hash.
+- **Review.**
+  - Design round 1: Claude Opus 5.5 (it reported low effort) and gpt-6-astra (medium), both "go with changes".
+  - Round 2 (A1 and A2 as built, A3 as designed): gpt-6-astra (medium) and Claude Opus 5.5 (high requested, it reported low), both "go with changes" on all three parts.
+  - Adopted: every finding but two. Not adopted: Opus's doubt that a larger `max_tokens` uses up the output rate limit, which Anthropic's page contradicts (quoted above); and Opus's suggestions to retry a rate-limited part on its own and to fail the whole check when the first part fails. The transport already retries rate limits, and a failed first part is shown as not checked.
+  - The agent that rewrote the sign-off tests (Claude Opus 5.5) found one regression: a section claim no longer refused a plan check too big for any request before drafting. Fixed: freezing a Line plans its requests.
+- **Approval:** Product owner, 2026-10-26 (chat: "yes continue and finish all, babysit until finish and ensure everything works as expected with proper live localhost testing, qa, stresstest"; and the choice to check big plans in batches instead of refusing them).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

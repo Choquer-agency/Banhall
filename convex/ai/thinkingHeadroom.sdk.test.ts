@@ -29,6 +29,7 @@ import {
   registerModelEntries,
   resetRegisteredModelEntries,
 } from "../../shared/generationModels";
+import { streamWhenAsked } from "../anthropicSse.fixture";
 
 const modules = import.meta.glob("../**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -41,7 +42,7 @@ function runAction<R>(t: TestConvex, body: (ctx: ActionCtx) => Promise<R>): Prom
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-headroom-key");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn(() => { throw new Error("Unexpected HTTP transport"); })));
 });
 afterEach(() => {
   resetRegisteredModelEntries();
@@ -78,26 +79,26 @@ const judge = (model: string, maxTokens: number) => ({
   model,
 });
 
-test("the judges' 4,096-token answer caps are unchanged as declared", () => {
+test("the judges' first-attempt answer caps are 16,384 (2026-10-26, P0 item 4; 4,096 before)", () => {
   expect([QA_REQUEST.maxTokens, SELF_CHECK_REQUEST.maxTokens, CONSISTENCY_REQUEST.maxTokens, CHRONOLOGY_REQUEST.maxTokens])
-    .toEqual([4096, 4096, 4096, 4096]);
+    .toEqual([16_384, 16_384, 16_384, 16_384]);
 });
 
 test("Opus 5.5 and Fable 5.1: a 4,096-token judge answer is sent with room for thinking, and so is its cut-off repair", async () => {
   const t = convexTest(schema, modules);
   const bodies: WireBody[] = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const body = await new Request(input, init).json() as WireBody;
     bodies.push(body);
     // Each model's first answer is cut off; the repair completes.
     const firstForModel = bodies.filter((sent) => sent.model === body.model).length === 1;
     return reply(body.model, firstForModel ? "max_tokens" : "tool_use", "submit_judgement", { ok: true });
-  }));
+  })));
   const values = await runAction(t, async (ctx) => {
     const client = instrumentedAnthropic(ctx, { callSite: "headroom-contract" });
     return [
-      await generateStructured(client, judge("claude-opus-5-5", QA_REQUEST.maxTokens)),
-      await generateStructured(client, judge("claude-fable-5-1", SELF_CHECK_REQUEST.maxTokens)),
+      await generateStructured(client, judge("claude-opus-5-5", 4096)),
+      await generateStructured(client, judge("claude-fable-5-1", 4096)),
     ];
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -115,11 +116,11 @@ test("Opus 5.5 and Fable 5.1: a 4,096-token judge answer is sent with room for t
 test("the real chronology call site sends Opus 5.5 its answer cap with thinking room, and Sonnet 5 its cap as is", async () => {
   const t = convexTest(schema, modules);
   const bodies: WireBody[] = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const body = await new Request(input, init).json() as WireBody;
     bodies.push(body);
     return reply(body.model, "tool_use", CHRONOLOGY_REQUEST.toolName, { entries: [] });
-  }));
+  })));
   const analysis = { uncertainties: ["Seal fatigue."] } as unknown as TranscriptAnalysis;
   await runAction(t, async (ctx) => {
     const client = instrumentedAnthropic(ctx, { callSite: "headroom-contract" }) as never;
@@ -128,10 +129,45 @@ test("the real chronology call site sends Opus 5.5 its answer cap with thinking 
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-  expect(bodies.map((body) => [body.model, body.max_tokens])).toEqual([
-    ["claude-opus-5-5", 16_384],
-    ["claude-sonnet-5", 4096],
+  // 2026-10-26: 16,384 for the answer; on Opus 5.5 with the thinking room
+  // that is 65,536, a large answer, so it streams.
+  expect(bodies.map((body) => [body.model, body.max_tokens, body.stream === true])).toEqual([
+    ["claude-opus-5-5", 65_536, true],
+    ["claude-sonnet-5", 16_384, false],
   ]);
+});
+
+test("a judge that opts in retries a cut-off answer with the model's whole allowance, streamed, and says it has more room", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: WireBody[] = [];
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
+    const body = await new Request(input, init).json() as WireBody;
+    bodies.push(body);
+    const firstForModel = bodies.filter((sent) => sent.model === body.model).length === 1;
+    return reply(body.model, firstForModel ? "max_tokens" : "tool_use", "submit_judgement", { ok: true });
+  })));
+  await runAction(t, async (ctx) => {
+    const client = instrumentedAnthropic(ctx, { callSite: "headroom-contract" });
+    await generateStructured(client, { ...judge("claude-opus-5-5", 16_384), cutOffRetry: "more_room" });
+    await generateStructured(client, { ...judge("claude-sonnet-5", 16_384), cutOffRetry: "more_room" });
+    // Haiku 4.5's published cap is 64,000.
+    await generateStructured(client, { ...judge("claude-haiku-4-5-20251001", 16_384), cutOffRetry: "more_room" });
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(bodies.map((body) => [body.model, body.max_tokens, body.stream === true])).toEqual([
+    ["claude-opus-5-5", 65_536, true],
+    ["claude-opus-5-5", 128_000, true],
+    ["claude-sonnet-5", 16_384, false],
+    ["claude-sonnet-5", 128_000, true],
+    ["claude-haiku-4-5-20251001", 16_384, false],
+    ["claude-haiku-4-5-20251001", 64_000, true],
+  ]);
+  const repairs = bodies.filter((_, index) => index % 2 === 1).map((body) => JSON.stringify(body.messages));
+  for (const repair of repairs) {
+    expect(repair).toContain("this attempt has more room, so give the complete answer");
+    expect(repair).not.toContain("write a shorter answer");
+  }
 });
 
 test("models that do not always think: the request body is byte-identical to the one generateStructured builds", async () => {

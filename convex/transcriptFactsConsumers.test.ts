@@ -12,6 +12,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { PD_REVIEW_FACTS_HEADING } from "./ai/reviewAgent";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before or after each Anthropic
 // request; load its module first so a cold import cannot race the fake clock.
@@ -164,11 +165,11 @@ describe("the PD review reads live fact packs behind placeholders", () => {
       return { writerId, projectId, documentId };
     });
     const writer = t.withIdentity({ subject: "rf-writer" });
-    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+    stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
     const transcriptId = await writer.mutation(api.transcripts.addTranscript, { projectId: ids.projectId, content: CONTENT });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     if (extract) {
-      vi.stubGlobal("fetch", vi.fn(async () => factsAnswer()));
+      stubFetchStreaming(vi, vi.fn(async () => factsAnswer()));
       await writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId });
       await t.finishAllScheduledFunctions(vi.runAllTimers);
     }
@@ -207,9 +208,7 @@ describe("the PD review reads live fact packs behind placeholders", () => {
 
   function stubReview() {
     const bodies: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+    stubFetchStreaming(vi, vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
         bodies.push(await new Request(request, init).text());
         return Response.json({
           id: "msg_review",

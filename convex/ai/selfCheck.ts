@@ -55,6 +55,9 @@ import {
   MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  planSummarySelfCheckBatches,
+  projectFrozenSummaryPlanChecks,
+  SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
   RESULTS_AGAINST_TARGETS_RULE_ID,
@@ -68,6 +71,7 @@ import {
   type FrozenSummaryPlanCheck,
   type SummaryOrdinaryCheck,
   type SummaryPlanRefFields,
+  type SummarySelfCheckBatch,
   WORK_ANSWERS_242_RULE_ID,
 } from "../lib/seedRevisions";
 
@@ -932,10 +936,22 @@ function summaryFeedbackTerms(input: SelfCheckModelInput): readonly FeedbackGove
   return (input.feedbackTerms ?? []).filter((entry) => entry.term.trim() && entry.feedback.length > 0);
 }
 
-/** The instruction line and data blocks, without the Summary checklist. */
-function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
+/**
+ * The instruction line and data blocks, without the Summary checklist.
+ * 2026-10-26 (P0 item 2): `batch` is one request of a Line checked in
+ * several (planSummarySelfCheckBatches). Every request carries the same data
+ * blocks; labels are marked only on the batch's own ordinary checks, and the
+ * CONTENT PLAN CHECKS block, the sources and each rule's instruction come
+ * with the batch's own plan checks. Without `batch`, everything (the one
+ * request of a Line that fits, byte for byte as before).
+ */
+function buildSelfCheckDataMessage(
+  input: SelfCheckModelInput,
+  batch?: SummarySelfCheckBatch<SelfCheckPlanCheck>
+): string {
   const hasSummaryPlan = Boolean(input.planChecks?.length);
-  const ordinary = hasSummaryPlan ? summaryOrdinaryChecks(input) : [];
+  const ordinary = hasSummaryPlan ? batch?.ordinaryChecks ?? summaryOrdinaryChecks(input) : [];
+  const planChecks = hasSummaryPlan ? batch?.planChecks ?? input.planChecks ?? [] : [];
   const blocks = [
     block(
       `SECTION DRAFT: ${ORDERED_SECTION_TITLES[input.section]}`,
@@ -988,16 +1004,20 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
     blocks.push(block("WRITER INSTRUCTIONS", instructionLines.join("\n\n")));
   }
   if (input.planChecks?.length) {
-    const serialized = serializeFrozenSummaryPlanChecks(input.planChecks);
-    if (input.planChecksBlock !== serialized) {
+    // The whole Line's checks are the frozen ones; a batch sends its own
+    // block, kept within the input limit by planSummarySelfCheckBatches.
+    const whole = batch
+      ? projectFrozenSummaryPlanChecks(input.planChecks)
+      : serializeFrozenSummaryPlanChecks(input.planChecks);
+    if (input.planChecksBlock !== whole) {
       throw new Error("Frozen Summary plan-check serialization mismatch");
     }
-    blocks.push(serialized);
+    if (planChecks.length > 0) blocks.push(batch ? serializeFrozenSummaryPlanChecks(planChecks) : whole);
   }
   // 2026-10-04 (second): the sources the draft was written from, for the
   // facts check, right after the plan checks. Absent without that check, so
   // those requests are unchanged.
-  const facts = (input.planChecks ?? []).some((check) => check.ruleId === FACTS_MATCH_SOURCES_RULE_ID);
+  const facts = planChecks.some((check) => check.ruleId === FACTS_MATCH_SOURCES_RULE_ID);
   if (facts) {
     blocks.push(block(
       SUMMARY_PLAN_SELF_CHECK_REQUEST.factsMatchSources.blockLabel,
@@ -1055,10 +1075,10 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   // work check too, and since (third) for the targets check, last. Each rule
   // is named by its own ruleId. Absent without such a check, so those
   // requests are unchanged.
-  const leaveOut = (input.planChecks ?? []).some((check) => check.droppedSeedId !== undefined);
-  const answers242 = (input.planChecks ?? []).some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
-  const workAnswers242 = (input.planChecks ?? []).some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID);
-  const targets = (input.planChecks ?? []).some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
+  const leaveOut = planChecks.some((check) => check.droppedSeedId !== undefined);
+  const answers242 = planChecks.some((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID);
+  const workAnswers242 = planChecks.some((check) => check.ruleId === WORK_ANSWERS_242_RULE_ID);
+  const targets = planChecks.some((check) => check.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID);
   // 2026-10-04 (first): the writer's caps code measures are not the
   // model's to judge in the writer-instruction verdicts.
   const measuredCapRules = instructionLines.length > 0
@@ -1086,12 +1106,26 @@ function buildSelfCheckDataMessage(input: SelfCheckModelInput): string {
   }`;
 }
 
-export function buildSelfCheckUserMessage(input: SelfCheckModelInput): string {
-  const message = buildSelfCheckDataMessage(input);
+export function buildSelfCheckUserMessage(
+  input: SelfCheckModelInput,
+  batch?: SummarySelfCheckBatch<SelfCheckPlanCheck>
+): string {
+  const message = buildSelfCheckDataMessage(input, batch);
   if (!input.planChecks?.length) return message;
   const separator = SUMMARY_PLAN_SELF_CHECK_REQUEST.checklist.separator;
-  const checklist = summaryChecklist(summaryOrdinaryChecks(input), input.planChecks);
-  return [message, ...(checklist ? [checklist] : [])].join(separator);
+  const ordinary = batch?.ordinaryChecks ?? summaryOrdinaryChecks(input);
+  const plans = batch?.planChecks ?? input.planChecks;
+  const checklist = summaryChecklist(ordinary, plans);
+  // 2026-10-26 (P0 item 2): one request of several says so, and says which
+  // list stays empty. A Line checked in one request has neither line.
+  const part = SUMMARY_PLAN_SELF_CHECK_REQUEST.batchRequest;
+  return [
+    message,
+    ...(batch ? [part.note] : []),
+    ...(checklist ? [checklist] : []),
+    ...(batch && ordinary.length === 0 ? [part.emptyVerdicts] : []),
+    ...(batch && plans.length === 0 ? [part.emptyPlanVerdicts] : []),
+  ].join(separator);
 }
 
 function fillRuntime(template: string, values: Record<string, string>): string {
@@ -1379,6 +1413,8 @@ function validateSummaryOutput(args: {
   ordinaryChecks: readonly SummaryOrdinaryCheck[];
   planChecks: readonly SelfCheckPlanCheck[];
   allowStorylineQuestion: boolean;
+  /** 2026-10-26: another request of the Line may ask the Storyline question. */
+  questionAskedElsewhere?: boolean;
   actualParagraphCount: number;
 }): ValidatedSummaryOutput {
   const { raw, ordinaryChecks, planChecks } = args;
@@ -1499,7 +1535,9 @@ function validateSummaryOutput(args: {
   if (storylineQuestion) {
     const question = storylineQuestion;
     const problem = !args.allowStorylineQuestion
-      ? "returned without both a Storyline and a Confidence Map"
+      ? args.questionAskedElsewhere
+        ? "returned by a request that may not ask one"
+        : "returned without both a Storyline and a Confidence Map"
       : overLimit("question", question.question, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES) ??
         overLimit("sectionClaim", question.sectionClaim, MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES) ??
         overLimit(
@@ -1967,7 +2005,7 @@ function followUpMessage(data: string, gap: SummaryCoverageGap): string {
  * have held is asked for in the follow-up (2026-09-28, fifth); an answer
  * with neither list is unreadable.
  */
-async function completeSummarySelfCheck(
+async function checkSummaryRequest(
   client: GenerationClient,
   input: SelfCheckModelInput,
   args: {
@@ -1977,10 +2015,16 @@ async function completeSummarySelfCheck(
     ordinaryChecks: readonly SummaryOrdinaryCheck[];
     planChecks: readonly SelfCheckPlanCheck[];
     actualParagraphCount: number;
+    allowStorylineQuestion: boolean;
+    /**
+     * 2026-10-26 (P0 item 2): one request of several for the Line. A verdict
+     * for a label or plan check another request lists is dropped without
+     * counting as invalid, as the follow-up drops repeats.
+     */
+    part?: { index: number; count: number; lineLabels: ReadonlySet<string>; linePlanRefs: ReadonlySet<string> };
   }
 ): Promise<{ raw: RawSelfCheck; notChecked: SummaryCoverageGap }> {
-  const allowStorylineQuestion =
-    input.storylineText.trim().length > 0 && input.confidenceMap.length > 0;
+  const { allowStorylineQuestion } = args;
   const ask = async (
     user: string,
     ordinary: readonly SummaryOrdinaryCheck[],
@@ -2009,10 +2053,32 @@ async function completeSummarySelfCheck(
     })).byteLength;
     console.info(
       `${SELF_CHECK_REQUEST.toolName}: Line ${input.section} ${answer} answer ` +
+        `${args.part ? `(request ${args.part.index + 1} of ${args.part.count}) ` : ""}` +
         `${answerBytes ?? "unmeasured"} UTF-8 bytes for ${ordinary.length} labels and ${plans.length} plan checks ` +
         `(projected ${projected}, ceiling ${MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES})`
     );
-    return raw;
+    return withoutOtherRequests(raw);
+  };
+  // Verdicts for another request's labels and plan checks, dropped.
+  const ownLabels = new Set(args.ordinaryChecks.map((check) => check.label));
+  const ownPlanRefs = new Set(args.planChecks.map(planRefOf));
+  const withoutOtherRequests = (raw: RawSelfCheck): RawSelfCheck => {
+    const part = args.part;
+    if (!part) return raw;
+    const verdicts = raw.verdicts.filter(
+      (verdict) => ownLabels.has(verdict.instruction) || !part.lineLabels.has(verdict.instruction)
+    );
+    const planVerdicts = (raw.planVerdicts ?? []).filter((verdict) => {
+      const ref = planRefOf(verdict);
+      return ownPlanRefs.has(ref) || !part.linePlanRefs.has(ref);
+    });
+    const dropped = raw.verdicts.length - verdicts.length + (raw.planVerdicts ?? []).length - planVerdicts.length;
+    if (dropped === 0) return raw;
+    console.warn(
+      `${SELF_CHECK_REQUEST.toolName}: Line ${input.section} request ${part.index + 1} of ${part.count} ` +
+        `answered ${dropped} labels or plan checks another request lists; dropped`
+    );
+    return { ...raw, verdicts, planVerdicts };
   };
   // Invalid verdicts are dropped here and their labels and plan checks
   // count as missing (2026-09-28, run 4).
@@ -2021,6 +2087,7 @@ async function completeSummarySelfCheck(
     ordinaryChecks: args.ordinaryChecks,
     planChecks: args.planChecks,
     allowStorylineQuestion,
+    ...(args.part && !allowStorylineQuestion ? { questionAskedElsewhere: true } : {}),
     actualParagraphCount: args.actualParagraphCount,
   });
   const first = firstAnswer.raw;
@@ -2074,6 +2141,10 @@ async function completeSummarySelfCheck(
     followUp = followUpAnswer.raw;
     stillMissing = followUpAnswer.missing;
   } catch (error) {
+    // 2026-10-26 (round 2 design review): only an unusable follow-up answer
+    // leaves the missing checks not checked. Running out of time, a stop,
+    // the provider or the account fail the whole check, as in a first answer.
+    if (!isUnusableAnswer(error)) throw error;
     console.warn(
       `${tool}: the follow-up for missing labels failed (${selfCheckFailureDiagnostic(error)}); ` +
         `${gap.labels.length} labels and ${gap.plans.length} plan checks recorded as not checked`
@@ -2097,6 +2168,143 @@ async function completeSummarySelfCheck(
 }
 
 /**
+ * A request's failure that says only that its answer was unusable: cut off,
+ * malformed, rejected for its invalid verdicts or its size, or without the
+ * tool call. Any other failure (time, an abort, the provider or account,
+ * our own integrity checks) fails the Line's whole check.
+ */
+function isUnusableAnswer(error: unknown): boolean {
+  return (
+    error instanceof MalformedOutputError ||
+    error instanceof SummarySelfCheckRejection ||
+    error instanceof StructuredValidationError ||
+    (error instanceof Error && error.message.endsWith("model did not return structured output"))
+  );
+}
+
+/** Runs `run` over `items`, at most `limit` at once, and settles every one. */
+async function settleEach<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (let index = next++; index < items.length; index = next++) {
+      try {
+        results[index] = { status: "fulfilled", value: await run(items[index]!, index) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/**
+ * The Summary Self-check of one Line (2026-09-28; in batches since
+ * 2026-10-26, P0 item 2). A Line whose checks fit one request is checked
+ * exactly as before (checkSummaryRequest). Otherwise its checks are split
+ * into the requests sign-off admitted (planSummarySelfCheckBatches), all
+ * run at once (SUMMARY_SELF_CHECK_PARALLEL_REQUESTS), each with its own one
+ * follow-up, and every one is awaited. A request whose answer was unusable
+ * leaves its labels and plan checks not checked, one by one, and the other
+ * requests' verdicts stand. Any other failure, in a first answer or a
+ * follow-up, or every request failing, fails the whole check, as one
+ * request's failure did before. Verdicts come back in the Line's order:
+ * labels as listed, plan checks as frozen.
+ */
+async function completeSummarySelfCheck(
+  client: GenerationClient,
+  input: SelfCheckModelInput,
+  args: {
+    ordinaryChecks: readonly SummaryOrdinaryCheck[];
+    planChecks: readonly SelfCheckPlanCheck[];
+    actualParagraphCount: number;
+  }
+): Promise<{ raw: RawSelfCheck; notChecked: SummaryCoverageGap }> {
+  const allowStorylineQuestion =
+    input.storylineText.trim().length > 0 && input.confidenceMap.length > 0;
+  const batches = planSummarySelfCheckBatches({
+    ordinaryChecks: args.ordinaryChecks,
+    planChecks: args.planChecks,
+    includeStorylineQuestion: allowStorylineQuestion,
+  });
+  if (batches.length === 1) {
+    return await checkSummaryRequest(client, input, {
+      user: buildSelfCheckUserMessage(input),
+      data: buildSelfCheckDataMessage(input),
+      ordinaryChecks: args.ordinaryChecks,
+      planChecks: args.planChecks,
+      actualParagraphCount: args.actualParagraphCount,
+      allowStorylineQuestion,
+    });
+  }
+  const tool = SELF_CHECK_REQUEST.toolName;
+  console.info(
+    `${tool}: Line ${input.section} checks ${args.ordinaryChecks.length} labels and ` +
+      `${args.planChecks.length} plan checks in ${batches.length} requests`
+  );
+  const lineLabels = new Set(args.ordinaryChecks.map((check) => check.label));
+  const linePlanRefs = new Set(args.planChecks.map(planRefOf));
+  const settled = await settleEach(batches, SUMMARY_SELF_CHECK_PARALLEL_REQUESTS, (batch, index) =>
+    checkSummaryRequest(client, input, {
+      user: buildSelfCheckUserMessage(input, batch),
+      data: buildSelfCheckDataMessage(input, batch),
+      ordinaryChecks: batch.ordinaryChecks,
+      planChecks: batch.planChecks,
+      actualParagraphCount: args.actualParagraphCount,
+      allowStorylineQuestion: batch.includeStorylineQuestion,
+      part: { index, count: batches.length, lineLabels, linePlanRefs },
+    })
+  );
+  const failed = settled.flatMap((result, index) =>
+    result.status === "rejected" ? [{ index, error: result.reason as unknown }] : []);
+  const blocking = failed.find((failure) => !isUnusableAnswer(failure.error));
+  if (blocking) throw blocking.error;
+  if (failed.length === batches.length) throw failed[0]!.error;
+  for (const failure of failed) {
+    const batch = batches[failure.index]!;
+    console.warn(
+      `${tool}: Line ${input.section} request ${failure.index + 1} of ${batches.length} failed ` +
+        `(${selfCheckFailureDiagnostic(failure.error)}); its ${batch.ordinaryChecks.length} labels and ` +
+        `${batch.planChecks.length} plan checks recorded as not checked`
+    );
+  }
+  const labelOrder = new Map(args.ordinaryChecks.map((check, index) => [check.label, index]));
+  const planOrder = new Map(args.planChecks.map((check, index) => [planRefOf(check), index]));
+  const byLabel = (label: string) => labelOrder.get(label) ?? Number.MAX_SAFE_INTEGER;
+  const byPlan = (check: SummaryPlanRefFields) => planOrder.get(planRefOf(check)) ?? Number.MAX_SAFE_INTEGER;
+  const answered = settled.flatMap((result, index) =>
+    result.status === "fulfilled" ? [{ index, ...result.value }] : []);
+  const questioning = answered.find((result) => batches[result.index]!.includeStorylineQuestion)?.raw;
+  const failedBatches = failed.map((failure) => batches[failure.index]!);
+  return {
+    raw: {
+      ...(questioning ?? {}),
+      verdicts: answered
+        .flatMap((result) => result.raw.verdicts)
+        .sort((a, b) => byLabel(a.instruction) - byLabel(b.instruction)),
+      planVerdicts: answered
+        .flatMap((result) => result.raw.planVerdicts ?? [])
+        .sort((a, b) => byPlan(a) - byPlan(b)),
+    },
+    notChecked: {
+      labels: [
+        ...answered.flatMap((result) => result.notChecked.labels),
+        ...failedBatches.flatMap((batch) => batch.ordinaryChecks),
+      ].sort((a, b) => byLabel(a.label) - byLabel(b.label)),
+      plans: [
+        ...answered.flatMap((result) => result.notChecked.plans),
+        ...failedBatches.flatMap((batch) => batch.planChecks),
+      ].sort((a, b) => byPlan(a) - byPlan(b)),
+    },
+  };
+}
+
+/**
  * One structured Self-check call for one drafted section; in Summary mode,
  * at most one follow-up for labels the first answer missed.
  */
@@ -2107,11 +2315,8 @@ export async function runModelSelfCheck(
   const hasSummaryPlan = Boolean(input.planChecks?.length);
   const ordinaryChecks = hasSummaryPlan ? summaryOrdinaryChecks(input) : [];
   const count = sectionParagraphs(input.text).length;
-  const user = buildSelfCheckUserMessage(input);
   const { raw, notChecked } = hasSummaryPlan
     ? await completeSummarySelfCheck(client, input, {
-        user,
-        data: buildSelfCheckDataMessage(input),
         ordinaryChecks,
         planChecks: input.planChecks ?? [],
         actualParagraphCount: count,
@@ -2119,13 +2324,14 @@ export async function runModelSelfCheck(
     : {
         raw: await generateStructured<RawSelfCheck>(client, {
           system: SELF_CHECK_SYSTEM_PROMPT,
-          user,
+          user: buildSelfCheckUserMessage(input),
           toolName: SELF_CHECK_REQUEST.toolName,
           description: SELF_CHECK_REQUEST.toolDescription,
           schema: SELF_CHECK_SCHEMA as unknown as Anthropic.Tool.InputSchema,
           maxTokens: SELF_CHECK_REQUEST.maxTokens,
           model: input.model,
           validate: selfCheckOutputSchema,
+          cutOffRetry: "more_room",
         }),
         notChecked: { labels: [], plans: [] } satisfies SummaryCoverageGap,
       };
@@ -2509,6 +2715,7 @@ export async function runConsistencyPass(
     maxTokens: CONSISTENCY_REQUEST.maxTokens,
     model: input.model,
     validate: consistencyOutputSchema,
+    cutOffRetry: "more_room",
   });
   if (raw.unreadable.length > 0) {
     console.warn(

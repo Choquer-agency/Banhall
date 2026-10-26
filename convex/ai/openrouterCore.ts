@@ -153,6 +153,9 @@ export function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<vo
   });
 }
 
+/** Content blocks whose input streams as `input_json_delta` pieces. */
+const TOOL_INPUT_BLOCKS: ReadonlySet<string> = new Set(["tool_use", "server_tool_use", "mcp_tool_use"]);
+
 /**
  * Folds an Anthropic Messages event stream into the message `create` would
  * have returned: content blocks (a tool_use block's input parsed from its
@@ -160,10 +163,18 @@ export function sleepUnlessAborted(ms: number, signal?: AbortSignal): Promise<vo
  * usage of `message_start` updated by `message_delta` (output tokens and any
  * provider extras, such as OpenRouter's cost). A value that is not an event
  * stream is returned as it is (a test double that answers with a message).
+ *
+ * 2026-10-26: every block comes back as `create` would return it, since
+ * any large request now streams (instrumentedAnthropic): a text block keeps
+ * its `citations_delta` citations (citations-mode fact extraction reads
+ * them), a thinking block its thinking text and `signature_delta`
+ * signature. When the stream fails part way, `progress.partial` holds the
+ * message folded so far, so its usage can still be logged.
  */
 export async function collectMessageStream(
   stream: unknown,
-  handlers: GenerationStreamHandlers = {}
+  handlers: GenerationStreamHandlers = {},
+  progress?: { partial?: unknown; receivedChars?: number }
 ): Promise<unknown> {
   if (!stream || typeof stream !== "object" || !(Symbol.asyncIterator in stream)) return stream;
   type Block = { type: string; [key: string]: unknown; partial?: string };
@@ -171,70 +182,89 @@ export async function collectMessageStream(
   const blocks: Block[] = [];
   let usage: Record<string, unknown> = {};
   let received = 0;
-  handlers.onToolInput?.("");
-  for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
-    const event = raw ?? {};
-    switch (event.type) {
-      case "message_start": {
-        message = { ...((event.message as Record<string, unknown>) ?? {}) };
-        usage = { ...((message.usage as Record<string, unknown>) ?? {}) };
-        break;
-      }
-      case "content_block_start": {
-        const block = { ...((event.content_block as Block) ?? { type: "text" }) };
-        if (block.type === "tool_use") block.partial = "";
-        if (block.type === "text" && typeof block.text !== "string") block.text = "";
-        blocks[Number(event.index ?? blocks.length)] = block;
-        break;
-      }
-      case "content_block_delta": {
-        const block = blocks[Number(event.index ?? blocks.length - 1)];
-        const delta = (event.delta ?? {}) as Record<string, unknown>;
-        if (!block) break;
-        if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
-          block.partial = (block.partial ?? "") + delta.partial_json;
-          received += delta.partial_json.length;
-          handlers.onToolInput?.(block.partial);
-        } else if (delta.type === "text_delta" && typeof delta.text === "string") {
-          block.text = `${typeof block.text === "string" ? block.text : ""}${delta.text}`;
-          received += delta.text.length;
-        } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
-          received += delta.thinking.length;
+  const folded = () => {
+    const content = blocks.filter(Boolean).map((block) => {
+      if (block.partial === undefined) return block;
+      const { partial, ...rest } = block;
+      let input: unknown = rest.input ?? {};
+      if (partial && partial.trim()) {
+        try {
+          input = JSON.parse(partial);
+        } catch {
+          // A tool input cut off mid-object: the stop reason says why, and the
+          // caller treats the answer as cut off (structured.ts).
+          input = {};
         }
-        handlers.onReceived?.(received);
-        break;
       }
-      case "message_delta": {
-        const delta = (event.delta ?? {}) as Record<string, unknown>;
-        if ("stop_reason" in delta) message.stop_reason = delta.stop_reason;
-        if ("stop_sequence" in delta) message.stop_sequence = delta.stop_sequence;
-        if (event.usage && typeof event.usage === "object") usage = { ...usage, ...(event.usage as Record<string, unknown>) };
-        break;
+      return { ...rest, input };
+    });
+    return { ...message, content, usage };
+  };
+  handlers.onToolInput?.("");
+  try {
+    for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
+      const event = raw ?? {};
+      switch (event.type) {
+        case "message_start": {
+          message = { ...((event.message as Record<string, unknown>) ?? {}) };
+          usage = { ...((message.usage as Record<string, unknown>) ?? {}) };
+          break;
+        }
+        case "content_block_start": {
+          const block = { ...((event.content_block as Block) ?? { type: "text" }) };
+          // Every block whose input arrives as input_json_delta pieces.
+          if (TOOL_INPUT_BLOCKS.has(block.type)) block.partial = "";
+          if (block.type === "text" && typeof block.text !== "string") block.text = "";
+          if (block.type === "thinking" && typeof block.thinking !== "string") block.thinking = "";
+          blocks[Number(event.index ?? blocks.length)] = block;
+          break;
+        }
+        case "content_block_delta": {
+          const block = blocks[Number(event.index ?? blocks.length - 1)];
+          const delta = (event.delta ?? {}) as Record<string, unknown>;
+          if (!block) break;
+          if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+            block.partial = (block.partial ?? "") + delta.partial_json;
+            received += delta.partial_json.length;
+            handlers.onToolInput?.(block.partial);
+          } else if (delta.type === "text_delta" && typeof delta.text === "string") {
+            block.text = `${typeof block.text === "string" ? block.text : ""}${delta.text}`;
+            received += delta.text.length;
+          } else if (delta.type === "citations_delta" && delta.citation !== undefined) {
+            block.citations = [...(Array.isArray(block.citations) ? block.citations : []), delta.citation];
+          } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+            block.thinking = `${typeof block.thinking === "string" ? block.thinking : ""}${delta.thinking}`;
+            received += delta.thinking.length;
+          } else if (delta.type === "signature_delta" && typeof delta.signature === "string") {
+            block.signature = delta.signature;
+          }
+          handlers.onReceived?.(received);
+          break;
+        }
+        case "message_delta": {
+          const delta = (event.delta ?? {}) as Record<string, unknown>;
+          if ("stop_reason" in delta) message.stop_reason = delta.stop_reason;
+          if ("stop_sequence" in delta) message.stop_sequence = delta.stop_sequence;
+          if (event.usage && typeof event.usage === "object") usage = { ...usage, ...(event.usage as Record<string, unknown>) };
+          break;
+        }
+        case "error": {
+          // A test double's error event; the SDK throws its own APIError.
+          const error = (event.error ?? {}) as { message?: string };
+          throw new Error(error.message ?? "The provider stream failed");
+        }
+        default:
+          break;
       }
-      case "error": {
-        const error = (event.error ?? {}) as { message?: string };
-        throw new Error(error.message ?? "The provider stream failed");
-      }
-      default:
-        break;
     }
+  } catch (error) {
+    if (progress) {
+      progress.partial = folded();
+      progress.receivedChars = received;
+    }
+    throw error;
   }
-  const content = blocks.filter(Boolean).map((block) => {
-    if (block.type !== "tool_use") return block;
-    const { partial, ...rest } = block;
-    let input: unknown = rest.input ?? {};
-    if (partial && partial.trim()) {
-      try {
-        input = JSON.parse(partial);
-      } catch {
-        // A tool input cut off mid-object: the stop reason says why, and the
-        // caller treats the answer as cut off (structured.ts).
-        input = {};
-      }
-    }
-    return { ...rest, input };
-  });
-  return { ...message, content, usage };
+  return folded();
 }
 
 export type ChatCompletionsBody = {
@@ -466,11 +496,16 @@ export class OutputLimitError extends MalformedOutputError {
 
 /**
  * Whether a response's stop reason says the answer was cut off at the
- * output token limit, on either gateway.
+ * output token limit, on either gateway. 2026-10-26: also the model's
+ * context window, which a retry with the model's whole output allowance can
+ * reach before `max_tokens` (Anthropic's `model_context_window_exceeded`).
  */
 export function isCutOffStopReason(reason: string | null | undefined): boolean {
-  return reason === "max_tokens" || reason === "length";
+  return reason === "max_tokens" || reason === "length" || reason === CONTEXT_WINDOW_STOP_REASON;
 }
+
+/** Anthropic's stop reason for an answer that filled the model's context window. */
+export const CONTEXT_WINDOW_STOP_REASON = "model_context_window_exceeded";
 
 export type ChatCompletionsResponse = {
   /** The model that actually answered (differs only after a fallback). */

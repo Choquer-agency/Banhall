@@ -870,6 +870,11 @@ export default defineSchema({
     // 2026-09-25 widen: the parser version of the turns the facts index. A
     // ready run is stale once the transcript is rebuilt with another one.
     parserVersion: v.optional(v.string()),
+    // 2026-10-26 widen (failure 6): background extraction failed on a
+    // stretch too dense for one answer even after splitting it. While the
+    // text, FACTS_VERSION and parser version stay the same, no extraction
+    // is tried again; drafts read the transcript the usual way.
+    tooDense: v.optional(v.boolean()),
   })
     .index("by_transcriptId_and_sourceContentHash_and_factsVersion", [
       "transcriptId",

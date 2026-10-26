@@ -10,6 +10,7 @@ import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { buildSeedPrompt } from "./trustedContext";
 import { seedToolSchema } from "../lib/seedContract";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+import { streamWhenAsked } from "../anthropicSse.fixture";
 
 // Keep SDK, application decoding and Convex scheduling real; replace only fetch.
 const modules = import.meta.glob("../**/*.ts");
@@ -331,14 +332,14 @@ test("Fable 5.1: a text-only answer spends the one repair, and both requests sta
 test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonnet 5 is unchanged", async () => {
   const t = convexTest(schema, modules);
   const bodies: Array<Record<string, unknown>> = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const body = await new Request(input, init).json() as Record<string, unknown>;
     bodies.push(body);
     return anthropicReply([
       { type: "thinking", thinking: "", signature: "sig-synthetic" },
       { type: "text", text: "Drafted paragraph." },
     ], String(body.model));
-  }));
+  })));
   const { runSection242Agent } = await import("./section242Agent");
   const { runSection246Agent } = await import("./section246Agent");
   const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
@@ -361,16 +362,19 @@ test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonn
     expect(flagged.thinking).toBeUndefined();
     expect(flagged.output_config).toEqual({ effort: "low" });
     expect(flagged.tool_choice).toBeUndefined();
-    // The 8,192-token section answer budget plus room for the thinking.
+    // The 8,192-token section answer budget plus room for the thinking:
+    // a large answer, so it streams (2026-10-26).
     expect(flagged.max_tokens).toBe(32768);
+    expect(flagged.stream).toBe(true);
   }
   expect(sonnet.thinking).toEqual({ type: "disabled" });
   expect(sonnet.output_config).toBeUndefined();
   expect(sonnet.max_tokens).toBe(8192);
-  // Apart from the model, the dropped thinking control and the thinking
-  // room, the request is the one Sonnet 5 gets.
+  expect(sonnet.stream).toBeUndefined();
+  // Apart from the model, the dropped thinking control, the thinking room
+  // and streaming, the request is the one Sonnet 5 gets.
   const { thinking: _sonnetThinking, model: _sonnetModel, max_tokens: _sonnetMax, ...sonnetRest } = sonnet;
-  const { output_config: _opusEffort, model: _opusModel, max_tokens: _opusMax, ...opusRest } = opus;
-  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel; void _sonnetMax; void _opusMax;
+  const { output_config: _opusEffort, model: _opusModel, max_tokens: _opusMax, stream: _opusStream, ...opusRest } = opus;
+  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel; void _sonnetMax; void _opusMax; void _opusStream;
   expect(opusRest).toEqual(sonnetRest);
 });

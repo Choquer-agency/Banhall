@@ -15,6 +15,7 @@ import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
 import type { Id } from "./_generated/dataModel";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before or after each Anthropic
 // request; load its module first so a cold import cannot race the fake clock.
@@ -126,9 +127,7 @@ type Network = {
 };
 
 function stubNetwork(network: Network) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetchStreaming(vi, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       if (!request.url.includes("anthropic")) return new Response("offline", { status: 503 });
       const body = (await request.json()) as Body;
@@ -186,7 +185,7 @@ async function setup(mode: "off" | "long" | "all") {
     return { writerId, projectId };
   });
   const writer = t.withIdentity({ subject: "gf-writer" });
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
   const transcriptId = await writer.mutation(api.transcripts.addTranscript, {
     projectId: ids.projectId,
     content: CONTENT,

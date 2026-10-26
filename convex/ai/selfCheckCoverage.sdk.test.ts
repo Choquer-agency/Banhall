@@ -39,6 +39,7 @@ import {
   type SummaryOrdinaryCheck,
 } from "../lib/seedRevisions";
 import type { PdSubsectionRoleId } from "../../shared/pdSubsections";
+import { streamWhenAsked } from "../anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before each Anthropic request;
 // load its module first so a cold import cannot race the fake clock.
@@ -67,7 +68,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-self-check-key");
   // No request can escape even if a test forgets its own stub.
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn(() => { throw new Error("Unexpected HTTP transport"); })));
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -281,12 +282,12 @@ async function runThroughSdk(
 ): Promise<{ result: ModelSelfCheckResult; bodies: WireBody[] }> {
   const t = convexTest(schema, modules);
   const bodies: WireBody[] = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (request, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (request, init) => {
     bodies.push(await new Request(request, init).json() as WireBody);
     const answer = answers[bodies.length - 1];
     if (answer === undefined) throw new Error("No answer scripted for this request");
     return toolAnswer(answer);
-  }));
+  })));
   const result = await runAction(t, async (ctx) =>
     runModelSelfCheck(
       instrumentedAnthropic(ctx, { callSite: "self-check-coverage" }) as unknown as GenerationClient,
@@ -903,10 +904,10 @@ describe("a verdict list of the wrong type is asked for again (real SDK, fetch s
     const diagnosticFor = async (answer: unknown) => {
       const t = convexTest(schema, modules);
       let calls = 0;
-      vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => {
+      vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async () => {
         calls += 1;
         return toolAnswer(answer);
-      }));
+      })));
       const diagnostic = await runAction(t, async (ctx) => {
         try {
           await runModelSelfCheck(

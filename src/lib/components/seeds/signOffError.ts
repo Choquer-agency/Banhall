@@ -37,6 +37,14 @@ export function signOffErrorMessage(error: unknown): string {
     const steps = title ? "its steps" : "the steps with the most picks";
     return `${where} has more picks than the final check can read at once. Untick a few picks in ${steps}, then sign off again. ${kept}`;
   }
+  // 2026-10-26: since big Sections are checked in several parts, sign-off
+  // refuses only a Section that needs more parts than the check allows.
+  if (limit === "summary_self_check_batches") {
+    const title = PD_SECTION_TITLES[`s${section}` as keyof typeof PD_SECTION_TITLES];
+    const where = title ? `Section ${section} (${title})` : "This Summary";
+    const steps = title ? "its steps" : "the steps with the most picks";
+    return `${where} has more picks and Brief entries than the final check can read, even in parts. Untick a few picks in ${steps}, then sign off again. ${kept}`;
+  }
   if (limit === "summary_self_check_ordinary_count") {
     // 2026-10-22 (third): ordinary checks also count the writer profile,
     // writer rules and Feedback terms, so the message names both sources.

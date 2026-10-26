@@ -370,6 +370,47 @@ export function alwaysThinkingMaxTokens(id: string, maxTokens: number): number {
 }
 
 /**
+ * Published context and output limits of the direct Anthropic models
+ * (platform.claude.com models overview, read 2026-10-26). Kept apart from
+ * CANDIDATE_MODELS on purpose: a seed's `maxCompletionTokens` is part of
+ * every frozen model entry and so of the prompt version, which must not
+ * move for drafts already running (2026-10-26 design review).
+ */
+export const ANTHROPIC_MODEL_LIMITS: Readonly<Record<string, { context: number; output: number }>> = {
+  "claude-sonnet-5-5": { context: 1_000_000, output: 128_000 },
+  "claude-haiku-5-5": { context: 1_000_000, output: 128_000 },
+  "claude-sonnet-5": { context: 1_000_000, output: 128_000 },
+  "claude-opus-5-5": { context: 1_000_000, output: 128_000 },
+  "claude-opus-4-8": { context: 1_000_000, output: 128_000 },
+  "claude-haiku-4-5-20251001": { context: 200_000, output: 64_000 },
+};
+
+/**
+ * The most output tokens `id` can write in one answer (2026-10-26): the
+ * registered entry's `maxCompletionTokens` (an OpenRouter catalog row),
+ * else a direct Anthropic model's published limit, else the always-thinking
+ * cap alwaysThinkingMaxTokens already assumes for a Claude model whose
+ * thinking is always on; null for any other model, which is never asked for
+ * more than its step's limit. A retry after a cut-off asks for this much
+ * (structured.ts).
+ */
+export function modelOutputCap(id: string): number | null {
+  const declared = modelById(id)?.maxCompletionTokens;
+  if (declared !== undefined) return declared;
+  const published = ANTHROPIC_MODEL_LIMITS[id]?.output;
+  if (published !== undefined) return published;
+  return acceptsForcedToolChoice(id) ? null : ALWAYS_THINKING_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * A request on the Anthropic Messages gateway whose `max_tokens`, as sent,
+ * is above this many tokens streams its answer (2026-10-26; the SDK's own
+ * guidance keeps unstreamed requests near 16,000). Requests at or under it
+ * are sent as before.
+ */
+export const LARGE_ANSWER_STREAM_THRESHOLD = 16_384;
+
+/**
  * Models that reject a forced tool call but may still be drawn for a Random
  * compare slot (owner decision 34, 2026-09-25). Opus 5.5 ran a full real
  * Step-by-step on the unforced path; Fable 5.1 and Mythos 5.1 stay out.

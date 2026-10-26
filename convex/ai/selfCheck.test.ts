@@ -437,8 +437,11 @@ describe("Self-check before display (CAP-9)", () => {
     // then recaptured 2026-09-23 for the owner-directed copy-skills change
     // (shared human-prose rules on the Self-check prompt; section titles
     // without an em dash). This literal hash is independent of current
-    // prompt/schema exports.
-    expect(await completeSelfCheckRequestHash(request)).toBe(
+    // prompt/schema exports. 2026-10-26 (P0 item 4): the answer limit is
+    // 16,384, up from 4,096; with the old limit put back, every other byte
+    // is the pinned one.
+    expect(request.max_tokens).toBe(16_384);
+    expect(await completeSelfCheckRequestHash({ ...request, max_tokens: 4096 })).toBe(
       "4fa5d7184a93e08a953f2c5a5fdd9a7f94a667a1da247059d7dd2b1b69f478c1"
     );
   });
@@ -451,8 +454,8 @@ describe("Self-check before display (CAP-9)", () => {
     expect(SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).toBeGreaterThanOrEqual(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
-    // The legacy Self-check allowance is unchanged.
-    expect(SELF_CHECK_REQUEST.maxTokens).toBe(4096);
+    // The legacy Self-check allowance: 16,384 since 2026-10-26 (P0 item 4).
+    expect(SELF_CHECK_REQUEST.maxTokens).toBe(16_384);
     const check: SelfCheckPlanCheck = {
       itemId: "item-1",
       roleId: "company_context",

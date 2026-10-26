@@ -373,7 +373,9 @@ flowchart TD
   save --> qa["Background QA<br/>findings appear in the QA panel"]:::ai
 ```
 
-**Inside each Line** (`convex/ai/orderedGeneration.ts`): draft, then remove banned words, then shorten to the CRA limits, then a self-check (fixed rules plus one AI check), then at most one repair. Each Line reads the Lines already written. Notes on which style rules were applied go to `complianceNotes`.
+**Inside each Line** (`convex/ai/orderedGeneration.ts`): draft, then remove banned words, then shorten to the CRA limits, then a self-check (fixed rules plus one AI check), then at most one repair. Each Line reads the Lines already written. Notes on which style rules were applied go to `complianceNotes`. In Step by step, a Line whose final check does not fit one request is checked in up to 8 requests sent at once (`planSummarySelfCheckBatches` in `convex/lib/seedRevisions.ts`, 2026-10-26).
+
+**Answer limits** (2026-10-26): a request whose answer limit is over 16,384 tokens streams and is read to its end (`instrumentedAnthropic` in `convex/ai/instrument.ts`), so a long answer is not lost to a request timeout. A cut-off answer from a report-sized step is retried with the model's full output limit (`cutOffRetry` in `convex/ai/structured.ts`, limits from `modelOutputCap` in `shared/generationModels.ts`).
 
 **Run status** on the `generations` row (`shared/generationTransitions.ts`):
 
@@ -653,7 +655,9 @@ When a change comes in, ask four questions:
 | --- | --- |
 | Draft stuck on "Generating" | The `generations` row status; the 10-minute cron fails it after 30 idle minutes (`convex/lib/generations/reapers.ts`) |
 | Step by step stops after the Seeds | It is waiting for the writer to sign off (`awaiting_input`); see `convex/lib/generations/seedStage.ts` |
-| "Sign off and generate PD" is refused as too large | The final check's size budget for one Line (`projectSummarySelfCheckWorstCaseResponse` in `convex/lib/seedRevisions.ts`); the refusal names the limit and the Line (`SUMMARY_CAPACITY_EXCEEDED`). See the 2026-10-22 entries in `docs/product-domain.md` |
+| "Sign off and generate PD" is refused as too large | How the final check splits one Line into requests (`planSummarySelfCheckBatches` in `convex/lib/seedRevisions.ts`): refused only past 8 requests or for one check too big for a request. The refusal names the limit and the Line (`SUMMARY_CAPACITY_EXCEEDED`). See the 2026-10-22 and 2026-10-26 (second) entries in `docs/product-domain.md` |
+| An AI step's answer is cut off or times out | The step's limit and `cutOffRetry` (`convex/lib/generationSteps.ts`, `convex/ai/structured.ts`); the usage row's stop reason (`max_tokens`, `timeout`, `interrupted`) in `aiUsage` |
+| A transcript's verified facts never become ready | `transcriptFactRuns`: a run marked `tooDense` is not tried again until its text changes; drafts read the transcript the usual way (`convex/ai/condense.ts`) |
 | Chat reply never arrives | The `chatTurns` row; `convex/chatV2.ts` and `convex/ai/chatAgentV2.ts` |
 | Apply on a chat card fails or says stale | The target text changed since the card was made; `chatV2.applyProposal` |
 | A stage change is refused | The rule in `shared/workflowTransitions.ts`; Submitted and Delivered are always refused today |

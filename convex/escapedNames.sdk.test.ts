@@ -38,6 +38,7 @@ import { seedToolSchema } from "./lib/seedContract";
 import { buildPlaceholderMap } from "./lib/deidentify";
 import { buildFrozenSummaryPlan, canonicalizeSeedSnapshot } from "./lib/seedRevisions";
 import type { OrderedPayload } from "./lib/orderedChain";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -52,7 +53,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -106,7 +107,7 @@ describe("names after an escaped break are masked at the request boundary (real 
     expect(request.user).toContain("\\nQuillmere Analytics Ltd.");
     expect(request.user).toContain("\\tMorgan Hale");
     const bodies: string[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       bodies.push(await new Request(input, init).text());
       return Response.json({
         id: "msg_synthetic",
@@ -194,7 +195,7 @@ describe("names after an escaped break are masked at the request boundary (real 
       [{ itemId, mergedItemIds: [itemId], paragraph: 1, outcome: "applied", reason: "Covered." }],
     ];
     const sent: Sent[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const body = await new Request(input, init).text();
       const json = JSON.parse(body) as { system: unknown; messages: Array<{ content: unknown }>; tools?: Array<{ name: string }> };
       const user = json.messages.map((message) => textOf(message.content)).join("");
@@ -285,7 +286,7 @@ describe("the privacy re-check cases are masked at the request boundary (real SD
     expect(request.user).toContain("\\\\nQuillmere Analytics Ltd.");
     expect(request.user).toContain('"Rosalind: we tried');
     const bodies: string[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       bodies.push(await new Request(input, init).text());
       return Response.json({
         id: "msg_synthetic", type: "message", role: "assistant", model: SONNET, stop_sequence: null,
@@ -367,7 +368,7 @@ describe("the privacy re-check cases are masked at the request boundary (real SD
       [{ itemId, mergedItemIds: [itemId], paragraph: 1, outcome: "applied", reason: "Covered." }],
     ];
     const bodies: Array<{ stage: string; body: string }> = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const body = await new Request(input, init).text();
       const json = JSON.parse(body) as { system: unknown; messages: Array<{ content: unknown }>; tools?: Array<{ name: string }> };
       const user = json.messages.map((message) => textOf(message.content)).join("");
@@ -418,7 +419,7 @@ describe("a budget cut never sends a fragment of a name (real SDK, fetch stubbed
     expect(report.sources[0]).toMatchObject({ included: true, truncated: true, includedLength: 15 });
     expect(userMessage).toContain("Interview with \n[TRUNCATED:");
     const bodies: string[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       bodies.push(await new Request(input, init).text());
       return Response.json({
         id: "msg_synthetic", type: "message", role: "assistant", model: SONNET, stop_sequence: null,
@@ -453,7 +454,7 @@ describe("a budget cut never sends a fragment of a name (real SDK, fetch stubbed
     });
     expect(userMessage).toContain("Interview with Dana \n[TRUNCATED:");
     const bodies: string[] = [];
-    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       bodies.push(await new Request(input, init).text());
       return Response.json({
         id: "msg_synthetic", type: "message", role: "assistant", model: SONNET, stop_sequence: null,

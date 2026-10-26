@@ -38,7 +38,11 @@ export const QA_REQUEST = {
   toolName: "submit_qa_scorecard",
   toolDescription: "Submit the QA scorecard for the SR&ED report draft.",
   jsonIndentation: 2,
-  maxTokens: 4096,
+  // 2026-10-26 (P0 item 4): 16,384, up from 4,096. The answer grows with the
+  // report, and post-draft QA was cut off at 4,096 on 2026-10-22 and 10-23.
+  // The first attempt's limit only guards against a runaway answer; a
+  // cut-off is retried with the model's whole allowance (cutOffRetry).
+  maxTokens: 16_384,
   modelSelector: "candidate-model-or-default",
 } as const;
 
@@ -126,6 +130,7 @@ export async function runQAAgent(
     schema: QA_SCHEMA,
     maxTokens: QA_REQUEST.maxTokens,
     model,
+    cutOffRetry: "more_room",
     // Enforce the same contract the panel reads. Without this a scorecard the
     // renderer can't parse is still stored and marked done, and the writer
     // sees an empty panel with no way to tell it apart from "never ran".

@@ -20,7 +20,9 @@ import {
   MAX_FACTS_FINDINGS,
   MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_BATCHES,
   SeedContextLimitError,
+  assertSummarySelfCheckBatchFits,
   assertSummaryPlanCheckInputWithinLimit,
   assertSummarySelfCheckResponseWithinLimit,
   assertSeedPromptWithinLimit,
@@ -47,6 +49,7 @@ import {
   jsonEscapedUtf8Bytes,
   materializeFinalWording,
   orderShownSet,
+  planSummarySelfCheckBatches,
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
@@ -63,6 +66,8 @@ import {
   type FrozenSummaryPlanCheck,
   type SeedContextItem,
   type SeedContextSnapshot,
+  type SummaryOrdinaryCheck,
+  type SummarySelfCheckBatch,
 } from "./seedRevisions";
 
 const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
@@ -1364,7 +1369,9 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(bytes(buildFrozenSummaryPlan({ section: "s246", items: all, skippedRoleIds: [], answers242: {} }).checksBlock))
       .toBeLessThan(bytes(admitted.checksBlock));
     // The exact boundary with every item counted: a cited excerpt fills the
-    // admitted checks block to exactly 64,000 bytes, and one more byte is refused.
+    // admitted checks block to exactly 64,000 bytes, and one more byte no
+    // longer fits one request. Since 2026-10-26 (P0 item 2) that Line is
+    // checked in two, the advancement check (with every item) in the first.
     const withExcerpt = (excerpt: string) => buildFrozenSummaryPlan({
       section: "s246",
       items: all,
@@ -1377,7 +1384,15 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     // The excerpt appears in the drafting block and the checks block; only
     // the checks block has the 64,000-byte limit.
     expect(bytes(withExcerpt("x".repeat(fill)).checksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
-    expect(() => withExcerpt("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
+    const batchesOf = (plan: ReturnType<typeof withExcerpt>) =>
+      planSummarySelfCheckBatches({ ordinaryChecks: [], planChecks: plan.checks, includeStorylineQuestion: false });
+    expect(batchesOf(withExcerpt("x".repeat(fill)))).toHaveLength(1);
+    const over = withExcerpt("x".repeat(fill + 1));
+    expect(() => serializeFrozenSummaryPlanChecks(over.checks)).toThrow("Expanded Summary plan checks");
+    const split = batchesOf(over);
+    expect(split).toHaveLength(2);
+    expect(split[0]!.planChecks[0]!.ruleId).toBe(ADVANCEMENTS_ANSWER_242_RULE_ID);
+    expect(split.flatMap((batch) => batch.planChecks)).toHaveLength(over.checks.length);
     // A Line 242 at its Locked cap (50 lines of 78 characters) is never clipped.
     const atCap = Array.from({ length: 50 }, (_, index) => `L${String(index).padStart(2, "0")} ${"w".repeat(74)}`).join(" ");
     expect(atCap).toHaveLength(50 * 78 + 49);
@@ -1501,7 +1516,13 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     const fill = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - bytes(admitted().checksBlock);
     expect(fill).toBeGreaterThan(0);
     expect(bytes(admitted("x".repeat(fill)).checksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
-    expect(() => admitted("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
+    // One byte more no longer fits one request; since 2026-10-26 (P0 item 2)
+    // it is checked in two, the work check (with every item) in the first.
+    const over = admitted("x".repeat(fill + 1));
+    expect(() => serializeFrozenSummaryPlanChecks(over.checks)).toThrow("Expanded Summary plan checks");
+    const split = planSummarySelfCheckBatches({ ordinaryChecks: [], planChecks: over.checks, includeStorylineQuestion: false });
+    expect(split).toHaveLength(2);
+    expect(split[0]!.planChecks.map((check) => check.ruleId)).toContain(WORK_ANSWERS_242_RULE_ID);
   });
 
   it("counts LEAVE OUT and advancement verdicts in the exact 32,768-byte response envelope", () => {
@@ -1917,12 +1938,152 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
 
   // 2026-10-22 (third), known limitation: the CONTENT PLAN CHECKS block sent
   // to the model still lists each check's merged ids, so one very large step
-  // reaches the 64,000-byte input limit first.
-  it("refuses one step of 40 picks by the plan-check input limit, not the response budget", () => {
-    expect(() => lineEnvelopes(planShape({ ...picks, goal_problem: 30 }, (index) => [0, 0, 1, 2][index]!)))
-      .not.toThrow();
-    expect(() => lineEnvelopes(planShape({ ...picks, goal_problem: 40 }, (index) => [0, 0, 1, 2][index]!)))
+  // reaches the 64,000-byte input limit first. 2026-10-26 (P0 item 2): such a
+  // Line is checked in several requests instead of being refused.
+  it("checks one step of 40 picks in several requests, each within the plan-check input limit", () => {
+    const fits = lineEnvelopes(planShape({ ...picks, goal_problem: 30 }, (index) => [0, 0, 1, 2][index]!))[0]!;
+    expect(bytes(projectFrozenSummaryPlanChecks(fits.checks))).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    const forty = lineEnvelopes(planShape({ ...picks, goal_problem: 40 }, (index) => [0, 0, 1, 2][index]!))[0]!;
+    expect(bytes(projectFrozenSummaryPlanChecks(forty.checks))).toBeGreaterThan(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(() => serializeFrozenSummaryPlanChecks(forty.checks))
       .toThrow(expect.objectContaining({ limit: "summary_plan_check_input_utf8_bytes" }));
+    const batches = planSummarySelfCheckBatches({
+      ordinaryChecks: ordinary,
+      planChecks: forty.checks,
+      includeStorylineQuestion: true,
+    });
+    expect(batches).toHaveLength(2);
+    expectWellFormedBatches(batches, ordinary, forty.checks);
+  });
+
+  // ─── 2026-10-26 (P0 item 2): a Line checked in several requests ─────────
+
+  /** Every check exactly once, in order; rules and the Storyline question in the first request. */
+  function expectWellFormedBatches(
+    batches: SummarySelfCheckBatch[],
+    ordinaryChecks: readonly SummaryOrdinaryCheck[],
+    planChecks: readonly FrozenSummaryPlanCheck[]
+  ): void {
+    expect(batches.length).toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_BATCHES);
+    expect(batches.flatMap((batch) => batch.ordinaryChecks)).toEqual([...ordinaryChecks]);
+    const rules = planChecks.filter((check) => check.ruleId !== undefined);
+    const others = planChecks.filter((check) => check.ruleId === undefined);
+    // One request keeps the frozen order; several put the rules first.
+    expect(batches.flatMap((batch) => batch.planChecks)).toEqual(
+      batches.length === 1 ? [...planChecks] : [...rules, ...others]
+    );
+    if (batches.length > 1) expect(batches[0]!.planChecks.slice(0, rules.length)).toEqual(rules);
+    expect(batches.slice(1).every((batch) => !batch.includeStorylineQuestion)).toBe(true);
+    for (const batch of batches) {
+      expect(batch.ordinaryChecks.length + batch.planChecks.length).toBeGreaterThan(0);
+      expect(() => assertSummarySelfCheckBatchFits(batch)).not.toThrow();
+    }
+    // Each request is as full as it goes: the next one's first check would
+    // not have fit it.
+    for (let index = 0; index + 1 < batches.length; index += 1) {
+      const [current, next] = [batches[index]!, batches[index + 1]!];
+      const moved = next.ordinaryChecks.length > 0
+        ? { ...current, ordinaryChecks: [...current.ordinaryChecks, next.ordinaryChecks[0]!] }
+        : { ...current, planChecks: [...current.planChecks, next.planChecks[0]!] };
+      expect(() => assertSummarySelfCheckBatchFits(moved)).toThrow(SeedContextLimitError);
+    }
+  }
+
+  it("keeps a Line that fits one request in one request, holding everything as before", () => {
+    const lines = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    for (const line of lines) {
+      expect(planSummarySelfCheckBatches({
+        ordinaryChecks: ordinary,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      })).toEqual([{ ordinaryChecks: [...ordinary], planChecks: [...line.checks], includeStorylineQuestion: true }]);
+    }
+  });
+
+  it("checks a 101-entry Brief beside the 2026-10-09 plan in several requests, every label once and in order", () => {
+    const brief = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: Array.from({ length: 50 }, () => ({ text: "Confidence" })),
+      glossaryTerms: Array.from({ length: 50 }, () => "Term"),
+      writerFlavor: undefined,
+      rules: [],
+    });
+    expect(brief).toHaveLength(101);
+    for (const line of lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!))) {
+      // One request no longer holds it: more than 64 labels.
+      expect(() => summarySelfCheckWorstCaseResponse({
+        ordinaryChecks: brief,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      })).toThrow(expect.objectContaining({ limit: "summary_self_check_ordinary_count" }));
+      const batches = planSummarySelfCheckBatches({
+        ordinaryChecks: brief,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      });
+      expect(batches.length).toBeGreaterThanOrEqual(2);
+      expectWellFormedBatches(batches, brief, line.checks);
+    }
+  });
+
+  // Round 2 design review (Claude Opus 5.5, M1): the case that motivated
+  // batching needs few requests, all sent at once.
+  it("checks a 46-entry Brief beside 30 picks in one step in one request, and beside 40 in two", () => {
+    const brief = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: Array.from({ length: 23 }, () => ({ text: "Confidence" })),
+      glossaryTerms: Array.from({ length: 23 }, () => "Term"),
+      writerFlavor: "Plain words.",
+      rules: Array.from({ length: 3 }, () => ({ instruction: "Rule." })),
+    });
+    expect(brief).toHaveLength(51);
+    const batchesFor = (goalPicks: number) => {
+      const [line] = lineEnvelopes(planShape({ ...picks, goal_problem: goalPicks }, (index) => [0, 0, 1, 2][index]!));
+      const batches = planSummarySelfCheckBatches({ ordinaryChecks: brief, planChecks: line!.checks, includeStorylineQuestion: true });
+      expectWellFormedBatches(batches, brief, line!.checks);
+      return batches;
+    };
+    expect(batchesFor(30)).toHaveLength(1);
+    expect(batchesFor(40)).toHaveLength(2);
+  });
+
+  it("checks 30 picks in every step of a Line in several requests, the same split every time", () => {
+    const thirty = Object.fromEntries(Object.keys(picks).map((roleId) => [roleId, 30]));
+    for (const line of lineEnvelopes(planShape(thirty, (index) => index % 30))) {
+      const args = { ordinaryChecks: ordinary, planChecks: line.checks, includeStorylineQuestion: true };
+      const batches = planSummarySelfCheckBatches(args);
+      expect(batches.length).toBeGreaterThanOrEqual(2);
+      expectWellFormedBatches(batches, ordinary, line.checks);
+      expect(planSummarySelfCheckBatches(args)).toEqual(batches);
+    }
+  });
+
+  it("refuses a check that does not fit a request on its own, naming its limit", () => {
+    const [line] = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    const huge: FrozenSummaryPlanCheck = {
+      ...line!.checks.find((check) => check.itemId)!,
+      sourceReferences: [{ originatingItemId: "x", sourceId: "source", exactExcerpt: "x".repeat(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES) }],
+    };
+    const checks = line!.checks.map((check) => (check.itemId === huge.itemId ? huge : check));
+    expect(() => planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: true }))
+      .toThrow(expect.objectContaining({ limit: "summary_plan_check_input_utf8_bytes" }));
+  });
+
+  it("refuses a Line that needs more than 8 requests", () => {
+    expect(MAX_SUMMARY_SELF_CHECK_BATCHES).toBe(8);
+    const rules = (count: number) => projectSummaryOrdinaryChecks({
+      storylineText: "",
+      confidenceMap: [],
+      glossaryTerms: [],
+      rules: Array.from({ length: count }, () => ({ instruction: "Rule." })),
+    });
+    const [line] = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    // 64 labels a request; the plan's checks fit beside the last 64.
+    const fitting = planSummarySelfCheckBatches({ ordinaryChecks: rules(64 * 8), planChecks: line!.checks, includeStorylineQuestion: false });
+    expect(fitting).toHaveLength(8);
+    expectWellFormedBatches(fitting, rules(64 * 8), line!.checks);
+    expect(() => planSummarySelfCheckBatches({ ordinaryChecks: rules(64 * 8 + 1), planChecks: line!.checks, includeStorylineQuestion: false }))
+      .toThrow(expect.objectContaining({ limit: "summary_self_check_batches" }));
   });
 
   // 2026-10-22 (third): older Briefs on the dev deployment carry 37 to 46

@@ -461,9 +461,11 @@ describe("stopping out-of-date readings", () => {
     plan.push("cut", "hang");
     const first = await claim(s);
     await startCall(2);
-    // The first answer was cut off, so the repair (not streamed) is on its way.
+    // The first answer was cut off, so the repair is on its way. Since
+    // 2026-10-26 it streams too, for its size alone (16,000 answer tokens
+    // with the thinking room), without eager tool input.
     expect(requests[0].body.stream).toBe(true);
-    expect(requests[1].body.stream).toBeUndefined();
+    expect(requests[1].body.stream).toBe(true);
     await supersede(s);
     await until(async () => (await row(s, first._id)).attemptEndedAt !== undefined, 400);
     expect(requests[1].aborted).toBe(true);

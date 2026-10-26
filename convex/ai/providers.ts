@@ -796,7 +796,13 @@ export function clientForModel(
     meta,
     () => {
       if (gatewayForModel(modelId) === "openrouter") {
-        return instrumentedOpenRouter(ctx, meta, signal ? { signal } : {});
+        // 2026-10-26: the step table's timeout (ANTHROPIC_TIMEOUT_MS) on both
+        // gateways, not OpenRouter's 180 s default, so a cut-off retry with
+        // the model's whole allowance has the same room on either.
+        return instrumentedOpenRouter(ctx, meta, {
+          timeoutMs: ANTHROPIC_TIMEOUT_MS,
+          ...(signal ? { signal } : {}),
+        });
       }
       // Anthropic's response is a superset of GenerationResponse (extra block
       // variants like thinking); safe to narrow: agents only read text/tool_use.

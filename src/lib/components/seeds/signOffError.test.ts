@@ -32,6 +32,15 @@ describe("sign-off refusal message", () => {
     );
   });
 
+  it("names the Section when it needs more parts than the final check allows (2026-10-26)", () => {
+    const message = signOffErrorMessage(refusal({ limit: "summary_self_check_batches", section: "242" }));
+    expect(message).toBe(
+      "Section 242 (Technological uncertainty) has more picks and Brief entries than the final check can read, even in parts. " +
+        "Untick a few picks in its steps, then sign off again. Your picks and edits are kept."
+    );
+    expect(message).not.toMatch(/UTF-8|bytes|[\u2013\u2014]/);
+  });
+
   it("asks for a report when the Brief, not the picks, is too large", () => {
     const message = signOffErrorMessage(
       refusal({ limit: "summary_self_check_ordinary_count", section: "242" })

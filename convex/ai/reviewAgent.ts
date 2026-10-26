@@ -242,6 +242,7 @@ export const runPdReview = internalAction({
         description: "Submit the structured feedback report for the written PD.",
         schema: PD_REVIEW_SCHEMA as never,
         maxTokens: PD_REVIEW_MAX_TOKENS,
+        cutOffRetry: "more_room",
         // Validate before storing. An unreadable result used to be saved as
         // `completed`, which rendered a blank report the writer could not
         // retry (retry only accepts `failed`). Now it lands in the catch below

@@ -52,6 +52,7 @@ import {
 } from "./lib/seedRevisions";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import type { PdSubsectionRoleId } from "../shared/pdSubsections";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -67,7 +68,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -220,9 +221,7 @@ function installFetch(script: {
 }): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);

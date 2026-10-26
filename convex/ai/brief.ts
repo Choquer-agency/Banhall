@@ -174,6 +174,7 @@ export async function runBriefAgent(
     schema: BRIEF_SCHEMA,
     maxTokens: BRIEF_REQUEST.maxTokens,
     model,
+    cutOffRetry: "more_room",
     validate: briefOutputSchema,
   });
 }

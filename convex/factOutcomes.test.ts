@@ -23,6 +23,7 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { openRouterChatCompletion } from "./ai/openrouter";
 import { citationsExtractor } from "./ai/transcriptFactsAgent";
 import { instrumentedAnthropic } from "./ai/instrument";
+import { streamWhenAsked } from "./anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before each Anthropic request;
 // load its module first so a cold import cannot race the fake clock.
@@ -166,16 +167,86 @@ describe("P3-a: citations-mode extraction records one outcome per request", () =
     });
   });
 
-  it("records one failure for an answer cut off at max_tokens, even though its complete lines are kept", async () => {
+  // 2026-10-26 (failure 6): a cut answer's complete lines are no longer
+  // kept as if they were all its facts. A generation's extraction fails and
+  // queues background extraction, which splits the stretch.
+  it("records one failure for an answer cut off at max_tokens, fails the generation's extraction and queues it in the background", async () => {
     const f = await setup(SHORT);
-    vi.stubGlobal("fetch", vi.fn(async () => citationsAnswer("max_tokens")));
+    const fetchMock = vi.fn(async () => citationsAnswer("max_tokens"));
+    vi.stubGlobal("fetch", streamWhenAsked(fetchMock));
     const outcome = await f.t.action(async (ctx) =>
       ensureTranscriptFacts(ctx, f.transcriptId, { kind: "generation", generationId: f.generationId, modelId: ANTHROPIC_MODEL })
     );
-    expect(outcome).toBe("ready");
+    expect(outcome).toBe("failed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const recorded = await outcomes(f.t);
     expect(recorded.rows).toEqual([[ANTHROPIC_MODEL, "failure"]]);
     expect(recorded.buckets[0]).toMatchObject({ lastFailureCode: "output_limit", lastFailureCallSite: "generation:facts" });
+    const queued = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name === "ai/condense:extractTranscriptFactsInBackground" && job.state.kind === "pending"
+      )
+    );
+    expect(queued.map((job) => job.args[0])).toEqual([{ transcriptId: f.transcriptId }]);
+  });
+
+  it("background extraction splits a cut-off window in two and keeps both halves' facts", async () => {
+    const f = await setup(SHORT);
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async () => citationsAnswer("max_tokens"))
+      .mockImplementation(async () => citationsAnswer());
+    vi.stubGlobal("fetch", streamWhenAsked(fetchMock));
+    const outcome = await f.t.action(async (ctx) => ensureTranscriptFacts(ctx, f.transcriptId, { kind: "background" }));
+    expect(outcome).toBe("ready");
+    // The whole window, then its two halves.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const sentTurns = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit).body)) as {
+        messages: Array<{ content: Array<{ type: string; source?: { content?: Array<{ text: string }> } }> }>;
+      };
+      const document = body.messages[0]!.content.find((block) => block.type === "document");
+      return document?.source?.content?.length ?? 0;
+    });
+    expect(sentTurns).toEqual([2, 1, 1]);
+    // Background extraction runs on the condense role's model, Sonnet 5.5,
+    // whose 8,000-token answer is sent with room for thinking and streams:
+    // the citations arrive as citations_delta events and are kept.
+    expect((await outcomes(f.t)).rows).toEqual([
+      ["claude-sonnet-5-5", "failure"],
+      ["claude-sonnet-5-5", "success"],
+      ["claude-sonnet-5-5", "success"],
+    ]);
+    const kept = await f.t.run(async (ctx) => await ctx.db.query("transcriptFacts").collect());
+    expect(kept.map((fact) => fact.quotes.map((quote) => quote.exactExcerpt))).toEqual([
+      ["We couldn't forecast net load fast enough when cloud cover changed."],
+    ]);
+  });
+
+  it("marks a text too dense when background extraction fails even in pieces, and no draft or background run extracts it again", async () => {
+    const f = await setup(SHORT);
+    const fetchMock = vi.fn(async () => citationsAnswer("max_tokens"));
+    vi.stubGlobal("fetch", streamWhenAsked(fetchMock));
+    expect(await f.t.action(async (ctx) => ensureTranscriptFacts(ctx, f.transcriptId, { kind: "background" }))).toBe("failed");
+    // The window, then its first one-turn half, still cut off and too
+    // short to split again, which ends the extraction.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const runs = await f.t.run(async (ctx) => await ctx.db.query("transcriptFactRuns").collect());
+    expect(runs.map((run) => [run.status, run.tooDense])).toEqual([["failed", true]]);
+    fetchMock.mockClear();
+    expect(
+      await f.t.action(async (ctx) =>
+        ensureTranscriptFacts(ctx, f.transcriptId, { kind: "generation", generationId: f.generationId, modelId: ANTHROPIC_MODEL })
+      )
+    ).toBe("failed");
+    expect(await f.t.action(async (ctx) => ensureTranscriptFacts(ctx, f.transcriptId, { kind: "background" }))).toBe("failed");
+    expect(fetchMock).not.toHaveBeenCalled();
+    const queued = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name === "ai/condense:extractTranscriptFactsInBackground" && job.state.kind === "pending"
+      )
+    );
+    expect(queued).toEqual([]);
   });
 
   it("records one failure for a model fault, and nothing for a rate limit", async () => {

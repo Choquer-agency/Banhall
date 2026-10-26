@@ -2,6 +2,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { MODEL } from "./model";
 import {
+  alwaysThinkingMaxTokens,
+  gatewayForModel,
+  maxTokensWithReasoningHeadroom,
+  modelOutputCap,
+} from "../../shared/generationModels";
+import {
+  CONTEXT_WINDOW_STOP_REASON,
   MalformedOutputError,
   OutputLimitError,
   isCutOffStopReason,
@@ -18,10 +25,16 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
       ". Return the complete tool object and include every required field.",
     runtimeSentinel: "{{runtime.validationSummary}}",
     // 2026-09-25: the validation summary for an answer the provider stopped
-    // at the output token limit, on either gateway. The repair runs with the
-    // same limit, so it asks for a shorter answer.
+    // at the output token limit, on either gateway, when the repair runs
+    // with the same limit (`cutOffRetry: "shorter"`, or a model already
+    // asked for its whole allowance), so it asks for a shorter answer.
     cutOffSummary:
       "it was cut off at the output token limit before it finished, so write a shorter answer",
+    // 2026-10-26: the repair after a cut-off asks for the model's whole
+    // output allowance (modelOutputCap) and says so, so nothing is dropped
+    // to make the answer fit.
+    cutOffMoreRoomSummary:
+      "it was cut off at the output token limit before it finished; this attempt has more room, so give the complete answer",
   },
   request: {
     defaultMaxTokens: 8192,
@@ -426,6 +439,19 @@ export async function generateStructured<T>(
      */
     onCutOff?: () => void;
     /**
+     * 2026-10-26: what the repair after a cut-off asks for. `shorter` (the
+     * default, as before) keeps the same limit and asks for a shorter
+     * answer. `more_room` sends the model's whole output allowance
+     * (modelOutputCap) and asks for the complete answer: for a step whose
+     * answer grows with the report and whose time limit can take a long
+     * answer. A model with no known cap, or one already asked for its whole
+     * allowance, gets the shorter repair either way. When the provider
+     * refuses the larger request for its size (a 402: OpenRouter holds
+     * credit against `max_tokens`), it is sent once more at the step's own
+     * limit with the shorter repair, and that refusal spends no attempt.
+     */
+    cutOffRetry?: "more_room" | "shorter";
+    /**
      * Round 2 (F2, decision 57): stream the first attempt and report the
      * tool input written so far (see GenerationStreamHandlers). Only when the
      * client can stream; the request then gains `stream: true` and nothing
@@ -483,6 +509,11 @@ export async function generateStructured<T>(
   }
 }
 
+/** A provider refusal for payment or credit (HTTP 402), on either gateway. */
+function isPaymentRefusal(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { status?: unknown }).status === 402);
+}
+
 async function structuredAttempts<T>(
   rawClient: GenerationClient | Anthropic,
   opts: Parameters<typeof generateStructured<T>>[1],
@@ -503,6 +534,32 @@ async function structuredAttempts<T>(
         },
       ];
   let validationSummary = "";
+  const model = opts.model ?? MODEL;
+  let maxTokens = opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens;
+  // The limit a request is actually sent with, after the gateway's room
+  // for thinking (instrument.ts adaptAnthropicRequest, OpenRouter headroom).
+  const sentLimit = (limit: number) =>
+    gatewayForModel(model) === "anthropic"
+      ? alwaysThinkingMaxTokens(model, limit)
+      : maxTokensWithReasoningHeadroom(model, limit);
+  // The step's own limit while the next attempt asks for the model's
+  // whole allowance, so a refusal of the larger request can fall back.
+  let raisedFrom: number | null = null;
+  /**
+   * The repair text for a cut-off, raising the next attempt's limit when it
+   * can. An answer that filled the context window gets no more room: it
+   * would fill the window again.
+   */
+  const afterCutOff = (stopReason?: string | null): string => {
+    const cap =
+      opts.cutOffRetry === "more_room" && stopReason !== CONTEXT_WINDOW_STOP_REASON ? modelOutputCap(model) : null;
+    if (cap !== null && cap > sentLimit(maxTokens)) {
+      raisedFrom = maxTokens;
+      maxTokens = cap;
+      return STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffMoreRoomSummary;
+    }
+    return STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+  };
   // Set when the soft repair asked for the next attempt: its own text.
   let softRepairText: string | null = null;
   // Set when the last answer failed validation and the caller adds text.
@@ -555,9 +612,8 @@ async function structuredAttempts<T>(
       stream && onToolInput ? stream(params, { onToolInput }) : client.messages.create(params);
     try {
       res = await send({
-        model: opts.model ?? MODEL,
-        max_tokens:
-          opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,
+        model,
+        max_tokens: maxTokens,
         system: opts.system,
         tools,
         tool_choice: {
@@ -569,6 +625,19 @@ async function structuredAttempts<T>(
         ],
       });
     } catch (error) {
+      // 2026-10-26: the request with the model's whole allowance was refused
+      // for its size (a 402). It was never answered, so the attempt is sent
+      // again at the step's own limit with the shorter repair.
+      if (raisedFrom !== null && isPaymentRefusal(error)) {
+        console.warn(
+          `${opts.toolName}: the repair with the model's whole output allowance was refused (402); retrying at the step's own limit`
+        );
+        maxTokens = raisedFrom;
+        raisedFrom = null;
+        validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+        attempt -= 1;
+        continue;
+      }
       // The OpenRouter adapter decodes tool-call JSON inside create(), so a
       // truncated/malformed candidate response throws here instead of
       // returning an invalid block — the same class of failure as a zod
@@ -577,10 +646,7 @@ async function structuredAttempts<T>(
       // and keep failing fast; the transport already retries rate limits.
       if (error instanceof OutputLimitError) opts.onCutOff?.();
       if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
-      validationSummary =
-        error instanceof OutputLimitError
-          ? STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary
-          : error.message;
+      validationSummary = error instanceof OutputLimitError ? afterCutOff() : error.message;
       console.warn(
         `${opts.toolName}: retrying after malformed provider output — ${error.message}`
       );
@@ -601,7 +667,7 @@ async function structuredAttempts<T>(
     if (isCutOffStopReason(res.stop_reason)) {
       opts.onCutOff?.();
       await settle({ ok: false, code: "output_limit" });
-      validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+      validationSummary = afterCutOff(res.stop_reason);
       console.warn(
         `${opts.toolName}: answer cut off at the output token limit (stop reason: ${res.stop_reason})`
       );

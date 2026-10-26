@@ -45,7 +45,7 @@ import {
   resetGenerationPlaceholderCache,
   withStepRequest,
 } from "./ai/providers";
-import { GENERATION_CALL_SLOTS } from "./ai/instrument";
+import { GENERATION_CALL_SLOTS, sendsLargeAnswer } from "./ai/instrument";
 import type { GenerationClient, GenerationMessageParams } from "./ai/openrouterCore";
 import {
   GENERATION_STEP_POLICY,
@@ -57,7 +57,7 @@ import {
   type GenerationStep,
 } from "./lib/generationSteps";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
-import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
+import { anthropicToolSse, sseResponse, streamWhenAsked } from "./anthropicSse.fixture";
 import { compressionTargetWords, lengthBudgetBlock } from "./ai/pipeline";
 import { draftWordTarget, wordBudget } from "./lib/lineLimits";
 import { RULES_ANALYSIS_FIGURES, RULES_HUMAN_PROSE } from "../shared/humanProse";
@@ -209,7 +209,9 @@ function installFetch(options: { hold?: Partial<Record<string, () => Promise<voi
   const wire: Wire = { sent: [], events: [] };
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+    // 2026-10-26: a request for a large answer streams; its JSON answer is
+    // sent back as a stream (streamWhenAsked).
+    vi.fn<typeof fetch>(streamWhenAsked<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== "https://api.anthropic.com/v1/messages") {
         throw new Error(`Unexpected HTTP transport ${request.url}`);
@@ -254,7 +256,7 @@ function installFetch(options: { hold?: Partial<Record<string, () => Promise<voi
         content: [{ type: "text", text: stage === "section" ? LONG_DRAFT : stage === "compression" ? COMPRESSED_TEXT : SHORT_TEXT }],
         stop_reason: "end_turn",
       });
-    })
+    }))
   );
   return wire;
 }
@@ -275,15 +277,35 @@ type Pin = { count: number; hash: string; models: string[] };
  * Round 2 (decision 57): the Step-by-step Brief request is streamed. It gains
  * `stream: true` and, on the direct API, `eager_input_streaming: true` on its
  * tool (fidelity broken behaviour 9) and nothing else, so with those taken
- * out every body is the pinned one. Single and Compare never stream.
+ * out every body is the pinned one. 2026-10-26: so does every request for a
+ * large answer (instrument.ts sendsLargeAnswer), in every mode.
  */
 const withoutBriefStream = (json: Record<string, unknown>) => {
-  if (toolOf(json) !== "submit_generation_brief" || !("stream" in json)) return json;
+  if (!("stream" in json)) return json;
   const { stream: _stream, ...rest } = json;
   return {
     ...rest,
-    tools: (rest.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool),
+    ...(Array.isArray(rest.tools)
+      ? { tools: (rest.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool) }
+      : {}),
   };
+};
+/**
+ * 2026-10-26 (P0 item 4): the judges' first-attempt answer limit is 16,384,
+ * up from 4,096 (65,536 with a model's thinking room, up from 16,384). It is
+ * the only byte these requests gained; with it put back, the body is the
+ * pinned one.
+ */
+const JUDGE_STAGES: ReadonlySet<string> = new Set([
+  "submit_self_check",
+  "submit_consistency_findings",
+  "submit_qa_scorecard",
+  "submit_chronology_table",
+]);
+const withoutJudgeAnswerRoom = (json: Record<string, unknown>) => {
+  if (!JUDGE_STAGES.has(stageOf(json))) return json;
+  if (json.max_tokens !== 16_384 && json.max_tokens !== 65_536) return json;
+  return { ...json, max_tokens: (json.max_tokens as number) / 4 };
 };
 /**
  * The Seed quote rules (2026-09-27, third amendment) are the only bytes a
@@ -377,7 +399,9 @@ const withoutLine242Opening = (json: Record<string, unknown>) => {
 };
 const asPinned = (json: Record<string, unknown>) =>
   withoutLine242Opening(
-    withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(withoutAnalysisFigureRules(json)))))
+    withPinnedCompressionAnswer(
+      withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(json)))))
+    )
   );
 
 /**
@@ -391,7 +415,9 @@ const asPinned = (json: Record<string, unknown>) =>
 const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_self_check" && request.body.includes(SHORT_TEXT);
 const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
 async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
-  return (await stagesOf(sent.filter(isFinalTextCheck))).submit_self_check;
+  // 2026-10-26: captured before the judges' larger limit and streaming.
+  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutJudgeAnswerRoom(withoutBriefStream(json))))
+    .submit_self_check;
 }
 
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
@@ -403,12 +429,19 @@ function expectBriefStreaming(sent: Sent[], streamed: boolean) {
       expect(request.json.stream).toBe(true);
       expect(tools.map((tool) => tool.eager_input_streaming)).toEqual(tools.map(() => true));
     } else {
-      expect(request.json).not.toHaveProperty("stream");
+      // 2026-10-26: outside Step by step the Brief streams only for its
+      // size (16,000 with a model's thinking room), and then without eager
+      // tool input.
+      if (sendsLargeAnswer(request.json)) expect(request.json.stream).toBe(true);
+      else expect(request.json).not.toHaveProperty("stream");
       for (const tool of tools) expect(tool).not.toHaveProperty("eager_input_streaming");
     }
   }
+  // 2026-10-26: any other request streams exactly when it asks for a large
+  // answer.
   for (const request of sent.filter((item) => toolOf(item.json) !== "submit_generation_brief")) {
-    expect(request.json).not.toHaveProperty("stream");
+    if (sendsLargeAnswer(request.json)) expect(request.json.stream).toBe(true);
+    else expect(request.json).not.toHaveProperty("stream");
   }
 }
 type Scenario = `${"seeds" | "single" | "compare"}:${typeof SONNET | typeof OPUS}`;

@@ -31,6 +31,7 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload } from "./lib/orderedChain";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -175,9 +176,7 @@ function installFetch(script: Script): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
   const compressions = [...(script.compressions ?? [])];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const json = JSON.parse(await new Request(input, init).text()) as Record<string, unknown>;
       const user = userOf(json);
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;

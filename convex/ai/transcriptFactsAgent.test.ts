@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "../schema";
 import { sha256 } from "../lib/contracts";
-import { FACTS_VERSION, type FactTurn } from "../lib/transcriptFacts";
+import { FACT_WINDOW_OVERLAP_TURNS, FACTS_VERSION, type FactTurn } from "../lib/transcriptFacts";
 import { buildPlaceholderMap } from "../lib/deidentify";
 import { parseTranscriptTurns } from "../../shared/transcriptParse";
 import { instrumentedAnthropic } from "./instrument";
@@ -11,6 +11,11 @@ import {
   citationsExtractor,
   citationsRequest,
   extractTranscriptFacts,
+  FACT_WINDOW_SPLIT_DEPTH,
+  FactWindowCutOffError,
+  FactWindowTimeoutError,
+  splitFactWindow,
+  type FactWindowExtractor,
   FACTS_CITATIONS_INSTRUCTION,
   FACTS_REQUEST,
   FACTS_SCHEMA,
@@ -341,5 +346,117 @@ describe("structured mode", () => {
     expect(result.facts).toHaveLength(1);
     expect(result.facts[0].claim).toBe("Priya Shah reported 38 percent accuracy on cloudy days.");
     expect(result.facts[0].turnIndexes).toEqual([3]);
+  });
+});
+
+// 2026-10-26 (failure 6): a stretch too dense for one answer.
+describe("dense windows", () => {
+  const turnsOf = (lines: readonly { turnIndex: number }[]) => lines.map((line) => line.turnIndex);
+  /** An extractor that fails every window with more than `fits` turns. */
+  const extractorFailingAbove = (fits: number, failure: () => Error) => {
+    const asked: number[][] = [];
+    const extractor: FactWindowExtractor = async (lines) => {
+      asked.push(turnsOf(lines));
+      if (lines.length > fits) throw failure();
+      return lines
+        .filter((line) => line.turnIndex === 3)
+        .map(() => ({
+          type: "result" as const,
+          claim: "[PERSON_2] reported 38 percent accuracy on cloudy days.",
+          turnIndexes: [3],
+          quotes: ["71 percent accuracy on sunny days and 38 percent on cloudy days"],
+        }));
+    };
+    return { asked, extractor };
+  };
+
+  it("halves a window at a turn boundary, the second half starting the overlap early", () => {
+    const window = Array.from({ length: 10 }, (_, index) => index);
+    const [first, second] = splitFactWindow(window)!;
+    expect(first).toEqual([0, 1, 2, 3, 4]);
+    expect(second).toEqual(window.slice(5 - FACT_WINDOW_OVERLAP_TURNS));
+    expect(second.length).toBeLessThan(window.length);
+    // Two turns: one each; one turn cannot be split.
+    expect(splitFactWindow([0, 1])).toEqual([[0], [1]]);
+    expect(splitFactWindow([0])).toBeNull();
+  });
+
+  it("in a generation, a cut-off window fails the extraction and nothing is kept part way", async () => {
+    const { asked, extractor } = extractorFailingAbove(1, () => new FactWindowCutOffError());
+    await expect(
+      extractTranscriptFacts({ content: CONTENT, turns: TURNS, placeholders: MAP, extractWindow: extractor })
+    ).rejects.toBeInstanceOf(FactWindowCutOffError);
+    expect(asked).toEqual([[0, 1, 2, 3]]);
+  });
+
+  it("in the background, a cut-off window is asked again in halves, a half still cut off in quarters, and every piece's facts are kept", async () => {
+    const { asked, extractor } = extractorFailingAbove(2, () => new FactWindowCutOffError());
+    const result = await extractTranscriptFacts({
+      content: CONTENT,
+      turns: TURNS,
+      placeholders: MAP,
+      extractWindow: extractor,
+      splitDenseWindows: { deadline: undefined },
+    });
+    // 4 turns: halves [0,1] and [1,2,3] (the overlap starts the second half
+    // early); [1,2,3] is still too long, so it is halved once more.
+    expect(asked).toEqual([[0, 1, 2, 3], [0, 1], [1, 2, 3], [1, 2], [2, 3]]);
+    expect(FACT_WINDOW_SPLIT_DEPTH).toBe(2);
+    expect(result.windows).toBe(1);
+    expect(result.calls).toBe(asked.length);
+    expect(result.facts.map((fact) => fact.turnIndexes)).toEqual([[3]]);
+  });
+
+  it("in the background, a window that ran out of time is split like a cut-off one", async () => {
+    const { asked, extractor } = extractorFailingAbove(3, () => new FactWindowTimeoutError());
+    const result = await extractTranscriptFacts({
+      content: CONTENT,
+      turns: TURNS,
+      placeholders: MAP,
+      extractWindow: extractor,
+      splitDenseWindows: { deadline: undefined },
+    });
+    expect(asked).toEqual([[0, 1, 2, 3], [0, 1], [1, 2, 3]]);
+    expect(result.facts).toHaveLength(1);
+  });
+
+  it("does not split when its two halves would not fit before the action's deadline", async () => {
+    const { asked, extractor } = extractorFailingAbove(2, () => new FactWindowTimeoutError());
+    await expect(
+      extractTranscriptFacts({
+        content: CONTENT,
+        turns: TURNS,
+        placeholders: MAP,
+        extractWindow: extractor,
+        timeoutMs: 150_000,
+        splitDenseWindows: { deadline: Date.now() + 299_000 },
+      })
+    ).rejects.toBeInstanceOf(FactWindowTimeoutError);
+    expect(asked).toEqual([[0, 1, 2, 3]]);
+  });
+
+  it("a quarter still too dense fails the extraction, and any other failure is never split", async () => {
+    const tooDense = extractorFailingAbove(0, () => new FactWindowCutOffError());
+    await expect(
+      extractTranscriptFacts({
+        content: CONTENT,
+        turns: TURNS,
+        placeholders: MAP,
+        extractWindow: tooDense.extractor,
+        splitDenseWindows: { deadline: undefined },
+      })
+    ).rejects.toBeInstanceOf(FactWindowCutOffError);
+    expect(Math.max(...tooDense.asked.map((window) => window.length))).toBe(4);
+    const broken = extractorFailingAbove(1, () => new Error("provider down"));
+    await expect(
+      extractTranscriptFacts({
+        content: CONTENT,
+        turns: TURNS,
+        placeholders: MAP,
+        extractWindow: broken.extractor,
+        splitDenseWindows: { deadline: undefined },
+      })
+    ).rejects.toThrow("provider down");
+    expect(broken.asked).toEqual([[0, 1, 2, 3]]);
   });
 });
