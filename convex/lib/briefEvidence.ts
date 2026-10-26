@@ -21,6 +21,16 @@ import { projectPlaceholderMap } from "./transcriptPlaceholders";
 import type { PlaceholderEntry } from "./deidentify";
 import { dashboardFiscalYear } from "../../shared/dashboardProjection";
 import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
+import { quotableWordText } from "../../shared/wordMarkdown";
+
+/**
+ * The text a draft freezes from a file's text: Word Markdown without its
+ * bold and italic marks (owner, 2026-10-26), so quotes the AI gives without
+ * them are checked exactly as before; any other text as it is.
+ */
+export function frozenFileText(text: string, textFormat: "markdown" | undefined): string {
+  return textFormat === "markdown" ? quotableWordText(text) : text;
+}
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -40,7 +50,8 @@ export type FrozenEvidence = {
   /** The transcripts the run reads, after the leave-out list. */
   transcripts: Doc<"transcripts">[];
   frozenTranscripts: Array<{ row: Doc<"transcripts">; content: string }>;
-  frozenDocuments: Array<{ document: Doc<"projectDocuments">; content: string }>;
+  /** `truncated`: the file's text is longer than the part frozen. */
+  frozenDocuments: Array<{ document: Doc<"projectDocuments">; content: string; truncated: boolean }>;
 };
 
 /**
@@ -68,10 +79,16 @@ export async function selectFrozenEvidence(
     .take(FROZEN_DOCUMENT_ROWS);
   // 2026-10-22 (fourth): the same slices, read through the text helper,
   // which returns exactly `content.slice(0, FROZEN_DOCUMENT_CHARS)` (rule 2).
+  // 2026-10-26: Word Markdown is frozen without its bold and italic marks.
   const frozenDocuments: FrozenEvidence["frozenDocuments"] = [];
   for (const document of documents) {
     if (document.archived || !documentHasText(document) || excludedDocuments.has(document._id)) continue;
-    frozenDocuments.push({ document, content: await readDocumentText(ctx, document, 0, FROZEN_DOCUMENT_CHARS) });
+    const text = await readDocumentText(ctx, document, 0, FROZEN_DOCUMENT_CHARS);
+    frozenDocuments.push({
+      document,
+      content: frozenFileText(text, document.textFormat),
+      truncated: text.length !== documentTextLength(document),
+    });
   }
   return { projectTranscripts, transcripts, frozenTranscripts, frozenDocuments };
 }
@@ -137,14 +154,14 @@ export async function frozenSourceFields(evidence: FrozenEvidence): Promise<Froz
       originalLength: row.content.length,
     });
   }
-  for (const { document, content } of evidence.frozenDocuments) {
+  for (const { document, content, truncated } of evidence.frozenDocuments) {
     rows.push({
       kind: "project_document",
       projectDocumentId: document._id,
       label: `${document.category ?? "other"}:${document.fileName}`,
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== documentTextLength(document),
+      truncated,
       originalLength: documentTextLength(document),
       // CAP-3: trust is pinned to the freeze, never re-read live. Absent
       // (legacy document rows) means client trust downstream.

@@ -213,3 +213,35 @@ describe("restoredIntake (2026-09-27, fourth: a reload brings the draft back)", 
     expect(back.originalsMissing).toEqual(["report-key-empty"]);
   });
 });
+
+describe("Word Markdown in the intake plan (2026-10-26)", () => {
+  it("saves a Word file's Markdown flag, and a reload brings it back", () => {
+    const word = doc("trials", {
+      name: "trials.docx",
+      parsed: { fileName: "trials.docx", fileType: "docx", content: "# Trials\n\nThe seal **held**.", textFormat: "markdown" },
+    });
+    const empty = doc("blank", { name: "blank.docx", parsed: { fileName: "blank.docx", fileType: "docx", content: "", textFormat: "markdown" } });
+    const sources = plannedIntakeSources({ transcripts: [], docs: [word, empty], yearNotes: new Map(), previousYears: [], keyFor });
+    expect(sources.find((source) => source.sourceKey === keyFor("trials"))).toMatchObject({ textFormat: "markdown" });
+    // A file with no text carries no format.
+    expect(sources.find((source) => source.sourceKey === keyFor("blank"))!.textFormat).toBeUndefined();
+
+    const back = restoredIntake(
+      sources.map((source) => ({
+        sourceKey: source.sourceKey,
+        kind: source.kind,
+        position: source.position,
+        label: source.label,
+        ...(source.fileType ? { fileType: source.fileType } : {}),
+        ...(source.category ? { category: source.category } : {}),
+        ...(source.intake ? { intake: source.intake } : {}),
+        ...(source.extractionOutcome ? { extractionOutcome: source.extractionOutcome } : {}),
+        ...(source.textFormat ? { textFormat: source.textFormat } : {}),
+        hasOriginal: true,
+      })),
+      new Map(sources.map((source) => [source.sourceKey, source.content]))
+    );
+    expect(back.saved.find((source) => source.sourceKey === keyFor("trials"))).toMatchObject({ textFormat: "markdown" });
+    expect(back.documents.find((item) => item.sourceKey === keyFor("trials"))).toMatchObject({ textFormat: "markdown" });
+  });
+});

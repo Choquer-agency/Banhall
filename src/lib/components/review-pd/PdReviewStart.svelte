@@ -88,6 +88,7 @@
         fileName: file.name,
         fileType: guessFileType(file.name),
         content: parsed.content,
+        ...(parsed.textFormat ? { textFormat: parsed.textFormat } : {}),
         source: "review_pd",
         ...(storageId ? { storageId } : {}),
         ...(file.type ? { mimeType: file.type } : {}),

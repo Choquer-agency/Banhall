@@ -2220,6 +2220,11 @@ export default defineSchema({
     serverReader: v.optional(v.string()),
     serverReadStartedAt: v.optional(v.number()),
     serverReadAt: v.optional(v.number()),
+    // 2026-10-26 widen (owner): "markdown" when the text is Word Markdown
+    // (shared/wordMarkdown.ts). Drafts freeze it without its bold and italic
+    // marks (quotableWordText), so quotes are checked as before. Absent:
+    // plain text, as every file read before.
+    textFormat: v.optional(v.literal("markdown")),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
@@ -3901,6 +3906,8 @@ export default defineSchema({
     // The names and text the model look was asked (or answered) for: a
     // later change of either asks again.
     speakerModelKey: v.optional(v.string()),
+    // 2026-10-26 widen (owner): Word Markdown, as projectDocuments.textFormat.
+    textFormat: v.optional(v.literal("markdown")),
     fileType: v.optional(
       v.union(
         v.literal("txt"),

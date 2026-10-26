@@ -24,7 +24,7 @@ export const readStoredDocument = internalAction({
   handler: async (ctx, args) => {
     const target = await ctx.runMutation(internal.documentReading.startServerReading, { documentId: args.documentId });
     if (!target) return null;
-    const finish = (reading: { text: string; pageCount?: number; failed?: true }) =>
+    const finish = (reading: { text: string; pageCount?: number; failed?: true; textFormat?: "markdown" }) =>
       ctx.runMutation(internal.documentReading.saveServerReading, {
         documentId: args.documentId,
         expectedTextHash: target.textHash,
@@ -32,6 +32,7 @@ export const readStoredDocument = internalAction({
         ...(reading.pageCount !== undefined ? { pageCount: reading.pageCount } : {}),
         reader: SERVER_READER_VERSION,
         ...(reading.failed ? { failed: true } : {}),
+        ...(reading.textFormat ? { textFormat: reading.textFormat } : {}),
       });
     if (target.bytes > MAX_SERVER_READ_BYTES) {
       // Recorded as read, so the file is not queued again; its text stays.

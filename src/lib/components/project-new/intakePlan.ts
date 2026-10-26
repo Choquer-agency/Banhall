@@ -27,6 +27,8 @@ export type IntakeSourceDesc = {
   extractionOutcome?: "ok" | "failed";
   /** A previous-year report's fiscal year (2026-09-27, fourth). */
   fiscalYear?: number;
+  /** A Word file's text is Markdown (2026-10-26). */
+  textFormat?: "markdown";
   /** The original file, saved to the draft once the text is. */
   file?: File | null;
 };
@@ -112,6 +114,7 @@ export function plannedIntakeSources(input: {
       intake: "file",
       extractionOutcome: doc.status === "failed" ? "failed" : "ok",
       ...(category === "previous_pd" ? { fiscalYear: doc.year } : {}),
+      ...(hasText && doc.parsed?.textFormat ? { textFormat: doc.parsed.textFormat } : {}),
       file: doc.file,
     });
   }
@@ -144,6 +147,7 @@ export type RestoredSource = {
   intake?: "file" | "pasted";
   extractionOutcome?: "ok" | "failed";
   fiscalYear?: number;
+  textFormat?: "markdown";
   hasOriginal: boolean;
 };
 
@@ -190,6 +194,8 @@ export type RestoredDocument = {
   failed: boolean;
   /** A file saved without its original (it had not reached the draft). */
   originalMissing: boolean;
+  /** A Word file's text is Markdown (2026-10-26). */
+  textFormat?: "markdown";
 };
 
 /**
@@ -231,6 +237,7 @@ export function restoredIntake(
       ...(source.intake ? { intake: source.intake } : {}),
       ...(source.extractionOutcome ? { extractionOutcome: source.extractionOutcome } : {}),
       ...(source.fiscalYear !== undefined ? { fiscalYear: source.fiscalYear } : {}),
+      ...(source.textFormat ? { textFormat: source.textFormat } : {}),
       file: null,
     });
     if (source.kind === "transcript") {
@@ -268,6 +275,7 @@ export function restoredIntake(
       fileType: source.fileType ?? "other",
       failed: source.extractionOutcome === "failed",
       originalMissing,
+      ...(source.textFormat ? { textFormat: source.textFormat } : {}),
     });
   }
   return { transcripts, documents, yearNotes, saved, originalsMissing };

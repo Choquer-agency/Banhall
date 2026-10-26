@@ -426,7 +426,7 @@ What changes:
 
 ### Automated, live on localhost
 
-- [ ] **The one-off pass on a copy of dev:** a dry run counts the files that need a reading; the real run reads them; files with nothing read show their text; no file with read text changes.
+- [x] **On a local copy of dev at cd7bfe9c, 2026-10-26.** The copy holds 303 files; the snapshot carries no stored originals, so the one-off pass (dry run, then real) queued the 4 empty PDF and Outlook files, and each reading found no original and stopped without claiming the file, as designed. Files uploaded to the copy the way the browser uploads them: a PDF with no text and a PDF with only the stop line were each filled with the server's text (ready, page count for chat); a PDF with pages read before its stop line was not queued and kept its text; the CRA Schedule 60 Word template with no text was filled (4,685 characters).
 
 ### Manual on localhost
 
@@ -436,3 +436,24 @@ What changes:
 ### Owner actions
 
 - [ ] Deploy, then run the one-off pass on dev, then on production: `npx convex run documentReading:queueServerReadings '{"dryRun":true}'` and read its last log line for the count, then the same without `dryRun`. Reading costs no AI.
+
+## Phase B4, step 1: Word files as Markdown
+
+Owner, 2026-10-26: "should be properly markdown so we can see italic, bolds and headings and properly backfilled for any current/past files to all work". Decision record: `docs/product-domain.md`, entry "2026-10-26 (fourth)".
+
+What changes:
+
+- **Word files keep their headings, bold, italic, lists and tables** as Markdown, read the same way in the browser and on the server, and the file preview shows them formatted.
+- **Quotes still match.** Drafts freeze a Word file without its bold and italic marks, so a quote the AI gives without them is found and checked as before.
+- **Older Word files** are re-read as Markdown when text versions (B1) land, so past drafts and saved quotes keep matching.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers (model and effort recorded in the decision record).
+- [ ] `bash scripts/loop-verify.sh` on the final code, and `npm run test:component` (the preview changed).
+
+### Manual on localhost
+
+- [ ] **Upload a Word file with headings, bold text and a table.** Open its preview: the headings, bold, italic and table show formatted, with no stars or pipes.
+- [ ] **Draft with it.** A Brief entry or Seed quoting a bolded sentence links to the right place in the file.
+- [ ] **Upload a Word PD for review** whose Line headings are bold or styled as headings. The three Sections are found.

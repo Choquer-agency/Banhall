@@ -4248,6 +4248,30 @@ Context pipeline plan (`docs/todos/context-pipeline-mvp-push.md`), Phase B2: the
   - Recorded, not changed: email dates (known limits above).
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, approved as shown, and "yes continue and finish all".
 
+### 2026-10-26 (fourth): Word files are stored as Markdown, shown formatted, and quoted without their marks (owner)
+
+Context pipeline plan, Phase B4, first step. Carries out "Word (mammoth, kept as Markdown)" from part 2 of the first 2026-10-26 entry, which "2026-10-26 (third)" deferred to B4. No workflow stage, transition or permission is added, `projects.createdBy` is untouched, and no AI writes any file text.
+
+- **Owner's answer (2026-10-26, chat),** asked whether to keep plain text or Markdown because Markdown marks can make exact quotes fail: "should be properly markdown so we can see italic, bolds and headings and properly backfilled for any current/past files to all work".
+- **What happened.** Word files were read as plain text: headings, bold and italic were lost, and a table became loose cells, one per paragraph, which loses most of what a test-result table says.
+- **Change: Word as Markdown.**
+  - The browser and the server read a Word file the same way (`shared/wordMarkdown.ts`): mammoth's HTML becomes Markdown with `#` headings, `**bold**`, `*italic*`, `-` and `1.` lists (nested ones indented), and tables with a header row. Pictures are skipped without reading their bytes. A `*` or `\` the document itself contains is written `\*` or `\\`, and a `|` inside a table cell `\|`, so no character of the document is ever read as a mark.
+  - The file row records it (`textFormat: "markdown"`, also on intake draft sources), from the upload, an intake draft, a project copy and a server reading (server reader version 2).
+  - The file preview shows Markdown formatted, the way chat shows its replies: no image loads and links need a click.
+- **Quotes still match exactly.** A draft freezes a Markdown file without its bold and italic marks (`quotableWordText`): the same words, headings and tables, with escapes undone. Every place that finds or checks a quote reads that frozen copy, so a quote the AI gives without `**` is found and validated exactly as before, with no change to how quotes are matched. Files of every other kind are frozen as they are. A file counts as cut short by its stored length, not by the shorter view.
+- **The PD section finder** reads `**Line 242**`, `## Line 242 ...` and a bold or heading `246` alone on its line, and starts the section at its marks.
+- **Older Word files are re-read as Markdown with text versions (B1).** Part 2 says a better reader makes a new version instead of overwriting, so saved quotes and past drafts keep matching; the backfill runs as the first new version once B1 exists, for every stored Word file that has its original. Until then they stay plain text, and drafts read them as before.
+- **Unchanged.** Markdown (`.md`) uploads, which writers write themselves, are frozen as they are. The OneDrive import keeps plain text for Word files (it feeds the Brain, not drafts).
+- **Migration and compatibility.** Widen only: `projectDocuments.textFormat`, `intakeSources.textFormat`, and optional `textFormat` arguments on `documents.uploadDocument`, `intakeDrafts.saveIntakeSource` and the server save. A browser tab loaded before the deploy keeps sending plain text without the flag, which is stored and frozen as plain text, as before. The prompt program and the Brief preparation key do not move.
+- **Authorization.** None changes.
+- **Known limits.**
+  - Uploading again a Word file first uploaded before this change makes a second file, because its text now differs (Markdown versus plain). The B1 backfill gives the older file the same Markdown.
+  - A `*` typed in the note before a Word prior-year report drops out of drafts' frozen copy of that file (the note is not escaped, so a reload shows it as typed).
+  - Text in Word text boxes, headers and footers is not read, as before.
+- **Tests.** `shared/wordMarkdown.test.ts` (headings, marks, lists, tables, entities, escapes, the quotable view), `convex/ai/fileReader.test.ts` and `src/lib/parseDocumentWord.test.ts` (the same Markdown from a Word file built in the test, on the server and in the browser; plain text for the import), `convex/wordMarkdownEvidence.test.ts` (the flag stored and shown, the frozen view, a quote without marks found and validated, the cut-short flag, an intake draft frozen the same way and promoted with its flag), `shared/pdSectionDetect.test.ts` (sections in Markdown), `convex/documentReading.test.ts` (a server reading keeps the flag), `src/lib/components/project-new/intakePlan.test.ts`, `src/lib/uploads/storeProjectFile.test.ts`, and `src/lib/components/editor/FilesPanelPreview.component.test.ts` (the preview, in a browser).
+- **Review.** Pending.
+- **Approval:** Product owner, 2026-10-26 (chat), quoted above.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

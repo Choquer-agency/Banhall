@@ -898,7 +898,7 @@
   let pdDragOver = $state(false);
   let parsingPd = $state<string | null>(null);
   let pdFileError = $state("");
-  let pdDoc = $state<{ name: string; content: string; file: File; pageOffsets?: number[] } | null>(null);
+  let pdDoc = $state<{ name: string; content: string; file: File; pageOffsets?: number[]; textFormat?: "markdown" } | null>(null);
   let pdTitleFromName = $state(false);
 
   async function handlePdFile(file: File) {
@@ -914,7 +914,13 @@
       if (!text) {
         pdFileError = `We could not find any text in ${file.name}.`;
       } else {
-        pdDoc = { name: file.name, content: text, file, pageOffsets: parsed.pageOffsets };
+        pdDoc = {
+          name: file.name,
+          content: text,
+          file,
+          pageOffsets: parsed.pageOffsets,
+          ...(parsed.textFormat ? { textFormat: parsed.textFormat } : {}),
+        };
         if (mode === "review") prefillFromPdFileName(file.name);
       }
     } catch (error) {
@@ -1541,6 +1547,7 @@
             source: "context_input",
             category,
             extractionOutcome: current.status === "failed" ? "failed" : "ok",
+            ...(hasText && current.parsed?.textFormat ? { textFormat: current.parsed.textFormat } : {}),
           })
         );
         if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
@@ -1572,6 +1579,7 @@
             source: "context_input",
             category,
             extractionOutcome: extractionFailed ? "failed" : "ok",
+            ...(hasText && current.parsed?.textFormat ? { textFormat: current.parsed.textFormat } : {}),
             attemptKey,
             ...(storageId ? { storageId } : {}),
             ...(file.type ? { mimeType: file.type } : {}),
@@ -1974,6 +1982,7 @@
               fileName: pdDoc.name,
               fileType: guessFileType(pdDoc.name),
               content: pdDoc.content,
+              ...(pdDoc.textFormat ? { textFormat: pdDoc.textFormat } : {}),
               source: "review_pd",
               attemptKey: pdAttemptKey,
               ...(storageId ? { storageId } : {}),

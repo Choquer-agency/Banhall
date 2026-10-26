@@ -59,6 +59,7 @@ export const saveServerReading = internalMutation({
     pageCount: v.optional(v.number()),
     reader: v.string(),
     failed: v.optional(v.boolean()),
+    textFormat: v.optional(v.literal("markdown")),
   },
   returns: v.union(v.literal("kept"), v.literal("not_better"), v.literal("changed"), v.literal("failed")),
   handler: async (ctx, args) => {
@@ -84,6 +85,7 @@ export const saveServerReading = internalMutation({
       processingStatus: derived.status,
       processingDetail: derived.detail,
       ...(args.pageCount !== undefined ? { pageCount: args.pageCount, pageCountStorageId: doc.storageId } : {}),
+      textFormat: args.textFormat,
       serverReader: args.reader,
       serverReadAt: now,
     });

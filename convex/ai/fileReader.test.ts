@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { readFileOnServer, SERVER_READER_VERSION } from "./fileReader";
-import { textPdf } from "./testFiles.fixture";
+import { RICH_WORD_MARKDOWN, richWordFile, textPdf } from "./testFiles.fixture";
 import { spreadsheetText } from "../../shared/spreadsheetText";
 import { emlToText } from "../../shared/emailText";
 import { MAX_CONTENT_CHARS } from "../../shared/documentContent";
@@ -78,6 +78,16 @@ describe("reading a stored file on the server", () => {
     expect((await readFileOnServer(new TextEncoder().encode("a,b\r\n1,2\r\n"), "data.csv")).text).toBe("a,b\n1,2");
     expect((await readFileOnServer(new TextEncoder().encode("Notes  \r\n\r\n\r\n\r\nMore"), "notes.txt")).text).toBe("Notes\n\nMore");
     expect((await readFileOnServer(new TextEncoder().encode("# Title\n\nBody"), "notes.md")).fileType).toBe("md");
+  });
+
+  it("reads Word as Markdown: headings, bold, italic and tables (owner, 2026-10-26)", async () => {
+    const bytes = await richWordFile();
+    const reading = await readFileOnServer(bytes, "trials.docx");
+    expect(reading).toMatchObject({ fileType: "docx", text: RICH_WORD_MARKDOWN, textFormat: "markdown" });
+    // The OneDrive import keeps plain text for the Brain.
+    const plain = await readFileOnServer(bytes, "trials.docx", { word: "plain" });
+    expect(plain.textFormat).toBeUndefined();
+    expect(plain.text).toContain("The seal held at 4.2 bar in trial 3, and 5 * 3 = 15.");
   });
 
   it("reads an email and a mailbox with the shared email text", async () => {

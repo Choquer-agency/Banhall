@@ -160,7 +160,7 @@ export async function extractText(
 ): Promise<{ text?: string; note?: string }> {
   // The import keeps up to MAX_TEXT_BYTES, as before the shared reader;
   // finishExtraction cuts it to bytes and notes the cut.
-  const reading = await readFileOnServer(new Uint8Array(bytes), fileName, { maxChars: MAX_TEXT_BYTES });
+  const reading = await readFileOnServer(new Uint8Array(bytes), fileName, { maxChars: MAX_TEXT_BYTES, word: "plain" });
   if (reading.failed) throw new Error(reading.note ?? "The file could not be read");
   return { text: reading.text, ...(reading.note ? { note: reading.note } : {}) };
 }

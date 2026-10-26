@@ -274,6 +274,8 @@ export const saveIntakeSource = mutation({
     extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
     // A previous-year report's fiscal year (2026-09-27, fourth).
     fiscalYear: v.optional(v.number()),
+    // 2026-10-26 (owner): a Word file's text is Markdown.
+    textFormat: v.optional(v.literal("markdown")),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
@@ -344,6 +346,7 @@ export const saveIntakeSource = mutation({
             intake: args.intake,
             extractionOutcome: args.extractionOutcome,
             fiscalYear: args.category === "previous_pd" ? args.fiscalYear : undefined,
+            textFormat: args.textFormat,
             ...(user.role ? { uploaderRole: user.role } : {}),
           }),
       updatedAt: now,
@@ -748,6 +751,7 @@ export const restoreIntakeDraft = query({
           intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
           extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
           fiscalYear: v.optional(v.number()),
+          textFormat: v.optional(v.literal("markdown")),
           hasOriginal: v.boolean(),
         })
       ),
@@ -778,6 +782,7 @@ export const restoreIntakeDraft = query({
         ...(row.intake ? { intake: row.intake } : {}),
         ...(row.extractionOutcome ? { extractionOutcome: row.extractionOutcome } : {}),
         ...(row.fiscalYear !== undefined ? { fiscalYear: row.fiscalYear } : {}),
+        ...(row.textFormat ? { textFormat: row.textFormat } : {}),
         hasOriginal: Boolean(row.storageId),
       })),
     };
@@ -1306,6 +1311,7 @@ async function installDocument(
     ...(source.storageId ? { storageId: source.storageId } : {}),
     ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     ...(source.category ? { category: source.category } : {}),
+    ...(source.textFormat ? { textFormat: source.textFormat } : {}),
     source: "context_input",
     processingStatus: derived.status,
     processingDetail: derived.detail,

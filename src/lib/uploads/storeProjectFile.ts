@@ -60,10 +60,12 @@ export async function storeProjectFile(
   let content = "";
   let fileType: ParsedFileType = guessFileType(file.name);
   let extractionFailed = false;
+  let textFormat: "markdown" | undefined;
   try {
     const parsed = await parse(file, { signal: operation.signal });
     content = parsed.content;
     fileType = parsed.fileType;
+    textFormat = parsed.textFormat;
   } catch (error) {
     if (isParseAbort(error)) throw error;
     console.error("Could not read file", error);
@@ -92,6 +94,7 @@ export async function storeProjectFile(
       // A validated enum, never the error itself: the server decides what the
       // failure means, and no parser text can ride along.
       extractionOutcome: extractionFailed ? "failed" : "ok",
+      ...(textFormat ? { textFormat } : {}),
       attemptKey: input.attemptKey,
       ...(storageId ? { storageId } : {}),
       ...(file.type ? { mimeType: file.type } : {}),

@@ -23,6 +23,7 @@ export {
   normalizeExtractedText,
 } from "../../shared/documentStatus";
 import { isImageFile, normalizeExtractedText } from "../../shared/documentStatus";
+import { wordToMarkdown } from "../../shared/wordMarkdown";
 
 export type ParsedFileType =
   | "txt"
@@ -43,6 +44,11 @@ export interface ParsedDocument {
   pageCount?: number;
   /** PDFs only: where each page read starts in `content` (character offset). */
   pageOffsets?: number[];
+  /**
+   * Word files since 2026-10-26: the text is Markdown (shared/wordMarkdown.ts),
+   * saved with the file so drafts check quotes without its marks.
+   */
+  textFormat?: "markdown";
 }
 
 /** Reading progress for New project's supporting-document cards (E1): PDFs
@@ -126,8 +132,14 @@ export async function parseFileToText(file: File, options: ParseOptions = {}): P
   if (lower.endsWith(".docx")) {
     const mammoth = await import("mammoth");
     const arrayBuffer = await file.arrayBuffer();
-    const result = await mammoth.extractRawText({ arrayBuffer });
-    return { fileName: name, fileType: "docx", content: capContent(result.value.trim()) };
+    // Owner, 2026-10-26: Word files as Markdown (headings, bold, italic, tables).
+    // mammoth's browser build reads an ArrayBuffer; its Node build (unit
+    // tests) a Buffer.
+    const markdown = await wordToMarkdown(
+      mammoth,
+      typeof Buffer === "undefined" ? { arrayBuffer } : { buffer: Buffer.from(arrayBuffer) }
+    );
+    return { fileName: name, fileType: "docx", content: capContent(markdown.trim()), textFormat: "markdown" };
   }
 
   if (lower.endsWith(".pdf")) {

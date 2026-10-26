@@ -20,6 +20,7 @@ import { getTeamRosterMemberOrNull, userDisplayLabel } from "./teamRoster";
 import {
   FROZEN_DOCUMENT_CHARS,
   FROZEN_DOCUMENT_ROWS,
+  frozenFileText,
   type FrozenSourceFields,
 } from "./briefEvidence";
 import { sha256 } from "./contracts";
@@ -299,7 +300,9 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
   }
   for (const row of documents) {
     const text = await readSourceText(ctx, row._id);
-    const content = text.slice(0, FROZEN_DOCUMENT_CHARS);
+    const cut = text.slice(0, FROZEN_DOCUMENT_CHARS);
+    // 2026-10-26: Word Markdown is frozen without its marks, as a project's.
+    const content = frozenFileText(cut, row.textFormat);
     fields.push({
       kind: "project_document",
       intakeSourceId: row._id,
@@ -307,7 +310,7 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
       label: `${row.category ?? "other"}:${row.label}`,
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== text.length,
+      truncated: cut.length !== text.length,
       originalLength: text.length,
       ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
     });

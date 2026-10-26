@@ -1487,6 +1487,7 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
       fileType: doc.fileType,
       ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
       ...(doc.category ? { category: doc.category } : {}),
+      ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
       ...(doc.archived !== undefined ? { archived: doc.archived } : {}),
       processingStatus: processing.status,
       ...(processing.detail ? { processingDetail: processing.detail } : {}),

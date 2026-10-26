@@ -98,6 +98,8 @@ export const uploadDocument = mutation({
     // PSOS-04: resolves the durable upload attempt this call belongs to, in the
     // same transaction as the insert.
     attemptKey: v.optional(v.string()),
+    // 2026-10-26 (owner): a Word file's text is Markdown.
+    textFormat: v.optional(v.literal("markdown")),
   },
   handler: async (ctx, args) => {
     // Files are inputs to the next draft and to chat: report.editProse
@@ -225,6 +227,7 @@ export const uploadDocument = mutation({
       ...(args.storageId ? { storageId: args.storageId } : {}),
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       ...(args.category ? { category: args.category } : {}),
+      ...(args.textFormat ? { textFormat: args.textFormat } : {}),
       source: args.source ?? "chat_upload",
       processingStatus: derived.status,
       processingDetail: derived.detail,
@@ -329,7 +332,13 @@ export const getDocumentContent = query({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) return null;
     if (!(await getInternalProjectAccessOrNull(ctx, doc.projectId))) return null;
-    return { fileName: doc.fileName, fileType: doc.fileType, content: await readDocumentText(ctx, doc) };
+    return {
+      fileName: doc.fileName,
+      fileType: doc.fileType,
+      content: await readDocumentText(ctx, doc),
+      // 2026-10-26: Word Markdown is shown formatted.
+      ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
+    };
   },
 });
 

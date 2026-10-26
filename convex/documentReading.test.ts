@@ -15,7 +15,7 @@ import { documentTextHash, readDocumentText } from "./lib/documentText";
 import { hasReadText, needsServerReading, serverReadingReplaces } from "./lib/serverReading";
 import { insertDocumentWithText } from "./lib/documentText";
 import { readFileOnServer, SERVER_READER_VERSION } from "./ai/fileReader";
-import { textPdf } from "./ai/testFiles.fixture";
+import { RICH_WORD_MARKDOWN, richWordFile, textPdf } from "./ai/testFiles.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const writerAuthId = "auth-writer-document-reading-tests";
@@ -137,6 +137,26 @@ describe("reading a file on the server", () => {
     });
     // Read once: the file is not read again.
     expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
+  });
+
+  test("a Word file with no text is read as Markdown and keeps its flag", async () => {
+    // Zip reading waits on real timers; the reading the upload queued runs on its own.
+    vi.useRealTimers();
+    const { t, projectId, writer } = await setup();
+    const documentId = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "trials.docx",
+      fileType: "docx",
+      content: "",
+      storageId: await store(t, await richWordFile()),
+    });
+    await vi.waitFor(async () => expect((await fileState(t, documentId)).doc.serverReadAt).toEqual(expect.any(Number)), {
+      timeout: 15_000,
+      interval: 100,
+    });
+    const { doc, text } = await fileState(t, documentId);
+    expect(text).toBe(RICH_WORD_MARKDOWN);
+    expect(doc).toMatchObject({ textFormat: "markdown", serverReader: SERVER_READER_VERSION, processingStatus: "ready" });
   });
 
   test("a PDF whose first page ran out of time in the browser is read", async () => {

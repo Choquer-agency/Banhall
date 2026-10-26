@@ -15,8 +15,9 @@ import { documentHasText, documentTextLength, readDocumentText } from "./documen
 /**
  * The server reader's version, recorded on each file it reads. A file read
  * (or tried) by this version is not read again; a newer version may read it.
+ * 2: Word files as Markdown (2026-10-26, owner).
  */
-export const SERVER_READER_VERSION = "server-reader-1";
+export const SERVER_READER_VERSION = "server-reader-2";
 
 /**
  * The line a reader adds when it stops reading a PDF early. Matched without

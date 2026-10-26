@@ -25,6 +25,7 @@ import {
 import { capContent, locatePageOffsets, MAX_CONTENT_CHARS } from "../../shared/documentContent";
 import { spreadsheetText } from "../../shared/spreadsheetText";
 import { emailToText, emlToText, fmtPerson, MAX_MBOX_MESSAGES, splitMbox } from "../../shared/emailText";
+import { wordToMarkdown } from "../../shared/wordMarkdown";
 
 import { SERVER_READER_VERSION } from "../lib/serverReading";
 
@@ -48,6 +49,8 @@ export type ServerReading = {
   note?: string;
   /** The reader failed (a damaged file, or a library that did not load): not a real empty reading. */
   failed?: true;
+  /** Word files read as Markdown (shared/wordMarkdown.ts). */
+  textFormat?: "markdown";
   reader: typeof SERVER_READER_VERSION;
 };
 
@@ -183,7 +186,8 @@ async function readMbox(raw: string): Promise<string> {
 export async function readFileOnServer(
   bytes: Uint8Array,
   fileName: string,
-  options: { pdfTimeoutMs?: number; maxChars?: number } = {}
+  /** `word: "plain"` keeps mammoth's plain text (the OneDrive import, whose text feeds the Brain). */
+  options: { pdfTimeoutMs?: number; maxChars?: number; word?: "markdown" | "plain" } = {}
 ): Promise<ServerReading> {
   const ext = getFileExtension(fileName);
   // The browser's cap unless the caller keeps more (the OneDrive import).
@@ -203,8 +207,13 @@ export async function readFileOnServer(
       case "markdown":
         return reading("md", cap(utf8(bytes)));
       case "docx": {
-        const result = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
-        return reading("docx", cap(result.value.trim()));
+        if (options.word === "plain") {
+          const result = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
+          return reading("docx", cap(result.value.trim()));
+        }
+        // Owner, 2026-10-26: Word files as Markdown, the same as the browser.
+        const markdown = await wordToMarkdown(mammoth, { buffer: Buffer.from(bytes) });
+        return { ...reading("docx", cap(markdown.trim())), textFormat: "markdown" };
       }
       case "pdf":
         return await readPdf(bytes, options.pdfTimeoutMs ?? SERVER_PDF_TIMEOUT_MS, options.maxChars ?? MAX_CONTENT_CHARS);
