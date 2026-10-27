@@ -7,7 +7,7 @@
  * A step records only what it actually sent, once its request has answered
  * (review): a step that never ran or failed records nothing.
  */
-import { v, type Infer, type ObjectType } from "convex/values";
+import { getDocumentSize, v, type Infer, type ObjectType, type Value } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { Doc, Id } from "../../_generated/dataModel";
 
@@ -153,8 +153,12 @@ export async function copyBriefSourceUseHandler(
 export const RECOVERY_SOURCE_USE_ROWS_PER_STEP = 2500;
 /** At most this many records one Summary recovery writes, within a mutation's write limit. */
 export const RECOVERY_SOURCE_USE_COPIES = 4000;
-/** More than one source-use record takes, with its index entries. */
+/** At least the size of one source-use record read, with its index entries. */
 const SOURCE_USE_ROW_BYTES = 1024;
+/** Records read, or written, between two checks of the room left. */
+const SOURCE_USE_PAGE = 100;
+/** A written record's index entries, on top of its own size. */
+const SOURCE_USE_INDEX_BYTES = 256;
 
 /**
  * Summary recovery (review): the recovery drafts from the failed draft's
@@ -170,23 +174,43 @@ export async function copyRecoverySourceUses(
   to: { _id: Id<"generations">; projectId: Id<"projects"> },
   copyOf: ReadonlyMap<Id<"generationSources">, Id<"generationSources">>,
   /**
-   * The recovery's transaction guard (B1 review, round 5): a step whose
-   * records would not fit what is left of the transaction is left out, and
-   * the copy says it is incomplete, instead of failing the recovery.
+   * The recovery's transaction guard (B1 review, rounds 5 and 6): records
+   * are read and written a page at a time, asking first, so only records
+   * that really do not fit what is left of the transaction are left out,
+   * and the copy then says it is incomplete, instead of failing the
+   * recovery. `read` counts each record read, for runtimes that cannot
+   * report their usage.
    */
-  limits?: { hasRoom(kind: "read" | "write", bytes: number): Promise<boolean> }
+  limits?: {
+    hasRoom(kind: "read" | "write", bytes: number, writtenBytes?: number): Promise<boolean>;
+    read(doc: object): void;
+  }
 ): Promise<{ truncated: boolean }> {
   let truncated = false;
   const copies: Doc<"generationSourceUse">[] = [];
   for (const step of ["analyzer", "brief", "seeds"] as const) {
-    if (limits && !(await limits.hasRoom("read", (RECOVERY_SOURCE_USE_ROWS_PER_STEP + 1) * SOURCE_USE_ROW_BYTES))) {
-      truncated = true;
-      continue;
-    }
-    const rows = await ctx.db
+    const rows: Doc<"generationSourceUse">[] = [];
+    const iterator = ctx.db
       .query("generationSourceUse")
       .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", fromGenerationId).eq("step", step))
-      .take(RECOVERY_SOURCE_USE_ROWS_PER_STEP + 1);
+      [Symbol.asyncIterator]();
+    try {
+      pages: for (;;) {
+        if (limits && !(await limits.hasRoom("read", (SOURCE_USE_PAGE + 1) * SOURCE_USE_ROW_BYTES))) {
+          truncated = true;
+          break;
+        }
+        for (let index = 0; index < SOURCE_USE_PAGE; index += 1) {
+          const next = await iterator.next();
+          if (next.done) break pages;
+          limits?.read(next.value);
+          rows.push(next.value);
+          if (rows.length > RECOVERY_SOURCE_USE_ROWS_PER_STEP) break pages;
+        }
+      }
+    } finally {
+      await iterator.return?.();
+    }
     if (rows.length > RECOVERY_SOURCE_USE_ROWS_PER_STEP) truncated = true;
     const best = new Map<string, Doc<"generationSourceUse">>();
     for (const row of rows.slice(0, RECOVERY_SOURCE_USE_ROWS_PER_STEP)) {
@@ -198,24 +222,32 @@ export async function copyRecoverySourceUses(
     copies.push(...best.values());
   }
   if (copies.length > RECOVERY_SOURCE_USE_COPIES) truncated = true;
-  const kept = copies.slice(0, RECOVERY_SOURCE_USE_COPIES);
-  if (limits && kept.length > 0 && !(await limits.hasRoom("write", kept.length * SOURCE_USE_ROW_BYTES))) {
-    return { truncated: true };
-  }
-  for (const row of kept) {
-    await ctx.db.insert("generationSourceUse", {
-      generationId: to._id,
-      projectId: to.projectId,
-      step: row.step,
-      ...(row.run ? { run: row.run } : {}),
-      sourceId: copyOf.get(row.sourceId)!,
-      ...(row.contentHash ? { contentHash: row.contentHash } : {}),
-      state: row.state,
-      sent: row.sent,
-      total: row.total,
-      unit: row.unit,
-      at: row.at,
-    });
+  const kept = copies.slice(0, RECOVERY_SOURCE_USE_COPIES).map((row) => ({
+    generationId: to._id,
+    projectId: to.projectId,
+    step: row.step,
+    ...(row.run ? { run: row.run } : {}),
+    sourceId: copyOf.get(row.sourceId)!,
+    ...(row.contentHash ? { contentHash: row.contentHash } : {}),
+    state: row.state,
+    sent: row.sent,
+    total: row.total,
+    unit: row.unit,
+    at: row.at,
+  }));
+  let written = 0;
+  for (let start = 0; start < kept.length; start += SOURCE_USE_PAGE) {
+    const page = kept.slice(start, start + SOURCE_USE_PAGE);
+    const bytes = page.reduce(
+      (total, row) => total + getDocumentSize(row as unknown as Record<string, Value>) + SOURCE_USE_INDEX_BYTES,
+      0
+    );
+    if (limits && !(await limits.hasRoom("write", bytes, written))) {
+      truncated = true;
+      break;
+    }
+    for (const row of page) await ctx.db.insert("generationSourceUse", row);
+    written += bytes;
   }
   return { truncated };
 }

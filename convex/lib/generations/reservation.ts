@@ -989,7 +989,8 @@ export async function retryFromSummaryHandler(
     { _id: generationId, projectId: failed.projectId },
     recoveryCopyOf,
     {
-      hasRoom: (kind, bytes) => recoveryLimits.hasRoom(kind, bytes, recoveryWritten),
+      hasRoom: (kind, bytes, written = 0) => recoveryLimits.hasRoom(kind, bytes, recoveryWritten + written),
+      read: (doc) => recoveryLimits.read(doc),
     }
   );
   if (copied.truncated || failed.sourceUseTruncated) await ctx.db.patch(generationId, { sourceUseTruncated: true });

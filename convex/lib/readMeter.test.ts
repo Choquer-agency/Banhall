@@ -46,6 +46,21 @@ describe("TransactionGuard", () => {
     await expect(guard.beforeWrite(0, 600 * 1024)).rejects.toThrow("too large");
   });
 
+  it("says whether more fits without refusing, with the real usage and with its own count", async () => {
+    const usage = { read: 15 * MIB, written: 10 * MIB };
+    const measured = new TransactionGuard(metaReporting(usage), options, refuse);
+    expect(await measured.hasRoom("read", 512 * 1024)).toBe(true);
+    expect(await measured.hasRoom("read", 900 * 1024)).toBe(false);
+    expect(await measured.hasRoom("write", 5 * MIB)).toBe(true);
+    expect(await measured.hasRoom("write", 6 * MIB)).toBe(false);
+    const counted = new TransactionGuard(metaReporting(null), options, refuse);
+    counted.read({ text: "x".repeat(14 * MIB) });
+    expect(await counted.hasRoom("read", 512 * 1024)).toBe(true);
+    expect(await counted.hasRoom("read", 900 * 1024)).toBe(false);
+    expect(await counted.hasRoom("write", MIB, 13 * MIB)).toBe(true);
+    expect(await counted.hasRoom("write", 2 * MIB, 13 * MIB)).toBe(false);
+  });
+
   it("without it: counts what it is told and refuses once one more largest document and the margin would pass the estimate limit", async () => {
     const guard = new TransactionGuard(metaReporting(null), options, refuse);
     const rows = Array.from({ length: 20 }, (_, index) => ({ index, text: "x".repeat(MIB - 100) }));

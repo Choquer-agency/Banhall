@@ -359,8 +359,43 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
         });
       }
     }
+    // Round 6: the first recovery had no records to leave out, so it is not
+    // marked; the second leaves out only what did not fit.
+    expect(await s.t.run(async (ctx) => (await ctx.db.get(first))?.sourceUseTruncated ?? false)).toBe(false);
     const second = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: first });
-    expect(await s.t.run(async (ctx) => (await ctx.db.get(second))?.sourceUseTruncated)).toBe(true);
+    const copied = await s.t.run(async (ctx) => ({
+      truncated: (await ctx.db.get(second))?.sourceUseTruncated,
+      records: (await ctx.db.query("generationSourceUse").withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", second)).collect()).length,
+    }));
+    expect(copied.truncated).toBe(true);
+    expect(copied.records).toBeGreaterThan(0);
+    expect(copied.records).toBeLessThan(7_500);
+  });
+
+  it("does not mark a large recovery incomplete when its steps have few records", async () => {
+    const s = await failedSignedOffDraft(16, "a".repeat(900_000));
+    const first = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId });
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(first, { status: "failed" });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined, status: "draft" });
+    });
+    const sourceId = await s.t.run(async (ctx) => (await ctx.db.get(first))!.sourceIdMap![0]!.recoverySourceId);
+    await s.t.run(async (ctx) => {
+      for (const step of ["analyzer", "brief", "seeds"] as const) {
+        for (let index = 0; index < 10; index += 1) {
+          await ctx.db.insert("generationSourceUse", {
+            generationId: first, projectId: s.projectId, sourceId, step, run: `run-${index}`,
+            state: "whole", sent: 30, total: 30, unit: "chars", at: 1,
+          });
+        }
+      }
+    });
+    const second = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: first });
+    const copied = await s.t.run(async (ctx) => ({
+      truncated: (await ctx.db.get(second))?.sourceUseTruncated,
+      records: (await ctx.db.query("generationSourceUse").withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", second)).collect()).length,
+    }));
+    expect(copied).toEqual({ truncated: undefined, records: 30 });
   });
 
   it("refuses by name a recovery whose rows are too large to read at once", async () => {
