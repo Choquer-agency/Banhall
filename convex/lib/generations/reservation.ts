@@ -67,6 +67,7 @@ import { restorableProjectStatus } from "./restoreStatus";
 import { userDisplayLabel } from "../teamRoster";
 import type { QueryCtx } from "../../_generated/server";
 import { documentHasText } from "../documentText";
+import { copyRecoverySourceUses } from "./sourceUse";
 
 /**
  * The user-safe summary of a project's active run (F6): who started it, which
@@ -764,6 +765,7 @@ export async function retryFromSummaryHandler(
     originSourceId: Id<"generationSources">;
     recoverySourceId: Id<"generationSources">;
   }> = [];
+  const recoveryCopyOf = new Map<Id<"generationSources">, Id<"generationSources">>();
   // Phase C: a draft that read another company's files is not recovered
   // once the project has left that company; a new draft reads its own.
   await refuseWhenCompanyLeft(ctx, failed.projectId, originSources);
@@ -794,6 +796,7 @@ export async function retryFromSummaryHandler(
       contextBudget: current.contextBudget,
     });
     nextMap.push({ originSourceId: origin._id, recoverySourceId });
+    recoveryCopyOf.set(current._id, recoverySourceId);
   }
   assertFrozenSourceBijection({
     originSourceIds: originSources.map((source) => source._id),
@@ -808,6 +811,8 @@ export async function retryFromSummaryHandler(
     });
   }
   await ctx.db.patch(generationId, { sourceIdMap: nextMap });
+  // Phase D (step 2): the steps it reuses keep their record on its rows.
+  await copyRecoverySourceUses(ctx, failed._id, { _id: generationId, projectId: failed.projectId }, recoveryCopyOf);
   await ctx.db.patch(project._id, {
     activeGenerationId: generationId,
     status: "generating",

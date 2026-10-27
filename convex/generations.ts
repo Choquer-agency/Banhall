@@ -128,7 +128,12 @@ import {
   renderBriefForGenerationArgs,
   renderBriefForGenerationHandler,
 } from "./lib/generations/brief";
-import { recordSourceUseArgs, recordSourceUseHandler } from "./lib/generations/sourceUse";
+import {
+  copyBriefSourceUseArgs,
+  copyBriefSourceUseHandler,
+  recordSourceUseArgs,
+  recordSourceUseHandler,
+} from "./lib/generations/sourceUse";
 import {
   pinSeedBriefArgs,
   pinSeedBriefHandler,
@@ -455,9 +460,6 @@ export const getCitationSpeakers = internalQuery({
   handler: getCitationSpeakersHandler,
 });
 
-/** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
- * writer-edited version is reused too (CAP-4: "the next generation with the
- * same inputsHash reuses that version"). */
 /** Phase D (step 2): what one step of a draft sent of each frozen row. */
 export const recordSourceUse = internalMutation({
   args: recordSourceUseArgs,
@@ -465,6 +467,16 @@ export const recordSourceUse = internalMutation({
   handler: recordSourceUseHandler,
 });
 
+/** Phase D (step 2, review): a reused Brief's record, copied from the run that derived it. */
+export const copyBriefSourceUse = internalMutation({
+  args: copyBriefSourceUseArgs,
+  returns: v.null(),
+  handler: copyBriefSourceUseHandler,
+});
+
+/** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
+ * writer-edited version is reused too (CAP-4: "the next generation with the
+ * same inputsHash reuses that version"). */
 export const findReusableBrief = internalQuery({
   args: findReusableBriefArgs,
   handler: findReusableBriefHandler,

@@ -124,8 +124,32 @@ describe("BriefRailPanel", () => {
     const { container } = await render(BriefRailPanel, { generationId, projectId });
     await expect
       .poll(() => container.querySelector("[data-inclusion-uses]")?.textContent)
-      .toBe("Read by the analysis (whole), Seeds (whole, 13 of 13 Batches).");
+      .toBe("Read by the analysis (whole), Seeds (whole, 13 of 13 steps).");
     expect(container.querySelectorAll("[data-inclusion-uses]")).toHaveLength(1);
+    expect(container.querySelector("[data-inclusion-uses-truncated]")).toBeNull();
+  });
+
+  it("says when not every step's reads could be listed (Phase D, step 2, review)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 1,
+      documentsTotal: 1,
+      usesTruncated: true,
+      rows: [
+        {
+          key: "source:t1", kind: "transcript", label: "Interview transcript", inclusion: "condensed",
+          uses: [{ step: "analyzer", runs: 1, read: 1, whole: true, condensed: true }],
+        },
+      ],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect
+      .poll(() => container.querySelector("[data-inclusion-uses-truncated]")?.textContent?.trim())
+      .toBe("Not every step's reads could be listed, so a file shown as not read by a step may have been read.");
+    expect(container.querySelector("[data-inclusion-uses]")?.textContent).toBe("Read by the analysis (condensed).");
   });
 
   it("saves an edit through saveEntryEdit with the project, Brief and version fence", async () => {

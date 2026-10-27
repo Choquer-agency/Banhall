@@ -236,7 +236,7 @@ describe("what each step read (Phase D, step 2)", () => {
       ],
     });
     const uses = Object.fromEntries(result.rows.map((row) => [row.key, row.uses]));
-    expect(uses["source:t1"]).toEqual([{ step: "analyzer", runs: 1, read: 1, whole: true }]);
+    expect(uses["source:t1"]).toEqual([{ step: "analyzer", runs: 1, read: 1, whole: true, condensed: true }]);
     expect(uses["source:p1"]).toEqual([
       { step: "analyzer", runs: 1, read: 1, whole: false },
       { step: "brief", runs: 1, read: 1, whole: true },
@@ -244,6 +244,33 @@ describe("what each step read (Phase D, step 2)", () => {
     ]);
     expect(uses["source:p2"]).toEqual([{ step: "facts_check", runs: 1, read: 0, whole: false }]);
     expect(result.usesTruncated).toBeUndefined();
+  });
+
+  it("marks a step condensed only when every run that read the transcript read its digest or fact pack (review)", () => {
+    const result = assembleContextInclusion({
+      sources: [
+        ...sources,
+        { _id: "f1", kind: "transcript_facts" as const, label: "Kickoff facts", transcriptId: "tr1" },
+      ],
+      unfrozenDocuments: [],
+      fallbackCap: 12,
+      uses: [
+        // The analyzer read the transcript itself and its digest: itself wins.
+        { sourceId: "t1", step: "analyzer", state: "whole" },
+        { sourceId: "d1", step: "analyzer", state: "whole" },
+        // One Seed step read the fact pack, another the transcript in part.
+        { sourceId: "f1", step: "seeds", run: "r1", state: "whole" },
+        { sourceId: "t1", step: "seeds", run: "r2", state: "part" },
+        // The Brief read only the digest.
+        { sourceId: "d1", step: "brief", state: "whole" },
+      ],
+    });
+    const uses = result.rows.find((row) => row.key === "source:t1")?.uses;
+    expect(uses).toEqual([
+      { step: "analyzer", runs: 1, read: 1, whole: true },
+      { step: "brief", runs: 1, read: 1, whole: true, condensed: true },
+      { step: "seeds", runs: 2, read: 2, whole: false },
+    ]);
   });
 
   it("gives a row no uses when no step recorded one, and says when the uses were cut short", () => {

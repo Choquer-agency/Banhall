@@ -157,8 +157,17 @@ describe("inclusionUsesText (Phase D, step 2)", () => {
         { step: "seeds", runs: 13, read: 3, whole: false },
         { step: "facts_check", runs: 3, read: 3, whole: true },
       ])
-    ).toBe("Read by the analysis (whole), Seeds (part, 3 of 13 Batches), the facts check (whole, 3 of 3 Lines). Not read by the Brief.");
+    ).toBe("Read by the analysis (whole), Seeds (in part, 3 of 13 steps), the facts check (whole, 3 of 3 Lines). Not read by the Brief.");
     expect(inclusionUsesText(undefined)).toBe("");
     expect(inclusionUsesText([])).toBe("");
+  });
+
+  it("says a transcript read only through its digest or fact pack was read condensed (review)", () => {
+    expect(
+      inclusionUsesText([
+        { step: "analyzer", runs: 1, read: 1, whole: true, condensed: true },
+        { step: "seeds", runs: 4, read: 2, whole: true, condensed: true },
+      ])
+    ).toBe("Read by the analysis (condensed), Seeds (condensed, 2 of 4 steps).");
   });
 });

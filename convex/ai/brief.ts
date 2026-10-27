@@ -720,14 +720,20 @@ export async function deriveBriefCandidates<I extends string>(
 async function recordBriefUse(
   ctx: BriefPublishCtx,
   generationId: Id<"generations">,
-  sources: ReadonlyArray<BriefSourceRow & { _id: Id<"generationSources"> }>
+  sources: ReadonlyArray<BriefSourceRow>
 ): Promise<void> {
   try {
     const { report } = briefMessageWithReport([...sources]);
     await ctx.runMutation(internal.generations.recordSourceUse, {
       generationId,
       step: "brief",
-      uses: report.map((entry) => ({ sourceId: entry.source._id, sent: entry.sent, total: entry.total, unit: "chars" as const })),
+      uses: report.map((entry) => ({
+        sourceId: entry.source._id,
+        contentHash: entry.source.contentHash,
+        sent: entry.sent,
+        total: entry.total,
+        unit: "chars" as const,
+      })),
     });
   } catch (error) {
     logBriefStageError("Brief source use not recorded", generationId, error);
@@ -775,7 +781,16 @@ export async function deriveOrReuseBrief(
         inputsHash,
       }))?._id;
   if (reusableId) {
-    await recordBriefUse(ctx, args.generationId, sources);
+    // Review: what the run that derived it read, copied by content.
+    try {
+      await ctx.runMutation(internal.generations.copyBriefSourceUse, {
+        generationId: args.generationId,
+        briefId: reusableId,
+        sources: sources.map((source) => ({ sourceId: source._id, contentHash: source.contentHash })),
+      });
+    } catch (error) {
+      logBriefStageError("Reused Brief source use not copied", args.generationId, error);
+    }
     // Outside Step-by-step the stamp checks the reused Brief under owner
     // decision 25 and may return a new version of it (review 2026-09-25).
     const briefId = args.seedStartup
@@ -799,7 +814,6 @@ export async function deriveOrReuseBrief(
   }
 
   const adapter = generationBriefAdapter(ctx, args.generationId, sources);
-  await recordBriefUse(ctx, args.generationId, sources);
   // Round 2 (F2, decision 57): during Step-by-step startup the Brief
   // streams, and each entry is located as it arrives the way publishing
   // locates it (decision 25 applied) and written as a display-only reading
@@ -829,6 +843,8 @@ export async function deriveOrReuseBrief(
     inputsHash,
     ...derived,
   });
+  // Review: recorded once the Brief exists, so a failed one records nothing.
+  await recordBriefUse(ctx, args.generationId, sources);
   return { kind: "derived", briefId };
 }
 
@@ -869,7 +885,9 @@ export async function deriveOrAdoptSeedBrief(
         generationId: args.generationId,
         inputsHash,
       });
-      if (adoption.kind === "adopted" || adoption.kind === "attached") await recordBriefUse(ctx, args.generationId, sources);
+      // A prepared Brief's request is this draft's message (its key hashes
+      // it). A run waiting on a preparation records nothing yet (known limit).
+      if (adoption.kind === "adopted") await recordBriefUse(ctx, args.generationId, sources);
       if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
       if (adoption.kind === "attached") return { kind: "attached" };
     } catch (error) {

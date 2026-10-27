@@ -22,7 +22,6 @@ import { createReadBudget } from "../readBudget";
 import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclusion";
 import { documentHasText } from "../documentText";
 import { MAX_FROZEN_SOURCE_ROWS, withCurrentCompanyFiles } from "../briefEvidence";
-import { recordAnalyzerUse } from "./sourceUse";
 import { hasCapability } from "../../../shared/capabilities";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
@@ -234,8 +233,6 @@ export async function recordContextBudgetHandler(
       // Story 4 (AD-30): the only writer of `inclusion`.
       inclusion: sourceInclusion(entry),
     });
-    // Phase D (step 2): the same outcome as the analyzer's source use row.
-    await recordAnalyzerUse(ctx, args.generationId, row.projectId, entry.sourceId, entry, row.content.length);
   }
   return null;
 }
@@ -262,12 +259,12 @@ export const INCLUSION_SOURCE_ROWS = 200;
 export const INCLUSION_DOCUMENT_ROWS = 1000;
 
 /**
- * Phase D (step 2): recorded uses one Inputs band reads. A draft writes a
- * row per frozen source per step run: at most 123 sources, the analyzer and
- * the Brief once or a few times, each Seed Batch and each Line's facts
- * check once; rows are small.
+ * Phase D (step 2): recorded uses one Inputs band reads per step. A draft
+ * writes a row per frozen source per step run (at most 123 sources): the
+ * analyzer and the Brief once or a few times, a Seed step once per answered
+ * Batch, a Line's facts check once per claim; rows are small.
  */
-export const INCLUSION_USE_ROWS = 6000;
+export const INCLUSION_USE_ROWS_PER_STEP = 2500;
 
 /** Argument validators of generations.getContextInclusion. */
 export const getContextInclusionArgs = { generationId: v.id("generations") };
@@ -335,19 +332,28 @@ export async function getContextInclusionHandler(
     });
   }
   // Phase D (step 2): what each step sent of each frozen row, after the
-  // documents so they keep the budget first.
-  const useRead = await reads.list(
-    ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", generation._id)),
-    INCLUSION_USE_ROWS
-  );
+  // documents so they keep the budget first; each step read on its own, so
+  // one busy step never crowds another out (review).
+  const useRows: Doc<"generationSourceUse">[] = [];
+  let usesTruncated = false;
+  for (const step of ["analyzer", "brief", "seeds", "facts_check"] as const) {
+    const read = await reads.list(
+      ctx.db
+        .query("generationSourceUse")
+        .withIndex("by_generationId_and_step", (q) => q.eq("generationId", generation._id).eq("step", step)),
+      INCLUSION_USE_ROWS_PER_STEP
+    );
+    useRows.push(...read.rows);
+    if (!read.complete) usesTruncated = true;
+  }
   return assembleContextInclusion({
-    uses: useRead.rows.map((use) => ({
+    uses: useRows.map((use) => ({
       sourceId: use.sourceId,
       step: use.step,
       ...(use.run ? { run: use.run } : {}),
       state: use.state,
     })),
-    usesTruncated: !useRead.complete,
+    usesTruncated,
     sources: sources.map((row) => ({
       _id: row._id,
       kind: row.kind,

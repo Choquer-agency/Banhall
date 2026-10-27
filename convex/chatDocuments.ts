@@ -639,7 +639,10 @@ export const readTranscriptForChat = internalQuery({
 
 /** Lower case, compatibility forms folded and accents removed, for matching. */
 export function foldForSearch(text: string): string {
-  return text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase();
+  // Greek final sigma folds to sigma (review): lowercasing a whole word
+  // gives "ς" at its end, one letter at a time gives "σ", and the excerpt
+  // window folds letter by letter.
+  return text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/ς/g, "σ");
 }
 
 /** Common French function words and short English ones, beside research's list. */
@@ -998,7 +1001,12 @@ export const searchForChat = internalQuery({
       }
     }
 
-    if (skippedCurrent > 0 && candidateIds.length >= SEARCH_FILE_CANDIDATES) complete = false;
+    // Only a list that filled its places can have left a file out (review).
+    const listFull =
+      new Set(pieces.rows.map((piece) => piece.documentId)).size >= SEARCH_FILE_CANDIDATES ||
+      pieces.rows.length >= searchPieceCap(SEARCH_FILE_CANDIDATES) ||
+      unmoved.rows.length >= SEARCH_FILE_CANDIDATES;
+    if (skippedCurrent > 0 && listFull) complete = false;
 
     // Active transcripts, in memory: by groups of whole turns where the
     // turn build stored them, by characters otherwise.

@@ -52,6 +52,7 @@ import {
   compressToFit,
   includedDocumentCount,
   lengthBudgetBlock,
+  recordAnalyzerUse,
   recordContextBudget,
 } from "./pipeline";
 import { describeContextCuts } from "./trustedContext";
@@ -486,6 +487,7 @@ export const prepareSeedDraftingInputs = internalAction({
           },
         }
       );
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       await ctx.runMutation(internal.generations.completeDraftingInputs, {
         ...attemptArgs,
         analysis: JSON.stringify(analysis),
@@ -689,6 +691,7 @@ export const startIterativeGeneration = internalAction({
         steps.route("generation:analyzer").model,
         brainBlocks.analyzer
       );
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
 
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,

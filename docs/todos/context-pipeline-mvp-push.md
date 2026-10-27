@@ -164,8 +164,8 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [x] C3. Company files in drafts, chat and the Inputs band. Done 2026-10-26: decision entries "2026-10-26 (seventh)" and "(eighth)", reviewed in three rounds.
 
 **Phase D: search-first evidence**
-- [ ] D1. Drafting gets a file list and search and read tools; fact-finding still reads every piece (P1 item 8).
-- [ ] D2. Chat searches and reads pieces instead of loading 12 files; source links stay exact (P1 item 9). Writers see what each draft used (P0 item 5).
+- [ ] D1. Drafting gets a file list and search and read tools; fact-finding still reads every piece (P1 item 8). Plan reviewed (`docs/todos/phase-d-search-first.md`); step 3 (relevance instead of tools for drafting) waits for the owner's answer.
+- [x] D2. Chat searches and reads pieces instead of loading 12 files; source links stay exact (P1 item 9). Writers see what each draft used (P0 item 5). Done 2026-10-26: decision entries "2026-10-26 (ninth)" and "(tenth)".
 
 **Phase E: learning**
 - [ ] E1. Writer memory: suggestions, approval on Writing preferences, use in drafts, Seeds and chat.
@@ -194,7 +194,7 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
   - Do the same for the 30-entry limit: batch instead of refuse. Needs the owner decision and a `docs/product-domain.md` entry.
 - [x] **3. When an answer is too long, retry with more room**, not "write shorter" at the same limit (`convex/ai/structured.ts`, `cutOffRetry`). Done 2026-10-26 for the report-sized steps; dense transcript stretches are split in the background.
 - [x] **4. Take each limit from the model's real maximum** instead of a hard-coded number, and stream the large calls. Seen live on 2026-10-22: the post-draft QA call (`generation:post_qa`, 4,096-token answer limit in `convex/lib/generationSteps.ts`) was cut off on Emily's PD. Done 2026-10-26: retries use the model's maximum (`modelOutputCap`), the judges' first limit is 16,384, and every request over 16,384 streams.
-- [ ] **5. Show writers which documents were left out more clearly.** The Inputs band already tracks it.
+- [x] **5. Show writers which documents were left out more clearly.** The Inputs band already tracks it. Done 2026-10-26 (decision entry "2026-10-26 (tenth)"): under each file, the band names the steps that read it, how much, and the steps that did not.
 
 ### P1: make evidence searchable (core of the MVP)
 

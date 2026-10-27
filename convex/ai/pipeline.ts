@@ -954,6 +954,40 @@ export async function recordContextBudget(
   });
 }
 
+/**
+ * Phase D (step 2): what the analyzer's request sent of each frozen row,
+ * written once it has answered, so a draft whose analysis never ran or
+ * failed records none. Telemetry only: a failure is logged, never thrown.
+ */
+export async function recordAnalyzerUse(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  report: TrustedContextReport
+): Promise<void> {
+  const uses = report.sources.flatMap((source) =>
+    source.sourceId && source.originalLength > 0
+      ? [
+          {
+            sourceId: source.sourceId as Id<"generationSources">,
+            sent: !source.included
+              ? 0
+              : source.truncated
+                ? Math.min(source.includedLength, source.originalLength - 1)
+                : source.originalLength,
+            total: source.originalLength,
+            unit: "chars" as const,
+          },
+        ]
+      : []
+  );
+  if (!uses.length) return;
+  try {
+    await ctx.runMutation(internal.generations.recordSourceUse, { generationId, step: "analyzer", uses });
+  } catch (error) {
+    console.warn("Analyzer source use not recorded", String(error).slice(0, 200));
+  }
+}
+
 export type ProvenanceDraft = {
   claimId: string;
   section: "242" | "244" | "246";
@@ -1562,6 +1596,7 @@ export const generateReport = internalAction({
         analyzerRoute.model,
         brainBlocks.analyzer
       );
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       const serializedAnalysis = JSON.stringify(analysis);
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,

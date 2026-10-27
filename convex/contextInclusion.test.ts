@@ -9,6 +9,8 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { buildTrustedContext, type ContextDoc } from "./ai/trustedContext";
+import { recordAnalyzerUse } from "./ai/pipeline";
+import type { ActionCtx } from "./_generated/server";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -81,7 +83,18 @@ async function recordFromRealReport(t: TestConvex, generationId: Id<"generations
         : []
     ),
   });
+  // Phase D (step 2, review): the analyzer's record is written once its
+  // request has answered, by the same helper the pipeline calls.
+  await recordAnalyzerUse(actionCtxOf(t), generationId, report);
   return report;
+}
+
+/** The one action call recordAnalyzerUse makes, run against the test backend. */
+function actionCtxOf(t: TestConvex): ActionCtx {
+  return {
+    runMutation: (reference: unknown, args: unknown) =>
+      t.mutation(reference as typeof internal.generations.recordSourceUse, args as never),
+  } as unknown as ActionCtx;
 }
 
 describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
@@ -111,6 +124,56 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     ]);
     const first = inclusion!.rows.find((entry) => entry.kind === "document")!;
     expect(first.uses).toEqual([{ step: "analyzer", runs: 1, read: 1, whole: true }]);
+  });
+
+  it("a record that cannot be written never fails the analyzer (review)", async () => {
+    const { t, authed, projectId } = await setup();
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    const input = await t.query(internal.generations.getGenerationInput, { generationId });
+    const { report } = buildTrustedContext({
+      transcriptParts: input!.transcriptParts,
+      documents: [],
+      budget: input!.contextBudget,
+    });
+    const failing = {
+      runMutation: () => Promise.reject(new Error("write refused")),
+    } as unknown as ActionCtx;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(recordAnalyzerUse(failing, generationId, report)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith("Analyzer source use not recorded", expect.stringContaining("write refused"));
+    warn.mockRestore();
+  });
+
+  it("reads each step on its own, so one step's many rows never hide another's (review)", async () => {
+    const { t, authed, projectId } = await setup();
+    await authed.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "Readable internal notes.",
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    const document = await t.run(async (ctx) =>
+      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+        .find((row) => row.kind === "project_document")!
+    );
+    // Many Seed rows written first, the facts check's last.
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 60; index += 1) {
+        await ctx.db.insert("generationSourceUse", {
+          generationId, projectId, step: "seeds", run: `role-${index}`, sourceId: document._id,
+          state: "whole", sent: 10, total: 10, unit: "bytes", at: index,
+        });
+      }
+    });
+    await t.mutation(internal.generations.recordSourceUse, {
+      generationId, step: "facts_check", run: "line:242",
+      uses: [{ sourceId: document._id, sent: 10, total: 10, unit: "bytes" }],
+    });
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    const row = inclusion!.rows.find((entry) => entry.key === `source:${document._id}`)!;
+    expect(row.uses).toEqual([
+      { step: "seeds", runs: 60, read: 60, whole: true },
+      { step: "facts_check", runs: 1, read: 1, whole: true },
+    ]);
+    expect(inclusion!.usesTruncated).toBeUndefined();
   });
 });
 

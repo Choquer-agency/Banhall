@@ -9,6 +9,7 @@
     CONFIDENCE_WORDS,
     ELIGIBILITY_REASON_WORDS,
     INCLUSION_SOURCES_TRUNCATED_NOTE,
+    INCLUSION_USES_TRUNCATED_NOTE,
     INCLUSION_TRUNCATED_NOTE,
     changeSummary,
     inclusionTruncation,
@@ -51,6 +52,8 @@
     documentsTruncated?: boolean;
     /** DW-133: the frozen sources stopped at the budget; transcripts and both counts are lower bounds. */
     sourcesTruncated?: boolean;
+    /** Phase D (step 2): the steps' recorded reads stopped at their read budget. */
+    usesTruncated?: boolean;
     rows: InclusionRow[];
   };
   type WriterSettingsView = {
@@ -250,6 +253,11 @@
       class="border-b border-line-soft px-4 py-2.5 text-body text-ink-muted"
     >
       {truncation === "sources" ? INCLUSION_SOURCES_TRUNCATED_NOTE : INCLUSION_TRUNCATED_NOTE}
+    </p>
+  {/if}
+  {#if inclusion?.usesTruncated}
+    <p data-inclusion-uses-truncated class="border-b border-line-soft px-4 py-2.5 text-body text-ink-muted">
+      {INCLUSION_USES_TRUNCATED_NOTE}
     </p>
   {/if}
   {#if writerSettings?.noProfileLine}

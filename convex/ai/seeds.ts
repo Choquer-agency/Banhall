@@ -654,21 +654,6 @@ export const generateBatch = internalAction({
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
       });
-      // Phase D (step 2): what this Batch's prompt carries of each frozen
-      // row. Telemetry only: a failure is logged, never fails the Batch.
-      await ctx
-        .runMutation(recordSourceUseRef, {
-          generationId: claim.batch.generationId,
-          step: "seeds",
-          run: claim.batch.batchId,
-          uses: request.sources.map((entry) => ({
-            sourceId: validatedId<"generationSources">(entry.sourceId),
-            sent: entry.included ? entry.includedBytes : 0,
-            total: entry.originalBytes,
-            unit: "bytes" as const,
-          })),
-        })
-        .catch((error: unknown) => console.warn("Seed source use not recorded", String(error).slice(0, 200)));
       // Owner decision 43: the batch was dispatched on its step's model;
       // the step's request settings come from the same frozen routing.
       const freeze = await registerGenerationModels(ctx, claim.batch.generationId);
@@ -810,6 +795,22 @@ export const generateBatch = internalAction({
         seeds,
         seedsDropped: output.dropped,
       });
+      // Phase D (step 2): what this Batch's prompt carried of each frozen
+      // row, once it has answered, by its step (review: a retried, failed or
+      // prefetched Batch of the same step is one step). Telemetry only.
+      await ctx
+        .runMutation(recordSourceUseRef, {
+          generationId: claim.batch.generationId,
+          step: "seeds",
+          run: claim.batch.roleId,
+          uses: request.sources.map((entry) => ({
+            sourceId: validatedId<"generationSources">(entry.sourceId),
+            sent: entry.included ? entry.includedBytes : 0,
+            total: entry.originalBytes,
+            unit: "bytes" as const,
+          })),
+        })
+        .catch((error: unknown) => console.warn("Seed source use not recorded", String(error).slice(0, 200)));
     } catch (error) {
       const detail = failureDetail(error, lastRejection);
       await ctx.runMutation(failAttemptRef, {

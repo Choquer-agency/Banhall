@@ -4394,6 +4394,7 @@ Context pipeline plan, Phase D, step 1 (`docs/todos/phase-d-search-first.md`): p
   - a piece over two pages is placed as "pages X-Y".
 
   Tests added: an accented late match, a Word file whole, neutralization, the settings document in a turn by search, and crowding. Still a known limit: one file whose text cannot be read sends the whole turn to search.
+- **Follow-up from the step 2 review.** The crowding check now marks a search not complete only when one of the two old-path lists filled its places, not when the two lists together name 16 files. A Greek word ending in final sigma is found when a file writes it in capitals (`foldForSearch` folds "ς" to "σ"). Tests: a search that stays complete, and the Greek word.
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed by gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), both "go after changes".
 
 ### 2026-10-26 (tenth): Every step of a draft records what it read of each file, and the Inputs band shows it (owner)
@@ -4401,27 +4402,31 @@ Context pipeline plan, Phase D, step 1 (`docs/todos/phase-d-search-first.md`): p
 Context pipeline plan, Phase D, step 2 (`docs/todos/phase-d-search-first.md`), P0 item 5: part 2 of the first 2026-10-26 entry, "the Inputs band names what each draft used". No request to a model changes, no workflow stage, transition or permission is added, and nothing an AI writes is applied.
 
 - **What is recorded.** A new table, `generationSourceUse`, gets one row per frozen row per step run. A row is written once and never changed, so Seed Batches running at once do not conflict. It holds:
-  - the draft, the step, and the run (a Seed Batch, or a Line's facts check);
-  - the frozen row;
-  - whole, part or left out, with how much was sent of how much, in characters or bytes.
-- **Who writes it.**
-  - The analyzer writes with its existing record (`recordContextBudget`).
-  - The Brief writes when it is derived, reused or adopted, from what `buildBriefUserMessage` sends of the draft's own rows (`briefMessageWithReport`, the same loop). A reused or adopted Brief was made from rows with the same text.
-  - Each Seed Batch writes when its prompt is built, from the report `buildSeedPrompt` already made and threw away.
-  - The facts check writes from each Line's claim: whole or nothing within its 48,000 bytes.
-- **Recording is telemetry.** A row that cannot be written is logged and never fails a step. Rows of another draft are skipped.
-- **The Inputs band.** Each file and transcript gets a quiet second line saying which steps read it and how much, for example "Read by the analysis (whole), Seeds (whole, 13 of 13 Batches). Not read by the Brief." A transcript read through its digest or fact pack takes their records, as it takes their outcome. The band reads at most 6,000 records, after the documents, within its read budget, and says when it could not read them all (`usesTruncated`).
+  - the draft, the step, and the run: a Seed step (its role), a Line's facts check ("line:242"), or "reused" for a reused Brief;
+  - the frozen row and its text fingerprint;
+  - whole, in part or left out, with how much was sent of how much, in characters or bytes.
+- **Who writes it.** A step records only what it sent, once its request has answered. A step that never ran or failed records nothing.
+  - The analyzer records after its analysis answers (`recordAnalyzerUse`), wherever a draft runs it. Its fallback for a single candidate is not recorded (known limit).
+  - A derived Brief records once it is published, from what `buildBriefUserMessage` sent of the draft's own rows (`briefMessageWithReport`, the same loop). An adopted preparation records what its request sent; a run that only waits on another run's preparation records nothing.
+  - A Brief reused from an earlier draft copies that draft's record onto this draft's rows with the same text fingerprint, with run "reused" (`copyBriefSourceUse`). It is never recomputed from this draft's rows, whose order may differ.
+  - Each Seed Batch records after it answers and its Seeds are saved, from the report `buildSeedPrompt` already made, by its step. A retried, failed or prefetched Batch of the same step counts as that one step.
+  - The facts check records from each Line's claim, only when the Line's plan runs the match-sources check: whole or nothing within its 48,000 bytes.
+  - A Summary recovery drafts from the analysis, Brief and Seeds of the draft it recovers, so it copies their records onto its own copies of the rows (`copyRecoverySourceUses`). It runs its own facts check, so that record is not copied.
+- **Recording is telemetry.** A row that cannot be written is logged and never fails a step. Empty rows are skipped.
+- **The Inputs band.** Each file and transcript gets a quiet second line saying which steps read it and how much, for example "Read by the analysis (whole), Seeds (in part, 3 of 13 steps). Not read by the Brief." A transcript read through its digest or fact pack takes their records, as it takes their outcome; a step that read it only that way reads "condensed". The band reads each step's records on its own, at most 2,500 per step, after the documents and within its read budget, so one busy step never hides another. When it could not read them all (`usesTruncated`), a note under the band says: "Not every step's reads could be listed, so a file shown as not read by a step may have been read."
 - **Erasure.** The table is in `PROJECT_SCOPED_TABLES`, so a project's erasure deletes its rows.
 - **Migration and compatibility.** Widen only: a new table, optional fields on the band's rows, an optional argument on `loadFactsSourceDocuments`. Drafts made before it have no records, and their band shows no second line.
 - **Tests:**
-  - `convex/lib/contextInclusion.test.ts` (the summary per row, a transcript through its digest);
-  - `src/lib/brief.test.ts` (the words);
-  - `convex/contextInclusion.test.ts` (the analyzer's and a Batch's records in the band);
-  - `convex/seedFirstBatch.test.ts` (a Batch records its prompt);
-  - `convex/citationSpeakers.test.ts` (a derived and a reused Brief record);
+  - `convex/lib/contextInclusion.test.ts` (the summary per row, a transcript through its digest, condensed only when every read was);
+  - `src/lib/brief.test.ts` (the words, condensed);
+  - `convex/contextInclusion.test.ts` (the analyzer's and a Batch's records in the band, a failed record never fails the analyzer, each step read on its own);
+  - `convex/seedFirstBatch.test.ts` (a Batch records by its step once it has answered; a failed Batch records nothing);
+  - `convex/citationSpeakers.test.ts` (a derived Brief records; a later draft's reuse copies the record by fingerprint);
+  - `convex/generationSeedSignoff.test.ts` (a Summary recovery copies the reused steps' records, and its Line records its facts check);
   - `convex/companyFileDrafts.test.ts` (the facts check's whole or none);
   - `convex/projectErasure.test.ts`;
-  - `src/lib/components/brief/BriefRailPanel.component.test.ts` (the line under a file).
+  - `src/lib/components/brief/BriefRailPanel.component.test.ts` (the line under a file, the cut-short note).
+- **Review of e4367f0e.** Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), both "ship after fixes". Fixed: records written before a request answered (a failed or never-run step showed as read); the analyzer recorded with its budget, before it ran; a reused Brief's record recomputed from this draft's rows; the facts check recorded for a Line that does not run it; Seed runs counted per Batch instead of per step; one step's many records hiding another's; the cut-short flag never shown; transcripts read through a digest shown as "whole"; a Summary recovery's band empty.
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all".
 
 ## Amendment process

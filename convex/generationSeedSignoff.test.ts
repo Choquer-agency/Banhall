@@ -3831,6 +3831,69 @@ describe("seed Summary sign-off and recovery", () => {
     }
   });
 
+  it("a Summary recovery keeps the reused steps' records on its own rows, and its Lines record their facts check (Phase D, step 2, review)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.run(async (ctx) => {
+      const recorded = [["analyzer", undefined], ["brief", undefined], ["seeds", "key_uncertainties"], ["facts_check", "line:242"]] as const;
+      for (const [step, run] of recorded) {
+        await ctx.db.insert("generationSourceUse", {
+          generationId: s.generationId, projectId: s.projectId, step, ...(run ? { run } : {}),
+          sourceId: s.sourceId as Id<"generationSources">, state: "whole", sent: 5, total: 5, unit: "bytes", at: 1,
+        });
+      }
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const usesOf = async () => await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", recoveryId)).collect());
+    const recoverySources = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", recoveryId)).collect());
+    const copy = recoverySources.find((row) => row.kind === "transcript")!;
+    // The facts check is not copied: the recovery runs its own.
+    expect((await usesOf()).map((use) => [use.step, use.run ?? null, use.sourceId])).toEqual([
+      ["analyzer", null, copy._id],
+      ["brief", null, copy._id],
+      ["seeds", "key_uncertainties", copy._id],
+    ]);
+
+    await s.t.action(internal.ai.orderedGeneration.startSummaryRecovery, { generationId: recoveryId });
+    const job = await s.t.run(async (ctx) => {
+      const pending = (await ctx.db.system.query("_scheduled_functions").take(30)).find(
+        (candidate) =>
+          candidate.name === "ai/orderedGeneration:generateOrderedSection" &&
+          candidate.args[0]?.generationId === recoveryId &&
+          candidate.state.kind === "pending"
+      );
+      if (pending) await ctx.scheduler.cancel(pending._id);
+      return pending;
+    });
+    if (!job) throw new Error("Missing first ordered action");
+    const actionArgs = job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>;
+    await s.t.mutation(internal.generations.claimOrderedSectionRun, {
+      generationId: recoveryId,
+      candidateRunId: actionArgs.candidateRunId,
+      section: actionArgs.section,
+      ...(actionArgs.payload !== undefined ? { payload: actionArgs.payload } : {}),
+      ...(actionArgs.payloadId !== undefined ? { payloadId: actionArgs.payloadId } : {}),
+    });
+    const facts = (await usesOf()).filter((use) => use.step === "facts_check");
+    expect(facts.map((use) => [use.run, use.unit, use.state])).toEqual(
+      recoverySources
+        .filter((row) => row.kind === "transcript" || row.kind === "project_document" || row.kind === "company_file")
+        .map(() => [`line:${actionArgs.section.replace(/^s/, "")}`, "bytes", "whole"])
+    );
+  });
+
   it("rolls back an oversized recovery claim, then the owning action terminalizes the chain without a provider call", async () => {
     const s = await decisionFixture();
     await makeReady(s);

@@ -258,6 +258,42 @@ describe("searchForChat", () => {
     }
   });
 
+  test("stays complete when files with current pieces leave every old-path file its place (review)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => {
+        const made = [];
+        for (let index = 0; index < 4; index += 1) {
+          made.push(
+            await ctx.db.insert("projectDocuments", {
+              projectId: f.projectId, fileName: `graphite-${index}.txt`, fileType: "txt", content: `Graphite packing note ${index}.`,
+              source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+            })
+          );
+        }
+        // Three get their pieces; the last waits for them and is still read.
+        for (const id of made.slice(0, 3)) await ctx.db.patch(id, { searchPiecesDue: true, searchPiecesNextAt: 0 });
+      });
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
+      if (result.status !== "ok") throw new Error(result.status);
+      expect(result.complete).toBe(true);
+      expect(result.excerpts.some((excerpt) => excerpt.text.includes("Graphite packing note 3."))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("finds a Greek word ending in final sigma when the file writes it in capitals (review)", () => {
+    const text = `${"Intro paragraph about the fictional rig. ".repeat(60)}Η ΔΟΚΙΜΗ ΤΗΣ ΑΝΤΛΙΑΣ ΑΠΕΤΥΧΕ. ${"tail ".repeat(40)}`;
+    const { terms } = chatSearchTerms("αντλίας");
+    const window = excerptWindow(text, terms, 1_500);
+    expect(text.length).toBeGreaterThan(2_500);
+    expect(window).toContain("Η ΔΟΚΙΜΗ ΤΗΣ ΑΝΤΛΙΑΣ ΑΠΕΤΥΧΕ.");
+  });
+
   test("finds an accented word late in a long piece, by the folded terms search uses (review)", () => {
     const text = `${"Intro paragraph about the fictional rig. ".repeat(60)}Le contrôle de l'étalonnage du capteur a dérivé. ${"tail ".repeat(40)}`;
     const { terms } = chatSearchTerms("étalonnage capteur");

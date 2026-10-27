@@ -521,19 +521,34 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
     expect(await read(s)).toEqual(refused);
   });
 
-  it("a Batch records what its prompt carried of each frozen row (Phase D, step 2)", async () => {
+  it("a Batch records what its prompt carried of each frozen row, by its step, once it has answered (Phase D, step 2)", async () => {
     const s = await setup();
+    configureProvider();
     await initialize(s);
     expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
-    const [batch] = (await read(s)).batches;
     await runGenerateBatchJob(s);
+    const [batch] = (await read(s)).batches;
+    expect(batch!.status).toBe("shown");
     const uses = await s.t.run(async (ctx) =>
       ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
     );
     expect(uses.map((use) => ({ step: use.step, run: use.run, state: use.state, unit: use.unit }))).toEqual([
-      { step: "seeds", run: batch!._id, state: "whole", unit: "bytes" },
+      { step: "seeds", run: FIRST_ROLE, state: "whole", unit: "bytes" },
     ]);
     expect(uses[0]!.sent).toBe(uses[0]!.total);
+  });
+
+  it("a Batch that fails records nothing (Phase D, step 2, review)", async () => {
+    const s = await setup();
+    configureProvider(true);
+    await initialize(s);
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    await runGenerateBatchJob(s);
+    expect((await read(s)).batches.map((batch) => batch.status)).toEqual(["failed"]);
+    const uses = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(uses).toEqual([]);
   });
 
   it("a Batch queued before the project left the company fails at once as a company change (review round 3)", async () => {

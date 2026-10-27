@@ -616,11 +616,14 @@ Decision record: `docs/product-domain.md`, entry "2026-10-26 (tenth)".
 
 What changes:
 
-- **Each file in the Brief's Inputs band says which steps read it**, and whether they read it whole or in part: the analysis, the Brief, Seeds (per Batch) and the facts check.
+- **Each file in the Brief's Inputs band says which steps read it**, and whether they read it whole, in part or condensed: the analysis, the Brief, Seeds (per step) and the facts check.
+- **A step records only once its request has answered**, so a failed step never shows as having read a file.
+- **A Summary recovery shows the reads of the draft it recovers**, and a reused Brief shows what the draft that made it read.
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers (Claude Opus 5.5, low as it reported; gpt-6-astra, medium), both "ship after fixes". Fixes in the tenth decision entry.
+- [ ] A second look at the fixes by one reviewer.
 - [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
 
 ### Automated, live on localhost

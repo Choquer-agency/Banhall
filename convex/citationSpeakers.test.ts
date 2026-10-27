@@ -605,10 +605,41 @@ describe("the Brief records what it read (Phase D, step 2)", () => {
     const derived = await briefUses();
     expect(derived.map((use) => [use.sourceId, use.state, use.unit])).toEqual([[f.sourceId, "whole", "chars"]]);
     vi.stubGlobal("fetch", vi.fn());
+    // The same draft reusing its own Brief keeps its one record.
     await runAction(t, async (ctx) =>
       deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
     );
-    expect((await briefUses()).length).toBe(2);
+    expect((await briefUses()).length).toBe(1);
+  });
+
+  it("a later draft that reuses the Brief copies its record onto its own row with the same text (review)", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    await deriveBrief(t, f);
+    const later = await t.run(async (ctx) => {
+      const now = Date.now();
+      const generationId = await ctx.db.insert("generations", {
+        projectId: f.projectId, transcriptId: f.transcriptId, transcriptIds: [f.transcriptId],
+        status: "running", lengthTarget: "standard", requestedBy: f.userId, startedAt: now, previousProjectStatus: "draft",
+      });
+      const sourceId = await ctx.db.insert("generationSources", {
+        generationId, projectId: f.projectId, kind: "transcript", transcriptId: f.transcriptId,
+        label: "Meridian interview", content: MERIDIAN, contentHash: await sha256(MERIDIAN),
+        truncated: false, originalLength: MERIDIAN.length, capturedAt: now,
+      });
+      return { generationId, sourceId };
+    });
+    vi.stubGlobal("fetch", vi.fn());
+    const outcome = await runAction(t, async (ctx) =>
+      deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: later.generationId })
+    );
+    expect(outcome.kind).toBe("reused");
+    const copied = await t.run((ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", later.generationId)).collect()
+    );
+    expect(copied.map((use) => [use.step, use.run, use.sourceId, use.state])).toEqual([
+      ["brief", "reused", later.sourceId, "whole"],
+    ]);
   });
 });
 

@@ -62,6 +62,8 @@ export type RowUse = {
   runs: number;
   read: number;
   whole: boolean;
+  /** Every run that read it read a transcript only through its digest or fact pack. */
+  condensed?: true;
 };
 
 export type InclusionRow = {
@@ -84,20 +86,22 @@ const USE_STEP_WORDS: Record<RowUse["step"], string> = {
 const USE_RUNS_WORDS: Record<RowUse["step"], string> = {
   analyzer: "runs",
   brief: "runs",
-  seeds: "Batches",
+  seeds: "steps",
   facts_check: "Lines",
 };
 
 /**
  * Phase D (step 2): which steps read a row and how much, in plain words:
- * "Read by the analysis (whole), Seeds (part, 3 of 13 Batches). Not read by
- * the Brief." Empty when no step recorded a use.
+ * "Read by the analysis (whole), Seeds (in part, 3 of 13 steps). Not read
+ * by the Brief." A transcript read only through its digest or fact pack
+ * reads "condensed". Empty when no step recorded a use.
  */
 export function inclusionUsesText(uses: readonly RowUse[] | undefined): string {
   if (!uses || uses.length === 0) return "";
   const read = uses.filter((use) => use.read > 0).map((use) => {
     const count = use.runs > 1 ? `, ${use.read} of ${use.runs} ${USE_RUNS_WORDS[use.step]}` : "";
-    return `${USE_STEP_WORDS[use.step]} (${use.whole ? "whole" : "part"}${count})`;
+    const how = use.condensed ? "condensed" : use.whole ? "whole" : "in part";
+    return `${USE_STEP_WORDS[use.step]} (${how}${count})`;
   });
   const unread = uses.filter((use) => use.read === 0).map((use) => USE_STEP_WORDS[use.step]);
   return [
@@ -148,6 +152,9 @@ export const INCLUSION_TRUNCATED_NOTE =
 /** Shown when the frozen sources themselves were cut short: transcripts and documents may be missing. */
 export const INCLUSION_SOURCES_TRUNCATED_NOTE =
   "Not every transcript or document could be listed. Both counts are lower bounds.";
+/** Phase D (step 2): shown when the draft's recorded reads could not all be listed. */
+export const INCLUSION_USES_TRUNCATED_NOTE =
+  "Not every step's reads could be listed, so a file shown as not read by a step may have been read.";
 
 /** The row's status text: "included", "not included (archived)", or "" when unrecorded. */
 export function inclusionStatusText(row: Pick<InclusionRow, "inclusion" | "reason">): string {

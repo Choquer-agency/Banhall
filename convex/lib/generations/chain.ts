@@ -322,8 +322,22 @@ export async function orderedSectionClaim(
   const factsSourceDocuments = args.generation.summaryVersionId
     ? await loadFactsSourceDocuments(ctx, args.generation, factsUses)
     : undefined;
-  // Phase D (step 2): what this Line's facts check reads of each frozen row.
-  await insertSourceUses(ctx, args.generation, "facts_check", `line:${args.section}`, factsUses, "bytes");
+  // Phase D (step 2): what this Line's facts check reads of each frozen row,
+  // only for a Line whose plan runs it (the action sends the documents to
+  // a match_sources check alone). Telemetry: a failure never fails the claim.
+  if (factsSourceDocuments && plan.planChecks.some((check) => check.instruction === "match_sources")) {
+    try {
+      await insertSourceUses(
+        ctx,
+        args.generation,
+        "facts_check",
+        `line:${args.section}`,
+        factsUses.map((use) => ({ ...use, unit: "bytes" as const }))
+      );
+    } catch (error) {
+      console.warn("Facts check source use not recorded", String(error).slice(0, 200));
+    }
+  }
   return {
     projectId: args.generation.projectId,
     model: args.row.model,

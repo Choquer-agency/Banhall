@@ -66,8 +66,12 @@ export type SourceUseRow = {
 
 export type SourceUseStep = "analyzer" | "brief" | "seeds" | "facts_check";
 
-/** How one step read one row: its runs, how many read some of it, and whether every reading run read it whole. */
-export type RowUse = { step: SourceUseStep; runs: number; read: number; whole: boolean };
+/**
+ * How one step read one row: its runs, how many read some of it, whether
+ * every reading run read it whole, and whether every reading run read a
+ * transcript only through its digest or fact pack (review).
+ */
+export type RowUse = { step: SourceUseStep; runs: number; read: number; whole: boolean; condensed?: true };
 
 export type ContextInclusionRow = {
   key: string;
@@ -119,28 +123,34 @@ function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[])
   for (const row of sources) {
     if (row.kind === "transcript" && row.transcriptId && !transcriptRowOf.has(row.transcriptId)) transcriptRowOf.set(row.transcriptId, row._id);
   }
-  const keyOf = new Map<string, string>();
+  const keyOf = new Map<string, { key: string; condensed: boolean }>();
   for (const row of sources) {
     if (row.kind === "transcript_digest" || row.kind === "transcript_facts") {
       const transcriptRow = row.transcriptId ? transcriptRowOf.get(row.transcriptId) : undefined;
-      if (transcriptRow) keyOf.set(row._id, `source:${transcriptRow}`);
+      if (transcriptRow) keyOf.set(row._id, { key: `source:${transcriptRow}`, condensed: true });
     } else if (row.kind !== "writer_storyline") {
-      keyOf.set(row._id, `source:${row._id}`);
+      keyOf.set(row._id, { key: `source:${row._id}`, condensed: false });
     }
   }
-  const runs = new Map<string, Map<SourceUseStep, Map<string, "whole" | "part" | "left_out">>>();
+  type RunRead = { state: "whole" | "part" | "left_out"; condensed: boolean };
+  const rank = { left_out: 0, part: 1, whole: 2 } as const;
+  const runs = new Map<string, Map<SourceUseStep, Map<string, RunRead>>>();
   for (const use of uses) {
-    const key = keyOf.get(use.sourceId);
-    if (!key) continue;
-    const bySteps = runs.get(key) ?? new Map<SourceUseStep, Map<string, "whole" | "part" | "left_out">>();
-    runs.set(key, bySteps);
-    const byRun = bySteps.get(use.step) ?? new Map<string, "whole" | "part" | "left_out">();
+    const target = keyOf.get(use.sourceId);
+    if (!target) continue;
+    const bySteps = runs.get(target.key) ?? new Map<SourceUseStep, Map<string, RunRead>>();
+    runs.set(target.key, bySteps);
+    const byRun = bySteps.get(use.step) ?? new Map<string, RunRead>();
     bySteps.set(use.step, byRun);
-    // A run that read the row twice (a transcript and its digest) counts its best read.
+    // A run that read the row twice (a transcript and its digest) counts its
+    // best read; at the same depth, reading the transcript itself wins.
     const run = use.run ?? "";
-    const rank = { left_out: 0, part: 1, whole: 2 } as const;
     const before = byRun.get(run);
-    if (!before || rank[use.state] > rank[before]) byRun.set(run, use.state);
+    const better =
+      !before ||
+      rank[use.state] > rank[before.state] ||
+      (rank[use.state] === rank[before.state] && before.condensed && !target.condensed);
+    if (better) byRun.set(run, { state: use.state, condensed: target.condensed });
   }
   const result = new Map<string, RowUse[]>();
   for (const [key, bySteps] of runs) {
@@ -149,9 +159,19 @@ function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[])
       USE_STEP_ORDER.flatMap((step) => {
         const byRun = bySteps.get(step);
         if (!byRun) return [];
-        const states = [...byRun.values()];
-        const read = states.filter((state) => state !== "left_out").length;
-        return [{ step, runs: states.length, read, whole: read > 0 && states.every((state) => state !== "part") }];
+        const reads = [...byRun.values()];
+        const reading = reads.filter((entry) => entry.state !== "left_out");
+        const read = reading.length;
+        const condensed = read > 0 && reading.every((entry) => entry.condensed);
+        return [
+          {
+            step,
+            runs: reads.length,
+            read,
+            whole: read > 0 && reading.every((entry) => entry.state === "whole"),
+            ...(condensed ? { condensed: true as const } : {}),
+          },
+        ];
       })
     );
   }
