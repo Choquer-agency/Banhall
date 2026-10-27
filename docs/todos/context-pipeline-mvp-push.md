@@ -100,6 +100,7 @@ Each has a recommended answer. Work goes on with it until the owner says otherwi
 8. **Stress test spend cap** (F5). Recommended: $40. Waits: the live stress test does not start without it.
 9. **Words for a step whose evidence is too large for the model** (F1, step 4): "This step's evidence is too large for the model. Leave some files out and start again." Recommended: yes.
 10. **Azure** (B3): the account and its key, entered privately when asked. Waits: scan reading's live test.
+11. **Previous-year status with no previous year.** Its Seed Batch failed in 5 of 6 release fixtures, which have no previous year: the model writes one or two Seeds when there is little to say, under the 3-Seed minimum, and the writer sees "Writing seeds for this step failed" with "Try again", which is likely to fail the same way. Recommended: allow 1 to 5 Seeds on this optional step, and when it still has nothing, say there may be no previous year to report and point to Skip.
 
 ## Azure setup
 
@@ -193,7 +194,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [ ] F3. Brain company and fiscal-year filters; the Voyage model comparison (P2 item 13).
 - [x] F4. The exclusion-conflict fixture. Rerun live 2026-10-27 after the Self-check fix: 15 of 15 checks passed.
 - [ ] F5. Stress test at and past the largest real cases, live (P2 item 11).
-- [ ] F6. Release suite live; human verdicts and manual checks with the owner at the end. Run live 2026-10-27 (pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`, decision entry "2026-10-27 (ninth)"): every fixture now passes its automatic checks (withdrawn-feedback on a rerun, its one miss a heuristic); the owner's verdicts and the manual checks remain. Its Hypothesis finding was not a flake: about 4 in 10 Hypothesis Batches on Sonnet 5.5 failed on bullets over 25 words; changed 2026-10-27 (decision entry "2026-10-27 (tenth)"): on the draft that failed, 12 of 12 Batches were shown, against 7 of 12 before; the release suite on the new Seed version checks it across fixtures.
+- [ ] F6. Release suite live; human verdicts and manual checks with the owner at the end. Run live 2026-10-27 (pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`, decision entry "2026-10-27 (ninth)"): every fixture now passes its automatic checks (withdrawn-feedback on a rerun, its one miss a heuristic); the owner's verdicts and the manual checks remain. Its Hypothesis finding was not a flake: about 4 in 10 Hypothesis Batches on Sonnet 5.5 failed on bullets over 25 words; changed 2026-10-27 (decision entry "2026-10-27 (tenth)"): 28 of 30 Hypothesis Batches shown after the change, against 7 of 12 before, and a second full run of the suite (pack `2026-10-27-hypothesis-fix`, $8.09) reached a report in every fixture.
 
 ## Work plan
 

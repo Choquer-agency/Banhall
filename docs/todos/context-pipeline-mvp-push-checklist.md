@@ -931,6 +931,7 @@ Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_b
 
 - [x] All six fixtures on the live copy at `08a53a18` ($6.70): four passed every check; exclusion-conflict failed two (a Self-check answer with a stray top-level field, fixed in the next commit); withdrawn-feedback stopped at Hypothesis (Sonnet 5.5 wrote bullets over 25 words four times). Rerun of withdrawn-feedback: 12 of 13, the one miss a heuristic ($1.14).
 - [x] Exclusion-conflict rerun after the fix (8acd61e2): 15 of 15 checks passed, $1.23 (closes F4). The later 26eb717d adds the rule to the prompt program record only, no prompt text, so its prompt version differs from the rerun's.
+- [x] All six fixtures again after the Hypothesis change (afbfd302, pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27-hypothesis-fix`, $8.09): every fixture reached a report; five passed every check and withdrawn-feedback 12 of 13, its one miss the same wording heuristic. Previous-year status failed in 5 of 6 fixtures, which have no previous year (owner question 11).
 
 ### Manual on localhost
 
@@ -953,8 +954,9 @@ What changes:
 ### Automated, live on localhost
 
 - [x] Twelve Hypothesis Batches on the draft that failed in the release run, before and after: 7 of 12 shown before (none on the first request), 12 of 12 after (4 on the first request); $0.74. Every first bullet kept an if/then sentence with a measurable outcome.
-- [x] Review: gpt-6-astra (medium), "ship after fixes" (the hint's wording, claims beyond one draft, the shared repair hint); fixed in the next commit.
-- [ ] Release suite on the new Seed version.
+- [x] Review: gpt-6-astra (medium), "ship after fixes" (the hint's wording, claims beyond one draft, the shared repair hint); fixed in the next commit. Round 2 (a832cd52), gpt-6-astra (medium): "ship".
+- [x] Twelve more on the final hint wording (`.2`): 10 of 12 shown; both failures began with only 2 Seeds and then a long bullet in the repair; $0.38. After the change, 28 of 30 Hypothesis Batches were shown in all, against 7 of 12 before.
+- [x] Release suite on the new Seed version (afbfd302, `.1`), $8.09: every fixture reached a report, five passed every check, withdrawn-feedback 12 of 13 (the same wording heuristic as before); Hypothesis 6 of 6 shown.
 
 ### Manual on localhost
 
