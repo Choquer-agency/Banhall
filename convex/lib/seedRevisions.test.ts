@@ -2091,6 +2091,44 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
     }
   });
 
+  // Review round 2: a LEAVE OUT check carries its dropped uncertainty's
+  // experiments and advancements as references, clipped the same way.
+  it("signs off with three dropped uncertainties whose related items are at the edit ceiling", () => {
+    const long = `${"word ".repeat(1_000).slice(0, MAX_EDITED_BULLET_CHARS - 1)}.`;
+    const items = planShape(picks, (index) => [0, 0, 1, 2][index]!).map((item) => ({ ...item, bullets: [long, long] }));
+    const related = (prefix: string) => Array.from({ length: 3 }, (_, index) => ({ seedId: realId(prefix, index), wording: [long, long] }));
+    const droppedUncertainties = Array.from({ length: 3 }, (_, index) => ({
+      seedId: realId("du", index),
+      wording: [long, long],
+      experiments: related(`de${index}`),
+      advancements: related(`da${index}`),
+    }));
+    for (const section of ["242", "244", "246"] as const) {
+      const plan = buildFrozenSummaryPlan({
+        section: `s${section}`,
+        items,
+        skippedRoleIds: [],
+        referencesBySeedId: new Map(items.map((item) => [item.seedId, item.bullets] as const)),
+        droppedUncertainties,
+        ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        resultsAgainstTargets: true,
+        factsMatchSources: true,
+      });
+      const leaveOuts = plan.checks.filter((check) => check.instruction === "leave_out");
+      expect(leaveOuts).toHaveLength(3);
+      for (const check of leaveOuts) {
+        expect(check.wording).toEqual([long, long]);
+        expect(check.relationshipReferences).toHaveLength(6);
+        for (const reference of check.relationshipReferences) {
+          for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
+        }
+      }
+      const batches = planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: plan.checks, includeStorylineQuestion: true });
+      expectWellFormedBatches(batches, ordinary, plan.checks);
+    }
+  });
+
   it("clips a reference bullet past 600 characters with a mark, and leaves one within it alone", () => {
     expect(MAX_REFERENCE_BULLET_CHARS).toBe(600);
     for (const within of ["a".repeat(600), "é".repeat(600), "Short wording."]) expect(clipReferenceBullet(within)).toBe(within);

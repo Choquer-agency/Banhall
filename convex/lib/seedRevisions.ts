@@ -191,8 +191,8 @@ export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "
  * v5 (2026-10-04, second): the facts check (`instruction: "match_sources"`,
  * `ruleId: "facts_match_sources"`) in every Line.
  * v6 (2026-10-27, eleventh): another Line's items in Rule B and Rule C, and
- * relationship references, carry each bullet up to
- * MAX_REFERENCE_BULLET_CHARS, clipped with a mark.
+ * relationship references (a cover item's and a LEAVE OUT's), carry each
+ * bullet up to MAX_REFERENCE_BULLET_CHARS, clipped with a mark.
  */
 export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v6";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
@@ -380,8 +380,9 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
   quotesDoNotBackInstruction:
     "Its own quotes do not back this. State it only as the sources give it.",
   // Review P3-1 and Greptile P1: Line 246's advancement check carries Line
-  // 242's signed-off plan items first, whole, then its drafted text, the only
-  // part clipped (the items alone before Line 242 is drafted).
+  // 242's signed-off plan items first (each bullet up to
+  // MAX_REFERENCE_BULLET_CHARS since 2026-10-27), then its drafted text,
+  // clipped (the items alone before Line 242 is drafted).
   line242PlanHeading: "Signed-off plan items for Line 242, by step:",
   line242DraftedHeading: "Line 242 as drafted:",
   // 2026-09-30 (second, Rule C): Line 244's work check carries Line 246's
@@ -429,7 +430,8 @@ export function isClippedStorylineAlternative(value: string): boolean {
 /**
  * 2026-10-27 (eleventh): the characters of one bullet a check carries when
  * the item is only data for it (another Line's items in Rule B and Rule C, a
- * relationship reference): the most a writer's edit could hold before the
+ * cover item's or a LEAVE OUT's relationship references): the most a
+ * writer's edit could hold before the
  * owner lifted that limit, so these checks stay the size they were. A
  * longer bullet is clipped with a mark; an item's own check and plan entry
  * carry its wording whole.
@@ -1053,7 +1055,8 @@ export function buildFrozenSummaryPlan<
   droppedUncertainties?: readonly FrozenDroppedUncertainty<SeedId>[];
   /**
    * 2026-09-30 (first): Line 246 only. Its advancement check carries Line
-   * 242's signed-off plan items from `items`, whole, then `line242Text` (the
+   * 242's signed-off plan items from `items` (each bullet up to
+   * MAX_REFERENCE_BULLET_CHARS since 2026-10-27), then `line242Text` (the
    * text Line 242 was drafted with, or ANSWERS_242_WORST_CASE_REFERENCE at
    * admission), clipped alone to MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES.
    * No text: the items alone. Absent: no such check.
@@ -1062,7 +1065,7 @@ export function buildFrozenSummaryPlan<
   /**
    * 2026-09-30 (second, Rule C): Line 244 only. Its work check carries Line
    * 242 as `answers242` does, then Line 246's signed-off items from `items`,
-   * whole. Absent: no such check.
+   * each bullet up to MAX_REFERENCE_BULLET_CHARS. Absent: no such check.
    */
   workAnswers242?: { line242Text?: string };
   /**
@@ -1194,10 +1197,13 @@ export function buildFrozenSummaryPlan<
   // reference, so the drafter and the checker recognise its content.
   const dropped = (args.droppedUncertainties ?? []).slice(0, MAX_DROPPED_UNCERTAINTY_CHECKS);
   for (const uncertainty of dropped) {
+    // 2026-10-27 (eleventh, review round 2): reference data, each bullet up
+    // to MAX_REFERENCE_BULLET_CHARS; the dropped uncertainty's own wording
+    // stays whole.
     const relationshipReferences = [
       ...uncertainty.experiments.slice(0, MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND),
       ...uncertainty.advancements.slice(0, MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND),
-    ].map((reference) => ({ seedId: reference.seedId, wording: [...reference.wording] }));
+    ].map((reference) => ({ seedId: reference.seedId, wording: reference.wording.map(clipReferenceBullet) }));
     entries.push({
       droppedSeedId: uncertainty.seedId,
       instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutInstruction,

@@ -633,7 +633,8 @@ export async function signOffSeedStageHandler(
       // advancement check with Line 242 at its reserved worst case, are
       // counted, so the runtime requests never exceed what is admitted.
       // (second, Rule C): so is Line 244's work check, with Line 242 at the
-      // same reservation and Line 246's signed-off items whole.
+      // same reservation and Line 246's signed-off items (each bullet up to
+      // MAX_REFERENCE_BULLET_CHARS since 2026-10-27).
       const plan = buildFrozenSummaryPlan({
         section: `s${section}`,
         items: admittedItems,
@@ -1187,8 +1188,9 @@ export async function loadFrozenSectionPlan(
   // for the drafter's warning in the plan and for the facts check.
   const quoteStates = await itemQuoteStates(ctx, generation, items, quoteMarksByItemId);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
-  // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
-  // its drafted text, clipped alone (Greptile P1); before it is drafted, the
+  // 2026-09-30 (first, Rule B): Line 242's signed-off plan items (each bullet
+  // up to MAX_REFERENCE_BULLET_CHARS since 2026-10-27), then its drafted
+  // text, clipped (Greptile P1); before it is drafted, the
   // items alone. Admission counts the same items with the text at its
   // reservation (worst_case), so admission and runtime agree.
   const line242Items = line242PlanItems(items, summary.skippedRoleIds);
@@ -1200,7 +1202,8 @@ export async function loadFrozenSectionPlan(
       : { line242Text };
   const answers242 = section === "246" ? line242Reference : undefined;
   // 2026-09-30 (second, Rule C): Line 244's work check reads Line 242 the
-  // same way, then Line 246's signed-off items, whole.
+  // same way, then Line 246's signed-off items, each bullet up to
+  // MAX_REFERENCE_BULLET_CHARS.
   const workAnswers242 = section === "244" ? line242Reference : undefined;
   const line246Items = line246PlanItems(items, summary.skippedRoleIds);
   const plan = buildFrozenSummaryPlan({
