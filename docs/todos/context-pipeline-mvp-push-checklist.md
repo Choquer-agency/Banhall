@@ -845,11 +845,11 @@ Plan: `docs/todos/phase-f-scale.md`, F1. Decision record: `docs/product-domain.m
 What changes:
 
 - **Every Anthropic request records its size.** Its usage row keeps the characters it sent and the part sent in user turns, measured on the request as sent.
-- **Admin, AI usage and cost, shows characters per token** by feature for the last 30 days, with how many requests each rests on. Nothing a writer sees changes; the budgets stay at 4 characters a token until there is data.
+- **Admin, AI usage and cost, shows characters per token** by feature and model for the last 30 days, with how many requests each rests on. Nothing a writer sees changes; the budgets stay at 4 characters a token until there is evidence-only data.
 
 ### Automated, offline
 
-- [ ] Code review.
+- [x] Code review: Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit, checked live (the table by feature and model on the live copy's Admin page).
 - [x] `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh`: 7,716 unit tests and 1,988 browser tests passed.
 
 ### Automated, live on localhost

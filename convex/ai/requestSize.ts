@@ -9,7 +9,14 @@
  * tool results, thinking text, and the tool definitions (as JSON). No JSON
  * framing of the request itself and no base64 (an image, a PDF sent as
  * data). `evidenceChars` is the part sent in user turns (the files,
- * transcripts and tool results a step reads, with the user's own text).
+ * transcripts and tool results a step reads, with the user's own text, such
+ * as "Draft Line 242 now."; evidence in a system prompt is not in it).
+ *
+ * Close, not exact: a streamed request's tools gain `eager_input_streaming`
+ * after this count (about 29 characters a tool); blocks with no text here
+ * (redacted thinking, search results, files by id or address) cost tokens
+ * and count as none; earlier turns' thinking counts here even where the API
+ * leaves it out.
  */
 export type RequestSize = { requestChars: number; evidenceChars: number };
 

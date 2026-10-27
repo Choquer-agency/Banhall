@@ -244,26 +244,32 @@
       <!-- F1: how many characters each feature sends per input token -->
       <h2 class="text-title mt-8">Characters per token</h2>
       <p class="mt-1 text-sm leading-[1.5] text-gray-500">
-        Last 30 days, Anthropic requests only, input tokens including cache writes and reads. Evidence budgets assume 4 characters a token.
+        Drafting and analysis requests from the last 30 days, by feature and model. Characters include each request's instructions and tool definitions, so requests with tools read lower than their files alone. Report chat is not counted yet.
       </p>
-      {#if sizeQ.data && sizeQ.data.callSites.length > 0}
+      {#if sizeQ.error}
+        <p class="mt-3 text-sm leading-[1.5] text-danger-ink">This table could not be loaded.</p>
+      {:else if sizeQ.data === undefined}
+        <p class="mt-3 text-sm leading-[1.5] text-gray-400">Loading</p>
+      {:else if sizeQ.data.callSites.length > 0}
         <div class="card mt-3 overflow-hidden">
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
                 <tr class="text-label border-b border-gray-100 text-left">
                   <th class="px-4 py-2.5 font-medium">Feature</th>
+                  <th class="px-4 py-2.5 font-medium">Model</th>
                   <th class="px-4 py-2.5 text-right font-medium">Requests</th>
                   <th class="px-4 py-2.5 text-right font-medium">Characters sent</th>
-                  <th class="px-4 py-2.5 text-right font-medium">In user turns</th>
-                  <th class="px-4 py-2.5 text-right font-medium">Input tokens</th>
+                  <th class="px-4 py-2.5 text-right font-medium">Files and instructions</th>
+                  <th class="px-4 py-2.5 text-right font-medium">All input tokens</th>
                   <th class="px-4 py-2.5 text-right font-medium">Characters per token</th>
                 </tr>
               </thead>
               <tbody>
-                {#each sizeQ.data.callSites as r (r.callSite)}
+                {#each sizeQ.data.callSites as r (`${r.callSite} ${r.model}`)}
                   <tr class="border-b border-gray-50 last:border-0">
                     <td class="max-w-[18rem] truncate px-4 py-2.5 text-gray-800">{r.callSite}</td>
+                    <td class="px-4 py-2.5 text-gray-500">{r.model}</td>
                     <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.requests)}</td>
                     <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.requestChars)}</td>
                     <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.evidenceChars)}</td>
@@ -278,10 +284,14 @@
         {#if sizeQ.data.truncated}
           <p class="mt-2 text-xs leading-[1.5] text-gray-400">From the newest 4,000 requests in the window.</p>
         {/if}
-      {:else if sizeQ.data}
+      {:else}
         <div class="card mt-3 py-8 text-center">
-          <p class="text-sm text-gray-600">No requests measured yet.</p>
-          <p class="mt-1 text-xs leading-[1.5] text-gray-400">Counting starts with requests sent after this change.</p>
+          {#if sizeQ.data.truncated}
+            <p class="text-sm text-gray-600">None of the newest 4,000 requests was measured.</p>
+          {:else}
+            <p class="text-sm text-gray-600">No requests measured yet.</p>
+            <p class="mt-1 text-xs leading-[1.5] text-gray-400">Counting started on 27 October 2026.</p>
+          {/if}
         </div>
       {/if}
   </AdminWorkspacePage>

@@ -467,38 +467,48 @@ export const REQUEST_SIZE_MAX_ROWS = 4_000;
 
 type RequestSizeRow = Pick<
   Doc<"aiUsage">,
-  "callSite" | "requestChars" | "evidenceChars" | "inputTokens" | "cacheCreationInputTokens" | "cacheReadInputTokens"
+  "callSite" | "model" | "requestChars" | "evidenceChars" | "inputTokens" | "cacheCreationInputTokens" | "cacheReadInputTokens"
 >;
 
 /**
- * For each call site, the characters its requests sent over every input
- * token they were charged (input, cache writes and cache reads), from the
- * rows that recorded their characters; most requests first.
+ * For each call site and model (models count tokens differently), the
+ * characters its requests sent over every input token they were charged
+ * (input, cache writes and cache reads), from the rows that recorded their
+ * characters and were charged some input; most requests first.
+ *
+ * A whole request's figure: the system prompt and the tool definitions are
+ * counted, and the tokens include the API's own tool instructions, which
+ * have no characters here. It reads low for requests with tools and is not
+ * the evidence-only figure the budgets need (F1, step 3, measures that).
  */
 export function charsPerTokenByCallSite(rows: readonly RequestSizeRow[]) {
-  const groups = new Map<string, { requests: number; requestChars: number; evidenceChars: number; inputSideTokens: number }>();
+  const groups = new Map<
+    string,
+    { callSite: string; model: string; requests: number; requestChars: number; evidenceChars: number; inputSideTokens: number }
+  >();
   for (const row of rows) {
     if (row.requestChars === undefined) continue;
-    const group = groups.get(row.callSite) ?? { requests: 0, requestChars: 0, evidenceChars: 0, inputSideTokens: 0 };
+    const inputSide = row.inputTokens + (row.cacheCreationInputTokens ?? 0) + (row.cacheReadInputTokens ?? 0);
+    if (inputSide <= 0) continue;
+    const key = `${row.callSite}\u0000${row.model}`;
+    const group = groups.get(key) ?? {
+      callSite: row.callSite, model: row.model, requests: 0, requestChars: 0, evidenceChars: 0, inputSideTokens: 0,
+    };
     group.requests += 1;
     group.requestChars += row.requestChars;
     group.evidenceChars += row.evidenceChars ?? 0;
-    group.inputSideTokens += row.inputTokens + (row.cacheCreationInputTokens ?? 0) + (row.cacheReadInputTokens ?? 0);
-    groups.set(row.callSite, group);
+    group.inputSideTokens += inputSide;
+    groups.set(key, group);
   }
-  return [...groups.entries()]
-    .filter(([, group]) => group.inputSideTokens > 0)
-    .map(([callSite, group]) => ({
-      callSite,
-      ...group,
-      charsPerToken: Math.round((group.requestChars / group.inputSideTokens) * 100) / 100,
-    }))
-    .sort((a, b) => b.requests - a.requests || (a.callSite < b.callSite ? -1 : a.callSite > b.callSite ? 1 : 0));
+  const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  return [...groups.values()]
+    .map((group) => ({ ...group, charsPerToken: Math.round((group.requestChars / group.inputSideTokens) * 100) / 100 }))
+    .sort((a, b) => b.requests - a.requests || order(a.callSite, b.callSite) || order(a.model, b.model));
 }
 
 /**
- * Admin only (F1, step 2): characters per input token by call site, from
- * the newest usage rows of the last 30 days that recorded their
+ * Admin only (F1, step 2): characters per input token by call site and
+ * model, from the newest usage rows of the last 30 days that recorded their
  * characters, with how many requests each rests on. Numbers only.
  */
 export const requestSizeReport = query({
@@ -511,11 +521,13 @@ export const requestSizeReport = query({
       .withIndex("by_createdAt", (q) => q.gte("createdAt", since))
       .order("desc")
       .take(REQUEST_SIZE_MAX_ROWS + 1);
+    const callSites = charsPerTokenByCallSite(read.slice(0, REQUEST_SIZE_MAX_ROWS));
     return {
       since,
       /** The window holds more rows than the report reads. */
       truncated: read.length > REQUEST_SIZE_MAX_ROWS,
-      callSites: charsPerTokenByCallSite(read.slice(0, REQUEST_SIZE_MAX_ROWS)),
+      measured: callSites.reduce((total, group) => total + group.requests, 0),
+      callSites,
     };
   },
 });
