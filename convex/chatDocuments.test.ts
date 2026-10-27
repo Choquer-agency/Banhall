@@ -1,9 +1,10 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { makeFunctionReference, type FunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { internal } from "./_generated/api";
 import {
   CHAT_READ_PART_CHARS,
   activeTranscriptsWithin,
@@ -11,6 +12,7 @@ import {
   chatTranscriptSummaries,
   chunkSpans,
   documentReadBudget,
+  excerptWindow,
   safeRange,
   transcriptTurnLine,
   type ReadDocumentResult,
@@ -200,6 +202,41 @@ describe("searchForChat", () => {
     expect(turns.status === "ok" && turns.excerpts[0]).toMatchObject({
       kind: "transcript", transcriptId: f.transcriptId, firstIndex: 0, lastIndex: 4,
     });
+  });
+
+  test("searches a file with current pieces through them, keeping the piece's place; one whose pieces are stale the old way (Phase D, step 1)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => ctx.db.patch(f.notesId, { searchPiecesDue: true, searchPiecesNextAt: 0 }));
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      const viaPieces = await f.t.query(search, { agentThreadId: "thread-ok", query: "etalonnage capteur", maxChars: 12_000 });
+      if (viaPieces.status !== "ok") throw new Error(viaPieces.status);
+      const piece = viaPieces.excerpts[0]!;
+      expect(piece).toMatchObject({ kind: "file", documentId: f.notesId, textHash: expect.any(String), end: expect.any(Number) });
+      expect(piece.text).toContain("Le contrôle de l'étalonnage du capteur a dérivé.");
+      expect(piece.text.length).toBeLessThanOrEqual(1_500);
+      // Pieces cut from an older text are not used: the file is read the old way.
+      await f.t.run(async (ctx) => ctx.db.patch(f.notesId, { searchPiecesTextHash: "an-older-text" }));
+      const viaOld = await f.t.query(search, { agentThreadId: "thread-ok", query: "etalonnage capteur", maxChars: 12_000 });
+      if (viaOld.status !== "ok") throw new Error(viaOld.status);
+      expect(viaOld.excerpts[0]).toMatchObject({ kind: "file", documentId: f.notesId });
+      expect(viaOld.excerpts[0]).not.toHaveProperty("end");
+      expect(viaOld.excerpts[0]!.text).toContain("Le contrôle de l'étalonnage du capteur a dérivé.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("cuts an excerpt around its match, from a word, at most the size asked", () => {
+    const text = `${"filler words here ".repeat(200)}the gasket crept at 3.1 bar ${"after text ".repeat(100)}`;
+    const window = excerptWindow(text, ["gasket"], 500);
+    expect(window.length).toBeLessThanOrEqual(500);
+    expect(window).toContain("the gasket crept at 3.1 bar");
+    expect(window.startsWith(" ")).toBe(false);
+    expect(excerptWindow("short text", ["gasket"], 500)).toBe("short text");
+    expect(excerptWindow(text, ["absent"], 500)).toBe(text.slice(0, 500));
   });
 
   test("returns no_terms for a query with no word to search", async () => {

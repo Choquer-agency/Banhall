@@ -646,20 +646,22 @@ describe("bounded chat context", () => {
     const evidence = String(
       (call[2]?.messages?.[0] as { content: unknown }).content
     );
+    // Phase D (step 1): with the reading tools on, two files with room for
+    // one do not all fit, so neither body is sent; the files list names them
+    // and the notice sends the assistant to search and open them.
     expect(evidence).toContain("first.md");
+    expect(evidence).not.toContain("Body of first.md");
     expect(evidence).not.toContain("Body of second.md");
-    expect(evidence.match(/--- BEGIN \[OTHER SUPPORTING MATERIAL\]/g)).toHaveLength(1);
-    // The dropped document is named in the message and in the cut log, so a
-    // budget gap never reads as an interview gap.
+    expect(evidence.match(/--- BEGIN \[OTHER SUPPORTING MATERIAL\]/g)).toBeNull();
     expect(evidence).toContain(
-      '[1 further attached document(s) were omitted to fit the context budget, so their text is not shown here; open one with readDocument to read it: F2 "second.md".]'
+      "[The text of this project's 2 file(s) with text is not shown in this turn, since it does not all fit. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]"
     );
     const cutLine = infoLines.find((line) =>
       line.startsWith(`chat evidence ${result.threadId}`)
     );
     expect(cutLine).toBeDefined();
     expect(cutLine).toContain(setupResult.reportId);
-    expect(cutLine).toContain("left out second.md");
+    expect(cutLine).toContain("left out first.md, second.md");
   });
 
   test("streamChatReply keeps the sender's style preferences in the system prompt", async () => {

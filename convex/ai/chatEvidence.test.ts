@@ -400,6 +400,8 @@ describe("chat evidence message", () => {
         doc({ fileName: `d${i}.txt`, content: "z".repeat(3_000), category: "other" as const })
       ),
       budget: budget({ totalTokens: 2_000 }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     };
     const base = buildChatEvidence({
       ...input,
@@ -438,6 +440,8 @@ describe("chat evidence message", () => {
         doc({ fileName: "late.txt", content: "Dropped body.", category: "other" }),
       ],
       budget: budget({ totalTokens: 100, analysisTokens: 0, perDocumentTokens: 0 }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     // The analysis block is still there, saying what happened to it. An absent
     // block reads as "never provided", which is what invites a fabricated gap.
@@ -556,6 +560,8 @@ describe("chat evidence message", () => {
       // list (with its Phase B handles), then part of kept-short, then
       // nothing for left-out.
       budget: budget({ totalTokens: 120, perDocumentTokens: 100 }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     const cuts = describeContextCuts(report);
     expect(cuts).toContain("shortened");
@@ -1272,3 +1278,52 @@ describe("the writer-message label", () => {
   });
 });
 
+
+describe("files whole or not at all with the reading tools on (Phase D, step 1)", () => {
+  const bySearch = "is not shown in this turn, since it does not all fit. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]";
+
+  it("puts every file in whole when they all fit", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [
+        doc({ fileName: "a.txt", content: "Alpha body.", category: "other" }),
+        doc({ fileName: "b.txt", content: "Beta body.", category: "other" }),
+      ],
+      budget: budget({ totalTokens: 20_000 }),
+    });
+    expect(message).toContain("Alpha body.");
+    expect(message).toContain("Beta body.");
+    expect(message).not.toContain(bySearch);
+  });
+
+  it("puts none in when one was not sent whole, and sends the assistant to search and open them", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [
+        doc({ fileName: "a.txt", content: "Alpha body.", category: "other" }),
+        doc({ fileName: "big.txt", content: "", textLength: 500_000, category: "other" }),
+      ],
+      budget: budget({ totalTokens: 20_000 }),
+    });
+    expect(message).not.toContain("Alpha body.");
+    expect(message).toContain(`[The text of this project's 2 file(s) with text ${bySearch}`);
+    // The files list still names both, with their handles.
+    expect(message).toContain('F1 | "a.txt"');
+    expect(message).toContain('F2 | "big.txt"');
+  });
+
+  it("puts none in when all of them together do not fit what the turn has left", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: Array.from({ length: 3 }, (_, i) =>
+        doc({ fileName: `d${i}.txt`, content: `Body ${i} `.repeat(400), category: "other" as const })
+      ),
+      budget: budget({ totalTokens: 2_000 }),
+    });
+    expect(message).not.toContain("Body 0");
+    expect(message).toContain(`[The text of this project's 3 file(s) with text ${bySearch}`);
+  });
+});

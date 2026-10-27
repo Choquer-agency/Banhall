@@ -45,6 +45,12 @@ import {
  * the whole text was read.
  */
 const CHAT_DOCUMENT_READ_SLACK_CHARS = 1_000;
+/**
+ * 2026-10-26 (Phase D, step 1): the most file text a chat turn carries
+ * whole (about 20,000 tokens). Past it, the turn lists the files and the
+ * assistant searches and opens them.
+ */
+export const CHAT_WHOLE_FILES_CHARS = 80_000;
 import {
   applyReplacements,
   headingEditRefusal,
@@ -3328,6 +3334,21 @@ export const getChatContextV2 = internalQuery({
     // 1,000,000 characters) and 12 files of about 21,000 characters each.
     const shownText = new Map<number, string>();
     const perDocumentChars = evidenceBudget.perDocumentTokens * CHARS_PER_TOKEN;
+    // 2026-10-26 (Phase D, step 1): with the reading tools on, the files go
+    // in whole or not at all, never the first ones in upload order: whole
+    // when every file with text is at most one file's allowance and all of
+    // them together at most CHAT_WHOLE_FILES_CHARS (`buildChatEvidence`
+    // then checks they fit the turn), otherwise none, and the assistant
+    // finds and opens them with its tools. With the tools off, as before.
+    const toolsOn = documentToolsRead.ok ? documentToolsRead.value : true;
+    const readableFiles = chatFileOrder(documentViews)
+      .filter((entry) => !entry.settings)
+      .map((entry) => activeDocuments[entry.index])
+      .filter((document): document is Doc<"projectDocuments"> => !!document && documentTextLength(document) > 0);
+    const whole =
+      readableFiles.length <= evidenceBudget.maxDocuments &&
+      readableFiles.every((document) => documentTextLength(document) <= perDocumentChars) &&
+      readableFiles.reduce((total, document) => total + documentTextLength(document), 0) <= CHAT_WHOLE_FILES_CHARS;
     let readable = 0;
     for (const entry of chatFileOrder(documentViews)) {
       const document = activeDocuments[entry.index];
@@ -3337,6 +3358,14 @@ export const getChatContextV2 = internalQuery({
       // 2026-10-26: Word Markdown without its marks.
       if (entry.settings) {
         shownText.set(entry.index, quotableFileText((await readDocumentTextOrNull(ctx, document)) ?? "", document.textFormat));
+      } else if (toolsOn) {
+        // Whole, or nothing (not even an older row's inline preview).
+        shownText.set(
+          entry.index,
+          whole && documentTextLength(document) > 0
+            ? quotableFileText((await readDocumentTextOrNull(ctx, document)) ?? "", document.textFormat)
+            : ""
+        );
       } else if (documentTextLength(document) > 0 && readable++ < evidenceBudget.maxDocuments) {
         shownText.set(
           entry.index,

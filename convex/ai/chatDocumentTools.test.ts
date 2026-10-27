@@ -237,6 +237,23 @@ describe("readTranscript and searchDocuments", () => {
     expect(turn.opened.get("s")).toContain("--- BEGIN [OTHER SUPPORTING MATERIAL] F1 part 2, notes.txt ---\nFile words.\n");
     expect(turn.used).toBe("File words.".length + "[turn 40] ...".length);
   });
+
+  it("names every part a search piece reaches, and its page (Phase D, step 1)", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const turn = turnWith();
+    const { ctx } = ctxAnswering(() => ({
+      status: "ok",
+      complete: true,
+      excerpts: [
+        {
+          kind: "file", documentId: "doc-notes.txt", fileName: "notes.txt", category: "other",
+          start: CHAT_READ_PART_CHARS - 500, end: CHAT_READ_PART_CHARS + 900, textHash: "hash", page: 12, text: "Across the boundary.",
+        },
+      ],
+    }));
+    const receipt = await runSearchDocuments(ctx, { query: "boundary" }, { toolCallId: "p" }, turn);
+    expect(receipt).toContain("at F1 parts 1-2, page 12.");
+  });
 });
 
 describe("withOpenedText", () => {

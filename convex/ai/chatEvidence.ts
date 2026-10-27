@@ -296,6 +296,13 @@ export interface ChatCompanyFile {
   title?: string;
 }
 
+/**
+ * 2026-10-26 (Phase D, step 1): room a file's block takes beyond its text
+ * (its marker lines and label), counted when deciding whether every file
+ * fits whole.
+ */
+const DOCUMENT_BLOCK_ALLOWANCE_CHARS = 400;
+
 /** At most this many company files are listed (and get a handle). */
 export const MAX_CHAT_COMPANY_FILES = 30;
 
@@ -1067,6 +1074,18 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   // to read; on one live project seven images took seven of the twelve slots
   // and pushed the writer's glossary and settings document out of the turn.
   let readableRank = 0;
+  const readingOn = input.readingToolsOff !== true;
+  // 2026-10-26 (Phase D, step 1): with the reading tools on, the files' text
+  // goes in whole or not at all: never the first files in upload order. It
+  // goes in only when the context sent every file with text whole and all of
+  // it fits what the turn has left; otherwise none does, and the assistant
+  // finds passages with searchDocuments and opens files with readDocument.
+  const withText = others.filter(({ doc }) => textLengthOf(doc) > 0);
+  const filesBySearch =
+    readingOn &&
+    withText.length > 0 &&
+    (withText.some(({ doc }) => !doc.content.trim()) ||
+      withText.reduce((total, { doc }) => total + doc.content.length + DOCUMENT_BLOCK_ALLOWANCE_CHARS, 0) > headRemaining);
   // Phase C: the sources whose file viewFile can show.
   const viewableSources = new Set<TrustedContextSource>();
   others.forEach(({ doc, handle }) => {
@@ -1074,7 +1093,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     const viewable = viewing && chatViewableKind(doc) !== null;
     // 2026-10-22 (fourth): from the stored length, since `content` holds
     // only the opening part of a file the turn does not show.
-    if (textLengthOf(doc) > 0 && readableRank++ >= budget.maxDocuments) {
+    if (textLengthOf(doc) > 0 && (filesBySearch || readableRank++ >= budget.maxDocuments)) {
       const source: TrustedContextSource = {
         kind: "document",
         label: doc.fileName,
@@ -1138,7 +1157,6 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   // Phase B (2026-10-20): a file left out by the budget can be opened with
   // readDocument; a file with no text cannot. With the admin setting off the
   // notices read as before.
-  const readingOn = input.readingToolsOff !== true;
   const furtherOmittedNotice = (names: FileRef[]): string =>
     readingOn
       ? `[${names.length} further attached document(s) were omitted to fit the context budget, so their text is not shown here; open one with readDocument to read it: ${fileRefList(names)}.]`
@@ -1153,8 +1171,9 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     ...(unreadableNames.length ? [unreadableNotice(unreadableNames)] : []),
     ...(viewableNoTextNames.length ? [viewableNotice(viewableNoTextNames)] : []),
   ];
+  const bySearchNotice = `[The text of this project's ${droppedDocuments} file(s) with text is not shown in this turn, since it does not all fit. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]`;
   const documentNotices = [
-    ...(droppedDocuments && documentBlocks.length ? [furtherOmittedNotice(droppedNames)] : []),
+    ...(droppedDocuments && documentBlocks.length ? [filesBySearch ? bySearchNotice : furtherOmittedNotice(droppedNames)] : []),
     ...noTextNotices,
   ];
 
@@ -1188,6 +1207,8 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   if (documentBlocks.length) {
     const rendered = documentBlocks.join("\n\n");
     stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${rendered}${notices}`);
+  } else if (droppedDocuments && filesBySearch) {
+    stableParts.push(`${EVIDENCE_LABELS.documentsHeading}\n${bySearchNotice}${notices}`);
   } else if (droppedDocuments) {
     // Documents WERE supplied and the budget kept none of them: keep the
     // heading with a notice rather than implying the project has no documents.

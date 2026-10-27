@@ -622,15 +622,19 @@ async function runReadCompanyFile(
 
 /** Where an excerpt sits, as the model can open it: `F3 part 2`, `T1 turns 40-46`. */
 function excerptPlace(excerpt: SearchExcerpt, turn: DocumentReadTurn): string {
+  // Phase D (step 1): an excerpt from a search piece names every part the
+  // piece reaches, which readDocument opens, and its page when known.
+  const filePlace = (start: number, end: number | undefined, page: number | undefined) =>
+    `${end !== undefined ? partsLabel(start, end) : `part ${partAt(start)}`}${page !== undefined ? `, page ${page}` : ""}`;
   if (excerpt.kind === "file") {
     const file = turn.files.find((entry) => entry.documentId === excerpt.documentId);
     const name = file?.handle ?? quoted(excerpt.fileName);
-    return `${name} part ${partAt(excerpt.start)}`;
+    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page)}`;
   }
   if (excerpt.kind === "company") {
     const file = turn.companyFiles.find((entry) => entry.companyFileId === excerpt.companyFileId);
     const name = file?.handle ?? quoted(excerpt.fileName);
-    return `${name} part ${partAt(excerpt.start)}`;
+    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page)}`;
   }
   const transcript = turn.transcripts.find((entry) => entry.transcriptId === excerpt.transcriptId);
   const name = transcript?.handle ?? quoted(excerpt.label);

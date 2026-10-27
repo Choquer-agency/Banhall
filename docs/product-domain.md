@@ -4367,6 +4367,25 @@ Context pipeline plan, Phase C, step 3 (chat): part 1 of the first 2026-10-26 en
 - **Round 2 review:** see the seventh entry.
 - **Approval:** Product owner, 2026-10-26 (chat): part 1 of the first 2026-10-26 entry, and "yes continue and finish all".
 
+### 2026-10-26 (ninth): Chat reads a project's files whole when they all fit, and otherwise lists them and finds them by search (owner)
+
+Context pipeline plan, Phase D, step 1 (`docs/todos/phase-d-search-first.md`): part 2 of the first 2026-10-26 entry, "Drafting and chat get a short list of every file ... plus tools to search the pieces and read exact ranges, instead of the first files in upload order". Chat only; drafting is unchanged. No workflow stage, transition or permission is added, and the assistant still only proposes edits.
+
+- **Whole or none, never by upload order.** With the reading tools on, a chat turn carries the project's files' text only when every file with text fits whole. That means each file within one file's allowance (5,000 tokens), at most 12 files, all together within 80,000 characters (`CHAT_WHOLE_FILES_CHARS`), and all of it within what the turn has left once the analysis and the lists are in (`buildChatEvidence`). Otherwise no file's text is in the turn. The FILES IN THIS PROJECT list names them all, and one notice says to find passages with searchDocuments and open files with readDocument. Before, the first 12 files with text were loaded at up to 20,000 characters each, in upload order. A small project keeps its whole files in the cached head, as before.
+- **Unchanged:** the settings document (its own allowance), pinned files, and the turn with the reading tools off (the old capped path, byte for byte).
+- **Search through pieces.** `searchDocuments` searches every file whose search pieces are current (cut by the current cutter from its current text, `piecesCurrent`) through the pieces (`searchProjectPieces`), so no such file is read whole. Every other file with text is searched as before, read whole: one waiting for its pieces, one whose pieces failed, or one from before the backfill. Pieces of a file that is not current are never used, so no file is searched twice.
+- **Excerpts.** Each excerpt is cut around its match instead of the piece's first 1,500 characters (`excerptWindow`), and ranked with the same scorer as transcripts. It keeps its file's category and uploader role for its trust label. It is placed by every part readDocument opens that the piece reaches ("F3 parts 1-2"), with its page when known. The excerpt keeps its piece's end and text fingerprint. Company file excerpts get the same window and place. A part is where to open the text, not a saved source link: chat saves none.
+- **The chat guidance** gains one sentence: when the project's files do not all fit in a turn, none of their text is shown, and searchDocuments and readDocument find and open them.
+- **Known limit.** Chat still reads every file row each message to build its list. Until the text-move passes have run (owner-only, checklist), older rows still hold their full text, so the 40-file failure is fixed only once those passes have run. The pieces backfill (`markSearchPiecesDue`) should run too; files without pieces are still found, read whole.
+- **Migration and compatibility.** No schema change. Optional fields on search excerpts and piece hits. The chat guidance text changes.
+- **Tests:**
+  - `convex/ai/chatEvidence.test.ts`: whole when all fit, none when one was not sent whole or all do not fit, and the capped path with the tools off.
+  - `convex/chatContext.test.ts`: the query sends every file whole or none.
+  - `convex/chatTurns.test.ts`: the action's turn.
+  - `convex/chatDocuments.test.ts`: search through current pieces with their place, stale pieces searched the old way, and the excerpt window.
+  - `convex/ai/chatDocumentTools.test.ts`: parts across a boundary and the page.
+- **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed by gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), both "go after changes".
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

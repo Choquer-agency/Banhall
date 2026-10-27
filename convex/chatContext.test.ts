@@ -210,6 +210,32 @@ describe("getChatContextV2 evidence inputs", () => {
     });
   }
 
+  test("sends every file whole, or no file text at all once one is too long (Phase D, step 1)", async () => {
+    const t = convexTest(schema, modules);
+    const reportId = await seedReportWithDocuments(t);
+    const contents = async () =>
+      (await t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread-whole-or-none" })).documents.map(
+        (document) => [document.fileName, document.content]
+      );
+    expect(await contents()).toEqual([
+      ["notes.md", "Writer direction."],
+      ["legacy.txt", "Legacy body."],
+    ]);
+    await t.run(async (ctx) => {
+      const project = (await ctx.db.get(reportId))!.projectId;
+      await ctx.db.insert("projectDocuments", {
+        projectId: project, source: "upload", uploadedBy: "chat-context-uploader", createdAt: Date.now(),
+        fileName: "long.txt", fileType: "txt", content: "Long body. ".repeat(3_000), category: "other",
+      });
+    });
+    // 33,000 characters is past one file's allowance (5,000 tokens): none goes in.
+    expect(await contents()).toEqual([
+      ["notes.md", ""],
+      ["legacy.txt", ""],
+      ["long.txt", ""],
+    ]);
+  });
+
   test("carries category and uploaderRole, and excludes archived documents", async () => {
     const t = convexTest(schema, modules);
     const reportId = await seedReportWithDocuments(t);

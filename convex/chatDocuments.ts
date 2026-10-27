@@ -15,7 +15,7 @@
 // internal mutation, storePdfPageCount, keeps a PDF's page count once the
 // server has counted it.
 
-import { searchCompanyPieces } from "./lib/searchPieces";
+import { piecesCurrent, searchCompanyPieces, searchProjectPieces } from "./lib/searchPieces";
 import { readCompanyFileTextOrNull } from "./lib/companyFileText";
 import { companyFileCategory } from "./lib/briefEvidence";
 import { labelsCurrent } from "./lib/fileLabels";
@@ -64,6 +64,8 @@ export const CHAT_SEARCH_EXCERPT_CHARS = 1_500;
 const SEARCH_EXCERPTS_PER_SOURCE = 3;
 /** Files the search index hands the search, archived rows included. */
 const SEARCH_FILE_CANDIDATES = 16;
+/** Search pieces a chat search takes from files with current pieces (Phase D, step 1). */
+const CHAT_SEARCH_PIECE_HITS = 16;
 /** Convex full text search takes a bounded number of terms. */
 const SEARCH_INDEX_TERMS = 16;
 /** Turns one transcript gives the search or a read, scanned in index order. */
@@ -686,6 +688,26 @@ type Span = { start: number; end: number };
  * paragraph too long for one group is cut in windows), at the chat's
  * excerpt size, with offsets so an excerpt can say which part it is in.
  */
+/**
+ * At most `size` characters of a search piece, from a little before the
+ * first place one of `terms` appears (Phase D, step 1), so the matching
+ * words are in the excerpt rather than cut off past its first `size`
+ * characters. Starts at a word when it can, never inside a surrogate pair.
+ */
+export function excerptWindow(text: string, terms: readonly string[], size: number): string {
+  if (text.length <= size) return text;
+  const lower = text.toLowerCase();
+  const hits = terms.map((term) => lower.indexOf(term.toLowerCase())).filter((index) => index >= 0);
+  let start = hits.length > 0 ? Math.max(0, Math.min(...hits) - Math.floor(size / 4)) : 0;
+  if (start > 0) {
+    const space = text.indexOf(" ", start);
+    if (space >= 0 && space - start < 40) start = space + 1;
+  }
+  start = Math.min(start, text.length - size);
+  const range = safeRange(text, start, start + size);
+  return text.slice(range.start, range.end);
+}
+
 export function chunkSpans(content: string, maxChars: number): Span[] {
   const paragraphs: Span[] = [];
   const separator = /\n[ \t\r\f\v]*\n\s*/g;
@@ -734,6 +756,14 @@ export type SearchExcerpt =
       uploaderRole?: string;
       /** Where the excerpt starts in the file's text. */
       start: number;
+      /**
+       * Phase D (step 1): for an excerpt from a search piece, where that
+       * piece ends, the text fingerprint its positions refer to, and its
+       * first page when known.
+       */
+      end?: number;
+      textHash?: string;
+      page?: number;
       text: string;
     }
   | {
@@ -754,6 +784,10 @@ export type SearchExcerpt =
       fileName: string;
       /** Where the excerpt starts in the file's text. */
       start: number;
+      /** As for a file's piece (Phase D, step 1). */
+      end?: number;
+      textHash?: string;
+      page?: number;
       text: string;
     };
 
@@ -833,6 +867,35 @@ export const searchForChat = internalQuery({
       if (score > 0) candidates.push({ score, order: order++, source, excerpt });
     };
 
+    // 2026-10-26 (Phase D, step 1): files whose search pieces are current
+    // are searched through the pieces, each excerpt cut around its match
+    // and keeping the piece's place; no file is read whole for them.
+    const found = await searchProjectPieces(ctx, {
+      projectId: scope.projectId,
+      query: args.query,
+      limit: CHAT_SEARCH_PIECE_HITS,
+      perFile: SEARCH_EXCERPTS_PER_SOURCE,
+    });
+    if (!found.scanComplete) complete = false;
+    for (const hit of found.hits) {
+      const window = excerptWindow(hit.text, terms, CHAT_SEARCH_EXCERPT_CHARS);
+      consider(`file:${hit.documentId}`, window, {
+        kind: "file",
+        documentId: hit.documentId,
+        fileName: hit.fileName,
+        ...(hit.category ? { category: hit.category } : {}),
+        ...(hit.uploaderRole ? { uploaderRole: hit.uploaderRole } : {}),
+        start: hit.start,
+        end: hit.end,
+        textHash: hit.textHash,
+        ...(hit.page !== undefined ? { page: hit.page } : {}),
+        text: window,
+      });
+    }
+
+    // Every other file with text, the way it was searched before: one
+    // waiting for its pieces, one whose pieces failed, one from before the
+    // backfill.
     // Project files: the full text indexes narrow the candidates. 2026-10-22
     // (fourth): the pieces' index, grouped by file with its best piece first,
     // and, while files are still moving, the old index on `content`; a file
@@ -874,6 +937,8 @@ export const searchForChat = internalQuery({
       }
       // A piece whose file is gone, archived or in another project is dropped.
       if (!doc || doc.archived || doc.projectId !== scope.projectId || !documentHasText(doc)) continue;
+      // Phase D: a file with current pieces was searched above.
+      if (await piecesCurrent(doc)) continue;
       filesRead += 1;
       const current = doc;
       // Charged as the text it returns (an object, which the budget sizes).
@@ -965,7 +1030,7 @@ export const searchForChat = internalQuery({
     // a file the company holds now, not archived, with current text).
     const clientId = await chatCompanyScope(ctx, scope.projectId, args.userId);
     if (clientId && excerpts.length < CHAT_SEARCH_MAX_EXCERPTS && left > 0) {
-      const found = await searchCompanyPieces(ctx, {
+      const companyFound = await searchCompanyPieces(ctx, {
         clientId,
         query: args.query,
         limit: CHAT_SEARCH_MAX_EXCERPTS - excerpts.length,
@@ -973,13 +1038,23 @@ export const searchForChat = internalQuery({
         // Only files the turn lists, which readDocument can open.
         onlyFileIds: new Set((await listedCompanyFiles(ctx, clientId)).map((file) => file.companyFileId)),
       });
-      if (!found.complete) complete = false;
-      for (const hit of found.hits) {
+      if (!companyFound.complete) complete = false;
+      for (const hit of companyFound.hits) {
         if (excerpts.length >= CHAT_SEARCH_MAX_EXCERPTS || left <= 0) break;
-        const take = Math.min(hit.text.length, CHAT_SEARCH_EXCERPT_CHARS, left);
-        const text = hit.text.slice(0, safeRange(hit.text, 0, take).end);
+        const window = excerptWindow(hit.text, terms, CHAT_SEARCH_EXCERPT_CHARS);
+        const take = Math.min(window.length, left);
+        const text = window.slice(0, safeRange(window, 0, take).end);
         if (!text) break;
-        excerpts.push({ kind: "company", companyFileId: hit.companyFileId, fileName: hit.fileName, start: hit.start, text });
+        excerpts.push({
+          kind: "company",
+          companyFileId: hit.companyFileId,
+          fileName: hit.fileName,
+          start: hit.start,
+          end: hit.end,
+          textHash: hit.textHash,
+          ...(hit.page !== undefined ? { page: hit.page } : {}),
+          text,
+        });
         left -= text.length;
       }
     }

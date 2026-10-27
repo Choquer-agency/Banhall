@@ -586,3 +586,26 @@ What changes:
 ### Automated, live on localhost
 
 - [ ] A Step-by-step draft on the InnovMine project: the Brief has confidence entries and glossary terms.
+
+## Phase D, step 1: chat reads files whole when they fit, otherwise by search
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (ninth)". Plan: `docs/todos/phase-d-search-first.md`.
+
+What changes:
+
+- **A small project's files still go into every chat message whole.**
+- **When they do not all fit**, the assistant gets the list of files and finds what it needs with search, instead of seeing the first 12 files in upload order.
+- **Search uses the files' search pieces** when they are up to date, and cuts each excerpt around the words found.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] A project whose files do not fit: ask about something only a late file says. The assistant searches, opens the file and answers.
+
+### Manual on localhost
+
+- [ ] The same, in the browser, on a project with many files and on a small one.

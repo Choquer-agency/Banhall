@@ -8,7 +8,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { documentTextHash } from "./documentText";
-import { checkedPageStarts, searchTextOf, splitSearchPieces, type PieceTextKind } from "../../shared/searchPieces";
+import { SEARCH_PIECES_VERSION, checkedPageStarts, searchTextOf, splitSearchPieces, type PieceTextKind } from "../../shared/searchPieces";
 
 /** Whose pieces: a project file in its project, or a company file in its company. */
 export type PieceOwner =
@@ -75,6 +75,9 @@ export function searchTerms(query: string): string[] {
 export type PieceHit = {
   documentId: Id<"projectDocuments">;
   fileName: string;
+  /** The file's category and uploader role, for its trust label (Phase D). */
+  category?: Doc<"projectDocuments">["category"];
+  uploaderRole?: string;
   /** The text's fingerprint the positions refer to; a read must check it. */
   textHash: string;
   start: number;
@@ -90,7 +93,19 @@ export type PieceSearch = {
   hits: PieceHit[];
   /** False when files were not indexed yet or the read limit cut the search short. */
   complete: boolean;
+  /** False only when the read limit cut the search short (Phase D: the caller covers unindexed files itself). */
+  scanComplete: boolean;
 };
+
+/**
+ * Whether a file's search pieces are its current text's, cut by the current
+ * cutter (Phase D, step 1). Any other file with text is searched another
+ * way: one waiting for its pieces, one whose pieces failed, or one from
+ * before the backfill.
+ */
+export async function piecesCurrent(doc: Doc<"projectDocuments">): Promise<boolean> {
+  return doc.searchPiecesVersion === SEARCH_PIECES_VERSION && doc.searchPiecesTextHash === (await documentTextHash(doc));
+}
 
 /**
  * The project's pieces a keyword search finds, best first: archived and
@@ -104,7 +119,7 @@ export async function searchProjectPieces(
   const terms = searchTerms(args.query);
   const limit = Math.max(1, Math.min(args.limit ?? 8, 50));
   const perFile = Math.max(1, args.perFile ?? 2);
-  if (terms.length === 0) return { hits: [], complete: true };
+  if (terms.length === 0) return { hits: [], complete: true, scanComplete: true };
   const scanCap = Math.min(256, limit * 8);
   const scanned = await ctx.db
     .query("documentSearchPieces")
@@ -125,12 +140,17 @@ export async function searchProjectPieces(
     }
     const { doc, textHash } = file;
     if (!doc || doc.archived || doc.projectId !== args.projectId || textHash !== piece.textHash) continue;
+    // Only a file whose pieces are current (`piecesCurrent`), so a caller
+    // that searches every other file another way never sees one twice.
+    if (doc.searchPiecesVersion !== SEARCH_PIECES_VERSION || doc.searchPiecesTextHash !== textHash) continue;
     const count = perFileCount.get(documentId) ?? 0;
     if (count >= perFile) continue;
     perFileCount.set(documentId, count + 1);
     hits.push({
       documentId,
       fileName: doc.fileName,
+      ...(doc.category ? { category: doc.category } : {}),
+      ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
       textHash: piece.textHash,
       start: piece.start,
       end: piece.end,
@@ -144,7 +164,8 @@ export async function searchProjectPieces(
     .withIndex("by_projectId_and_searchPiecesDue", (q) => q.eq("projectId", args.projectId).eq("searchPiecesDue", true))
     .first();
   // Complete when every match was read, or the hits asked for were found.
-  return { hits, complete: notIndexed === null && (scanned.length < scanCap || hits.length >= limit) };
+  const scanComplete = scanned.length < scanCap || hits.length >= limit;
+  return { hits, complete: notIndexed === null && scanComplete, scanComplete };
 }
 
 export type CompanyPieceHit = Omit<PieceHit, "documentId"> & { companyFileId: Id<"companyFiles"> };
