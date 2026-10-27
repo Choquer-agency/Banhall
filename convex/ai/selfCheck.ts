@@ -367,12 +367,23 @@ function decodeSummaryItems(value: {
 /**
  * The root must be an object, and at least one of its verdict lists must be
  * a list: an answer with neither holds nothing to read and is rejected whole
- * (2026-09-28, fifth). A property the answer should not have (the release
- * suite of 2026-10-27 saw a stray top-level `repairGuidance`) is read and
- * ignored, logged by name only, as a repeated merged id is (2026-10-22,
- * third); it is never a reason to drop the whole Self-check.
+ * (2026-09-28, fifth). A property the answer should not have, under the
+ * answer's byte ceiling (the release suite of 2026-10-27 saw a stray
+ * top-level `repairGuidance`), is ignored, as a merged id is (2026-10-22,
+ * third), and logged by name only; it is never a reason to drop the whole
+ * Self-check. A key is model text, so only a name that looks like a field
+ * name is logged, at most five.
  */
 const SUMMARY_SELF_CHECK_ROOT_KEYS = new Set(["verdicts", "planVerdicts", "storylineQuestion"]);
+const LOGGED_ROOT_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/;
+const MAX_LOGGED_ROOT_KEYS = 5;
+function ignoredRootKeysNote(keys: readonly string[]): string {
+  const shown = keys.slice(0, MAX_LOGGED_ROOT_KEYS).map((key) =>
+    LOGGED_ROOT_KEY.test(key) ? key : `a field of ${new TextEncoder().encode(key).byteLength} bytes`
+  );
+  const more = keys.length - shown.length;
+  return `${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;
+}
 const decodedSummaryPlanSelfCheckOutputSchema = z.object({
   verdicts: z.unknown().optional(),
   planVerdicts: z.unknown().optional(),
@@ -384,9 +395,7 @@ const decodedSummaryPlanSelfCheckOutputSchema = z.object({
   .transform((value) => {
     const ignored = Object.keys(value).filter((key) => !SUMMARY_SELF_CHECK_ROOT_KEYS.has(key));
     if (ignored.length > 0) {
-      console.warn(
-        `submit_self_check: ignored ${ignored.length} unknown top-level field(s): ${ignored.map((key) => key.slice(0, 40)).join(", ")}`
-      );
+      console.warn(`submit_self_check: ignored ${ignored.length} unknown top-level field(s): ${ignoredRootKeysNote(ignored)}`);
     }
     return decodeSummaryItems({
       verdicts: value.verdicts,

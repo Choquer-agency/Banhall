@@ -905,7 +905,7 @@ Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_b
 ### Automated, live on localhost
 
 - [x] All six fixtures on the live copy at `08a53a18` ($6.70): four passed every check; exclusion-conflict failed two (a Self-check answer with a stray top-level field, fixed in the next commit); withdrawn-feedback stopped at Hypothesis (Sonnet 5.5 wrote bullets over 25 words four times). Rerun of withdrawn-feedback: 12 of 13, the one miss a heuristic ($1.14).
-- [ ] Exclusion-conflict rerun after the fix (closes F4).
+- [x] Exclusion-conflict rerun after the fix (8acd61e2): 15 of 15 checks passed, $1.23 (closes F4).
 
 ### Manual on localhost
 

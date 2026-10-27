@@ -567,6 +567,8 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       finalCoverage: "full-self-check-on-the-final-text-after-a-used-repair",
       invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
       unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
+      // 2026-10-27 (ninth): a stray top-level field is ignored.
+      unknownRootProperties: "ignored-logged-by-name-unless-neither-list-or-over-ceiling",
       editedTerms: "allowed-word-for-word-invention-objections-set-aside",
       writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label-even-in-unedited-signed-off-ideas",
       droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",

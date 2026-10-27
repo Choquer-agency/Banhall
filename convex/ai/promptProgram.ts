@@ -767,6 +767,9 @@ export const generationPromptProgram = {
         // list is read as empty and its checks asked for in the follow-up;
         // an answer with neither list is still rejected whole.
         unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
+        // 2026-10-27 (ninth, release suite): an unknown top-level property
+        // under the answer's byte ceiling is ignored and logged by name only.
+        unknownRootProperties: "ignored-logged-by-name-unless-neither-list-or-over-ceiling",
         // 2026-09-28 (second, edited terms): the Line's edited terms are
         // allowed word for word; an objection to one as invented is set aside.
         editedTerms: "allowed-word-for-word-invention-objections-set-aside",

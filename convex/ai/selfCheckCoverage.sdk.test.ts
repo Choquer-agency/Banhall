@@ -938,14 +938,43 @@ describe("a verdict list of the wrong type is asked for again (real SDK, fetch s
     // stray repairGuidance) is read and ignored, never a reason to drop the
     // Self-check, and the answer is read in one request.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    expect(await diagnosticFor({
-      verdicts: ordinary.map(verdictFor),
-      planVerdicts: plans.map(planVerdictFor),
-      repairGuidance: "Shorten paragraph 2.",
-    })).toEqual({ diagnostic: null, calls: 1 });
-    expect(warn.mock.calls.flat().join(" ")).toContain("ignored 1 unknown top-level field(s): repairGuidance");
-    expect(warn.mock.calls.flat().join(" ")).not.toContain("Shorten paragraph 2.");
-    warn.mockRestore();
+    try {
+      expect(await diagnosticFor({
+        verdicts: ordinary.map(verdictFor),
+        planVerdicts: plans.map(planVerdictFor),
+        repairGuidance: "Shorten paragraph 2.",
+      })).toEqual({ diagnostic: null, calls: 1 });
+      expect(warn.mock.calls.flat().join(" ")).toContain("ignored 1 unknown top-level field(s): repairGuidance");
+      expect(warn.mock.calls.flat().join(" ")).not.toContain("Shorten paragraph 2.");
+      // A key written as prose is logged by its size, never its words, and
+      // at most five names are listed.
+      warn.mockClear();
+      expect(await diagnosticFor({
+        verdicts: ordinary.map(verdictFor),
+        planVerdicts: plans.map(planVerdictFor),
+        "Paragraph 2 names a loss": true,
+        ...Object.fromEntries(Array.from({ length: 7 }, (_, index) => [`extra${index}`, index])),
+      })).toEqual({ diagnostic: null, calls: 1 });
+      const logged = warn.mock.calls.flat().join(" ");
+      expect(logged).toContain("ignored 8 unknown top-level field(s): a field of 24 bytes, extra0, extra1, extra2, extra3 and 3 more");
+      expect(logged).not.toContain("names a loss");
+      // A misspelled list beside a real one is read as missing: every
+      // label it should have held is asked for in the one follow-up.
+      expect((await diagnosticFor({
+        verdict: ordinary.map(verdictFor),
+        planVerdicts: plans.map(planVerdictFor),
+      })).calls).toBe(2);
+      // Both lists misspelled: nothing to read, rejected whole.
+      expect(await diagnosticFor({
+        verdict: ordinary.map(verdictFor),
+        plan_verdicts: plans.map(planVerdictFor),
+      })).toEqual({
+        diagnostic: "response failed validation: (root) neither verdicts nor planVerdicts is a list",
+        calls: 1,
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

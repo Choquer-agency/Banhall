@@ -1061,11 +1061,21 @@ describe("Self-check before display (CAP-9)", () => {
     // Release suite, 2026-10-27: a small unknown root property is read and
     // ignored, never a reason to reject the answer.
     {
-      const response = structuredClone(valid);
-      Object.assign(response, { repairGuidance: "Shorten paragraph 2." });
-      const ignored = await execute(response);
-      await expect(ignored.result).resolves.toBeDefined();
-      expect(ignored.create).toHaveBeenCalledTimes(1);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        const response = structuredClone(valid);
+        Object.assign(response, { repairGuidance: "Shorten paragraph 2." });
+        const ignored = await execute(response);
+        const plain = await execute(structuredClone(valid));
+        // Read exactly as the same answer without the stray field.
+        expect(await ignored.result).toEqual(await plain.result);
+        expect(ignored.create).toHaveBeenCalledTimes(1);
+        const logged = warn.mock.calls.flat().join(" ");
+        expect(logged).toContain("unknown top-level field(s): repairGuidance");
+        expect(logged).not.toContain("Shorten paragraph 2.");
+      } finally {
+        warn.mockRestore();
+      }
     }
 
     // One invalid or malformed verdict is dropped; its label or plan check
