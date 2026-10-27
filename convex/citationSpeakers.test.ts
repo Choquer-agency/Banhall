@@ -591,6 +591,27 @@ async function deriveBrief(
   }));
 }
 
+describe("the Brief records what it read (Phase D, step 2)", () => {
+  it("a derived Brief records what its request sent of each frozen row, and a reuse records it again", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    await deriveBrief(t, f);
+    const briefUses = async () =>
+      (
+        await t.run((ctx) =>
+          ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", f.generationId)).collect()
+        )
+      ).filter((use) => use.step === "brief");
+    const derived = await briefUses();
+    expect(derived.map((use) => [use.sourceId, use.state, use.unit])).toEqual([[f.sourceId, "whole", "chars"]]);
+    vi.stubGlobal("fetch", vi.fn());
+    await runAction(t, async (ctx) =>
+      deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+    );
+    expect((await briefUses()).length).toBe(2);
+  });
+});
+
 describe("Brief entries keep only client turns as evidence outside facts mode", () => {
   it("drops the interviewer-backed exclusion and the vendor's words, and moves the glossary term to the client", async () => {
     const t = convexTest(schema, modules);

@@ -9,6 +9,7 @@ import {
   groupBrief,
   inclusionHeader,
   inclusionStatusText,
+  inclusionUsesText,
   liveCount,
   offerHref,
   offerSentence,
@@ -144,5 +145,20 @@ describe("Brief rail helpers (story 4)", () => {
       "Your customized settings were found in an attachment. Save to your Writer Profile?"
     );
     expect(offerHref("/settings/writing", "gen123")).toBe("/settings/writing?fromGeneration=gen123");
+  });
+});
+
+describe("inclusionUsesText (Phase D, step 2)", () => {
+  it("names the steps that read a row and how much, then those that did not", () => {
+    expect(
+      inclusionUsesText([
+        { step: "analyzer", runs: 1, read: 1, whole: true },
+        { step: "brief", runs: 1, read: 0, whole: false },
+        { step: "seeds", runs: 13, read: 3, whole: false },
+        { step: "facts_check", runs: 3, read: 3, whole: true },
+      ])
+    ).toBe("Read by the analysis (whole), Seeds (part, 3 of 13 Batches), the facts check (whole, 3 of 3 Lines). Not read by the Brief.");
+    expect(inclusionUsesText(undefined)).toBe("");
+    expect(inclusionUsesText([])).toBe("");
   });
 });

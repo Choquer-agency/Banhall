@@ -189,15 +189,29 @@ export function briefSettingsSource<Source extends Pick<Doc<"generationSources">
  * writer, not evidence to derive Claim Exclusions/Confidence Map/Glossary
  * from, and is never fed to this call. */
 export function buildBriefUserMessage(
-  sources: Array<
-    Pick<Doc<"generationSources">, "label" | "content" | "kind"> & {
-      transcriptId?: Id<"transcripts">;
-      /** 2026-10-04 (first, round 2): the trust floor of the wording rule. */
-      uploaderRole?: string;
-    }
-  >,
+  sources: BriefMessageSource[],
   budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
 ): string {
+  return briefMessageWithReport(sources, budget).message;
+}
+
+type BriefMessageSource = Pick<Doc<"generationSources">, "label" | "content" | "kind"> & {
+  transcriptId?: Id<"transcripts">;
+  /** 2026-10-04 (first, round 2): the trust floor of the wording rule. */
+  uploaderRole?: string;
+};
+
+/**
+ * `buildBriefUserMessage`, with what it sent of each source it considered
+ * (Phase D, step 2): characters kept of the source's characters, 0 for one
+ * left out. A Storyline and a transcript read through its digest or fact
+ * pack are not considered, so they get no entry.
+ */
+export function briefMessageWithReport<S extends BriefMessageSource>(
+  sources: S[],
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
+): { message: string; report: Array<{ source: S; sent: number; total: number }> } {
+  const report: Array<{ source: S; sent: number; total: number }> = [];
   const settings = briefSettingsSource(sources);
   let settingsSent = false;
   // Digest mode means digests: a transcript with a frozen digest is read
@@ -223,11 +237,13 @@ export function buildBriefUserMessage(
     if (!s.content.length) {
       noteCompany(s.kind);
       blocks.push(block(s.content));
+      report.push({ source: s, sent: 0, total: 0 });
       continue;
     }
     // A cut keeps a prefix of the frozen text, so every quote the model
     // takes from it is still a verbatim substring of the source.
     const kept = cutToBudget(s.content, Math.min(perSource, remaining));
+    report.push({ source: s, sent: kept.length, total: s.content.length });
     if (!kept.length) {
       omitted += 1;
       continue;
@@ -247,6 +263,6 @@ export function buildBriefUserMessage(
   const wording = settings && settingsSent
     ? `${BRIEF_WRITER_WORDING.prefix}${settings.label.toUpperCase()}${BRIEF_WRITER_WORDING.suffix}`
     : "";
-  return `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`;
+  return { message: `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`, report };
 }
 

@@ -56,12 +56,27 @@ export type UnfrozenDocument = {
   reason: InclusionReason;
 };
 
+/** Phase D (step 2): one recorded use of a frozen row by a step run (`generationSourceUse`). */
+export type SourceUseRow = {
+  sourceId: string;
+  step: SourceUseStep;
+  run?: string;
+  state: "whole" | "part" | "left_out";
+};
+
+export type SourceUseStep = "analyzer" | "brief" | "seeds" | "facts_check";
+
+/** How one step read one row: its runs, how many read some of it, and whether every reading run read it whole. */
+export type RowUse = { step: SourceUseStep; runs: number; read: number; whole: boolean };
+
 export type ContextInclusionRow = {
   key: string;
   kind: "transcript" | "document" | "company";
   label: string;
   inclusion: Inclusion | null;
   reason?: InclusionReason;
+  /** Phase D (step 2): each step that recorded a use of this row, in step order. */
+  uses?: RowUse[];
 };
 
 export type ContextInclusion = {
@@ -88,8 +103,60 @@ export type ContextInclusion = {
    * told apart from an unfrozen document), so `documentsTruncated` is true too.
    */
   sourcesTruncated: boolean;
+  /** Phase D (step 2): true when the recorded uses could not all be read. */
+  usesTruncated?: boolean;
   rows: ContextInclusionRow[];
 };
+
+const USE_STEP_ORDER: readonly SourceUseStep[] = ["analyzer", "brief", "seeds", "facts_check"];
+
+/**
+ * Each row key's uses, by step: a transcript read through its digest or
+ * fact pack takes those rows' uses, as it takes their outcome.
+ */
+function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[]): Map<string, RowUse[]> {
+  const transcriptRowOf = new Map<string, string>();
+  for (const row of sources) {
+    if (row.kind === "transcript" && row.transcriptId && !transcriptRowOf.has(row.transcriptId)) transcriptRowOf.set(row.transcriptId, row._id);
+  }
+  const keyOf = new Map<string, string>();
+  for (const row of sources) {
+    if (row.kind === "transcript_digest" || row.kind === "transcript_facts") {
+      const transcriptRow = row.transcriptId ? transcriptRowOf.get(row.transcriptId) : undefined;
+      if (transcriptRow) keyOf.set(row._id, `source:${transcriptRow}`);
+    } else if (row.kind !== "writer_storyline") {
+      keyOf.set(row._id, `source:${row._id}`);
+    }
+  }
+  const runs = new Map<string, Map<SourceUseStep, Map<string, "whole" | "part" | "left_out">>>();
+  for (const use of uses) {
+    const key = keyOf.get(use.sourceId);
+    if (!key) continue;
+    const bySteps = runs.get(key) ?? new Map<SourceUseStep, Map<string, "whole" | "part" | "left_out">>();
+    runs.set(key, bySteps);
+    const byRun = bySteps.get(use.step) ?? new Map<string, "whole" | "part" | "left_out">();
+    bySteps.set(use.step, byRun);
+    // A run that read the row twice (a transcript and its digest) counts its best read.
+    const run = use.run ?? "";
+    const rank = { left_out: 0, part: 1, whole: 2 } as const;
+    const before = byRun.get(run);
+    if (!before || rank[use.state] > rank[before]) byRun.set(run, use.state);
+  }
+  const result = new Map<string, RowUse[]>();
+  for (const [key, bySteps] of runs) {
+    result.set(
+      key,
+      USE_STEP_ORDER.flatMap((step) => {
+        const byRun = bySteps.get(step);
+        if (!byRun) return [];
+        const states = [...byRun.values()];
+        const read = states.filter((state) => state !== "left_out").length;
+        return [{ step, runs: states.length, read, whole: read > 0 && states.every((state) => state !== "part") }];
+      })
+    );
+  }
+  return result;
+}
 
 /** The recorded status of one row; `null` when nothing was recorded. */
 export function recordedInclusion(row: InclusionSourceRow): Inclusion | null {
@@ -106,7 +173,15 @@ export function assembleContextInclusion(input: {
   sourcesTruncated?: boolean;
   /** False for a viewer who may not read company files (companyFiles.read). */
   showCompanyFiles?: boolean;
+  /** Phase D (step 2): the draft's recorded uses, and whether all were read. */
+  uses?: readonly SourceUseRow[];
+  usesTruncated?: boolean;
 }): ContextInclusion {
+  const rowUses = usesByKey(input.sources, input.uses ?? []);
+  const withUses = (row: ContextInclusionRow): ContextInclusionRow => {
+    const found = rowUses.get(row.key);
+    return found && found.length > 0 ? { ...row, uses: found } : row;
+  };
   const digestByTranscript = new Map<string, InclusionSourceRow>();
   for (const row of input.sources) {
     if (row.kind === "transcript_digest" && row.transcriptId && !digestByTranscript.has(row.transcriptId)) {
@@ -188,6 +263,7 @@ export function assembleContextInclusion(input: {
     documentsTotal: documentRows.length + companyRows.length,
     documentsTruncated: (input.documentsTruncated ?? false) || (input.sourcesTruncated ?? false),
     sourcesTruncated: input.sourcesTruncated ?? false,
-    rows: [...transcriptRows, ...documentRows, ...companyRows],
+    ...(input.usesTruncated ? { usesTruncated: true } : {}),
+    rows: [...transcriptRows, ...documentRows, ...companyRows].map(withUses),
   };
 }

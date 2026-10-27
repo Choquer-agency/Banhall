@@ -121,6 +121,7 @@ export {
   briefOmittedSourcesNotice,
   buildBriefUserMessage,
 } from "../lib/briefRequest";
+import { briefMessageWithReport } from "../lib/briefRequest";
 
 const briefOutputSchema: z.ZodType<BriefAgentOutput> = z.object({
   storyline: z.string().default(""),
@@ -710,6 +711,30 @@ export async function deriveBriefCandidates<I extends string>(
 }
 
 /**
+ * Phase D (step 2): what the Brief request sends of each frozen row, as
+ * `buildBriefUserMessage` builds it from these rows. A reused or adopted
+ * Brief was made from rows with the same text (the same inputs hash, or a
+ * verified mapping), so the same report says what its own run read.
+ * Telemetry only: a failure is logged, never thrown.
+ */
+async function recordBriefUse(
+  ctx: BriefPublishCtx,
+  generationId: Id<"generations">,
+  sources: ReadonlyArray<BriefSourceRow & { _id: Id<"generationSources"> }>
+): Promise<void> {
+  try {
+    const { report } = briefMessageWithReport([...sources]);
+    await ctx.runMutation(internal.generations.recordSourceUse, {
+      generationId,
+      step: "brief",
+      uses: report.map((entry) => ({ sourceId: entry.source._id, sent: entry.sent, total: entry.total, unit: "chars" as const })),
+    });
+  } catch (error) {
+    logBriefStageError("Brief source use not recorded", generationId, error);
+  }
+}
+
+/**
  * The stage: compute inputsHash, reuse the stored Brief when inputs are
  * unchanged, otherwise run one structured call and persist the result.
  * Returns which of those happened with the Brief id, or `no_evidence` if the
@@ -750,6 +775,7 @@ export async function deriveOrReuseBrief(
         inputsHash,
       }))?._id;
   if (reusableId) {
+    await recordBriefUse(ctx, args.generationId, sources);
     // Outside Step-by-step the stamp checks the reused Brief under owner
     // decision 25 and may return a new version of it (review 2026-09-25).
     const briefId = args.seedStartup
@@ -773,6 +799,7 @@ export async function deriveOrReuseBrief(
   }
 
   const adapter = generationBriefAdapter(ctx, args.generationId, sources);
+  await recordBriefUse(ctx, args.generationId, sources);
   // Round 2 (F2, decision 57): during Step-by-step startup the Brief
   // streams, and each entry is located as it arrives the way publishing
   // locates it (decision 25 applied) and written as a display-only reading
@@ -842,6 +869,7 @@ export async function deriveOrAdoptSeedBrief(
         generationId: args.generationId,
         inputsHash,
       });
+      if (adoption.kind === "adopted" || adoption.kind === "attached") await recordBriefUse(ctx, args.generationId, sources);
       if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
       if (adoption.kind === "attached") return { kind: "attached" };
     } catch (error) {

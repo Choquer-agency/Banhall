@@ -406,6 +406,10 @@ async function seedProjectRows(
     const sourceId = await ctx.db.insert("generationSources", {
       generationId, projectId, kind: "transcript", label: "l", content: "c", contentHash: "h", truncated: false, originalLength: 1, capturedAt: now,
     });
+    // Phase D (step 2): what a step sent of the frozen row.
+    await ctx.db.insert("generationSourceUse", {
+      generationId, projectId, step: "brief", sourceId, state: "whole", sent: 1, total: 1, unit: "chars", at: now,
+    });
     const briefId = await ctx.db.insert("generationBriefs", { projectId, generationId, inputsHash: "h", version: 1, origin: "derived", storylineText: "s", createdAt: now });
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,

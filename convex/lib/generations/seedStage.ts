@@ -1410,7 +1410,9 @@ function planItemSourcesOf(
  */
 export async function loadFactsSourceDocuments(
   ctx: { db: QueryCtx["db"] },
-  generation: Doc<"generations">
+  generation: Doc<"generations">,
+  /** Phase D (step 2): filled with what the check sends of each row it weighs, in UTF-8 bytes. */
+  uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }>
 ): Promise<FactsSourceDocuments> {
   const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
   const documents: FactsSourceDocument[] = [];
@@ -1426,10 +1428,12 @@ export async function loadFactsSourceDocuments(
     const bytes = new TextEncoder().encode(document.content).byteLength;
     if (used + bytes > budget) {
       leftOut.push({ label: document.label, bytes });
+      uses?.push({ sourceId: row._id, sent: 0, total: bytes });
       continue;
     }
     used += bytes;
     documents.push(document);
+    uses?.push({ sourceId: row._id, sent: bytes, total: bytes });
   }
   return { documents, leftOut, budget };
 }

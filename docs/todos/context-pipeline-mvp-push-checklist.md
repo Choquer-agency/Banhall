@@ -599,13 +599,34 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers (gpt-6-astra, medium; Claude Opus 5.5, low as it reported). Fixes in the ninth decision entry.
 - [ ] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
 
-- [ ] A project whose files do not fit: ask about something only a late file says. The assistant searches, opens the file and answers.
+- [x] A project whose files do not fit (Insporos, a 52,000-character writer's notes file): asked about something only the prior-year report says, the assistant searched three times and answered from it, saying the finding was last year's and that no numeric threshold exists.
 
 ### Manual on localhost
 
 - [ ] The same, in the browser, on a project with many files and on a small one.
+
+## Phase D, step 2: every step records what it read
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (tenth)".
+
+What changes:
+
+- **Each file in the Brief's Inputs band says which steps read it**, and whether they read it whole or in part: the analysis, the Brief, Seeds (per Batch) and the facts check.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Automated, live on localhost
+
+- [ ] A Step-by-step draft: the band names, for each file, the steps that read it.
+
+### Manual on localhost
+
+- [ ] Open the Brief's Inputs band on a finished draft and read the line under each file.

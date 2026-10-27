@@ -17,6 +17,7 @@ import {
 } from "../orderedChain";
 import { v, type Infer, type ObjectType } from "convex/values";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
+import { insertSourceUses } from "./sourceUse";
 import { appendGenerationProgress } from "../generationProgress";
 import {
   persistOrderedPayload,
@@ -317,9 +318,12 @@ export async function orderedSectionClaim(
   });
   // 2026-10-04 (second, round 2): a signed-off plan's facts check reads the
   // source documents in full when they fit its budget.
+  const factsUses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }> = [];
   const factsSourceDocuments = args.generation.summaryVersionId
-    ? await loadFactsSourceDocuments(ctx, args.generation)
+    ? await loadFactsSourceDocuments(ctx, args.generation, factsUses)
     : undefined;
+  // Phase D (step 2): what this Line's facts check reads of each frozen row.
+  await insertSourceUses(ctx, args.generation, "facts_check", `line:${args.section}`, factsUses, "bytes");
   return {
     projectId: args.generation.projectId,
     model: args.row.model,

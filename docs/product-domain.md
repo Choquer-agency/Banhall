@@ -4384,7 +4384,45 @@ Context pipeline plan, Phase D, step 1 (`docs/todos/phase-d-search-first.md`): p
   - `convex/chatTurns.test.ts`: the action's turn.
   - `convex/chatDocuments.test.ts`: search through current pieces with their place, stale pieces searched the old way, and the excerpt window.
   - `convex/ai/chatDocumentTools.test.ts`: parts across a boundary and the page.
+- **Review of 2679d0e6.** gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), both "ship after fixes". Fixed:
+  - an accented word past an excerpt's first 1,500 characters was never found, since the window looked for folded terms in unfolded text; it now folds the piece the way scoring does, with a map back, and anchors on the rarest term;
+  - whole or none is decided on each file as sent, after marker neutralization, so none is cut while others go in;
+  - a file shown whole gets no truncation notice for its Word marks;
+  - files with current pieces that fill the old path's 16 places now mark the search not complete;
+  - the piece search is charged to the search's read budget and reads a file row only while its file can still give a hit;
+  - the notice no longer gives a reason that can be wrong;
+  - a piece over two pages is placed as "pages X-Y".
+
+  Tests added: an accented late match, a Word file whole, neutralization, the settings document in a turn by search, and crowding. Still a known limit: one file whose text cannot be read sends the whole turn to search.
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed by gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), both "go after changes".
+
+### 2026-10-26 (tenth): Every step of a draft records what it read of each file, and the Inputs band shows it (owner)
+
+Context pipeline plan, Phase D, step 2 (`docs/todos/phase-d-search-first.md`), P0 item 5: part 2 of the first 2026-10-26 entry, "the Inputs band names what each draft used". No request to a model changes, no workflow stage, transition or permission is added, and nothing an AI writes is applied.
+
+- **What is recorded.** A new table, `generationSourceUse`, gets one row per frozen row per step run. A row is written once and never changed, so Seed Batches running at once do not conflict. It holds:
+  - the draft, the step, and the run (a Seed Batch, or a Line's facts check);
+  - the frozen row;
+  - whole, part or left out, with how much was sent of how much, in characters or bytes.
+- **Who writes it.**
+  - The analyzer writes with its existing record (`recordContextBudget`).
+  - The Brief writes when it is derived, reused or adopted, from what `buildBriefUserMessage` sends of the draft's own rows (`briefMessageWithReport`, the same loop). A reused or adopted Brief was made from rows with the same text.
+  - Each Seed Batch writes when its prompt is built, from the report `buildSeedPrompt` already made and threw away.
+  - The facts check writes from each Line's claim: whole or nothing within its 48,000 bytes.
+- **Recording is telemetry.** A row that cannot be written is logged and never fails a step. Rows of another draft are skipped.
+- **The Inputs band.** Each file and transcript gets a quiet second line saying which steps read it and how much, for example "Read by the analysis (whole), Seeds (whole, 13 of 13 Batches). Not read by the Brief." A transcript read through its digest or fact pack takes their records, as it takes their outcome. The band reads at most 6,000 records, after the documents, within its read budget, and says when it could not read them all (`usesTruncated`).
+- **Erasure.** The table is in `PROJECT_SCOPED_TABLES`, so a project's erasure deletes its rows.
+- **Migration and compatibility.** Widen only: a new table, optional fields on the band's rows, an optional argument on `loadFactsSourceDocuments`. Drafts made before it have no records, and their band shows no second line.
+- **Tests:**
+  - `convex/lib/contextInclusion.test.ts` (the summary per row, a transcript through its digest);
+  - `src/lib/brief.test.ts` (the words);
+  - `convex/contextInclusion.test.ts` (the analyzer's and a Batch's records in the band);
+  - `convex/seedFirstBatch.test.ts` (a Batch records its prompt);
+  - `convex/citationSpeakers.test.ts` (a derived and a reused Brief record);
+  - `convex/companyFileDrafts.test.ts` (the facts check's whole or none);
+  - `convex/projectErasure.test.ts`;
+  - `src/lib/components/brief/BriefRailPanel.component.test.ts` (the line under a file).
+- **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all".
 
 ## Amendment process
 

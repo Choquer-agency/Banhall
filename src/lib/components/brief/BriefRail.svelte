@@ -16,6 +16,7 @@
     groupBrief,
     inclusionHeader,
     inclusionStatusText,
+    inclusionUsesText,
     liveCount,
     offerHref,
     offerSentence,
@@ -226,6 +227,9 @@
         <li class="flex items-baseline gap-3 border-b border-line-soft px-4 py-2.5">
           <span class="min-w-0 flex-1 break-words text-body">
             {#if row.kind === "company"}<span class="mr-1.5 text-data text-ink-muted" data-inclusion-company>Company file</span>{/if}{row.label}
+            {#if inclusionUsesText(row.uses)}
+              <span class="block text-data text-ink-muted" data-inclusion-uses>{inclusionUsesText(row.uses)}</span>
+            {/if}
           </span>
           {#if row.inclusion}
             <span

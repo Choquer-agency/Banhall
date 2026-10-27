@@ -521,6 +521,21 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
     expect(await read(s)).toEqual(refused);
   });
 
+  it("a Batch records what its prompt carried of each frozen row (Phase D, step 2)", async () => {
+    const s = await setup();
+    await initialize(s);
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    const [batch] = (await read(s)).batches;
+    await runGenerateBatchJob(s);
+    const uses = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(uses.map((use) => ({ step: use.step, run: use.run, state: use.state, unit: use.unit }))).toEqual([
+      { step: "seeds", run: batch!._id, state: "whole", unit: "bytes" },
+    ]);
+    expect(uses[0]!.sent).toBe(uses[0]!.total);
+  });
+
   it("a Batch queued before the project left the company fails at once as a company change (review round 3)", async () => {
     const s = await setup();
     const { borealis } = await s.t.run(async (ctx) => {

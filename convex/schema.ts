@@ -3004,6 +3004,25 @@ export default defineSchema({
     .index("by_projectId", ["projectId"]),
 
   // Immutable source text captured before candidate fan-out.
+  // 2026-10-26 (Phase D, step 2): what each step of a draft sent of each
+  // frozen row, one row per source per step run, written once and never
+  // patched (Seed Batches run at once). Read by the Inputs band.
+  generationSourceUse: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    step: v.union(v.literal("analyzer"), v.literal("brief"), v.literal("seeds"), v.literal("facts_check")),
+    /** The run within the step: a Seed Batch, or a Line's facts check. */
+    run: v.optional(v.string()),
+    sourceId: v.id("generationSources"),
+    state: v.union(v.literal("whole"), v.literal("part"), v.literal("left_out")),
+    /** How much of the source was sent, and its size, in `unit`. */
+    sent: v.number(),
+    total: v.number(),
+    unit: v.union(v.literal("chars"), v.literal("bytes")),
+    at: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
   generationSources: defineTable({
     generationId: v.id("generations"),
     projectId: v.id("projects"),

@@ -102,6 +102,32 @@ describe("BriefRailPanel", () => {
     expect(container.textContent).toContain("acme-history.docx");
   });
 
+  it("says under a file which steps read it and how much (Phase D, step 2)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 1,
+      documentsTotal: 2,
+      rows: [
+        {
+          key: "source:d1", kind: "document", label: "report.pdf", inclusion: "included",
+          uses: [
+            { step: "analyzer", runs: 1, read: 1, whole: true },
+            { step: "seeds", runs: 13, read: 13, whole: true },
+          ],
+        },
+        { key: "source:d2", kind: "document", label: "notes.txt", inclusion: "not_included" },
+      ],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect
+      .poll(() => container.querySelector("[data-inclusion-uses]")?.textContent)
+      .toBe("Read by the analysis (whole), Seeds (whole, 13 of 13 Batches).");
+    expect(container.querySelectorAll("[data-inclusion-uses]")).toHaveLength(1);
+  });
+
   it("saves an edit through saveEntryEdit with the project, Brief and version fence", async () => {
     __setQueryData("briefs:getBrief", storedBrief());
     __setQueryData("writerProfiles:getGenerationWriterSettings", null);

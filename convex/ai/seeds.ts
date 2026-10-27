@@ -17,6 +17,7 @@ import type {
   failAttempt,
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
+import type { recordSourceUse } from "../generations";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
 import { STRUCTURED_OUTPUT_PROGRAM, StructuredValidationError, generateStructured } from "./structured";
 import { startActionDeadline } from "./actionDeadline";
@@ -109,6 +110,13 @@ const completeAttemptRef = makeFunctionReference<
   FunctionArgs<CompleteAttemptRef>,
   FunctionReturnType<CompleteAttemptRef>
 >("seedRuns:completeAttempt");
+type RecordSourceUseRef = FunctionReferenceFromExport<typeof recordSourceUse>;
+const recordSourceUseRef = makeFunctionReference<
+  "mutation",
+  FunctionArgs<RecordSourceUseRef>,
+  FunctionReturnType<RecordSourceUseRef>
+>("generations:recordSourceUse");
+
 const failAttemptRef = makeFunctionReference<
   "mutation",
   FunctionArgs<FailAttemptRef>,
@@ -646,6 +654,21 @@ export const generateBatch = internalAction({
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
       });
+      // Phase D (step 2): what this Batch's prompt carries of each frozen
+      // row. Telemetry only: a failure is logged, never fails the Batch.
+      await ctx
+        .runMutation(recordSourceUseRef, {
+          generationId: claim.batch.generationId,
+          step: "seeds",
+          run: claim.batch.batchId,
+          uses: request.sources.map((entry) => ({
+            sourceId: validatedId<"generationSources">(entry.sourceId),
+            sent: entry.included ? entry.includedBytes : 0,
+            total: entry.originalBytes,
+            unit: "bytes" as const,
+          })),
+        })
+        .catch((error: unknown) => console.warn("Seed source use not recorded", String(error).slice(0, 200)));
       // Owner decision 43: the batch was dispatched on its step's model;
       // the step's request settings come from the same frozen routing.
       const freeze = await registerGenerationModels(ctx, claim.batch.generationId);

@@ -27,7 +27,7 @@ import { buildSeedTrustedContext, buildTrustedContext } from "./ai/trustedContex
 import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE, visibleSourceLabel } from "./lib/companyEvidence";
 import { assembleContextInclusion } from "./lib/contextInclusion";
 import { verifiedSourceMapping } from "./lib/generations/briefAdoption";
-import { factsSourceDocumentOf } from "./lib/generations/seedStage";
+import { factsSourceDocumentOf, loadFactsSourceDocuments } from "./lib/generations/seedStage";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "company-drafts-writer";
@@ -415,6 +415,20 @@ describe("review fixes, 2026-10-26", () => {
       contentHash: fields[0]!.contentHash,
       label: fields[0]!.label,
     });
+  });
+
+  it("the facts check says what it reads of each row, whole or none (Phase D, step 2)", async () => {
+    const s = await setup({ documents: ["x".repeat(60_000)] });
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    const generationId = await start(s);
+    const uses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }> = [];
+    const loaded = await s.t.run(async (ctx) => loadFactsSourceDocuments(ctx, (await ctx.db.get(generationId))!, uses));
+    const kinds = await s.t.run(async (ctx) =>
+      Promise.all(uses.map(async (use) => [(await ctx.db.get(use.sourceId))!.kind, use.sent === use.total ? "whole" : use.sent === 0 ? "none" : "part"]))
+    );
+    // The transcript and the company file fit; the 60,000-character file is past the 48,000-byte budget.
+    expect(kinds).toEqual([["transcript", "whole"], ["project_document", "none"], ["company_file", "whole"]]);
+    expect(loaded.leftOut).toHaveLength(1);
   });
 
   it("a draft records the company whose files it froze, and nothing when it froze none (review round 3)", async () => {

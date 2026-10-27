@@ -55,6 +55,15 @@ export const CONFIDENCE_WORDS: Record<Confidence, string> = {
   unreliable: "unreliable",
 };
 
+/** Phase D (step 2): how one step of the draft read one row. */
+export type RowUse = {
+  step: "analyzer" | "brief" | "seeds" | "facts_check";
+  /** The step's runs that weighed the row, how many read some of it, and whether every one that read it read it whole. */
+  runs: number;
+  read: number;
+  whole: boolean;
+};
+
 export type InclusionRow = {
   key: string;
   /** "company": a file of the project's company the draft used (Phase C). */
@@ -62,7 +71,42 @@ export type InclusionRow = {
   label: string;
   inclusion: Inclusion | null;
   reason?: InclusionReason;
+  uses?: RowUse[];
 };
+
+const USE_STEP_WORDS: Record<RowUse["step"], string> = {
+  analyzer: "the analysis",
+  brief: "the Brief",
+  seeds: "Seeds",
+  facts_check: "the facts check",
+};
+
+const USE_RUNS_WORDS: Record<RowUse["step"], string> = {
+  analyzer: "runs",
+  brief: "runs",
+  seeds: "Batches",
+  facts_check: "Lines",
+};
+
+/**
+ * Phase D (step 2): which steps read a row and how much, in plain words:
+ * "Read by the analysis (whole), Seeds (part, 3 of 13 Batches). Not read by
+ * the Brief." Empty when no step recorded a use.
+ */
+export function inclusionUsesText(uses: readonly RowUse[] | undefined): string {
+  if (!uses || uses.length === 0) return "";
+  const read = uses.filter((use) => use.read > 0).map((use) => {
+    const count = use.runs > 1 ? `, ${use.read} of ${use.runs} ${USE_RUNS_WORDS[use.step]}` : "";
+    return `${USE_STEP_WORDS[use.step]} (${use.whole ? "whole" : "part"}${count})`;
+  });
+  const unread = uses.filter((use) => use.read === 0).map((use) => USE_STEP_WORDS[use.step]);
+  return [
+    read.length ? `Read by ${read.join(", ")}.` : "",
+    unread.length ? `Not read by ${unread.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 /**
  * "12 of 40 documents in context · cap 12". A truncated listing (DW-133) reads

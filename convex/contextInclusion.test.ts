@@ -84,6 +84,36 @@ async function recordFromRealReport(t: TestConvex, generationId: Id<"generations
   return report;
 }
 
+describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
+  it("the analyzer's record and a Seed Batch's show on their rows", async () => {
+    const { t, authed, projectId } = await setup();
+    for (let index = 0; index < 13; index += 1) {
+      await authed.mutation(api.documents.uploadDocument, {
+        projectId, fileName: `attachment-${index}.txt`, fileType: "txt", content: `Readable internal document number ${index}.`,
+      });
+    }
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    await recordFromRealReport(t, generationId);
+    const frozen = await t.run((ctx) =>
+      ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    const last = frozen.filter((row) => row.kind === "project_document").at(-1)!;
+    await t.mutation(internal.generations.recordSourceUse, {
+      generationId, step: "seeds", run: "batch-1",
+      uses: [{ sourceId: last._id, sent: 10, total: 40, unit: "bytes" }],
+    });
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    const row = inclusion!.rows.find((entry) => entry.key === `source:${last._id}`)!;
+    // The 13th file is past the analyzer's cap of 12: it was left out there, read in part by the Batch.
+    expect(row.uses).toEqual([
+      { step: "analyzer", runs: 1, read: 0, whole: false },
+      { step: "seeds", runs: 1, read: 1, whole: false },
+    ]);
+    const first = inclusion!.rows.find((entry) => entry.kind === "document")!;
+    expect(first.uses).toEqual([{ step: "analyzer", runs: 1, read: 1, whole: true }]);
+  });
+});
+
 describe("getContextInclusion (story 4)", () => {
   it("40 uploaded documents: all frozen, 12 in context under cap 12, inclusion stored per row", async () => {
     const { t, authed, projectId } = await setup();

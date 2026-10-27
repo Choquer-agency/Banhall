@@ -22,6 +22,7 @@ import { createReadBudget } from "../readBudget";
 import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclusion";
 import { documentHasText } from "../documentText";
 import { MAX_FROZEN_SOURCE_ROWS, withCurrentCompanyFiles } from "../briefEvidence";
+import { recordAnalyzerUse } from "./sourceUse";
 import { hasCapability } from "../../../shared/capabilities";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
@@ -233,6 +234,8 @@ export async function recordContextBudgetHandler(
       // Story 4 (AD-30): the only writer of `inclusion`.
       inclusion: sourceInclusion(entry),
     });
+    // Phase D (step 2): the same outcome as the analyzer's source use row.
+    await recordAnalyzerUse(ctx, args.generationId, row.projectId, entry.sourceId, entry, row.content.length);
   }
   return null;
 }
@@ -257,6 +260,14 @@ export const INCLUSION_READ_BYTES = 14 * (1 << 20);
 export const INCLUSION_SOURCE_ROWS = 200;
 
 export const INCLUSION_DOCUMENT_ROWS = 1000;
+
+/**
+ * Phase D (step 2): recorded uses one Inputs band reads. A draft writes a
+ * row per frozen source per step run: at most 123 sources, the analyzer and
+ * the Brief once or a few times, each Seed Batch and each Line's facts
+ * check once; rows are small.
+ */
+export const INCLUSION_USE_ROWS = 6000;
 
 /** Argument validators of generations.getContextInclusion. */
 export const getContextInclusionArgs = { generationId: v.id("generations") };
@@ -323,7 +334,20 @@ export async function getContextInclusionHandler(
       return [{ _id: document._id, fileName: document.fileName, reason }];
     });
   }
+  // Phase D (step 2): what each step sent of each frozen row, after the
+  // documents so they keep the budget first.
+  const useRead = await reads.list(
+    ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", generation._id)),
+    INCLUSION_USE_ROWS
+  );
   return assembleContextInclusion({
+    uses: useRead.rows.map((use) => ({
+      sourceId: use.sourceId,
+      step: use.step,
+      ...(use.run ? { run: use.run } : {}),
+      state: use.state,
+    })),
+    usesTruncated: !useRead.complete,
     sources: sources.map((row) => ({
       _id: row._id,
       kind: row.kind,
