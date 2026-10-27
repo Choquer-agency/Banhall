@@ -365,19 +365,35 @@ function decodeSummaryItems(value: {
 }
 
 /**
- * The root must be an object with no unknown property, and at least one of
- * its verdict lists must be a list: an answer with neither holds nothing to
- * read and is rejected whole (2026-09-28, fifth).
+ * The root must be an object, and at least one of its verdict lists must be
+ * a list: an answer with neither holds nothing to read and is rejected whole
+ * (2026-09-28, fifth). A property the answer should not have (the release
+ * suite of 2026-10-27 saw a stray top-level `repairGuidance`) is read and
+ * ignored, logged by name only, as a repeated merged id is (2026-10-22,
+ * third); it is never a reason to drop the whole Self-check.
  */
+const SUMMARY_SELF_CHECK_ROOT_KEYS = new Set(["verdicts", "planVerdicts", "storylineQuestion"]);
 const decodedSummaryPlanSelfCheckOutputSchema = z.object({
   verdicts: z.unknown().optional(),
   planVerdicts: z.unknown().optional(),
   storylineQuestion: z.unknown().optional(),
-}).strict()
+}).passthrough()
   .refine((value) => Array.isArray(value.verdicts) || Array.isArray(value.planVerdicts), {
     message: "neither verdicts nor planVerdicts is a list",
   })
-  .transform(decodeSummaryItems);
+  .transform((value) => {
+    const ignored = Object.keys(value).filter((key) => !SUMMARY_SELF_CHECK_ROOT_KEYS.has(key));
+    if (ignored.length > 0) {
+      console.warn(
+        `submit_self_check: ignored ${ignored.length} unknown top-level field(s): ${ignored.map((key) => key.slice(0, 40)).join(", ")}`
+      );
+    }
+    return decodeSummaryItems({
+      verdicts: value.verdicts,
+      planVerdicts: value.planVerdicts,
+      storylineQuestion: value.storylineQuestion,
+    });
+  });
 
 /**
  * Real reasons run 90 to 280 bytes while the reservations allow 64 (reason)

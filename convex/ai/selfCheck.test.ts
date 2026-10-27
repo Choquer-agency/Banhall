@@ -1045,11 +1045,11 @@ describe("Self-check before display (CAP-9)", () => {
 
     // Only an answer whose root is malformed or over the answer's ceiling is
     // unreadable and rejects the whole check (2026-09-28, run 4; the ceiling
-    // since 2026-10-22, third).
+    // since 2026-10-22, third). A small unknown root property is ignored
+    // (release suite, 2026-10-27).
     const malformed: Array<[string, (response: typeof valid) => void]> = [
       ["oversized unknown root property", (response) => { Object.assign(response, { unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1) }); }],
       ["oversized unknown nested property", (response) => { Object.assign(response.planVerdicts[0], { unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1) }); }],
-      ["unknown root property", (response) => { Object.assign(response, { unknownRoot: true }); }],
     ];
     for (const [name, mutate] of malformed) {
       const response = structuredClone(valid);
@@ -1057,6 +1057,15 @@ describe("Self-check before display (CAP-9)", () => {
       const rejected = await execute(response);
       await expect(rejected.result, name).rejects.toThrow();
       expect(rejected.create, name).toHaveBeenCalledTimes(1);
+    }
+    // Release suite, 2026-10-27: a small unknown root property is read and
+    // ignored, never a reason to reject the answer.
+    {
+      const response = structuredClone(valid);
+      Object.assign(response, { repairGuidance: "Shorten paragraph 2." });
+      const ignored = await execute(response);
+      await expect(ignored.result).resolves.toBeDefined();
+      expect(ignored.create).toHaveBeenCalledTimes(1);
     }
 
     // One invalid or malformed verdict is dropped; its label or plan check

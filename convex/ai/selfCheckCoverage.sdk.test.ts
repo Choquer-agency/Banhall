@@ -934,12 +934,18 @@ describe("a verdict list of the wrong type is asked for again (real SDK, fetch s
       diagnostic: "response failed validation: (root) neither verdicts nor planVerdicts is a list",
       calls: 1,
     });
-    // An unknown property still makes the root unreadable.
-    expect((await diagnosticFor({
+    // Release suite, 2026-10-27: an unknown top-level property (the run saw a
+    // stray repairGuidance) is read and ignored, never a reason to drop the
+    // Self-check, and the answer is read in one request.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    expect(await diagnosticFor({
       verdicts: ordinary.map(verdictFor),
       planVerdicts: plans.map(planVerdictFor),
-      notes: "extra",
-    })).diagnostic).toMatch(/^response failed validation: \(root\) unrecognized_keys/);
+      repairGuidance: "Shorten paragraph 2.",
+    })).toEqual({ diagnostic: null, calls: 1 });
+    expect(warn.mock.calls.flat().join(" ")).toContain("ignored 1 unknown top-level field(s): repairGuidance");
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("Shorten paragraph 2.");
+    warn.mockRestore();
   });
 });
 

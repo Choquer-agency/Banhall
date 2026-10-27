@@ -897,3 +897,16 @@ What changes:
 
 - [ ] Duplicate a project in the wizard: the copy finishes before the new project opens, and its Files panel shows every file as ready.
 - [ ] A file shown as "Being copied" or "Could not copy" reads clearly, with no Replace button while it is being copied.
+
+## F6: release suite, live
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`.
+
+### Automated, live on localhost
+
+- [x] All six fixtures on the live copy at `08a53a18` ($6.70): four passed every check; exclusion-conflict failed two (a Self-check answer with a stray top-level field, fixed in the next commit); withdrawn-feedback stopped at Hypothesis (Sonnet 5.5 wrote bullets over 25 words four times). Rerun of withdrawn-feedback: 12 of 13, the one miss a heuristic ($1.14).
+- [ ] Exclusion-conflict rerun after the fix (closes F4).
+
+### Manual on localhost
+
+- [ ] The owner's verdict on each fixture's judging pack (the release checklist's human step).
