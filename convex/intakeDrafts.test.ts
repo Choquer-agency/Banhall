@@ -8,6 +8,7 @@
  * retention (discard, idle and absolute expiry), usage counted once, the
  * request at the SDK's HTTP boundary, and the Duplicate copy receipt.
  */
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -427,7 +428,7 @@ describe("promotion and adoption", () => {
     const adopted = await s.t.run(async (ctx) => {
       const generation = (await ctx.db.get(generationId))!;
       const entries = await ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!)).collect();
-      const sources = await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect();
+      const sources = (await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()));
       return { generation, entries, sources };
     });
     expect(adopted.generation.briefPreparation).toMatchObject({ preparationId: prepared._id, state: "adopted" });

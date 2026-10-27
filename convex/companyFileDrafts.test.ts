@@ -6,6 +6,7 @@
  * never count as this year's source; the Inputs band names them; and a
  * project with no company, or a draft of one, is exactly as before.
  */
+import { withSourceTexts } from "./lib/sourceText";
 import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
@@ -108,7 +109,7 @@ async function addCompanyFile(
 
 async function sourcesOf(s: Setup, generationId: Id<"generations">) {
   return await s.t.run(async (ctx) =>
-    ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
   );
 }
 

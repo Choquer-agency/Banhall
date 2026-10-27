@@ -5,6 +5,7 @@
  * late writes, retention, usage, and the request a preparation sends
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
+import { withSourceTexts } from "./lib/sourceText";
 import type { SourceRowWithText } from "./lib/sourceText";
 import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
@@ -224,7 +225,7 @@ async function reserve(s: Setup, args: { singleModelId?: string } = {}) {
 
 async function generationSources(s: Setup, generationId: Id<"generations">) {
   return await s.t.run(async (ctx) =>
-    ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
   );
 }
 
@@ -346,10 +347,10 @@ describe("preparing and adopting", () => {
         .query("generationBriefEntries")
         .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
         .collect();
-      const sources = await ctx.db
+      const sources = (await withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect();
+        .collect()));
       const facts = await ctx.db
         .query("generationReadingFacts")
         .withIndex("by_generationId_and_seq", (q) => q.eq("generationId", generationId))

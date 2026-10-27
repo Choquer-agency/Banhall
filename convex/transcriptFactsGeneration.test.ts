@@ -6,6 +6,7 @@
  * `fetch` stubbed. Covers facts that are ready before the generation, facts
  * extracted inside it, the fallback when extraction fails, and the flag off.
  */
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -210,10 +211,10 @@ async function generate(f: Awaited<ReturnType<typeof setup>>) {
   const state = await f.t.run(async (ctx) => ({
     generation: await ctx.db.get(generationId),
     progress: await allGenerationProgress(ctx, generationId),
-    sources: await ctx.db
+    sources: (await withSourceTexts(ctx, await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-      .collect(),
+      .collect())),
     entries: await ctx.db.query("generationBriefEntries").collect(),
     subsections: await ctx.db
       .query("seedSubsections")

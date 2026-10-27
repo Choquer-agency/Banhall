@@ -815,3 +815,21 @@ What changes:
 
 - [x] `node scripts/seed-plan-eval.mjs --deployment local --as <reviewer> --confirm-spend --compare preferences --fixture skipped-role-supported` on the live copy at 3f724739 (2026-10-27, $2.33): the "without" draft used 0 saved preferences although the acting reviewer has 2 switched on, the "with" draft used 3, both passed all 12 automatic checks, and `compare.md` said so. The preferences showed in the text: "the team" 6 times without and 0 with, "we" 0 times without and 26 with, and the mean sentence 32.1 words without and 23.6 with (16 of 55 sentences over 25 words, against 23 of 41). This run predates the review fix that gives both arms the same title.
 
+## B1, second part: drafts refer to stored text instead of copies
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (sixth)". Plan: `docs/todos/b1-text-versions.md`.
+
+What changes:
+
+- **A draft no longer keeps its own copy of each file's text.** The text is stored once and every later draft of the project refers to it, so a project with many drafts takes far less room. Transcripts are referred to where they are kept.
+- **Nothing a writer sees changes**: the Brief, Seeds, drafts, quotes and chat read the same text as before.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] A draft of a project with Word, PDF and company files on the live copy: the Brief, Seeds, sign-off and the report as before; a second draft stores no new text.
+

@@ -202,7 +202,7 @@ Users also have `notifications` (their inbox) and the `workItems` assigned to th
 
 **A file's text lives apart from its row (2026-10-22).** A `projectDocuments` row keeps facts about its text (length, a fingerprint, word count, an opening preview). The text itself is stored in `projectDocumentTexts`, in pieces of at most 32,000 characters. Every read goes through `convex/lib/documentText.ts`, so lists, uploads and chat read only what they need. Older rows keep their text on the row until the one-off backfill in `convex/documentTextMigration.ts` moves it.
 
-**Earlier text is kept as a version (2026-10-26).** When a server reading replaces a file's text, the text it had is kept first as its next version in `projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`, and never changed (`keepDocumentTextVersion` in `convex/lib/documentText.ts`). Versions are deleted with their file and their project. No draft reads a version yet: a draft still freezes its own copy of each file in `generationSources`.
+**Earlier text is kept as a version (2026-10-26).** When a server reading replaces a file's text, the text it had is kept first as its next version in `projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`, and never changed (`keepDocumentTextVersion` in `convex/lib/documentText.ts`). Versions are deleted with their file and their project. **Drafts refer to stored text (2026-10-27).** A new draft's `generationSources` row for a project file or company file refers to a version of exactly the text it read, stored once in `sourceTextVersions` and their pieces and reused by later drafts; a transcript row refers to its transcript. Every reader goes through `sourceRowText` (`convex/lib/sourceText.ts`), which checks fingerprints and lengths and returns rows in the old shape. Drafts made before keep their own copies. A project's versions go with the project; a company file's go once the file is removed and no draft uses them (`convex/sourceTextSweep.ts`).
 
 **Clients are new (2026-10-14).** Projects now store both `clientName` and `clientId`, and every write keeps the two in step. Grouping on the Projects page still reads `clientName`; nothing groups by `clientId` yet.
 
@@ -355,7 +355,7 @@ flowchart TD
   classDef human fill:#FFE4E1,stroke:#C0392B,color:#1F1F1F
 
   start["Writer clicks Generate<br/>generations.requestGeneration"]:::human
-  reserve["Reserve the run<br/>check evidence, rate limits, one run per project<br/>copy all evidence into generationSources<br/>freeze the models"]:::server
+  reserve["Reserve the run<br/>check evidence, rate limits, one run per project<br/>record the evidence in generationSources, its text stored once<br/>freeze the models"]:::server
   mode{"Which mode?"}
 
   start --> reserve --> mode
@@ -594,7 +594,7 @@ flowchart TD
 | Purpose | Jobs |
 | --- | --- |
 | Unstick crashed work | Draft runs (every 10 min, after 30 min idle), PD reviews and post-draft QA (every 10 min), chat replies (every 2 min), conversation deletes (every 5 min) |
-| Clean up | Expire intake drafts (every 15 min), purge failed Brief preparations (hourly), release unreferenced files, prune error reports and notifications older than 30 days (daily) |
+| Clean up | Expire intake drafts (every 15 min), purge failed Brief preparations (hourly), release unreferenced files, prune error reports and notifications older than 30 days, sweep company file text versions no draft uses (daily) |
 | Learn | Refresh the QA calibration and draft style digests (daily, 08:00 and 08:15 UTC) |
 | Keep views correct | Rebuild the "waiting on others" view and My Work backfills (every 5 min) |
 | Models | Refresh the model catalog from OpenRouter (daily but Monday, 08:45 UTC); the same refresh plus each tier's move to its newest version (Monday, 08:45 UTC); move a failing new tier model back (hourly at :15, in the first 7 days after a move) |

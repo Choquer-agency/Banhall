@@ -7,6 +7,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
@@ -73,6 +74,15 @@ import { copyRecoverySourceUses } from "./sourceUse";
  * The user-safe summary of a project's active run (F6): who started it, which
  * mode and when. No model, source or error detail.
  */
+
+/**
+ * B1, second part: the most new stored text one reservation writes, just
+ * under a transaction's 16 MiB of writes; a draft whose files would pass it
+ * is refused by name (today the same draft fails on the limit).
+ */
+export const MAX_FROZEN_TEXT_WRITE_BYTES = 15 * 1024 * 1024;
+export const FROZEN_TEXT_TOO_LARGE_MESSAGE =
+  "This draft's files are too large to freeze at once. Leave some files out and start again.";
 export async function activeRunSummary(
   ctx: QueryCtx,
   active: Doc<"generations">
@@ -472,11 +482,30 @@ export async function reserveGeneration(
     startedAt: now,
   });
   await appendGenerationProgress(ctx, { _id: generationId, projectId: project._id }, initialProgress, now);
+  // B1, second part (2026-10-27): a project file or company file row refers
+  // to the stored version of the text it read (written once, reused by
+  // every later draft with the same text), and a transcript row to its
+  // transcript, instead of holding its own copy. What this draft writes is
+  // counted, and refused by name before the transaction's limit.
+  let writtenBytes = 0;
   for (const fields of await frozenSourceFields(evidence)) {
+    const { content, ...rest } = fields;
+    let reference: { textVersionId?: Id<"sourceTextVersions">; textLength: number } = { textLength: content.length };
+    if (fields.kind === "project_document" || fields.kind === "company_file") {
+      const owner: SourceTextOwner =
+        fields.kind === "company_file" && fields.companyFileId
+          ? { companyFileId: fields.companyFileId, ...(fields.clientId ? { clientId: fields.clientId } : {}) }
+          : { projectId: project._id };
+      const stored = await storedSourceTextVersion(ctx, owner, content, fields.contentHash);
+      writtenBytes += stored.writtenBytes;
+      if (writtenBytes > MAX_FROZEN_TEXT_WRITE_BYTES) domainError("INVALID_INPUT", FROZEN_TEXT_TOO_LARGE_MESSAGE);
+      reference = { textVersionId: stored.versionId, textLength: content.length };
+    }
     await ctx.db.insert("generationSources", {
       generationId,
       projectId: project._id,
-      ...fields,
+      ...rest,
+      ...reference,
       capturedAt: now,
     });
   }
@@ -787,7 +816,10 @@ export async function retryFromSummaryHandler(
       companyFileId: current.companyFileId,
       clientId: current.clientId,
       label: current.label,
-      content: current.content,
+      // B1, second part: an old row's own copy, or a new row's reference.
+      ...(current.content !== undefined ? { content: current.content } : {}),
+      ...(current.textVersionId ? { textVersionId: current.textVersionId } : {}),
+      ...(current.textLength !== undefined ? { textLength: current.textLength } : {}),
       contentHash: current.contentHash,
       truncated: current.truncated,
       originalLength: current.originalLength,

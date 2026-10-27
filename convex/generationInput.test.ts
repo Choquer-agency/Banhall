@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -81,10 +82,10 @@ async function setup(seeds: Seed[], documents: string[] = []) {
 async function frozenSources(t: TestConvex, generationId: Id<"generations">) {
   return await t.run(async (ctx) =>
     (
-      await ctx.db
+      (await withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect()))
     ).filter((row) => row.kind === "transcript")
   );
 }
@@ -473,10 +474,10 @@ describe("the analyzer context budget travels with the frozen input", () => {
     expect(input?.contextBudget).toEqual(DEFAULT_CONTEXT_BUDGET);
     const rows = await t.run(async (ctx) =>
       (
-        await ctx.db
+        (await withSourceTexts(ctx, await ctx.db
           .query("generationSources")
           .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-          .collect()
+          .collect()))
       ).filter((row) => row.kind === "project_document")
     );
     expect(input?.contextDocs).toHaveLength(1);
@@ -523,10 +524,10 @@ describe("the analyzer context budget travels with the frozen input", () => {
     });
     const rows = await t.run(async (ctx) =>
       (
-        await ctx.db
+        (await withSourceTexts(ctx, await ctx.db
           .query("generationSources")
           .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-          .collect()
+          .collect()))
       ).filter((row) => row.kind === "project_document")
     );
     expect(
@@ -582,11 +583,11 @@ describe("the analyzer context budget travels with the frozen input", () => {
     const generationId = await authed.mutation(api.generations.requestGeneration, {
       projectId,
     });
-    const before = await t.run((ctx) =>
-      ctx.db
+    const before = await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect())
     );
     const transcriptRow = before.find((row) => row.kind === "transcript")!;
     const documentRow = before.find((row) => row.kind === "project_document")!;
@@ -604,11 +605,11 @@ describe("the analyzer context budget travels with the frozen input", () => {
       ],
     });
 
-    const after = await t.run((ctx) =>
-      ctx.db
+    const after = await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect())
     );
     const patched = after.find((row) => row._id === transcriptRow._id)!;
     const untouched = after.find((row) => row._id === documentRow._id)!;
@@ -632,10 +633,10 @@ describe("the analyzer context budget travels with the frozen input", () => {
     });
     const foreign = await t.run(async (ctx) =>
       (
-        await ctx.db
+        (await withSourceTexts(ctx, await ctx.db
           .query("generationSources")
           .withIndex("by_generationId", (q) => q.eq("generationId", firstId))
-          .collect()
+          .collect()))
       )[0]
     );
     const otherGenerationId = await t.run(async (ctx) =>
@@ -671,11 +672,11 @@ describe("the analyzer context budget travels with the frozen input", () => {
 
 describe("leave-out lists at reservation (decision 56)", () => {
   async function allSources(t: TestConvex, generationId: Id<"generations">) {
-    return await t.run((ctx) =>
-      ctx.db
+    return await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect())
     );
   }
   async function documentIds(t: TestConvex, projectId: Id<"projects">) {

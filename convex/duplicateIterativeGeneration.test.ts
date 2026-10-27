@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -200,11 +201,11 @@ async function projectRows(f: Fixture, projectId: Id<"projects">) {
 }
 
 async function frozenSources(f: Fixture, generationId: Id<"generations">) {
-  return await f.t.run((ctx) =>
-    ctx.db
+  return await f.t.run(async (ctx) =>
+    withSourceTexts(ctx, await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-      .collect()
+      .collect())
   );
 }
 

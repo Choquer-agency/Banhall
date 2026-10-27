@@ -1,4 +1,5 @@
-import type { QueryCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { documentTextPieceEnds } from "./documentText";
 import type { Doc, Id } from "../_generated/dataModel";
 
 /**
@@ -127,4 +128,50 @@ export function sourceRowLength(row: Pick<SourceTextRow, "_id" | "content" | "te
   if (row.content !== undefined) return row.content.length;
   if (row.textLength !== undefined) return row.textLength;
   throw new SourceTextMismatchError(`Draft source ${row._id}: it records no length`);
+}
+
+/** Whose stored text a version is: a project file's, or a company file's. */
+export type SourceTextOwner =
+  | { projectId: Id<"projects"> }
+  | { companyFileId: Id<"companyFiles">; clientId?: Id<"clients"> };
+
+/**
+ * The stored version of exactly this text for this owner, written once: an
+ * existing one with the same fingerprint and length is reused, else the
+ * text is stored in pieces. Returns how many UTF-8 bytes it wrote (0 when
+ * reused), for the caller's write budget. The text is the caller's
+ * already-checked frozen text; `textHash` is its SHA-256.
+ */
+export async function storedSourceTextVersion(
+  ctx: { db: MutationCtx["db"] },
+  owner: SourceTextOwner,
+  text: string,
+  textHash: string
+): Promise<{ versionId: Id<"sourceTextVersions">; writtenBytes: number }> {
+  const existing =
+    "projectId" in owner
+      ? await ctx.db
+          .query("sourceTextVersions")
+          .withIndex("by_projectId_and_textHash", (q) => q.eq("projectId", owner.projectId).eq("textHash", textHash))
+          .first()
+      : await ctx.db
+          .query("sourceTextVersions")
+          .withIndex("by_companyFileId_and_textHash", (q) => q.eq("companyFileId", owner.companyFileId).eq("textHash", textHash))
+          .first();
+  if (existing && existing.textLength === text.length) return { versionId: existing._id, writtenBytes: 0 };
+  const textBytes = new TextEncoder().encode(text).byteLength;
+  const versionId = await ctx.db.insert("sourceTextVersions", {
+    ...owner,
+    textHash,
+    textLength: text.length,
+    textBytes,
+    createdAt: Date.now(),
+  });
+  const pieceOwner = "projectId" in owner ? { projectId: owner.projectId } : { companyFileId: owner.companyFileId };
+  let start = 0;
+  for (const end of documentTextPieceEnds(text)) {
+    await ctx.db.insert("sourceTextVersionPieces", { versionId, ...pieceOwner, start, text: text.slice(start, end) });
+    start = end;
+  }
+  return { versionId, writtenBytes: textBytes };
 }

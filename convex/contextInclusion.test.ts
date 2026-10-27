@@ -2,6 +2,7 @@
 // Story 4 (CAP-11, AD-30): per-document inclusion is recorded once per frozen
 // `generationSources` row by `recordContextBudget` and read through the one
 // query, `generations.getContextInclusion`.
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,8 +109,8 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     }
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
     await recordFromRealReport(t, generationId);
-    const frozen = await t.run((ctx) =>
-      ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    const frozen = await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
     );
     const last = frozen.filter((row) => row.kind === "project_document").at(-1)!;
     await t.mutation(internal.generations.recordSourceUse, {
@@ -152,7 +153,7 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     });
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
     const document = await t.run(async (ctx) =>
-      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+      ((await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())))
         .find((row) => row.kind === "project_document")!
     );
     // More Seed rows than the old shared read of 6,000, written first; the
@@ -188,7 +189,7 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     });
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
     const document = await t.run(async (ctx) =>
-      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+      ((await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())))
         .find((row) => row.kind === "project_document")!
     );
     const record = (sent: number) =>
@@ -214,7 +215,7 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     });
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
     const document = await t.run(async (ctx) =>
-      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+      ((await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())))
         .find((row) => row.kind === "project_document")!
     );
     for (let batch = 0; batch < 3; batch += 1) {
@@ -256,11 +257,11 @@ describe("getContextInclusion (story 4)", () => {
     }
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
 
-    const frozen = await t.run((ctx) =>
-      ctx.db
+    const frozen = await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect())
     );
     expect(frozen.filter((row) => row.kind === "project_document")).toHaveLength(40);
 
@@ -278,11 +279,11 @@ describe("getContextInclusion (story 4)", () => {
     expect(documentRows.filter((row) => row.inclusion === "included")).toHaveLength(12);
     expect(documentRows.filter((row) => row.inclusion === "not_included")).toHaveLength(28);
 
-    const recorded = await t.run((ctx) =>
-      ctx.db
+    const recorded = await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect())
     );
     for (const row of recorded) {
       expect(row.inclusion).toBeDefined();
@@ -306,11 +307,11 @@ describe("getContextInclusion (story 4)", () => {
       });
     }
     const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
-    const frozen = await t.run((ctx) =>
-      ctx.db
+    const frozen = await t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect()
+        .collect())
     );
     expect(frozen.filter((row) => row.kind === "project_document")).toHaveLength(50);
 
@@ -434,11 +435,12 @@ describe("getContextInclusion (story 4)", () => {
     expect(inclusion!.recorded).toBe(true);
     expect(inclusion!.sourcesTruncated).toBe(false);
     expect(inclusion!.rows.filter((row) => row.kind === "transcript")).toHaveLength(4);
-    // Every frozen document is listed from its source row; the walk over
-    // projectDocuments could not finish inside the budget, so the total is a
-    // lower bound and says so.
-    expect(inclusion!.documentsTotal).toBeGreaterThanOrEqual(50);
-    expect(inclusion!.documentsTruncated).toBe(true);
+    // Every frozen document is listed from its source row. B1, second part
+    // (2026-10-27): the draft's rows now refer to their text instead of
+    // holding ~12 MB of copies, so the walk over projectDocuments finishes
+    // inside the budget and the total is exact.
+    expect(inclusion!.documentsTotal).toBe(50);
+    expect(inclusion!.documentsTruncated).toBe(false);
   });
 
   it("bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review)", async () => {
