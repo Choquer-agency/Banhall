@@ -411,7 +411,7 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
 });
 
 describe("a recovery's step records at the edge of the room left (B1 review, round 7)", () => {
-  async function stepRecords(rows: Array<{ step: "analyzer" | "brief" | "seeds"; run: string; state: "whole" | "part" }>) {
+  async function stepRecords(rows: Array<{ step: "analyzer" | "brief" | "seeds"; run?: string; state: "whole" | "part" }>) {
     const t = convexTest(schema, modules);
     return await t.run(async (ctx) => {
       const userId = await ctx.db.insert("users", { authId: "edge", role: "writer" });
@@ -425,7 +425,7 @@ describe("a recovery's step records at the edge of the room left (B1 review, rou
       const copyId = await ctx.db.insert("generationSources", { ...base, generationId: to });
       for (const row of rows) {
         await ctx.db.insert("generationSourceUse", {
-          generationId: from, projectId, sourceId, step: row.step, run: row.run, state: row.state, sent: 1, total: 1, unit: "chars", at: 1,
+          generationId: from, projectId, sourceId, step: row.step, ...(row.run ? { run: row.run } : {}), state: row.state, sent: 1, total: 1, unit: "chars", at: 1,
         });
       }
       return { projectId, from, to, sourceId, copyId };
@@ -442,6 +442,20 @@ describe("a recovery's step records at the edge of the room left (B1 review, rou
     const result = await s.t.run((ctx) => copyRecoverySourceUses(ctx, s.from, { _id: s.to, projectId: s.projectId }, s.copyOf, roomFor(1)));
     expect(result).toEqual({ truncated: false });
     expect(await s.t.run(async (ctx) => (await ctx.db.query("generationSourceUse").withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", s.to)).collect()).length)).toBe(100);
+  });
+
+  it("keeps a cut Brief step's whole records, since the Brief records no run (round 8)", async () => {
+    // 80 whole records, then 40 part records, cut after 100 (the empty
+    // analyzer step takes the first page of room).
+    const s = await stepRecords([
+      ...Array.from({ length: 80 }, () => ({ step: "brief" as const, state: "whole" as const })),
+      ...Array.from({ length: 40 }, () => ({ step: "brief" as const, state: "part" as const })),
+    ]);
+    const result = await s.t.run((ctx) => copyRecoverySourceUses(ctx, s.from, { _id: s.to, projectId: s.projectId }, s.copyOf, roomFor(2)));
+    expect(result).toEqual({ truncated: true });
+    const copied = await s.t.run((ctx) => ctx.db.query("generationSourceUse").withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", s.to)).collect());
+    // One source, so its best whole record is the one kept.
+    expect(copied.map((row) => [row.step, row.state])).toEqual([["brief", "whole"]]);
   });
 
   it("leaves out a run cut part way rather than show it weaker than it was", async () => {

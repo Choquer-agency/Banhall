@@ -834,6 +834,7 @@ What changes:
 - [x] Round 5 review of the round 4 fixes (cc533821): gpt-6-astra (medium), "ship after fixes"; fixed in the next commit.
 - [x] Round 6 review of the round 5 fixes (180f3fee): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
 - [x] Round 7 review of the round 6 fixes (2b760a8e): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
+- [x] Round 8 review of the round 7 fixes (acd9d6c7): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
 - [x] `bash scripts/loop-verify.sh` on the fixes (08ea6469): 7,602 tests passed.
 
 ### Automated, live on localhost

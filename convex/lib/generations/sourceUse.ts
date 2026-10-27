@@ -175,8 +175,8 @@ export async function copyRecoverySourceUses(
   copyOf: ReadonlyMap<Id<"generationSources">, Id<"generationSources">>,
   /**
    * The recovery's transaction guard (B1 review, rounds 5 to 7): records
-   * are read and written a page at a time, asking first, so at most a page
-   * more than needed is left out, and the copy then says it is incomplete,
+   * are read and written a page at a time, asking first, so little more
+   * than needed is left out, and the copy then says it is incomplete,
    * instead of failing the recovery; it says so only when a record was
    * really left out. `read` counts each record read, for runtimes that
    * cannot report their usage.
@@ -199,8 +199,8 @@ export async function copyRecoverySourceUses(
     try {
       pages: for (;;) {
         if (limits && !(await limits.hasRoom("read", (SOURCE_USE_PAGE + 1) * SOURCE_USE_ROW_BYTES))) {
-          // One record more fits in the page's own allowance: it shows
-          // whether anything is really left (round 7).
+          // One record more, taken from the guard's margin (at most one a
+          // step), shows whether anything is really left (round 7).
           const next = await iterator.next();
           if (!next.done) {
             limits.read(next.value);
@@ -226,10 +226,12 @@ export async function copyRecoverySourceUses(
     if (firstLeft) {
       truncated = true;
       // The run cut part way may have its best record among those left
-      // out; its records are left out too rather than shown weaker (round 7).
+      // out, so only its "whole" records stay (round 7): "whole" is the
+      // highest state, so none is shown weaker than it was. The analyzer
+      // and the Brief record no run, so their step is one run (round 8).
       const cutRun = firstLeft.run ?? "";
       if (kept.length > 0 && (kept[kept.length - 1]!.run ?? "") === cutRun) {
-        kept = kept.filter((row) => (row.run ?? "") !== cutRun);
+        kept = kept.filter((row) => (row.run ?? "") !== cutRun || row.state === "whole");
       }
     }
     const best = new Map<string, Doc<"generationSourceUse">>();
