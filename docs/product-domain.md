@@ -4468,6 +4468,29 @@ Context pipeline plan, B1, first part: the owner's backfill ("should be properly
 - **Live check on localhost** (a2d96557): a Word file uploaded as an older tab would send it (plain text, no format) was read again as Markdown on the server and its plain text kept as version 1 (83 characters, `word_markdown`). It showed the version naming the current reader for text the browser had read, fixed with `textReader`.
 - **Approval:** Product owner, 2026-10-26 (chat), quoted above, and part 4 of the first 2026-10-26 entry.
 
+### 2026-10-26 (twelfth): Removing a Brain source withdraws the lessons drawn from it (owner)
+
+Context pipeline plan, Phase E, first part (E2a in `docs/todos/phase-e-learning.md`): part 6 of the first 2026-10-26 entry, "Removing a Brain source withdraws the lessons drawn from it; a published lesson set drawn from it is turned off until an Admin publishes a new one." No workflow stage, transition or permission is added, and no AI writes report prose.
+
+- **The link.** Approving writer feedback records the Brain source it nominated (`brainFeedbackQueue.brainSourceId`; a duplicate links the existing source, so several items can share one).
+- **Removing a source** (revoking it, or removing it for good with `removeSourcePermanently`) withdraws every feedback item linked to it, directly or through its approval's audit row (`withdrawnAt`). New `draft_style` lesson sets skip withdrawn feedback. A second revoke of a source revoked before this change withdraws its feedback too.
+- **The published set.** When the published `draft_style` set drew on withdrawn feedback, it is turned off at once: a `learningDigestSelections` row with no set, actor system, action `source_withdrawn`. A set with an admission record is matched exactly by the feedback it admitted. A set with none (an older set, or the frozen legacy one) counts as drawn from every item approved up to its cutoff, by the time builds use (the approval's audit time, else the item's creation). The Admin reviews page says why guidance is off. `qa_calibration` sets never read Brain feedback and are not touched.
+- **Fences.**
+  - A build whose admitted feedback was withdrawn while its model call ran is not saved (attempt outcome `withdrawn_inputs`).
+  - Publishing, or rolling back to, a set that drew on withdrawn feedback is refused; the reviews page marks such a version and offers no Publish button.
+  - A withdrawal moves a learning revision (the latest withdrawal time). Each candidate records the revision it was built at (`learningDigests.learningRevision`), and both freshness checks compare the cutoff and the revision, so a rebuild after a withdrawal is built and saved even with no newer feedback.
+- **Drafts already running keep the set they froze.** New drafts get no set until an Admin publishes one.
+- **The one-off pass** `brain:linkBrainFeedbackSources` (owner-run, dev first) links older approved feedback to its source through its approval's audit row, withdraws feedback whose source was already revoked or removed, and applies the published-set rule, so the gap before this change closes too.
+- **Migration and compatibility.** Widen only: optional `brainSourceId` and `withdrawnAt` on `brainFeedbackQueue` with two indexes, optional `learningDigests.learningRevision`, the `source_withdrawn` selection action, the `withdrawn_inputs` attempt outcome, two fields on the digest history.
+- **Tests:** `convex/brainWithdrawal.test.ts` (revoke turns the published set off and the feedback leaves the build's inputs; an unrelated set stays on; the legacy rule by cutoff, including feedback linked only through its audit row; publish and roll back refused; revoke during a build; a rebuild with no newer feedback is saved, then the next run finds nothing new; approval links the source; permanent removal of a pending source; the one-off pass), `src/routes/admin/reviews/reviewsPublishGate.component.test.ts` (the reason guidance is off, no Publish on such a version, the new attempt outcome).
+- **Approval:** Product owner, 2026-10-26 (chat): part 6 of the first 2026-10-26 entry, and "yes continue and finish all". Plan `docs/todos/phase-e-learning.md` reviewed in three rounds: Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), then Claude Opus 5.5 (requested high; it reported low), then gpt-6-astra (medium); each "go after changes", all taken.
+
+### Report chat reliability and confidentiality, September 8, 2026
+
+The approved chat hardening request preserves agents-propose/humans-apply and all existing role rights. Enabled saved writing preferences participate even when no house-style waiver is active, subject to the existing enforced-rule precedence. A profile lookup failure stops the reply rather than silently proceeding without the profile.
+
+A coordinated passage revision is one pending proposal (except a zero-edit revision, see 2026-09-14). Every original target must remain unique and non-overlapping at creation and apply. The ordinary individual replacement stepper cannot apply that proposal. The writer may edit candidate wording in the card, then apply the whole revision after server validation.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

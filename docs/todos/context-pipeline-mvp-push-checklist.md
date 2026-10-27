@@ -659,3 +659,25 @@ What changes:
 ### Manual on localhost
 
 - [ ] Open an older Word file's preview: headings, bold and lists show.
+
+## Phase E, first part: removing a Brain source withdraws its lessons
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (twelfth)". Plan: `docs/todos/phase-e-learning.md` (E2a).
+
+What changes:
+
+- **Revoking or removing a Brain source withdraws the writer feedback it was made from**, so new style lessons no longer learn from it.
+- **Published style guidance that drew on that feedback is turned off** until an Admin publishes a version built since. The Admin reviews page says why, and offers no Publish button on a version that drew on it.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Owner, once, dev first
+
+- [ ] Run `brain:linkBrainFeedbackSources` once. It links older approved feedback to its Brain source and withdraws feedback of sources already revoked; if published style guidance drew on such feedback, it is turned off.
+
+### Manual on localhost
+
+- [ ] On `/admin/reviews`, with published style guidance built from approved feedback, revoke that feedback's Brain source: the guidance shows as turned off, with the reason, and that version has no Publish button.

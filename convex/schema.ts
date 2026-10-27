@@ -3466,10 +3466,17 @@ export default defineSchema({
     reviewedBy: v.optional(v.string()),
     reviewNote: v.optional(v.string()),
     createdAt: v.number(),
+    // 2026-10-26 widen (Phase E, E2a): the Brain source approving this item
+    // nominated (or the existing one it deduplicated into), and when removing
+    // that source withdrew the item from the lesson sets.
+    brainSourceId: v.optional(v.id("brainSources")),
+    withdrawnAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
     // Story 0 (AD-19): project deletion detaches the optional project link.
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_brainSourceId", ["brainSourceId"])
+    .index("by_withdrawnAt", ["withdrawnAt"]),
 
   // BNH-39: full audit trail + revert log. Every approve/revoke/reweight/unlearn
   // is recorded so the admin can see (and undo) what changed the Brain.
@@ -3546,6 +3553,10 @@ export default defineSchema({
     feedbackCutoff: v.number(), // newest feedback updatedAt included
     model: v.string(), // model that produced the digest
     createdAt: v.number(),
+    // 2026-10-26 widen (Phase E, E2a): the learning revision (the latest
+    // feedback withdrawal) the build read, so a rebuild after a withdrawal
+    // is not taken for unchanged inputs. Absent on older candidates (0).
+    learningRevision: v.optional(v.number()),
     // Per-writer flavor Phase B prep. Global publication rejects these rows
     // until per-writer activation semantics are separately approved.
     userId: v.optional(v.id("users")),
@@ -3574,7 +3585,10 @@ export default defineSchema({
     action: v.union(
       v.literal("compatibility_freeze"),
       v.literal("select"),
-      v.literal("disable")
+      v.literal("disable"),
+      // 2026-10-26 widen (Phase E, E2a): turned off because a Brain source
+      // the published set drew on was removed.
+      v.literal("source_withdrawn")
     ),
     reason: v.optional(v.string()),
     selectedAt: v.number(),

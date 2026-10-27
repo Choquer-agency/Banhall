@@ -494,7 +494,7 @@ flowchart LR
   - an Admin approves a file imported from OneDrive on `/admin/ingestion` (this one goes straight in).
 
   Nominations wait as pending until an Admin approves them on `/admin/brain`. Approved material is embedded with Voyage and searched during drafting.
-- **Learning digests** are short lessons distilled from writer feedback, QA feedback and edits, refreshed nightly. A digest only reaches prompts after an Admin publishes it.
+- **Learning digests** are short lessons distilled from writer feedback, QA feedback and edits, refreshed nightly. A digest only reaches prompts after an Admin publishes it. Revoking or removing a Brain source withdraws the feedback it was made from (`brainFeedbackQueue.withdrawnAt`, `convex/lib/learningWithdrawal.ts`): new digests skip it, and a published digest that drew on it is turned off until an Admin publishes one built since (2026-10-26).
 - **Provenance:** each run records which prompt version, digests and Brain sources it used (`generations.promptVersion`, `learningDigestIds`, `brainProvenance`).
 
 ---
@@ -635,7 +635,6 @@ These are real and expected, not bugs to chase:
 - Invites are copied by hand; there is no email service.
 - One shared Convex deployment and no automated backend deploy (section 10).
 - Research saves its proposal cards directly instead of through the chat's `saveProposal` check.
-- Revoking a Brain source does not remove lessons already distilled into digests.
 - Step by step runs are left out of the draft style digest.
 - The old interface (`?workspace=current`) and the old Projects board components are still in the repo as a rollback; the board is not mounted anywhere.
 

@@ -136,7 +136,7 @@ async function canDistill(
   ctx: ActionCtx,
   kind: "qa_calibration" | "draft_style",
   admission: AdmissionSnapshot,
-): Promise<boolean> {
+): Promise<{ learningRevision: number } | null> {
   if (
     admission.admittedCount < MIN_FEEDBACK_ROWS ||
     admission.feedbackCutoff === null
@@ -146,22 +146,23 @@ async function canDistill(
       outcome: "insufficient_inputs",
       admission,
     });
-    return false;
+    return null;
   }
-  const latest = await ctx.runQuery(
-    internal.learning.getLatestGeneratedDigest,
-    { kind },
-  );
-  // Pending review and omitted-only updates cannot cause redistillation.
-  if (latest && admission.feedbackCutoff <= latest.feedbackCutoff) {
+  // Pending review and omitted-only updates cannot cause redistillation; a
+  // Brain source removed since the newest candidate does (Phase E, E2a).
+  const freshness = await ctx.runQuery(internal.learning.getLearningFreshness, {
+    kind,
+    feedbackCutoff: admission.feedbackCutoff,
+  });
+  if (freshness.unchanged) {
     await ctx.runMutation(internal.learning.recordDigestAttempt, {
       kind,
       outcome: "unchanged_inputs",
       admission,
     });
-    return false;
+    return null;
   }
-  return true;
+  return { learningRevision: freshness.revision };
 }
 
 // ─── QA calibration ──────────────────────────────────────────────────────────
@@ -212,11 +213,8 @@ export const generateQaCalibrationDigest = internalAction({
     );
     const signal = qaStream.admitted;
     const admission = summarizeAdmission([qaStream]);
-    if (
-      !(await canDistill(ctx, "qa_calibration", admission)) ||
-      admission.feedbackCutoff === null
-    )
-      return;
+    const fresh = await canDistill(ctx, "qa_calibration", admission);
+    if (!fresh || admission.feedbackCutoff === null) return;
 
     const { rules, model } = await distillAdmittedRules(
       ctx,
@@ -245,6 +243,7 @@ export const generateQaCalibrationDigest = internalAction({
       feedbackCutoff: admission.feedbackCutoff,
       admission,
       model,
+      learningRevision: fresh.learningRevision,
     });
   },
 });
@@ -338,11 +337,8 @@ export const generateDraftStyleDigest = internalAction({
       proposalStream,
       writerStream,
     ]);
-    if (
-      !(await canDistill(ctx, "draft_style", admission)) ||
-      admission.feedbackCutoff === null
-    )
-      return;
+    const fresh = await canDistill(ctx, "draft_style", admission);
+    if (!fresh || admission.feedbackCutoff === null) return;
     const signal = scoringStream.admitted;
     const admittedSections = sectionStream.admitted;
     const admittedProposals = proposalStream.admitted;
@@ -412,6 +408,7 @@ export const generateDraftStyleDigest = internalAction({
       feedbackCutoff: admission.feedbackCutoff,
       admission,
       model,
+      learningRevision: fresh.learningRevision,
     });
   },
 });

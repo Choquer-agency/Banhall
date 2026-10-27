@@ -17,6 +17,12 @@ import {
   type AttemptOutcome,
 } from "./lib/learningAdmission";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  drewOnWithdrawn,
+  learningRevision,
+  sameLearningInputs,
+  withdrawnFeedback,
+} from "./lib/learningWithdrawal";
 
 /**
  * Learning loop storage + governed publication.
@@ -174,6 +180,8 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
     const scrubProject = projectScrubber(ctx);
     const items = [];
     for (const row of rows) {
+      // Phase E (E2a): its Brain source was removed, so its lessons are too.
+      if (row.withdrawnAt !== undefined) continue;
       const rule = row.suggestedRule?.trim();
       const body = row.body.trim();
       if (!rule && body.length < MIN_PROMOTABLE_FEEDBACK_CHARS) continue;
@@ -251,6 +259,22 @@ export const getLatestGeneratedDigest = internalQuery({
 });
 
 /**
+ * Phase E (E2a): the learning revision a build reads first (the latest
+ * feedback withdrawal), and whether its inputs add nothing to the newest
+ * candidate. Only `draft_style` reads Brain feedback, so `qa_calibration`
+ * stays at 0.
+ */
+export const getLearningFreshness = internalQuery({
+  args: { kind: digestKind, feedbackCutoff: v.number() },
+  returns: v.object({ revision: v.number(), unchanged: v.boolean() }),
+  handler: async (ctx, args) => {
+    const revision = args.kind === "draft_style" ? await learningRevision(ctx) : 0;
+    const newest = await latestGlobalDigest(ctx, args.kind);
+    return { revision, unchanged: sameLearningInputs(newest, args.feedbackCutoff, revision) };
+  },
+});
+
+/**
  * Save an immutable candidate. The first post-deploy save freezes the current
  * legacy choice before inserting, so a newly generated candidate cannot leak
  * into production through compatibility behavior.
@@ -263,12 +287,27 @@ export const saveDigest = internalMutation({
     feedbackCutoff: v.number(),
     model: v.string(),
     admission: v.optional(admissionValidator),
+    /** Phase E (E2a): the learning revision the build read. */
+    learningRevision: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const newest = await latestGlobalDigest(ctx, args.kind);
-    if (newest && args.feedbackCutoff <= newest.feedbackCutoff) {
+    if (sameLearningInputs(newest, args.feedbackCutoff, args.learningRevision ?? 0)) {
       if (args.admission)
         await saveAttempt(ctx, args.kind, "deduplicated", args.admission);
+      return null;
+    }
+    // Phase E (E2a): feedback the build admitted may have been withdrawn
+    // while its model call ran; such a candidate is never saved.
+    if (
+      args.kind === "draft_style" &&
+      args.admission &&
+      drewOnWithdrawn(
+        { kind: args.kind, admission: args.admission, feedbackCutoff: args.feedbackCutoff },
+        await withdrawnFeedback(ctx),
+      )
+    ) {
+      await saveAttempt(ctx, args.kind, "withdrawn_inputs", args.admission);
       return null;
     }
 
@@ -349,6 +388,8 @@ export const getDigestHistory = query({
     const publishedDigest = publishedDigestId
       ? await ctx.db.get(publishedDigestId)
       : null;
+    const withdrawn =
+      args.kind === "draft_style" ? await withdrawnFeedback(ctx) : [];
     const visibleDigests =
       publishedDigest &&
       !digests.some((digest) => digest._id === publishedDigest._id)
@@ -369,6 +410,8 @@ export const getDigestHistory = query({
       publishedDigestId,
       selectionId: currentSelection?._id ?? null,
       explicitlyDisabled: currentSelection?.selectedDigestId === null,
+      // Phase E (E2a): turned off because a Brain source it drew on was removed.
+      turnedOffForRemovedSource: currentSelection?.action === "source_withdrawn",
       digests: visibleDigests.map((digest) => ({
         _id: digest._id,
         content: digest.content,
@@ -378,6 +421,7 @@ export const getDigestHistory = query({
         model: digest.model,
         createdAt: digest.createdAt,
         isPersonal: Boolean(digest.userId),
+        drewOnRemovedSource: drewOnWithdrawn(digest, withdrawn),
       })),
       selections: selectionEvents.map((event) => ({
         _id: event._id,
@@ -424,6 +468,12 @@ export const selectDigest = mutation({
         throw new Error("Digest not found for this guidance type");
       if (digest.userId)
         throw new Error("Personal digests cannot be published globally");
+      // Phase E (E2a): publishing, or rolling back to, a version that drew
+      // on a removed Brain source's feedback is refused.
+      if (drewOnWithdrawn(digest, await withdrawnFeedback(ctx)))
+        throw new Error(
+          "This version drew on feedback from a Brain source that was removed. Publish a version built since.",
+        );
     }
 
     if (current && current.selectedDigestId === args.digestId)

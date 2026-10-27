@@ -291,13 +291,36 @@ describe("/admin/reviews learning admission", () => {
     expect(__mutationCalls("learning:selectDigest")).toHaveLength(0);
   });
 
+  it("says guidance was turned off for a removed Brain source, and offers no Publish on a version that drew on it (Phase E, E2a)", async () => {
+    __setQueryDataForArgs("learning:getDigestHistory", { kind: "draft_style" }, {
+      ...digestHistory(),
+      publishedDigestId: null,
+      explicitlyDisabled: true,
+      turnedOffForRemovedSource: true,
+      digests: [{ ...CANDIDATE, drewOnRemovedSource: true }, { ...PUBLISHED, drewOnRemovedSource: false }],
+    });
+    __setQueryDataForArgs("learning:getDigestHistory", { kind: "qa_calibration" }, digestHistory());
+    render(ReviewsPage);
+    await expect
+      .poll(() => document.querySelector("[data-style-off-reason]")?.textContent?.trim())
+      .toBe("Turned off because a Brain source it drew on was removed. Publish a version built since to turn it back on.");
+    await expect.poll(() => buttonsByText("Show previous versions (2)").length).toBe(2);
+    buttonsByText("Show previous versions (2)")[1]!.click();
+    await expect
+      .poll(() => document.querySelector("[data-drew-on-removed-source]")?.textContent?.trim())
+      .toBe("Drew on a removed Brain source. It cannot be published.");
+    // Only the version that never read it can be published.
+    expect(buttonsByText("Publish this version")).toHaveLength(1);
+  });
+
   for (const { outcome, explanation } of [
     { outcome: "insufficient_inputs", explanation: "Skipped: fewer than five admitted signals." },
-    { outcome: "unchanged_inputs", explanation: "Skipped: no admitted feedback is newer than the last candidate cutoff." },
+    { outcome: "unchanged_inputs", explanation: "Skipped: no admitted feedback is newer than the last candidate cutoff, and no Brain source was removed since." },
     { outcome: "unsupported_rules", explanation: "No candidate: no supported rules were produced." },
     { outcome: "saved", explanation: "Candidate saved for administrator review." },
     { outcome: "deduplicated", explanation: "No new candidate: this input cutoff was already saved." },
     { outcome: "failed", explanation: "Generation failed. No candidate was saved; published guidance is unchanged." },
+    { outcome: "withdrawn_inputs", explanation: "No candidate: feedback it read was withdrawn when its Brain source was removed." },
   ]) {
     it(`renders ${outcome} attempts using each panel's own admission counts`, async () => {
       const isInsufficient = outcome === "insufficient_inputs";

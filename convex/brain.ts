@@ -22,6 +22,7 @@ import {
   requireRole,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
+import { turnOffWithdrawnPublishedSet, withdrawSourceFeedback } from "./lib/learningWithdrawal";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -269,6 +270,14 @@ export const removeSourcePermanently = internalMutation({
     if (s.status === "approved") {
       throw new Error("Source is approved — revoke it first (audited unlearn).");
     }
+    // Phase E (E2a): removing a source withdraws the lessons drawn from it,
+    // as revoking does, before its feedback loses the link.
+    await withdrawSourceFeedback(ctx, args.sourceId);
+    const linked = await ctx.db
+      .query("brainFeedbackQueue")
+      .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", args.sourceId))
+      .take(200);
+    for (const row of linked) await ctx.db.patch(row._id, { brainSourceId: undefined });
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
@@ -365,6 +374,8 @@ export const revokeSource = mutation({
       // Idempotent. A second revoke never writes a second `revoke` row. A
       // retained `ragEntryId` on a revoked row is failure evidence, and it
       // doubles as the remediation handle: retry deletion against it.
+      // Phase E (E2a): it also withdraws feedback a revoke before E2a left.
+      await withdrawSourceFeedback(ctx, args.sourceId);
       if (s.ragEntryId) {
         await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
           ragEntryId: s.ragEntryId,
@@ -381,6 +392,9 @@ export const revokeSource = mutation({
       reason: args.reason,
       at: Date.now(),
     });
+    // Phase E (E2a): the lessons drawn from it are withdrawn, and a
+    // published set that drew on them is turned off.
+    await withdrawSourceFeedback(ctx, args.sourceId);
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
@@ -717,6 +731,9 @@ export const reviewFeedback = mutation({
           },
           admin
         );
+        // Phase E (E2a): the source this item's lessons come from, so
+        // removing it withdraws them (a duplicate links the existing one).
+        await ctx.db.patch(args.feedbackId, { brainSourceId: sourceId });
         // Learning loop: approved feedback is also distillation signal for the
         // draft-style digest (immutable candidates, admin publication ledger)
         // — the governed channel through which feedback reaches prompts. The
@@ -739,6 +756,51 @@ export const reviewFeedback = mutation({
       reason: args.reviewNote,
       at: Date.now(),
     });
+  },
+});
+
+/**
+ * Phase E (E2a), one-off, owner-run, dev first: links approved feedback made
+ * before E2a to its Brain source through its approval's audit row, and
+ * withdraws feedback whose source was already revoked or removed, so the gap
+ * before E2a closes too. One page per run; it schedules the next.
+ */
+export const linkBrainFeedbackSources = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ linked: v.number(), withdrawn: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("brainFeedbackQueue")
+      .withIndex("by_status", (q) => q.eq("status", "approved"))
+      .paginate({ cursor: args.cursor ?? null, numItems: 100 });
+    const now = Date.now();
+    let linked = 0;
+    let withdrawn = 0;
+    for (const row of page.page) {
+      let sourceId = row.brainSourceId;
+      if (!sourceId) {
+        const audits = await ctx.db
+          .query("brainAuditLog")
+          .withIndex("by_feedbackId", (q) => q.eq("feedbackId", row._id))
+          .take(20);
+        sourceId = audits.find((audit) => audit.action === "approve" && audit.sourceId)?.sourceId;
+        if (sourceId) {
+          await ctx.db.patch(row._id, { brainSourceId: sourceId });
+          linked += 1;
+        }
+      }
+      if (!sourceId || row.withdrawnAt !== undefined) continue;
+      const source = await ctx.db.get(sourceId);
+      if (!source || source.status === "revoked") {
+        await ctx.db.patch(row._id, { withdrawnAt: now });
+        withdrawn += 1;
+      }
+    }
+    if (withdrawn > 0) await turnOffWithdrawnPublishedSet(ctx, now);
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.brain.linkBrainFeedbackSources, { cursor: page.continueCursor });
+    }
+    return { linked, withdrawn, done: page.isDone };
   },
 });
 

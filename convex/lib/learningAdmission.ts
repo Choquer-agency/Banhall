@@ -38,6 +38,9 @@ export const attemptOutcomeValidator = v.union(
   v.literal("failed"),
   v.literal("saved"),
   v.literal("deduplicated"),
+  // 2026-10-26 (Phase E, E2a): feedback the build admitted was withdrawn
+  // while it ran, so its candidate was not saved.
+  v.literal("withdrawn_inputs"),
 );
 export type AttemptOutcome = Infer<typeof attemptOutcomeValidator>;
 
