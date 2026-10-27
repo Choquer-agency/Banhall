@@ -538,6 +538,19 @@ export function extractWordingRulesBySource(profileText: string, savedTexts: rea
 }
 
 /**
+ * The Writer Profile's part of a composed style, given the saved preference
+ * texts frozen beside it: the composed text without the exact block they
+ * composed. Null when they do not compose it (thirteenth re-check: also the
+ * text the public words of a Compliance Note check are read from).
+ */
+export function profilePartOf(composed: string, savedTexts: readonly string[]): string | null {
+  const block = composeWithSavedPreferences("", savedTexts);
+  if (block === "") return composed;
+  if (composed === block) return "";
+  return composed.endsWith(`\n\n${block}`) ? composed.slice(0, composed.length - block.length - 2) : null;
+}
+
+/**
  * The wording rules of a frozen writer style: the composed text drafts
  * read, and the saved preference texts frozen beside it. The profile's part
  * is the composed text without the exact block those preferences composed.
@@ -550,13 +563,8 @@ export function extractWordingRulesBySource(profileText: string, savedTexts: rea
  */
 export function writerWordingRulesFor(composed: string, savedTexts: readonly string[] | undefined): WriterWordingRules {
   if (savedTexts !== undefined) {
-    const block = composeWithSavedPreferences("", savedTexts);
-    if (block === "") return extractWordingRulesBySource(composed, []);
-    if (composed === block) return extractWordingRulesBySource("", savedTexts);
-    if (composed.endsWith(`\n\n${block}`)) {
-      return extractWordingRulesBySource(composed.slice(0, composed.length - block.length - 2), savedTexts);
-    }
-    return extractWordingRulesBySource("", [composed]);
+    const profile = profilePartOf(composed, savedTexts);
+    return profile === null ? extractWordingRulesBySource("", [composed]) : extractWordingRulesBySource(profile, savedTexts);
   }
   const lines = composed.split(/\r?\n/);
   const heading = lines.findIndex((line) => line.trim() === SAVED_PREFERENCES_HEADING);

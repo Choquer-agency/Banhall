@@ -913,7 +913,7 @@ describe("writer memory (Phase E, E1a)", () => {
       expect(await store(profile, repeated, false, veiled)).toEqual(veiled.map(shown));
     });
 
-    test("private words come from each saved text on its own, every entry of it, and public forms stay visible in quotes and runs (eleventh and twelfth re-checks)", async () => {
+    test("private words come from each saved text on its own, every entry of it, and public forms stay visible in quotes and runs (eleventh to thirteenth re-checks)", async () => {
       const s = await setup();
       type Note = { instruction: string; reason: string };
       const store = async (profile: string, saved: string, notes: Note[]) => {
@@ -982,6 +982,22 @@ describe("writer memory (Phase E, E1a)", () => {
           [fog]
         )
       ).toEqual([[fog.instruction, fog.reason]]);
+      // Thirteenth re-check: every entry of the profile is public, repeats
+      // included, so a word a repeated profile entry adds stays visible.
+      for (const [profile, saved, text] of [
+        [
+          "Never use these words:\n- glimmer\n- glimmer (also glimmering, glimmered)",
+          "Never use these words:\n- glimmer (also glimmered)",
+          'The profile bans "glimmered".',
+        ],
+        [
+          "Required terms:\n- amber lattice: A wording choice. Never write fog.\n- amber lattice: A wording choice. Never write mist.",
+          "Required terms:\n- amber lattice: A wording choice. Never write mist.",
+          'The profile bans "mist".',
+        ],
+      ] as const) {
+        expect([text, await store(profile, saved, both(text))]).toEqual([text, both(text).map((note) => [note.instruction, note.reason])]);
+      }
       // 2 and 3. A phrase the Writer Profile holds, in any form, quoted or as a run, stays visible.
       for (const [publicPhrase, savedPhrase] of [
         ["velvet fogs", "velvet fog"],

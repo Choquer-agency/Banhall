@@ -2,7 +2,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import type { WriterWordingRules } from "./writerWording";
 import { holdsSavedBlock } from "./savedPreferences";
-import { everyWordingRuleEntry, writerWordingRulesFor } from "./settingsExtraction";
+import { everyWordingRuleEntry, profilePartOf } from "./settingsExtraction";
 
 /** What a generation's Compliance Note rows are checked against before they are stored. */
 export type SavedPreferenceMatch = {
@@ -27,12 +27,12 @@ export type SavedPreferenceMatch = {
 
 const NO_MATCH: SavedPreferenceMatch = { texts: [], wording: [], publicWording: [] };
 
-function ruleWords(rules: WriterWordingRules, saved: boolean | "all"): string[] {
-  const own = <T extends { savedPreference?: true }>(rule: T) => saved === "all" || (rule.savedPreference === true) === saved;
+/** Every word a text's wording rules hold: terms and the words banned in their place, bans and their forms, openings. */
+function ruleWords(rules: WriterWordingRules): string[] {
   return [
-    ...rules.terms.filter(own).flatMap((rule) => [rule.term, ...rule.banned]),
-    ...rules.banned.filter(own).flatMap((rule) => [rule.phrase, ...rule.forms]),
-    ...rules.openings.filter(own).map((rule) => rule.opening),
+    ...rules.terms.flatMap((rule) => [rule.term, ...rule.banned]),
+    ...rules.banned.flatMap((rule) => [rule.phrase, ...rule.forms]),
+    ...rules.openings.map((rule) => rule.opening),
   ];
 }
 
@@ -64,13 +64,14 @@ export async function savedPreferenceMatchOfGeneration(
       // on its own, before any merging with the Writer Profile's rules, so a
       // synonym or form a preference adds to a rule the profile also holds
       // stays private. A word is public only when the profile's own rules
-      // (or the House Rules) hold it.
-      const rules = flavor ? writerWordingRulesFor(flavor, kept) : null;
+      // (or the House Rules) hold it. Twelfth and thirteenth re-checks: both
+      // are read from every entry of their own text, repeats included, apart
+      // from how measured rules are merged and de-duplicated.
+      const profile = flavor ? profilePartOf(flavor, kept) : null;
       return {
         texts: kept,
-        // Twelfth re-check: every entry, a repeat within one text included.
-        wording: kept.flatMap((text) => ruleWords(everyWordingRuleEntry(text), "all")),
-        publicWording: rules ? ruleWords(rules, false) : [],
+        wording: kept.flatMap((text) => ruleWords(everyWordingRuleEntry(text))),
+        publicWording: profile ? ruleWords(everyWordingRuleEntry(profile)) : [],
       };
     } catch {
       return NO_MATCH;
