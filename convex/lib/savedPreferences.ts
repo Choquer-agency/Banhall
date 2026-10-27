@@ -1,5 +1,6 @@
 import * as houseRules from "../../shared/houseRules";
 import * as humanProse from "../../shared/humanProse";
+import { BANNED_SCAN_TERMS } from "../../shared/bannedWords";
 import { appVocabulary } from "./preferenceCheck";
 import { SAVED_PREFERENCE_ROW_INSTRUCTION } from "./writerWording";
 
@@ -50,6 +51,15 @@ const COMMON_WORDS = new Set([
   "that", "this", "than", "then", "we", "our", "each", "every", "no", "not", "one", "all",
 ]);
 const allCommon = (run: string) => run.split(" ").every((word) => COMMON_WORDS.has(word));
+/** Words too plain to give a saved rule away when quoted on their own. */
+const FUNCTION_WORDS = new Set([...COMMON_WORDS, "us", "i", "my", "me", "was", "were", "has", "have", "had", "will", "would", "can", "so", "but", "if", "from", "into", "these", "those", "there"]);
+
+let houseRuleTermList: string[] | null = null;
+/** The House Rules' banned terms, folded: public rule wording. */
+function houseRuleTerms(): string[] {
+  houseRuleTermList ??= BANNED_SCAN_TERMS.map(folded).filter(Boolean);
+  return houseRuleTermList;
+}
 
 let houseRuleLines: string[] | null = null;
 /** The House Rules' and plain-language rules' own lines, folded. */
@@ -107,9 +117,14 @@ function quotedSpans(field: string): Array<{ text: string; wholeOnly: boolean }>
  * - A quote, in the instruction or the reason: the whole preference
  *   (one word in single quotes too: 'Concise.'), even in House Rule words,
  *   a quote holding it, or two or more of its words in a row that are not
- *   all common words ("under 25 words"). Only in a row explaining a House
- *   Rule (its instruction is House Rule text) is a part of a preference
- *   that is House Rule wording ("active voice") not a quote of it.
+ *   all common words ("under 25 words"). A part that is public is not a
+ *   quote of it: a Writer Profile rule the preference repeats ("velvet
+ *   fog"), a House Rule banned term, or, in a row explaining a House Rule
+ *   (its instruction is House Rule text), House Rule wording ("active
+ *   voice").
+ * - A quote holding a saved wording rule's phrase, or any word of it that is
+ *   not a function word ('the word "sought"'), unless public rules use it
+ *   (eighth and ninth re-checks).
  * - The whole preference in either field; a preference of one or two words
  *   only when it is the whole field.
  * - Part of it, unquoted: five of its words in a row, or four when one of
@@ -117,47 +132,99 @@ function quotedSpans(field: string): Array<{ text: string; wholeOnly: boolean }>
  *   (the writer's own wording), unless they are all common words.
  * An instruction that is House Rule text ("Write in dense, formal
  * paragraphs") is the House Rule's, so only the reason is read then.
- * A paraphrase ("asked us to avoid jargon") is not recognized: a known limit.
+ * A paraphrase ("asked us to avoid jargon"), or a saved word not in quotes,
+ * is not recognized: a known limit. An older draft's saved block (no texts
+ * beside its style) is matched by each line and the whole block, as parts.
  */
 export function withoutSavedPreferenceText<T extends { instruction: string; reason: string; source?: string }>(
   note: T,
+  /** Whole saved preferences, as frozen beside the style. */
   saved: readonly string[],
-  /**
-   * Eighth re-check: the words of the wording rules read from the saved
-   * preferences (savedPreferenceNotes.ts). A quote of one, a single word
-   * too ('avoid "ornate"'), hides the row, unless the House Rules use it.
-   */
-  wording: readonly string[] = []
+  extra: {
+    /** Ninth re-check: an older draft's saved block, every line and the whole, matched as parts. */
+    parts?: readonly string[];
+    /** Eighth re-check: the words of the wording rules read from saved preferences. */
+    wording?: readonly string[];
+    /** Ninth re-check: the words of the Writer Profile's own wording rules, which are public. */
+    publicWording?: readonly string[];
+  } = {}
 ): T {
-  if ((saved.length === 0 && wording.length === 0) || note.source !== "model") return note;
+  const parts = extra.parts ?? [];
+  const wording = extra.wording ?? [];
+  if ((saved.length === 0 && parts.length === 0 && wording.length === 0) || note.source !== "model") return note;
+  const hidden = { ...note, ...SAVED_PREFERENCE_NOTE };
   const houseRuleRow = isHouseRuleText(note.instruction);
   const raw = houseRuleRow ? [note.reason] : [note.instruction, note.reason];
   const fields = raw.map(folded);
   const spans = raw.flatMap(quotedSpans);
-  const privateWords = wording.map(folded).filter((word) => word !== "" && !houseRuleText().some((line) => line.includes(` ${word} `)));
-  if (spans.some(({ text: span }) => privateWords.some((word) => ` ${span} `.includes(` ${word} `)))) {
-    return { ...note, ...SAVED_PREFERENCE_NOTE };
+  const publicTerms = (extra.publicWording ?? []).map(folded).filter(Boolean);
+  // Public: part of a Writer Profile rule, or of a House Rule banned term.
+  const publicTerm = (span: string) =>
+    [...publicTerms, ...houseRuleTerms()].some((term) => ` ${term} `.includes(` ${span} `));
+  // Public wording: a public term, or words the House Rules or plain-language rules use.
+  const publicWords = (span: string) => publicTerm(span) || houseRuleText().some((line) => line.includes(` ${span} `));
+
+  // Eighth and ninth re-checks: a quote holding a saved rule's phrase, or any
+  // word of it that is not a function word ('the word "sought"'), unless the
+  // public rules use it too.
+  const privateTerms = wording.map(folded).filter((term) => term !== "" && !publicWords(term));
+  const privateWords = new Set(
+    privateTerms.flatMap((term) => term.split(" ")).filter((word) => !FUNCTION_WORDS.has(word) && !publicWords(word))
+  );
+  if (
+    spans.some(
+      ({ text: span }) =>
+        privateTerms.some((term) => ` ${span} `.includes(` ${term} `)) || span.split(" ").some((word) => privateWords.has(word))
+    )
+  ) {
+    return hidden;
   }
+
   const joined = ` ${fields.join(" | ")} `;
   const vocabulary = appVocabulary();
   const ownWording = (run: string) => run.split(" ").some((word) => /\p{N}/u.test(word) || !vocabulary.has(word));
+  const unquotedRun = (words: readonly string[]) => {
+    const quotesRun = (run: string) => !allCommon(run) && joined.includes(` ${run} `);
+    return wordRuns(words, 5).some(quotesRun) || wordRuns(words, 4).some((run) => ownWording(run) && quotesRun(run));
+  };
+  // A part of a preference quoted: two or more of its words in a row, not
+  // all common words, and not public (a Writer Profile rule the saved
+  // preference repeats, a House Rule term, or House Rule wording in a row
+  // explaining a House Rule).
+  const quotesPart = (preference: string, span: string) =>
+    span.split(" ").length >= 2 &&
+    !allCommon(span) &&
+    ` ${preference} `.includes(` ${span} `) &&
+    !publicTerm(span) &&
+    !(houseRuleRow && inHouseRules(span));
   const quotes = saved.some((text) => {
     const preference = folded(text);
     const words = preference.split(" ").filter(Boolean);
     if (words.length === 0) return false;
     // A quote of the whole preference always counts, House Rule words or
-    // not ('The writer requested "Active voice."'). Part of it counts unless
-    // the row explains a House Rule and the part is that rule's wording.
-    const quoted = spans.some(({ text: span, wholeOnly }) => {
-      if (span === preference || (!wholeOnly && ` ${span} `.includes(` ${preference} `))) return true;
-      if (wholeOnly || span.split(" ").length < 2 || allCommon(span) || !` ${preference} `.includes(` ${span} `)) return false;
-      return !(houseRuleRow && inHouseRules(span));
-    });
+    // not ('The writer requested "Active voice."').
+    const quoted = spans.some(({ text: span, wholeOnly }) =>
+      span === preference || (!wholeOnly && ` ${span} `.includes(` ${preference} `)) || (!wholeOnly && quotesPart(preference, span))
+    );
     if (quoted) return true;
     if (words.length < 3) return fields.includes(preference);
     if (joined.includes(` ${preference} `)) return true;
-    const quotesRun = (run: string) => !allCommon(run) && joined.includes(` ${run} `);
-    return wordRuns(words, 5).some(quotesRun) || wordRuns(words, 4).some((run) => ownWording(run) && quotesRun(run));
+    return unquotedRun(words);
   });
-  return quotes ? { ...note, ...SAVED_PREFERENCE_NOTE } : note;
+  if (quotes) return hidden;
+  // An older draft's lines and block: a quote of one, or of a part of one,
+  // unless it is public ("furthermore" is a House Rule word).
+  const quotesOldPart = parts.some((text) => {
+    const part = folded(text);
+    const words = part.split(" ").filter(Boolean);
+    if (words.length === 0) return false;
+    const quoted = spans.some(
+      ({ text: span }) =>
+        ((span === part || ` ${span} `.includes(` ${part} `)) && !publicWords(part)) || quotesPart(part, span)
+    );
+    if (quoted) return true;
+    if (words.length < 3) return fields.includes(part) && !publicWords(part);
+    return joined.includes(` ${part} `) || unquotedRun(words);
+  });
+  return quotesOldPart ? hidden : note;
 }

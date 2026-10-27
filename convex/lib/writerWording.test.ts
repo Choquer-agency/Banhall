@@ -622,11 +622,9 @@ describe("a wording rule read from a saved preference stays private (fifth and s
     noSavedWords(result, /optimi|leverage|keep it plain/i);
     // A style frozen before the texts were kept: split at the first heading,
     // so every rule after it counts as saved.
-    const legacy = writerWordingRulesFor(composed, undefined);
-    expect(legacy.banned.every((rule) => rule.savedPreference === true)).toBe(true);
-    // Seventh re-check: the phrase as read has no full stop; no ban is invented.
-    expect(legacy.banned.map((rule) => rule.phrase)).not.toContain("Keep it plain");
-    expect(legacy).toEqual(read);
+    // Ninth re-check: a style frozen before the texts were kept reads no rule
+    // from its saved block, so none is invented ("Keep it plain").
+    expect(writerWordingRulesFor(composed, undefined)).toEqual({ terms: [], banned: [], openings: [] });
     // A composed text the texts do not compose counts as saved throughout.
     expect(writerWordingRulesFor(`${PROFILE}\n\nSaved preferences:\n- changed`, [SAVED]).banned.every((rule) => rule.savedPreference === true)).toBe(true);
   });
@@ -674,14 +672,16 @@ describe("the requests drafts send are as before round 7, except where that read
     return repairGuidanceBlock(issues, TEXT, [], false, false, rules);
   };
   // Before round 7 the composed text was read as one; now each source is read
-  // on its own (saved texts frozen beside it), and a style frozen before is
-  // split into its preferences.
+  // on its own (saved texts frozen beside it). Ninth re-check: a style frozen
+  // before the texts were kept reads the profile's part only, so its requests
+  // carry the Writer Profile's rules and none of the saved preferences'.
   const readings = (profile: string, saved: string[]) => {
     const composed = composeWithSavedPreferences(profile, saved);
     return {
       before: blockFor(extractWriterWordingRules(composed)),
       now: blockFor(writerWordingRulesFor(composed, saved)),
       legacy: blockFor(writerWordingRulesFor(composed, undefined)),
+      profileOnly: blockFor(extractWriterWordingRules(profile)),
     };
   };
 
@@ -692,9 +692,9 @@ describe("the requests drafts send are as before round 7, except where that read
     ["a ban the profile also holds", PROFILE, ["Never use these words:\n- synergy"]],
     ["no profile", "", ["Avoid filler.\nNever use these words:\n- optimize"]],
   ])("the same request for %s", (_name, profile, saved) => {
-    const { before, now, legacy } = readings(profile, saved);
+    const { before, now, legacy, profileOnly } = readings(profile, saved);
     expect(now).toBe(before);
-    expect(legacy).toBe(before);
+    expect(legacy).toBe(profileOnly);
   });
 
   it("differs only where the composed reading was wrong", () => {
@@ -702,50 +702,46 @@ describe("the requests drafts send are as before round 7, except where that read
     const ranOn = readings("", ["Avoid filler.\nNever use these words:\n- optimize", "Keep it plain.\nSaved preferences:\nNever use these words:\n- leverage"]);
     expect(ranOn.before).toContain('ban "Keep it plain"');
     expect(ranOn.now).not.toContain("Keep it plain\"");
-    expect(ranOn.legacy).toBe(ranOn.now);
+    expect(ranOn.legacy).toBe(ranOn.profileOnly);
     // 2. A preference whose first line opens a list was hidden behind the
     // bullet the composition adds, so its bans were never read.
     const lead = readings(PROFILE, ["Never use these words:\n- optimize\n- robust"]);
     expect(lead.before).not.toContain('"robust"');
     expect(lead.now).toContain('"robust"');
-    expect(lead.legacy).toBe(lead.now);
+    expect(lead.legacy).toBe(lead.profileOnly);
     // 3. A heading as a preference's first line was hidden the same way, so a
     // list it scoped to one Line was read as a ban everywhere.
     const scoped = readings("", ["# Line 244\nNever use these words:\n- novel", "Never use these words:\n- optimize"]);
     expect(scoped.before).toContain('"novel"');
     expect(scoped.now).not.toContain('"novel"');
-    expect(scoped.legacy).toBe(scoped.now);
+    expect(scoped.legacy).toBe(scoped.profileOnly);
     // 4. Eighth re-check: a heading's scope in the Writer Profile, or in an
     // earlier preference, ran on into a later preference and silenced its bans.
     const fromProfile = readings("# Line 244\nNever use these words:\n- synergy", ["Avoid filler.\nNever use these words:\n- ornate"]);
     expect(fromProfile.before).not.toContain('"ornate"');
     expect(fromProfile.now).toContain('"ornate"');
-    expect(fromProfile.legacy).toBe(fromProfile.now);
+    expect(fromProfile.legacy).toBe(fromProfile.profileOnly);
     const fromPreference = readings("", ["Avoid filler.\n# Line 244\nNever use these words:\n- novel", "Keep it short.\nNever use these words:\n- ornate"]);
     expect(fromPreference.before).not.toContain('"ornate"');
     expect(fromPreference.now).toContain('"ornate"');
-    expect(fromPreference.legacy).toBe(fromPreference.now);
+    expect(fromPreference.legacy).toBe(fromPreference.profileOnly);
   });
 });
 
-describe("an older draft's saved block never turns an instruction into a ban (eighth re-check)", () => {
-  const SAVED = ["Avoid filler.\nNever use these words:\n- ornate", "Keep verbs crisp"];
-  const DRAFT = "We used ornate and verbose wording with synergy. Keep verbs crisp.";
-
-  it("reads an unpunctuated instruction after a ban list as a new preference", () => {
-    const composed = composeWithSavedPreferences("Never use these words:\n- synergy", SAVED);
+describe("an older draft reads no rule from its saved block (ninth re-check)", () => {
+  // Only this branch's own test deployments made drafts whose style has no
+  // saved texts beside it; their saved blocks are matched for privacy only.
+  it.each(["Keep verbs crisp", "Be concise", "Omit jargon", "Sound natural"])("never bans %s, and measures only the profile's rules", (line) => {
+    const saved = ["Avoid filler.\nNever use these words:\n- ornate", line];
+    const composed = composeWithSavedPreferences("Never use these words:\n- synergy", saved);
     const legacy = writerWordingRulesFor(composed, undefined);
-    expect(legacy.banned.map((rule) => rule.phrase)).toEqual(["synergy", "ornate"]);
-    expect(legacy).toEqual(writerWordingRulesFor(composed, SAVED));
-    const issues = repairIssues(check("242", DRAFT, legacy), []);
-    const request = repairGuidanceBlock(issues, DRAFT, [], false, false, legacy);
-    expect(request).not.toContain('ban "Keep verbs crisp"');
-    expect(request).toContain('replace "ornate"');
-  });
-
-  it("leaves a line that could be either unread rather than a ban", () => {
-    // "state of the art" may be a banned phrase or a preference of its own.
-    const composed = composeWithSavedPreferences("", ["Never use these words:\n- ornate\n- state of the art"]);
-    expect(writerWordingRulesFor(composed, undefined).banned.map((rule) => rule.phrase)).toEqual(["ornate"]);
+    expect(legacy.banned.map((rule) => rule.phrase)).toEqual(["synergy"]);
+    const draft = `We used ornate wording with synergy. ${line}.`;
+    const request = repairGuidanceBlock(repairIssues(check("242", draft, legacy), []), draft, [], false, false, legacy);
+    expect(request).not.toContain(`ban "${line}"`);
+    expect(request).not.toContain('"ornate"');
+    expect(request).toContain('"synergy"');
+    // Drafts frozen with the texts beside them measure the saved ban as well.
+    expect(writerWordingRulesFor(composed, saved).banned.map((rule) => rule.phrase)).toEqual(["synergy", "ornate"]);
   });
 });

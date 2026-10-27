@@ -377,7 +377,7 @@ export async function persistSectionNotes(
   for (const note of args.notes) {
     // A section's rows belong to that section only.
     if (note.section !== args.section) continue;
-    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved.wording), owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved), owner));
   }
   // AD-23/AD-25: the chain's one write outside complianceNotes. The
   // question cites the Confidence Map entry the section's stronger evidence
@@ -649,7 +649,7 @@ export async function insertConsistencyNotesHandler(
   };
   const saved = await savedPreferenceMatchOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved.wording), owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved), owner));
   }
   const now = Date.now();
   await ctx.db.patch(fence.run._id, { consistencyCheckedAt: now });

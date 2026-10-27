@@ -1088,7 +1088,7 @@ export async function applySeedRedraftHandler(
   // E1b review: a row quoting a saved preference names it only as one.
   const saved = await savedPreferenceMatchOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved.wording), owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved), owner));
   }
   if (args.notes.length > 0) {
     await ctx.db.patch(fence.run._id, { consistencyCheckedAt: Date.now() });

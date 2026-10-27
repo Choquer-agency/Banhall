@@ -731,9 +731,13 @@ describe("writer memory (Phase E, E1a)", () => {
       const flavor = `Use we.\n\nSaved preferences:\n- ${texts[0]}\n- ${texts[1]}`;
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, savedPreferenceTexts: texts, styleOverrides: {} }))).toEqual(texts);
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, styleOverrides: {} }))).toEqual([
-        // Eighth re-check: each preference as it was saved, and the whole block.
-        texts[0],
-        texts[1],
+        // Ninth re-check: every line of the block, and the whole block.
+        "Avoid filler.",
+        "Never use these words:",
+        "optimize",
+        "Keep it plain.",
+        "Saved preferences:",
+        "leverage",
         "Avoid filler.\nNever use these words:\noptimize\nKeep it plain.\nSaved preferences:\nNever use these words:\nleverage",
       ]);
     });
@@ -785,6 +789,57 @@ describe("writer memory (Phase E, E1a)", () => {
           ]);
           expect(JSON.stringify(rows)).not.toMatch(/ornate/);
         }
+      }
+    });
+
+    test("a quoted word of a saved opening is hidden, and a phrase the profile also bans stays visible (ninth re-check)", async () => {
+      const s = await setup();
+      const store = async (profile: string, saved: string, legacy: boolean, reasons: string[]) => {
+        const { generationId, candidateRunId } = await s.t.run(async (ctx) => {
+          const generationId = await ctx.db.insert("generations", {
+            projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+            writerSettings: {
+              profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+              waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+            },
+          });
+          await ctx.db.insert("generationArtifacts", {
+            generationId, kind: "writer_style",
+            content: JSON.stringify({
+              styleGuidance: "", writerFlavor: composeWithSavedPreferences(profile, [saved]), styleOverrides: {},
+              ...(legacy ? {} : { savedPreferenceTexts: [saved] }),
+            }),
+          });
+          await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
+          const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+            generationId, projectId: s.projectId, model: "m", label: "A", status: "running", queuedAt: 1,
+          });
+          return { generationId, candidateRunId };
+        });
+        await s.t.mutation(internal.generations.insertConsistencyNotes, {
+          generationId,
+          candidateRunId,
+          notes: reasons.map((reason) => ({ section: "244" as const, source: "model" as const, instruction: "Writer preference", outcome: "applied" as const, tier: "none" as const, reason, repaired: false })),
+        });
+        const rows = await s.admin.query(api.complianceNotes.listForGeneration, { generationId, candidateRunId });
+        return rows.map((row) => row.reason);
+      };
+      for (const legacy of [true, false]) {
+        // The reviewer's opening: one word of it, quoted.
+        const opening = 'The Line 242 objective statement must start with these exact words "We sought clarity".';
+        expect([legacy, await store("", opening, legacy, ['The writer requested the word "sought" in the opening.'])]).toEqual([
+          legacy,
+          [SAVED_PREFERENCE_NOTE.reason],
+        ]);
+        // A phrase the Writer Profile also bans is the profile's, and public.
+        const profile = "Never use these words:\n- velvet fog";
+        const repeats = "Avoid filler.\nNever use these words:\n- velvet fog";
+        expect([legacy, await store(profile, repeats, legacy, ['The profile bans "velvet fog".'])]).toEqual([legacy, ['The profile bans "velvet fog".']]);
+        // The whole saved preference, quoted as the writer's, still hides.
+        expect([legacy, await store(profile, "Avoid filler.", legacy, ['The writer requested "Avoid filler." and we complied.'])]).toEqual([
+          legacy,
+          [SAVED_PREFERENCE_NOTE.reason],
+        ]);
       }
     });
 
