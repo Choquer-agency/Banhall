@@ -43,9 +43,10 @@ type RunEnd = "done" | "stopped" | "lease_lost" | "out_of_time";
  * starts a clone, or a second attempt of one, only while at least this much
  * of its time is left, so, with a run of 7 minutes, a clone of up to 6
  * minutes still ends inside an action's 10 and the runner hands the copy
- * on. Storage calls cannot be stopped: a clone that takes longer ends its
- * action at the limit, and the cron takes the copy up again under a new
- * lease (its stray clone is removed by `reconcileCopyClones`).
+ * on. Storage calls cannot be stopped: a clone that takes longer can run
+ * past the action's remaining time; if the action ends, the cron takes the
+ * copy up again under a new lease (its stray clone is removed by
+ * `reconcileCopyClones`).
  */
 const MAX_CLONE_MS = 3 * 60 * 1000;
 

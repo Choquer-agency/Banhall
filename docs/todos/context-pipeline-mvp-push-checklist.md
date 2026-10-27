@@ -884,8 +884,8 @@ What changes:
 - [x] Round 2 review of the fixes (bf610f75): gpt-6-astra (medium), "ship after fixes"; fixes in the next commit.
 - [x] Round 3 check of the round 2 fixes (7f0df798): gpt-6-astra (medium), "ship after fixes"; fixes in the next commit.
 - [x] Round 4 check of the round 3 fixes (513f75d4): gpt-6-astra (medium), "ship after fixes"; fixes in the next commit.
-- [ ] Round 5 check of the round 4 fixes.
-- [ ] `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` on the final code.
+- [x] Round 5 check of the round 4 fixes (4ab7d2e1): gpt-6-astra (medium), "ship after fixes" with only a wording correction, made in the next commit.
+- [x] Full gate on the final code: `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` at 7f0df798, the last change to `src` (8,136 unit and 1,990 browser tests), and `bash scripts/loop-verify.sh` on each later commit (8,149 at the last).
 
 ### Automated, live on localhost
 
