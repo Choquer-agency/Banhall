@@ -10,7 +10,7 @@
   tab says it has no files, and the first upload makes the row.
 -->
 <script lang="ts">
-  import { AlertDialog, DropdownMenu } from "bits-ui";
+  import { AlertDialog, Dialog, DropdownMenu } from "bits-ui";
   import { useMutation, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { ArchiveIcon, ArrowCounterClockwiseIcon, EyeIcon, TrashIcon } from "phosphor-svelte";
@@ -27,11 +27,18 @@
   let {
     companyKey,
     companyName,
+    active = true,
     canAdd = false,
     canManage = false,
   }: {
     companyKey: string;
     companyName: string;
+    /**
+     * Shown. The tab stays mounted while hidden, so files still being added
+     * finish and their refusals are shown when it is shown again; its reads
+     * stop while hidden.
+     */
+    active?: boolean;
     canAdd?: boolean;
     canManage?: boolean;
   } = $props();
@@ -47,15 +54,15 @@
   const removeCompanyFile = useMutation(api.companyFiles.removeCompanyFile);
 
   const companyQ = useQuery(api.companyFiles.companyForKey, () =>
-    auth.isAuthenticated ? { key: companyKey } : "skip"
+    auth.isAuthenticated && active ? { key: companyKey } : "skip"
   );
-  /** Set by the first upload when the company had no row. */
-  let madeClientId = $state<Id<"clients"> | null>(null);
-  const clientId = $derived(companyQ.data?.clientId ?? madeClientId);
+  /** Company rows the first uploads made, by company key. */
+  let madeClientIds = $state<Record<string, Id<"clients">>>({});
+  const clientId = $derived(companyQ.data?.clientId ?? madeClientIds[companyKey] ?? null);
   let showArchived = $state(false);
-  const filesQ = useQuery(api.companyFiles.listCompanyFiles, () => (clientId ? { clientId } : "skip"));
+  const filesQ = useQuery(api.companyFiles.listCompanyFiles, () => (active && clientId ? { clientId } : "skip"));
   const archivedQ = useQuery(api.companyFiles.listCompanyFiles, () =>
-    clientId && showArchived ? { clientId, archived: true } : "skip"
+    active && clientId && showArchived ? { clientId, archived: true } : "skip"
   );
 
   type Listed = NonNullable<typeof filesQ.data>["files"][number];
@@ -67,20 +74,31 @@
   const failed = $derived(Boolean(companyQ.error || filesQ.error));
 
   // ─── Uploads ──────────────────────────────────────────────────────────────
-  // One at a time, in the order picked. Each file keeps its own key, so Try
-  // again after a lost answer finds the row the first save made.
-  type Upload = { id: number; name: string; file: File; attemptKey: string; error: string | null };
+  // One at a time, in the order picked, each to the company it was picked
+  // for (the tab may show another company by then). Each file keeps its own
+  // key, so Try again after a lost answer finds the row the first save made.
+  type Upload = {
+    id: number;
+    name: string;
+    file: File;
+    attemptKey: string;
+    companyKey: string;
+    clientId: Id<"clients"> | null;
+    error: string | null;
+  };
   let uploads = $state<Upload[]>([]);
+  const shownUploads = $derived(uploads.filter((entry) => entry.companyKey === companyKey));
   let nextUploadId = 0;
   let inputEl: HTMLInputElement | null = $state(null);
   /** Files waiting their turn while another is being added. */
   const pending: Upload[] = [];
   let running = false;
 
-  async function companyIdForUpload(): Promise<Id<"clients">> {
-    if (clientId) return clientId;
-    const made = await ensureCompany({ key: companyKey });
-    madeClientId = made.clientId;
+  async function targetOf(upload: Upload): Promise<Id<"clients">> {
+    const known = upload.clientId ?? madeClientIds[upload.companyKey];
+    if (known) return known;
+    const made = await ensureCompany({ key: upload.companyKey });
+    madeClientIds = { ...madeClientIds, [upload.companyKey]: made.clientId };
     return made.clientId;
   }
 
@@ -94,10 +112,9 @@
     while (pending.length > 0) {
       const upload = pending.shift()!;
       try {
-        const target = await companyIdForUpload();
         await storeCompanyFile(
           { generateUploadUrl: () => generateUploadUrl({}), addCompanyFile: (args) => addCompanyFile(args) },
-          { clientId: target, file: upload.file, attemptKey: upload.attemptKey }
+          { clientId: await targetOf(upload), file: upload.file, attemptKey: upload.attemptKey }
         );
         uploads = uploads.filter((entry) => entry.id !== upload.id);
       } catch (error) {
@@ -109,7 +126,15 @@
   }
 
   function addFiles(picked: File[]) {
-    const entries = picked.map((file) => ({ id: nextUploadId++, name: file.name, file, attemptKey: crypto.randomUUID(), error: null }));
+    const entries = picked.map((file) => ({
+      id: nextUploadId++,
+      name: file.name,
+      file,
+      attemptKey: crypto.randomUUID(),
+      companyKey,
+      clientId,
+      error: null,
+    }));
     uploads = [...uploads, ...entries];
     queue(entries);
   }
@@ -127,24 +152,21 @@
 
   // ─── Preview ──────────────────────────────────────────────────────────────
   let preview = $state<Listed | null>(null);
+  let previewOpen = $state(false);
+  /** The row whose file the preview shows; focus goes back to its name on close. */
+  let previewRowId: string | null = null;
   const previewIsPdf = $derived(preview !== null && preview.fileType === "pdf" && Boolean(preview.url));
   const previewIsImage = $derived(
     preview !== null && (preview.mimeType?.startsWith("image/") ?? false) && Boolean(preview.url)
   );
   const previewContentQ = useQuery(api.companyFiles.getCompanyFileContent, () =>
-    preview && !previewIsPdf && !previewIsImage ? { companyFileId: preview._id } : "skip"
+    preview && previewOpen && !previewIsPdf && !previewIsImage ? { companyFileId: preview._id } : "skip"
   );
 
-  /** The preview takes focus when it opens, so Escape and screen readers start there. */
-  function focusOnMount(node: HTMLElement) {
-    node.focus();
-  }
-
-  function handleWindowKeydown(event: KeyboardEvent) {
-    if (preview && event.key === "Escape" && !event.defaultPrevented) {
-      event.preventDefault();
-      preview = null;
-    }
+  function openPreview(file: Listed) {
+    preview = file;
+    previewRowId = file._id;
+    previewOpen = true;
   }
 
   // ─── Archive, restore, remove ─────────────────────────────────────────────
@@ -207,8 +229,6 @@
     "flex h-8 w-full cursor-default items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink outline-none data-[highlighted]:bg-primary-wash pointer-coarse:h-11";
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
-
 {#snippet fileRow(file: Listed)}
   <li class="flex min-w-0 items-start gap-3 px-4 py-3" data-company-file={file._id}>
     <span class="flex w-6 shrink-0 justify-center pt-0.5"><FileIcon name={file.fileName} size={24} /></span>
@@ -216,7 +236,7 @@
       <button
         type="button"
         data-company-file-open
-        onclick={() => (preview = file)}
+        onclick={() => openPreview(file)}
         class="block max-w-full truncate rounded-sm text-left text-sm leading-[calc(10/7)] font-medium text-ink hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
       >{file.fileName}</button>
       {#if file.labels?.summary}
@@ -249,7 +269,7 @@
             sideOffset={6}
             class="z-[100] min-w-[11.25rem] rounded-xl border border-line bg-surface p-1.5 shadow-menu outline-none"
           >
-            <DropdownMenu.Item onSelect={() => (preview = file)} data-company-file-action="open" class={menuItem}>
+            <DropdownMenu.Item onSelect={() => openPreview(file)} data-company-file-action="open" class={menuItem}>
               <EyeIcon size="0.9375rem" class="text-ink-muted" aria-hidden="true" />
               Open
             </DropdownMenu.Item>
@@ -310,9 +330,9 @@
     {/if}
   </div>
 
-  {#if uploads.length > 0}
+  {#if shownUploads.length > 0}
     <ul class="flex flex-col gap-1.5" aria-label="Files being added" data-company-file-uploads>
-      {#each uploads as upload (upload.id)}
+      {#each shownUploads as upload (upload.id)}
         <li class="flex min-w-0 items-center gap-2 text-[0.8125rem] leading-[calc(18/13)]" role={upload.error ? "alert" : "status"}>
           <span class="min-w-0 truncate text-ink">{upload.name}</span>
           {#if upload.error}
@@ -364,7 +384,9 @@
         class={`${textButton} self-start`}
       >{showArchived ? "Hide archived files" : "Show archived files"}</button>
       {#if showArchived}
-        {#if archivedQ.data === undefined}
+        {#if archivedQ.error}
+          <p role="alert" class="text-[0.8125rem] leading-[calc(18/13)] text-ink" data-company-files-archived-failed>Archived files could not be loaded.</p>
+        {:else if archivedQ.data === undefined}
           <p role="status" class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Loading...</p>
         {:else if archivedQ.data.files.length === 0}
           <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-company-files-archived-empty>No archived files.</p>
@@ -380,59 +402,59 @@
   {/if}
 </div>
 
-{#if preview}
-  {@const url = preview.url}
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-6" onclick={() => (preview = null)}>
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      role="dialog"
-      aria-modal="true"
-      tabindex="-1"
-      use:focusOnMount
-      aria-label={preview.fileName}
-      class="flex h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-surface shadow-dialog"
-      onclick={(event) => event.stopPropagation()}
+<Dialog.Root bind:open={previewOpen}>
+  <Dialog.Portal>
+    <Dialog.Overlay class="fixed inset-0 z-[100] bg-black/40" />
+    <Dialog.Content
       data-company-file-preview
+      onCloseAutoFocus={(event) => {
+        // Back to the file's name: the menu that may have opened it is gone.
+        const row = previewRowId ? document.querySelector<HTMLElement>(`[data-company-file="${CSS.escape(previewRowId)}"] [data-company-file-open]`) : null;
+        if (!row) return;
+        event.preventDefault();
+        row.focus();
+      }}
+      class="fixed left-1/2 top-1/2 z-[100] flex h-[80vh] w-[calc(100%-3rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl bg-surface shadow-dialog outline-none"
     >
-      <div class="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
-        <span class="truncate text-sm leading-[calc(10/7)] font-medium text-ink">{preview.fileName}</span>
-        <div class="flex items-center gap-2">
-          {#if url}
-            <a href={url} target="_blank" rel="noopener noreferrer" class={quietButton}>Open in tab</a>
-          {/if}
-          <button
-            type="button"
-            onclick={() => (preview = null)}
-            aria-label="Close preview"
-            class="flex size-8 items-center justify-center rounded-lg text-ink-muted hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy"
-          >
-            <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-      </div>
-      <div class="flex-1 overflow-auto bg-canvas">
-        {#if previewIsPdf && url}
-          <iframe src={url} class="h-full w-full" title={preview.fileName}></iframe>
-        {:else if previewIsImage && url}
-          <img src={url} alt={preview.fileName} class="mx-auto max-h-full" />
-        {:else if previewContentQ.data === undefined}
-          <p class="px-6 py-6 text-sm leading-[calc(10/7)] text-ink-muted">Loading...</p>
-        {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
-          <div class="px-6 py-6" data-testid="company-file-preview-markdown">
-            <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
+      {#if preview}
+        {@const url = preview.url}
+        <div class="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+          <Dialog.Title class="truncate text-sm leading-[calc(10/7)] font-medium text-ink">{preview.fileName}</Dialog.Title>
+          <div class="flex items-center gap-2">
+            {#if url}
+              <a href={url} target="_blank" rel="noopener noreferrer" class={quietButton}>Open in tab</a>
+            {/if}
+            <Dialog.Close
+              aria-label="Close preview"
+              class="flex size-8 items-center justify-center rounded-lg text-ink-muted hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-navy"
+            >
+              <svg class="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </Dialog.Close>
           </div>
-        {:else}
-          <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-[1.6] text-ink-secondary">{previewContentQ.data?.content
-              ? normalizeExtractedText(quotableFileText(previewContentQ.data.content, previewContentQ.data.textFormat))
-              : "No text content."}</pre>
-        {/if}
-      </div>
-    </div>
-  </div>
-{/if}
+        </div>
+        <div class="flex-1 overflow-auto bg-canvas">
+          {#if previewIsPdf && url}
+            <iframe src={url} class="h-full w-full" title={preview.fileName}></iframe>
+          {:else if previewIsImage && url}
+            <img src={url} alt={preview.fileName} class="mx-auto max-h-full" />
+          {:else if previewContentQ.error}
+            <p role="alert" class="px-6 py-6 text-sm leading-[calc(10/7)] text-ink" data-company-file-preview-failed>This file's text could not be loaded.</p>
+          {:else if previewContentQ.data === undefined}
+            <p class="px-6 py-6 text-sm leading-[calc(10/7)] text-ink-muted">Loading...</p>
+          {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
+            <div class="px-6 py-6" data-testid="company-file-preview-markdown">
+              <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
+            </div>
+          {:else}
+            <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-[1.6] text-ink-secondary">{previewContentQ.data?.content
+                ? normalizeExtractedText(quotableFileText(previewContentQ.data.content, previewContentQ.data.textFormat))
+                : "No text content."}</pre>
+          {/if}
+        </div>
+      {/if}
+    </Dialog.Content>
+  </Dialog.Portal>
+</Dialog.Root>
 
 <AlertDialog.Root bind:open={removeOpen}>
   <AlertDialog.Portal>

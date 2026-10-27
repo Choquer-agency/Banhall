@@ -3,6 +3,7 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import ProjectsPage from "./ProjectsPage.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
+import { userEvent } from "vitest/browser";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
   __mutationCalls,
@@ -12,6 +13,7 @@ import {
   __setPaginatedRows,
   __setQueryData,
   __setQueryDataForArgs,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
@@ -21,7 +23,10 @@ import {
  * on its first upload. Word files preview formatted.
  */
 const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
-const CLIENTS = [{ key: "cedarline systems", clientId: "c3", name: "Cedarline Systems", projectCount: 1 }];
+const CLIENTS = [
+  { key: "cedarline systems", clientId: "c3", name: "Cedarline Systems", projectCount: 1 },
+  { key: "acuity insights", clientId: "c1", name: "Acuity Insights", projectCount: 1 },
+];
 
 function listed(id: string, fileName: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -241,12 +246,53 @@ describe("a company's Files tab", () => {
     await expect.poll(() => document.querySelector("[data-company-file-preview]")).toBeNull();
   });
 
-  it("goes back to Projects when another company is chosen", async () => {
+  it("choosing another company shows its Projects, and a file still being added goes to the company it was picked for", async () => {
     seed("writer");
+    __setQueryDataForArgs("companyFiles:companyForKey", { key: "acuity insights" }, { clientId: "c1", name: "Acuity Insights" });
+    __setQueryDataForArgs("companyFiles:listCompanyFiles", { clientId: "c1" }, { files: [listed("a1", "acuity.txt")], truncated: false });
+    __setMutationResult("companyFiles:generateCompanyUploadUrl", "https://upload.test/bytes");
+    let finish: (value: unknown) => void = () => {};
+    __setMutationResult("companyFiles:addCompanyFile", new Promise((resolve) => (finish = resolve)));
     await mount();
     await openFiles();
-    document.querySelector<HTMLButtonElement>('[data-client-tab="projects"]')!.click();
-    await expect.poll(() => document.querySelector("[data-company-files]")).toBeNull();
-    expect(document.querySelector('[data-client-tab="projects"]')!.getAttribute("aria-selected")).toBe("true");
+    choose(new File(["Text."], "slow.txt", { type: "text/plain" }));
+    await expect.poll(() => __mutationCalls("companyFiles:addCompanyFile").length).toBe(1);
+
+    __setPageUrl("/projects?client=acuity+insights");
+    await expect.poll(() => document.querySelector('[data-client-tab="projects"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector<HTMLElement>("[data-client-files-panel]")?.hidden).toBe(true);
+    document.querySelector<HTMLButtonElement>('[data-client-tab="files"]')!.click();
+    await expect.poll(() => text(document.querySelector("[data-company-files-list]"))).toContain("acuity.txt");
+    // The other company's upload is not shown here, and it was saved to that company.
+    expect(document.querySelector("[data-company-file-uploads]")).toBeNull();
+    expect(__mutationCalls("companyFiles:addCompanyFile")[0]).toEqual(expect.objectContaining({ clientId: "c3", fileName: "slow.txt" }));
+    finish("f-slow");
+  });
+
+  it("the preview opened from the menu keeps focus inside and returns it to the file's name", async () => {
+    seed("writer");
+    __setQueryData("companyFiles:getCompanyFileContent", { fileName: "history.txt", fileType: "txt", content: "Plain text." });
+    await mount();
+    await openFiles();
+    await page.getByRole("button", { name: "More actions for history.txt" }).click();
+    await page.getByRole("menuitem", { name: "Open" }).click();
+    await expect.element(page.getByText("Plain text.")).toBeVisible();
+    for (let i = 0; i < 4; i++) {
+      await userEvent.keyboard("{Tab}");
+      expect(document.activeElement?.closest("[data-company-file-preview]")).not.toBeNull();
+    }
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-company-file-preview]")).toBeNull();
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-file-open")).toBe("");
+    expect(text(document.activeElement)).toBe("history.txt");
+  });
+
+  it("says so when a file's text cannot be loaded", async () => {
+    seed("writer");
+    __setQueryError("companyFiles:getCompanyFileContent", new Error("down"));
+    await mount();
+    await openFiles();
+    await page.getByRole("button", { name: "history.txt", exact: true }).click();
+    await expect.element(page.getByText("This file's text could not be loaded.")).toBeVisible();
   });
 });

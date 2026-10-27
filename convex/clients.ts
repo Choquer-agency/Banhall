@@ -12,7 +12,13 @@ import { requireInternalActor, requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
 import { syncProjectDashboardFields } from "./lib/dashboardProjection";
-import { activeClientForKey, dashboardCompanyForKey, linkKeyProjects } from "./lib/clients";
+import {
+  activeClientForKey,
+  companyOtherNames,
+  dashboardCompanyForKey,
+  linkKeyProjects,
+  NameHistoryTooLongError,
+} from "./lib/clients";
 import { validatedIndustry } from "./projects";
 import {
   DASHBOARD_NO_FISCAL_YEAR_RANK,
@@ -283,6 +289,7 @@ export const createClient = mutation({
         : {}),
       ...(industry ? { industry } : {}),
       status: "active",
+      nameHistoryComplete: true,
       createdBy: user._id,
       createdAt: now,
       updatedAt: now,
@@ -650,11 +657,18 @@ export const mergeClients = mutation({
     // The kept company's name history (Phase C): its own, its old name when
     // renamed, and each merged company's name and history, so company file
     // labels hide every name its files may carry.
-    const formerNames = new Set(plan.keep.client?.formerNames ?? []);
-    if (plan.keptName !== sideName(plan.keep)) formerNames.add(sideName(plan.keep));
-    for (const side of plan.merged) {
-      formerNames.add(sideName(side));
-      for (const name of side.client?.formerNames ?? []) formerNames.add(name);
+    // Older rows' histories include their merge tombstones' names.
+    const formerNames = new Set<string>();
+    try {
+      if (plan.keep.client) for (const name of await companyOtherNames(ctx, plan.keep.client)) formerNames.add(name);
+      if (plan.keptName !== sideName(plan.keep)) formerNames.add(sideName(plan.keep));
+      for (const side of plan.merged) {
+        formerNames.add(sideName(side));
+        if (side.client) for (const name of await companyOtherNames(ctx, side.client)) formerNames.add(name);
+      }
+    } catch (error) {
+      if (!(error instanceof NameHistoryTooLongError)) throw error;
+      domainError("INVALID_INPUT", "These companies have too many earlier merges to merge again here. Ask an admin for help.");
     }
     formerNames.delete(plan.keptName);
     if (formerNames.size > MAX_FORMER_NAMES) {
@@ -673,6 +687,7 @@ export const mergeClients = mutation({
         name: sideName(plan.keep),
         nameKey: plan.keep.key,
         status: "active",
+        nameHistoryComplete: true,
         createdBy: user._id,
         createdAt: now,
         updatedAt: now,
@@ -695,6 +710,7 @@ export const mergeClients = mutation({
         await ctx.db.insert("clients", {
           name: sideName(side),
           nameKey: side.key,
+          nameHistoryComplete: true,
           createdBy: user._id,
           createdAt: now,
           ...tombstone,
@@ -727,7 +743,10 @@ export const mergeClients = mutation({
       }
     }
 
-    if (formerNames.size > 0) await ctx.db.patch(keptClientId, { formerNames: [...formerNames] });
+    await ctx.db.patch(keptClientId, {
+      ...(formerNames.size > 0 ? { formerNames: [...formerNames] } : {}),
+      nameHistoryComplete: true,
+    });
 
     // 3. A new name renames the kept client.
     if (plan.keptName !== sideName(plan.keep) || plan.keptKey !== plan.keep.key) {
@@ -1037,6 +1056,7 @@ export const backfillClientsStep = internalMutation({
             name: company.clientName.trim() || companyKey,
             nameKey: companyKey,
             status: "active",
+            nameHistoryComplete: true,
             createdBy: args.actorId,
             createdAt: now,
             updatedAt: now,

@@ -22,7 +22,7 @@
   import { usePaginatedQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { DASHBOARD_PROJECT_PAGE_SIZE } from "../../../../shared/dashboardProjection";
+  import { DASHBOARD_PROJECT_PAGE_SIZE, DASHBOARD_UNNAMED_COMPANY_KEY } from "../../../../shared/dashboardProjection";
   import ProjectCard from "./ProjectCard.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
@@ -145,7 +145,10 @@
 
   // ─── Tabs (Paper Z8a, 2026-10-26): a company's Projects and Files ─────────
   let tab = $state<"projects" | "files">("projects");
-  const showTabs = $derived(Boolean(client) && !gone && canReadCompanyFiles);
+  // Projects with no company name share no company, so no Files tab.
+  const showTabs = $derived(
+    Boolean(client) && !gone && canReadCompanyFiles && client?.key !== DASHBOARD_UNNAMED_COMPANY_KEY
+  );
   const onFiles = $derived(showTabs && tab === "files");
 
   // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
@@ -486,21 +489,24 @@
       </div>
     {/if}
 
-    {#if onFiles && client}
-      <div role="tabpanel" id="client-panel-files" aria-labelledby="client-tab-files" data-client-files-panel>
+    <!-- Mounted whenever the company has the tab, so files still being added
+         finish (and say so) when someone looks at Projects meanwhile. -->
+    {#if showTabs && client}
+      <div role="tabpanel" id="client-panel-files" aria-labelledby="client-tab-files" hidden={!onFiles} data-client-files-panel>
         <CompanyFiles
           companyKey={client.key}
           companyName={displayName}
+          active={onFiles}
           canAdd={canAddCompanyFiles}
           canManage={canManageCompanyFiles}
         />
       </div>
-    {:else}
+    {/if}
+    {#if !onFiles}
     <div
       role={showTabs ? "tabpanel" : undefined}
       id={showTabs ? "client-panel-projects" : undefined}
       aria-labelledby={showTabs ? "client-tab-projects" : undefined}
-      class="contents"
     >
     {#if activeQ.error}
       <div class="flex flex-col items-start gap-2 py-10" role="alert" data-projects-error>

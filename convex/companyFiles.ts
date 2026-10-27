@@ -141,6 +141,7 @@ export const ensureCompanyForKey = mutation({
       name,
       nameKey: args.key,
       status: "active",
+      nameHistoryComplete: true,
       createdBy: user._id,
       createdAt: now,
       updatedAt: now,
@@ -234,7 +235,9 @@ export const addCompanyFile = mutation({
           .first()
       : null;
     const duplicate =
-      (retried && retried.fileName === fileName && (!retried.hasText || retried.textHash === facts.textHash) ? retried : null) ??
+      // The key is one picked file's: its name is enough, whatever the
+      // server read into it since.
+      (retried && retried.fileName === fileName ? retried : null) ??
       (readText
         ? await ctx.db
             .query("companyFiles")
@@ -410,15 +413,17 @@ export const setCompanyFileArchived = mutation({
       // Work skipped while it was archived resumes: stale pieces and labels
       // are due again, and an original nothing was read from is read.
       const restored = { ...file, archived: undefined };
+      const reading = Boolean(file.storageId) && (await companyFileNeedsServerReading(ctx, restored));
+      // A file about to be read gets its pieces and labels from that text.
       await ctx.db.patch(file._id, {
-        ...(file.hasText && file.searchPiecesTextHash !== file.textHash
+        ...(!reading && file.hasText && file.searchPiecesTextHash !== file.textHash
           ? { searchPiecesDue: true as const, searchPiecesNextAt: 0, searchPiecesAttempts: undefined }
           : {}),
-        ...(file.hasText && !labelsCurrent(file, file.textHash)
+        ...(!reading && file.hasText && !labelsCurrent(file, file.textHash)
           ? { labelsDue: true as const, labelsNextAt: 0, labelsAttempts: undefined }
           : {}),
       });
-      if (file.storageId && (await companyFileNeedsServerReading(ctx, restored))) {
+      if (reading) {
         await ctx.scheduler.runAfter(0, internal.ai.fileReading.readStoredCompanyFile, { companyFileId: file._id });
       }
     }

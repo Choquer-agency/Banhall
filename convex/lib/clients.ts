@@ -64,3 +64,44 @@ export async function linkKeyProjects(
     await ctx.db.patch(project._id, { clientId });
   }
 }
+
+/** Companies merged into one, at any depth, read to find its other names. */
+export const NAME_HISTORY_MERGED_LIMIT = 100;
+
+/** A company whose merge tombstones are too many to read for its names. */
+export class NameHistoryTooLongError extends Error {
+  constructor() {
+    super(`More than ${NAME_HISTORY_MERGED_LIMIT} companies were merged into this one`);
+  }
+}
+
+/**
+ * Every name a company had besides its current one (2026-10-26, Phase C):
+ * its kept history (`formerNames`), and, for a row whose history is not
+ * known to be complete (merges made before histories were kept), the names
+ * on its merge tombstones at any depth. Throws NameHistoryTooLongError when
+ * those are too many to read, so no caller goes on with names missing.
+ */
+export async function companyOtherNames(ctx: Ctx, client: Doc<"clients">): Promise<string[]> {
+  const names = new Set(client.formerNames ?? []);
+  if (client.nameHistoryComplete !== true) {
+    const queue: Id<"clients">[] = [client._id];
+    let seen = 0;
+    while (queue.length > 0) {
+      const into = queue.shift()!;
+      const merged = await ctx.db
+        .query("clients")
+        .withIndex("by_mergedIntoClientId", (q) => q.eq("mergedIntoClientId", into))
+        .take(NAME_HISTORY_MERGED_LIMIT + 1 - seen);
+      for (const old of merged) {
+        seen += 1;
+        names.add(old.name);
+        for (const name of old.formerNames ?? []) names.add(name);
+        if (old.nameHistoryComplete !== true) queue.push(old._id);
+      }
+      if (seen > NAME_HISTORY_MERGED_LIMIT) throw new NameHistoryTooLongError();
+    }
+  }
+  names.delete(client.name);
+  return [...names];
+}

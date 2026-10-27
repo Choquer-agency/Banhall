@@ -407,6 +407,9 @@ export default defineSchema({
     // and every name of the companies merged into it (theirs included),
     // so company file labels hide them all. Written by mergeClients.
     formerNames: v.optional(v.array(v.string())),
+    // True when formerNames holds the whole history (set by mergeClients and
+    // on rows made since); older rows also walk their merge tombstones.
+    nameHistoryComplete: v.optional(v.boolean()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
