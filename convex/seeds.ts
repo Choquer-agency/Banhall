@@ -42,7 +42,7 @@ import {
   stableSerialize,
 } from "./lib/seedRevisions";
 import { computeEditDistance } from "./lib/editDistance";
-import { MAX_EDITED_BULLET_CHARS } from "./lib/seedContract";
+import { MAX_EDITED_BULLET_CHARS, MAX_SEED_FEEDBACK_CHARS } from "./lib/seedContract";
 import {
   buildSeedApprovalChallenge,
   unlinkedAdvancementIds,
@@ -162,8 +162,9 @@ function validCommand(commandId: string) {
     domainError("INVALID_INPUT", "A bounded command identity is required");
 }
 // A writer's edit keeps the one-or-two-bullet shape but is never held to the
-// AI Seed's 25-word, one-sentence contract (PRD FR-11, owner 2026-09-23); the
-// client shows a soft "Long for a seed" note instead.
+// AI Seed's one-sentence contract (PRD FR-11, owner 2026-09-23), and is as
+// long as it needs to be (2026-10-27 eleventh, owner): the ceiling only stops
+// a pasted document.
 function validBullets(bullets: string[]) {
   if (
     bullets.length < 1 ||
@@ -172,7 +173,7 @@ function validBullets(bullets: string[]) {
   )
     domainError(
       "INVALID_INPUT",
-      `Seeds require one or two non-empty bullets, each at most ${MAX_EDITED_BULLET_CHARS} characters`,
+      `Seeds require one or two non-empty bullets, each at most ${MAX_EDITED_BULLET_CHARS.toLocaleString("en-US")} characters`,
     );
 }
 async function currentVersion(
@@ -403,10 +404,10 @@ export const giveFeedback = mutation({
   handler: async (ctx, args) => {
     const f = await decisionFence(ctx, args);
     validCommand(args.commandId);
-    if (!args.instruction.trim() || args.instruction.length > 300)
+    if (!args.instruction.trim() || args.instruction.length > MAX_SEED_FEEDBACK_CHARS)
       domainError(
         "INVALID_INPUT",
-        "Feedback must contain at most 300 characters",
+        `Feedback must contain at most ${MAX_SEED_FEEDBACK_CHARS.toLocaleString("en-US")} characters`,
       );
     const target = await seedOf(ctx, f.row, args.seedId);
     const prior = await ctx.db

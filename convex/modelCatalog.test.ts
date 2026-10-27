@@ -1143,9 +1143,12 @@ describe("prompt versions", () => {
     // sha256:ebd32cd8... and sha256:fd39c17f.... Re-read after 2026-10-27
     // (tenth), which moves the Hypothesis objective and the Seed version on
     // purpose (`.1`, then `.2` for its repair hint); before they were
-    // sha256:6a92224a... and sha256:2a6958bb....
-    expect(await hashPromptProgram()).toBe("sha256:9190ac69ec14e46bfeee22e1222d82630b7a31579e4f46c10ee1c94fe809c975");
-    expect(await legacyPromptVersion()).toBe("sha256:f82b7ed789a1777500c42f22045957d40016212b6519a3d9b3a13a98c6975a22");
+    // sha256:6a92224a... and sha256:2a6958bb.... Re-read after 2026-10-27
+    // (eleventh), which drops the bullet word limit from the Seed guidance
+    // and the quote rules (`.3`); before it they were sha256:9190ac69... and
+    // sha256:f82b7ed7....
+    expect(await hashPromptProgram()).toBe("sha256:2a208e10c2a0689e06156a5cf2a7dc61d37987fdf93a532765067c0645700bb5");
+    expect(await legacyPromptVersion()).toBe("sha256:d7d754b907ef4c43998b070629f5d2088176ddb4d58cbe540a32b57cfd01c9b8");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

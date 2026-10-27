@@ -39,7 +39,7 @@ import { strictToolSchema } from "./ai/strictTools";
 import { seedTools } from "./ai/seeds";
 import { seedToolSchema } from "./lib/seedContract";
 import { seedToolSchemaForFacts } from "./lib/seedFacts";
-import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
+import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
@@ -384,7 +384,8 @@ const withoutJudgeAnswerRoom = (json: Record<string, unknown>) => {
 const withoutQuoteRules = (json: Record<string, unknown>) => {
   if (toolOf(json) !== "submit_seed_batch") return json;
   // 2026-09-28 (fourth): the link sentence changed; the pins hold the old one.
-  let body = withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(json)));
+  // 2026-10-27 (eleventh): so did the bullet sentence.
+  let body = withPinnedBulletSentence(withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(json))));
   for (const rules of [SEED_QUOTE_RULES, SEED_FACT_QUOTE_RULES]) {
     body = body.replace(JSON.stringify(rules).slice(1, -1), "");
   }

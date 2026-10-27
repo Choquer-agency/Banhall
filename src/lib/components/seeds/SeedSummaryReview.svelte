@@ -3,7 +3,7 @@
   import { useConvexClient, useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
+  import { MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { DRAFTING_INPUTS_FAILED_STATUS, draftingInputsFailureMessage } from "./draftingInputs";
   import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
   import { modelLabelFor } from "$lib/modelPicker";
@@ -477,9 +477,6 @@
   function modelLabel(modelId: string | null) {
     return modelId ? modelLabelFor(modelId, modelCapabilitiesQ.data) : "";
   }
-  // Soft note only: a writer's wording is never blocked by the AI Seed
-  // contract (PRD FR-11).
-  const editLong = $derived(isLongForSeed(bulletOne) || isLongForSeed(bulletTwo));
   const currentSeedStageVersion = $derived(outline?.seedStageVersion ?? shownView?.seedStageVersion ?? null);
   // Sign-off, a new edit and adopting the current decision version are offered
   // only for the exact, completely loaded live Summary on screen, and only
@@ -1013,9 +1010,6 @@
                                   class="shrink-0 rounded text-[0.75rem] leading-[calc(4/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none"
                                   onclick={() => revealSecondBullet(item.seedId)}
                                 >Add a second bullet</button>
-                              {/if}
-                              {#if editLong}
-                                <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text" aria-live="polite" data-seed-long-note>Long for a seed</p>
                               {/if}
                             </div>
                           </div>

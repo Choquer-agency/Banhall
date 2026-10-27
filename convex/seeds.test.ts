@@ -171,7 +171,7 @@ describe("public seed decisions", () => {
       [""],
       ["   "],
       ["One.", "Two.", "Three."],
-      ["x".repeat(601)],
+      ["x".repeat(5_001)],
     ])
       await expect(
         s.writer.mutation(edit, { ...args(s), seedId: seed.seedId, bullets }),

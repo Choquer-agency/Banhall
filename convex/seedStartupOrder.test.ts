@@ -26,7 +26,7 @@ import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { SEED_PROMPT_PROGRAM, SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
-import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
+import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
@@ -337,7 +337,7 @@ async function requestHashes(
     }
     firstByTool.set(
       name,
-      maskIds(withPinnedAdvancementLinkRules(json).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+      maskIds(withPinnedBulletSentence(withPinnedAdvancementLinkRules(json)).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
     );
   }
   const result: Record<string, string> = {};
@@ -476,7 +476,8 @@ describe("reordered Step-by-step start (decision 32)", () => {
     // integration branch after the cut-off fix raised their output caps
     // (16,000 / 16,000 / 2,048 tokens); the next test proves that with the
     // old caps put back they are the 9bed95c0 hashes exactly. requestHashes
-    // takes out the Seed quote rules added since (2026-09-27, third).
+    // takes out the Seed quote rules added since (2026-09-27, third) and puts
+    // back the bullet sentence of before 2026-10-27 (eleventh).
     expect(await requestHashes()).toEqual({
       submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
       submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",

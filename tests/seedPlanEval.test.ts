@@ -134,8 +134,8 @@ describe("fixtures", () => {
       "params.skipRole must be a optional Subsection",
     );
     const feedback = byCase("withdrawn_feedback");
-    expect(validateFixture({ ...feedback, params: { ...feedback.params, withdrawnInstruction: "x".repeat(301) } })).toContain(
-      "params.withdrawnInstruction exceeds 300 characters",
+    expect(validateFixture({ ...feedback, params: { ...feedback.params, withdrawnInstruction: "x".repeat(5_001) } })).toContain(
+      "params.withdrawnInstruction exceeds 5000 characters",
     );
   });
 });
@@ -320,7 +320,7 @@ describe("scripted sessions", () => {
     expect(exclusionBullet("Billing portal migration to a new cloud host")).toBe(
       "The work also covered this: Billing portal migration to a new cloud host",
     );
-    expect(exclusionBullet("x".repeat(700))).toHaveLength(600);
+    expect(exclusionBullet("x".repeat(5_100))).toHaveLength(5_000);
     const entries = [
       { text: "Customer training sessions", exactExcerpt: "training" },
       { text: "Moving the billing portal", exactExcerpt: "billing portal" },

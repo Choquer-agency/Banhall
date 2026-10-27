@@ -179,8 +179,8 @@ export const MIN_FIXTURE_WORDS = 2000;
 /** The limits convex/seedPlanEval.ts (setEvaluationCompare) applies. */
 export const MAX_COMPARE_PREFERENCES = 30;
 export const MAX_PREFERENCE_TEXT = 160;
-export const MAX_FEEDBACK_CHARS = 300;
-export const MAX_EDITED_BULLET_CHARS = 600;
+export const MAX_FEEDBACK_CHARS = 5_000;
+export const MAX_EDITED_BULLET_CHARS = 5_000;
 
 export function wordCount(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;

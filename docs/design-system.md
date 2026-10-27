@@ -528,8 +528,8 @@ accessibility defect is copied.
   entry. It has no separate jump list; its Section headings stay sticky within
   the Summary scroll owner, while incomplete pagination remains visibly
   partial. Beside Sign off it shows only the model, plus the Summary version
-  from version 2. Seed edits never block on the AI Seed's 25-word,
-  one-sentence contract; past it a quiet "Long for a seed" note appears.
+  from version 2. A writer's Seed edits and Feedback are as long as they
+  need to be; the AI Seed's one-sentence contract never applies to them.
   The Brief opens in the shared right drawer from the step header More menu,
   so it never creates a third docked pane: focus moves into the drawer, and
   Escape or Close returns it to the More menu trigger. Choosing a Subsection from the

@@ -865,7 +865,7 @@ describe("Seed Summary Review", () => {
     expect(view.container.textContent).not.toContain("Stale version page must be discarded.");
   });
 
-  it("lets a writer save a long Summary edit with a soft note instead of a limit", async () => {
+  it("lets a writer save a long Summary edit in full, with no note and no limit", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSummary", onePage(
       [item("seed-a", "company_context", "The company designed adaptive controls.")],
@@ -873,12 +873,10 @@ describe("Seed Summary Review", () => {
     ));
     await render(SeedSummaryReview, { generationId, userId: "writer-1" });
     await page.getByRole("button", { name: "Edit", exact: true }).first().click();
-    const shortWording = "Controls team of four maintains the setpoint logic.";
-    await page.getByRole("textbox", { name: "Bullet 1" }).fill(shortWording);
-    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
-    const longWording = `${Array.from({ length: 30 }, () => "word").join(" ")}. A second sentence follows.`;
+    const longWording = `${Array.from({ length: 160 }, () => "word").join(" ")}. A second sentence follows.`;
+    expect(longWording.length).toBeGreaterThan(600);
     await page.getByRole("textbox", { name: "Bullet 1" }).fill(longWording);
-    await expect.element(page.getByText("Long for a seed", { exact: true })).toBeVisible();
+    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
     await expect.element(page.getByRole("button", { name: "Save wording", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Save wording", exact: true }).click();
     expect(__mutationCalls("seeds:edit")).toEqual([{

@@ -1456,15 +1456,16 @@ describe("Seed workspace", () => {
       .toEqual([null, "resume-1", "resume-2"]);
   });
 
-  it("saves a long card edit with a soft note, never a word limit", async () => {
+  // 2026-10-27 (eleventh, owner): a writer's wording is as long as it needs
+  // to be, with no note and no word or 600-character limit.
+  it("saves a long card edit in full, with no note and no limit", async () => {
     await render(SeedSubsectionPane, paneProps(subsection()));
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const bullet = page.getByRole("textbox", { name: "Bullet 1" });
-    await bullet.fill("Six weeks of baseline logging fixed a load profile.");
-    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
-    const longWording = `${Array.from({ length: 30 }, () => "word").join(" ")}.`;
+    const longWording = `${Array.from({ length: 160 }, () => "word").join(" ")}. A second sentence follows.`;
+    expect(longWording.length).toBeGreaterThan(600);
     await bullet.fill(longWording);
-    await expect.element(page.getByText("Long for a seed", { exact: true })).toBeVisible();
+    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
     const save = page.getByRole("button", { name: "Save wording", exact: true });
     await expect.element(save).toBeEnabled();
     await save.click();
@@ -1475,6 +1476,17 @@ describe("Seed workspace", () => {
       bullets: [longWording, "Tests covered three load bands."],
       expectedSeedStageVersion: 7,
     }]);
+  });
+
+  it("sends long Feedback in full", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection()));
+    await page.getByRole("button", { name: "Give feedback", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    const instruction = `Keep the measured load bands, ${Array.from({ length: 120 }, () => "and name each one").join(", ")}.`;
+    expect(instruction.length).toBeGreaterThan(300);
+    await page.getByRole("textbox", { name: "Tell it what to change" }).fill(instruction);
+    await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+    expect(__mutationCalls("seeds:giveFeedback")[0]).toMatchObject({ seedId: "seed-1", instruction });
   });
 
   it("keeps unsaved wording on its own base version after a remote update and requires explicit review before saving", async () => {

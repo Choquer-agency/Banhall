@@ -961,3 +961,29 @@ What changes:
 ### Manual on localhost
 
 - [ ] Open the Hypothesis step in a Step by step draft: Seeds appear, each an if/then sentence, some with a second bullet giving the reason or the test method.
+
+## No word limit on Seed bullets; a writer's wording as long as it needs
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (eleventh)" (owner decision).
+
+What changes:
+
+- **The AI's idea cards are no longer rejected for length.** It is still asked for one short, clear sentence per bullet, about 15 words.
+- **Feedback ("Tell it what to change") can be as long as the writer needs.** The 300-character limit is gone.
+- **A writer's edit to a bullet can be as long as needed, with no "Long for a seed" note.** The 600-character limit is gone. Both keep a 5,000-character ceiling only to stop a pasted document.
+
+### Automated, offline
+
+- [x] Unit and browser tests (see the decision entry).
+- [x] Full gate: `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` (8,154 unit and 1,991 browser tests).
+- [ ] Code review.
+
+### Automated, live on localhost
+
+- [ ] Release suite on the new version: bullets stay short without the limit, and nothing else changes.
+
+### Manual on localhost
+
+- [ ] Give a long Feedback on a card (several sentences): it is sent whole and the revised cards follow it.
+- [ ] Edit a card's bullet to a long paragraph: it saves with no note.
+

@@ -7,7 +7,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
-  import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
+  import { MAX_EDITED_BULLET_CHARS, MAX_SEED_FEEDBACK_CHARS } from "../../../../convex/lib/seedContract";
   import { describeSource, EMPTY_SOURCE_ATTRIBUTION } from "./attribution";
   import { citationSpeakerLine, QUOTE_CHECK_NOTE, QUOTE_USE_ANYWAY, SPEAKER_CHECK_NOTE, unbackedNote, type QuoteCitation } from "./citations";
   import { findExactQuoteSpans, segmentBullet } from "./exactQuote";
@@ -128,11 +128,6 @@
   const editStale = $derived(!!edit && edit.baseSeedStageVersion !== seedStageVersion);
   const feedbackStale = $derived(
     !!feedback && feedback.baseSeedStageVersion !== seedStageVersion
-  );
-  // Soft note only: a writer's wording is never blocked by the AI Seed
-  // contract (PRD FR-11).
-  const editLong = $derived(
-    !!edit && (isLongForSeed(edit.bulletOne) || isLongForSeed(edit.bulletTwo))
   );
   const editChanged = $derived(
     !!edit &&
@@ -767,9 +762,6 @@
           {#if discardArmed}
             <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
           {/if}
-          {#if editLong}
-            <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" aria-live="polite" data-seed-long-note>Long for a seed</p>
-          {/if}
           {#if editStale}
             <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
               <p>This wording began against an older decision version. Review the current wording before saving it.</p>
@@ -844,7 +836,7 @@
             }}
             onkeydown={feedbackKeydown}
             rows="2"
-            maxlength="300"
+            maxlength={MAX_SEED_FEEDBACK_CHARS}
             class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-body text-ink [field-sizing:content] placeholder:text-ink-faint"
           ></textarea>
           {#if feedbackStale}

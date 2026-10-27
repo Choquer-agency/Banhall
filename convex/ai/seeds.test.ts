@@ -2543,8 +2543,10 @@ describe("seed Node action request boundary", () => {
   it("tells the repair attempt which Seeds failed and why, without Seed text", async () => {
     const t = convexTest(schema, modules);
     const fixture = await seedAttempt(t);
+    // Two sentences in one bullet (2026-10-27, eleventh: length alone is no
+    // longer a reason to reject a bullet).
     const longBullet =
-      "The client secret team measured every zone of the warehouse many times over many weeks to learn how the coupled zones behaved under changing loads through the whole working day.";
+      "The client secret team measured every zone of the warehouse many times. They learned how the coupled zones behaved under changing loads.";
     const requests: Request[] = [];
     stubSeedFetch(
       vi.fn<typeof fetch>(async (input, init) => {
@@ -2569,7 +2571,7 @@ describe("seed Node action request boundary", () => {
     expect(requests).toHaveLength(2);
     const second = requestText((await requests[1]?.json()).messages[0].content);
     expect(second).toContain(
-      "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; keep each bullet under 20 words (Seeds 2, 3); use at least two different tags."
+      "Your previous tool output was invalid: (root): 1 of 3 Seeds valid; return 3 to 5 valid Seeds; a bullet is not one sentence ending in a full stop (Seeds 2, 3); use at least two different tags."
     );
     expect(second.split("Your previous tool output was invalid")[1]).not.toContain("client secret");
     expect(await t.run((ctx) => ctx.db.get(fixture.batchId))).toMatchObject({
@@ -2579,8 +2581,7 @@ describe("seed Node action request boundary", () => {
   });
 
   it("groups the repair note by broken rule and states the mode's Seed count", () => {
-    // Three, so the note keeps its last rule under the cap.
-    const linkIssues = Array.from({ length: 3 }, (_, seedIndex) => ({
+    const linkIssues = Array.from({ length: 5 }, (_, seedIndex) => ({
       code: "INVALID_ADVANCEMENT_REFERENCE" as const,
       message: "links",
       seedIndex,
@@ -2593,8 +2594,8 @@ describe("seed Node action request boundary", () => {
         dropped: 5,
         issues: [
           ...linkIssues,
-          { code: "BULLET_TOO_LONG", message: "long", seedIndex: 0 },
-          { code: "BULLET_TOO_LONG", message: "long", seedIndex: 3 },
+          { code: "INVALID_TAG", message: "tag", seedIndex: 0 },
+          { code: "INVALID_TAG", message: "tag", seedIndex: 3 },
           { code: "BULLET_TYPOGRAPHIC_DASH", message: "dash", seedIndex: 4 },
           { code: "INVALID_PROVENANCE", message: "provenance", seedIndex: 2 },
           { code: "INVALID_BATCH_SIZE", message: "size" },
@@ -2605,7 +2606,7 @@ describe("seed Node action request boundary", () => {
       "batch"
     );
     expect(mixed).toBe(
-      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 2, 3); keep each bullet under 20 words (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
+      "0 of 5 Seeds valid; return 3 to 5 valid Seeds; use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 1, 2, 3, 4, 5); use only the allowed tags (Seeds 1, 4); use a plain hyphen (Seed 5); use at least two different tags"
     );
 
     // A variety rule can be the only reason the batch failed, so it stays
@@ -2678,9 +2679,11 @@ describe("seed Node action request boundary", () => {
 
     const lastKept = seedRepairSummary(
       failed([
-        at("BULLET_TOO_LONG", 0),
-        at("BULLET_TOO_LONG", 1),
-        at("BULLET_TOO_LONG", 2),
+        // "use only the allowed tags": 25 bytes, as the retired length hint
+        // was, so the boundary is where it was built.
+        at("INVALID_TAG", 0),
+        at("INVALID_TAG", 1),
+        at("INVALID_TAG", 2),
         at("BULLET_NOT_ONE_SENTENCE", 0),
         at("DUPLICATE_TAG", 0),
         at("BULLET_TYPOGRAPHIC_DASH", 1),
@@ -2691,7 +2694,7 @@ describe("seed Node action request boundary", () => {
       "batch"
     );
     expect(lastKept).toBe(
-      "0 of 4 Seeds valid; return 3 to 5 valid Seeds; keep each bullet under 20 words (Seeds 1, 2, 3); a bullet is not one sentence ending in a full stop (Seed 1); a tag is repeated (Seed 1); use a plain hyphen (Seed 2); wrong fields or tag (Seed 4)"
+      "0 of 4 Seeds valid; return 3 to 5 valid Seeds; use only the allowed tags (Seeds 1, 2, 3); a bullet is not one sentence ending in a full stop (Seed 1); a tag is repeated (Seed 1); use a plain hyphen (Seed 2); wrong fields or tag (Seed 4)"
     );
     // Past the room the marker needs, but inside the cap.
     expect(bytes(lastKept)).toBeGreaterThan(reserved - "; more issues omitted".length);
@@ -2703,8 +2706,8 @@ describe("seed Node action request boundary", () => {
         at("INVALID_BULLET_COUNT", 1),
         at("BULLET_TYPOGRAPHIC_DASH", 0),
         at("INVALID_TAG_COUNT", 0),
-        at("BULLET_TOO_LONG", 1),
-        at("BULLET_TOO_LONG", 2),
+        at("INVALID_TAG", 1),
+        at("INVALID_TAG", 2),
         at("INVALID_ADVANCEMENT_REFERENCE", 1),
         at("INVALID_ADVANCEMENT_REFERENCE", 2),
         at("INVALID_BATCH_SIZE"),
@@ -2713,7 +2716,7 @@ describe("seed Node action request boundary", () => {
       "feedback"
     );
     expect(marked).toBe(
-      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); keep each bullet under 20 words (Seeds 2, 3); use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3); more issues omitted"
+      "0 of 3 Seeds valid; return 1 to 3 valid Seeds; use one or two bullets (Seeds 1, 2); use only the allowed tags (Seeds 2, 3); use one FROZEN ADVANCEMENT LINKS entry's ids and write from its experiments (Seeds 2, 3); more issues omitted"
     );
     expect(bytes(marked)).toBeLessThanOrEqual(reserved);
 
@@ -2725,7 +2728,7 @@ describe("seed Node action request boundary", () => {
     const codes = [
       "INVALID_SHAPE",
       "INVALID_BULLET_COUNT",
-      "BULLET_TOO_LONG",
+      "INVALID_TAG",
       "BULLET_NOT_ONE_SENTENCE",
       "BULLET_TYPOGRAPHIC_DASH",
       "INVALID_TAG_COUNT",
