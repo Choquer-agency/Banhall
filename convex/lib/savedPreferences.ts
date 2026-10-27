@@ -1,3 +1,7 @@
+import * as houseRules from "../../shared/houseRules";
+import * as humanProse from "../../shared/humanProse";
+import { appVocabulary } from "./preferenceCheck";
+
 /**
  * 2026-10-27 (Phase E, E1b): a writer's approved and on saved preferences
  * (convex/writerMemory.ts) join their Writer Profile text wherever the
@@ -56,44 +60,90 @@ function wordRuns(words: readonly string[], size: number): string[] {
   return runs;
 }
 
-/** Shortest run of a preference's words that counts as quoting part of it. */
-const QUOTED_RUN_WORDS = 4;
 /** Words a run must hold more than, to count as quoting anything. */
 const COMMON_WORDS = new Set([
   "the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for", "with", "by", "as", "is", "are", "be", "it", "its",
   "that", "this", "than", "then", "we", "our", "each", "every", "no", "not", "one", "all",
 ]);
+const allCommon = (run: string) => run.split(" ").every((word) => COMMON_WORDS.has(word));
+
+let houseRuleLines: string[] | null = null;
+/** The House Rules' and plain-language rules' own lines, folded. */
+function houseRuleText(): string[] {
+  if (houseRuleLines) return houseRuleLines;
+  const texts: string[] = [];
+  const collect = (value: unknown) => {
+    if (typeof value === "string") texts.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === "object") Object.values(value).forEach(collect);
+  };
+  collect(houseRules);
+  collect(humanProse);
+  houseRuleLines = texts.flatMap((text) => text.split(/\r?\n|(?<=[.!?:])\s+/)).map((line) => ` ${folded(line)} `);
+  return houseRuleLines;
+}
+
+/** Whether a model row's instruction is House Rule text: at least three words of one of their lines, in order. */
+function isHouseRuleText(instruction: string): boolean {
+  const text = folded(instruction);
+  if (text.split(" ").length < 3) return false;
+  return houseRuleText().some((line) => line.includes(` ${text} `));
+}
+
+/** The texts a field puts in quotes: double quotes, or single quotes around two or more words. */
+function quotedSpans(field: string): string[] {
+  const spans: string[] = [];
+  for (const match of field.matchAll(/["“]([^"“”]+)["”]/gu)) spans.push(match[1]!);
+  for (const match of field.matchAll(/(?<![\p{L}\p{N}])['‘]([^'‘’]+?)['’](?![\p{L}\p{N}])/gu)) {
+    if (/\S\s+\S/.test(match[1]!)) spans.push(match[1]!);
+  }
+  return spans.map(folded).filter(Boolean);
+}
 
 /**
  * E1b review and re-checks: a Compliance Note row that quotes a saved
  * preference names it only as a saved preference, since people other than
- * the writer can read the notes.
- * - The whole preference, in the instruction or the reason of any row, is a
- *   quote; a preference of one or two words only when it is the whole field.
- * - Part of it counts only in a row the Self-check model wrote (which may
- *   quote the writer's text): any four of its words in a row, unless they
- *   are all common words ("sentences under 25 words").
- * Deterministic rows (House Rules and the like) are never hidden for
- * sharing words with a preference (third re-check). Other rows are unchanged.
+ * the writer can read the notes. Only rows the Self-check model wrote are
+ * read: every other row is written by code from fixed labels, the House
+ * Rules, the Writer Profile's own rules and measured words, never from a
+ * saved preference's text (fourth re-check).
+ * - A quote, in the instruction or the reason: the whole preference, a
+ *   quote holding it, or two or more of its words in a row that are not all
+ *   common words ("under 25 words").
+ * - The whole preference in either field; a preference of one or two words
+ *   only when it is the whole field.
+ * - Part of it, unquoted: five of its words in a row, or four when one of
+ *   them is a number or a word the app's own rules and prompts never use
+ *   (the writer's own wording), unless they are all common words.
+ * An instruction that is House Rule text ("Write in dense, formal
+ * paragraphs") is the House Rule's, so only the reason is read then.
  */
 export function withoutSavedPreferenceText<T extends { instruction: string; reason: string; source?: string }>(
   note: T,
   saved: readonly string[]
 ): T {
-  if (saved.length === 0) return note;
-  const instruction = folded(note.instruction);
-  const reason = folded(note.reason);
-  const fields = ` ${instruction} | ${reason} `;
+  if (saved.length === 0 || note.source !== "model") return note;
+  const raw = isHouseRuleText(note.instruction) ? [note.reason] : [note.instruction, note.reason];
+  const fields = raw.map(folded);
+  const spans = raw.flatMap(quotedSpans);
+  const joined = ` ${fields.join(" | ")} `;
+  const vocabulary = appVocabulary();
+  const ownWording = (run: string) => run.split(" ").some((word) => /\p{N}/u.test(word) || !vocabulary.has(word));
   const quotes = saved.some((text) => {
     const preference = folded(text);
     const words = preference.split(" ").filter(Boolean);
     if (words.length === 0) return false;
-    if (words.length < 3) return instruction === preference || reason === preference;
-    if (fields.includes(` ${preference} `)) return true;
-    if (note.source !== "model") return false;
-    return wordRuns(words, QUOTED_RUN_WORDS).some(
-      (run) => !run.split(" ").every((word) => COMMON_WORDS.has(word)) && fields.includes(` ${run} `)
+    const quoted = spans.some(
+      (span) =>
+        span === preference ||
+        ` ${span} `.includes(` ${preference} `) ||
+        (span.split(" ").length >= 2 && ` ${preference} `.includes(` ${span} `) && !allCommon(span))
     );
+    if (quoted) return true;
+    if (words.length < 3) return fields.includes(preference);
+    if (joined.includes(` ${preference} `)) return true;
+    const quotesRun = (run: string) => !allCommon(run) && joined.includes(` ${run} `);
+    return wordRuns(words, 5).some(quotesRun) || wordRuns(words, 4).some((run) => ownWording(run) && quotesRun(run));
   });
   return quotes ? { ...note, ...SAVED_PREFERENCE_NOTE } : note;
 }

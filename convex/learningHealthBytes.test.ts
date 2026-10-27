@@ -37,7 +37,12 @@ describe("learning health shared byte budget with enforced Convex transaction li
     expect(result.sources.generations).toBeGreaterThan(1);
     expect(result.sources.generations).toBeLessThan(25);
     expect(result.sources.selection).toEqual({ order: "oldest-first", firstLoadedAt: start, lastLoadedAt: start + result.sources.generations - 1, complete: false });
-    expect(result.sources.rows[0]).toMatchObject({ candidateIncomplete: true, reviewIncomplete: true, candidateMean: null, reviewMean: null });
+    // Fourth re-check: the budget is spent before any project is read, so no
+    // generation can be told apart from an evaluation project's; none is
+    // counted, and the sources read as partial.
+    expect(result.coverage.truncated).toContain("project joins");
+    expect(result.sources.rows).toEqual([]);
+    expect(result.sources.partial).toBe(true);
     // Unread report joins must never increment the count of known missing reports.
     expect(result.sources.missingReportGenerations).toBe(0);
   });
@@ -58,6 +63,24 @@ describe("learning health shared byte budget with enforced Convex transaction li
     expect(result.coverage.byteBudget.exhausted).toBe(true);
     expect(result.coverage.byteBudget.estimatedBytesRead).toBeLessThan(HEALTH_READ_BYTES);
     expect(result.coverage.truncated).toEqual(expect.arrayContaining(["writer reviews", "read byte budget"]));
+  });
+
+  test("a generation whose project the budget left unread is left out, not counted as real work (fourth re-check)", async () => {
+    const { t, admin, generation, user } = await setup();
+    const provenance: { sourceId: string; entryId: string; score: number }[] = [];
+    for (let i = 0; i < 24; i++) await t.run(async ctx => {
+      const sourceId = await ctx.db.insert("brainSources", { kind: "pd_pair", status: "approved", title: `Source ${i}`, industry: "tech", writerTier: 1, docType: "pd", content: prose, ragKey: `${i}`, sourceHash: `${i}`, createdBy: user, createdAt: start });
+      provenance.push({ sourceId, entryId: `${i}`, score: 1 });
+    });
+    await t.run(async ctx => {
+      await ctx.db.patch(generation, { brainProvenance: provenance });
+      const evaluationProject = await ctx.db.insert("projects", { title: "Evaluation", clientName: "Fixture", shareToken: "evaluation", status: "draft", createdBy: user, createdAt: start, updatedAt: start, evaluation: { markedAt: start } });
+      await ctx.db.insert("generations", { projectId: evaluationProject, status: "completed", startedAt: start + 1, brainProvenance: [{ entryId: "evaluation-entry", score: 1 }] });
+    });
+    const result = await admin.query(api.learningHealth.getHealth, { start, end });
+    expect(result.coverage.truncated).toContain("project joins");
+    expect(result.sources.rows.map(row => row.identity)).not.toContain("entry:evaluation-entry");
+    expect(result.sources.partial).toBe(true);
   });
 
   test.each(["sources", "candidates", "reports", "reviews"] as const)("guards large %s bodies and marks row-level missing loading separately", async population => {

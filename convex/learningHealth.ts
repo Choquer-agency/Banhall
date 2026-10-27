@@ -90,14 +90,19 @@ export const getHealth = query({
     let missingReportGenerations = 0, excludedVersionReviews = 0, legacyVersionReviews = 0;
     let passageBudget = HEALTH_LIMITS.passages;
     const budgets = { candidates: HEALTH_LIMITS.joinBudget, reports: HEALTH_LIMITS.joinBudget, reviews: HEALTH_LIMITS.joinBudget };
-    // E3 re-check: release suite evaluation projects are not real work.
-    const evaluationProjects = new Map<Id<"projects">, boolean>();
+    // E3 re-check: release suite evaluation projects are not real work. A
+    // project the byte budget left unread is unknown, and its generations
+    // are left out too (fourth re-check); the sources read as partial.
+    const evaluationProjects = new Map<Id<"projects">, "evaluation" | "work" | "unknown">();
     for (const generation of generations) {
       if (!evaluationProjects.has(generation.projectId)) {
         const projectRead = await reads.one("project joins", () => ctx.db.get(generation.projectId));
-        evaluationProjects.set(generation.projectId, projectRead.kind === "loaded" && isEvaluationProject(projectRead.value));
+        evaluationProjects.set(
+          generation.projectId,
+          projectRead.kind === "not-loaded" ? "unknown" : isEvaluationProject(projectRead.value) ? "evaluation" : "work"
+        );
       }
-      if (evaluationProjects.get(generation.projectId)) continue;
+      if (evaluationProjects.get(generation.projectId) !== "work") continue;
       // Since 2026-09-25 a generation's provenance lives in a
       // generationArtifacts row once outputsInArtifactsAt is set; that read
       // shares the byte budget. Older rows keep it on the row.
@@ -178,7 +183,7 @@ export const getHealth = query({
     const successes = outcomes.filter(row => row.outcome === "success").length;
     const fallbacks = outcomes.filter(row => row.outcome === "fallback").length;
     const attempts = successes + fallbacks;
-    const sourcePartial = ["generations", "source passages", "source metadata", "candidate scores", "linked reports", "writer reviews"].some(name => truncated.has(name));
+    const sourcePartial = ["generations", "project joins", "brain provenance", "source passages", "source metadata", "candidate scores", "linked reports", "writer reviews"].some(name => truncated.has(name));
     // Omitted generations/passages can carry additional judgments for any source.
     const sourceCohortIncomplete = !generationRead.complete || truncated.has("source passages");
     return {

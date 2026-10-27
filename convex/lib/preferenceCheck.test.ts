@@ -99,6 +99,132 @@ const FACT_PREFERENCES: Array<[string, PreferenceRefusal]> = [
   ["Reports numbers of 40 percent.", "number"],
 ];
 
+/**
+ * Fourth re-check (gpt-6-astra, medium): the reviewer's 72 probes, every
+ * one as the reviewer expected it, and more of each kind. The number rule is
+ * an allowlist of ways of writing; anything else with a number is a figure.
+ */
+const PROBE_STYLE = [
+  "Keeps sentences under 25 words.",
+  "Uses two short paragraphs.",
+  "Writes three or four sentences.",
+  "Keeps paragraphs to 80 words.",
+  "Uses 2-3 sentences per paragraph.",
+  "Uses one space after a period.",
+  "Uses two spaces after a period.",
+  "Limits each bullet to 15 words.",
+  "Keeps each Line to half a page.",
+  "Writes in the third person.",
+  "Never uses the same word twice in a sentence.",
+  "Uses digits for 10 and above.",
+  "Uses numerals for 10 and over.",
+  "Writes numbers of 10 or more as digits.",
+  "Spells out numbers one through nine.",
+  "Spells out numbers under ten.",
+  "Uses 20 to 25 words per sentence.",
+  "Writes two or three short plain sentences.",
+  "Uses at most five bullets per section.",
+  "Keeps headings under six words.",
+  "Uses three levels of headings.",
+  "Keeps the summary under 100 words.",
+  "Uses a maximum of 500 characters per paragraph.",
+  "Writes numbers below 10 in words.",
+  "Uses digits for numbers greater than nine.",
+  "Rounds percentages to two decimal places.",
+  "Uses two significant figures.",
+  "Uses a 12 point font.",
+  "Uses 1.5 line spacing.",
+  "Writes dates with a four digit year.",
+  "Uses numbered lists starting at 1.",
+  "Limits a sentence to twenty-five words.",
+  "Spells out zero through nine.",
+  "Uses digits from 10 upward.",
+  "Keeps each paragraph between 40 and 60 words.",
+  "Uses two brief sentences.",
+  "Puts one idea in each sentence.",
+  "Uses one term for each idea.",
+  "Avoids one-word sentences.",
+  "Uses double quotes.",
+  "Keeps the report under 40 pages.",
+  "At most two pages per Line.",
+  "Uses the second person.",
+  "Starts the second paragraph with the method.",
+  "Keeps Lines 242 and 244 under 300 words.",
+  "Writes one sentence per idea.",
+  "Uses no more than three bullets.",
+  "Writes percentages with one decimal place.",
+  "Never uses the same word twice in one paragraph.",
+  "Keeps each bullet to one line.",
+  "Uses 1.5 spacing.",
+  "Uses double spacing.",
+  "Leaves one blank line between paragraphs.",
+  "Uses digits for 10 or more, and spells out one to nine.",
+  "Numbers under ten in words.",
+  "Keeps each Line under 200 words and three paragraphs.",
+];
+const PROBE_FACTS = [
+  "Reports revenue of 500 dollars.",
+  "Reports a 40 percent yield.",
+  "Says the team built twelve prototypes.",
+  "Says testing began in 2024.",
+  "Reports a cycle time of 30 seconds.",
+  "Notes that the temperature reached 80 degrees.",
+  "Says the pressure reached 200 psi.",
+  "Reports three failed tests.",
+  "Reports a budget of 900 dollars.",
+  "Says output doubled.",
+  "Says the yield rose by half.",
+  "Says defects fell by a quarter.",
+  "Says the numbers rose to 40 percent.",
+  "Notes that numbers fell below 300 units.",
+  "Says defect numbers dropped to twelve.",
+  "Reports numbers of 40 percent.",
+  "Reports numbers between 40 and 60.",
+  "Reports defect numbers of 40 or more.",
+  "Says defect numbers stayed below twelve.",
+  "Notes employee numbers remained above 40.",
+  "Reports production numbers peaked at 300.",
+  "Notes serial numbers from 100 to 200.",
+  "Reports the company printed 40 pages.",
+  "Says the factory added two production lines.",
+  "Reports that the machine prints 40 lines.",
+  "Says the score increased by five points.",
+  "Says the tank reached three levels.",
+  "Reports a shipment of 20 items.",
+  "Reports zero defects.",
+  "Says the company has one employee.",
+  "Says testing ended on 12 October.",
+  "Reports a speed of 60 metres per second.",
+  "Says the sample weighed 25 grams.",
+  "Says the company opened its fifth site.",
+  "Reports numbers below 30 as the final result.",
+  "Notes the defect numbers settled below ten.",
+  "Says the report ran to 40 pages.",
+  "Keeps 40 grams of salt.",
+  "Uses 40 sensors.",
+  "Uses three prototypes.",
+  "Says the paper had 12 sections.",
+  "Writes that revenue reached 40 percent.",
+  "Spells out the 40 tests.",
+  "Keeps the second prototype short.",
+  "Uses one employee per shift.",
+  "Says sales tripled.",
+  "Reports 3 sentences of results.",
+  "Lists 12 suppliers.",
+  "Keeps 2 kilograms in stock.",
+  "Uses digits for 40 kilograms.",
+];
+
+describe("the number rule reads numbers only as part of how to write (fourth re-check)", () => {
+  it.each(PROBE_STYLE)("lets %s stand", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: true });
+  });
+
+  it.each(PROBE_FACTS)("refuses %s as a number", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: false, reason: "number" });
+  });
+});
+
 describe("checkPreferenceText (Phase E, E1a)", () => {
   it("lets every style preference stand", () => {
     const refused = STYLE_PREFERENCES.map((text) => [text, checkPreferenceText(text, { names: NAMES })] as const).filter(
