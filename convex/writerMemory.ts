@@ -229,6 +229,12 @@ export const dismiss = mutation({
     const user = await requireCurrentUser(ctx);
     const row = await ownRow(ctx, user._id, args.memoryId);
     if (row.state !== "suggested") domainError("INVALID_STATE", "This suggestion was already decided");
+    // Re-check: a suggestion of erased work is withdrawn, so its text is
+    // not kept as a dismissed one.
+    if (!(await suggestionIntact(ctx, row))) {
+      await withdraw(ctx, row);
+      return null;
+    }
     const now = Date.now();
     await ctx.db.patch(row._id, { state: "dismissed", decidedAt: now, updatedAt: now });
     await deleteSources(ctx, row._id);
@@ -462,9 +468,15 @@ function maskers(ctx: QueryCtx) {
       let entry: { project: Doc<"projects">; map: PlaceholderMap } | null = null;
       if (project && project.deletionStartedAt === undefined) {
         const drafts = await ctx.db.query("generations").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).order("desc").take(5);
-        const frozen = drafts.find((draft) => draft.placeholders && draft.placeholders.length > 0)?.placeholders;
-        if (frozen) entry = { project, map: frozen };
-        else if (built < MAX_MAPPED_PROJECTS) {
+        const draft = drafts.find((candidate) => candidate.placeholders && candidate.placeholders.length > 0);
+        // Re-check: a frozen map covers only the interviews its draft read,
+        // so one is used only when no transcript came after that draft.
+        const newestTranscript = draft
+          ? await ctx.db.query("transcripts").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).order("desc").first()
+          : null;
+        if (draft?.placeholders && (!newestTranscript || newestTranscript._creationTime <= draft._creationTime)) {
+          entry = { project, map: draft.placeholders };
+        } else if (built < MAX_MAPPED_PROJECTS) {
           built += 1;
           entry = { project, map: await projectPlaceholderMap(ctx, project, await listProjectTranscripts(ctx, projectId), texts) };
         }
@@ -578,6 +590,9 @@ export const gatherForWriter = internalQuery({
     const signals: RunSignal[] = [];
     let chars = 0;
     let newest = 0;
+    // Re-check: a run goes ahead on signals newer than its cursor, not on
+    // the whole window it sends.
+    let newSignals = 0;
     for (const candidate of candidates) {
       if (signals.length >= MAX_RUN_SIGNALS) break;
       const project = await ctx.db.get(candidate.projectId);
@@ -594,8 +609,21 @@ export const gatherForWriter = internalQuery({
       signals.push({ ref: candidate.ref, projectId: candidate.projectId, company: companyKey(project), text });
       chars += text.length;
       newest = Math.max(newest, candidate.at);
+      if (candidate.at > args.since) newSignals += 1;
     }
-    const existing = await ctx.db.query("writerMemories").withIndex("by_userId_and_state", (q) => q.eq("userId", args.userId)).take(500);
+    // Re-check: read each state on its own, so cleared rows (no text) never
+    // crowd the texts out.
+    const existing = (
+      await Promise.all(
+        (["on", "off", "suggested", "dismissed"] as const).map((state) =>
+          ctx.db
+            .query("writerMemories")
+            .withIndex("by_userId_and_state", (q) => q.eq("userId", args.userId).eq("state", state))
+            .order("desc")
+            .take(state === "dismissed" ? 200 : 60)
+        )
+      )
+    ).flat();
     const intactOpen = await intactSuggestions(ctx, args.userId);
     const intactIds = new Set(intactOpen.map((row) => row._id));
     const profile = await ctx.db.query("writerProfiles").withIndex("by_userId", (q) => q.eq("userId", args.userId)).unique();
@@ -606,7 +634,7 @@ export const gatherForWriter = internalQuery({
       active: true as const,
       signals,
       newest,
-      hasNew: newest > args.since,
+      newSignals,
       // A withdrawn suggestion's text is never sent again (review).
       existing: existing
         .filter((row) => row.text && (row.state !== "suggested" || intactIds.has(row._id)))
@@ -627,7 +655,7 @@ export const gatherForWriter = internalQuery({
 export const saveSuggestions = internalMutation({
   args: {
     userId: v.id("users"),
-    leaseId: v.optional(v.string()),
+    leaseId: v.string(),
     suggestions: v.array(v.object({ text: v.string(), support: v.number(), checkedTextKey: v.string() })),
     request: v.array(v.object({ ref: v.string(), projectId: v.id("projects"), company: v.string(), text: v.string() })),
   },
@@ -635,10 +663,8 @@ export const saveSuggestions = internalMutation({
   handler: async (ctx, args) => {
     const user = await ctx.db.get(args.userId);
     if (!activeWriter(user)) return 0;
-    if (args.leaseId !== undefined) {
-      const run = await ctx.db.query("writerMemoryRuns").withIndex("by_userId", (q) => q.eq("userId", args.userId)).unique();
-      if (!run || run.leaseId !== args.leaseId) return 0;
-    }
+    const run = await ctx.db.query("writerMemoryRuns").withIndex("by_userId", (q) => q.eq("userId", args.userId)).unique();
+    if (!run || run.leaseId !== args.leaseId) return 0;
     for (const projectId of new Set(args.request.map((entry) => entry.projectId))) {
       const project = await ctx.db.get(projectId);
       if (!project || project.deletionStartedAt !== undefined) return 0;

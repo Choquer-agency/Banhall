@@ -58,18 +58,61 @@ export type PreferenceCheckContext = {
 const STYLE_WORDS = new Set([
   "I", "Line", "Lines", "CRA", "SR&ED", "T661", "Seed", "Seeds", "Brief", "Storyline", "Summary",
   "English", "French", "Canadian", "British", "American", "Oxford", "Markdown", "US", "UK", "AI", "ALL", "CAPS",
+  // Re-check of 29d88d40: "Uses SI units.", "Writes headings in Title Case."
+  "SI", "Title", "Case",
 ]);
 const STYLE_WORDS_LOWER = new Set([...STYLE_WORDS].map((word) => word.toLowerCase()));
 /** Units a number may stand before. */
-const STYLE_UNITS = /^\s*(?:words?|sentences?|paragraphs?|bullets?|lines?|characters?|pages?|items?|spaces?|columns?|levels?|points?)\b/i;
-/** A unit followed by "per", as in "500 lines per minute", is a measure, not a length. */
-const UNIT_PER = /^\s*\p{L}+\s+per\b/iu;
-/** Spelled-out numbers (review); "one" is too common in plain prose to refuse. */
+const STYLE_UNITS = new Set([
+  "word", "words", "sentence", "sentences", "paragraph", "paragraphs", "bullet", "bullets", "line", "lines",
+  "character", "characters", "page", "pages", "item", "items", "space", "spaces", "column", "columns", "level", "levels",
+  "point", "points",
+]);
+/** What "per" may count by after a unit: "words per sentence", never "lines per minute". */
+const PER_TARGETS = new Set([
+  ...STYLE_UNITS, "section", "sections", "heading", "headings", "idea", "ideas", "list", "lists", "subsection", "subsections",
+]);
+/** Words that may sit between a number and its unit: "20 to 25 words", "three short paragraphs", "half a page". */
+const LENGTH_FILLERS = new Set([
+  "to", "or", "and", "a", "an", "in", "short", "shorter", "long", "longer", "full", "plain", "simple", "separate", "single",
+  "clear", "more", "fewer", "less",
+]);
+/** Words that make a number a matter of how numbers are written: "Spells out numbers under ten." */
+const NUMBER_TOPIC = new Set(["number", "numbers", "digit", "digits", "numeral", "numerals"]);
+/**
+ * Spelled-out numbers, ordinals and fractions (review, re-check); "one" and
+ * "first" are too common in plain prose to refuse.
+ */
 const NUMBER_WORDS = new Set([
   "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
   "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy",
-  "eighty", "ninety", "hundred", "thousand", "million", "billion", "dozen", "twice", "percent",
+  "eighty", "ninety", "hundred", "thousand", "million", "billion", "dozen", "twice",
+  "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "half", "halves", "quarter", "quarters",
 ]);
+/** Ordinals that name a grammatical person: "third person", "second person". */
+const PERSON_ORDINALS = new Set(["second", "third"]);
+
+/**
+ * Whether a number is a length: a style unit within the next few words, with
+ * only other numbers and plain fillers between ("20 to 25 words", "three or
+ * four sentences"), and a "per" after the unit only by a part of the text.
+ */
+function lengthFollows(after: string): boolean {
+  const words = after.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 6) ?? [];
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index]!;
+    if (STYLE_UNITS.has(word)) return words[index + 1] !== "per" || PER_TARGETS.has(words[index + 2] ?? "");
+    if (LENGTH_FILLERS.has(word) || /^\d{1,3}$/.test(word) || NUMBER_WORDS.has(word)) continue;
+    return false;
+  }
+  return false;
+}
+
+/** Whether a number is about how numbers are written ("numbers under ten"). */
+function aboutNumbers(before: string): boolean {
+  const words = before.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(-4) ?? [];
+  return words.some((word) => NUMBER_TOPIC.has(word));
+}
 /** Letters of scripts with no capitals, which the name rules cannot read. */
 const UNCASED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Thai}\p{Script=Devanagari}]/u;
 const LINE_NUMBERS = new Set(["242", "244", "246"]);
@@ -158,22 +201,29 @@ export function checkPreferenceText(
     const before = plain.slice(0, match.index);
     const after = plain.slice(match.index + match[0].length);
     const lineNumber = /\bLines?\s*$/i.test(before) && LINE_NUMBERS.has(match[0]);
-    const length = /^\d{1,3}(?:\s*-\s*\d{1,3})?$/.test(match[0]) && STYLE_UNITS.test(after) && !UNIT_PER.test(after);
-    if (!lineNumber && !length) return { ok: false, reason: "number" };
+    const short = /^\d{1,3}(?:\s*-\s*\d{1,3})?$/.test(match[0]);
+    if (!lineNumber && !(short && (lengthFollows(after) || aboutNumbers(before)))) return { ok: false, reason: "number" };
   }
   for (const match of plain.matchAll(/[\p{L}]+/gu)) {
-    if (!NUMBER_WORDS.has(match[0].toLowerCase())) continue;
+    const word = match[0].toLowerCase();
+    if (!NUMBER_WORDS.has(word)) continue;
+    const before = plain.slice(0, match.index);
     const after = plain.slice(match.index + match[0].length);
-    if (!STYLE_UNITS.test(after) || UNIT_PER.test(after)) return { ok: false, reason: "number" };
+    const person = PERSON_ORDINALS.has(word) && /^\s+person\b/i.test(after);
+    if (!person && !lengthFollows(after) && !aboutNumbers(before)) return { ok: false, reason: "number" };
   }
   const vocabulary = appVocabulary();
   for (const quote of text.matchAll(/["\u201c]([^"\u201d]*)["\u201d]|(?<![\p{L}])['\u2018]([^'\u2019]*)['\u2019](?![\p{L}])/gu)) {
     const inner = (quote[1] ?? quote[2] ?? "").trim();
     const words = inner.split(/\s+/).filter(Boolean);
     if (words.length > 3 || /\p{N}/u.test(inner)) return { ok: false, reason: "quote" };
-    // A capital only as "I", or a quoted word of the app's own vocabulary ("'The'").
+    // A capital only in a style word ("I", "CRA"), or a quoted word of the
+    // app's own vocabulary ("'The'").
     const capitalsOk = words.every(
-      (word) => word === word.toLowerCase() || word === "I" || (vocabulary.has(word.toLowerCase()) && word.slice(1) === word.slice(1).toLowerCase())
+      (word) =>
+        word === word.toLowerCase() ||
+        STYLE_WORDS.has(word) ||
+        (vocabulary.has(word.toLowerCase()) && word.slice(1) === word.slice(1).toLowerCase())
     );
     if (!capitalsOk) return { ok: false, reason: "quote" };
   }

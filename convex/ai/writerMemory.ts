@@ -30,7 +30,7 @@ const WITHDRAWN_MESSAGE = "The work this suggestion came from was removed, so it
 
 /** At most this many suggestions one run makes. */
 const MAX_SUGGESTIONS = 3;
-/** A run needs at least this many signals to suggest anything. */
+/** A run needs at least this many signals newer than its cursor (re-check). */
 const MIN_RUN_SIGNALS = 2;
 /** At most this many open suggestions a writer holds (convex/writerMemory.ts). */
 const MAX_OPEN = 5;
@@ -123,7 +123,7 @@ export const suggestForWriter = internalAction({
     let consumedAt: number | undefined;
     try {
       const gathered = await ctx.runQuery(internal.writerMemory.gatherForWriter, { userId: args.userId, since: lease.since });
-      if (!gathered.active || !gathered.hasNew || gathered.signals.length < MIN_RUN_SIGNALS) return 0;
+      if (!gathered.active || gathered.newSignals < MIN_RUN_SIGNALS) return 0;
       // Five open suggestions already: nothing could be saved, so no call.
       if (gathered.openSuggestions >= MAX_OPEN) return 0;
       const signals: RunSignal[] = gathered.signals;

@@ -50,11 +50,15 @@ const REQUEST = [
 ];
 
 async function suggest(s: Setup, texts: string[], request = REQUEST) {
+  // Saving needs the run's lease (re-check).
+  const lease = (await s.t.mutation(internal.writerMemory.leaseRun, { userId: s.writerId, reason: "nightly" }))!;
   await s.t.mutation(internal.writerMemory.saveSuggestions, {
     userId: s.writerId,
+    leaseId: lease.leaseId,
     suggestions: texts.map((text) => ({ text, support: 2, checkedTextKey: preferenceTextKey(text) })),
     request: request.map((entry) => ({ ...entry, projectId: s.projectId })),
   });
+  await s.t.mutation(internal.writerMemory.finishRun, { userId: s.writerId, leaseId: lease.leaseId });
   return (await s.writer.query(api.writerMemory.listMine, {})).suggestions;
 }
 
@@ -276,6 +280,133 @@ describe("writer memory (Phase E, E1a)", () => {
     expect(run).toMatchObject({ leaseId: second!.leaseId });
     expect(run!.leaseUntil).toBeGreaterThan(0);
     expect(run!.cursorAt).toBeUndefined();
+  });
+
+  test("saving with a lease another run took over saves nothing (re-check)", async () => {
+    const s = await setup();
+    const stale = (await s.t.mutation(internal.writerMemory.leaseRun, { userId: s.writerId, reason: "nightly" }))!;
+    await s.t.run(async (ctx) => {
+      const [run] = await ctx.db.query("writerMemoryRuns").collect();
+      await ctx.db.patch(run!._id, { leaseUntil: 0 });
+    });
+    await s.t.mutation(internal.writerMemory.leaseRun, { userId: s.writerId, reason: "nightly" });
+    const saved = await s.t.mutation(internal.writerMemory.saveSuggestions, {
+      userId: s.writerId,
+      leaseId: stale.leaseId,
+      suggestions: [{ text: "Keeps it short.", support: 2, checkedTextKey: preferenceTextKey("Keeps it short.") }],
+      request: REQUEST.map((entry) => ({ ...entry, projectId: s.projectId })),
+    });
+    expect(saved).toBe(0);
+    expect((await s.writer.query(api.writerMemory.listMine, {})).suggestions).toEqual([]);
+  });
+
+  test("dismissing a suggestion of erased work withdraws it instead of keeping its text (re-check)", async () => {
+    const s = await setup();
+    const [suggestion] = await suggest(s, ["Keeps it short."]);
+    await s.t.run((ctx) => ctx.db.patch(s.projectId, { deletionStartedAt: 9 }));
+    await s.writer.mutation(api.writerMemory.dismiss, { memoryId: suggestion!._id });
+    expect(await s.t.run((ctx) => ctx.db.query("writerMemories").collect())).toEqual([]);
+  });
+
+  test("a run needs two signals newer than its cursor, not two in its window (re-check)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (let index = 0; index < 5; index += 1) {
+        await ctx.db.insert("learningSignals", {
+          kind: "seed_rewording", sourceKey: `seedSelection:old-${index}`, projectId: s.projectId, producerId: s.writerId,
+          payload: { before: "The team performed testing.", after: `We tested it ${index}.` }, at: 10 + index,
+        });
+      }
+      await ctx.db.insert("writerMemoryRuns", { userId: s.writerId, leaseUntil: 0, cursorAt: 100 });
+      await ctx.db.insert("learningSignals", {
+        kind: "seed_rewording", sourceKey: "seedSelection:new-1", projectId: s.projectId, producerId: s.writerId,
+        payload: { before: "Testing was performed.", after: "We ran the test." }, at: 200,
+      });
+    });
+    const fetchMock = stubModel({ suggestions: [] });
+    expect(await s.t.action(internal.ai.writerMemory.suggestForWriter, { userId: s.writerId, reason: "nightly" })).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await s.t.run((ctx) =>
+      ctx.db.insert("learningSignals", {
+        kind: "seed_rewording", sourceKey: "seedSelection:new-2", projectId: s.projectId, producerId: s.writerId,
+        payload: { before: "Analysis was done.", after: "We analysed it." }, at: 201,
+      })
+    );
+    await s.t.action(internal.ai.writerMemory.suggestForWriter, { userId: s.writerId, reason: "nightly" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a run makes no model call while five suggestions are open (re-check)", async () => {
+    const s = await setup();
+    await suggest(s, ["Keeps it short.", "Avoids jargon.", "Uses plain words.", "Starts with the result.", "Writes in the past tense."]);
+    await s.t.run(async (ctx) => {
+      for (let index = 0; index < 3; index += 1) {
+        await ctx.db.insert("learningSignals", {
+          kind: "seed_rewording", sourceKey: `seedSelection:${index}`, projectId: s.projectId, producerId: s.writerId,
+          payload: { before: "The team performed testing.", after: `We tested it ${index}.` }, at: Date.now() + index,
+        });
+      }
+    });
+    const fetchMock = stubModel({ suggestions: [] });
+    expect(await s.t.action(internal.ai.writerMemory.suggestForWriter, { userId: s.writerId, reason: "nightly" })).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("masks with a draft's frozen map only when no interview came after that draft (re-check)", async () => {
+    const s = await setup();
+    const typed = async (text: string, at: number) =>
+      await s.t.run(async (ctx) => {
+        const generationId = await ctx.db.insert("generations", { projectId: s.projectId, status: "completed", startedAt: 1 });
+        await ctx.db.insert("sectionEditEvents", {
+          projectId: s.projectId, generationId, section: "s242", userId: s.writerId, editRatio: 0.4, createdAt: at,
+          draftText: text, approvedText: "We tested the seal.",
+        });
+      });
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("transcripts", { projectId: s.projectId, content: "Priya Raman: We tuned the seal.", label: "Interview", createdAt: 1 });
+      // The frozen map also names someone no interview does, so its use shows.
+      await ctx.db.insert("generations", {
+        projectId: s.projectId, status: "completed", startedAt: 2,
+        placeholders: [
+          { token: "PERSON_1", value: "Priya Raman" },
+          { token: "PERSON_2", value: "Zed Quill" },
+        ],
+      });
+    });
+    await typed("Priya Raman and Zed Quill performed testing.", 50);
+    const frozen = await s.t.query(internal.writerMemory.gatherForWriter, { userId: s.writerId, since: 0 });
+    if (!frozen.active) throw new Error("inactive");
+    expect(frozen.signals[0]!.text).not.toContain("Zed Quill");
+    expect(frozen.signals[0]!.text).not.toContain("Priya Raman");
+
+    // A later interview names Tomas Ek: the frozen map does not know him, so
+    // the run builds a fresh map that does.
+    await s.t.run((ctx) =>
+      ctx.db.insert("transcripts", { projectId: s.projectId, content: "Tomas Ek: The gasket split.", label: "Interview 2", createdAt: 3 })
+    );
+    await typed("Tomas Ek performed testing.", 60);
+    const fresh = await s.t.query(internal.writerMemory.gatherForWriter, { userId: s.writerId, since: 0 });
+    if (!fresh.active) throw new Error("inactive");
+    expect(fresh.signals.map((signal) => signal.text).join("\n")).not.toContain("Tomas Ek");
+  });
+
+  test("cleared rows never crowd the writer's texts out of a run (re-check)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (let index = 0; index < 520; index += 1) {
+        await ctx.db.insert("writerMemories", {
+          userId: s.writerId, text: "", textKey: `cleared ${index}`, state: "cleared", origin: "suggested",
+          checkedTextKey: `cleared ${index}`, createdAt: index, decidedAt: index, updatedAt: index,
+        });
+      }
+      await ctx.db.insert("writerMemories", {
+        userId: s.writerId, text: "Uses Canadian spelling.", textKey: preferenceTextKey("Uses Canadian spelling."), state: "on",
+        origin: "written", checkedTextKey: preferenceTextKey("Uses Canadian spelling."), createdAt: 600, decidedAt: 600, updatedAt: 600,
+      });
+    });
+    const gathered = await s.t.query(internal.writerMemory.gatherForWriter, { userId: s.writerId, since: 0 });
+    if (!gathered.active) throw new Error("inactive");
+    expect(gathered.existing).toEqual([{ text: "Uses Canadian spelling.", state: "on" }]);
   });
 
   test("deleting all removes every preference, suggestion and dismissed one", async () => {

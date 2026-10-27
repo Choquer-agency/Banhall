@@ -725,8 +725,8 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [x] Code review by two reviewers: gpt-6-astra (medium) and Claude Opus 5.5 (requested high, it reported low), fixes in 29d88d40; re-check by Claude Opus 5.5 (requested high, it reported low), fixes in the next commit.
+- [x] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
 

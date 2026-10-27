@@ -34,6 +34,21 @@ const STYLE_PREFERENCES = [
   "Uses AI only as a noun.",
   "Avoids ALL CAPS.",
   "Uses two spaces after a full stop.",
+  // Re-check of 29d88d40: refused by the first fix, style all the same.
+  "At most 25 words per sentence.",
+  "Three sentences per paragraph at most.",
+  "Keeps paragraphs to three or four sentences.",
+  "Uses two or three bullets at most.",
+  "Spells out numbers under ten.",
+  "Writes percent as a symbol.",
+  "Prefers three short paragraphs.",
+  "Keeps sentences to 20 to 25 words.",
+  "Writes \"CRA\" without spelling it out.",
+  "Uses SI units.",
+  "Writes headings in Title Case.",
+  "Writes in the third person.",
+  "Keeps each Line to half a page.",
+  "Never uses the same word twice in a sentence.",
 ];
 
 /** Preferences that carry a company or project fact: each must be refused. */
@@ -56,6 +71,14 @@ const FACT_PREFERENCES: Array<[string, PreferenceRefusal]> = [
   ["Keeps 2023 words.", "number"],
   ["Keeps sentences under 1,000,000 words.", "number"],
   ["Mentions 株式会社 in every Line.", "script"],
+  // Re-check of 29d88d40: passed before.
+  ["Notes the third prototype failed under load.", "number"],
+  ["Says the team tested a fifth seal design.", "number"],
+  ["Says yields rose by half after the redesign.", "number"],
+  ["Says costs were a quarter of budget.", "number"],
+  ["Says output was 40 percent higher.", "number"],
+  ["Says the line made forty units per hour.", "number"],
+  ["Says the press ran 300 cycles per shift.", "number"],
 ];
 
 describe("checkPreferenceText (Phase E, E1a)", () => {
