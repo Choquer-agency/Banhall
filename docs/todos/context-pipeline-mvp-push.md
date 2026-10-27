@@ -219,7 +219,7 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
 - [ ] **9. Keep source links all the way through.** Anthropic's citation feature can't be combined with its strict JSON answer format, so keep Banhall's own quote fields in the structured steps.
 - [ ] **10. Lighter evidence snapshots.** Each run copies all evidence text into `generationSources`; saving a fingerprint and parser version per file would be much lighter. This touches rule 2 ("every draft traces to exact inputs"), so discuss with the owner first.
 
-- [ ] **Release fixture "exclusion-conflict" stopped twice on 2026-10-22.** The AI-written Brief derived no Claim Exclusion, likely since Briefs moved to Sonnet 5.5 (PR #29). Check the fixture or the Brief prompt on the new model. 2026-10-26: the cause was found live (Sonnet 5.5 without a forced call wrote lists as tool markup, so fields arrived empty or as text); strict tools fix it (the Sonnet 5.5 entry in `docs/product-domain.md`). Rerun live to close this.
+- [x] **Release fixture "exclusion-conflict" stopped twice on 2026-10-22.** The AI-written Brief derived no Claim Exclusion, likely since Briefs moved to Sonnet 5.5 (PR #29). Check the fixture or the Brief prompt on the new model. 2026-10-26: the cause was found live (Sonnet 5.5 without a forced call wrote lists as tool markup, so fields arrived empty or as text); strict tools fix it (the Sonnet 5.5 entry in `docs/product-domain.md`). Closed 2026-10-27 (F4): rerun live after the Self-check fix, 15 of 15 checks passed.
 
 ### P2: prove it at scale
 

@@ -20,9 +20,12 @@
 // - The data is scanned against this deployment's names, and each file's
 //   fingerprint checked against the manifest, before the first upload.
 // - The spend is read inside every wait; past the cap less a margin, the run
-//   stops and a running draft is cancelled. A draft still running when the
-//   script ends for any other reason is cancelled too. File labels already
-//   queued keep running in the background.
+//   stops and the draft is cancelled. A draft is cancelled too when the
+//   script ends for any other reason; one that reached its Seeds is left for
+//   the manual steps only on a clean finish. File labels and the Brief
+//   prepared ahead keep running in the background after a stop; the script
+//   keeps reading the spend until they settle and records the final figure.
+//   Erasing the project stops them.
 //
 //   node scripts/stress/run.mjs --data /tmp/stress --checkout <checkout running convex dev> \
 //     --subject <auth subject of an internal user> --cap 40 --confirm-spend --out /tmp/stress-results.json
@@ -36,7 +39,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { namesFound } from "./generate.mjs";
+import { inventedWordsFound, namesFound } from "./generate.mjs";
 
 /** Must match shared/releaseEval.ts RELEASE_EVAL_PROJECT_PREFIX (a test pins it). */
 export const RELEASE_EVAL_PREFIX = "Release eval - ";
@@ -52,13 +55,15 @@ export function capWithMargin(cap) {
 
 /**
  * Characters per input token by call site and model, from rows that recorded
- * their characters and were charged input (as the Admin report counts them).
+ * their characters and were charged input (as the Admin report counts them),
+ * with the part sent in user turns. A whole-request figure: evidence-only
+ * token counts come from the token count script (F1, step 5).
  */
 export function spendByCallSite(rows) {
   const groups = {};
   for (const row of rows) {
     const key = `${row.callSite} ${row.model}`;
-    const group = (groups[key] ??= { callSite: row.callSite, model: row.model, calls: 0, costUsd: 0, outputTokens: 0, stops: {}, requestChars: 0, inputSideTokens: 0 });
+    const group = (groups[key] ??= { callSite: row.callSite, model: row.model, calls: 0, costUsd: 0, outputTokens: 0, stops: {}, requestChars: 0, evidenceChars: 0, inputSideTokens: 0 });
     group.calls += 1;
     group.costUsd += row.costUsd;
     group.outputTokens += row.outputTokens;
@@ -67,6 +72,7 @@ export function spendByCallSite(rows) {
     const inputSide = row.inputTokens + (row.cacheCreationInputTokens ?? 0) + (row.cacheReadInputTokens ?? 0);
     if (row.requestChars !== undefined && row.requestChars !== null && inputSide > 0) {
       group.requestChars += row.requestChars;
+      group.evidenceChars += row.evidenceChars ?? 0;
       group.inputSideTokens += inputSide;
     }
   }
@@ -127,16 +133,37 @@ async function main(argv) {
     return JSON.parse(out);
   };
 
+  /** An internal function on the local deployment, through the CLI. */
+  const runInternal = (name, args) => {
+    const env = { ...process.env };
+    delete env.CONVEX_DEPLOYMENT;
+    delete env.CONVEX_DEPLOY_KEY;
+    const out = execFileSync("npx", ["convex", "run", "--deployment", "local", name, JSON.stringify(args)], {
+      cwd: checkout,
+      env,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return JSON.parse(out);
+  };
+
   // The names are read from this deployment, and every file is checked
   // against them and against the manifest's fingerprints, before anything
   // is written.
-  const names = inline(
-    "const names = new Set(); for (const c of await ctx.db.query('clients').collect()) { names.add(c.name); for (const a of c.aliases ?? []) names.add(typeof a === 'string' ? a : a.name ?? ''); }" +
-      " for (const p of await ctx.db.query('projects').collect()) { names.add(p.clientName); names.add(p.title); for (const i of p.interviewees ?? []) names.add(i); }" +
-      " for (const s of await ctx.db.query('transcriptSpeakers').take(5000)) { if (s.label) names.add(s.label); }" +
+  const read = inline(
+    "const names = new Set(); for (const c of await ctx.db.query('clients').collect()) { names.add(c.name); for (const f of c.formerNames ?? []) names.add(f); }" +
+      " for (const p of await ctx.db.query('projects').collect()) { names.add(p.clientName); names.add(p.title); if (p.sredTitle) names.add(p.sredTitle); for (const i of p.interviewees ?? []) names.add(i); }" +
+      " for (const d of await ctx.db.query('intakeDrafts').collect()) { if (d.clientName) names.add(d.clientName); for (const i of d.interviewees ?? []) names.add(i); }" +
+      " const speakers = await ctx.db.query('transcriptSpeakers').take(20001); for (const s of speakers) { if (s.label) names.add(s.label); }" +
+      " const intake = await ctx.db.query('intakeSourceSpeakers').take(20001); for (const s of intake) { if (s.label) names.add(s.label); }" +
       " for (const u of await ctx.db.query('users').collect()) { if (u.name) names.add(u.name); }" +
-      " return [...names].filter(n => n && n.trim().length >= 3);"
+      " return { cut: speakers.length > 20000 || intake.length > 20000, names: [...names].filter(n => n && n.trim().length >= 3) };"
   );
+  if (read.cut) {
+    console.error("stress/run: this deployment has more speakers than the name check reads; check the names by hand first");
+    return 2;
+  }
+  const names = read.names;
   for (const file of manifest.files) {
     const body = text(file.name);
     if (sha256(body) !== file.sha256) {
@@ -149,8 +176,11 @@ async function main(argv) {
       return 2;
     }
   }
-  if (namesFound([manifest.company, ...manifest.people].join("\n"), names).length) {
-    console.error("stress/run: the invented company or people match a name on this deployment");
+  if (
+    namesFound([manifest.company, ...manifest.people].join("\n"), names).length ||
+    inventedWordsFound([manifest.company, ...manifest.people], names).length
+  ) {
+    console.error("stress/run: the invented company or people match a name, or a word of one, on this deployment");
     return 2;
   }
 
@@ -172,14 +202,20 @@ async function main(argv) {
   logs.stderr.pipe(logStream);
   results.logFile = logPath;
 
-  const spend = () => {
+  /** The project's spend; `since` limits the breakdown to rows made from then on. */
+  const spend = (since = 0) => {
     if (!projectId) return { costUsd: 0, calls: 0, byCallSite: [] };
     const rows = inline(
       `const rows = await ctx.db.query('aiUsage').withIndex('by_projectId', q => q.eq('projectId', '${projectId}')).collect();` +
-        " return rows.map(r => ({ callSite: r.callSite, model: r.model, costUsd: r.costUsd, inputTokens: r.inputTokens, outputTokens: r.outputTokens," +
-        " cacheCreationInputTokens: r.cacheCreationInputTokens ?? 0, cacheReadInputTokens: r.cacheReadInputTokens ?? 0, requestChars: r.requestChars ?? null, stopReason: r.stopReason ?? null }));"
+        " return rows.map(r => ({ createdAt: r.createdAt, callSite: r.callSite, model: r.model, costUsd: r.costUsd, inputTokens: r.inputTokens, outputTokens: r.outputTokens," +
+        " cacheCreationInputTokens: r.cacheCreationInputTokens ?? 0, cacheReadInputTokens: r.cacheReadInputTokens ?? 0, requestChars: r.requestChars ?? null," +
+        " evidenceChars: r.evidenceChars ?? null, stopReason: r.stopReason ?? null }));"
     );
-    return { costUsd: rows.reduce((total, row) => total + row.costUsd, 0), calls: rows.length, byCallSite: spendByCallSite(rows) };
+    return {
+      costUsd: rows.reduce((total, row) => total + row.costUsd, 0),
+      calls: rows.length,
+      byCallSite: spendByCallSite(rows.filter((row) => row.createdAt >= since)),
+    };
   };
   class CapReached extends Error {}
   const checkCap = (current) => {
@@ -189,15 +225,16 @@ async function main(argv) {
   async function step(name, body, { required = false } = {}) {
     const started = Date.now();
     const entry = { step: name, ok: true };
+    let capReached = null;
     try {
       entry.result = await body();
     } catch (error) {
-      if (error instanceof CapReached) throw error;
+      if (error instanceof CapReached) capReached = error;
       entry.ok = false;
       entry.error = String(error?.data?.message ?? error?.message ?? error);
     }
     entry.ms = Date.now() - started;
-    const current = spend();
+    const current = spend(started);
     entry.stepCostUsd = current.costUsd - spentSoFar;
     entry.spentSoFar = current.costUsd;
     entry.byCallSite = current.byCallSite;
@@ -205,6 +242,7 @@ async function main(argv) {
     results.steps.push(entry);
     save();
     console.log(`${entry.ok ? "ok  " : "FAIL"} ${name} (${(entry.ms / 1000).toFixed(1)} s, $${entry.stepCostUsd.toFixed(2)}, $${current.costUsd.toFixed(2)} so far)${entry.ok ? "" : `: ${entry.error}`}`);
+    if (capReached) throw capReached;
     if (!entry.ok && required) throw new Error(`a required step failed: ${name}`);
     checkCap(current);
     return entry;
@@ -221,16 +259,11 @@ async function main(argv) {
     }
   }
 
+  let finishedCleanly = false;
   try {
-    await step("create the company", async () => {
-      try {
-        return await client.mutation(ref("clients:createClient"), { name: manifest.company });
-      } catch (error) {
-        const message = String(error?.data?.message ?? error?.message ?? error);
-        if (/already/i.test(message)) return { reused: true };
-        throw error;
-      }
-    }, { required: true });
+    // A company left from an earlier run fails the name check above; erase it first.
+    await step("create the company", async () =>
+      await client.mutation(ref("clients:createClient"), { name: manifest.company }), { required: true });
     // No transcript yet: nothing paid starts before the project is marked.
     await step("create the project", async () => {
       const created = await client.mutation(ref("projects:createProject"), {
@@ -278,7 +311,9 @@ async function main(argv) {
         async () => {
           const state = inline(
             `const docs = await ctx.db.query('projectDocuments').withIndex('by_projectId', q => q.eq('projectId', '${projectId}')).collect();` +
-              " return { files: docs.length, piecesDue: docs.filter(d => d.searchPiecesDue).length, labelsDue: docs.filter(d => d.labelsDue).length };"
+              " return { files: docs.length, piecesDue: docs.filter(d => d.searchPiecesDue).length, labelsDue: docs.filter(d => d.labelsDue).length," +
+              " withoutPieces: docs.filter(d => !d.searchPiecesDue && !d.searchPiecesTextHash).map(d => d.fileName)," +
+              " labelErrors: docs.filter(d => d.labelsLastError).map(d => ({ file: d.fileName, error: d.labelsLastError })) };"
           );
           console.log(`     ${state.files} files, ${state.piecesDue} waiting for search pieces, ${state.labelsDue} for labels`);
           return state.piecesDue === 0 && state.labelsDue === 0 ? state : null;
@@ -286,20 +321,34 @@ async function main(argv) {
         60 * 60 * 1000,
         30_000
       ));
+    // Ready as a writer sees it: every step's row, no Batch still being
+    // made, and the drafting inputs settled (seedPlanEval:progress).
     await step("start a Step by step draft and wait for its Seeds", async () => {
       generationId = await client.mutation(ref("generations:requestGeneration"), { projectId, candidateMode: "iterative", confirmRegeneration: true });
       return await waitFor(
         "the Seeds",
         async () => {
-          const state = inline(`const g = await ctx.db.get('${generationId}'); return { status: g.status, step: g.currentStep, error: g.error ?? null };`);
-          if (state.status === "failed") throw new Error(`the draft failed: ${state.error ?? state.step}`);
-          return state.status === "awaiting_input" ? { generationId, ...state } : null;
+          const progress = runInternal("seedPlanEval:progress", { generationId });
+          if (progress.status === "failed") throw new Error(`the draft failed: ${progress.seedStageError ?? "no detail"}`);
+          const busy = inline(
+            `const busy = []; for (const status of ['queued', 'running']) { busy.push(...await ctx.db.query('seedBatches').withIndex('by_generationId_and_status', q => q.eq('generationId', '${generationId}').eq('status', status)).take(50)); }` +
+              " const shown = await ctx.db.query('seedBatches').withIndex('by_generationId_and_status', q => q.eq('generationId', '" + generationId + "').eq('status', 'shown')).take(1);" +
+              " return { busy: busy.length, shown: shown.length };"
+          );
+          const ready =
+            progress.status === "awaiting_input" &&
+            progress.seedSubsections === 13 &&
+            busy.busy === 0 &&
+            busy.shown > 0 &&
+            progress.draftingInputs !== "preparing";
+          return ready ? { generationId, ...progress } : null;
         },
         40 * 60 * 1000,
         15_000
       );
     });
     results.finishedAt = new Date().toISOString();
+    finishedCleanly = true;
     console.log(`stress/run: done; results in ${outPath}`);
     return 0;
   } catch (error) {
@@ -307,14 +356,43 @@ async function main(argv) {
     console.error(`stress/run: stopped: ${results.stoppedBecause}`);
     return 1;
   } finally {
-    if (generationId) {
-      const state = inline(`const g = await ctx.db.get('${generationId}'); return g?.status ?? null;`);
-      if (state && !["failed", "completed", "awaiting_input"].includes(state)) {
-        await client.mutation(ref("generations:cancelIterativeGeneration"), { generationId }).catch(() => undefined);
-        results.cancelledDraft = generationId;
+    // Each part on its own, so one failing never skips the others.
+    if (generationId && !finishedCleanly) {
+      try {
+        const state = inline(`const g = await ctx.db.get('${generationId}'); return g?.status ?? null;`);
+        if (state && !["failed", "completed"].includes(state)) {
+          await client.mutation(ref("generations:cancelIterativeGeneration"), { generationId });
+          results.cancelledDraft = generationId;
+        }
+      } catch (error) {
+        results.cancelFailed = String(error?.message ?? error);
       }
     }
-    save();
+    // Labels and the Brief prepared ahead may still spend: read until the
+    // spend holds for two minutes, at most fifteen.
+    try {
+      let last = -1;
+      let steadySince = Date.now();
+      const until = Date.now() + 15 * 60 * 1000;
+      while (projectId && Date.now() < until) {
+        const now = spend().costUsd;
+        if (now !== last) {
+          last = now;
+          steadySince = Date.now();
+        } else if (Date.now() - steadySince >= 2 * 60 * 1000) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20_000));
+      }
+      results.finalSpendUsd = Math.max(last, 0);
+    } catch (error) {
+      results.finalSpendError = String(error?.message ?? error);
+    }
+    try {
+      save();
+    } catch (error) {
+      console.error(`stress/run: could not save the results: ${error?.message ?? error}`);
+    }
     logs.kill();
     logStream.end();
   }

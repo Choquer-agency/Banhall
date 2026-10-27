@@ -898,6 +898,27 @@ What changes:
 - [ ] Duplicate a project in the wizard: the copy finishes before the new project opens, and its Files panel shows every file as ready.
 - [ ] A file shown as "Being copied" or "Could not copy" reads clearly, with no Replace button while it is being copied.
 
+## F5: stress test scripts
+
+Plan: `docs/todos/phase-f-scale.md`, F5. How to run: `scripts/stress/README.md`. The live run waits for the owner's spend cap (open question 8, recommended $40).
+
+What changes:
+
+- **Nothing writers see.** Two scripts make invented data at and past the largest real cases (50 files of 400,000 characters, one at the 1,000,000-character maximum, one over it, a 3-hour interview) and run it through a local copy with real models, under a spend cap.
+- **The run is safe to start.** It reads only the local deployment, refuses data that shares a name with the deployment, marks its project as an evaluation project before any paid step, and stops and cancels the draft before the cap.
+
+### Automated, offline
+
+- [x] Code review, round 1 (07268c58): Claude Opus 5.5 (requested high; it reported low), "rethink"; rewritten in e7eea501.
+- [x] Round 2 (e7eea501): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixes in the next commit.
+- [ ] Round 3 check of the round 2 fixes.
+- [x] `tests/stressData.test.ts`: the data's sizes, fingerprints, and the name and invented-word checks.
+
+### Automated, live on localhost
+
+- [ ] The stress run on the live copy, under the owner's cap.
+- [ ] The hand-run steps (20 picks in one step, a 46-entry Brief, every check failing, chat at scale, a duplicate, two drafts at once, 100 files) added to the results.
+
 ## F6: release suite, live
 
 Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`.

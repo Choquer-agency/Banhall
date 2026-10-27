@@ -379,7 +379,7 @@ const SUMMARY_SELF_CHECK_ROOT_KEYS = new Set(["verdicts", "planVerdicts", "story
 const LOGGED_ROOT_KEYS = new Set([
   "paragraph", "check", "instruction", "outcome", "reason", "repairGuidance", "itemId", "skippedRoleId",
   "droppedSeedId", "ruleId", "findings", "targetFindings", "mergedItemIds", "position",
-  "verdict", "plan_verdicts", "planVerdict", "storyline_question", "notes", "summary",
+  "verdict", "plan_verdicts", "planVerdict", "storyline_question",
 ]);
 const MAX_LOGGED_ROOT_KEYS = 5;
 function ignoredRootKeysNote(keys: readonly string[]): string {
