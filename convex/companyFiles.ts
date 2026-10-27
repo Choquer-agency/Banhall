@@ -437,7 +437,8 @@ export const setCompanyFileArchived = mutation({
 /**
  * Removes a company file (Managers and Admins): its row, text, search pieces
  * and original, unless something else holds the original. Drafts that
- * froze it keep their own copy.
+ * froze it keep its text: their own copy, or the stored version they refer
+ * to, which goes once no draft uses it.
  */
 export const removeCompanyFile = mutation({
   args: { companyFileId: v.id("companyFiles") },
@@ -450,6 +451,8 @@ export const removeCompanyFile = mutation({
     await deleteCompanyFileText(ctx, file._id);
     await ctx.db.delete(file._id);
     if (file.storageId) await deleteStorageIfUnreferenced(ctx, file.storageId);
+    // B1, second part: the file's stored text versions that no draft uses.
+    await ctx.scheduler.runAfter(0, internal.sourceTextSweep.sweepCompanyTextVersions, { companyFileId: file._id });
     return null;
   },
 });

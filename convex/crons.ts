@@ -180,4 +180,14 @@ crons.cron(
   {}
 );
 
+// B1, second part (2026-10-27): a removed company file's stored text
+// versions once no draft uses them (a draft using one may have been erased
+// since the file was removed); one page a run, the next scheduled.
+crons.cron(
+  "sweep unused company file text versions",
+  "20 10 * * *",
+  internal.sourceTextSweep.sweepCompanyTextVersions,
+  {}
+);
+
 export default crons;
