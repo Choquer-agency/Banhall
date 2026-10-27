@@ -890,7 +890,7 @@ What changes:
 ### Automated, live on localhost
 
 - [x] Duplicate a project with files and a report on the live copy (2026-10-27, at 85f2f08a): InnovMine copied in 435 ms; all 5 files have the same text, none pending, the report came along, and the receipt maps each; originals were cloned where the source had one (the three older snapshot rows never had a stored original).
-- [ ] Review from project on the live copy: the review project has every support file.
+- [x] Review from project on the live copy (2026-10-27, at 4ab7d2e1): the review project has the written PD and all 5 support files copied, none pending; the review completed in about a minute and sent 52,128 characters of evidence ($0.12). A second duplicate of InnovMine took 801 ms.
 - [ ] F5's stress project (50 files of 400,000 characters) duplicated on the live copy.
 
 ### Manual on localhost

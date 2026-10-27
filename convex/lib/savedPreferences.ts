@@ -2,7 +2,7 @@ import * as houseRules from "../../shared/houseRules";
 import * as humanProse from "../../shared/humanProse";
 import { BANNED_SCAN_TERMS } from "../../shared/bannedWords";
 import { appVocabulary } from "./preferenceCheck";
-import { SAVED_PREFERENCE_ROW_INSTRUCTION } from "./writerWording";
+import { holdsPhrase, SAVED_PREFERENCE_ROW_INSTRUCTION, wordingPattern } from "./writerWording";
 
 /**
  * 2026-10-27 (Phase E, E1b): a writer's approved and on saved preferences
@@ -15,6 +15,11 @@ import { SAVED_PREFERENCE_ROW_INSTRUCTION } from "./writerWording";
  * byte for byte.
  */
 export const SAVED_PREFERENCES_HEADING = "Saved preferences:";
+
+/** Whether a composed style holds a saved preferences block (a line that is the heading). */
+export function holdsSavedBlock(composed: string): boolean {
+  return composed.split(/\r?\n/).some((line) => line.trim() === SAVED_PREFERENCES_HEADING);
+}
 
 export function composeWithSavedPreferences(profileText: string, saved: readonly string[]): string {
   const lines = saved.map((text) => text.trim()).filter(Boolean);
@@ -133,26 +138,27 @@ function quotedSpans(field: string): Array<{ text: string; wholeOnly: boolean }>
  * An instruction that is House Rule text ("Write in dense, formal
  * paragraphs") is the House Rule's, so only the reason is read then.
  * A paraphrase ("asked us to avoid jargon"), or a saved word not in quotes,
- * is not recognized: a known limit. An older draft's saved block (no texts
- * beside its style) is matched by each line and the whole block, as parts.
+ * is not recognized: a known limit. Tenth re-check: in an older draft (a
+ * saved block in its style, no texts beside it) every model row is hidden.
  */
 export function withoutSavedPreferenceText<T extends { instruction: string; reason: string; source?: string }>(
   note: T,
   /** Whole saved preferences, as frozen beside the style. */
   saved: readonly string[],
   extra: {
-    /** Ninth re-check: an older draft's saved block, every line and the whole, matched as parts. */
-    parts?: readonly string[];
     /** Eighth re-check: the words of the wording rules read from saved preferences. */
     wording?: readonly string[];
     /** Ninth re-check: the words of the Writer Profile's own wording rules, which are public. */
     publicWording?: readonly string[];
+    /** Tenth re-check: an older draft (a saved block, no texts beside it): every model row is hidden. */
+    hideModelRows?: true;
   } = {}
 ): T {
-  const parts = extra.parts ?? [];
-  const wording = extra.wording ?? [];
-  if ((saved.length === 0 && parts.length === 0 && wording.length === 0) || note.source !== "model") return note;
+  if (note.source !== "model") return note;
   const hidden = { ...note, ...SAVED_PREFERENCE_NOTE };
+  if (extra.hideModelRows) return hidden;
+  const wording = extra.wording ?? [];
+  if (saved.length === 0 && wording.length === 0) return note;
   const houseRuleRow = isHouseRuleText(note.instruction);
   const raw = houseRuleRow ? [note.reason] : [note.instruction, note.reason];
   const fields = raw.map(folded);
@@ -161,22 +167,27 @@ export function withoutSavedPreferenceText<T extends { instruction: string; reas
   // Public: part of a Writer Profile rule, or of a House Rule banned term.
   const publicTerm = (span: string) =>
     [...publicTerms, ...houseRuleTerms()].some((term) => ` ${term} `.includes(` ${span} `));
-  // Public wording: a public term, or words the House Rules or plain-language rules use.
-  const publicWords = (span: string) => publicTerm(span) || houseRuleText().some((line) => line.includes(` ${span} `));
+  // Public wording, in any form the wording checker reads ("bauble" holds
+  // "baubles" and the other way round): a Writer Profile rule, a House Rule
+  // banned term, or words the House Rules or plain-language rules use.
+  const publicWords = (phrase: string) => {
+    const pattern = wordingPattern(phrase);
+    const holds = (text: string) => {
+      pattern.lastIndex = 0;
+      return pattern.test(text);
+    };
+    return [...publicTerms, ...houseRuleTerms()].some(holds) || houseRuleText().some(holds);
+  };
 
-  // Eighth and ninth re-checks: a quote holding a saved rule's phrase, or any
-  // word of it that is not a function word ('the word "sought"'), unless the
-  // public rules use it too.
+  // Eighth to tenth re-checks: a quote holding a saved rule's phrase, or any
+  // word of it that is not a function word ('the word "sought"'), in any form
+  // the wording checker reads ('bans "baubles"' for a ban on "bauble"),
+  // unless the public rules use it too.
   const privateTerms = wording.map(folded).filter((term) => term !== "" && !publicWords(term));
-  const privateWords = new Set(
-    privateTerms.flatMap((term) => term.split(" ")).filter((word) => !FUNCTION_WORDS.has(word) && !publicWords(word))
-  );
-  if (
-    spans.some(
-      ({ text: span }) =>
-        privateTerms.some((term) => ` ${span} `.includes(` ${term} `)) || span.split(" ").some((word) => privateWords.has(word))
-    )
-  ) {
+  const privateWords = [
+    ...new Set(privateTerms.flatMap((term) => term.split(" ")).filter((word) => !FUNCTION_WORDS.has(word) && !publicWords(word))),
+  ];
+  if (spans.some(({ text: span }) => [...privateTerms, ...privateWords].some((phrase) => holdsPhrase(span, phrase)))) {
     return hidden;
   }
 
@@ -211,20 +222,5 @@ export function withoutSavedPreferenceText<T extends { instruction: string; reas
     if (joined.includes(` ${preference} `)) return true;
     return unquotedRun(words);
   });
-  if (quotes) return hidden;
-  // An older draft's lines and block: a quote of one, or of a part of one,
-  // unless it is public ("furthermore" is a House Rule word).
-  const quotesOldPart = parts.some((text) => {
-    const part = folded(text);
-    const words = part.split(" ").filter(Boolean);
-    if (words.length === 0) return false;
-    const quoted = spans.some(
-      ({ text: span }) =>
-        ((span === part || ` ${span} `.includes(` ${part} `)) && !publicWords(part)) || quotesPart(part, span)
-    );
-    if (quoted) return true;
-    if (words.length < 3) return fields.includes(part) && !publicWords(part);
-    return joined.includes(` ${part} `) || unquotedRun(words);
-  });
-  return quotesOldPart ? hidden : note;
+  return quotes ? hidden : note;
 }

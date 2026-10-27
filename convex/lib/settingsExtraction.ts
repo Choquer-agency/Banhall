@@ -547,34 +547,6 @@ export function writerWordingRulesFor(composed: string, savedTexts: readonly str
   return extractWriterWordingRules(lines.slice(0, heading).join("\n"));
 }
 
-/**
- * The saved block of a style frozen before the saved preference texts were
- * kept beside it, as composed: everything after the first saved preferences
- * heading, so a heading inside a preference cannot hide the ones before it.
- * Read only to keep its words out of Compliance Notes, never measured.
- */
-export function legacySavedBlock(composed: string | undefined): string {
-  if (!composed) return "";
-  const lines = composed.split(/\r?\n/);
-  const heading = lines.findIndex((line) => line.trim() === SAVED_PREFERENCES_HEADING);
-  return heading < 0 ? "" : lines.slice(heading + 1).join("\n");
-}
-
-/**
- * That block for privacy matching (E1b review; seventh to ninth re-checks):
- * every line without its bullet, and the whole block, so no line ("Prefer
- * crisp verbs ...") is ever dropped. Where one preference ends cannot be
- * told, so these are matched as parts of preferences, never as whole ones.
- */
-export function legacySavedPreferenceTexts(composed: string | undefined): string[] {
-  const after = legacySavedBlock(composed)
-    .split("\n")
-    .map((line) => (line.startsWith("- ") ? line.slice(2) : line).trim())
-    .filter(Boolean);
-  const whole = after.join("\n");
-  return [...new Set([...after, ...(whole ? [whole] : [])])];
-}
-
 // Final re-check P2-A2: "Avoid ...", "Never include ...", "banned",
 // "forbidden", "prohibited" and "No <kind> words" read as bans too ("Do
 // not describe" or "claim" are topic rules, never word bans).

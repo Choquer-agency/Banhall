@@ -5,8 +5,7 @@
  * signals and kept only when they approve.
  */
 import { composeWithSavedPreferences, SAVED_PREFERENCE_NOTE, withoutSavedPreferenceText } from "./lib/savedPreferences";
-import { legacySavedPreferenceTexts } from "./lib/settingsExtraction";
-import { savedPreferencesOfGeneration } from "./lib/savedPreferenceNotes";
+import { savedPreferenceMatchOfGeneration, savedPreferencesOfGeneration } from "./lib/savedPreferenceNotes";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -573,10 +572,7 @@ describe("writer memory (Phase E, E1a)", () => {
 
     test("a Compliance Note row never carries a saved preference's text (review)", async () => {
       const s = await setup();
-      const saved = legacySavedPreferenceTexts("Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.\n- Uses Canadian spelling.");
-      // Each item, and (seventh re-check) the whole block too.
-      expect(saved).toEqual(["Keeps sentences under 25 words.", "Uses Canadian spelling.", "Keeps sentences under 25 words.\nUses Canadian spelling."]);
-      expect(legacySavedPreferenceTexts("Use we.")).toEqual([]);
+      const saved = ["Keeps sentences under 25 words.", "Uses Canadian spelling."];
       const note = (instruction: string, reason: string) => ({ section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false });
       expect(withoutSavedPreferenceText(note("Keeps sentences under 25 words.", "Every sentence is short."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
       expect(withoutSavedPreferenceText(note("Keeps sentences under 25", "Quoted in part."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
@@ -614,7 +610,9 @@ describe("writer memory (Phase E, E1a)", () => {
         });
         await ctx.db.insert("generationArtifacts", {
           generationId: id, kind: "writer_style",
-          content: JSON.stringify({ styleGuidance: "", writerFlavor: "Use we.\n\nSaved preferences:\n- Uses Canadian spelling.", styleOverrides: {} }),
+          content: JSON.stringify({
+            styleGuidance: "", writerFlavor: "Use we.\n\nSaved preferences:\n- Uses Canadian spelling.", savedPreferenceTexts: ["Uses Canadian spelling."], styleOverrides: {},
+          }),
         });
         return id;
       });
@@ -730,16 +728,10 @@ describe("writer memory (Phase E, E1a)", () => {
       const read = async (id: Id<"generations">) => s.t.run(async (ctx) => savedPreferencesOfGeneration(ctx, (await ctx.db.get(id))!));
       const flavor = `Use we.\n\nSaved preferences:\n- ${texts[0]}\n- ${texts[1]}`;
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, savedPreferenceTexts: texts, styleOverrides: {} }))).toEqual(texts);
-      expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, styleOverrides: {} }))).toEqual([
-        // Ninth re-check: every line of the block, and the whole block.
-        "Avoid filler.",
-        "Never use these words:",
-        "optimize",
-        "Keep it plain.",
-        "Saved preferences:",
-        "leverage",
-        "Avoid filler.\nNever use these words:\noptimize\nKeep it plain.\nSaved preferences:\nNever use these words:\nleverage",
-      ]);
+      // Tenth re-check: a style frozen before the texts were kept has every model row hidden.
+      const older = await generation({ styleGuidance: "", writerFlavor: flavor, styleOverrides: {} });
+      expect(await read(older)).toEqual([]);
+      expect(await s.t.run(async (ctx) => savedPreferenceMatchOfGeneration(ctx, (await ctx.db.get(older))!))).toMatchObject({ hideModelRows: true });
     });
 
     test("a quoted word of a saved preference's wording rule never reaches stored notes; the profile's and House Rules' stay (eighth re-check)", async () => {
@@ -782,10 +774,11 @@ describe("writer memory (Phase E, E1a)", () => {
             notes: notes.map((reason) => ({ section: "244" as const, source: "model" as const, instruction: "Writer preference", outcome: "applied" as const, tier: "none" as const, reason, repaired: false })),
           });
           const rows = await s.admin.query(api.complianceNotes.listForGeneration, { generationId, candidateRunId });
+          // Tenth re-check: an older draft has every model row hidden.
           expect([marker, legacy, rows.map((row) => row.reason).sort()]).toEqual([
             marker,
             legacy,
-            [SAVED_PREFERENCE_NOTE.reason, notes[1], notes[2]].sort(),
+            legacy ? notes.map(() => SAVED_PREFERENCE_NOTE.reason) : [SAVED_PREFERENCE_NOTE.reason, notes[1], notes[2]].sort(),
           ]);
           expect(JSON.stringify(rows)).not.toMatch(/ornate/);
         }
@@ -834,13 +827,90 @@ describe("writer memory (Phase E, E1a)", () => {
         // A phrase the Writer Profile also bans is the profile's, and public.
         const profile = "Never use these words:\n- velvet fog";
         const repeats = "Avoid filler.\nNever use these words:\n- velvet fog";
-        expect([legacy, await store(profile, repeats, legacy, ['The profile bans "velvet fog".'])]).toEqual([legacy, ['The profile bans "velvet fog".']]);
+        // (Tenth re-check: an older draft has every model row hidden.)
+        expect([legacy, await store(profile, repeats, legacy, ['The profile bans "velvet fog".'])]).toEqual([
+          legacy,
+          [legacy ? SAVED_PREFERENCE_NOTE.reason : 'The profile bans "velvet fog".'],
+        ]);
         // The whole saved preference, quoted as the writer's, still hides.
         expect([legacy, await store(profile, "Avoid filler.", legacy, ['The writer requested "Avoid filler." and we complied.'])]).toEqual([
           legacy,
           [SAVED_PREFERENCE_NOTE.reason],
         ]);
       }
+    });
+
+    test("a quoted form of a saved rule's word is hidden in either field, and an older draft hides every model row (tenth re-check)", async () => {
+      const s = await setup();
+      type Note = { instruction: string; reason: string; source?: "model" | "deterministic" };
+      const store = async (profile: string, saved: string, legacy: boolean, notes: Note[]) => {
+        const { generationId, candidateRunId } = await s.t.run(async (ctx) => {
+          const generationId = await ctx.db.insert("generations", {
+            projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+            writerSettings: {
+              profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+              waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+            },
+          });
+          await ctx.db.insert("generationArtifacts", {
+            generationId, kind: "writer_style",
+            content: JSON.stringify({
+              styleGuidance: "", writerFlavor: composeWithSavedPreferences(profile, [saved]), styleOverrides: {},
+              ...(legacy ? {} : { savedPreferenceTexts: [saved] }),
+            }),
+          });
+          await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
+          const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+            generationId, projectId: s.projectId, model: "m", label: "A", status: "running", queuedAt: 1,
+          });
+          return { generationId, candidateRunId };
+        });
+        await s.t.mutation(internal.generations.insertConsistencyNotes, {
+          generationId,
+          candidateRunId,
+          notes: notes.map((note) => ({ section: "244" as const, source: note.source ?? ("model" as const), instruction: note.instruction, outcome: "applied" as const, tier: "none" as const, reason: note.reason, repaired: false })),
+        });
+        const rows = await s.admin.query(api.complianceNotes.listForGeneration, { generationId, candidateRunId });
+        return rows.map((row) => [row.instruction, row.reason, row.outcome]);
+      };
+      const hidden = [SAVED_PREFERENCE_NOTE.instruction, SAVED_PREFERENCE_NOTE.reason, "applied"];
+      const shown = (note: Note) => [note.instruction, note.reason, "applied"];
+
+      // Singular and plural, both ways, in the instruction and in the reason.
+      const forms: Array<[string, string]> = [
+        ["Avoid filler.\nNever use these words:\n- bauble", "baubles"],
+        ["Avoid filler.\nNever use these words:\n- baubles", "bauble"],
+        ["Required terms:\n- amber lattice: A wording choice. Never write bauble.", "baubles"],
+        ["Required terms:\n- amber lattice: A wording choice. Never write baubles.", "bauble"],
+      ];
+      for (const [saved, quoted] of forms) {
+        const notes: Note[] = [
+          { instruction: `The writer bans "${quoted}".`, reason: "Followed." },
+          { instruction: "Writer preference", reason: `The writer bans "${quoted}".` },
+        ];
+        expect([saved, quoted, await store("", saved, false, notes)]).toEqual([saved, quoted, [hidden, hidden]]);
+      }
+      // A form of a phrase the Writer Profile bans is the profile's, and public.
+      const publicNote: Note = { instruction: "Writer preference", reason: 'The profile bans "bauble".' };
+      expect(await store("Never use these words:\n- bauble", "Avoid filler.\nNever use these words:\n- baubles", false, [publicNote])).toEqual([shown(publicNote)]);
+
+      // An older draft: every model row is hidden, its outcome kept; rows code wrote stay.
+      const mist: Note[] = [
+        { instruction: "Writer preference", reason: 'The writer requested "lattice".' },
+        { instruction: "Writer preference", reason: 'The writer bans "mist".' },
+        { instruction: 'The writer bans "mist".', reason: "Followed." },
+      ];
+      expect(await store("", "Required terms:\n- amber lattice: A wording choice. Never write mist.", true, mist)).toEqual([hidden, hidden, hidden]);
+      const veiled: Note[] = [
+        { instruction: "Writer preference", reason: 'The profile bans "veiled amber lattice".' },
+        { instruction: "Writer preference", reason: "The profile bans veiled amber lattice." },
+        { instruction: "Writer's banned word: veiled amber lattice", reason: '"veiled amber lattice" not used', source: "deterministic" },
+      ];
+      const profile = "Never use these words:\n- veiled amber lattice";
+      const repeated = "Avoid filler.\nNever use these words:\n- veiled amber lattice";
+      expect(await store(profile, repeated, true, veiled)).toEqual([hidden, hidden, shown(veiled[2]!)]);
+      // The newer format keeps the profile's public phrase visible, quoted or not.
+      expect(await store(profile, repeated, false, veiled)).toEqual(veiled.map(shown));
     });
 
     test("a style frozen before the texts were kept loses no line of a saved preference on the way to stored notes (seventh re-check)", async () => {
@@ -902,7 +972,10 @@ describe("writer memory (Phase E, E1a)", () => {
         });
         await ctx.db.insert("generationArtifacts", {
           generationId, kind: "writer_style",
-          content: JSON.stringify({ styleGuidance: "", writerFlavor: "Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.", styleOverrides: {} }),
+          content: JSON.stringify({
+            styleGuidance: "", writerFlavor: "Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.",
+            savedPreferenceTexts: ["Keeps sentences under 25 words."], styleOverrides: {},
+          }),
         });
         await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
         const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
