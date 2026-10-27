@@ -874,12 +874,13 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers, round 1: gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), each "ship after fixes"; fixes in the next commit.
+- [ ] Round 2 review of the fixes.
 - [ ] `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
 
-- [ ] Duplicate a project with files and a report on the live copy: the new project has every file with the same text and original, the receipt maps each, and no file is left pending.
+- [x] Duplicate a project with files and a report on the live copy (2026-10-27, at 85f2f08a): InnovMine copied in 435 ms; all 5 files have the same text, none pending, the report came along, and the receipt maps each; originals were cloned where the source had one (the three older snapshot rows never had a stored original).
 - [ ] Review from project on the live copy: the review project has every support file.
 - [ ] F5's stress project (50 files of 400,000 characters) duplicated on the live copy.
 

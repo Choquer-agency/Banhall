@@ -6,6 +6,7 @@ import { domainError } from "./lib/contracts";
 import {
   PROJECT_COPY_LEASE_MS,
   failPendingCopyFiles,
+  reconcileCopyClones,
   takeStalledProjectCopy,
 } from "./lib/projectCopy";
 
@@ -24,108 +25,149 @@ type CopyResult = {
   pdReviewsCopied: number;
   reportCopied: boolean;
   previousYearReportCopied: boolean;
+  /** F2 review: originals whose bytes could not be read; their files or transcripts came without one. */
+  originalsNotCopied: number;
+  /**
+   * F2 review: the copy goes on after this action (it ran out of time, or
+   * another runner holds it); the receipt lists the rows made so far, and
+   * the files still being copied show so in the new project.
+   */
+  stillCopying?: true;
 };
 
-/** What a run of the copy job did; `outcome` says how it ended. */
-type RunTally = {
-  documents: CopyResult["documents"];
-  evidenceCopied: number;
-  pdReviewsCopied: number;
-  reportId?: Id<"reports">;
-  previousYearReportId?: Id<"projectDocuments">;
-  filesCopied: number;
-  transcriptOriginalsCopied: number;
-  outcome: "done" | "stopped" | "lease_lost" | "out_of_time";
-};
+/** How a run of the copy job ended. */
+type RunEnd = "done" | "stopped" | "lease_lost" | "out_of_time";
 
-/** The original's bytes cloned into new storage, or none when it cannot be read. */
-async function cloneStoredFile(ctx: ActionCtx, storageId: Id<"_storage">): Promise<Id<"_storage"> | undefined> {
-  try {
-    const blob = await ctx.storage.get(storageId);
-    return blob ? await ctx.storage.store(blob) : undefined;
-  } catch (error) {
-    // The file is copied without its original rather than not at all.
-    console.warn(`project copy: an original file could not be read (${error instanceof Error ? error.name : "error"}); copied without it`);
-    return undefined;
+/**
+ * The original's bytes cloned into new storage. Tried twice; `unreadable`
+ * when both failed, so the file is copied without its original and the
+ * copy says so. No clone and not unreadable: the original is gone.
+ */
+async function cloneStoredFile(
+  ctx: ActionCtx,
+  storageId: Id<"_storage">
+): Promise<{ clone?: Id<"_storage">; unreadable: boolean }> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const blob = await ctx.storage.get(storageId);
+      return blob ? { clone: await ctx.storage.store(blob), unreadable: false } : { unreadable: false };
+    } catch (error) {
+      if (attempt >= 2) {
+        console.warn(`project copy: an original file could not be read (${error instanceof Error ? error.name : "error"}); copied without it`);
+        return { unreadable: true };
+      }
+    }
   }
 }
 
 /**
  * Runs a copy job from where it is (F2): the rest of the new project's
- * rows, then each pending file (its original cloned here, its text copied
- * whole in its own transaction), then the copied transcripts' originals.
- * Every step checks the job's lease; a step that finds another runner
- * holds it, or that the copy can no longer go on, ends the run. A clone the
- * mutation does not attach it releases itself; one made before a step
- * failed is released here.
+ * rows, then each pending file (its original cloned here, under a clone
+ * record, its text copied whole in its own transaction), then the copied
+ * transcripts' originals. Every step checks the job's lease. A file whose
+ * step throws is counted and tried once more, then given up. Stops at
+ * `stopAt` between files, for the caller to hand the job on.
  */
 async function runProjectCopy(
   ctx: ActionCtx,
   jobId: Id<"projectCopyJobs">,
   leaseToken: string,
-  tally: RunTally,
-  stopAt?: number
-): Promise<RunTally> {
-  const outOfTime = () => stopAt !== undefined && Date.now() > stopAt;
+  stopAt: number
+): Promise<RunEnd> {
+  const lease = { jobId, leaseToken };
+  const outOfTime = () => Date.now() > stopAt;
   for (;;) {
-    const step = await ctx.runMutation(internal.projects.continueProjectContentCopy, { jobId, leaseToken });
+    const step = await ctx.runMutation(internal.projects.continueProjectContentCopy, lease);
     const result = step.result;
-    if (!result) {
-      return { ...tally, outcome: step.kind === "lease_lost" ? "lease_lost" : step.kind === "finished" ? "done" : "stopped" };
-    }
-    tally.documents.push(...result.documents);
-    tally.evidenceCopied = result.evidenceCopied;
-    tally.pdReviewsCopied = result.pdReviewsCopied;
-    if (result.reportId) tally.reportId = result.reportId;
-    if (result.previousYearReportId) tally.previousYearReportId = result.previousYearReportId;
+    if (!result) return step.kind === "lease_lost" ? "lease_lost" : step.kind === "finished" ? "done" : "stopped";
     if (result.prepared) break;
-    if (outOfTime()) return { ...tally, outcome: "out_of_time" };
+    if (outOfTime()) return "out_of_time";
   }
   for (;;) {
-    const next = await ctx.runQuery(internal.projects.nextProjectCopyFile, { jobId, leaseToken });
+    if (outOfTime()) return "out_of_time";
+    const next = await ctx.runQuery(internal.projects.nextProjectCopyFile, lease);
     if (!next) break;
-    const clone = next.sourceStorageId ? await cloneStoredFile(ctx, next.sourceStorageId) : undefined;
-    let outcome: "copied" | "failed" | "skipped" | "stopped";
+    let clone: Id<"_storage"> | undefined;
+    let cloneRecordId: Id<"projectCopyClones"> | null = null;
+    let originalNotCopied = false;
+    if (next.sourceStorageId) {
+      cloneRecordId = await ctx.runMutation(internal.projects.beginProjectCopyClone, {
+        ...lease,
+        sourceStorageId: next.sourceStorageId,
+      });
+      if (cloneRecordId) {
+        const cloned = await cloneStoredFile(ctx, next.sourceStorageId);
+        clone = cloned.clone;
+        originalNotCopied = cloned.unreadable;
+      }
+    }
+    let outcome: "copied" | "failed" | "skipped" | "stopped" | "lease_lost";
     try {
       outcome = await ctx.runMutation(internal.projects.copyProjectFile, {
-        jobId,
-        leaseToken,
+        ...lease,
         documentId: next.documentId,
         ...(clone ? { cloneStorageId: clone } : {}),
+        ...(cloneRecordId ? { cloneRecordId } : {}),
+        ...(originalNotCopied ? { originalNotCopied: true } : {}),
       });
     } catch (error) {
-      // Nothing points at the clone until the step commits.
+      // Nothing points at the clone until the step commits; its record is
+      // left for the cron, which finds nothing to delete and drops it.
       if (clone) await ctx.storage.delete(clone).catch(() => undefined);
-      throw error;
+      console.warn(`project copy: a file's copy step failed (${error instanceof Error ? error.name : "error"})`);
+      const noted = await ctx.runMutation(internal.projects.noteProjectCopyFileError, {
+        ...lease,
+        documentId: next.documentId,
+      });
+      if (noted === "lease_lost" || noted === "stopped") return noted;
+      continue;
     }
-    if (outcome === "stopped") return { ...tally, outcome: "stopped" };
-    if (outcome === "copied" && clone) tally.filesCopied += 1;
-    if (outOfTime()) return { ...tally, outcome: "out_of_time" };
+    if (outcome === "stopped" || outcome === "lease_lost") return outcome;
   }
   // Transcript originals (.docx, .vtt, .srt) come along too.
   const originals: Array<{ transcriptId: Id<"transcripts">; storageId: Id<"_storage"> }> = await ctx.runQuery(
     internal.projects.planTranscriptOriginalCopies,
-    { jobId, leaseToken }
+    lease
   );
-  const transcriptCopies: Array<{ transcriptId: Id<"transcripts">; storageId: Id<"_storage"> }> = [];
-  let finished: "done" | "files_left" | "stopped";
+  const transcriptCopies: Array<{
+    transcriptId: Id<"transcripts">;
+    storageId: Id<"_storage">;
+    cloneRecordId: Id<"projectCopyClones">;
+  }> = [];
+  const settledCloneRecordIds: Id<"projectCopyClones">[] = [];
+  let transcriptOriginalsNotCopied = 0;
+  let finished: "done" | "files_left" | "stopped" | "lease_lost";
   try {
     for (const original of originals) {
-      const clone = await cloneStoredFile(ctx, original.storageId);
-      if (clone) transcriptCopies.push({ transcriptId: original.transcriptId, storageId: clone });
+      const cloneRecordId = await ctx.runMutation(internal.projects.beginProjectCopyClone, {
+        ...lease,
+        sourceStorageId: original.storageId,
+      });
+      if (!cloneRecordId) continue;
+      const cloned = await cloneStoredFile(ctx, original.storageId);
+      if (cloned.clone) {
+        transcriptCopies.push({ transcriptId: original.transcriptId, storageId: cloned.clone, cloneRecordId });
+      } else {
+        settledCloneRecordIds.push(cloneRecordId);
+        if (cloned.unreadable) transcriptOriginalsNotCopied += 1;
+      }
     }
-    finished = await ctx.runMutation(internal.projects.finishProjectContentCopy, { jobId, leaseToken, transcriptCopies });
+    finished = await ctx.runMutation(internal.projects.finishProjectContentCopy, {
+      ...lease,
+      transcriptCopies,
+      settledCloneRecordIds,
+      ...(transcriptOriginalsNotCopied ? { transcriptOriginalsNotCopied } : {}),
+    });
   } catch (error) {
     for (const copy of transcriptCopies) await ctx.storage.delete(copy.storageId).catch(() => undefined);
     throw error;
   }
-  if (finished === "done") tally.transcriptOriginalsCopied += transcriptCopies.length;
-  return { ...tally, outcome: finished === "done" ? "done" : finished === "stopped" ? "stopped" : "lease_lost" };
+  // Files still pending at the end (another step left one): a fresh runner takes it on.
+  return finished === "files_left" ? "out_of_time" : finished;
 }
 
-/** Waits, a second at a time, for another runner to finish the job (rare: this run's lease ran out). */
-async function waitForProjectCopy(ctx: ActionCtx, jobId: Id<"projectCopyJobs">): Promise<void> {
-  const until = Date.now() + 2 * PROJECT_COPY_LEASE_MS;
+/** Polls, a second at a time until `until`, for another runner to finish the job. */
+async function waitForProjectCopy(ctx: ActionCtx, jobId: Id<"projectCopyJobs">, until: number): Promise<void> {
   while (Date.now() < until) {
     const status = await ctx.runQuery(internal.projectDuplication.projectCopyStatus, { jobId });
     if (status !== "preparing" && status !== "copying") return;
@@ -133,13 +175,20 @@ async function waitForProjectCopy(ctx: ActionCtx, jobId: Id<"projectCopyJobs">):
   }
 }
 
+/** The first runner's time, from the action's start, before it hands the job on (an action may run 10 minutes). */
+const FIRST_RUN_MS = 7 * 60 * 1000;
+/** Until when, from the action's start, it waits for another runner holding the job. */
+const WAIT_FOR_RUNNER_MS = 8 * 60 * 1000;
+
 /**
- * The shared copy (F2): `projects.prepareProjectContentCopy` checks the
- * caller and the scope, starts the copy job and makes the new project's
- * rows; this action then runs the job to its end, so the duplicate wizard
- * and review from project (2026-08-11 second amendment) see a finished
- * copy, as before. Original file bytes are cloned, never shared. Only a
- * crash leaves files pending; the job then continues on its own.
+ * The shared copy (F2): the files to leave out are checked first, page by
+ * page; `projects.prepareProjectContentCopy` checks the caller and the
+ * scope, starts the copy job and makes the new project's rows; this action
+ * then runs the job. The duplicate wizard and review from project
+ * (2026-08-11 second amendment) see a finished copy, as before; a copy too
+ * long for one action is handed on and comes back `stillCopying`. The
+ * result is read from what the copy wrote, so it is the same whichever
+ * runner did the work. Original file bytes are cloned, never shared.
  *
  * The mutations are internal (owner decision 35, 2026-09-25): every storage
  * id they attach was made here by `ctx.storage.store`.
@@ -159,35 +208,42 @@ export async function copyProjectContentBetween(
     requireFreshTarget?: boolean;
   }
 ): Promise<CopyResult> {
+  const started = Date.now();
+  if (args.excludeDocumentIds && args.excludeDocumentIds.length > 0) {
+    for (let from: number | null = 0; from !== null; ) {
+      const page: { next: number | null } = await ctx.runQuery(internal.projects.checkCopyExclusions, {
+        fromProjectId: args.fromProjectId,
+        excludeDocumentIds: args.excludeDocumentIds,
+        from,
+      });
+      from = page.next;
+    }
+  }
   const plan = await ctx.runMutation(internal.projects.prepareProjectContentCopy, args);
-  const tally = await runProjectCopy(ctx, plan.jobId, plan.leaseToken, {
-    documents: [...plan.documents],
-    evidenceCopied: plan.evidenceCopied,
-    pdReviewsCopied: plan.pdReviewsCopied,
-    ...(plan.reportId ? { reportId: plan.reportId } : {}),
-    ...(plan.previousYearReportId ? { previousYearReportId: plan.previousYearReportId } : {}),
-    filesCopied: 0,
-    transcriptOriginalsCopied: 0,
-    outcome: "done",
-  });
-  if (tally.outcome === "lease_lost") await waitForProjectCopy(ctx, plan.jobId);
-  if (tally.outcome === "stopped") {
+  const lease = { jobId: plan.jobId, leaseToken: plan.leaseToken };
+  const end = await runProjectCopy(ctx, plan.jobId, plan.leaseToken, started + FIRST_RUN_MS);
+  if (end === "out_of_time") await ctx.runMutation(internal.projectDuplication.continueProjectCopyLater, lease);
+  if (end === "lease_lost") await waitForProjectCopy(ctx, plan.jobId, started + WAIT_FOR_RUNNER_MS);
+  const outcome = await ctx.runQuery(internal.projects.projectCopyOutcome, { jobId: plan.jobId });
+  if (!outcome || outcome.status === "failed" || end === "stopped") {
     domainError("INVALID_STATE", "The copy stopped before it finished: the new project is being deleted, or your access ended");
   }
   return {
-    documents: tally.documents,
-    ...(tally.previousYearReportId ? { previousYearReportId: tally.previousYearReportId } : {}),
-    documentsCopied: tally.documents.length,
-    filesCopied: tally.filesCopied,
-    transcriptOriginalsCopied: tally.transcriptOriginalsCopied,
-    evidenceCopied: tally.evidenceCopied,
-    pdReviewsCopied: tally.pdReviewsCopied,
-    reportCopied: tally.reportId !== undefined,
-    previousYearReportCopied: tally.previousYearReportId !== undefined,
+    documents: outcome.documents,
+    ...(outcome.previousYearReportId ? { previousYearReportId: outcome.previousYearReportId } : {}),
+    documentsCopied: outcome.documents.length,
+    filesCopied: outcome.originalsAttached,
+    transcriptOriginalsCopied: outcome.transcriptOriginalsAttached,
+    evidenceCopied: outcome.evidenceCopied,
+    pdReviewsCopied: outcome.pdReviewsCopied,
+    reportCopied: outcome.reportId !== undefined,
+    previousYearReportCopied: outcome.previousYearReportId !== undefined,
+    originalsNotCopied: outcome.originalsNotCopied,
+    ...(outcome.status !== "done" ? { stillCopying: true as const } : {}),
   };
 }
 
-/** A runner's time before it hands the job to a fresh action (an action may run 10 minutes). */
+/** A runner's time before it hands the job to a fresh action. */
 const RESUME_RUN_MS = 7 * 60 * 1000;
 
 /** Continues a job whose first runner stopped (F2), under the lease it was given. */
@@ -195,14 +251,8 @@ export const resumeProjectCopy = internalAction({
   args: { jobId: v.id("projectCopyJobs"), leaseToken: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const tally = await runProjectCopy(
-      ctx,
-      args.jobId,
-      args.leaseToken,
-      { documents: [], evidenceCopied: 0, pdReviewsCopied: 0, filesCopied: 0, transcriptOriginalsCopied: 0, outcome: "done" },
-      Date.now() + RESUME_RUN_MS
-    );
-    if (tally.outcome === "out_of_time") {
+    const end = await runProjectCopy(ctx, args.jobId, args.leaseToken, Date.now() + RESUME_RUN_MS);
+    if (end === "out_of_time") {
       await ctx.runMutation(internal.projectDuplication.continueProjectCopyLater, args);
     }
     return null;
@@ -227,7 +277,8 @@ const STALLED_JOBS_PER_RUN = 10;
 
 /**
  * Cron (F2): takes up copy jobs whose lease ran out (their runner crashed
- * or was cut off), so none is left half done and no draft waits on one.
+ * or was cut off), so none is left half done and no draft waits on one,
+ * and deletes the clones such a runner stored but never attached.
  */
 export const resumeStalledProjectCopies = internalMutation({
   args: {},
@@ -242,6 +293,8 @@ export const resumeStalledProjectCopies = internalMutation({
         .take(STALLED_JOBS_PER_RUN);
       for (const job of stalled) if (await takeStalledProjectCopy(ctx, job)) taken += 1;
     }
+    // F2 review: and the clones a stopped runner stored but never attached.
+    await reconcileCopyClones(ctx, now);
     return taken;
   },
 });

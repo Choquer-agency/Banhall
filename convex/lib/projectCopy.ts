@@ -25,6 +25,7 @@ import {
   writeDocumentText,
 } from "./documentText";
 import { hasReadText, queueServerReadingIfNeeded } from "./serverReading";
+import { FRESH_UPLOAD_MS, isStorageReferenced, uploadClaimFor } from "./storage";
 
 /** How long a runner holds a job between steps; every step renews it. */
 export const PROJECT_COPY_LEASE_MS = 2 * 60 * 1000;
@@ -40,6 +41,13 @@ const FAIL_PAGE = 100;
  */
 export const PROJECT_STILL_COPYING_MESSAGE =
   "This project's files are still being copied. Try again in a minute.";
+
+/** A project still being copied into cannot be copied from (F2 review): its files have no text yet. */
+export const SOURCE_STILL_COPYING_MESSAGE =
+  "The project you are copying is still having its own files copied. Try again in a minute.";
+
+/** Failed copy steps of one file before it is given up (F2 review). */
+export const MAX_FILE_COPY_ATTEMPTS = 2;
 
 type Ctx = { db: QueryCtx["db"] };
 
@@ -144,6 +152,61 @@ export async function copyPendingFile(
     await queueServerReadingIfNeeded(ctx, doc._id, { ...doc, storageId: clone }, hasReadText(text));
   }
   return "copied";
+}
+
+/**
+ * A copy step of this file failed with an error (F2 review): counted, and
+ * at MAX_FILE_COPY_ATTEMPTS the file is given up, so one bad file never
+ * holds up the rest of the copy.
+ */
+export async function noteFileCopyError(ctx: MutationCtx, doc: Doc<"projectDocuments">): Promise<"retry" | "failed"> {
+  const attempts = (doc.textCopyAttempts ?? 0) + 1;
+  if (attempts >= MAX_FILE_COPY_ATTEMPTS) {
+    await failCopiedFile(ctx, doc);
+    await ctx.db.patch(doc._id, { textCopyAttempts: attempts });
+    return "failed";
+  }
+  await ctx.db.patch(doc._id, { textCopyAttempts: attempts });
+  return "retry";
+}
+
+/** How long after its record a clone can have been stored: an action runs at most 10 minutes. */
+const CLONE_WINDOW_MS = 15 * 60 * 1000;
+/** Clone records, and stored files per record, one cron run looks at. */
+const CLONE_RECORDS_PER_RUN = 10;
+const STORED_FILES_PER_RECORD = 500;
+
+/**
+ * F2 review: deletes the clones runners stored but never attached. A clone
+ * record older than FRESH_UPLOAD_MS (no save can attach a file that old)
+ * still here means its runner stopped between storing and attaching. Any
+ * stored file made in the record's window with the original's fingerprint
+ * and size that no row holds and no upload claims is such a clone, or
+ * another orphan no one can attach, and is deleted; then the record goes.
+ */
+export async function reconcileCopyClones(ctx: MutationCtx, now = Date.now()): Promise<number> {
+  const stale = await ctx.db
+    .query("projectCopyClones")
+    .withIndex("by_startedAt", (q) => q.lt("startedAt", now - FRESH_UPLOAD_MS - 5 * 60 * 1000))
+    .take(CLONE_RECORDS_PER_RUN);
+  let deleted = 0;
+  for (const record of stale) {
+    const stored = await ctx.db.system
+      .query("_storage")
+      .withIndex("by_creation_time", (q) =>
+        q.gte("_creationTime", record.startedAt).lte("_creationTime", record.startedAt + CLONE_WINDOW_MS)
+      )
+      .take(STORED_FILES_PER_RECORD);
+    for (const file of stored) {
+      if (file.sha256 !== record.sha256 || file.size !== record.size) continue;
+      if (await isStorageReferenced(ctx, file._id)) continue;
+      if (await uploadClaimFor(ctx, file._id)) continue;
+      await ctx.storage.delete(file._id);
+      deleted += 1;
+    }
+    await ctx.db.delete(record._id);
+  }
+  return deleted;
 }
 
 /**

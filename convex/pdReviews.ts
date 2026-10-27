@@ -27,7 +27,7 @@ import { liveFactPacksApply } from "./lib/transcriptFactRows";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 import { excludedIdsArgs, validatedExcludedSources } from "./lib/generations/reservation";
-import { textCopyPending } from "./lib/projectCopy";
+import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress, textCopyPending } from "./lib/projectCopy";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -49,6 +49,10 @@ export const startPdReview = mutation({
     const { user } = await requireReportEditAccess(ctx, args.projectId);
     // Decision 65, stage 2: not while the project is still being set up.
     await requireProjectSetUp(ctx, args.projectId);
+    // F2 review: nor while its files are still being copied into it.
+    if (await projectCopyInProgress(ctx, args.projectId)) {
+      domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     requireAnthropicConfigured("review");
     // PD reviews never read company files: only the project's lists are kept.
     const validated = await validatedExcludedSources(ctx, args.projectId, {
@@ -121,6 +125,10 @@ export const retryPdReview = mutation({
     const failed = await ctx.db.get(args.reviewId);
     if (!failed) domainError("NOT_FOUND", "Review not found");
     const { user } = await requireReportEditAccess(ctx, failed.projectId);
+    // F2 review: not while the project's files are still being copied.
+    if (await projectCopyInProgress(ctx, failed.projectId)) {
+      domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     requireAnthropicConfigured("review");
     // `completed` is retryable too: older rows were stored before the result
     // was validated, so a review can be marked complete yet hold a payload the
@@ -285,6 +293,22 @@ export const logPdReviewEvent = mutation({
 
 // ─── Internal plumbing for the review action ─────────────────────────────────
 
+/**
+ * F2 review: whether a review must wait for its project's files, still
+ * being copied into it (review from project starts its review as the copy
+ * runs; a crash can leave a copy to the job).
+ */
+export const reviewWaitsForCopy = internalQuery({
+  args: { reviewId: v.id("pdReviews") },
+  /** "gone": the review was removed or is no longer running (the reaper failed it). */
+  returns: v.union(v.literal("wait"), v.literal("go"), v.literal("gone")),
+  handler: async (ctx, args) => {
+    const review = await ctx.db.get(args.reviewId);
+    if (!review || review.status !== "running") return "gone";
+    return (await projectCopyInProgress(ctx, review.projectId)) ? "wait" : "go";
+  },
+});
+
 /** Everything the review agent needs in one read: the written PD, the project
  *  basics, and every transcript joined (may be empty in review mode). */
 export const getReviewInput = internalQuery({
@@ -293,6 +317,11 @@ export const getReviewInput = internalQuery({
     const review = await ctx.db.get(args.reviewId);
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
+    // F2 review: the written PD itself still being copied has no text yet
+    // (the review waits for the copy first: `reviewWaitsForCopy`).
+    if (doc && textCopyPending(doc)) {
+      domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     const project = await ctx.db.get(review.projectId);
     const allRows = await listProjectTranscripts(ctx, review.projectId);
     const excludedTranscripts = new Set(review.excludedSources?.transcriptIds ?? []);

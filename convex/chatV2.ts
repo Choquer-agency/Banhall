@@ -179,6 +179,7 @@ import {
   threadTitleFrom,
 } from "./lib/chatThreads";
 import { PURGE_STALL_MS, purgeStepValidator, purgeThreadRows } from "./lib/chatThreadPurge";
+import { textCopyPending } from "./lib/projectCopy";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -2936,7 +2937,9 @@ type ReferenceStatus =
 function isComparableReference(row: Doc<"projectDocuments">): boolean {
   if (
     row.processingStatus === "could_not_read" ||
-    row.processingStatus === "reference_only"
+    row.processingStatus === "reference_only" ||
+    // F2 review: a file still being copied has no text yet.
+    textCopyPending(row)
   ) {
     return false;
   }
@@ -3398,7 +3401,8 @@ export const getChatContextV2 = internalQuery({
     const readableFiles = chatFileOrder(documentViews)
       .filter((entry) => !entry.settings)
       .map((entry) => activeDocuments[entry.index])
-      .filter((document): document is Doc<"projectDocuments"> => !!document && documentTextLength(document) > 0);
+      // F2 review: a file still being copied has no text to show yet.
+      .filter((document): document is Doc<"projectDocuments"> => !!document && !textCopyPending(document) && documentTextLength(document) > 0);
     const whole =
       readableFiles.length <= evidenceBudget.maxDocuments &&
       readableFiles.every((document) => documentTextLength(document) <= perDocumentChars) &&
@@ -3407,6 +3411,11 @@ export const getChatContextV2 = internalQuery({
     for (const entry of chatFileOrder(documentViews)) {
       const document = activeDocuments[entry.index];
       if (!document) continue;
+      // F2 review: a file still being copied is shown with no text yet.
+      if (textCopyPending(document)) {
+        shownText.set(entry.index, "");
+        continue;
+      }
       // A file whose pieces are incomplete is shown with no text, so one
       // damaged file never stops the turn.
       // 2026-10-26: Word Markdown without its marks.

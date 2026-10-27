@@ -2389,6 +2389,8 @@ export default defineSchema({
     // the original project's file the copy came from, kept after the copy.
     textCopyState: v.optional(v.union(v.literal("pending"), v.literal("failed"))),
     textCopyJobId: v.optional(v.id("projectCopyJobs")),
+    /** Copy steps of this file that failed with an error (F2 review): at two it is given up. */
+    textCopyAttempts: v.optional(v.number()),
     copiedFromDocumentId: v.optional(v.id("projectDocuments")),
     createdAt: v.number(),
   })
@@ -2634,6 +2636,11 @@ export default defineSchema({
     filesFailed: v.number(),
     evidenceCopied: v.number(),
     pdReviewsCopied: v.number(),
+    /** Originals cloned and attached: files', transcripts'. */
+    originalsAttached: v.optional(v.number()),
+    transcriptOriginalsAttached: v.optional(v.number()),
+    /** Originals whose bytes could not be read twice: the file or transcript came without one. */
+    originalsNotCopied: v.optional(v.number()),
     reportId: v.optional(v.id("reports")),
     previousYearReportId: v.optional(v.id("projectDocuments")),
     /** Why a job stopped before its end (a code, never file text). */
@@ -2645,6 +2652,22 @@ export default defineSchema({
     .index("by_toProjectId_and_status", ["toProjectId", "status"])
     .index("by_fromProjectId", ["fromProjectId"])
     .index("by_status_and_leaseUntil", ["status", "leaseUntil"]),
+
+  // F2 review (2026-10-27): an original being cloned for a project copy,
+  // written before the copy action stores the clone and deleted in the step
+  // that attaches or releases it. One left behind marks a runner that
+  // stopped between the two; the cron then deletes the clone it may have
+  // stored, found by its fingerprint, size and time, once no save could
+  // still attach it (an hour, `FRESH_UPLOAD_MS`) and nothing holds it.
+  projectCopyClones: defineTable({
+    jobId: v.id("projectCopyJobs"),
+    /** The original's fingerprint and size, which its clone shares. */
+    sha256: v.string(),
+    size: v.number(),
+    startedAt: v.number(),
+  })
+    .index("by_startedAt", ["startedAt"])
+    .index("by_jobId", ["jobId"]),
 
   projectDocumentTexts: defineTable({
     documentId: v.id("projectDocuments"),

@@ -187,12 +187,32 @@ async function livePacks(
   return packs;
 }
 
+/**
+ * F2 review: how often a review looks again while its project's files are
+ * being copied, and how many times (10 minutes, inside the stale-review
+ * reaper's 15).
+ */
+const COPY_WAIT_MS = 10_000;
+const MAX_COPY_WAITS = 60;
+
 export const runPdReview = internalAction({
   args: {
     reviewId: v.id("pdReviews"),
     projectId: v.id("projects"),
+    /** Times this review has waited for its project's files to be copied. */
+    copyWaits: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // F2 review: a review reads the project's files, so it waits while they
+    // are still being copied in. The wait is bounded; a review the reaper
+    // failed meanwhile stops.
+    const copyWaits = args.copyWaits ?? 0;
+    const copy = await ctx.runQuery(internal.pdReviews.reviewWaitsForCopy, { reviewId: args.reviewId });
+    if (copy === "gone") return;
+    if (copy === "wait" && copyWaits < MAX_COPY_WAITS) {
+      await ctx.scheduler.runAfter(COPY_WAIT_MS, internal.ai.reviewAgent.runPdReview, { ...args, copyWaits: copyWaits + 1 });
+      return;
+    }
     // Every request ends inside the Convex action limit (actionDeadline.ts),
     // so a slow review fails here instead of being killed mid-run.
     startActionDeadline(ctx);

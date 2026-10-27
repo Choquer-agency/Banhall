@@ -280,7 +280,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     // F2: a file copied from another project, still on its way or lost.
     if (doc.copyState === "copying") return "This file is still being copied from the original project.";
     if (doc.copyState === "could_not_copy") {
-      return "This file changed or was removed in the original project while it was being copied, so it holds no text here. Add it again if you need it.";
+      return "This file could not be copied from the original project, so it holds no text here. Add it again if you need it.";
     }
     if (doc.archived || doc.processingStatus === "ready") return null;
     const explanation = statusExplanation(doc.processingStatus);

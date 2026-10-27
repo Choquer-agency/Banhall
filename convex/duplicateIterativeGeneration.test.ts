@@ -962,8 +962,11 @@ describe("transcript originals follow the copied row (review D-12, D-5)", () => 
     const rows = await projectRows(f, projectId);
     const notes = rows.documents.find((row) => row.fileName === "Writer notes.md");
     expect(notes?.textCopyState).toBeUndefined();
+    // The notes file's clone was attached, and is the only new stored file.
+    expect(notes?.storageId).toBeDefined();
     const added = (await storedFileIds(f)).filter((id) => !filesBefore.includes(id));
-    expect(added).toEqual(notes?.storageId ? [notes.storageId] : []);
+    expect(added).toEqual([notes!.storageId]);
+    expect(copied).toMatchObject({ originalsNotCopied: 1 });
   });
 
   it("releases a spare clone when the transcript already has a file", async () => {

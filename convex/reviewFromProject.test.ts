@@ -208,6 +208,33 @@ describe("createReviewFromProject", () => {
     expect(state.report?.content).toContain("Uncertainty prose.");
   });
 
+  // F2 review (2026-10-27): the copy runs file by file, so the review is
+  // started once it has finished and reads every support file.
+  it("starts the review after the copy, with every support file in its input", async () => {
+    const { t, asWriter, sourceProjectId } = await setup();
+    await addSourceReport(t, sourceProjectId);
+    await t.run(async (ctx) => {
+      for (const [index, text] of ["Scoping notes about the gripper.", "Test log for the arm."].entries()) {
+        await ctx.db.insert("projectDocuments", {
+          projectId: sourceProjectId, fileName: `support-${index}.txt`, fileType: "txt", content: text,
+          category: "background", source: "context_input", uploadedBy: "Writer", createdAt: Date.now() + index,
+        });
+      }
+    });
+    const { projectId: reviewProjectId } = await asWriter.action(api.reviewFromProject.createReviewFromProject, {
+      projectId: sourceProjectId,
+    });
+    const { reviewId, scheduled } = await t.run(async (ctx) => ({
+      reviewId: (await ctx.db.query("pdReviews").withIndex("by_projectId", (q) => q.eq("projectId", reviewProjectId)).first())!._id,
+      scheduled: await ctx.db.system.query("_scheduled_functions").collect(),
+    }));
+    expect(scheduled.filter((job) => job.name === "ai/reviewAgent:runPdReview")).toEqual([
+      expect.objectContaining({ args: [{ reviewId, projectId: reviewProjectId }] }),
+    ]);
+    const input = await t.query(internal.pdReviews.getReviewInput, { reviewId });
+    expect(input?.contextDocs.map((doc) => doc.content)).toEqual(["Scoping notes about the gripper.", "Test log for the arm."]);
+  });
+
   it("carries every transcript into the review agent's input", async () => {
     const { t, asWriter, sourceProjectId } = await setup();
     await addSourceReport(t, sourceProjectId);

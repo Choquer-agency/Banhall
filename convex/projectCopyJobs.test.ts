@@ -1,11 +1,16 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { deleteDocumentText, insertDocumentWithText, readDocumentText, writeDocumentText } from "./lib/documentText";
-import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "./lib/projectCopy";
+import {
+  PROJECT_STILL_COPYING_MESSAGE,
+  SOURCE_STILL_COPYING_MESSAGE,
+  projectCopyInProgress,
+} from "./lib/projectCopy";
 import { completeProjectCopy } from "./projectCopy.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -27,28 +32,32 @@ type Setup = Awaited<ReturnType<typeof setup>>;
  * move did.
  */
 async function setup(
-  files: Array<{ text: string; older?: boolean; original?: boolean }>,
+  files: Array<{ text: string; older?: boolean; original?: boolean | (() => Blob); category?: "other" | "background" }>,
   options: { transactionLimits?: boolean } = {}
 ) {
   const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
+  rateLimiterTest.register(t);
   const now = Date.now() - 10_000;
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", { authId: AUTH_ID, role: "writer", name: "Wren Writer" });
     const project = { clientName: "Quillmere Seals", status: "draft" as const, createdBy: userId, ownerId: userId, createdAt: now, updatedAt: now };
     const fromProjectId = await ctx.db.insert("projects", { ...project, title: "Seals", shareToken: "copy-from" });
     const toProjectId = await ctx.db.insert("projects", { ...project, title: "Seals (copy)", shareToken: "copy-to" });
-    return { userId, fromProjectId, toProjectId };
+    const thirdProjectId = await ctx.db.insert("projects", { ...project, title: "Seals (copy of the copy)", shareToken: "copy-third" });
+    return { userId, fromProjectId, toProjectId, thirdProjectId };
   });
   const sourceIds: Id<"projectDocuments">[] = [];
   for (const [index, file] of files.entries()) {
     sourceIds.push(
       await t.run(async (ctx) => {
-        const storageId = file.original ? await ctx.storage.store(new Blob([`original ${index}`])) : undefined;
+        const storageId = file.original
+          ? await ctx.storage.store(typeof file.original === "function" ? file.original() : new Blob([`original ${index}`]))
+          : undefined;
         const fields = {
           projectId: ids.fromProjectId,
           fileName: `notes-${index}.txt`,
           fileType: "txt" as const,
-          category: "other" as const,
+          category: file.category ?? ("other" as const),
           source: "context_input",
           uploadedBy: "Wren Writer",
           processingStatus: "ready" as const,
@@ -62,15 +71,15 @@ async function setup(
     );
   }
   const writer = t.withIdentity({ subject: AUTH_ID });
-  const prepare = () =>
+  const prepare = (from = ids.fromProjectId, to = ids.toProjectId) =>
     writer.mutation(internal.projects.prepareProjectContentCopy, {
-      fromProjectId: ids.fromProjectId,
-      toProjectId: ids.toProjectId,
+      fromProjectId: from,
+      toProjectId: to,
       requireFreshTarget: true,
     });
-  const copies = () =>
+  const copies = (projectId = ids.toProjectId) =>
     t.run((ctx) =>
-      ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", ids.toProjectId)).collect()
+      ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).collect()
     );
   const job = (jobId: Id<"projectCopyJobs">) => t.run((ctx) => ctx.db.get(jobId));
   const storedFiles = () => t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).map((file) => file._id));
@@ -108,9 +117,13 @@ describe("a project copy, file by file (F2)", () => {
       toProjectId: s.toProjectId,
     });
     expect(result.documentsCopied).toBe(60);
+    expect(result).toMatchObject({ originalsNotCopied: 0 });
+    expect(result.stillCopying).toBeUndefined();
     expect(result.documents.map((row) => row.sourceId)).toEqual(s.sourceIds);
     const copies = await s.copies();
     expect(copies).toHaveLength(60);
+    // Every pair is a source file and the row it became, each row once.
+    expect(result.documents).toEqual(copies.map((copy) => ({ sourceId: copy.copiedFromDocumentId, documentId: copy._id })));
     for (const copy of copies) {
       expect(copy.textCopyState).toBeUndefined();
       expect(copy.searchPiecesDue).toBe(true);
@@ -153,6 +166,19 @@ describe("a project copy, file by file (F2)", () => {
     await completeProjectCopy(s.t, plan);
     expect(await s.t.run((ctx) => projectCopyInProgress(ctx, s.toProjectId))).toBe(false);
     expect(await s.job(plan.jobId)).toMatchObject({ status: "done", filesCopied: 1, filesFailed: 0 });
+    // The same draft request now goes through (its run is never started here).
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    try {
+      const generationId = await s.writer.mutation(api.generations.requestGeneration, {
+        projectId: s.toProjectId,
+        candidateMode: "iterative",
+      });
+      expect(await s.t.run((ctx) => ctx.db.get(generationId))).toMatchObject({ status: "reserved" });
+    } finally {
+      vi.unstubAllEnvs();
+      vi.useRealTimers();
+    }
   });
 
   it("leaves a pending file out of search pieces, server reading, labels, previews and the file list's reading", async () => {
@@ -215,15 +241,175 @@ describe("a project copy, file by file (F2)", () => {
     expect(await s.job(plan.jobId)).toMatchObject({ status: "done", filesCopied: 0, filesFailed: 0 });
   });
 
-  it("gives up the original project's files when that project is erased mid-copy", async () => {
+  it("gives up the original project's files when that project is erased mid-copy, and keeps the copy", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = await setup([{ text: "One." }, { text: "Two." }]);
+      const plan = await s.prepare();
+      await copyNext(s, plan);
+      await s.writer.mutation(api.projects.deleteProject, { projectId: s.fromProjectId });
+      // The erasure runs to its end: the job's reference to the original is cleared.
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(await s.t.run((ctx) => ctx.db.get(s.fromProjectId))).toBeNull();
+      expect((await s.job(plan.jobId))?.fromProjectId).toBeUndefined();
+      await completeProjectCopy(s.t, plan);
+      const states = (await s.copies()).map((copy) => copy.textCopyState ?? "copied").sort();
+      expect(states).toEqual(["copied", "failed"]);
+      expect(await s.job(plan.jobId)).toMatchObject({ status: "done", filesCopied: 1, filesFailed: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses to copy a project still being copied into, and keeps a file that could not be copied so in a copy of the copy", async () => {
+    const s = await setup([{ text: "Kept." }, { text: "Changed meanwhile." }]);
+    const plan = await s.prepare();
+    await expect(s.prepare(s.toProjectId, s.thirdProjectId)).rejects.toThrow(SOURCE_STILL_COPYING_MESSAGE);
+    await s.t.run(async (ctx) => {
+      const changed = (await ctx.db.get(s.sourceIds[1]!))!;
+      await ctx.db.patch(changed._id, await writeDocumentText(ctx, changed, "Something else."));
+    });
+    await completeProjectCopy(s.t, plan);
+    const second = await s.prepare(s.toProjectId, s.thirdProjectId);
+    await completeProjectCopy(s.t, second);
+    const states = (await s.copies(s.thirdProjectId)).map((copy) => [copy.fileName, copy.textCopyState ?? "copied"]);
+    expect(states).toEqual([["notes-0.txt", "copied"], ["notes-1.txt", "failed"]]);
+    expect(await s.job(second.jobId)).toMatchObject({ status: "done", filesCopied: 1 });
+  });
+
+  it("checks a long leave-out list of large older files page by page, within Convex's limits, and refuses a file from another project", async () => {
+    // 50 older rows of 400,000 characters: reading them all at once would
+    // pass a transaction's 16 MiB.
+    const s = await setup(
+      [
+        ...Array.from({ length: 50 }, (_, index) => ({ text: words(index, 400_000), older: true })),
+        { text: "Kept one." },
+        { text: "Kept two." },
+      ],
+      { transactionLimits: true }
+    );
+    const foreign = await s.t.run(async (ctx) =>
+      insertDocumentWithText(ctx, {
+        projectId: s.thirdProjectId, fileName: "elsewhere.txt", fileType: "txt", source: "context_input",
+        uploadedBy: "Wren Writer", processingStatus: "ready", createdAt: 1,
+      }, "Another project's file.")
+    );
+    const leftOut = s.sourceIds.slice(0, 50);
+    await expect(
+      s.writer.action(api.projectDuplication.copyProjectContent, {
+        fromProjectId: s.fromProjectId, toProjectId: s.toProjectId, excludeDocumentIds: [...leftOut, foreign],
+      })
+    ).rejects.toThrow("A file to leave out is not in the original project");
+    // Nothing was started.
+    expect(await s.copies()).toEqual([]);
+    expect(await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect())).toEqual([]);
+    const result = await s.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: s.fromProjectId, toProjectId: s.toProjectId, excludeDocumentIds: leftOut,
+    });
+    expect(result.documents.map((row) => row.sourceId)).toEqual(s.sourceIds.slice(50));
+  });
+
+  it("refuses to start or retry a PD review while files are being copied, and holds a review already started", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-anthropic-key");
+    try {
+      const s = await setup([{ text: "Written PD text.", category: "background" }, { text: "Support notes.", category: "background" }]);
+      await s.prepare();
+      const [pd] = await s.copies();
+      await expect(
+        s.writer.mutation(api.pdReviews.startPdReview, { projectId: s.toProjectId, documentId: pd!._id })
+      ).rejects.toThrow(PROJECT_STILL_COPYING_MESSAGE);
+      const reviewId = await s.t.run((ctx) =>
+        ctx.db.insert("pdReviews", {
+          projectId: s.toProjectId, documentId: pd!._id, sourceFileName: pd!.fileName, status: "running",
+          createdBy: s.userId, createdAt: Date.now(),
+        })
+      );
+      // The written PD itself has no text yet.
+      await expect(s.t.query(internal.pdReviews.getReviewInput, { reviewId })).rejects.toThrow(PROJECT_STILL_COPYING_MESSAGE);
+      // A review already started waits, looking again in ten seconds.
+      await s.t.action(internal.ai.reviewAgent.runPdReview, { reviewId, projectId: s.toProjectId });
+      const scheduled = await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+      expect(scheduled.filter((job) => job.name === "ai/reviewAgent:runPdReview")).toEqual([
+        expect.objectContaining({ args: [{ reviewId, projectId: s.toProjectId, copyWaits: 1 }] }),
+      ]);
+      await s.t.run((ctx) => ctx.db.patch(reviewId, { status: "failed" }));
+      await expect(s.writer.mutation(api.pdReviews.retryPdReview, { reviewId })).rejects.toThrow(PROJECT_STILL_COPYING_MESSAGE);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up a file whose copy step fails twice, so it never holds up the rest", async () => {
     const s = await setup([{ text: "One." }, { text: "Two." }]);
     const plan = await s.prepare();
-    await copyNext(s, plan);
-    await s.writer.mutation(api.projects.deleteProject, { projectId: s.fromProjectId });
+    const lease = { jobId: plan.jobId, leaseToken: plan.leaseToken };
+    const next = (await s.t.query(internal.projects.nextProjectCopyFile, lease))!;
+    expect(await s.t.mutation(internal.projects.noteProjectCopyFileError, { ...lease, documentId: next.documentId })).toBe("retry");
+    expect(await s.t.mutation(internal.projects.noteProjectCopyFileError, { ...lease, documentId: next.documentId })).toBe("failed");
+    expect(await s.t.run((ctx) => ctx.db.get(next.documentId))).toMatchObject({ textCopyState: "failed", textCopyAttempts: 2 });
     await completeProjectCopy(s.t, plan);
-    const states = (await s.copies()).map((copy) => copy.textCopyState ?? "copied").sort();
-    expect(states).toEqual(["copied", "failed"]);
-    expect(await s.job(plan.jobId)).toMatchObject({ status: "done" });
+    expect(await s.job(plan.jobId)).toMatchObject({ status: "done", filesCopied: 1, filesFailed: 1 });
+  });
+
+  it("copies a file without an original that cannot be read twice, and says so in the result", async () => {
+    let reads = 0;
+    class UnreadableAfterStore extends Blob {
+      override async arrayBuffer() {
+        reads += 1;
+        if (reads > 1) throw new Error("storage read failed");
+        return await super.arrayBuffer();
+      }
+    }
+    const s = await setup([{ text: "Notes with a broken original.", original: () => new UnreadableAfterStore(["bytes"]) }]);
+    const result = await s.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: s.fromProjectId, toProjectId: s.toProjectId,
+    });
+    expect(reads).toBe(3);
+    expect(result).toMatchObject({ documentsCopied: 1, filesCopied: 0, originalsNotCopied: 1 });
+    const [copy] = await s.copies();
+    expect(copy?.storageId).toBeUndefined();
+    expect(await textOf(s, copy!._id)).toBe("Notes with a broken original.");
+  });
+
+  it("waits for the runner that took the copy over, and returns that runner's work from what was written", async () => {
+    let reads = 0;
+    let cloning: () => void = () => undefined;
+    const firstClone = new Promise<void>((resolve) => (cloning = resolve));
+    class TakenOverOnClone extends Blob {
+      override async arrayBuffer() {
+        reads += 1;
+        // The first clone: the test takes the job over meanwhile (as the
+        // cron does when a runner stalls), before the clone's step runs.
+        if (reads === 2) cloning();
+        return await super.arrayBuffer();
+      }
+    }
+    const s = await setup([
+      { text: "First.", original: () => new TakenOverOnClone(["bytes"]) },
+      { text: "Second." },
+      { text: "Third." },
+    ]);
+    const running = s.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: s.fromProjectId, toProjectId: s.toProjectId,
+    });
+    await firstClone;
+    const jobId = await s.t.run(async (ctx) => {
+      const row = (await ctx.db.query("projectCopyJobs").first())!;
+      await ctx.db.patch(row._id, { leaseToken: "other runner", leaseUntil: Date.now() + 60_000 });
+      return row._id;
+    });
+    // The other runner finishes the copy while the action waits.
+    await completeProjectCopy(s.t, { jobId, leaseToken: "other runner" });
+    const result = await running;
+    expect(result.stillCopying).toBeUndefined();
+    expect(result.documentsCopied).toBe(3);
+    expect(result.documents.map((row) => row.sourceId)).toEqual(s.sourceIds);
+    expect((await s.copies()).every((copy) => copy.textCopyState === undefined)).toBe(true);
+    // The action's own clone was released when its step found the lease gone.
+    expect((await s.copies())[0]?.storageId).toBeUndefined();
+    expect(await s.storedFiles()).toHaveLength(1);
   });
 
   describe("with the scheduler", () => {
@@ -247,7 +433,7 @@ describe("a project copy, file by file (F2)", () => {
         await s.t.mutation(internal.projects.copyProjectFile, {
           jobId: plan.jobId, leaseToken: plan.leaseToken, documentId: pending._id, cloneStorageId: clone,
         })
-      ).toBe("stopped");
+      ).toBe("lease_lost");
       expect(await s.storedFiles()).toEqual(before);
       await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
       const copies = await s.copies();
@@ -281,6 +467,86 @@ describe("a project copy, file by file (F2)", () => {
       expect(await s.job(plan.jobId)).toBeNull();
       expect(await s.storedFiles()).not.toContain(first!.clone);
       expect((await s.storedFiles()).length).toBe(3);
+    });
+
+    it("hands a copy too long for the first action to a fresh runner: the result says it is still copying, and the job finishes it", async () => {
+      let reads = 0;
+      class SlowClone extends Blob {
+        override async arrayBuffer() {
+          reads += 1;
+          // The first clone takes the action past its time.
+          if (reads === 2) vi.setSystemTime(Date.now() + 8 * 60 * 1000);
+          return await super.arrayBuffer();
+        }
+      }
+      const s = await setup([
+        { text: "First.", original: () => new SlowClone(["bytes"]) },
+        { text: "Second." },
+        { text: "Third." },
+      ]);
+      const result = await s.writer.action(api.projectDuplication.copyProjectContent, {
+        fromProjectId: s.fromProjectId, toProjectId: s.toProjectId,
+      });
+      expect(result.stillCopying).toBe(true);
+      // The rows were all made: the receipt is whole.
+      expect(result.documents.map((row) => row.sourceId)).toEqual(s.sourceIds);
+      expect((await s.copies()).filter((copy) => copy.textCopyState === "pending")).toHaveLength(2);
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect((await s.copies()).every((copy) => copy.textCopyState === undefined)).toBe(true);
+      const [job] = await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect());
+      expect(job).toMatchObject({ status: "done", filesCopied: 3, originalsAttached: 1 });
+    });
+
+    it("deletes a clone a runner stored but never attached, once no save could attach it, and the copy still finishes", async () => {
+      const s = await setup([{ text: "One.", original: true }, { text: "Two.", original: true }]);
+      const plan = await s.prepare();
+      const lease = { jobId: plan.jobId, leaseToken: plan.leaseToken };
+      const next = (await s.t.query(internal.projects.nextProjectCopyFile, lease))!;
+      const record = await s.t.mutation(internal.projects.beginProjectCopyClone, { ...lease, sourceStorageId: next.sourceStorageId! });
+      expect(record).not.toBeNull();
+      // The runner stores the clone, then stops before attaching it.
+      const stray = await s.t.run(async (ctx) => ctx.storage.store((await ctx.storage.get(next.sourceStorageId!))!));
+      // Not yet: a save could still attach a file this new.
+      vi.setSystemTime(Date.now() + 30 * 60 * 1000);
+      await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(await s.storedFiles()).toContain(stray);
+      // An hour on: the stray clone goes, the files each have their own.
+      vi.setSystemTime(Date.now() + 40 * 60 * 1000);
+      await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
+      expect(await s.storedFiles()).not.toContain(stray);
+      expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
+      const copies = await s.copies();
+      expect(copies.every((copy) => copy.textCopyState === undefined && copy.storageId !== undefined)).toBe(true);
+      // Two originals and two attached clones; nothing else.
+      expect(new Set(await s.storedFiles())).toEqual(
+        new Set([...copies.map((copy) => copy.storageId!), ...(await s.t.run(async (ctx) =>
+          Promise.all(s.sourceIds.map(async (id) => (await ctx.db.get(id))!.storageId!))))])
+      );
+    });
+
+    it("gives a job up after it stalled 20 times: its files could not be copied, and drafts may start", async () => {
+      const s = await setup([{ text: "One." }, { text: "Two." }]);
+      const plan = await s.prepare();
+      await s.t.run((ctx) => ctx.db.patch(plan.jobId, { resumes: 20, leaseUntil: Date.now() - 1 }));
+      expect(await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {})).toBe(0);
+      expect(await s.job(plan.jobId)).toMatchObject({ status: "failed", stopReason: "stalled" });
+      expect((await s.copies()).map((copy) => copy.textCopyState)).toEqual(["failed", "failed"]);
+      expect(await s.t.run((ctx) => projectCopyInProgress(ctx, s.toProjectId))).toBe(false);
+    });
+
+    it("stops when the copier's access ends, marking all 150 pending files, a page at a time", async () => {
+      const s = await setup(Array.from({ length: 150 }, (_, index) => ({ text: `Note ${index}.` })));
+      const plan = await s.prepare();
+      expect(plan.prepared).toBe(true);
+      await s.t.run((ctx) => ctx.db.patch(s.userId, { role: undefined }));
+      const lease = { jobId: plan.jobId, leaseToken: plan.leaseToken };
+      const next = (await s.t.query(internal.projects.nextProjectCopyFile, lease))!;
+      expect(await s.t.mutation(internal.projects.copyProjectFile, { ...lease, documentId: next.documentId })).toBe("stopped");
+      expect(await s.job(plan.jobId)).toMatchObject({ status: "failed", stopReason: "copier_access_ended" });
+      expect((await s.copies()).filter((copy) => copy.textCopyState === "failed")).toHaveLength(100);
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect((await s.copies()).filter((copy) => copy.textCopyState === "failed")).toHaveLength(150);
     });
   });
 });

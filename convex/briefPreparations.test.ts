@@ -1552,4 +1552,25 @@ describe("stage 1 re-review follow-ups", () => {
     expect((await s.t.run(async (ctx) => ctx.db.get(queued._id)))?.status).toBe("ready");
     expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("obsolete");
   });
+
+  // F2 review (2026-10-27): files still being copied into the project are
+  // files still arriving.
+  test("files still being copied in hold the start until the copy ends", async () => {
+    const s = await setup();
+    const jobId = await s.t.run(async (ctx) =>
+      ctx.db.insert("projectCopyJobs", {
+        toProjectId: s.projectId, userId: s.userId, status: "copying",
+        scope: { includeReport: true, includeReviews: true, excludeDocumentIds: [], previousYearReport: false },
+        filesMade: 0, filesCopied: 0, filesFailed: 0, evidenceCopied: 0, pdReviewsCopied: 0,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      })
+    );
+    await trigger(s, "document_added");
+    vi.advanceTimersByTime(PREPARATION_DEBOUNCE_MS + 10);
+    await s.t.finishInProgressScheduledFunctions();
+    expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "uploads" });
+    await s.t.run(async (ctx) => ctx.db.patch(jobId, { status: "done" }));
+    await settle(s);
+    expect((await preparations(s))[0]?.status).toBe("ready");
+  });
 });

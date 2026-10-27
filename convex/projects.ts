@@ -96,8 +96,11 @@ import {
 } from "./lib/documentText";
 import {
   PROJECT_COPY_LEASE_MS,
+  SOURCE_STILL_COPYING_MESSAGE,
   copierAllowed,
   copyPendingFile,
+  noteFileCopyError,
+  projectCopyInProgress,
   stopProjectCopy,
 } from "./lib/projectCopy";
 import { documentHasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
@@ -1322,25 +1325,54 @@ const copyScopeArgs = {
   previousYearReport: v.optional(v.boolean()),
 };
 
-async function excludedDocumentSet(
-  ctx: MutationCtx,
-  fromProjectId: Id<"projects">,
-  ids: Id<"projectDocuments">[] | undefined
-) {
+/**
+ * The leave-out list, deduplicated and bounded. Which project each file is
+ * in is checked before the copy starts, a page at a time
+ * (`checkCopyExclusions`): an older file row holds its whole text, so 250
+ * of them could pass one transaction's reads (F2 review).
+ */
+function excludedDocumentSet(ids: Id<"projectDocuments">[] | undefined) {
   const excluded = new Set<Id<"projectDocuments">>(ids ?? []);
   if (excluded.size > MAX_EXCLUDED_DOCUMENTS) {
     domainError("INVALID_INPUT", "Too many files to leave out");
   }
-  for (const id of excluded) {
-    const document = await ctx.db.get(id);
-    // Deleted in the original while the wizard was open: nothing to skip.
-    if (!document) continue;
-    if (document.projectId !== fromProjectId) {
-      domainError("INVALID_INPUT", "A file to leave out is not in the original project");
-    }
-  }
   return excluded;
 }
+
+/** Room in this transaction to read one more file row (an older one holds up to 1 MiB of text). */
+async function roomForOneMoreRow(ctx: QueryCtx): Promise<boolean> {
+  try {
+    const metrics = await ctx.meta.getTransactionMetrics();
+    return metrics.bytesRead.remaining > 2 * 1024 * 1024 && metrics.documentsRead.remaining > 16;
+  } catch {
+    return true;
+  }
+}
+
+// Called only by projectDuplication.copyProjectContentBetween, before the
+// copy starts: refuses a file to leave out that is in another project, from
+// `from` on, as many as fit; `next` is where the next page starts (F2
+// review). A file deleted meanwhile has nothing to skip.
+export const checkCopyExclusions = internalQuery({
+  args: {
+    fromProjectId: v.id("projects"),
+    excludeDocumentIds: v.array(v.id("projectDocuments")),
+    from: v.number(),
+  },
+  returns: v.object({ next: v.union(v.number(), v.null()) }),
+  handler: async (ctx, args) => {
+    await requireInternalProjectAccess(ctx, args.fromProjectId);
+    const ids = [...excludedDocumentSet(args.excludeDocumentIds)];
+    for (let index = args.from; index < ids.length; index += 1) {
+      if (index > args.from && !(await roomForOneMoreRow(ctx))) return { next: index };
+      const document = await ctx.db.get(ids[index]!);
+      if (document && document.projectId !== args.fromProjectId) {
+        domainError("INVALID_INPUT", "A file to leave out is not in the original project");
+      }
+    }
+    return { next: null };
+  },
+});
 
 /**
  * The previous-year report a year-over-year duplicate brings in: the source's
@@ -1514,6 +1546,9 @@ async function insertPendingFileCopy(
   const processing = doc.processingStatus
     ? { status: doc.processingStatus, detail: doc.processingDetail }
     : deriveStoredProcessing({ fileName: doc.fileName, content: await readDocumentText(ctx, doc) });
+  // F2 review: a file that could not be copied into the original stays so
+  // here, with no text to copy.
+  const failed = doc.textCopyState === "failed";
   return await ctx.db.insert("projectDocuments", {
     projectId: job.toProjectId,
     fileName: doc.fileName,
@@ -1534,8 +1569,7 @@ async function insertPendingFileCopy(
     ...(doc.uploaderRole ? { uploaderRole: doc.uploaderRole } : {}),
     ...facts,
     textMovedAt: now,
-    textCopyState: "pending",
-    textCopyJobId: job._id,
+    ...(failed ? { textCopyState: "failed" as const } : { textCopyState: "pending" as const, textCopyJobId: job._id }),
     copiedFromDocumentId: doc._id,
     createdAt: now,
   });
@@ -1822,7 +1856,11 @@ export const prepareProjectContentCopy = internalMutation({
     await requireTargetTranscript(ctx, args.toProjectId, args.targetTranscriptId);
     const includeReport = args.includeReport ?? true;
     const includeReviews = args.includeReviews ?? true;
-    const excluded = await excludedDocumentSet(ctx, args.fromProjectId, args.excludeDocumentIds);
+    const excluded = excludedDocumentSet(args.excludeDocumentIds);
+    // F2 review: a project whose own files are still arriving has no text to copy yet.
+    if (await projectCopyInProgress(ctx, args.fromProjectId)) {
+      domainError("INVALID_STATE", SOURCE_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     // Refused now, before any row is made, not part way through.
     if (args.previousYearReport) validatePreviousYearReport(source, target, includeReport);
     const now = Date.now();
@@ -1900,24 +1938,59 @@ export const nextProjectCopyFile = internalQuery({
   },
 });
 
+// F2 review: recorded before the copy action stores an original's clone, so
+// a runner stopping between storing and attaching it leaves a record the
+// cron can clean up (`reconcileCopyClones`). Null when the original is gone.
+export const beginProjectCopyClone = internalMutation({
+  args: { ...leaseArgs, sourceStorageId: v.id("_storage") },
+  returns: v.union(v.null(), v.id("projectCopyClones")),
+  handler: async (ctx, args) => {
+    const step = await projectCopyStep(ctx, args.jobId, args.leaseToken);
+    if (step.kind !== "ok") return null;
+    const original = await ctx.db.system.get("_storage", args.sourceStorageId);
+    if (!original) return null;
+    return await ctx.db.insert("projectCopyClones", {
+      jobId: args.jobId,
+      sha256: original.sha256,
+      size: original.size,
+      startedAt: Date.now(),
+    });
+  },
+});
+
+/** A clone's record goes in the step that attaches or releases the clone. */
+async function settleCloneRecord(ctx: MutationCtx, recordId: Id<"projectCopyClones"> | undefined): Promise<void> {
+  if (recordId && (await ctx.db.get(recordId))) await ctx.db.delete(recordId);
+}
+
+const cloneArgs = {
+  cloneStorageId: v.optional(v.id("_storage")),
+  cloneRecordId: v.optional(v.id("projectCopyClones")),
+  /** The original could not be read twice: the file comes without one. */
+  originalNotCopied: v.optional(v.boolean()),
+};
+
 // Copies one file's text whole and attaches its original's clone (F2).
 // Internal: it attaches a storage id the copy action made a moment ago
 // with `ctx.storage.store`. A clone it does not attach it releases.
 export const copyProjectFile = internalMutation({
-  args: {
-    ...leaseArgs,
-    documentId: v.id("projectDocuments"),
-    cloneStorageId: v.optional(v.id("_storage")),
-  },
-  returns: v.union(v.literal("copied"), v.literal("failed"), v.literal("skipped"), v.literal("stopped")),
+  args: { ...leaseArgs, documentId: v.id("projectDocuments"), ...cloneArgs },
+  returns: v.union(
+    v.literal("copied"),
+    v.literal("failed"),
+    v.literal("skipped"),
+    v.literal("stopped"),
+    v.literal("lease_lost")
+  ),
   handler: async (ctx, args) => {
     const step = await projectCopyStep(ctx, args.jobId, args.leaseToken);
     const release = async () => {
       if (args.cloneStorageId) await ctx.storage.delete(args.cloneStorageId);
     };
+    await settleCloneRecord(ctx, args.cloneRecordId);
     if (step.kind !== "ok") {
       await release();
-      return "stopped";
+      return step.kind === "lease_lost" ? "lease_lost" : "stopped";
     }
     const { job } = step;
     const doc = await ctx.db.get(args.documentId);
@@ -1926,7 +1999,27 @@ export const copyProjectFile = internalMutation({
       return "skipped";
     }
     const outcome = await copyPendingFile(ctx, job, doc, args.cloneStorageId);
-    await ctx.db.patch(job._id, outcome === "copied" ? { filesCopied: job.filesCopied + 1 } : { filesFailed: job.filesFailed + 1 });
+    await ctx.db.patch(job._id, {
+      ...(outcome === "copied" ? { filesCopied: job.filesCopied + 1 } : { filesFailed: job.filesFailed + 1 }),
+      ...(outcome === "copied" && args.cloneStorageId ? { originalsAttached: (job.originalsAttached ?? 0) + 1 } : {}),
+      ...(args.originalNotCopied ? { originalsNotCopied: (job.originalsNotCopied ?? 0) + 1 } : {}),
+    });
+    return outcome;
+  },
+});
+
+// F2 review: a copy step of this file threw. Counted; at the second time
+// the file is given up ("could not copy"), so it never holds up the rest.
+export const noteProjectCopyFileError = internalMutation({
+  args: { ...leaseArgs, documentId: v.id("projectDocuments") },
+  returns: v.union(v.literal("retry"), v.literal("failed"), v.literal("stopped"), v.literal("lease_lost")),
+  handler: async (ctx, args) => {
+    const step = await projectCopyStep(ctx, args.jobId, args.leaseToken);
+    if (step.kind !== "ok") return step.kind === "lease_lost" ? "lease_lost" : "stopped";
+    const doc = await ctx.db.get(args.documentId);
+    if (!doc || doc.textCopyJobId !== args.jobId || doc.textCopyState !== "pending") return "retry";
+    const outcome = await noteFileCopyError(ctx, doc);
+    if (outcome === "failed") await ctx.db.patch(args.jobId, { filesFailed: step.job.filesFailed + 1 });
     return outcome;
   },
 });
@@ -1948,17 +2041,28 @@ export const planTranscriptOriginalCopies = internalQuery({
 export const finishProjectContentCopy = internalMutation({
   args: {
     ...leaseArgs,
-    transcriptCopies: v.array(v.object({ transcriptId: v.id("transcripts"), storageId: v.id("_storage") })),
+    transcriptCopies: v.array(
+      v.object({
+        transcriptId: v.id("transcripts"),
+        storageId: v.id("_storage"),
+        cloneRecordId: v.optional(v.id("projectCopyClones")),
+      })
+    ),
+    /** Clone records of transcript originals that could not be read twice. */
+    settledCloneRecordIds: v.optional(v.array(v.id("projectCopyClones"))),
+    transcriptOriginalsNotCopied: v.optional(v.number()),
   },
-  returns: v.union(v.literal("done"), v.literal("files_left"), v.literal("stopped")),
+  returns: v.union(v.literal("done"), v.literal("files_left"), v.literal("stopped"), v.literal("lease_lost")),
   handler: async (ctx, args) => {
     const step = await projectCopyStep(ctx, args.jobId, args.leaseToken);
+    for (const copy of args.transcriptCopies) await settleCloneRecord(ctx, copy.cloneRecordId);
+    for (const recordId of args.settledCloneRecordIds ?? []) await settleCloneRecord(ctx, recordId);
     const releaseAll = async () => {
       for (const copy of args.transcriptCopies) await ctx.storage.delete(copy.storageId);
     };
     if (step.kind !== "ok") {
       await releaseAll();
-      return "stopped";
+      return step.kind === "lease_lost" ? "lease_lost" : "stopped";
     }
     const { job } = step;
     const pending = await ctx.db
@@ -1969,6 +2073,7 @@ export const finishProjectContentCopy = internalMutation({
       await releaseAll();
       return "files_left";
     }
+    let attached = 0;
     for (const copy of args.transcriptCopies) {
       const transcript = await ctx.db.get(copy.transcriptId);
       // One file per transcript: a row that gained an original meanwhile
@@ -1978,16 +2083,55 @@ export const finishProjectContentCopy = internalMutation({
         continue;
       }
       await ctx.db.patch(copy.transcriptId, { originalStorageId: copy.storageId });
+      attached += 1;
     }
     const now = Date.now();
     await ctx.db.patch(job._id, {
       status: "done",
       leaseToken: undefined,
       leaseUntil: undefined,
+      transcriptOriginalsAttached: (job.transcriptOriginalsAttached ?? 0) + attached,
+      ...(args.transcriptOriginalsNotCopied
+        ? { originalsNotCopied: (job.originalsNotCopied ?? 0) + args.transcriptOriginalsNotCopied }
+        : {}),
       updatedAt: now,
       finishedAt: now,
     });
     return "done";
+  },
+});
+
+/** Files of a new project a copy's result lists, at most. */
+const COPY_RECEIPT_MAX = 5_000;
+
+// F2 review: what a copy did, read from what it wrote, so the result is the
+// same whichever runner finished the work: the job's status and counts and,
+// as the receipt, each copied file and the original it came from.
+export const projectCopyOutcome = internalQuery({
+  args: { jobId: v.id("projectCopyJobs") },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job) return null;
+    const documents: Array<{ sourceId: Id<"projectDocuments">; documentId: Id<"projectDocuments"> }> = [];
+    for await (const doc of ctx.db
+      .query("projectDocuments")
+      .withIndex("by_projectId", (q) => q.eq("projectId", job.toProjectId))) {
+      if (doc.copiedFromDocumentId) documents.push({ sourceId: doc.copiedFromDocumentId, documentId: doc._id });
+      if (documents.length >= COPY_RECEIPT_MAX) break;
+    }
+    return {
+      status: job.status,
+      stopReason: job.stopReason ?? null,
+      documents,
+      evidenceCopied: job.evidenceCopied,
+      pdReviewsCopied: job.pdReviewsCopied,
+      originalsAttached: job.originalsAttached ?? 0,
+      transcriptOriginalsAttached: job.transcriptOriginalsAttached ?? 0,
+      originalsNotCopied: job.originalsNotCopied ?? 0,
+      filesFailed: job.filesFailed,
+      ...(job.reportId ? { reportId: job.reportId } : {}),
+      ...(job.previousYearReportId ? { previousYearReportId: job.previousYearReportId } : {}),
+    };
   },
 });
 

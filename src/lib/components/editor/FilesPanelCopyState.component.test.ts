@@ -52,7 +52,7 @@ it("says which files are still being copied and which could not be copied, in wo
   await expect.element(page.getByText("This file is still being copied from the original project.")).toBeVisible();
   await expect.element(page.getByText("Could not copy", { exact: true })).toBeVisible();
   await expect
-    .element(page.getByText(/changed or was removed in the original project while it was being copied/))
+    .element(page.getByText("This file could not be copied from the original project, so it holds no text here. Add it again if you need it."))
     .toBeVisible();
   await expect.element(page.getByText("Ready for AI", { exact: true })).toBeVisible();
   // A file still being copied cannot be replaced yet; one that could not be copied can.
