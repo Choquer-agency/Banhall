@@ -32,7 +32,7 @@ function metaReporting(usage: { read: number; written: number } | null): { meta:
 const refuse = (): never => {
   throw new Error("too large");
 };
-const options = { marginBytes: 256 * 1024, estimateLimitBytes: 14 * MIB };
+const options = { marginBytes: 256 * 1024, estimateLimitBytes: 15 * MIB };
 
 describe("TransactionGuard", () => {
   it("with the transaction's real usage: refuses a read or write only when one more largest document and the margin would not fit", async () => {
@@ -46,7 +46,7 @@ describe("TransactionGuard", () => {
     await expect(guard.beforeWrite(0, 600 * 1024)).rejects.toThrow("too large");
   });
 
-  it("without it: counts what it is told and refuses past the estimate limit", async () => {
+  it("without it: counts what it is told and refuses once one more largest document and the margin would pass the estimate limit", async () => {
     const guard = new TransactionGuard(metaReporting(null), options, refuse);
     const rows = Array.from({ length: 20 }, (_, index) => ({ index, text: "x".repeat(MIB - 100) }));
     async function* source() {
@@ -58,9 +58,10 @@ describe("TransactionGuard", () => {
         for await (const row of countedRows(source(), guard)) seen.push(row.index);
       })()
     ).rejects.toThrow("too large");
-    // Refused before the 16th row: 15 rows of about 1 MiB passed 14 MiB.
-    expect(seen).toHaveLength(15);
-    await expect(guard.beforeWrite(13 * MIB, 600 * 1024)).resolves.toBeUndefined();
-    await expect(guard.beforeWrite(14 * MIB, 600 * 1024)).rejects.toThrow("too large");
+    // Refused before the 15th row: 14 rows of about 1 MiB, one more and the
+    // margin would pass 15 MiB.
+    expect(seen).toHaveLength(14);
+    await expect(guard.beforeWrite(14 * MIB, 600 * 1024)).resolves.toBeUndefined();
+    await expect(guard.beforeWrite(14.5 * MIB, 600 * 1024)).rejects.toThrow("too large");
   });
 });

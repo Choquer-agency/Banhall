@@ -28,7 +28,7 @@ import {
 } from "../modelRoles";
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
-import { scheduleStructureRebuildIfStale } from "../transcripts";
+import { structureRebuildDue } from "../transcripts";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { defaultModelId, transcriptFactsMode } from "../../appSettings";
 import { normalizeCraScienceCode } from "../../../shared/craScienceCodes";
@@ -53,6 +53,7 @@ import {
   MAX_FROZEN_SOURCE_ROWS,
   selectFrozenEvidence,
   refuseWhenCompanyLeft,
+  type FrozenEvidence,
 } from "../briefEvidence";
 import { appendGenerationProgress } from "../generationProgress";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
@@ -87,9 +88,14 @@ import { copyRecoverySourceUses } from "./sourceUse";
  * refused past the estimate limit.
  */
 export const FROZEN_MARGIN_BYTES = 256 * 1024;
-export const FROZEN_ESTIMATE_LIMIT_BYTES = 14 * 1024 * 1024;
+export const FROZEN_ESTIMATE_LIMIT_BYTES = 15 * 1024 * 1024;
+/**
+ * Every current transcript and file row is read whether it is left out or
+ * not, so the way out is removing what the project no longer needs (round 2
+ * of the review).
+ */
 export const FROZEN_TEXT_TOO_LARGE_MESSAGE =
-  "This draft's files are too large to freeze at once. Leave some files out and start again.";
+  "This project's files are too large to read at once. Remove files or transcripts you no longer need, then start again.";
 export async function activeRunSummary(
   ctx: QueryCtx,
   active: Doc<"generations">
@@ -167,8 +173,15 @@ export async function validatedExcludedSources(
     excludeDocumentIds?: Id<"projectDocuments">[];
     excludeTranscriptIds?: Id<"transcripts">[];
     excludeCompanyFileIds?: Id<"companyFiles">[];
-  }
+  },
+  /**
+   * False for a draft's start: reservation checks the file and transcript
+   * ids against the rows it reads anyway (`confirmedExcludedRows`), so no
+   * left-out row is read twice (B1 review, round 2).
+   */
+  options: { checkProjectRows?: boolean } = {}
 ): Promise<ExcludedSources | undefined> {
+  const checkProjectRows = options.checkProjectRows ?? true;
   const documentIds = [...new Set(args.excludeDocumentIds ?? [])];
   const transcriptIds = [...new Set(args.excludeTranscriptIds ?? [])];
   const companyFileIds = [...new Set(args.excludeCompanyFileIds ?? [])];
@@ -181,6 +194,10 @@ export async function validatedExcludedSources(
   }
   const keptDocuments: Id<"projectDocuments">[] = [];
   for (const id of documentIds) {
+    if (!checkProjectRows) {
+      keptDocuments.push(id);
+      continue;
+    }
     const row = await ctx.db.get(id);
     if (!row) continue;
     if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out file belongs to another project");
@@ -188,6 +205,10 @@ export async function validatedExcludedSources(
   }
   const keptTranscripts: Id<"transcripts">[] = [];
   for (const id of transcriptIds) {
+    if (!checkProjectRows) {
+      keptTranscripts.push(id);
+      continue;
+    }
     const row = await ctx.db.get(id);
     if (!row) continue;
     if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out transcript belongs to another project");
@@ -292,6 +313,48 @@ export async function validatedCompareModelIds(
  */
 export { decideInputMode } from "../briefEvidence";
 
+/**
+ * A draft's leave-out list, checked as `validatedExcludedSources` checks it,
+ * against the file and transcript rows reservation already read under its
+ * guard: an id among them is the project's; any other id is read under the
+ * guard, refused when it is another project's and dropped when it is gone.
+ */
+async function confirmedExcludedRows(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  excluded: ExcludedSources,
+  evidence: FrozenEvidence,
+  guard: TransactionGuard
+): Promise<ExcludedSources | undefined> {
+  const documentsRead = new Set<string>(evidence.documentIdsRead ?? []);
+  const transcriptsRead = new Set<string>(evidence.transcriptIdsRead ?? []);
+  const documentIds: Id<"projectDocuments">[] = [];
+  for (const id of excluded.documentIds) {
+    if (!documentsRead.has(id)) {
+      await guard.beforeRead();
+      const row = await ctx.db.get(id);
+      guard.read(row);
+      if (!row) continue;
+      if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out file belongs to another project");
+    }
+    documentIds.push(id);
+  }
+  const transcriptIds: Id<"transcripts">[] = [];
+  for (const id of excluded.transcriptIds) {
+    if (!transcriptsRead.has(id)) {
+      await guard.beforeRead();
+      const row = await ctx.db.get(id);
+      guard.read(row);
+      if (!row) continue;
+      if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out transcript belongs to another project");
+    }
+    transcriptIds.push(id);
+  }
+  const companyFileIds = excluded.companyFileIds ?? [];
+  if (documentIds.length === 0 && transcriptIds.length === 0 && companyFileIds.length === 0) return undefined;
+  return { documentIds, transcriptIds, ...(companyFileIds.length > 0 ? { companyFileIds } : {}) };
+}
+
 export async function reserveGeneration(
   ctx: MutationCtx,
   project: Doc<"projects">,
@@ -337,10 +400,13 @@ export async function reserveGeneration(
   );
   const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources, frozenLimits);
   const { transcripts } = evidence;
+  const confirmedExcluded = excludedSources
+    ? await confirmedExcludedRows(ctx, project._id, excludedSources, evidence, frozenLimits)
+    : undefined;
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
-  if ((await currentYearTranscripts(ctx, project, transcripts)).length === 0) {
+  if ((await currentYearTranscripts(ctx, project, transcripts, frozenLimits)).length === 0) {
     // The files this draft reads (not archived, with text, not left out),
     // already loaded: reading every row again could pass a transaction's
     // reads (B1 review, 2026-10-27).
@@ -452,7 +518,13 @@ export async function reserveGeneration(
   if (transcriptFacts) {
     // Turns an older parser built are not read as facts: this draft falls
     // back for them, and their rebuild starts now for the next one.
-    for (const row of transcripts) await scheduleStructureRebuildIfStale(ctx, row);
+    // Started in their own transactions (B1 review, round 2): marking a row
+    // here would read each whole transcript a second time.
+    for (const row of transcripts) {
+      if (structureRebuildDue(row)) {
+        await ctx.scheduler.runAfter(0, internal.transcripts.rebuildStructureIfStale, { transcriptId: row._id });
+      }
+    }
   }
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
@@ -481,7 +553,7 @@ export async function reserveGeneration(
     retryOfGenerationId,
     retryModelIds: persistedRetryModelIds,
     seededCandidates: seededCandidates || undefined,
-    ...(excludedSources ? { excludedSources } : {}),
+    ...(confirmedExcluded ? { excludedSources: confirmedExcluded } : {}),
     ...(evidence.frozenCompanyFiles[0] ? { companyFilesFrom: evidence.frozenCompanyFiles[0].file.clientId } : {}),
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
@@ -588,7 +660,7 @@ export async function requestGenerationHandler(
     );
   }
   const candidateMode = args.candidateMode ?? "compare";
-  const excludedSources = await validatedExcludedSources(ctx, project._id, args);
+  const excludedSources = await validatedExcludedSources(ctx, project._id, args, { checkProjectRows: false });
   return await reserveGeneration(
     ctx,
     project,

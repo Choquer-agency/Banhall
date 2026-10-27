@@ -118,6 +118,21 @@ export const getTranscriptContent = query({
 // ─── Turns and speakers (2026-09-24, the transcript method) ────────────────
 
 /**
+ * B1 review, round 2 (2026-10-27): a draft's reservation starts a stale
+ * transcript's rebuild here, in its own transaction, so the reservation does
+ * not read the whole row a second time to mark it.
+ */
+export const rebuildStructureIfStale = internalMutation({
+  args: { transcriptId: v.id("transcripts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const transcript = await ctx.db.get(args.transcriptId);
+    if (transcript) await scheduleStructureRebuildIfStale(ctx, transcript);
+    return null;
+  },
+});
+
+/**
  * Builds one transcript's turns and rule-based speaker roles from its stored
  * text, one bounded batch per run, rescheduling itself until done. No model
  * call. Idempotent: a transcript already at the current parser version is

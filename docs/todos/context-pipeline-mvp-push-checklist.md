@@ -823,12 +823,13 @@ What changes:
 
 - **A draft no longer keeps its own copy of each file's text.** The text is stored once and every later draft of the project refers to it, so a project with many drafts takes far less room. Transcripts are referred to where they are kept.
 - **Nothing a writer sees changes**: the Brief, Seeds, drafts, quotes and chat read the same text as before.
-- **A draft whose files are too large to freeze at once is refused by name** ("This draft's files are too large to freeze at once. Leave some files out and start again.") instead of failing with a platform error.
+- **A project whose files are too large to read at once is refused by name** ("This project's files are too large to read at once. Remove files or transcripts you no longer need, then start again.") instead of failing with a platform error.
 
 ### Automated, offline
 
 - [x] Code review by two reviewers: Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), 2026-10-27, each "ship after fixes"; every finding fixed or recorded in the decision entry.
-- [ ] Round 2 review of the fixes (08ea6469): pending.
+- [x] Round 2 review of the fixes (08ea6469): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
+- [ ] Round 3 review of the round 2 fixes.
 - [x] `bash scripts/loop-verify.sh` on the fixes (08ea6469): 7,602 tests passed.
 
 ### Automated, live on localhost

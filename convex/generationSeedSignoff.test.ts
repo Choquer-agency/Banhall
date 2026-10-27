@@ -3495,7 +3495,8 @@ describe("seed Summary sign-off and recovery", () => {
     // the old repeat is now one of the mutations. Re-pinned 2026-10-27 (B1
     // review): the fixture's draft row refers to a transcript row it now
     // inserts, which shifts every later id; the same extra row with the
-    // text copied on the draft row gives these same hashes.
+    // text copied on the draft row gives these same hashes (checked by hand
+    // in the review's round 2; without the extra row the old ones).
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.

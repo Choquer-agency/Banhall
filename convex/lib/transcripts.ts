@@ -410,6 +410,16 @@ export async function scheduleTranscriptStructure(
 }
 
 /**
+ * Whether a row's turns are not at the current parser version and no build
+ * holds it, from the row alone (no reads).
+ */
+export function structureRebuildDue(transcript: Doc<"transcripts">, now = Date.now()): boolean {
+  if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return false;
+  if (transcript.archivedAt !== undefined || transcript.content.trim() === "") return false;
+  return !structureBuildIsLive(transcript, now);
+}
+
+/**
  * Schedules a rule-only rebuild of a row whose turns are not at the current
  * parser version, unless a build already holds it. Marks the row first, so
  * repeated calls schedule once. Returns whether it scheduled one.
@@ -418,10 +428,8 @@ export async function scheduleStructureRebuildIfStale(
   ctx: MutationCtx,
   transcript: Doc<"transcripts">
 ): Promise<boolean> {
-  if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return false;
-  if (transcript.archivedAt !== undefined || transcript.content.trim() === "") return false;
   const now = Date.now();
-  if (structureBuildIsLive(transcript, now)) return false;
+  if (!structureRebuildDue(transcript, now)) return false;
   await ctx.db.patch(transcript._id, { structureBuildId: newStructureBuildId(now) });
   await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
     transcriptId: transcript._id,

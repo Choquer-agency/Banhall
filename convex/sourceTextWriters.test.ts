@@ -8,6 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
 import { FROZEN_TEXT_TOO_LARGE_MESSAGE, reserveGeneration } from "./lib/generations/reservation";
 import { sourceRowText } from "./lib/sourceText";
+import { TRANSCRIPT_FACTS_MODE_KEY } from "./appSettings";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -30,7 +31,10 @@ beforeEach(() => {
  * `transactionLimits`: Convex's own limits on every transaction, the
  * setup's included, so each large row is written in its own.
  */
-async function setup(documents: string[], options: { transcripts?: string[]; transactionLimits?: boolean } = {}) {
+async function setup(
+  documents: string[],
+  options: { transcripts?: string[]; transactionLimits?: boolean; fiscalYearEnd?: number; copiedFrom?: boolean; parserVersion?: string } = {}
+) {
   const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
   rateLimiterTest.register(t);
   const now = Date.now() - 1_000;
@@ -39,15 +43,32 @@ async function setup(documents: string[], options: { transcripts?: string[]; tra
     const projectId = await ctx.db.insert("projects", {
       title: "Seals", clientName: "Quillmere", status: "draft", createdBy: userId, ownerId: userId,
       shareToken: "writers-test", createdAt: now, updatedAt: now,
+      ...(options.fiscalYearEnd !== undefined ? { fiscalYearEnd: options.fiscalYearEnd } : {}),
     });
-    return { userId, projectId };
+    // Last year's project, whose transcripts this year's were copied from.
+    const sourceProjectId = options.copiedFrom
+      ? await ctx.db.insert("projects", {
+          title: "Seals 2025", clientName: "Quillmere", status: "draft", createdBy: userId, ownerId: userId,
+          shareToken: "writers-test-2025", createdAt: now, updatedAt: now, fiscalYearEnd: Date.UTC(2025, 11, 31),
+        })
+      : undefined;
+    return { userId, projectId, sourceProjectId };
   });
   const transcriptIds: Id<"transcripts">[] = [];
   for (const [index, content] of (options.transcripts ?? [TRANSCRIPT]).entries()) {
+    const copiedFromTranscriptId = ids.sourceProjectId
+      ? await t.run(async (ctx) =>
+          ctx.db.insert("transcripts", {
+            projectId: ids.sourceProjectId!, content, contentHash: await sha256(content), label: `Interview ${index + 1}`, createdAt: now + index,
+          })
+        )
+      : undefined;
     transcriptIds.push(
       await t.run(async (ctx) =>
         ctx.db.insert("transcripts", {
           projectId: ids.projectId, content, contentHash: await sha256(content), label: `Interview ${index + 1}`, createdAt: now + index,
+          ...(copiedFromTranscriptId ? { copiedFromTranscriptId } : {}),
+          ...(options.parserVersion ? { parserVersion: options.parserVersion } : {}),
         })
       )
     );
@@ -73,7 +94,7 @@ async function setup(documents: string[], options: { transcripts?: string[]; tra
       versions: (await ctx.db.query("sourceTextVersions").collect()).length,
       pieces: (await ctx.db.query("sourceTextVersionPieces").collect()).length,
     }));
-  return { t, ...ids, transcriptId, authed, rows, finish, counts };
+  return { t, ...ids, transcriptId, transcriptIds, authed, rows, finish, counts };
 }
 
 describe("drafts refer to their text (B1, second part)", () => {
@@ -157,6 +178,51 @@ describe("drafts refer to their text (B1, second part)", () => {
     expect(await s.counts()).toEqual({ versions: 0, pieces: 0 });
     expect(await s.t.run(async (ctx) => (await ctx.db.query("generationSources").collect()).length)).toBe(0);
     expect(await s.t.run(async (ctx) => (await ctx.db.query("generations").collect()).length)).toBe(0);
+  });
+
+  it("leaving most transcripts out still reads them all, so the refusal is by name and says to remove some", async () => {
+    // 20 transcripts of 500,000 two-byte characters, 18 of them left out.
+    const s = await setup([], {
+      transcripts: Array.from({ length: 20 }, (_, index) => `Speaker ${index}: ` + "\u00e9".repeat(499_980)),
+      transactionLimits: true,
+    });
+    await expect(
+      s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId, excludeTranscriptIds: s.transcriptIds.slice(2) })
+    ).rejects.toThrow(FROZEN_TEXT_TOO_LARGE_MESSAGE);
+    expect(FROZEN_TEXT_TOO_LARGE_MESSAGE).toContain("Remove files or transcripts");
+  });
+
+  it("counts the originals of copied transcripts, refusing by name before the limit", async () => {
+    // 12 transcripts of 700,000 one-byte characters, each copied from last
+    // year's project: this year's rows and their originals together pass 16 MiB.
+    const s = await setup([], {
+      transcripts: Array.from({ length: 12 }, (_, index) => `Speaker ${index}: ` + "c".repeat(699_980)),
+      transactionLimits: true,
+      fiscalYearEnd: Date.UTC(2026, 11, 31),
+      copiedFrom: true,
+    });
+    await expect(s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId })).rejects.toThrow(
+      FROZEN_TEXT_TOO_LARGE_MESSAGE
+    );
+  });
+
+  it("starts stale transcripts' rebuilds in their own transactions, so reading them once is enough", async () => {
+    // 9 transcripts of about 1 MB built by an older parser, with fact packs
+    // for long transcripts: marking each row here would read it again.
+    const s = await setup([], {
+      transcripts: Array.from({ length: 9 }, (_, index) => `Speaker ${index}: ` + "\u00e9".repeat(499_980)),
+      transactionLimits: true,
+      parserVersion: "1",
+    });
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("appSettings", { key: TRANSCRIPT_FACTS_MODE_KEY, value: "long", updatedBy: s.userId, updatedAt: 1 });
+    });
+    const generationId = await s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId });
+    expect((await s.rows(generationId)).filter((row) => row.kind === "transcript")).toHaveLength(9);
+    const starts = await s.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.name.includes("rebuildStructureIfStale"))
+    );
+    expect(starts).toHaveLength(9);
   });
 
   it("refuses by name a draft whose transcripts alone would pass a transaction's reads", async () => {

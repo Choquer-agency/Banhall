@@ -22,8 +22,9 @@ const LARGEST_DOCUMENT_BYTES = 1 * MIB;
  *   once what remains could not take one more largest document and
  *   `marginBytes` for the rest of the work.
  * - Otherwise it counts every document read (sized as Convex sizes them) and
- *   the writes its caller reports, and refuses once either passes
- *   `estimateLimitBytes`.
+ *   the writes its caller reports, and refuses once one more largest
+ *   document and the margin would take either past `estimateLimitBytes`;
+ *   the limit leaves room for the reads made before the guard existed.
  */
 export class TransactionGuard implements ReadCounter {
   bytesRead = 0;
@@ -51,7 +52,7 @@ export class TransactionGuard implements ReadCounter {
     const metrics = await this.metrics();
     if (metrics) {
       if (metrics.bytesRead.remaining < LARGEST_DOCUMENT_BYTES + this.options.marginBytes) this.over();
-    } else if (this.bytesRead > this.options.estimateLimitBytes) {
+    } else if (this.bytesRead + LARGEST_DOCUMENT_BYTES + this.options.marginBytes > this.options.estimateLimitBytes) {
       this.over();
     }
   }
@@ -65,7 +66,7 @@ export class TransactionGuard implements ReadCounter {
     const metrics = await this.metrics();
     if (metrics) {
       if (metrics.bytesWritten.remaining < nextBytes + this.options.marginBytes) this.over();
-    } else if (writtenBytes + nextBytes > this.options.estimateLimitBytes) {
+    } else if (writtenBytes + nextBytes + this.options.marginBytes > this.options.estimateLimitBytes) {
       this.over();
     }
   }

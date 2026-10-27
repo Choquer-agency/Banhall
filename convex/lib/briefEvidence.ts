@@ -84,6 +84,12 @@ export type FrozenEvidence = {
    * hidden when its files are sent, as company file labels hide them.
    */
   companyNames: { organizations: string[]; people: string[] };
+  /**
+   * Every file and transcript row read, left-out ones included, so a draft's
+   * leave-out list is checked without reading them again (B1 review, round 2).
+   */
+  documentIdsRead?: Id<"projectDocuments">[];
+  transcriptIdsRead?: Id<"transcripts">[];
 };
 
 /**
@@ -138,7 +144,15 @@ export async function selectFrozenEvidence(
     [...frozenTranscripts.map((item) => item.content), ...frozenDocuments.map((item) => item.content)],
     meter
   );
-  return { projectTranscripts, transcripts, frozenTranscripts, frozenDocuments, ...company };
+  return {
+    projectTranscripts,
+    transcripts,
+    frozenTranscripts,
+    frozenDocuments,
+    ...company,
+    documentIdsRead: documents.map((document) => document._id),
+    transcriptIdsRead: transcriptRows.map((row) => row._id),
+  };
 }
 
 /**
@@ -365,22 +379,28 @@ export function companyFileCategory(category: Doc<"companyFiles">["category"]): 
 export async function currentYearTranscripts(
   ctx: Ctx,
   project: Doc<"projects">,
-  transcripts: Doc<"transcripts">[]
+  transcripts: Doc<"transcripts">[],
+  /** A draft's reservation counts the originals it reads (B1 review, round 2). */
+  meter?: ReadCounter
 ): Promise<Doc<"transcripts">[]> {
   const year = dashboardFiscalYear(project.fiscalYearEnd);
   if (year === null) return transcripts;
   const sourceYears = new Map<Id<"projects">, number | null>();
   const current: Doc<"transcripts">[] = [];
   for (const transcript of transcripts) {
-    const original = transcript.copiedFromTranscriptId
-      ? await ctx.db.get(transcript.copiedFromTranscriptId)
-      : null;
+    let original: Doc<"transcripts"> | null = null;
+    if (transcript.copiedFromTranscriptId) {
+      await meter?.beforeRead?.();
+      original = await ctx.db.get(transcript.copiedFromTranscriptId);
+      meter?.read(original);
+    }
     if (!original) {
       current.push(transcript);
       continue;
     }
     if (!sourceYears.has(original.projectId)) {
       const source = await ctx.db.get(original.projectId);
+      meter?.read(source);
       sourceYears.set(original.projectId, dashboardFiscalYear(source?.fiscalYearEnd));
     }
     const sourceYear = sourceYears.get(original.projectId) ?? null;

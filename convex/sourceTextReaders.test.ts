@@ -6,6 +6,9 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
 import { briefInputsHash } from "./lib/briefInputsHash";
+import { createReadBudget } from "./lib/readBudget";
+import { loadFrozenSeedActionInput } from "./lib/seedSnapshotLoader";
+import { decisionFixture } from "./seedDecision.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -94,5 +97,28 @@ describe("switched readers on old-style and new-style rows (B1, second part)", (
       generationId: next.generationId, userId, classifierVersion: "v1",
     });
     expect(candidate.document?.text).toContain("Keep Line 242 under 300 words.");
+  });
+});
+
+describe("the Seed loader's read budget (B1 review, round 2)", () => {
+  it("charges the whole transcript a new-style row's text is read from, not only the part it returns", async () => {
+    const s = await decisionFixture();
+    // The transcript holds far more than the 33 characters the row read.
+    await s.t.run(async (ctx) => {
+      const row = (await ctx.db.get(s.sourceId))!;
+      expect(row.content).toBeUndefined();
+      await ctx.db.patch(row.transcriptId!, { content: "Evidence alpha supports the work." + " more".repeat(150_000) });
+    });
+    const charged = await s.t.run(async (ctx) => {
+      const budget = createReadBudget({ maxBytes: 8 * 1024 * 1024 });
+      const input = await loadFrozenSeedActionInput(ctx, {
+        generation: (await ctx.db.get(s.generationId))!,
+        briefVersionId: s.briefId,
+        budget,
+      });
+      return { used: budget.snapshot().estimatedBytesRead, text: input.sources.find((source) => source._id === s.sourceId)?.content };
+    });
+    expect(charged.text).toBe("Evidence alpha supports the work.");
+    expect(charged.used).toBeGreaterThan(750_000);
   });
 });

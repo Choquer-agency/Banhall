@@ -104,12 +104,23 @@ describe("ensureFactInputs falls back to today's path", () => {
         });
       },
     });
+    // B1 review, round 2: reservation schedules the rebuild's start in its
+    // own transaction, which marks the row and schedules the build.
     const rebuilds = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name.includes("rebuildStructureIfStale") && job.state.kind === "pending"
+      )
+    );
+    expect(rebuilds.map((job) => job.args[0])).toEqual([{ transcriptId: f.transcriptId }]);
+    // Run twice, it marks the row and starts one build.
+    await f.t.mutation(internal.transcripts.rebuildStructureIfStale, { transcriptId: f.transcriptId });
+    await f.t.mutation(internal.transcripts.rebuildStructureIfStale, { transcriptId: f.transcriptId });
+    const builds = await f.t.run(async (ctx) =>
       (await ctx.db.system.query("_scheduled_functions").collect()).filter(
         (job) => job.name.includes("buildTranscriptStructure") && job.state.kind === "pending"
       )
     );
-    expect(rebuilds.map((job) => job.args[0])).toEqual([{ transcriptId: f.transcriptId }]);
+    expect(builds.map((job) => job.args[0])).toEqual([{ transcriptId: f.transcriptId }]);
     const result = await run(f.t, f.generationId);
     expect(result).toMatchObject({ ready: false, packs: [] });
     expect(result.lines[0]).toContain("is not ready to be read as verified facts");
