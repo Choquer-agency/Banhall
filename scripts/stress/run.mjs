@@ -119,33 +119,35 @@ async function main(argv) {
   const admin = new ConvexHttpClient(url);
   admin.setAdminAuth(config.adminKey);
 
-  /** A read on the local deployment, through the CLI's inline query. */
-  const inline = (query) => {
-    const env = { ...process.env };
-    delete env.CONVEX_DEPLOYMENT;
-    delete env.CONVEX_DEPLOY_KEY;
-    const out = execFileSync("npx", ["convex", "run", "--deployment", "local", "--inline-query", query], {
-      cwd: checkout,
-      env,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-    });
-    return JSON.parse(out);
+  // Ctrl-C or SIGTERM stops the run at the next check (see onSignal).
+  // The same Ctrl-C also reaches a CLI child mid-read; that read then fails
+  // as a stop, not as a failed read.
+  let stopSignal = null;
+  class Stopped extends Error {}
+  const checkStop = () => {
+    if (stopSignal) throw new Stopped(`stopped by ${stopSignal}`);
   };
 
-  /** An internal function on the local deployment, through the CLI. */
-  const runInternal = (name, args) => {
+  /** `npx convex run` on the local deployment. */
+  const cli = (args, maxBuffer) => {
     const env = { ...process.env };
     delete env.CONVEX_DEPLOYMENT;
     delete env.CONVEX_DEPLOY_KEY;
-    const out = execFileSync("npx", ["convex", "run", "--deployment", "local", name, JSON.stringify(args)], {
-      cwd: checkout,
-      env,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    return JSON.parse(out);
+    try {
+      return JSON.parse(execFileSync("npx", ["convex", "run", "--deployment", "local", ...args], { cwd: checkout, env, encoding: "utf8", maxBuffer }));
+    } catch (error) {
+      const signal = error?.signal ?? (error?.status === 130 ? "SIGINT" : error?.status === 143 ? "SIGTERM" : null);
+      if (signal === "SIGINT" || signal === "SIGTERM") {
+        stopSignal ??= signal;
+        throw new Stopped(`stopped by ${stopSignal}`);
+      }
+      throw error;
+    }
   };
+  /** A read on the local deployment, through the CLI's inline query. */
+  const inline = (query) => cli(["--inline-query", query], 64 * 1024 * 1024);
+  /** An internal function on the local deployment, through the CLI. */
+  const runInternal = (name, args) => cli([name, JSON.stringify(args)], 16 * 1024 * 1024);
 
   // The names are read from this deployment, and every file is checked
   // against them and against the manifest's fingerprints, before anything
@@ -196,7 +198,16 @@ async function main(argv) {
   const env = { ...process.env };
   delete env.CONVEX_DEPLOYMENT;
   delete env.CONVEX_DEPLOY_KEY;
-  const logs = spawn("npx", ["convex", "logs", "--deployment", "local"], { cwd: checkout, env });
+  // Its own process group, so the Ctrl-C that stops the run does not cut
+  // the log before the cancel and the final spend are in it.
+  const logs = spawn("npx", ["convex", "logs", "--deployment", "local"], { cwd: checkout, env, detached: true });
+  const stopLogs = () => {
+    try {
+      process.kill(-logs.pid, "SIGTERM");
+    } catch {
+      logs.kill();
+    }
+  };
   logs.on("error", (error) => logStream.write(`could not read the function log: ${error.message}\n`));
   logs.stdout.pipe(logStream);
   logs.stderr.pipe(logStream);
@@ -221,28 +232,29 @@ async function main(argv) {
     };
   };
   // Ctrl-C or SIGTERM stops at the next check, so `finally` still cancels
-  // the draft and saves; a second one exits at once without either.
-  let stopSignal = null;
+  // the draft and saves; a second one exits at once without either. Signals
+  // are counted here only: a CLI read the first one killed sets the stop
+  // flag, and this handler then runs for that same signal.
+  let signalsReceived = 0;
   const onSignal = (signal) => {
-    if (stopSignal) {
+    signalsReceived += 1;
+    if (signalsReceived > 1) {
       console.error(`stress/run: ${signal} again; exiting without cancelling the draft or saving`);
+      stopLogs();
       process.exit(130);
     }
-    stopSignal = signal;
+    stopSignal ??= signal;
     console.error(`stress/run: ${signal}; stopping at the next check, then cancelling the draft and saving (again to exit at once)`);
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
-  class Stopped extends Error {}
-  const checkStop = () => {
-    if (stopSignal) throw new Stopped(`stopped by ${stopSignal}`);
-  };
   class CapReached extends Error {}
   const checkCap = (current) => {
     if (current.costUsd >= results.stopsAt) throw new CapReached(`spend $${current.costUsd.toFixed(2)} reached the stop point $${results.stopsAt.toFixed(2)} (cap $${cap})`);
   };
 
   async function step(name, body, { required = false } = {}) {
+    checkStop();
     const started = Date.now();
     const entry = { step: name, ok: true };
     let capReached = null;
@@ -348,7 +360,9 @@ async function main(argv) {
     // made, and the drafting inputs ready (seedPlanEval:progress). The first
     // step's Batch starts when the stage opens and nothing retries it, so
     // one that failed, or never started, ends the wait with the cause.
+    // Required: a draft that fails here is cancelled, never left running.
     await step("start a Step by step draft and wait for its Seeds", async () => {
+      checkStop();
       generationId = await client.mutation(ref("generations:requestGeneration"), { projectId, candidateMode: "iterative", confirmRegeneration: true });
       let stageOpenSince = null;
       return await waitFor(
@@ -356,6 +370,7 @@ async function main(argv) {
         async () => {
           const progress = runInternal("seedPlanEval:progress", { generationId });
           if (progress.status === "failed") throw new Error(`the draft failed: ${progress.seedStageError ?? "no detail"}`);
+          if (!["reserved", "running", "awaiting_input"].includes(progress.status)) throw new Error(`the draft is ${progress.status}`);
           if (progress.draftingInputs === "failed") throw new Error("the drafting inputs failed");
           const busy = inline(
             `const busy = []; for (const status of ['queued', 'running']) { busy.push(...await ctx.db.query('seedBatches').withIndex('by_generationId_and_status', q => q.eq('generationId', '${generationId}').eq('status', status)).take(50)); }` +
@@ -381,7 +396,7 @@ async function main(argv) {
         40 * 60 * 1000,
         15_000
       );
-    });
+    }, { required: true });
     results.finishedAt = new Date().toISOString();
     finishedCleanly = true;
     console.log(`stress/run: done; results in ${outPath}`);
@@ -392,8 +407,8 @@ async function main(argv) {
     return 1;
   } finally {
     // Each part on its own, so one failing never skips the others.
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
+    // The handlers stay until the last save, so a first Ctrl-C here still
+    // saves; a second exits at once.
     if (generationId && !finishedCleanly) {
       // Tried even when the status cannot be read: the cancel itself
       // refuses a draft that has finished.
@@ -412,15 +427,27 @@ async function main(argv) {
         }
       }
     }
+    try {
+      save();
+    } catch (error) {
+      console.error(`stress/run: could not save the results: ${error?.message ?? error}`);
+    }
     // Labels and the Brief prepared ahead may still spend: read until the
-    // spend holds for two minutes, at most fifteen.
+    // spend holds for two minutes, at most fifteen. After a stop signal it
+    // reads once and does not wait.
     try {
       let last = -1;
       let steadySince = Date.now();
       let settled = !projectId;
       const until = Date.now() + 15 * 60 * 1000;
       while (projectId && Date.now() < until) {
-        const now = spend().costUsd;
+        let now;
+        try {
+          now = spend().costUsd;
+        } catch (error) {
+          if (error instanceof Stopped) break;
+          throw error;
+        }
         if (now !== last) {
           last = now;
           steadySince = Date.now();
@@ -428,7 +455,8 @@ async function main(argv) {
           settled = true;
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 20_000));
+        for (let waited = 0; waited < 20 && !stopSignal; waited += 1) await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (stopSignal) break;
       }
       results.finalSpendUsd = Math.max(last, 0);
       // False when the fifteen minutes ran out while the spend still rose.
@@ -458,8 +486,10 @@ async function main(argv) {
     } catch (error) {
       console.error(`stress/run: could not save the results: ${error?.message ?? error}`);
     }
-    logs.kill();
+    stopLogs();
     logStream.end();
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
   }
 }
 

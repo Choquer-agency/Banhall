@@ -59,7 +59,7 @@ Record per step each answer's size, why it stopped, time and cost (with F1's mea
 
 ## F6. Release suite, live
 
-All six fixtures on the live copy at the release commit, the pack written, cost reported (F4 closes here); then the owner's human verdicts and manual checks (the checklist's "Manual on localhost" items) at the end.
+All six fixtures on the live copy at the release commit, the pack written, cost reported; then the owner's human verdicts and manual checks (the checklist's "Manual on localhost" items) at the end.
 
 ## Owner questions (batched)
 

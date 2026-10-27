@@ -912,7 +912,8 @@ What changes:
 - [x] Code review, round 1 (07268c58): Claude Opus 5.5 (requested high; it reported low), "rethink"; rewritten in e7eea501.
 - [x] Round 2 (e7eea501): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixes in the next commit.
 - [x] Round 3 check of the round 2 fixes (fa1a56cb): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixes in the next commit.
-- [ ] Round 4 check of the round 3 fixes.
+- [x] Round 4 check of the round 3 fixes (76948d07): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": a failed Seeds step finished cleanly without cancelling, and a Ctrl-C that killed a CLI read was not taken as a stop; fixes in the next commit.
+- [ ] Round 5 check of the round 4 fixes.
 - [x] `tests/stressData.test.ts`: the data's sizes, fingerprints, and the name and invented-word checks.
 
 ### Automated, live on localhost

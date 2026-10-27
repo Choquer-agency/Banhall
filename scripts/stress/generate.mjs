@@ -121,14 +121,14 @@ export function namesFound(text, names) {
   return found;
 }
 
+/** Words the generator adds to every invented name, not invented themselves. */
+const FIXED_NAME_WORDS = new Set(["works"]);
+
 /**
  * Invented names that share a word of 4 or more letters with a real name
  * (a surname alone, one word of a company's name): the whole-name scan of
  * the text would miss them.
  */
-/** Words the generator adds to every invented name, not invented themselves. */
-const FIXED_NAME_WORDS = new Set(["works"]);
-
 export function inventedWordsFound(invented, names) {
   const real = new Set();
   for (const name of names) {
