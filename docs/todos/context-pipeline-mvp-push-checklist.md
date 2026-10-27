@@ -1008,7 +1008,7 @@ What changes:
 
 ### Automated, live on localhost
 
-- [ ] A new Step by step draft on a first-year project opens with the step skipped; one with a previous-year file opens it as before.
+- [x] A new Step by step draft on a first-year project opens with the step skipped (system skip, no Batch); one with last year's report opens it as before. Live copy at f24621bb, both drafts cancelled after the Seed stage opened, $0.14.
 
 ### Manual on localhost
 
