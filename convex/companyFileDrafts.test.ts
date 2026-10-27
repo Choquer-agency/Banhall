@@ -6,6 +6,7 @@
  * never count as this year's source; the Inputs band names them; and a
  * project with no company, or a draft of one, is exactly as before.
  */
+import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -164,7 +165,7 @@ describe("freezing a project's company files", () => {
     const s = await setup();
     for (let i = 0; i < 4; i++) await addCompanyFile(s, `big-${i}.txt`, "x".repeat(250_000), { createdAt: 4 - i });
     const rows = (await sourcesOf(s, await start(s))).filter((row) => row.kind === "company_file");
-    expect(rows.map((row) => row.content.length)).toEqual([200_000, 200_000, 200_000]);
+    expect(rows.map((row) => row.content!.length)).toEqual([200_000, 200_000, 200_000]);
     expect(rows.every((row) => row.truncated)).toBe(true);
   });
 
@@ -297,8 +298,8 @@ describe("the Inputs band and adoption", () => {
     const prepared = [{ ...base, _id: "p1", companyFileId: "cf-1" }] as unknown as Doc<"briefPreparationSources">[];
     const same = [{ ...base, _id: "g1", companyFileId: "cf-1" }] as unknown as Doc<"generationSources">[];
     const other = [{ ...base, _id: "g1", companyFileId: "cf-2" }] as unknown as Doc<"generationSources">[];
-    expect(verifiedSourceMapping(prepared, same)).not.toBeNull();
-    expect(verifiedSourceMapping(prepared, other)).toBeNull();
+    expect(verifiedSourceMapping(prepared, rowsWithStoredText(same))).not.toBeNull();
+    expect(verifiedSourceMapping(prepared, rowsWithStoredText(other))).toBeNull();
   });
 });
 
@@ -339,7 +340,7 @@ describe("review fixes, 2026-10-26", () => {
     const s = await setup();
     for (let i = 0; i < 4; i++) await addCompanyFile(s, `mid-${i}.txt`, "y".repeat(180_000));
     const rows = (await sourcesOf(s, await start(s))).filter((row) => row.kind === "company_file");
-    expect(rows.map((row) => row.content.length)).toEqual([180_000, 180_000, 180_000, 60_000]);
+    expect(rows.map((row) => row.content!.length)).toEqual([180_000, 180_000, 180_000, 60_000]);
     expect(rows.map((row) => row.truncated)).toEqual([false, false, false, true]);
   });
 

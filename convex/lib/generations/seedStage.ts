@@ -7,6 +7,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { withSourceText, type SourceRowWithText } from "../sourceText";
 import { COMPANY_FILE_LABEL_PREFIX } from "../companyEvidence";
 import { scheduleSignalCapture } from "../../learningSignals";
 import { withCurrentCompanyFiles } from "../briefEvidence";
@@ -1430,7 +1431,8 @@ export async function loadFactsSourceDocuments(
     if (row.kind !== "transcript" && row.kind !== "project_document" && row.kind !== "company_file") continue;
     // Phase C: no company file of a company the project has left.
     if (row.kind === "company_file" && (await withCurrentCompanyFiles(ctx, generation.projectId, [row])).length === 0) continue;
-    const document = factsSourceDocumentOf(row);
+    // B1, second part: the row's text, wherever it is kept.
+    const document = factsSourceDocumentOf(await withSourceText(ctx, row));
     const bytes = new TextEncoder().encode(document.content).byteLength;
     if (used + bytes > budget) {
       leftOut.push({ label: document.label, bytes });
@@ -1446,7 +1448,7 @@ export async function loadFactsSourceDocuments(
 
 /** One frozen transcript, project document or company file (Phase C), marker-safe, as the facts check reads it. */
 export function factsSourceDocumentOf(
-  row: Pick<Doc<"generationSources">, "kind" | "label" | "content" | "uploaderRole">
+  row: Pick<SourceRowWithText, "kind" | "label" | "content" | "uploaderRole">
 ): FactsSourceDocument {
   const content = neutralizeMarkers(row.content);
   if (row.kind === "transcript") {

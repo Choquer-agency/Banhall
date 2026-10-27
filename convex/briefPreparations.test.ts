@@ -5,6 +5,8 @@
  * late writes, retention, usage, and the request a preparation sends
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
+import type { SourceRowWithText } from "./lib/sourceText";
+import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -369,7 +371,7 @@ describe("preparing and adopting", () => {
     for (const entry of state.entries) {
       expect(sourceIds.has(entry.sourceId)).toBe(true);
       const source = state.sources.find((row) => row._id === entry.sourceId)!;
-      expect(source.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(source.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
     expect(state.generation.briefPreparation).toMatchObject({ preparationId: preparation._id, state: "adopted" });
     expect(state.facts.length).toBeGreaterThan(0);
@@ -384,7 +386,7 @@ describe("preparing and adopting", () => {
       DEFAULT_BRIEF_MS
     );
     // Its published Brief is keyed by the run's own inputs hash.
-    expect(state.generation.seedBriefInputsHash).toBe(await briefInputsHash(await generationSources(s, generationId)));
+    expect(state.generation.seedBriefInputsHash).toBe(await briefInputsHash(rowsWithStoredText(await generationSources(s, generationId))));
   });
 
   test("changed evidence after the preparation misses, and the run derives its own Brief", async () => {
@@ -701,12 +703,12 @@ describe("the verified source mapping", () => {
       label: "other:a.txt", content: "Same text.", contentHash: "h", truncated: false, originalLength: 10, capturedAt: 0,
       ...fields,
     }) as unknown as Doc<"briefPreparationSources">;
-  const target = (id: string, fields: Partial<Doc<"generationSources">> = {}) =>
+  const target = (id: string, fields: Partial<SourceRowWithText> = {}) =>
     ({
       _id: id, _creationTime: 0, generationId: "g", projectId: "x", kind: "project_document", projectDocumentId: `doc-${id}`,
       label: "other:a.txt", content: "Same text.", contentHash: "h", truncated: false, originalLength: 10, capturedAt: 0,
       ...fields,
-    }) as unknown as Doc<"generationSources">;
+    }) as unknown as SourceRowWithText;
 
   test("maps by identity and position, never by equal text", () => {
     const mapping = verifiedSourceMapping([row("1"), row("2")], [target("1"), target("2")]);

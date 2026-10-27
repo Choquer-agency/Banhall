@@ -9,6 +9,7 @@
  * stored turns exactly as before. The fixture follows the Meridian demo
  * project, whose Brief cited the interviewer's question.
  */
+import { withStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -167,7 +168,7 @@ async function speakersOf(
     if (!source) throw new Error("source missing");
     const speakerOf = citationSpeakerReader(ctx);
     const out: CitationSpeaker[] = [];
-    for (const span of spans) out.push(await speakerOf(source, span.startOffset, span.endOffset));
+    for (const span of spans) out.push(await speakerOf(withStoredText(source), span.startOffset, span.endOffset));
     return out;
   });
 }
@@ -269,8 +270,8 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
         const speakerOf = citationSpeakerReader(ctx);
         const unknown = at(UNKNOWN);
         return [
-          await speakerOf(source, unknown.startOffset, unknown.endOffset, at(QUESTION)),
-          await speakerOf(source, unknown.startOffset, unknown.endOffset, ECHO_INTERVIEWER),
+          await speakerOf(withStoredText(source), unknown.startOffset, unknown.endOffset, at(QUESTION)),
+          await speakerOf(withStoredText(source), unknown.startOffset, unknown.endOffset, ECHO_INTERVIEWER),
         ];
       })
     ).toEqual(["needs_check", "excluded"]);
@@ -279,8 +280,8 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
       const speakerOf = citationSpeakerReader(ctx);
       const short = at("the standard cure");
       return [
-        await evidenceSpan(speakerOf, source, ECHO_INTERVIEWER),
-        await evidenceSpan(speakerOf, source, short),
+        await evidenceSpan(speakerOf, withStoredText(source), ECHO_INTERVIEWER),
+        await evidenceSpan(speakerOf, withStoredText(source), short),
       ];
     });
     expect(kept).toEqual([

@@ -3165,7 +3165,15 @@ export default defineSchema({
     companyFileId: v.optional(v.id("companyFiles")),
     clientId: v.optional(v.id("clients")),
     label: v.string(),
-    content: v.string(),
+    // B1, second part (2026-10-27), widen only: the text the draft read.
+    // Present on every row written before the change; a new project file or
+    // company file row refers to a stored version instead (`textVersionId`),
+    // and a new transcript row to its transcript; `textLength` is how many
+    // characters it read. Read through `sourceRowText`
+    // (convex/lib/sourceText.ts), never directly.
+    content: v.optional(v.string()),
+    textVersionId: v.optional(v.id("sourceTextVersions")),
+    textLength: v.optional(v.number()),
     contentHash: v.string(),
     truncated: v.boolean(),
     originalLength: v.number(),
@@ -3208,7 +3216,40 @@ export default defineSchema({
     ),
   })
     .index("by_generationId", ["generationId"])
-    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
+    .index("by_projectId_and_generationId", ["projectId", "generationId"])
+    // B1, second part: which draft rows use a stored text version.
+    .index("by_textVersionId", ["textVersionId"]),
+
+  // B1, second part (2026-10-27): text a draft read from a project file or a
+  // company file, stored once and never changed: the exact text after the
+  // cut to its length limit and, for a Word file, with its Markdown marks
+  // taken out. A project's versions go with the project; a company file's
+  // go once the file is removed and no draft row refers to them
+  // (convex/lib/sourceText.ts).
+  sourceTextVersions: defineTable({
+    projectId: v.optional(v.id("projects")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
+    textHash: v.string(),
+    textLength: v.number(),
+    // UTF-8 bytes, so a reader can tell a version will not fit its budget
+    // without reading it.
+    textBytes: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_projectId_and_textHash", ["projectId", "textHash"])
+    .index("by_companyFileId_and_textHash", ["companyFileId", "textHash"]),
+
+  sourceTextVersionPieces: defineTable({
+    versionId: v.id("sourceTextVersions"),
+    projectId: v.optional(v.id("projects")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    start: v.number(),
+    text: v.string(),
+  })
+    .index("by_versionId_and_start", ["versionId", "start"])
+    .index("by_projectId", ["projectId"])
+    .index("by_companyFileId", ["companyFileId"]),
 
   // Immutable claim-to-source bundle for one exact report content hash.
   reportProvenance: defineTable({

@@ -433,7 +433,7 @@ describe("promotion and adoption", () => {
     expect(adopted.generation.briefPreparation).toMatchObject({ preparationId: prepared._id, state: "adopted" });
     for (const entry of adopted.entries) {
       const source = adopted.sources.find((row) => row._id === entry.sourceId)!;
-      expect(source.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(source.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
   });
 

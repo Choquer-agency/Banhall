@@ -6,6 +6,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { getSourceRowWithText, withSourceTexts, type SourceRowWithText } from "../sourceText";
 import { withCurrentCompanyFiles } from "../briefEvidence";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import type { Id, Doc } from "../../_generated/dataModel";
@@ -110,9 +111,10 @@ export async function readBriefSourceRows(
       `This generation has more than ${MAX_BRIEF_SOURCE_ROWS} frozen sources and cannot be read completely for a Generation Brief`
     );
   }
-  // Phase C: no company file of a company the project has left.
+  // Phase C: no company file of a company the project has left. B1, second
+  // part: each row with its text on it, in the old shape.
   const projectId = rows[0]?.projectId;
-  return projectId ? await withCurrentCompanyFiles(ctx, projectId, rows) : rows;
+  return await withSourceTexts(ctx, projectId ? await withCurrentCompanyFiles(ctx, projectId, rows) : rows);
 }
 
 /**
@@ -298,12 +300,12 @@ export async function getCitationSpeakersHandler(
     );
   }
   const speakerOf = citationSpeakerReader(ctx);
-  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const sources = new Map<Id<"generationSources">, SourceRowWithText | null>();
   const verdicts: CitationSpeaker[] = [];
   for (const span of args.spans) {
     let source = sources.get(span.sourceId);
     if (source === undefined) {
-      source = await ctx.db.get(span.sourceId);
+      source = await getSourceRowWithText(ctx, span.sourceId);
       sources.set(span.sourceId, source);
     }
     verdicts.push(
@@ -434,14 +436,14 @@ export async function briefWithoutExcludedQuotes(
     .take(2 * MAX_BRIEF_ENTRY_ROWS + 1);
   if (rows.length > 2 * MAX_BRIEF_ENTRY_ROWS) return brief;
   const speakerOf = citationSpeakerReader(ctx);
-  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const sources = new Map<Id<"generationSources">, SourceRowWithText | null>();
   const excluded = new Set<Id<"generationBriefEntries">>();
   for (const row of rows) {
     if (row.change === "removed" || row.generatedOutput) continue;
     if (row.group === "storylineQuestion" || row.edited === true) continue;
     let source = sources.get(row.sourceId);
     if (source === undefined) {
-      source = await ctx.db.get(row.sourceId);
+      source = await getSourceRowWithText(ctx, row.sourceId);
       sources.set(row.sourceId, source);
     }
     if (source && (await speakerOf(source, row.startOffset, row.endOffset)) === "excluded") {
@@ -712,11 +714,11 @@ export async function persistDerivedBriefHandler(
   // the derivation chose (defense in depth, like the byte check).
   const speakerOf = citationSpeakerReader(ctx);
   // One read per distinct cited source, however many entries cite it.
-  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const sources = new Map<Id<"generationSources">, SourceRowWithText | null>();
   for (const entry of args.entries) {
     let source = sources.get(entry.sourceId);
     if (source === undefined) {
-      source = await ctx.db.get(entry.sourceId);
+      source = await getSourceRowWithText(ctx, entry.sourceId);
       sources.set(entry.sourceId, source);
     }
     // Tenant-scoping parity with reports.createProvenance (convex/reports.ts:108-118):

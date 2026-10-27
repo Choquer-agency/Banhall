@@ -1,3 +1,4 @@
+import type { SourceRowWithText } from "./sourceText";
 import type { Doc, Id } from "../_generated/dataModel";
 
 /**
@@ -46,7 +47,7 @@ export interface MatchedTerm {
 export function matchGlossaryTerms(
   glossaryTerms: GlossaryTerm[],
   text: string,
-  _trustedSources?: Array<Omit<Doc<"generationSources">, "_id" | "_creationTime">>
+  _trustedSources?: Array<Omit<SourceRowWithText, "_id" | "_creationTime">>
 ): MatchedTerm[] {
   const matches: MatchedTerm[] = [];
 
@@ -143,7 +144,7 @@ export interface GlossarySourceMatch<I extends string = Id<"generationSources">>
  * order, so a common term doesn't flood the Brief with a row per mention.
  */
 export function matchGlossaryTermsAcrossSources<
-  S extends Pick<Doc<"generationSources">, "content" | "contentHash"> & { _id: string },
+  S extends Pick<SourceRowWithText, "content" | "contentHash"> & { _id: string },
 >(
   glossaryTerms: GlossaryTerm[],
   sources: S[]
@@ -177,7 +178,7 @@ export function matchGlossaryTermsAcrossSources<
  */
 export function flaggedGlossaryTerms(
   glossaryTerms: GlossaryTerm[],
-  sources: Array<Pick<Doc<"generationSources">, "content" | "contentHash"> & { _id: string }>
+  sources: Array<Pick<SourceRowWithText, "content" | "contentHash"> & { _id: string }>
 ): GlossaryTerm[] {
   const matchedCanonicalTerms = new Set(
     matchGlossaryTermsAcrossSources(glossaryTerms, sources).map((m) => m.canonicalTerm)

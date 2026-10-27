@@ -572,7 +572,7 @@ describe("seed Node action request boundary", () => {
         .collect()).find((row) => row.kind === "transcript")!;
       const transcriptId = await ctx.db.insert("transcripts", {
         projectId: fixture.projectId,
-        content: transcriptSource.content,
+        content: transcriptSource.content!,
         createdAt: 1,
       });
       await ctx.db.patch(transcriptSource._id, { transcriptId });

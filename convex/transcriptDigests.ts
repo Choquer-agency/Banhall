@@ -1,3 +1,4 @@
+import { sourceRowLength, withSourceText, withSourceTexts } from "./lib/sourceText";
 import { getConvexSize, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -49,10 +50,11 @@ export const getCondenseInputs = internalQuery({
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
       .take(MAX_FROZEN_SOURCE_ROWS);
+    // B1, second part: the transcript rows with their text, in the old shape.
     const byTranscriptId = new Map(
-      sources
-        .filter((source) => source.kind === "transcript" && source.transcriptId)
-        .map((source) => [source.transcriptId, source])
+      (await withSourceTexts(ctx, sources.filter((source) => source.kind === "transcript" && source.transcriptId))).map(
+        (source) => [source.transcriptId, source]
+      )
     );
     // The frozen set decides the order, so digest part 1 is transcript 1 no
     // matter which condense call finishes first.
@@ -179,11 +181,12 @@ export const freezeDigestSource = internalMutation({
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
       .take(MAX_FROZEN_SOURCE_ROWS);
-    const transcriptSource = sources.find(
+    const transcriptRow = sources.find(
       (source) =>
         source.kind === "transcript" && source.transcriptId === args.transcriptId
     );
-    if (!transcriptSource) return null;
+    if (!transcriptRow) return null;
+    const transcriptSource = await withSourceText(ctx, transcriptRow);
     const already = sources.find(
       (source) =>
         source.kind === "transcript_digest" &&
@@ -232,7 +235,7 @@ export const freezeDigestSource = internalMutation({
         source.kind === "transcript_digest" &&
         source.transcriptId === args.transcriptId
     );
-    return frozenDigest ? frozenDigest.content.length : null;
+    return frozenDigest ? sourceRowLength(frozenDigest) : null;
   },
 });
 
@@ -277,7 +280,7 @@ export const getFactInputs = internalQuery({
         transcriptId,
         label: source.label,
         truncated: source.truncated,
-        chars: source.content.length,
+        chars: sourceRowLength(source),
         sameText,
         frozen: sources.some((row) => row.kind === "transcript_facts" && row.transcriptId === transcriptId),
         ready: run !== null && (await factRunIsCurrent(ctx, run)),
@@ -323,14 +326,16 @@ export const freezeFactsSource = internalMutation({
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
       .take(MAX_FROZEN_SOURCE_ROWS);
-    const transcriptSource = sources.find(
+    const transcriptRow = sources.find(
       (source) => source.kind === "transcript" && source.transcriptId === transcript._id
     );
-    if (!transcriptSource || transcriptSource.truncated) return null;
+    if (!transcriptRow || transcriptRow.truncated) return null;
     const existing = sources.find(
       (source) => source.kind === "transcript_facts" && source.transcriptId === transcript._id
     );
-    if (existing) return existing.content.length;
+    if (existing) return sourceRowLength(existing);
+    // B1, second part: the transcript row's text, wherever it is kept.
+    const transcriptSource = await withSourceText(ctx, transcriptRow);
     // The facts index the transcript's text; the frozen row must be that
     // exact text, or no span can be trusted on it.
     const run = await readyFactRun(ctx, transcript);

@@ -428,6 +428,9 @@ async function seedProjectRows(
     await ctx.db.insert("writerMemorySources", { memoryId, userId, projectId, ref: "learningSignal:x", text: "t", company: "c" });
     // Phase E (E3): an open editing burst.
     await ctx.db.insert("reportEditSizeDue", { reportId, projectId, editorUserId: userId, dueAt: now });
+    // B1, second part: a text version a draft of the project read.
+    const sourceTextVersionId = await ctx.db.insert("sourceTextVersions", { projectId, textHash: "h", textLength: 1, textBytes: 1, createdAt: now });
+    await ctx.db.insert("sourceTextVersionPieces", { versionId: sourceTextVersionId, projectId, start: 0, text: "t" });
     const briefId = await ctx.db.insert("generationBriefs", { projectId, generationId, inputsHash: "h", version: 1, origin: "derived", storylineText: "s", createdAt: now });
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,

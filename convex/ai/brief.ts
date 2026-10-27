@@ -1,5 +1,6 @@
 "use node";
 
+import type { SourceRowWithText } from "../lib/sourceText";
 import { z } from "zod";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -343,7 +344,7 @@ export type BriefCandidate<I extends string = Id<"generationSources">> = {
  * rule (BRIEF_WRITER_WORDING), which the preparation key hashes too.
  */
 export type BriefSourceRow<I extends string = Id<"generationSources">> = Pick<
-  Doc<"generationSources">,
+  SourceRowWithText,
   "kind" | "label" | "content" | "contentHash" | "transcriptId" | "factSpans" | "uploaderRole"
 > & { _id: I };
 

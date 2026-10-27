@@ -1,3 +1,4 @@
+import { getSourceRowWithText, withSourceTexts, type SourceRowWithText } from "./lib/sourceText";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import {
@@ -981,10 +982,12 @@ export const completeAttempt = internalMutation({
           .query("seedBatchContext")
           .withIndex("by_batchId", (q) => q.eq("batchId", batch._id))
           .take(MAX_SEED_SNAPSHOT_ROWS + 1),
+        // B1, second part: each row with its text, in the old shape.
         ctx.db
           .query("generationSources")
           .withIndex("by_generationId", (q) => q.eq("generationId", batch.generationId))
-          .take(MAX_SEED_SOURCE_ROWS + 1),
+          .take(MAX_SEED_SOURCE_ROWS + 1)
+          .then((rows) => withSourceTexts(ctx, rows)),
       ]);
     if (
       contextRows.length > MAX_SEED_SNAPSHOT_ROWS ||
@@ -1324,11 +1327,11 @@ export const quoteRepairContext = internalQuery({
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
     const writerWaiting = !batch || batch.operation !== "prefetch" || batch.writerWaitingAt !== undefined;
-    const sources = new Map<string, Doc<"generationSources">>();
+    const sources = new Map<string, SourceRowWithText>();
     for (const seed of args.seeds) {
       for (const citation of seed.provenance) {
         if (sources.has(citation.sourceId)) continue;
-        const source = await ctx.db.get(citation.sourceId);
+        const source = await getSourceRowWithText(ctx, citation.sourceId);
         if (source && source.generationId === args.generationId) sources.set(citation.sourceId, source);
       }
     }

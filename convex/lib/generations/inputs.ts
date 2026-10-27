@@ -6,6 +6,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { withSourceTexts, type SourceRowWithText } from "../sourceText";
 import { v, type ObjectType } from "convex/values";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
@@ -64,21 +65,25 @@ export async function getGenerationInputHandler(
     }
     reportTitle = summary.reportTitle;
   }
-  const sources = await withCurrentCompanyFiles(
+  // B1, second part: each row with its text on it, in the old shape.
+  const sources = await withSourceTexts(
     ctx,
-    generation.projectId,
-    await ctx.db
-      .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      // One transcript row and one digest row per transcript, plus the 50
-      // context documents. A tighter bound would drop the digest rows of a
-      // many-transcript project — the case digest mode exists for — and hand
-      // the model the over-budget full text instead.
-      .take(MAX_FROZEN_SOURCE_ROWS)
+    await withCurrentCompanyFiles(
+      ctx,
+      generation.projectId,
+      await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        // One transcript row and one digest row per transcript, plus the 50
+        // context documents. A tighter bound would drop the digest rows of a
+        // many-transcript project — the case digest mode exists for — and hand
+        // the model the over-budget full text instead.
+        .take(MAX_FROZEN_SOURCE_ROWS)
+    )
   );
   const transcriptIds = generationTranscriptIds(generation);
   const inputMode = generation.inputMode ?? "full";
-  const toPart = (source: Doc<"generationSources">) => ({
+  const toPart = (source: SourceRowWithText) => ({
     sourceId: source._id,
     contentHash: source.contentHash,
     content: source.content,

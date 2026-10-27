@@ -1,3 +1,4 @@
+import { getSourceRowWithText, type SourceRowWithText } from "./lib/sourceText";
 import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -103,10 +104,7 @@ export const createProvenance = internalMutation({
     assertBoundedCitations(args.claims);
     const contentHash = await sha256(args.content);
     const reportText = extractPlainText(args.content);
-    const checkedSources = new Map<
-      Id<"generationSources">,
-      Doc<"generationSources"> | null
-    >();
+    const checkedSources = new Map<Id<"generationSources">, SourceRowWithText | null>();
     for (const claim of args.claims) {
       if (!reportText.includes(claim.claimText)) {
         domainError("INVALID_INPUT", `Claim ${claim.claimId} is not present in the report`);
@@ -117,7 +115,8 @@ export const createProvenance = internalMutation({
       for (const citation of claim.sources) {
         let source = checkedSources.get(citation.generationSourceId);
         if (!source) {
-          source = await ctx.db.get(citation.generationSourceId);
+          // B1, second part: the row's text, wherever it is kept.
+          source = await getSourceRowWithText(ctx, citation.generationSourceId);
           checkedSources.set(citation.generationSourceId, source);
         }
         if (

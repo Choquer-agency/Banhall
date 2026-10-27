@@ -124,6 +124,10 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "intakeSourceLinks", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "intakeDrafts", field: "projectId", disposition: "detach", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
+  // 2026-10-27 (B1, second part): the text versions the project's drafts
+  // read; pieces before their versions. Company file versions have no project.
+  { table: "sourceTextVersionPieces", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "sourceTextVersions", field: "projectId", disposition: "delete", index: "by_projectId_and_textHash" },
   // 2026-10-26 (B1, first part): files' earlier text.
   { table: "projectDocumentTextVersions", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "projectDocumentTextVersionPieces", field: "projectId", disposition: "delete", index: "by_projectId" },

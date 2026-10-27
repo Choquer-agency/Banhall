@@ -18,6 +18,7 @@
  * A Brief the startup pin already chose (existing reuse, including a
  * writer's edited version) always wins over a preparation.
  */
+import type { SourceRowWithText } from "../sourceText";
 import { internal } from "../../_generated/api";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
@@ -77,10 +78,10 @@ async function releaseAttachment(ctx: MutationCtx, generation: Doc<"generations"
  */
 export function verifiedSourceMapping(
   preparationSources: readonly Doc<"briefPreparationSources">[],
-  generationSources: readonly Doc<"generationSources">[]
-): Map<Id<"briefPreparationSources">, Doc<"generationSources">> | null {
+  generationSources: readonly SourceRowWithText[]
+): Map<Id<"briefPreparationSources">, SourceRowWithText> | null {
   if (preparationSources.length !== generationSources.length) return null;
-  const mapping = new Map<Id<"briefPreparationSources">, Doc<"generationSources">>();
+  const mapping = new Map<Id<"briefPreparationSources">, SourceRowWithText>();
   for (let index = 0; index < preparationSources.length; index += 1) {
     const from = preparationSources[index];
     const to = generationSources[index];
@@ -163,7 +164,7 @@ async function adopt(
   ctx: MutationCtx,
   generation: Doc<"generations">,
   preparation: Preparation,
-  sources: Doc<"generationSources">[],
+  sources: SourceRowWithText[],
   args: ObjectType<typeof adoptPreparedBriefArgs>
 ): Promise<PreparedBriefAdoption> {
   const preparationSources = await ctx.db

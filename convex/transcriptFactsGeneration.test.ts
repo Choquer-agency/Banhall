@@ -279,7 +279,7 @@ describe("a generation frozen to read facts", () => {
     expect(cited.map((entry) => entry.exactExcerpt)).not.toContain("What made the forecast hard?");
     for (const entry of cited) {
       expect(entry.sourceId).toBe(transcriptRow._id);
-      expect(transcriptRow.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(transcriptRow.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
     expect(result.subsections).toHaveLength(13);
   });

@@ -1,5 +1,5 @@
+import type { SourceRowWithText } from "./sourceText";
 import { sha256 } from "./contracts";
-import type { Doc } from "../_generated/dataModel";
 import { readsFactPacks } from "./seedFacts";
 import { FACTS_VERSION } from "./transcriptFacts";
 import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
@@ -26,7 +26,7 @@ import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
  * the hash is exactly what it was.
  */
 export async function briefInputsHash(
-  sources: Array<Omit<Doc<"generationSources">, "_id" | "_creationTime">>
+  sources: Array<Omit<SourceRowWithText, "_id" | "_creationTime">>
 ): Promise<string> {
   // Filter to only the kinds that matter for input matching
   const relevantSources = sources.filter(

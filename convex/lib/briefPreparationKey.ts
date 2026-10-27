@@ -12,6 +12,7 @@
  * citation's validity. Rules the request bytes do not show are hashed in
  * from convex/lib/briefDerivationPolicy.ts.
  */
+import type { SourceRowWithText } from "./sourceText";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
@@ -50,7 +51,7 @@ export { BRIEF_DERIVATION_VERSION } from "./briefDerivationPolicy";
 
 /** The fields of one frozen row the key reads, from either table. */
 export type BriefKeySource = Pick<
-  Doc<"generationSources">,
+  SourceRowWithText,
   | "kind"
   | "label"
   | "content"

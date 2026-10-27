@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import { rowsWithStoredText } from "../testFixtureRows";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { z } from "zod";
@@ -349,7 +350,7 @@ test("serializes reconciliation instructions through the real Brief SDK and pers
     messages: [
       {
         role: "user",
-        content: buildBriefUserMessage(fixture.sources),
+        content: buildBriefUserMessage(rowsWithStoredText(fixture.sources)),
       },
     ],
   });
@@ -570,7 +571,7 @@ test("serializes reconciliation instructions through the real Brief SDK and pers
   for (const entry of persisted.entries) {
     const source = await t.run((ctx) => ctx.db.get(entry.sourceId));
     expect(source?.contentHash).toBe(entry.sourceContentHash);
-    expect(source?.content.slice(entry.startOffset, entry.endOffset)).toBe(
+    expect(source?.content!.slice(entry.startOffset, entry.endOffset)).toBe(
       entry.exactExcerpt
     );
   }

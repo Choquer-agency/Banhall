@@ -172,7 +172,7 @@ describe("reserveGeneration freezes the project's transcripts", () => {
     for (const row of sources) {
       expect(row.contentHash).toMatch(/^[0-9a-f]{64}$/);
       expect(row.truncated).toBe(false);
-      expect(row.originalLength).toBe(row.content.length);
+      expect(row.originalLength).toBe(row.content!.length);
     }
     expect(new Set(sources.map((row) => row.contentHash)).size).toBe(3);
 
@@ -417,8 +417,8 @@ describe("claims cite the part they came from (AC4)", () => {
       generationSourceId: sources[1]._id,
       sourceContentHash: sources[1].contentHash,
       exactExcerpt: quote,
-      startOffset: sources[1].content.indexOf(quote),
-      endOffset: sources[1].content.indexOf(quote) + quote.length,
+      startOffset: sources[1].content!.indexOf(quote),
+      endOffset: sources[1].content!.indexOf(quote) + quote.length,
     });
 
     const claimText = "The team ran the novel cure step under vacuum.";

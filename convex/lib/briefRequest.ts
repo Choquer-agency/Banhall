@@ -7,6 +7,7 @@
  * mutations, hashes exactly the request the model is sent. convex/ai/brief.ts
  * re-exports every name, so callers are unchanged.
  */
+import type { SourceRowWithText } from "./sourceText";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -178,7 +179,7 @@ export const BRIEF_WRITER_WORDING = {
 } as const;
 
 /** The frozen source the Brief's wording rule names, or null. */
-export function briefSettingsSource<Source extends Pick<Doc<"generationSources">, "label" | "content" | "kind"> & { uploaderRole?: string }>(
+export function briefSettingsSource<Source extends Pick<SourceRowWithText, "label" | "content" | "kind"> & { uploaderRole?: string }>(
   sources: readonly Source[]
 ): Source | null {
   return chooseSettingsSource(sources)?.source ?? null;
@@ -195,7 +196,7 @@ export function buildBriefUserMessage(
   return briefMessageWithReport(sources, budget).message;
 }
 
-type BriefMessageSource = Pick<Doc<"generationSources">, "label" | "content" | "kind"> & {
+type BriefMessageSource = Pick<SourceRowWithText, "label" | "content" | "kind"> & {
   transcriptId?: Id<"transcripts">;
   /** 2026-10-04 (first, round 2): the trust floor of the wording rule. */
   uploaderRole?: string;

@@ -2396,7 +2396,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(transcriptRow.contextBudget).toEqual({
         budgetTokens: 100,
         included: true,
-        includedLength: transcriptRow.content.length,
+        includedLength: transcriptRow.content!.length,
         truncated: false,
         maxDocuments: 12,
       });
@@ -2597,7 +2597,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
           DEFAULT_CONTEXT_BUDGET.totalTokens,
         );
         expect(row.contextBudget?.included).toBe(true);
-        expect(row.contextBudget?.includedLength).toBe(row.content.length);
+        expect(row.contextBudget?.includedLength).toBe(row.content!.length);
         expect(row.contextBudget?.truncated).toBe(false);
       }
     },

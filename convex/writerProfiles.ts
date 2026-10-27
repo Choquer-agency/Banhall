@@ -1,3 +1,4 @@
+import { getSourceRowWithText, withSourceTexts } from "./lib/sourceText";
 import {
   query,
   mutation,
@@ -841,10 +842,14 @@ export const getSettingsDocumentCandidate = internalQuery({
     const none = { document: null, matchesProfile: false, cachedAddressed: null };
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return none;
-    const sources = await ctx.db
-      .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(MAX_GENERATION_SOURCES);
+    // B1, second part: each row with its text, in the old shape.
+    const sources = await withSourceTexts(
+      ctx,
+      await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(MAX_GENERATION_SOURCES)
+    );
     const detected = detectSettingsDocument(sources);
     if (!detected) return none;
     const contentHash = await sha256(detected.text);
@@ -970,7 +975,7 @@ export const getGenerationWriterSettings = query({
         ? record.source
         : null;
     if (supplyPath && record.generationSourceId) {
-      const source = await ctx.db.get(record.generationSourceId);
+      const source = await getSourceRowWithText(ctx, record.generationSourceId);
       const text = source ? settingsDocumentText(source.content) : "";
       if (source && text) {
         offer = {

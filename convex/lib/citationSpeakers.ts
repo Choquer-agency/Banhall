@@ -16,6 +16,7 @@
  * Facts mode already applies the rule through its verified fact spans
  * (convex/lib/seedFacts.ts); this is the same rule for every other path.
  */
+import type { SourceRowWithText } from "./sourceText";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { isEvidenceRole, needsSpeakerCheck } from "./transcriptFacts";
@@ -82,7 +83,7 @@ export function speakerOfRoles(
 
 /** The frozen row fields the check reads. */
 export type SpeakerCheckSource = Pick<
-  Doc<"generationSources">,
+  SourceRowWithText,
   "kind" | "content" | "contentHash" | "transcriptId"
 >;
 

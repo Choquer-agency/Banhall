@@ -3510,7 +3510,7 @@ describe("seed Summary sign-off and recovery", () => {
       const source = (await ctx.db.get(s.sourceId))!;
       const transcriptId = await ctx.db.insert("transcripts", {
         projectId: s.projectId,
-        content: source.content,
+        content: source.content!,
         createdAt: 1,
       });
       await ctx.db.patch(s.sourceId, { transcriptId });
@@ -3565,14 +3565,14 @@ describe("seed Summary sign-off and recovery", () => {
       recovered.sources.map((row) => ({
         sourceId: row._id,
         kind: row.kind,
-        content: row.content,
+        content: row.content!,
         transcriptId: row.transcriptId,
         factSpans: row.factSpans,
       }))
     );
     const fact = facts.get("F1-1")!;
     expect(fact.transcript.sourceId).toBe(transcript._id);
-    expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+    expect(transcript.content!.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
   });
 
   // 2026-10-23 (owner): a writer never starts over on a signed-off plan

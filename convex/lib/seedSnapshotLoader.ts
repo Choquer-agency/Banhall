@@ -1,3 +1,4 @@
+import { sourceRowText, type SourceRowWithText } from "./sourceText";
 import type { Doc, Id } from "../_generated/dataModel";
 import { refuseWhenCompanyLeft } from "./briefEvidence";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
@@ -244,7 +245,7 @@ export type FrozenSeedActionInput = {
   >;
   sources: Array<
     Pick<
-      Doc<"generationSources">,
+      SourceRowWithText,
       | "_id"
       | "kind"
       | "label"
@@ -374,6 +375,19 @@ export async function loadFrozenSeedActionInput(
   }
   if (!settingsArtifact)
     throw new Error("Frozen seed writer settings are missing");
+  // B1, second part: a row that refers to its text reads it within the same
+  // budget; a row written before the change carries it.
+  const texts = new Map<Id<"generationSources">, string>();
+  for (const source of sources) {
+    if (source.content !== undefined) continue;
+    const textRead = await budget.one(() => sourceRowText(ctx, source));
+    if (textRead.kind === "not-loaded")
+      throw new SeedContextLimitError(
+        "read_bytes",
+        "Frozen seed inputs exceed the processing budget",
+      );
+    texts.set(source._id, textRead.value);
+  }
   const style = frozenStyleProjection(settingsArtifact.content);
   return {
     brief: {
@@ -407,7 +421,7 @@ export async function loadFrozenSeedActionInput(
       _id: source._id,
       kind: source.kind,
       label: source.label,
-      content: source.content,
+      content: source.content ?? texts.get(source._id) ?? "",
       contentHash: source.contentHash,
       ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       truncated: source.truncated,

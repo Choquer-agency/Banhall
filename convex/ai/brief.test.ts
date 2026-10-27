@@ -23,6 +23,7 @@
 // (AD-23) at the stage level, even though the write itself lives in a
 // different file than the orchestration for the reason above.
 
+import { withStoredText } from "../testFixtureRows";
 import type Anthropic from "@anthropic-ai/sdk";
 import { convexTest, type TestConvex } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -261,7 +262,7 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     );
     const glossarySource = await t.run((ctx) => ctx.db.get(glossaryEntry.sourceId));
     expect(
-      glossarySource!.content.slice(glossaryEntry.startOffset, glossaryEntry.endOffset)
+      glossarySource!.content!.slice(glossaryEntry.startOffset, glossaryEntry.endOffset)
     ).toBe("algorithms");
     const exactGlossaryEntry = byGroup("glossaryTerm").find(
       (entry) => entry.exactExcerpt === "control loop"
@@ -269,7 +270,7 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(exactGlossaryEntry.text).toBe("control loop");
     const exactGlossarySource = await t.run((ctx) => ctx.db.get(exactGlossaryEntry.sourceId));
     expect(
-      exactGlossarySource!.content.slice(
+      exactGlossarySource!.content!.slice(
         exactGlossaryEntry.startOffset,
         exactGlossaryEntry.endOffset
       )
@@ -280,7 +281,7 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
       const source = await t.run((ctx) => ctx.db.get(entry.sourceId));
       expect(source).toBeDefined();
       expect(source!.contentHash).toBe(entry.sourceContentHash);
-      expect(source!.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(source!.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
   });
 
@@ -349,7 +350,7 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
     expect(classified.text).toBe("control loop");
     expect(classified.exactExcerpt).toBe("closed feedback mechanism");
     const source = await t.run((ctx) => ctx.db.get(classified.sourceId));
-    expect(source!.content.slice(classified.startOffset, classified.endOffset)).toBe(
+    expect(source!.content!.slice(classified.startOffset, classified.endOffset)).toBe(
       "closed feedback mechanism"
     );
     expect(entries.some((e) => e.text === "hysteresis compensation")).toBe(false);
@@ -579,7 +580,7 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
         sourceContentHash: source.contentHash,
         startOffset: 0,
         endOffset: 8,
-        exactExcerpt: source.content.slice(0, 8),
+        exactExcerpt: source.content!.slice(0, 8),
         createdAt: now,
       };
       // The block renders storylineText, not storyline claim rows, so the
@@ -698,8 +699,8 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
           sourceId: otherSource!._id,
           sourceContentHash: otherSource!.contentHash,
           startOffset: 0,
-          endOffset: otherSource!.content.length,
-          exactExcerpt: otherSource!.content,
+          endOffset: otherSource!.content!.length,
+          exactExcerpt: otherSource!.content!,
         },
       ],
       // The owning project has no Brief yet, so the fence expects none.
@@ -756,8 +757,8 @@ describe("Generation Brief derivation (story 1, CAP-1/2/4)", () => {
           sourceId: siblingSource!._id,
           sourceContentHash: siblingSource!.contentHash,
           startOffset: 0,
-          endOffset: siblingSource!.content.length,
-          exactExcerpt: siblingSource!.content,
+          endOffset: siblingSource!.content!.length,
+          exactExcerpt: siblingSource!.content!,
         },
       ],
       // The project has no Brief yet, so the fence expects none.
@@ -842,7 +843,7 @@ describe("Generation Brief editing and questions (briefs.ts, story 1 shape / sto
         sourceContentHash: source.contentHash,
         startOffset: 0,
         endOffset: 1,
-        exactExcerpt: source.content.slice(0, 1),
+        exactExcerpt: source.content!.slice(0, 1),
         question: { questionText: "Does the evidence override the Storyline claim?" },
         createdAt: Date.now(),
       });
@@ -962,12 +963,12 @@ async function briefSourceOf(
 
 /** A candidate entry citing `quote` verbatim inside the frozen source. */
 function candidateEntry(
-  source: { _id: Id<"generationSources">; content: string; contentHash: string },
+  source: { _id: Id<"generationSources">; content?: string; contentHash: string },
   group: "storyline" | "claimExclusion" | "confidenceMap" | "glossaryTerm",
   quote: string,
   extra: { reason?: "business_risk"; confidence?: "unresolved" } = {}
 ) {
-  const startOffset = source.content.indexOf(quote);
+  const startOffset = source.content!.indexOf(quote);
   if (startOffset === -1) throw new Error(`quote not in frozen source: ${quote}`);
   return {
     group,
@@ -1118,7 +1119,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
         inputsHash,
         origin: "derived",
         storylineText: `Storyline proposed by ${generationId}.`,
-        entries: [candidateEntry(source, "glossaryTerm", "control loop")],
+        entries: [candidateEntry(withStoredText(source), "glossaryTerm", "control loop")],
       });
 
     const [firstResult, secondResult] = await Promise.all([
@@ -1181,7 +1182,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       inputsHash,
       origin: "derived" as const,
       storylineText: "The first publisher's authoritative storyline.",
-      entries: [candidateEntry(firstSource, "glossaryTerm", "control loop")],
+      entries: [candidateEntry(withStoredText(firstSource), "glossaryTerm", "control loop")],
     };
     const secondPublish = {
       projectId,
@@ -1189,7 +1190,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       inputsHash,
       origin: "derived" as const,
       storylineText: "The second publisher's losing storyline.",
-      entries: [candidateEntry(secondSource, "claimExclusion", "redesign the logo")],
+      entries: [candidateEntry(withStoredText(secondSource), "claimExclusion", "redesign the logo")],
     };
 
     const firstAdapter = briefPublishCtx(t);
@@ -1298,8 +1299,8 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
           text: "control loop",
           sourceId: priorSource._id,
           sourceContentHash: priorSource.contentHash,
-          startOffset: priorSource.content.indexOf("control loop"),
-          endOffset: priorSource.content.indexOf("control loop") + "control loop".length,
+          startOffset: priorSource.content!.indexOf("control loop"),
+          endOffset: priorSource.content!.indexOf("control loop") + "control loop".length,
           exactExcerpt: "control loop",
           createdAt: now + 1,
         });
@@ -1328,7 +1329,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       storylineText: "This candidate must not be published.",
       entries: [
         {
-          ...candidateEntry(targetSource, "glossaryTerm", "control loop"),
+          ...candidateEntry(withStoredText(targetSource), "glossaryTerm", "control loop"),
           exactExcerpt: "not the cited bytes",
         },
       ],
@@ -1392,7 +1393,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       inputsHash,
       origin: "derived",
       storylineText: "The first publisher's storyline.",
-      entries: [candidateEntry(firstSource, "glossaryTerm", "control loop")],
+      entries: [candidateEntry(withStoredText(firstSource), "glossaryTerm", "control loop")],
     });
 
     const asWriter = t.withIdentity({ subject: "brief-writer" });
@@ -1419,7 +1420,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       inputsHash,
       origin: "derived",
       storylineText: "The second publisher's storyline must not be stored.",
-      entries: [candidateEntry(secondSource, "claimExclusion", "redesign the logo")],
+      entries: [candidateEntry(withStoredText(secondSource), "claimExclusion", "redesign the logo")],
     });
 
     const { editedId, afterEdit } = observed;
@@ -1453,7 +1454,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       "same-key-moving-source"
     );
     const source = await briefSourceOf(t, generationId);
-    const entries = [candidateEntry(source, "claimExclusion", "redesign the logo")];
+    const entries = [candidateEntry(withStoredText(source), "claimExclusion", "redesign the logo")];
     const v1 = await publishDerivedBrief(briefPublishCtx(t).ctx, {
       projectId,
       generationId,
@@ -1538,7 +1539,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
             attempt < BRIEF_PUBLISH_ATTEMPTS ? `different-key-${attempt}` : inputsHash,
           origin: "derived",
           storylineText: `Racing publication ${attempt}.`,
-          entries: [candidateEntry(racingSource, "glossaryTerm", "control loop")],
+          entries: [candidateEntry(withStoredText(racingSource), "glossaryTerm", "control loop")],
         })
       );
     });
@@ -1549,7 +1550,7 @@ describe("Generation Brief publication idempotency (DW-112)", () => {
       inputsHash,
       origin: "derived",
       storylineText: "The target's storyline must not be stored.",
-      entries: [candidateEntry(targetSource, "claimExclusion", "redesign the logo")],
+      entries: [candidateEntry(withStoredText(targetSource), "claimExclusion", "redesign the logo")],
     });
 
     expect(racingIds).toHaveLength(BRIEF_PUBLISH_ATTEMPTS);
@@ -1606,8 +1607,8 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("does not re-insert a removed marker across repeated derivations, and stamps a returning entry as added", async () => {
     const t = convexTest(schema, modules);
     const { source, derive } = await derivationFixture(t, "repeat-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
-    const dropped = candidateEntry(source, "glossaryTerm", DROPPED_QUOTE);
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const dropped = candidateEntry(withStoredText(source), "glossaryTerm", DROPPED_QUOTE);
 
     // v1: first version ever — `change` is undefined, not "added".
     const v1 = await derive([kept, dropped]);
@@ -1646,7 +1647,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("never carries the previous version's storylineQuestion rows forward, as evidence or as a marker", async () => {
     const t = convexTest(schema, modules);
     const { projectId, source, derive } = await derivationFixture(t, "question-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
     const v1 = await derive([kept]);
 
     // story 2's Self-check raises a question on v1; only briefs.saveEntryEdit
@@ -1662,7 +1663,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
         sourceContentHash: source.contentHash,
         startOffset: 0,
         endOffset: 1,
-        exactExcerpt: source.content.slice(0, 1),
+        exactExcerpt: source.content!.slice(0, 1),
         question: { questionText },
         createdAt: Date.now(),
       })
@@ -1699,7 +1700,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
         sourceContentHash: source.contentHash,
         startOffset: 0,
         endOffset: 1,
-        exactExcerpt: source.content.slice(0, 1),
+        exactExcerpt: source.content!.slice(0, 1),
         createdAt: now,
       };
       await ctx.db.insert("generationBriefEntries", {
@@ -1889,7 +1890,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
         sourceContentHash: source.contentHash,
         startOffset: 0,
         endOffset: 1,
-        exactExcerpt: source.content.slice(0, 1),
+        exactExcerpt: source.content!.slice(0, 1),
         question: { questionText: "Is the Storyline claim supported?" },
         createdAt: Date.now(),
       })
@@ -1905,7 +1906,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       sourceContentHash: source.contentHash,
       startOffset: offset,
       endOffset: offset + 1,
-      exactExcerpt: source.content.slice(offset, offset + 1),
+      exactExcerpt: source.content!.slice(offset, offset + 1),
     });
     // Keep offsets 0..499, drop the row at index 500, re-propose 510 (only a
     // historical marker on the baseline).
@@ -2021,7 +2022,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     args: {
       briefId: Id<"generationBriefs">;
       projectId: Id<"projects">;
-      source: { _id: Id<"generationSources">; content: string; contentHash: string };
+      source: { _id: Id<"generationSources">; content?: string; contentHash: string };
       count: number;
       startAt?: number;
       change?: "removed";
@@ -2040,7 +2041,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
           sourceContentHash: args.source.contentHash,
           startOffset: i,
           endOffset: i + 1,
-          exactExcerpt: args.source.content.slice(i, i + 1),
+          exactExcerpt: args.source.content!.slice(i, i + 1),
           ...(args.change ? { change: args.change } : {}),
           createdAt: now,
         });
@@ -2110,7 +2111,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     args: {
       projectId: Id<"projects">;
       generationId: Id<"generations">;
-      source: { _id: Id<"generationSources">; content: string; contentHash: string };
+      source: { _id: Id<"generationSources">; content?: string; contentHash: string };
       count: number;
     }
   ) {
@@ -2138,7 +2139,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
             sourceContentHash: args.source.contentHash,
             startOffset: i,
             endOffset: i + 1,
-            exactExcerpt: args.source.content.slice(i, i + 1),
+            exactExcerpt: args.source.content!.slice(i, i + 1),
             createdAt: now,
           });
         }
@@ -2317,7 +2318,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
         sourceContentHash: source.contentHash,
         startOffset: offset,
         endOffset: offset + 1,
-        exactExcerpt: source.content.slice(offset, offset + 1),
+        exactExcerpt: source.content!.slice(offset, offset + 1),
       };
     });
     const newBriefId = await publishDerivedBrief(briefPublishCtx(t).ctx, {
@@ -2375,7 +2376,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       sourceContentHash: source.contentHash,
       startOffset: i,
       endOffset: i + 1,
-      exactExcerpt: source.content.slice(i, i + 1),
+      exactExcerpt: source.content!.slice(i, i + 1),
     }));
     const nextBriefId = await publishDerivedBrief(briefPublishCtx(t).ctx, {
       projectId,
@@ -2429,8 +2430,8 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     // cannot catch a regression that diffed against markers again.
     const t = convexTest(schema, modules);
     const { projectId, generationId, source, derive } = await derivationFixture(t, "returning-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
-    const returning = candidateEntry(source, "glossaryTerm", DROPPED_QUOTE);
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const returning = candidateEntry(withStoredText(source), "glossaryTerm", DROPPED_QUOTE);
 
     const v1 = await derive([kept]);
     // Hand-seed K's marker onto v1 so the baseline read *does* see one.
@@ -2465,7 +2466,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
     // still a previous version, so new entries stamp `added`, not `undefined`.
     const t = convexTest(schema, modules);
     const { projectId, source, derive } = await derivationFixture(t, "empty-baseline-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
 
     for (const shape of ["markers-only", "questions-only"] as const) {
       const baselineId = await t.run(async (ctx) => {
@@ -2488,7 +2489,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
           sourceContentHash: source.contentHash,
           startOffset: 0,
           endOffset: 1,
-          exactExcerpt: source.content.slice(0, 1),
+          exactExcerpt: source.content!.slice(0, 1),
           ...(shape === "markers-only"
             ? { change: "removed" as const }
             : { question: { questionText: "Unresolved?" } }),
@@ -2552,8 +2553,8 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("re-reads and re-publishes when a writer edit lands between pin and publish", async () => {
     const t = convexTest(schema, modules);
     const { projectId, generationId, source, derive } = await derivationFixture(t, "concurrent-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
-    const dropped = candidateEntry(source, "glossaryTerm", DROPPED_QUOTE);
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const dropped = candidateEntry(withStoredText(source), "glossaryTerm", DROPPED_QUOTE);
     const v1 = await derive([kept, dropped]);
     const droppedRow = (await entriesOf(t, v1)).find((row) => row.group === "glossaryTerm")!;
     const editedText = "The writer's corrected glossary term.";
@@ -2612,7 +2613,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("gives up after BRIEF_PUBLISH_ATTEMPTS lost fences, leaving no version from the derivation", async () => {
     const t = convexTest(schema, modules);
     const { projectId, generationId, source, derive } = await derivationFixture(t, "moving-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
     const v1 = await derive([kept]);
 
     // Every publish attempt loses its fence to a writer edit saved first.
@@ -2665,7 +2666,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       sourceContentHash: source.contentHash,
       startOffset: offset,
       endOffset: offset + 1,
-      exactExcerpt: source.content.slice(offset, offset + 1),
+      exactExcerpt: source.content!.slice(offset, offset + 1),
     });
     const offsets = (count: number) => Array.from({ length: count }, (_unused, i) => glossary(i));
     // A 520-row baseline takes two pages.
@@ -2705,8 +2706,8 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("marks a retained baseline row removed when every candidate sharing its key fails re-validation", async () => {
     const t = convexTest(schema, modules);
     const { generationId, source, derive } = await derivationFixture(t, "revalidation-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
-    const dropped = candidateEntry(source, "glossaryTerm", DROPPED_QUOTE);
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const dropped = candidateEntry(withStoredText(source), "glossaryTerm", DROPPED_QUOTE);
     const v1 = await derive([kept, dropped]);
     const v1Glossary = (await entriesOf(t, v1)).find((row) => row.group === "glossaryTerm")!;
 
@@ -2746,8 +2747,8 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("aborts the whole publish with INVALID_STATE when a retained reference is not what it claims", async () => {
     const t = convexTest(schema, modules);
     const { projectId, generationId, source, derive } = await derivationFixture(t, "reference-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
-    const dropped = candidateEntry(source, "glossaryTerm", DROPPED_QUOTE);
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const dropped = candidateEntry(withStoredText(source), "glossaryTerm", DROPPED_QUOTE);
     const v1 = await derive([kept, dropped]);
     const v2 = await derive([kept]); // kept unchanged + a removed marker for `dropped`
     const v1Kept = (await entriesOf(t, v1)).find((row) => row.group === "claimExclusion")!;
@@ -2799,7 +2800,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       sourceContentHash: source.contentHash,
       startOffset: offset,
       endOffset: offset + 1,
-      exactExcerpt: source.content.slice(offset, offset + 1),
+      exactExcerpt: source.content!.slice(offset, offset + 1),
     });
     const ids = await t.run(async (ctx) => {
       const now = Date.now();
@@ -2940,8 +2941,8 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("stamps the first validated duplicate candidate unchanged and later ones added, even when an earlier candidate sharing the key fails re-validation", async () => {
     const t = convexTest(schema, modules);
     const { generationId, source, derive } = await derivationFixture(t, "duplicate-candidate-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
-    const term = candidateEntry(source, "glossaryTerm", DROPPED_QUOTE);
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const term = candidateEntry(withStoredText(source), "glossaryTerm", DROPPED_QUOTE);
     const v1 = await derive([kept, term]);
     const v1Term = (await entriesOf(t, v1)).find((row) => row.group === "glossaryTerm")!;
 
@@ -2973,7 +2974,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
   it("stops without publishing when a one-row page still needs a split or an accepted page makes no progress", async () => {
     const t = convexTest(schema, modules);
     const { generationId, source, derive } = await derivationFixture(t, "page-error-hash");
-    const kept = candidateEntry(source, "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
+    const kept = candidateEntry(withStoredText(source), "claimExclusion", KEPT_QUOTE, { reason: "business_risk" });
     const v1 = await derive([kept]);
     const before = await briefTables(t);
 
@@ -3066,7 +3067,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
           sourceContentHash: source.contentHash,
           startOffset: i,
           endOffset: i + 1,
-          exactExcerpt: source.content.slice(i, i + 1),
+          exactExcerpt: source.content!.slice(i, i + 1),
           createdAt: now,
         });
       }
@@ -3081,7 +3082,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       sourceContentHash: source.contentHash,
       startOffset: i,
       endOffset: i + 1,
-      exactExcerpt: source.content.slice(i, i + 1),
+      exactExcerpt: source.content!.slice(i, i + 1),
     }));
     const { ctx, calls } = briefPublishCtx(t);
     const nextId = await publishDerivedBrief(ctx, {
@@ -3164,7 +3165,7 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       sourceContentHash: source.contentHash,
       startOffset: offset,
       endOffset: offset + 1,
-      exactExcerpt: source.content.slice(offset, offset + 1),
+      exactExcerpt: source.content!.slice(offset, offset + 1),
     });
     const baselineId = await t.run((ctx) =>
       ctx.db.insert("generationBriefs", {
