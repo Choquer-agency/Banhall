@@ -790,3 +790,20 @@ What changes:
 
 - [ ] One release suite fixture on the live copy: its project is marked, and it makes no learning signal, edit size reading or Brain source.
 
+## Phase E, fifth part: comparing drafts with and without a change
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (fifth)".
+
+What changes:
+
+- **The release suite can compare a change**: `--compare lessons --lesson-set <id>` or `--compare preferences` runs each fixture twice, without and with it, and the pack shows the two side by side.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] `node scripts/seed-plan-eval.mjs --deployment local --as <reviewer> --confirm-spend --compare preferences --fixture skipped-role-supported`: two projects, the "with" draft records 3 saved preferences used and the "without" draft none, and `compare.md` says so.
+

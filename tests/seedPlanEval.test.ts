@@ -45,6 +45,9 @@ import {
   usageCost,
   validateFixture,
   writePack,
+  compareArms,
+  packFileName,
+  type CompareLessonSet,
   RATE_LIMIT_MARGIN_MS,
   bannedForms,
   firstPersonHits,
@@ -2283,5 +2286,104 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
     c.complianceNotes = [];
     expect(runChecks(fixtures[0]!, c, emptyRunLog(fixtures[0]!.id, 0)).find((item) => item.id === "facts-match-sources")?.evidence)
       .toBe("242: no row; 244: no row; 246: no row");
+  });
+});
+
+describe("--compare (Phase E, E3)", () => {
+  const lessonSet: CompareLessonSet = { id: "kd7set", kind: "draft_style", createdAt: Date.UTC(2026, 9, 26), sourceCount: 12 };
+  const context = {
+    date: "2026-10-27",
+    deployment: "local-e2e",
+    commit: "abc1234",
+    reviewer: "reviewer@example.com",
+    compare: { kind: "lessons" as const, lessonSet },
+  };
+
+  it("parses --compare and --lesson-set, and refuses a lesson set without one or the other", () => {
+    expect(parseArgs(["--compare", "lessons", "--lesson-set", "kd7set"])).toMatchObject({ compare: "lessons", lessonSet: "kd7set" });
+    expect(parseArgs(["--compare", "preferences"])).toMatchObject({ compare: "preferences", lessonSet: null });
+    expect(() => parseArgs(["--compare", "lessons"])).toThrow(/needs --lesson-set/);
+    expect(() => parseArgs(["--lesson-set", "kd7set"])).toThrow(/goes with --compare lessons/);
+    expect(() => parseArgs(["--compare", "styles"])).toThrow(/lessons or preferences/);
+    expect(() => parseArgs(["--compare", "preferences", "--cleanup"])).toThrow(/cannot be combined/);
+  });
+
+  it("makes two arms: none against the lesson set, or none against the fixture's own preferences", () => {
+    expect(compareArms("lessons", {}, lessonSet)).toEqual([
+      { name: "without", label: "without lessons", compare: { lessons: { kind: "draft_style", learningDigestId: null } } },
+      { name: "with", label: "with lesson set kd7set", compare: { lessons: { kind: "draft_style", learningDigestId: "kd7set" } } },
+    ]);
+    expect(compareArms("preferences", { preferences: ["Uses the active voice."] }, null)).toEqual([
+      { name: "without", label: "without saved preferences", compare: { preferences: [] } },
+      { name: "with", label: "with 1 saved preferences", compare: { preferences: ["Uses the active voice."] } },
+    ]);
+    expect(compareArms("preferences", {}, null)).toBeNull();
+    for (const fixture of loadFixtures(FIXTURES).filter((candidate) => candidate.preferences)) {
+      expect(validateFixture(fixture)).toEqual([]);
+    }
+    expect(loadFixtures(FIXTURES).filter((candidate) => candidate.preferences).map((candidate) => candidate.id)).toContain("writer-settings-document");
+  });
+
+  it("refuses a fixture whose preferences list is empty, too long or holds a long text", () => {
+    const fixture = byCase("skipped_role_supported");
+    for (const preferences of [[], Array.from({ length: 31 }, () => "Keeps it short."), ["x".repeat(161)]]) {
+      expect(validateFixture({ ...fixture, preferences }).some((problem) => problem.startsWith("preferences must hold"))).toBe(true);
+    }
+  });
+
+  it("runs an arm on its own evaluation project, set right after the mark", async () => {
+    const order: Array<[string, Record<string, unknown>]> = [];
+    const driver: EvalDriver = {
+      mutation: async (name, args) => {
+        order.push([name, args]);
+        if (name === "generations:requestGeneration") throw new Error("stop here");
+        return name === "projects:createProject" ? { projectId: "project-1", transcriptIds: ["t-1"] } : "document-1";
+      },
+      query: async () => null,
+      internal: async (name, args) => {
+        order.push([name, args]);
+        return null;
+      },
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    const fixture = byCase("skipped_role_supported");
+    const [, arm] = compareArms("preferences", fixture, null)!;
+    await runFixture(fixture, driver, { arm: arm! });
+    expect(order[0]![1].title).toBe(releaseEvalProjectTitle(`${fixture.title} (with 3 saved preferences)`));
+    expect(order.slice(1, 3)).toEqual([
+      ["seedPlanEval:markEvaluationProject", { projectId: "project-1" }],
+      ["seedPlanEval:setEvaluationCompare", { projectId: "project-1", preferences: fixture.preferences }],
+    ]);
+  });
+
+  it("writes one file per arm and compare.md naming the set and what each draft used", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "seed-plan-eval-compare-"));
+    try {
+      const fixture = byCase("withdrawn_feedback");
+      const arms = compareArms("lessons", fixture, lessonSet)!;
+      const results = arms.map((arm) => {
+        const log = emptyRunLog(fixture.id, 0);
+        return { fixture, log, collected: null, checks: runChecks(fixture, null, log), arm: { name: arm.name, label: arm.label } };
+      });
+      const written = writePack(root, results, context);
+      expect(written.map((file) => path.basename(file))).toEqual([
+        "withdrawn-feedback-without.md",
+        "withdrawn-feedback-with.md",
+        "compare.md",
+        "summary.md",
+        "results.json",
+      ]);
+      expect(packFileName({ fixture })).toBe("withdrawn-feedback.md");
+      const compare = readFileSync(path.join(root, "compare.md"), "utf8");
+      expect(compare).toContain("Lesson set `kd7set` (style lessons, made 2026-10-26 from 12 items), against none.");
+      expect(compare).toContain("| [withdrawn-feedback](withdrawn-feedback-with.md) | with lesson set kd7set | No draft was collected. |");
+      expect(readFileSync(path.join(root, "withdrawn-feedback-without.md"), "utf8")).toContain("Compare arm: **without lessons**.");
+      expect(readFileSync(path.join(root, "summary.md"), "utf8")).toContain("[withdrawn-feedback (with lesson set kd7set)](withdrawn-feedback-with.md)");
+      expect(DASHES.test(compare)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

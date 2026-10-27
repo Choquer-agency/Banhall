@@ -105,6 +105,7 @@ export const runReportQa = internalAction({
       try {
         const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
           kind: "qa_calibration",
+          projectId: input.projectId,
         });
         return digest?.content.trim()
           ? { content: digest.content, digestId: digest._id }

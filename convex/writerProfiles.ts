@@ -67,6 +67,7 @@ import {
 } from "./lib/settingsDocument";
 import { extractSettingsRules } from "./lib/settingsExtraction";
 import { composeWithSavedPreferences, savedPreferencesLine } from "./lib/savedPreferences";
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 
 /**
@@ -564,7 +565,12 @@ function overridesFromCategories(
 export async function getEffectiveWriterStyle(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users"> | undefined,
-  settingsDocument?: SettingsDocumentInput
+  settingsDocument?: SettingsDocumentInput,
+  /**
+   * Phase E (E3): a release suite --compare arm's saved preferences, used in
+   * place of the writer's own under the same rules ([] for none).
+   */
+  options: { savedPreferences?: readonly string[] } = {}
 ): Promise<EffectiveWriterStyle> {
   const [modes, profile] = await Promise.all([
     getHouseRuleModes(ctx),
@@ -648,9 +654,12 @@ export async function getEffectiveWriterStyle(
   // Phase E (E1b): the writer's saved preferences follow the saved profile:
   // used when it applies or the writer has none (no row counts as on), not
   // when it is switched off or a settings document replaces it.
-  const savedTexts =
-    userId !== undefined && document === undefined && (profile === null || profile.enabled)
-      ? (
+  const savedApply = userId !== undefined && document === undefined && (profile === null || profile.enabled);
+  const savedTexts = !savedApply
+    ? []
+    : options.savedPreferences !== undefined
+      ? options.savedPreferences.filter((text) => text.trim().length > 0)
+      : (
           await ctx.db
             .query("writerMemories")
             .withIndex("by_userId_and_state", (q) => q.eq("userId", userId).eq("state", "on"))
@@ -658,8 +667,7 @@ export async function getEffectiveWriterStyle(
         )
           .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
           .map((row) => row.text)
-          .filter((text) => text.trim().length > 0)
-      : [];
+          .filter((text) => text.trim().length > 0);
   const effectiveInstructions = composeWithSavedPreferences(instructions, savedTexts);
   const savedPreferences =
     savedTexts.length > 0 ? { count: savedTexts.length, textHash: await sha256(savedTexts.join("\n")) } : undefined;
@@ -859,10 +867,17 @@ export const getGenerationWriterStyle = internalQuery({
   args: {
     userId: v.optional(v.id("users")),
     settingsDocument: v.optional(settingsDocumentInputValidator),
+    // Phase E (E3): the generation's project, for a release suite --compare
+    // arm's saved preferences.
+    projectId: v.optional(v.id("projects")),
   },
   returns: effectiveWriterStyleValidator,
   handler: async (ctx, args): Promise<EffectiveWriterStyle> => {
-    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument);
+    const project = args.projectId ? await ctx.db.get(args.projectId) : null;
+    const savedPreferences = isEvaluationProject(project) ? project?.evaluation?.preferences : undefined;
+    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument, {
+      ...(savedPreferences !== undefined ? { savedPreferences } : {}),
+    });
   },
 });
 

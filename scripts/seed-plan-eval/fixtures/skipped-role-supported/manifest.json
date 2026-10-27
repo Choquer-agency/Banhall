@@ -37,5 +37,10 @@
     "Where this year's work refers back to the earlier prototype, it does so only as context for fiscal 2026 work, not as a previous-year status passage.",
     "The rest of Section 244 (work plan, hypothesis, experiments) is complete without the skipped role.",
     "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ],
+  "preferences": [
+    "Prefers 'we' to 'the team' or the company's name.",
+    "Keeps sentences under 25 words.",
+    "Starts each uncertainty with what was not known at the start."
   ]
 }

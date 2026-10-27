@@ -31,6 +31,14 @@
 //   --out DIR            pack root (default _bmad-output/test-artifacts/seed-plan-eval)
 //   --cleanup            delete every "Release eval - " project the reviewer owns, then stop
 //   --render FILE        rebuild a judging pack from an earlier results.json with the current checks; no Convex or model call
+//   --compare lessons    run each fixture twice, without and with the lesson set named by --lesson-set ID
+//   --compare preferences
+//                        run each fixture that has a preferences list twice, without and with it
+//   --lesson-set ID      the lesson set (a learningDigests id, published or not) --compare lessons uses
+//
+// Each --compare arm runs on its own evaluation project with the same inputs
+// and models; the change is set on that project only, never on the
+// reviewer's account. The pack adds compare.md with the arms side by side.
 //
 // A scripted action refused by the per-user limits (RATE_LIMITED) is waited
 // out: the script prints what it waits for, sleeps the refusal's retryAfter
@@ -125,6 +133,11 @@ try {
 
   if (options.dryRun) {
     for (const fixture of fixtures) {
+      if (options.compare) {
+        const lessonSet = options.compare === "lessons" ? { id: options.lessonSet, kind: "draft_style", createdAt: 0, sourceCount: 0 } : null;
+        const arms = evalModule.compareArms(options.compare, fixture, lessonSet);
+        console.log(`\n${fixture.id}: ${arms ? `runs twice, ${arms.map((arm) => arm.label).join(" and ")}` : "skipped, no preferences list to compare"}`);
+      }
       console.log(`\n${fixture.id}: scripted session`);
       evalModule.buildPlan(fixture).forEach((step, i) => console.log(`  ${String(i + 1).padStart(2)}. ${evalModule.describeStep(step)}`));
     }
@@ -183,24 +196,49 @@ try {
     console.log(`Note: ${existing.length} earlier release eval project(s) exist; --cleanup deletes them.`);
   }
 
+  // 2026-10-27 (E3): the lesson set --compare lessons names, checked first.
+  let lessonSet = null;
+  if (options.compare === "lessons") {
+    const found = await driver.internal("seedPlanEval:compareLessonSet", { learningDigestId: options.lessonSet });
+    if (!found) {
+      console.error(`seed-plan-eval: no shared lesson set has the id ${options.lessonSet} on ${deployment}.`);
+      exitCode = 2;
+      throw null;
+    }
+    if (found.admittedWithdrawn) {
+      console.error("seed-plan-eval: that lesson set admitted withdrawn feedback; choose another.");
+      exitCode = 2;
+      throw null;
+    }
+    lessonSet = { id: found.id, kind: found.kind, createdAt: found.createdAt, sourceCount: found.sourceCount };
+  }
+
   // One allowance for the whole invocation: a RATE_LIMITED refusal is waited
   // out (retryAfter plus a few seconds) and the same action retried, up to
   // 45 minutes of waiting in all. The limits are never bypassed or changed.
   const rateLimitBudget = evalModule.rateLimitBudget();
   const results = [];
   for (const fixture of fixtures) {
-    console.log(`\n=== ${fixture.id} ===`);
-    const { log, collected } = await evalModule.runFixture(fixture, driver, { singleBaseline: options.singleBaseline, rateLimitBudget });
-    const checks = evalModule.runChecks(fixture, collected, log);
-    results.push({ fixture: { ...fixture, dir: undefined, texts: undefined }, log, collected, checks });
-    const failed = checks.filter((item) => item.status === "fail");
-    console.log(`${fixture.id}: ${checks.filter((item) => item.status === "pass").length} checks passed, ${failed.length} failed`);
-    for (const item of failed) console.log(`  FAIL ${item.label}: ${item.evidence}`);
+    const arms = options.compare ? evalModule.compareArms(options.compare, fixture, lessonSet) : [null];
+    if (arms === null) {
+      console.log(`\n=== ${fixture.id} === skipped: no preferences list to compare`);
+      continue;
+    }
+    for (const arm of arms) {
+      const name = arm ? `${fixture.id} (${arm.label})` : fixture.id;
+      console.log(`\n=== ${name} ===`);
+      const { log, collected } = await evalModule.runFixture(fixture, driver, { singleBaseline: options.singleBaseline, rateLimitBudget, ...(arm ? { arm } : {}) });
+      const checks = evalModule.runChecks(fixture, collected, log);
+      results.push({ fixture: { ...fixture, dir: undefined, texts: undefined }, log, collected, checks, ...(arm ? { arm: { name: arm.name, label: arm.label } } : {}) });
+      const failed = checks.filter((item) => item.status === "fail");
+      console.log(`${name}: ${checks.filter((item) => item.status === "pass").length} checks passed, ${failed.length} failed`);
+      for (const item of failed) console.log(`  FAIL ${item.label}: ${item.evidence}`);
+    }
   }
 
   const date = new Date().toLocaleDateString("en-CA");
   const commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-  const context = { date, deployment, commit, reviewer: options.as };
+  const context = { date, deployment, commit, reviewer: options.as, ...(options.compare ? { compare: { kind: options.compare, lessonSet } } : {}) };
   const packRoot = path.resolve(options.out ?? path.join(root, "_bmad-output/test-artifacts/seed-plan-eval"));
   const dir = evalModule.reservePackDir(packRoot, date);
   const written = evalModule.writePack(dir, results, context);
@@ -223,7 +261,7 @@ try {
     const cost = evalModule.usageCost(r.collected);
     const requests = evalModule.seedRequestCount(r.collected);
     total += cost.totalUsd;
-    console.log(`${r.fixture.id}: ${requests.reserved} seed-stage requests, $${cost.totalUsd.toFixed(2)} (seed stage $${cost.seedStageUsd.toFixed(2)})`);
+    console.log(`${r.fixture.id}${r.arm ? ` (${r.arm.label})` : ""}: ${requests.reserved} seed-stage requests, $${cost.totalUsd.toFixed(2)} (seed stage $${cost.seedStageUsd.toFixed(2)})`);
   }
   console.log(`Cost from aiUsage: $${total.toFixed(2)} in all.`);
   if (rateLimitBudget.waitedMs) console.log(`Waited ${evalModule.formatWait(rateLimitBudget.waitedMs)} in all for rate limits.`);

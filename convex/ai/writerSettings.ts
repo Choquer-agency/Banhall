@@ -283,6 +283,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
   const style = await ctx.runQuery(internal.writerProfiles.getGenerationWriterStyle, {
     ...userArgs,
     ...(settingsDocument ? { settingsDocument } : {}),
+    projectId: args.projectId,
   });
   const documentApplied =
     style.settingsSource === "writer_notes" || style.settingsSource === "attachment";

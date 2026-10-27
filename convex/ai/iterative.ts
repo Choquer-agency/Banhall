@@ -214,11 +214,14 @@ async function resolveFrozenWriterStyle(
   let qaCalibrationDigestId: Id<"learningDigests"> | undefined;
   try {
     const [qaDigest, styleDigest] = await Promise.all([
+      // Phase E (E3): a release suite --compare arm's own set, by project.
       ctx.runQuery(internal.learning.getActiveDigest, {
         kind: "qa_calibration",
+        projectId,
       }),
       ctx.runQuery(internal.learning.getActiveDigest, {
         kind: "draft_style",
+        projectId,
       }),
     ]);
     if (qaDigest?.content.trim()) {

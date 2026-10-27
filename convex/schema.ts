@@ -332,7 +332,22 @@ export default defineSchema({
     // of learning, writer memory, edit size and Brain nomination
     // (convex/lib/evaluationProjects.ts). Set only by the suite through
     // seedPlanEval.markEvaluationProject, never on production.
-    evaluation: v.optional(v.object({ markedAt: v.number() })),
+    evaluation: v.optional(
+      v.object({
+        markedAt: v.number(),
+        // The release suite's --compare arm (seedPlanEval.setEvaluationCompare):
+        // the lesson set of one kind its drafts use (null: none), and the
+        // saved preferences they use ([]: none), in place of the published
+        // set and the writer's own. Absent: as usual.
+        lessons: v.optional(
+          v.object({
+            kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+            learningDigestId: v.union(v.id("learningDigests"), v.null()),
+          })
+        ),
+        preferences: v.optional(v.array(v.string())),
+      })
+    ),
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])

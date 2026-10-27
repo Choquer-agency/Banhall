@@ -43,6 +43,10 @@ node scripts/seed-plan-eval.mjs --deployment local --as <reviewer email> --confi
 
 `--as` names the internal account the suite acts as. The script refuses production, and it refuses a cloud deployment unless you add `--allow-cloud-dev`. Every project it creates is named "Release eval - <fixture>". It writes a judging pack to `_bmad-output/test-artifacts/seed-plan-eval/<date>/`: one file per fixture with the signed-off plan, the drafted Sections, the Compliance Note and the automatic checks, and a `summary.md` with the timings and request counts.
 
+Each project is marked as an evaluation project, so its fictional work never teaches the lesson sets, writer memory, edit size or the Brain.
+
+To compare a change, run the suite with `--compare lessons --lesson-set <id>` (a saved lesson set, published or not, against none) or `--compare preferences` (each fixture's own saved preferences against none; fixtures without a list are skipped). Each fixture then runs twice, each arm on its own project, and the pack adds `compare.md` with the arms side by side and what each draft used. Run the two separately. A lesson set that drew on withdrawn feedback is refused.
+
 **Check:** the reviewing manager reads each fixture file, answers its questions and records pass in its Verdict field and in `summary.md`. Every fixture must pass before release. A failed automatic check is a lead for the judge, not a verdict. If a fixture stopped part way, run it again with `--fixture <id>`. When the pack is judged, delete the projects with the same command and `--cleanup` in place of `--confirm-spend`.
 
 ### 4. Back up production and scan it for bare placeholders

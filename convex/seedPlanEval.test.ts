@@ -109,7 +109,10 @@ describe("seedPlanEval reads", () => {
       waiverAnalysis: "none",
       truncated: false,
       addressedCategories: null,
+      savedPreferences: 0,
     });
+    // Phase E (E3): the lesson sets the draft used, for --compare.
+    expect(collected.generation.learningDigestIds).toEqual([]);
     // A settings document applied from Writer's Notes is read back whole.
     await t.run(async (ctx) => {
       await ctx.db.patch(generationId, {
@@ -122,6 +125,7 @@ describe("seedPlanEval reads", () => {
           waiverAnalysis: "analyzed",
           truncated: false,
           addressedCategories: ["bannedWords", "openingClauses"],
+          savedPreferences: { count: 2, textHash: "h" },
         },
       });
     });
@@ -134,6 +138,7 @@ describe("seedPlanEval reads", () => {
       waiverAnalysis: "analyzed",
       truncated: false,
       addressedCategories: ["bannedWords", "openingClauses"],
+      savedPreferences: 2,
     });
     // A generation that recorded no writer settings reads back null.
     await t.run(async (ctx) => {

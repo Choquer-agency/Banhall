@@ -163,6 +163,11 @@ export type FixtureManifest = {
   mustAppearInSources: string[];
   params: Record<string, unknown>;
   judgmentQuestions: string[];
+  /**
+   * 2026-10-27 (Phase E, E3): the saved preferences `--compare preferences`
+   * runs this fixture with, against none. Only how to write, never a fact.
+   */
+  preferences?: string[];
 };
 
 export type Fixture = FixtureManifest & {
@@ -171,6 +176,9 @@ export type Fixture = FixtureManifest & {
 };
 
 export const MIN_FIXTURE_WORDS = 2000;
+/** The limits convex/seedPlanEval.ts (setEvaluationCompare) applies. */
+export const MAX_COMPARE_PREFERENCES = 30;
+export const MAX_PREFERENCE_TEXT = 160;
 export const MAX_FEEDBACK_CHARS = 300;
 export const MAX_EDITED_BULLET_CHARS = 600;
 
@@ -237,6 +245,15 @@ export function validateFixture(fixture: Fixture): string[] {
   need(fixture.purpose?.trim(), "purpose is required");
   need(Array.isArray(fixture.judgmentQuestions) && fixture.judgmentQuestions.length > 0, "at least one judgment question is required");
   need(Array.isArray(fixture.sources) && fixture.sources.some((s) => s.kind === "transcript"), "at least one transcript source is required");
+  if (fixture.preferences !== undefined) {
+    need(
+      Array.isArray(fixture.preferences) &&
+        fixture.preferences.length >= 1 &&
+        fixture.preferences.length <= MAX_COMPARE_PREFERENCES &&
+        fixture.preferences.every((text) => typeof text === "string" && text.trim() && text.length <= MAX_PREFERENCE_TEXT),
+      `preferences must hold 1 to ${MAX_COMPARE_PREFERENCES} texts of at most ${MAX_PREFERENCE_TEXT} characters`,
+    );
+  }
 
   const allText: string[] = [];
   for (const source of fixture.sources ?? []) {
@@ -730,6 +747,10 @@ export type EvalOptions = {
   out: string | null;
   singleBaseline: boolean;
   help: boolean;
+  /** 2026-10-27 (Phase E, E3): run each fixture twice, without and with the change. */
+  compare: "lessons" | "preferences" | null;
+  /** The lesson set `--compare lessons` runs with (a learningDigests id). */
+  lessonSet: string | null;
 };
 
 export function parseArgs(argv: readonly string[]): EvalOptions {
@@ -745,6 +766,8 @@ export function parseArgs(argv: readonly string[]): EvalOptions {
     out: null,
     singleBaseline: false,
     help: false,
+    compare: null,
+    lessonSet: null,
   };
   const value = (i: number, name: string) => {
     const next = argv[i + 1];
@@ -765,9 +788,20 @@ export function parseArgs(argv: readonly string[]): EvalOptions {
       case "--as": options.as = value(i, arg); i += 1; break;
       case "--out": options.out = value(i, arg); i += 1; break;
       case "--fixture": options.fixtures.push(value(i, arg)); i += 1; break;
+      case "--compare": {
+        const kind = value(i, arg);
+        if (kind !== "lessons" && kind !== "preferences") throw new Error("--compare takes lessons or preferences");
+        options.compare = kind;
+        i += 1;
+        break;
+      }
+      case "--lesson-set": options.lessonSet = value(i, arg); i += 1; break;
       default: throw new Error(`Unknown option ${arg}`);
     }
   }
+  if (options.compare === "lessons" && !options.lessonSet) throw new Error("--compare lessons needs --lesson-set ID");
+  if (options.lessonSet && options.compare !== "lessons") throw new Error("--lesson-set goes with --compare lessons");
+  if (options.compare && options.cleanup) throw new Error("--compare cannot be combined with --cleanup");
   if ([options.dryRun, options.cleanup, options.render !== null].filter(Boolean).length > 1) {
     throw new Error("--dry-run, --cleanup and --render cannot be combined");
   }
@@ -1227,10 +1261,51 @@ function commandId(fixtureId: string, label: string, counter: number): string {
  * report and read everything back. Never throws; a failure is recorded in
  * the run log and the pack shows how far the run got.
  */
+/**
+ * 2026-10-27 (Phase E, E3): one arm of a `--compare` run. Each arm runs the
+ * fixture on its own evaluation project, with the same inputs and models.
+ */
+export type CompareArm = {
+  name: "without" | "with";
+  /** Shown in the pack, for example "without lessons". */
+  label: string;
+  /** What seedPlanEval.setEvaluationCompare sets on the arm's project. */
+  compare: {
+    lessons?: { kind: "qa_calibration" | "draft_style"; learningDigestId: string | null };
+    preferences?: string[];
+  };
+};
+
+/** The lesson set `--compare lessons` names, read before any run. */
+export type CompareLessonSet = { id: string; kind: "qa_calibration" | "draft_style"; createdAt: number; sourceCount: number };
+
+/**
+ * The two arms of a `--compare` run for one fixture, or null when the fixture
+ * has nothing to compare (no preferences list for `--compare preferences`).
+ */
+export function compareArms(
+  compare: "lessons" | "preferences",
+  fixture: { preferences?: string[] },
+  lessonSet: CompareLessonSet | null,
+): CompareArm[] | null {
+  if (compare === "lessons") {
+    if (!lessonSet) throw new Error("--compare lessons needs the lesson set");
+    return [
+      { name: "without", label: "without lessons", compare: { lessons: { kind: lessonSet.kind, learningDigestId: null } } },
+      { name: "with", label: `with lesson set ${lessonSet.id}`, compare: { lessons: { kind: lessonSet.kind, learningDigestId: lessonSet.id } } },
+    ];
+  }
+  if (!fixture.preferences?.length) return null;
+  return [
+    { name: "without", label: "without saved preferences", compare: { preferences: [] } },
+    { name: "with", label: `with ${fixture.preferences.length} saved preferences`, compare: { preferences: [...fixture.preferences] } },
+  ];
+}
+
 export async function runFixture(
   fixture: Fixture,
   driver: EvalDriver,
-  options: { timeouts?: Timeouts; singleBaseline?: boolean; rateLimitBudget?: RateLimitBudget } = {},
+  options: { timeouts?: Timeouts; singleBaseline?: boolean; rateLimitBudget?: RateLimitBudget; arm?: CompareArm } = {},
 ): Promise<{ log: RunLog; collected: Collected | null }> {
   const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
   const budget = options.rateLimitBudget ?? rateLimitBudget();
@@ -1888,7 +1963,7 @@ export async function runFixture(
       .map((source) => ({ content: fixture.texts[source.file], label: source.label ?? source.file }));
     // projects.createProject returns { projectId, transcriptIds }.
     const created = (await act("projects:createProject", {
-      title: releaseEvalProjectTitle(fixture.title),
+      title: releaseEvalProjectTitle(options.arm ? `${fixture.title} (${options.arm.label})` : fixture.title),
       clientName: fixture.clientName,
       ...(fixture.industry ? { industry: fixture.industry } : {}),
       ...(fixture.interviewees?.length ? { interviewees: fixture.interviewees } : {}),
@@ -1903,6 +1978,10 @@ export async function runFixture(
     // stops the run, so the fixture never feeds learning.
     await driver.internal("seedPlanEval:markEvaluationProject", { projectId });
     say("marked as an evaluation project");
+    if (options.arm) {
+      await driver.internal("seedPlanEval:setEvaluationCompare", { projectId, ...options.arm.compare });
+      say(`compare arm: ${options.arm.label}`);
+    }
     for (const source of fixture.sources.filter((candidate) => candidate.kind === "document")) {
       const fileName = source.fileName ?? source.file;
       await act("documents:uploadDocument", {
@@ -2003,7 +2082,11 @@ export type Collected = {
       waiverAnalysis: string;
       truncated: boolean;
       addressedCategories: string[] | null;
+      /** 2026-10-27 (E3): saved preferences the draft used; absent in older results. */
+      savedPreferences?: number;
     };
+    /** 2026-10-27 (E3): the lesson sets the draft used; absent in older results. */
+    learningDigestIds?: string[];
   };
   subsections: Array<{
     roleId: string;
@@ -3829,9 +3912,23 @@ export type FixtureResult = {
   log: RunLog;
   collected: Collected | null;
   checks: Check[];
+  /** 2026-10-27 (E3): the `--compare` arm this result ran, if any. */
+  arm?: { name: CompareArm["name"]; label: string };
 };
 
-export type PackContext = { date: string; deployment: string; commit: string; reviewer: string };
+export type PackContext = {
+  date: string;
+  deployment: string;
+  commit: string;
+  reviewer: string;
+  /** 2026-10-27 (E3): what a `--compare` run compared. */
+  compare?: { kind: "lessons" | "preferences"; lessonSet: CompareLessonSet | null };
+};
+
+/** A result's pack file name: one per fixture, or per fixture and arm. */
+export function packFileName(result: { fixture: { id: string }; arm?: { name: string } }): string {
+  return `${result.fixture.id}${result.arm ? `-${result.arm.name}` : ""}.md`;
+}
 
 const seconds = (ms: number | null) => (ms === null ? "n/a" : `${(ms / 1000).toFixed(1)} s`);
 const usd = (value: number) => `$${value.toFixed(2)}`;
@@ -3881,8 +3978,9 @@ export function renderFixturePack(result: FixtureResult, context: PackContext): 
   // 2026-10-02: a case CAP-13 does not name carries its own basis.
   const basis = "basis" in caseInfo ? caseInfo.basis : "CAP-13";
   const lines: string[] = [
-    `# ${releaseEvalProjectTitle(fixture.title)}`,
+    `# ${releaseEvalProjectTitle(result.arm ? `${fixture.title} (${result.arm.label})` : fixture.title)}`,
     "",
+    ...(result.arm ? [`Compare arm: **${result.arm.label}**. ${compareUsedLine(c)}`, ""] : []),
     `Semantic case: **${caseInfo.title}** (${basis}: "${caseInfo.spec}")${caseInfo.also.length ? `. Also checks: ${caseInfo.also.join("; ")}.` : "."}`,
     "",
     `Run ${context.date} on \`${context.deployment}\` at commit \`${context.commit}\`, acting as ${context.reviewer}. Project \`${log.projectId ?? "none"}\`, generation \`${log.generationId ?? "none"}\`.`,
@@ -3989,7 +4087,7 @@ export function renderSummary(results: readonly FixtureResult[], context: PackCo
       const passed = r.checks.filter((item) => item.status === "pass").length;
       const failed = r.checks.filter((item) => item.status === "fail").length;
       const requests = r.collected ? seedRequestCount(r.collected).reserved : 0;
-      return `| [${r.fixture.id}](${r.fixture.id}.md) | ${SEMANTIC_CASES[r.fixture.semanticCase].title} | ${passed} pass, ${failed} fail | ${requests} |  |  |`;
+      return `| [${r.fixture.id}${r.arm ? ` (${r.arm.label})` : ""}](${packFileName(r)}) | ${SEMANTIC_CASES[r.fixture.semanticCase].title} | ${passed} pass, ${failed} fail | ${requests} |  |  |`;
     }),
     "",
     // 2026-10-02 (alert 7): the settings score, tracked run to run.
@@ -4055,12 +4153,57 @@ export function rerenderResults(
   };
 }
 
+/** What a compare arm's draft actually used, from the generation. */
+export function compareUsedLine(c: Collected | null): string {
+  if (!c) return "No draft was collected.";
+  const sets = c.generation.learningDigestIds;
+  const saved = c.generation.writerSettings?.savedPreferences;
+  return `The draft used ${sets === undefined ? "unrecorded lesson sets" : sets.length ? `lesson sets ${sets.join(", ")}` : "no lesson set"} and ${saved === undefined ? "an unrecorded number of saved preferences" : `${saved} saved preference${saved === 1 ? "" : "s"}`}.`;
+}
+
+/**
+ * 2026-10-27 (Phase E, E3): the `--compare` summary. Each fixture's two
+ * arms side by side, with what each draft actually used, for the reviewing
+ * manager to judge which reads better.
+ */
+export function renderCompare(results: readonly FixtureResult[], context: PackContext): string {
+  const compare = context.compare;
+  const set = compare?.lessonSet;
+  const lines = [
+    `# Compare ${compare?.kind ?? "run"}, ${context.date}`,
+    "",
+    `Deployment \`${context.deployment}\`, commit \`${context.commit}\`, acting as ${context.reviewer}. Each fixture ran twice on the same inputs and models, each arm on its own evaluation project.`,
+    "",
+    ...(compare?.kind === "lessons" && set
+      ? [`Lesson set \`${set.id}\` (${set.kind === "draft_style" ? "style lessons" : "QA lessons"}, made ${new Date(set.createdAt).toISOString().slice(0, 10)} from ${set.sourceCount} items), against none.`, ""]
+      : compare?.kind === "preferences"
+        ? ["Each fixture's own saved preferences, against none. They are set on the arm's project only, never on the reviewer's account.", ""]
+        : []),
+    "| Fixture | Arm | What the draft used | Automatic checks | Which reads better (with, without or same) |",
+    "| --- | --- | --- | --- | --- |",
+    ...results
+      .filter((r) => r.arm)
+      .map((r) => {
+        const passed = r.checks.filter((item) => item.status === "pass").length;
+        const failed = r.checks.filter((item) => item.status === "fail").length;
+        return `| [${r.fixture.id}](${packFileName(r)}) | ${r.arm!.label} | ${compareUsedLine(r.collected)} | ${passed} pass, ${failed} fail |  |`;
+      }),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
 export function writePack(dir: string, results: readonly FixtureResult[], context: PackContext): string[] {
   const written: string[] = [];
   for (const result of results) {
-    const file = path.join(dir, `${result.fixture.id}.md`);
+    const file = path.join(dir, packFileName(result));
     writeFileSync(file, renderFixturePack(result, context));
     written.push(file);
+  }
+  if (context.compare) {
+    const compare = path.join(dir, "compare.md");
+    writeFileSync(compare, renderCompare(results, context));
+    written.push(compare);
   }
   const summary = path.join(dir, "summary.md");
   writeFileSync(summary, renderSummary(results, context));

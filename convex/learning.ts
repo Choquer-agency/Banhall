@@ -259,8 +259,21 @@ async function latestSelection(
  * before inserting the first post-governance candidate.
  */
 export const getActiveDigest = internalQuery({
-  args: { kind: digestKind },
+  args: { kind: digestKind, projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
+    // Phase E (E3): a release suite --compare arm uses its own lesson set
+    // (or none) in place of the published one, still never one that
+    // admitted withdrawn feedback.
+    if (args.projectId) {
+      const project = await ctx.db.get(args.projectId);
+      const override = isEvaluationProject(project) ? project?.evaluation?.lessons : undefined;
+      if (override && override.kind === args.kind) {
+        if (!override.learningDigestId) return null;
+        const digest = await ctx.db.get(override.learningDigestId);
+        if (!digest || digest.kind !== args.kind || digest.userId) return null;
+        return (await drewOnWithdrawn(ctx, digest)) ? null : digest;
+      }
+    }
     const selection = await latestSelection(ctx, args.kind);
     if (!selection) return await latestGlobalDigest(ctx, args.kind);
     if (!selection.selectedDigestId) return null;
