@@ -32,6 +32,27 @@ export function missingRequiredFields(schema: unknown, input: unknown): string[]
   return required.filter((key) => !(key in input));
 }
 
+/**
+ * The object an answer wrapped in one extra key holds: `input` has exactly
+ * one key, the tool schema does not name it, and its value is an object.
+ * Null otherwise, so an answer whose one key is a real field is never read
+ * from inside it.
+ */
+export function wrappedAnswer(input: unknown, schema: unknown): { key: string; value: Record<string, unknown> } | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 1) return null;
+  const properties =
+    schema && typeof schema === "object" && (schema as { properties?: unknown }).properties &&
+    typeof (schema as { properties?: unknown }).properties === "object"
+      ? ((schema as { properties: Record<string, unknown> }).properties)
+      : {};
+  const key = keys[0]!;
+  if (Object.hasOwn(properties, key)) return null;
+  const value = (input as Record<string, unknown>)[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? { key, value: value as Record<string, unknown> } : null;
+}
+
 export const STRUCTURED_OUTPUT_PROGRAM = {
   attempts: 2,
   repairScaffold: {
@@ -791,6 +812,17 @@ async function structuredAttempts<T>(
     if (parsed.success) {
       await settle({ ok: true });
       if (!(await askedSoftRepair(parsed.data, block.input, lastAttempt))) return await settled(parsed.data);
+      continue;
+    }
+    // 2026-10-26 (live check): Sonnet 5 sometimes wraps its whole answer in
+    // one more key ({"analysis": {...}}), which cost a repair in about half
+    // the drafts. Such an answer is read from inside that key.
+    const wrapped = wrappedAnswer(unwrapped, tools.find((tool) => tool.name === opts.toolName)?.input_schema);
+    const inner = wrapped ? opts.validate.safeParse(wrapped.value) : null;
+    if (inner?.success) {
+      console.warn(`${opts.toolName}: read the answer inside its one key "${wrapped!.key}"`);
+      await settle({ ok: true });
+      if (!(await askedSoftRepair(inner.data, block.input, lastAttempt))) return await settled(inner.data);
       continue;
     }
     // Round 3 (opt-in): fields sent as JSON text, read and validated as usual.

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { decodeEncodedToolFields, generateStructured } from "./structured";
+import { decodeEncodedToolFields, generateStructured, wrappedAnswer } from "./structured";
 import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
 
 function clientWith(inputs: unknown[]): GenerationClient {
@@ -599,5 +599,39 @@ describe("answers that leave out required fields (live check, 2026-10-26)", () =
     });
     expect(result).toEqual({ storyline: "", claims: [] });
     expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("an answer wrapped in one more key (live check, 2026-10-26)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: { company_context: { type: "string" }, gaps: { type: "array", items: { type: "string" } } },
+    required: ["company_context"],
+  };
+  const validate = z.object({ company_context: z.string(), gaps: z.array(z.string()).default([]) });
+
+  it("is read from inside the key, with no repair, as Sonnet 5 sent the analysis", async () => {
+    const client = clientWith([{ analysis: { company_context: "A mining consultancy.", gaps: ["Dates"] } }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
+    });
+    expect(result).toEqual({ company_context: "A mining consultancy.", gaps: ["Dates"] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not read from inside a key the schema names, or a wrapper holding a list", () => {
+    expect(wrappedAnswer({ gaps: { company_context: "x" } }, schema)).toBeNull();
+    expect(wrappedAnswer({ analysis: [{ company_context: "x" }] }, schema)).toBeNull();
+    expect(wrappedAnswer({ analysis: { company_context: "x" }, other: 1 }, schema)).toBeNull();
+    expect(wrappedAnswer({ analysis: { company_context: "x" } }, schema)).toEqual({ key: "analysis", value: { company_context: "x" } });
+  });
+
+  it("still spends the repair when what the wrapper holds is invalid too", async () => {
+    const client = clientWith([{ analysis: { project_goal: "No context." } }, { company_context: "A mining consultancy." }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
+    });
+    expect(result).toEqual({ company_context: "A mining consultancy.", gaps: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
   });
 });
