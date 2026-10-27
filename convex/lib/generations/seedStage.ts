@@ -8,6 +8,7 @@
  * this module holds their handlers and helpers.
  */
 import { COMPANY_FILE_LABEL_PREFIX } from "../companyEvidence";
+import { scheduleSignalCapture } from "../../learningSignals";
 import { withCurrentCompanyFiles } from "../briefEvidence";
 import { makeFunctionReference } from "convex/server";
 import type { Id, Doc } from "../../_generated/dataModel";
@@ -686,6 +687,8 @@ export async function signOffSeedStageHandler(
   await appendGenerationProgress(ctx, generation, [
     `Summary signed off. Drafting ${payload.orderedContext.buildOrder.join(" → ")} in Build Order.`,
   ]);
+  // Phase E (E2b): the stage's choices as a learning signal, by its signer.
+  await scheduleSignalCapture(ctx, { seedChoicesGenerationId: generation._id, producerId: user._id });
   // 2026-10-23 (owner, second): the picks above are kept, and the drafting
   // runs on the models its tiers use now when a tier was moved back from
   // one this plan froze.

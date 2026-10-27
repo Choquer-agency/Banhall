@@ -169,7 +169,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 
 **Phase E: learning**
 - [ ] E1. Writer memory: suggestions, approval on Writing preferences, use in drafts, Seeds and chat.
-- [ ] E2. Step-by-step choices and reviewer outcomes feed the lesson sets; chat reads them; removing a Brain source withdraws its lessons. Plan reviewed in three rounds (`docs/todos/phase-e-learning.md`). First part done 2026-10-26: removing a Brain source withdraws its lessons (decision entry "2026-10-26 (twelfth)").
+- [ ] E2. Step-by-step choices and reviewer outcomes feed the lesson sets; chat reads them; removing a Brain source withdraws its lessons. Plan reviewed in three rounds (`docs/todos/phase-e-learning.md`). First part done 2026-10-26: removing a Brain source withdraws its lessons (decision entry "2026-10-26 (twelfth)"). Second part done 2026-10-26: Step-by-step choices and reviews feed the style lessons, and chat reads them (decision entry "2026-10-26 (thirteenth)").
 - [ ] E3. Edit size by version, and a test-case set comparing drafts with and without each change.
 
 **Phase F: scale and release**

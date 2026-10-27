@@ -415,6 +415,11 @@ async function seedProjectRows(
     await ctx.db.insert("generationSourceUse", {
       generationId, projectId, step: "brief", sourceId, state: "whole", sent: 1, total: 1, unit: "chars", at: now,
     });
+    // Phase E (E2b): a learning signal made from the project's rows.
+    await ctx.db.insert("learningSignals", {
+      kind: "review_decision", sourceKey: "reviewDecision:erasure", projectId, producerId: userId,
+      payload: { decision: "return", note: "Tighten the openings." }, at: now,
+    });
     const briefId = await ctx.db.insert("generationBriefs", { projectId, generationId, inputsHash: "h", version: 1, origin: "derived", storylineText: "s", createdAt: now });
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,

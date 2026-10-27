@@ -46,7 +46,8 @@ import {
   type TrustedContextReportOf,
   type TrustedContextSource,
 } from "./trustedContext";
-import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
+import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2, waivedCategoryLabels } from "./prompts";
+import { STYLE_GUIDANCE_SCAFFOLDS } from "./promptDefinitions";
 import { extractPlainText } from "../lib/reportEdits";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 import {
@@ -746,12 +747,26 @@ export function writerPreferencesBlock(
  */
 export function buildChatSystem(
   styleOverrides: StyleOverrides = NO_STYLE_OVERRIDES,
-  customInstructions?: string | null
+  customInstructions?: string | null,
+  learnedStyle?: string | null
 ): string {
-  return `${buildChatSystemPromptV2(styleOverrides)}${writerPreferencesBlock(
+  return `${buildChatSystemPromptV2(styleOverrides)}${learnedStyleBlock(styleOverrides, learnedStyle)}${writerPreferencesBlock(
     styleOverrides,
     customInstructions
   )}`;
+}
+
+/**
+ * Phase E (E2b): the published style lesson set, in drafting's wording and
+ * place (`buildStyleGuidance`): before the writer's own preferences, which
+ * outrank it in their waived areas. Changes only when a set is published,
+ * turned off or withdrawn, so turns between keep the cached head. Empty when
+ * none is published.
+ */
+export function learnedStyleBlock(styleOverrides: StyleOverrides, learnedStyle: string | null | undefined): string {
+  if (!learnedStyle?.trim()) return "";
+  const waived = waivedCategoryLabels(styleOverrides).length > 0;
+  return `${STYLE_GUIDANCE_SCAFFOLDS.learned.prefix}${waived ? STYLE_GUIDANCE_SCAFFOLDS.learned.waivedClause : ""}${STYLE_GUIDANCE_SCAFFOLDS.learned.contentPrefix}${learnedStyle.trim()}`;
 }
 
 interface Spend {
@@ -1320,6 +1335,8 @@ export function buildChatTurnRequest(args: {
   context: ChatTurnContext;
   styleOverrides?: StyleOverrides;
   customInstructions?: string | null;
+  /** Phase E (E2b): the published style lesson set's text. */
+  learnedStyle?: string | null;
   budget?: ChatEvidenceBudget;
 }): ChatTurnRequest {
   const styleOverrides = args.styleOverrides ?? NO_STYLE_OVERRIDES;
@@ -1356,7 +1373,7 @@ export function buildChatTurnRequest(args: {
     ...(args.context.companyFiles?.length ? { companyFiles: args.context.companyFiles } : {}),
   });
   return {
-    system: buildChatSystem(styleOverrides, args.customInstructions),
+    system: buildChatSystem(styleOverrides, args.customInstructions, args.learnedStyle),
     messages: [
       cached({ role: "user", content: head }),
       ...(tail === null ? [] : [{ role: "user" as const, content: tail }]),

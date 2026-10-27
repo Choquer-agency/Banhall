@@ -102,6 +102,18 @@ describe("setTurnHistoryStart and markTurnBrainSearched", () => {
     expect(await f.t.mutation(internal.chatV2.markTurnBrainSearched, key("p1"))).toBe(false);
     expect((await f.read(id))?.historyStartOrder).toBe(8);
   });
+
+  test("setTurnLearningDigest records the lesson set a running turn read (Phase E, E2b)", async () => {
+    const f = await setup();
+    const id = await f.turn("p1", 1);
+    const digestId = await f.t.run((ctx) =>
+      ctx.db.insert("learningDigests", { kind: "draft_style", content: "Rules", sourceCount: 5, feedbackCutoff: 1, model: "m", createdAt: 1 })
+    );
+    expect(await f.t.mutation(internal.chatV2.setTurnLearningDigest, { ...key("p1"), learningDigestId: digestId })).toBe(true);
+    expect((await f.read(id))?.learningDigestId).toBe(digestId);
+    await f.t.run((ctx) => ctx.db.patch(id, { status: "aborted" }));
+    expect(await f.t.mutation(internal.chatV2.setTurnLearningDigest, { ...key("p1"), learningDigestId: digestId })).toBe(false);
+  });
 });
 
 describe("setTurnContinuation", () => {

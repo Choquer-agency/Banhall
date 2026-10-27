@@ -1886,6 +1886,9 @@ export default defineSchema({
     // The oldest message `order` the model read for this turn. Absent means
     // it read the whole thread.
     historyStartOrder: v.optional(v.number()),
+    // 2026-10-26 (Phase E, E2b): the published style lesson set its system
+    // text carried. Absent when none was published.
+    learningDigestId: v.optional(v.id("learningDigests")),
     // Server only, never sent to the browser: when the turn's searchBrain
     // tool first ran a search. Reasoning summaries of such a turn are not
     // shown (convex/lib/chatPublicOutput.ts).
@@ -3547,6 +3550,43 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"]),
+
+  // 2026-10-26 (Phase E, E2b): Step-by-step choices and reviewer outcomes
+  // as learning signals, one masked copy per source row (convex/learningSignals.ts).
+  // The rows themselves are never changed; a signal goes with its project.
+  learningSignals: defineTable({
+    kind: v.union(
+      v.literal("seed_rewording"),
+      v.literal("seed_feedback"),
+      v.literal("seed_choices"),
+      v.literal("review_decision"),
+      v.literal("review_comment")
+    ),
+    /** The row it was made from, so it is made once and replaced with it. */
+    sourceKey: v.string(),
+    projectId: v.id("projects"),
+    generationId: v.optional(v.id("generations")),
+    /** Who acted: the writer, the requester, the reviewer or the commenter. */
+    producerId: v.id("users"),
+    /** Masked: the names the app knows are placeholders, the record's names removed. */
+    payload: v.object({
+      roleId: v.optional(v.string()),
+      before: v.optional(v.string()),
+      after: v.optional(v.string()),
+      instruction: v.optional(v.string()),
+      about: v.optional(v.string()),
+      note: v.optional(v.string()),
+      decision: v.optional(v.union(v.literal("approve"), v.literal("return"))),
+      tags: v.optional(v.array(v.object({ tag: v.string(), offered: v.number(), chosen: v.number() }))),
+      newIdeas: v.optional(v.number()),
+      skipped: v.optional(v.number()),
+    }),
+    at: v.number(),
+  })
+    .index("by_sourceKey", ["sourceKey"])
+    .index("by_kind_and_at", ["kind", "at"])
+    .index("by_producerId_and_at", ["producerId", "at"])
     .index("by_projectId", ["projectId"]),
 
   learningDigests: defineTable({

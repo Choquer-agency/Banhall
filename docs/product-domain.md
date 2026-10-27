@@ -4496,6 +4496,26 @@ The approved chat hardening request preserves agents-propose/humans-apply and al
 
 A coordinated passage revision is one pending proposal (except a zero-edit revision, see 2026-09-14). Every original target must remain unique and non-overlapping at creation and apply. The ordinary individual replacement stepper cannot apply that proposal. The writer may edit candidate wording in the card, then apply the whole revision after server validation.
 
+### 2026-10-26 (thirteenth): Step-by-step choices and review outcomes become style lessons, and chat reads the published lesson set (owner)
+
+Context pipeline plan, Phase E, second part (E2b in `docs/todos/phase-e-learning.md`): part 6 of the first 2026-10-26 entry, "Step-by-step choices (picks, rewrites, rejections and Feedback) become signals for the firm-wide lesson sets, with names removed, under the existing rules", "Chat reads the published lesson sets, as drafting does" and "Reviewer approve and return decisions and review comments are kept as learning signals." No workflow stage, transition or permission is added, and no AI writes report prose: a lesson set still reaches prompts only after an Admin publishes it.
+
+- **Signals.** A new table, `learningSignals`, keeps one masked copy per source row (`convex/learningSignals.ts`), of five kinds:
+  - a reworded Seed: the idea's words and the writer's, the last edit only (a restore removes it);
+  - Seed Feedback: the writer's instruction and the wording it was about (withdrawing it removes it);
+  - a Seed stage's choices, at sign-off: per idea style (tag), how many ideas were offered and chosen, how often new ideas were asked for, how many parts were skipped;
+  - a review decision: approve or return, with the return note;
+  - a review comment from an internal user, with the passage and any suggested rewording. Client comments are left out: a client's words are client data (a narrowing of part 6).
+- **Masked when written, originals untouched.** The mutation that changes a row schedules a capture with only the row's id; the capture reads the row, masks its text with the draft's frozen placeholder map (else the project's), then removes the project record's names, and writes or replaces the signal. The writer's action never pays for building a map and never fails because of a capture. Reviews, comments, Seeds and Feedback themselves are never changed. A deleted comment's signal goes in the same step; a project's signals go with the project (`PROJECT_SCOPED_TABLES`).
+- **Admission.** Each kind is its own stream in the `draft_style` build (`learningSignals:<kind>`), admitted only across two or more writers and two or more projects in that stream; another stream's writers never count. Each stream has a character budget in the prompt (12,000), and the prompt explains each kind and that placeholders never go into a rule. The reviews page names the new streams.
+- **Chat reads the published `draft_style` set** in its system text, in drafting's wording and place: before the writer's own preferences, with the waiver clause when the writer waived house-style areas. With no set published, the system text is byte for byte as before. It changes only when a set is published, turned off or withdrawn, so turns between keep the cached head. Each turn records the set it read (`chatTurns.learningDigestId`). A failed read of the set sends no lessons rather than failing the turn. `qa_calibration` stays out of chat: it calibrates QA findings, not writing.
+- **The digest history** now says "Step-by-step choices and review outcomes are included".
+- **The one-off pass** `learningSignals:backfillLearningSignals` (owner-run, dev first) makes signals for rows written before this: reworded Seeds, Seed Feedback, review decisions, internal comments, and the choices of signed-off Seed stages.
+- **Known limits.** Evaluation projects are not yet told apart (E3 adds that). Chat card rejections are not a signal (part 6 does not ask for them).
+- **Migration and compatibility.** Widen only: a new table, optional `chatTurns.learningDigestId`, a new argument on `buildChatSystem` and `buildChatTurnRequest`, the coverage label.
+- **Tests:** `convex/learningSignals.test.ts` (each kind masked, replaced and removed; Feedback's writer from its event; choices by style; client comments left out; a comment through its mutation; the one-off pass; each kind admitted on its own, through a real build), `convex/ai/chatEvidence.test.ts` (the set's place, unchanged bytes without one), `convex/chatTurnState.test.ts` (the turn's set), `convex/learning.test.ts` (the label), `convex/projectErasure.test.ts`.
+- **Approval:** Product owner, 2026-10-26 (chat): part 6 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed in three rounds (see the twelfth entry).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

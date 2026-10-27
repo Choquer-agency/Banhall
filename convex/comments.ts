@@ -1,5 +1,6 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation } from "./_generated/server";
+import { removeCommentSignal, scheduleSignalCapture } from "./learningSignals";
 import { v } from "convex/values";
 import {
   getProjectAccess,
@@ -110,7 +111,7 @@ export const addComment = mutation({
       commenterId = commenter._id;
     }
 
-    return await ctx.db.insert("comments", {
+    const commentId = await ctx.db.insert("comments", {
       projectId: args.projectId,
       reportId: args.reportId,
       commenterId,
@@ -123,6 +124,9 @@ export const addComment = mutation({
       resolved: false,
       createdAt: Date.now(),
     });
+    // Phase E (E2b): an internal reviewer's comment as a learning signal.
+    if (commenterType === "writer") await scheduleSignalCapture(ctx, { commentId });
+    return commentId;
   },
 });
 
@@ -233,6 +237,8 @@ export const deleteComment = mutation({
     if (!comment) return;
     await requireReportEditAccess(ctx, comment.projectId);
     await ctx.db.delete(args.commentId);
+    // Phase E (E2b): its learning signal goes with it.
+    await removeCommentSignal(ctx, args.commentId);
   },
 });
 

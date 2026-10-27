@@ -686,3 +686,26 @@ What changes:
 ### Manual on localhost
 
 - [ ] On `/admin/reviews`, with published style guidance built from approved feedback, revoke that feedback's Brain source: the guidance shows as turned off, with the reason, and that version has no Publish button.
+
+## Phase E, second part: Step-by-step choices and reviews teach the style lessons, and chat reads them
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (thirteenth)". Plan: `docs/todos/phase-e-learning.md` (E2b).
+
+What changes:
+
+- **Seed rewordings, Seed Feedback, the choices made at sign-off, review decisions and internal review comments** are kept as learning signals, with names hidden, and feed the style lessons. Each kind needs two or more writers on two or more projects before it counts.
+- **Chat reads the published style lessons**, as drafts do.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Owner, once, dev first
+
+- [ ] Run `learningSignals:backfillLearningSignals` once, to make signals for older Seed edits, Feedback, reviews and comments.
+
+### Manual on localhost
+
+- [ ] Leave an internal comment on a report, then check `/admin/reviews` after the next nightly build: the style lessons list "Review comments" among their inputs once enough writers and projects have them.
+

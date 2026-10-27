@@ -17,6 +17,7 @@ import { CHAT_WRITER_MESSAGE_LABEL,
   EVIDENCE_LABELS,
   buildChatEvidence,
   buildChatTurnRequest,
+  buildChatSystem,
   type ChatEvidenceBudget,
   type ChatEvidenceDoc,
   type ChatOpenQuestion,
@@ -1353,3 +1354,24 @@ describe("files whole or not at all with the reading tools on (Phase D, step 1)"
     expect(message).toContain(`[The text of this project's 3 file(s) with text ${bySearch}`);
   });
 });
+
+describe("the published style lesson set in chat (Phase E, E2b)", () => {
+  const LESSONS = "Learned from 6 human feedback events:\n- Lead with the result.";
+
+  it("sends the same system text as before when no set is published", () => {
+    expect(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", null)).toBe(buildChatSystem(NO_STYLE_OVERRIDES, "Use we."));
+    expect(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", "   ")).toBe(buildChatSystem(NO_STYLE_OVERRIDES, "Use we."));
+  });
+
+  it("puts the set in drafting's wording before the writer's own preferences", () => {
+    const system = buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", LESSONS);
+    const lessons = system.indexOf("## Style guidance learned from writer feedback on past drafts");
+    const preferences = system.indexOf("# WRITER'S PERSONAL STYLE PREFERENCES");
+    expect(lessons).toBeGreaterThan(0);
+    expect(preferences).toBeGreaterThan(lessons);
+    expect(system).toContain(`banned-word rules:\n${LESSONS}`);
+    // No waived areas, so no waiver clause.
+    expect(system).not.toContain("in their waived house-style areas below");
+  });
+});
+

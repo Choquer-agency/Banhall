@@ -23,6 +23,7 @@ import {
 import { domainError } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
+import { scheduleSignalCapture } from "./learningSignals";
 import { draftingInputsView } from "./lib/generations/draftingInputs";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import {
@@ -379,6 +380,8 @@ async function wordingHandler(
       ...(restoring ? {} : { editRatio }),
     },
   );
+  // Phase E (E2b): the rewording as a learning signal (a restore removes it).
+  await scheduleSignalCapture(ctx, { seedSelectionId: selection._id });
   return { seedStageVersion: await currentVersion(ctx, args.generationId) };
 }
 export const edit = mutation({
@@ -489,6 +492,8 @@ export const giveFeedback = mutation({
       seedId: target._id,
       batchId: result.batchId,
     });
+    // Phase E (E2b): the Feedback as a learning signal, masked by its own step.
+    await scheduleSignalCapture(ctx, { seedFeedbackRequestId: feedbackRequestId, producerId: f.user._id });
     return {
       feedbackRequestId,
       batchId: result.batchId,
@@ -555,6 +560,8 @@ export const withdrawFeedback = mutation({
       feedbackRequestId: request._id,
       seedId: request.targetSeedId,
     });
+    // Phase E (E2b): withdrawn Feedback leaves the learning signals.
+    await scheduleSignalCapture(ctx, { seedFeedbackRequestId: request._id });
     return { seedStageVersion: await currentVersion(ctx, args.generationId) };
   },
 });

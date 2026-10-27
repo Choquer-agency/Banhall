@@ -405,8 +405,9 @@ export const getDigestHistory = query({
       seedWorkflowCoverage:
         args.kind === "draft_style"
           ? {
-              included: false,
-              label: "Seed-workflow generations are not included",
+              // Phase E (E2b): Seed choices, rewordings and Feedback are signals now.
+              included: true,
+              label: "Step-by-step choices and review outcomes are included",
             }
           : null,
       latestAttempt: await ctx.db

@@ -24,6 +24,11 @@
       case "sectionEditEvents": return "Section edits";
       case "proposalWordingEditEvents": return "Proposal wording edits";
       case "brainFeedbackQueue": return "Approved writer feedback";
+      case "learningSignals:seed_rewording": return "Seed rewordings";
+      case "learningSignals:seed_feedback": return "Seed Feedback";
+      case "learningSignals:seed_choices": return "Seed choices";
+      case "learningSignals:review_decision": return "Review decisions";
+      case "learningSignals:review_comment": return "Review comments";
       default: return stream;
     }
   }

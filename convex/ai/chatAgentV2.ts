@@ -2019,9 +2019,19 @@ export const streamChatReply = internalAction({
           console.error("writer profile fetch failed for chat turn", safeErrorDetails(err));
           throw new Error("CHAT_PROFILE_UNAVAILABLE");
         });
-      const [context, writerStyle] = await Promise.all([
+      // Phase E (E2b): the published style lesson set, as drafting reads it.
+      // A failed read degrades to none: lessons are guidance, not the
+      // writer's own settings.
+      const lessonsPromise = ctx
+        .runQuery(internal.learning.getActiveDigest, { kind: "draft_style" })
+        .catch((err: unknown) => {
+          console.error("style lesson set read failed for chat turn", safeErrorDetails(err));
+          return null;
+        });
+      const [context, writerStyle, lessons] = await Promise.all([
         contextPromise,
         profilePromise,
+        lessonsPromise,
       ]);
       const styleOverrides = writerStyle
         ? normalizeStyleOverrides(writerStyle.styleOverrides)
@@ -2036,7 +2046,12 @@ export const streamChatReply = internalAction({
         context,
         styleOverrides,
         customInstructions: writerStyle?.customInstructions ?? null,
+        learnedStyle: lessons?.content ?? null,
       });
+      // The set this turn read, for edit size by version (Phase E, E3).
+      if (lessons) {
+        await ctx.runMutation(internal.chatV2.setTurnLearningDigest, { ...turnKey, learningDigestId: lessons._id });
+      }
       // Operator telemetry only: this story logs, it does not surface anything
       // in the UI. Without the line, material the budget dropped is invisible
       // when a reply later reads as if the interview had a gap.

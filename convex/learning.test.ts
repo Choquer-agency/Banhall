@@ -1686,8 +1686,8 @@ describe("CAP-4 independent stream admission and provenance", () => {
     });
     expect(history.digests[0].admission).toBeUndefined();
     expect(history.seedWorkflowCoverage).toEqual({
-      included: false,
-      label: "Seed-workflow generations are not included",
+      included: true,
+      label: "Step-by-step choices and review outcomes are included",
     });
     expect(history.latestAttempt?.outcome).toBe("insufficient_inputs");
     for (const caller of [t, writer, manager]) {
@@ -1697,14 +1697,14 @@ describe("CAP-4 independent stream admission and provenance", () => {
     }
   });
 
-  test("labels seed workflow as excluded only for draft-style learning", async () => {
+  test("labels Step-by-step choices as included only for draft-style learning (Phase E, E2b)", async () => {
     const { admin } = await setup();
     await expect(
       admin.query(api.learning.getDigestHistory, { kind: "draft_style" }),
     ).resolves.toMatchObject({
       seedWorkflowCoverage: {
-        included: false,
-        label: "Seed-workflow generations are not included",
+        included: true,
+        label: "Step-by-step choices and review outcomes are included",
       },
     });
     await expect(
