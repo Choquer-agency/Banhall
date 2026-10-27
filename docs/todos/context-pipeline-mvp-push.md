@@ -193,7 +193,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [ ] F3. Brain company and fiscal-year filters; the Voyage model comparison (P2 item 13).
 - [x] F4. The exclusion-conflict fixture. Rerun live 2026-10-27 after the Self-check fix: 15 of 15 checks passed.
 - [ ] F5. Stress test at and past the largest real cases, live (P2 item 11).
-- [ ] F6. Release suite live; human verdicts and manual checks with the owner at the end. Run live 2026-10-27 (pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`, decision entry "2026-10-27 (ninth)"): every fixture now passes its automatic checks (withdrawn-feedback on a rerun, its one miss a heuristic); the owner's verdicts and the manual checks remain. Its Hypothesis finding was not a flake: about 4 in 10 Hypothesis Batches on Sonnet 5.5 failed on bullets over 25 words; fixed 2026-10-27 (decision entry "2026-10-27 (tenth)": 12 of 12 shown, against 7 of 12 before), with a release suite run on the new Seed version to follow.
+- [ ] F6. Release suite live; human verdicts and manual checks with the owner at the end. Run live 2026-10-27 (pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`, decision entry "2026-10-27 (ninth)"): every fixture now passes its automatic checks (withdrawn-feedback on a rerun, its one miss a heuristic); the owner's verdicts and the manual checks remain. Its Hypothesis finding was not a flake: about 4 in 10 Hypothesis Batches on Sonnet 5.5 failed on bullets over 25 words; changed 2026-10-27 (decision entry "2026-10-27 (tenth)"): on the draft that failed, 12 of 12 Batches were shown, against 7 of 12 before; the release suite on the new Seed version checks it across fixtures.
 
 ## Work plan
 

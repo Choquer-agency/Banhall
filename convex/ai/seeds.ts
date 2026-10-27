@@ -257,9 +257,9 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
     INVALID_SHAPE: "wrong fields or tag",
     INVALID_BULLET_COUNT: "use one or two bullets",
     // 2026-10-27 (tenth): a target under the limit (MAX_BULLET_WORDS), since
-    // a repair told only the limit came back over it again. The same bytes
-    // as the old hint, so the note's cap leaves out the same rules.
-    BULLET_TOO_LONG: "shorten to under 20 words",
+    // a repair told only the limit came back over it again; "each bullet",
+    // so a Seed's other, shorter bullet is left as it is.
+    BULLET_TOO_LONG: "keep each bullet under 20 words",
     BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
     BULLET_TYPOGRAPHIC_DASH: "use a plain hyphen",
     INVALID_TAG_COUNT: "use one or two tags",

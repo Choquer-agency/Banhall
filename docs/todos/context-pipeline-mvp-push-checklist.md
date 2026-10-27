@@ -940,8 +940,8 @@ Decision record: `docs/product-domain.md`, entry "2026-10-27 (tenth)".
 
 What changes:
 
-- **The Hypothesis step stops failing to make Seeds.** Its bullets ran right at the 25-word limit, so about 4 in 10 Batches on Sonnet 5.5 failed, and the writer got no Seeds for the step until a retry worked. The step now asks for the if/then sentence in under 20 words, with any reason or test method in a second bullet, and a repair names that target.
-- **Nothing else changes.** The 25-word limit, the Seed count and every other step's request are the same.
+- **The Hypothesis step fails to make Seeds far less often.** Its bullets ran right at the 25-word limit, so about 4 in 10 Batches on Sonnet 5.5 failed, and the writer got no Seeds for the step until a retry worked. The step now asks for the if/then sentence in under 20 words, with any reason or test method in a second bullet. On the draft that failed, 12 of 12 Batches then worked, against 7 of 12 before.
+- **Any step's repair for a long bullet names the target.** It says to keep each bullet under 20 words. Every other step's first request, the 25-word limit and the Seed count are the same.
 
 ### Automated, offline
 
@@ -950,7 +950,8 @@ What changes:
 
 ### Automated, live on localhost
 
-- [x] Twelve Hypothesis Batches on the draft that failed in the release run, before and after: 7 of 12 shown before (none on the first request), 12 of 12 after (4 on the first request); $0.74.
+- [x] Twelve Hypothesis Batches on the draft that failed in the release run, before and after: 7 of 12 shown before (none on the first request), 12 of 12 after (4 on the first request); $0.74. Every first bullet kept an if/then sentence with a measurable outcome.
+- [x] Review: gpt-6-astra (medium), "ship after fixes" (the hint's wording, claims beyond one draft, the shared repair hint); fixed in the next commit.
 - [ ] Release suite on the new Seed version.
 
 ### Manual on localhost
