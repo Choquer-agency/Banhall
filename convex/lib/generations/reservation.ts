@@ -8,6 +8,7 @@
  * this module holds their handlers and helpers.
  */
 import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
+import { TransactionGuard } from "../readMeter";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
@@ -67,7 +68,6 @@ import { transitionGeneration } from "../generationTransitions";
 import { restorableProjectStatus } from "./restoreStatus";
 import { userDisplayLabel } from "../teamRoster";
 import type { QueryCtx } from "../../_generated/server";
-import { documentHasText } from "../documentText";
 import { copyRecoverySourceUses } from "./sourceUse";
 
 /**
@@ -76,11 +76,18 @@ import { copyRecoverySourceUses } from "./sourceUse";
  */
 
 /**
- * B1, second part: the most new stored text one reservation writes, just
- * under a transaction's 16 MiB of writes; a draft whose files would pass it
- * is refused by name (today the same draft fails on the limit).
+ * B1, second part, after its review (2026-10-27): freezing a draft's
+ * evidence (every transcript row, file row and text piece read, and the new
+ * stored text written) stays within a transaction's 16 MiB of reads and of
+ * writes. Before each read and each stored text, the transaction's real
+ * usage is checked: once what remains could not take one more largest
+ * document and this margin for the rest of the work, the draft is refused by
+ * name, before the platform's limit, and nothing is written. Where the
+ * runtime cannot report its usage, reads and writes are counted instead and
+ * refused past the estimate limit.
  */
-export const MAX_FROZEN_TEXT_WRITE_BYTES = 15 * 1024 * 1024;
+export const FROZEN_MARGIN_BYTES = 256 * 1024;
+export const FROZEN_ESTIMATE_LIMIT_BYTES = 14 * 1024 * 1024;
 export const FROZEN_TEXT_TOO_LARGE_MESSAGE =
   "This draft's files are too large to freeze at once. Leave some files out and start again.";
 export async function activeRunSummary(
@@ -320,23 +327,24 @@ export async function reserveGeneration(
       : (explicitSingleModelId ?? (await defaultModelId(ctx)));
   const retried = retryOfGenerationId ? await ctx.db.get(retryOfGenerationId) : null;
   const retriedFreeze = retried?.modelFreeze;
-  const excludedDocuments = new Set<Id<"projectDocuments">>(excludedSources?.documentIds ?? []);
   // The source rules below and the frozen sources run on what remains after
   // the leave-out list (decision 56). Shared with the Brief preparation
   // (decision 65), so both freeze the same bytes in the same order.
-  const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources);
+  const frozenLimits = new TransactionGuard(
+    ctx,
+    { marginBytes: FROZEN_MARGIN_BYTES, estimateLimitBytes: FROZEN_ESTIMATE_LIMIT_BYTES },
+    () => domainError("INVALID_INPUT", FROZEN_TEXT_TOO_LARGE_MESSAGE)
+  );
+  const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources, frozenLimits);
   const { transcripts } = evidence;
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
   if ((await currentYearTranscripts(ctx, project, transcripts)).length === 0) {
-    const docs = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-      .collect();
-    const usable = docs.filter(
-      (d) => !d.archived && documentHasText(d) && !excludedDocuments.has(d._id)
-    );
+    // The files this draft reads (not archived, with text, not left out),
+    // already loaded: reading every row again could pass a transaction's
+    // reads (B1 review, 2026-10-27).
+    const usable = evidence.frozenDocuments.map((item) => item.document);
     if (usable.length === 0 && transcripts.length === 0) {
       domainError(
         "INVALID_INPUT",
@@ -496,9 +504,10 @@ export async function reserveGeneration(
         fields.kind === "company_file" && fields.companyFileId
           ? { companyFileId: fields.companyFileId, ...(fields.clientId ? { clientId: fields.clientId } : {}) }
           : { projectId: project._id };
+      // At most 3 UTF-8 bytes a UTF-16 unit, and the rows' own fields.
+      await frozenLimits.beforeWrite(writtenBytes, content.length * 3 + 64 * 1024);
       const stored = await storedSourceTextVersion(ctx, owner, content, fields.contentHash);
       writtenBytes += stored.writtenBytes;
-      if (writtenBytes > MAX_FROZEN_TEXT_WRITE_BYTES) domainError("INVALID_INPUT", FROZEN_TEXT_TOO_LARGE_MESSAGE);
       reference = { textVersionId: stored.versionId, textLength: content.length };
     }
     await ctx.db.insert("generationSources", {

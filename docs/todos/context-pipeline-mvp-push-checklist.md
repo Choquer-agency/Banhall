@@ -824,12 +824,15 @@ What changes:
 - **A draft no longer keeps its own copy of each file's text.** The text is stored once and every later draft of the project refers to it, so a project with many drafts takes far less room. Transcripts are referred to where they are kept.
 - **Nothing a writer sees changes**: the Brief, Seeds, drafts, quotes and chat read the same text as before.
 
+- **A draft whose files are too large to freeze at once is refused by name** ("This draft's files are too large to freeze at once. Leave some files out and start again.") instead of failing with a platform error.
+
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers: Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), 2026-10-27, each "ship after fixes"; every finding fixed or recorded in the decision entry.
 - [ ] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
 
-- [ ] A draft of a project with Word, PDF and company files on the live copy: the Brief, Seeds, sign-off and the report as before; a second draft stores no new text.
+- [x] A draft of a project with Word, PDF and company files on the live copy (2026-10-27, on the code before the review fixes): every new row refers to its text, none holds a copy; 30 of 30 Brief quotes and the Seed's quote match the stored text exactly; a second draft of the same project stored no new text (3 versions, 4 pieces before and after); a Single report on another project cited its transcript 14 times, every citation exact. Sign-off of a Step by step draft was not run live; the sign-off suite runs on new-style rows.
+- [ ] After the review fixes: a draft starts on the live copy (the read count under Convex's real limits).
 

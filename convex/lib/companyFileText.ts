@@ -8,6 +8,7 @@
  */
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { ReadCounter } from "./readMeter";
 import {
   assertDocumentTextFits,
   documentTextFacts,
@@ -56,18 +57,22 @@ export async function readCompanyFileText(
   ctx: QueryCtx,
   file: Pick<Doc<"companyFiles">, "_id" | "textLength">,
   start = 0,
-  end?: number
+  end?: number,
+  meter?: ReadCounter
 ): Promise<string> {
   const length = file.textLength;
   const from = clampOffset(start, length);
   const to = end === undefined ? length : clampOffset(end, length);
   if (to <= from) return "";
+  await meter?.beforeRead?.();
   const covering = await ctx.db
     .query("companyFileTexts")
     .withIndex("by_companyFileId_and_start", (q) => q.eq("companyFileId", file._id).lte("start", from))
     .order("desc")
     .first();
   if (!covering) throw new DocumentTextIncompleteError();
+  meter?.read(covering);
+  await meter?.beforeRead?.();
   const after = await ctx.db
     .query("companyFileTexts")
     .withIndex("by_companyFileId_and_start", (q) =>
@@ -75,6 +80,7 @@ export async function readCompanyFileText(
     )
     .take(MAX_DOCUMENT_TEXT_PIECES + 1);
   if (after.length > MAX_DOCUMENT_TEXT_PIECES) throw new DocumentTextIncompleteError("Document text has too many pieces");
+  for (const piece of after) meter?.read(piece);
   let joined = covering.text;
   for (const piece of after) {
     if (piece.start !== covering.start + joined.length) throw new DocumentTextIncompleteError();
@@ -89,10 +95,11 @@ export async function readCompanyFileTextOrNull(
   ctx: QueryCtx,
   file: Pick<Doc<"companyFiles">, "_id" | "textLength">,
   start = 0,
-  end?: number
+  end?: number,
+  meter?: ReadCounter
 ): Promise<string | null> {
   try {
-    return await readCompanyFileText(ctx, file, start, end);
+    return await readCompanyFileText(ctx, file, start, end, meter);
   } catch (error) {
     if (error instanceof DocumentTextIncompleteError) {
       console.warn(`company file text: ${file._id} has incomplete pieces; left out`);

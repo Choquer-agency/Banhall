@@ -7,6 +7,8 @@ import {
   type PdSubsectionRoleId,
 } from "../../shared/pdSubsections";
 import { createReadBudget } from "./readBudget";
+import type { ReadCounter } from "./readMeter";
+import type { Value } from "convex/values";
 import { domainError } from "./contracts";
 import {
   MAX_SEED_SNAPSHOT_ROWS,
@@ -376,17 +378,27 @@ export async function loadFrozenSeedActionInput(
   if (!settingsArtifact)
     throw new Error("Frozen seed writer settings are missing");
   // B1, second part: a row that refers to its text reads it within the same
-  // budget; a row written before the change carries it.
+  // budget, charged with every document read for it (the version and its
+  // pieces, or the whole transcript, B1 review 2026-10-27); a row written
+  // before the change carries it.
+  const overBudget = () =>
+    new SeedContextLimitError(
+      "read_bytes",
+      "Frozen seed inputs exceed the processing budget",
+    );
+  const charge: ReadCounter = {
+    read(doc) {
+      if (!doc) return;
+      budget.account(doc as Value);
+      const { estimatedBytesRead, limit } = budget.snapshot();
+      if (estimatedBytesRead > limit) throw overBudget();
+    },
+  };
   const texts = new Map<Id<"generationSources">, string>();
   for (const source of sources) {
     if (source.content !== undefined) continue;
-    const textRead = await budget.one(() => sourceRowText(ctx, source));
-    if (textRead.kind === "not-loaded")
-      throw new SeedContextLimitError(
-        "read_bytes",
-        "Frozen seed inputs exceed the processing budget",
-      );
-    texts.set(source._id, textRead.value);
+    if (!budget.reserve()) throw overBudget();
+    texts.set(source._id, await sourceRowText(ctx, source, charge));
   }
   const style = frozenStyleProjection(settingsArtifact.content);
   return {

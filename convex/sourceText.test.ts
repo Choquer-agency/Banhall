@@ -107,6 +107,24 @@ describe("sourceRowText (B1, second part)", () => {
     }
   });
 
+  it("refuses a slice across a missing middle piece, and a version whose length is not the row's", async () => {
+    const s = await setup();
+    const slice = (start: number, end: number) =>
+      s.t.run(async (ctx) => sourceRowSlice(ctx, (await ctx.db.get(s.versionRow))!, start, end));
+    await s.t.run(async (ctx) => {
+      const middle = await ctx.db
+        .query("sourceTextVersionPieces")
+        .withIndex("by_versionId_and_start", (q) => q.eq("versionId", s.versionId).eq("start", 10))
+        .unique();
+      await ctx.db.delete(middle!._id);
+    });
+    await expect(slice(0, FILE_TEXT.length)).rejects.toThrow(/a piece of its text is missing/);
+    // Inside the first piece it still reads.
+    expect(await slice(0, 5)).toBe(FILE_TEXT.slice(0, 5));
+    await s.t.run((ctx) => ctx.db.patch(s.versionRow, { textLength: FILE_TEXT.length - 1 }));
+    await expect(slice(0, 5)).rejects.toThrow(/does not match the row/);
+  });
+
   it("says how much a row read without reading its text", async () => {
     const s = await setup();
     const lengths = await s.t.run(async (ctx) =>

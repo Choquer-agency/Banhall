@@ -5,6 +5,7 @@ import schema from "./schema";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
+import { briefInputsHash } from "./lib/briefInputsHash";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -84,6 +85,10 @@ describe("switched readers on old-style and new-style rows (B1, second part)", (
       expect(fromOld).not.toBeNull();
       expect(comparable(fromNew)).toEqual(comparable(fromOld));
     }
+    // The Brief reuse hash is the same for both shapes.
+    const hashOf = async (generationId: Id<"generations">) =>
+      await briefInputsHash(await t.query(internal.generations.getGenerationSourcesForBrief, { generationId }));
+    expect(await hashOf(next.generationId)).toBe(await hashOf(old.generationId));
     // The settings document was found in both, from its text.
     const candidate = await t.query(internal.writerProfiles.getSettingsDocumentCandidate, {
       generationId: next.generationId, userId, classifierVersion: "v1",

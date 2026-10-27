@@ -8,6 +8,7 @@ import {
   TRANSCRIPT_PARSER_VERSION,
   type TranscriptSourceFormat,
 } from "../../shared/transcriptParse";
+import { countedRows, type ReadCounter } from "./readMeter";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -142,14 +143,22 @@ export async function listProjectTranscripts(
  */
 export async function listActiveTranscriptRows(
   ctx: Ctx,
-  projectId: Id<"projects">
+  projectId: Id<"projects">,
+  /** Counts each row as it is read, so a draft's reservation stops by name first (B1 review, 2026-10-27). */
+  meter?: ReadCounter
 ): Promise<Doc<"transcripts">[]> {
-  return await ctx.db
+  const query = ctx.db
     .query("transcripts")
     .withIndex("by_projectId_and_archivedAt", (q) =>
       q.eq("projectId", projectId).eq("archivedAt", undefined)
-    )
-    .take(MAX_ACTIVE_TRANSCRIPT_ROWS_READ);
+    );
+  if (!meter) return await query.take(MAX_ACTIVE_TRANSCRIPT_ROWS_READ);
+  const rows: Doc<"transcripts">[] = [];
+  for await (const row of countedRows(query, meter)) {
+    rows.push(row);
+    if (rows.length >= MAX_ACTIVE_TRANSCRIPT_ROWS_READ) break;
+  }
+  return rows;
 }
 
 /** A project's transcripts out of its active rows, as `listProjectTranscripts` returns them. */

@@ -69,6 +69,7 @@ import type {
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
+import { withSourceTexts } from "./lib/sourceText";
 import { runSeedDraftingInputs, settleFirstSeedBatch } from "./seedStartup.fixture";
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
@@ -3491,29 +3492,31 @@ describe("seed Summary sign-off and recovery", () => {
     // place of its repairGuidance (shorter fields since its review, P3-5,
     // and two entries since the lead decision on Greptile at 12d67e49).
     // Re-pinned 2026-10-22 (third): no plan verdict repeats merged ids, and
-    // the old repeat is now one of the mutations.
+    // the old repeat is now one of the mutations. Re-pinned 2026-10-27 (B1
+    // review): the fixture's draft row refers to a transcript row it now
+    // inserts, which shifts every later id; the same extra row with the
+    // text copied on the draft row gives these same hashes.
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "1b11482f00b81f4f5518ad7bb96fc0b60a180e212acb4109b0f46702c33ba4e1",
-      omit_storyline: "650bdbdb5757655f5173831aed0e3c26bd3194279317f13676aaa2929aa55748",
-      repeat_merged_ids: "fdceffd79c176b2b8fcda56d65a6f5b860879bcd7c3074a11c6bb41efb5107ec",
-      short_reason: "e17d525e3837407de275b940606b6352ac9cc1a9cb124ef7c13066ba11fc84b5",
+      restored: "f6b2079b4e30bb355e3497847092260ae914d4351c4cd71d16f49184d6d05ba2",
+      omit_storyline: "3be6ce6d94aa027c63b2ee44519abc2b28cce65368c6937dcc402606a6ff24d1",
+      repeat_merged_ids: "0cf83ee961ebaa777ae451959aece147891105c18e6ff1c9434ac2edade465cd",
+      short_reason: "d2142dad4b0c756c549483a343e980b016c2d511b8c74534d729edab81b01d10",
     });
   });
 
+  // B1 review (2026-10-27): the draft's transcript row refers to its
+  // transcript; the recovery, and a recovery of the recovery, carry the
+  // reference, not a copy.
   it("copies fact packs and their spans to Summary recovery, so fact ids still resolve (review 2026-09-25)", async () => {
     const s = await decisionFixture();
     const excerpt = "Evidence alpha";
-    await s.t.run(async (ctx) => {
+    const transcriptId = await s.t.run(async (ctx) => {
       const source = (await ctx.db.get(s.sourceId))!;
-      const transcriptId = await ctx.db.insert("transcripts", {
-        projectId: s.projectId,
-        content: source.content!,
-        createdAt: 1,
-      });
-      await ctx.db.patch(s.sourceId, { transcriptId });
+      expect(source.content).toBeUndefined();
+      const transcriptId = source.transcriptId!;
       await ctx.db.patch(s.generationId, { transcriptId, transcriptIds: [transcriptId], transcriptFacts: true });
       await ctx.db.insert("generationSources", {
         generationId: s.generationId,
@@ -3535,6 +3538,7 @@ describe("seed Summary sign-off and recovery", () => {
           },
         ],
       });
+      return transcriptId;
     });
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -3548,31 +3552,49 @@ describe("seed Summary sign-off and recovery", () => {
     const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
       failedGenerationId: s.generationId,
     });
-    const recovered = await s.t.run(async (ctx) => ({
-      generation: await ctx.db.get(recoveryId),
-      sources: await ctx.db
-        .query("generationSources")
-        .withIndex("by_generationId", (q) => q.eq("generationId", recoveryId))
-        .collect(),
-    }));
-    expect(recovered.generation?.transcriptFacts).toBe(true);
-    const pack = recovered.sources.find((row) => row.kind === "transcript_facts")!;
-    const transcript = recovered.sources.find((row) => row.kind === "transcript")!;
-    expect(pack.factSpans).toEqual([
-      { id: "F1-1", type: "result", quotes: [{ charStart: 0, charEnd: excerpt.length, speakerLabel: "Priya", role: "client" }] },
-    ]);
-    const facts = factIndex(
-      recovered.sources.map((row) => ({
-        sourceId: row._id,
-        kind: row.kind,
-        content: row.content!,
-        transcriptId: row.transcriptId,
-        factSpans: row.factSpans,
-      }))
-    );
-    const fact = facts.get("F1-1")!;
-    expect(fact.transcript.sourceId).toBe(transcript._id);
-    expect(transcript.content!.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+    const recoveredFrom = async (generationId: Id<"generations">) =>
+      await s.t.run(async (ctx) => {
+        const rows = await ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect();
+        return { generation: await ctx.db.get(generationId), rows, sources: await withSourceTexts(ctx, rows) };
+      });
+    const expectRecovered = (recovered: Awaited<ReturnType<typeof recoveredFrom>>) => {
+      expect(recovered.generation?.transcriptFacts).toBe(true);
+      const pack = recovered.sources.find((row) => row.kind === "transcript_facts")!;
+      const transcript = recovered.sources.find((row) => row.kind === "transcript")!;
+      expect(recovered.rows.find((row) => row.kind === "transcript")).toMatchObject({
+        transcriptId,
+        textLength: "Evidence alpha supports the work.".length,
+      });
+      expect(recovered.rows.find((row) => row.kind === "transcript")?.content).toBeUndefined();
+      expect(pack.factSpans).toEqual([
+        { id: "F1-1", type: "result", quotes: [{ charStart: 0, charEnd: excerpt.length, speakerLabel: "Priya", role: "client" }] },
+      ]);
+      const facts = factIndex(
+        recovered.sources.map((row) => ({
+          sourceId: row._id,
+          kind: row.kind,
+          content: row.content,
+          transcriptId: row.transcriptId,
+          factSpans: row.factSpans,
+        }))
+      );
+      const fact = facts.get("F1-1")!;
+      expect(fact.transcript.sourceId).toBe(transcript._id);
+      expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+    };
+    expectRecovered(await recoveredFrom(recoveryId));
+    // A recovery of the recovery.
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: recoveryId,
+      error: "prepare a second Summary recovery",
+    });
+    const secondRecoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: recoveryId,
+    });
+    expectRecovered(await recoveredFrom(secondRecoveryId));
   });
 
   // 2026-10-23 (owner): a writer never starts over on a signed-off plan

@@ -6,6 +6,8 @@
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
 import { withSourceTexts } from "./lib/sourceText";
+import { generationBriefKey } from "./lib/briefPreparationKey";
+import { readBriefSourceRows } from "./lib/generations/brief";
 import type { SourceRowWithText } from "./lib/sourceText";
 import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
@@ -336,6 +338,16 @@ describe("preparing and adopting", () => {
     const usageBefore = (await s.t.run(async (ctx) => ctx.db.query("aiUsage").collect())).length;
     // The writer's model is not a Brief dependency.
     const generationId = await reserve(s, { singleModelId: "claude-opus-4-8" });
+    // B1, second part (2026-10-27): the preparation holds its own copies and
+    // the draft's rows refer to their text, so this adoption also shows the
+    // Brief key is the same for both shapes.
+    const raw = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    expect(raw.filter((row) => row.kind === "transcript").every((row) => row.content === undefined && row.transcriptId)).toBe(true);
+    expect(await s.t.run(async (ctx) => (await ctx.db.get(preparation._id))?.key)).toBe(
+      await s.t.run(async (ctx) => generationBriefKey(ctx, (await ctx.db.get(generationId))!, await readBriefSourceRows(ctx, generationId)))
+    );
     const result = await adoptAtStart(s, generationId);
     expect(result.kind).toBe("adopted");
     expect(requests).toHaveLength(callsBefore);

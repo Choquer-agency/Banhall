@@ -55,6 +55,7 @@ The first part (2026-10-26, eleventh entry) kept a file's earlier text as a vers
 
 - **Reservation** (one mutation). Today it writes every copy: at most 50 project files of 200,000 characters each, the transcripts (cut to 500,000 characters each, 2,000,000 in all), and company files only while everything frozen stays under 5 MiB. The 5 MiB cap covers company files only, so a project whose own 50 files are all at the limit already passes a transaction's 16 MiB today (round 2). After this change: it reads each file's text as today (to hash it), looks each text up by hash (one index read each) and writes pieces only for text not stored yet; a transcript writes nothing. It never reads stored pieces. A later draft of the same project writes almost nothing.
   - Explicit accounting: before writing, reservation adds up the bytes it will write (new pieces and rows) and the bytes it read; over 12 MiB in all, it refuses by name ("This draft's files are too large to freeze at once; leave some files out and start again") instead of failing on the limit, and writes nothing. Today the same project fails on the limit with no message.
+  - As built (after the review of 2026-10-27): reads and writes are checked apart, since Convex limits each to 16 MiB on its own; one 12 MiB total would refuse the largest supported case. Before each read and each stored text, the transaction's real usage is checked, and the draft is refused once what remains could not take one more 1 MiB document and 256 KiB; where the runtime cannot report it, reads and writes are counted and refused past 14 MiB.
   - Tests with transaction limits on: the largest supported case (50 files of 200,000 one-byte characters and 2,000,000 characters of transcripts) reserves; 50 files of four-byte characters is refused by name; a second draft of the same project writes no pieces.
 - **Readers that load every row's text** (`loadFrozenSeedActionInput` within 8 MiB, `getGenerationInput`, adoption, `loadFactsSourceDocuments`): the same bytes as today plus small piece overhead, counted in their budgets; `textBytes` lets a reader skip a row that cannot fit without reading it. Evidence is never silently reduced to fit.
 - **The sweep**: one version per transaction, its pieces in bounded pages that reschedule.
@@ -78,9 +79,9 @@ The first part (2026-10-26, eleventh entry) kept a file's earlier text as a vers
 ## Order of work
 
 1. Make `content` optional, add `textLength` and `textVersionId` (optional), the store tables, `sourceRowText` and `sourceRowSlice`, and switch every reader the typecheck names. No writer changes yet, so every row is still old and nothing behaves differently. Done 2026-10-27 (with a test that four readers return the same for old-style and hand-made new-style rows).
-2. Erasure and the company sweep.
-3. Write new rows (reservation, the recovery copy), with the old-shape return from every query that hands rows to actions.
-4. The decision entry; live check on the live copy: a draft of a project with Word, PDF and company files; the Brief, Seeds, sign-off, the report, and a second draft that stores no new text.
+2. Erasure and the company sweep. Done 2026-10-27.
+3. Write new rows (reservation, the recovery copy), with the old-shape return from every query that hands rows to actions. Done 2026-10-27.
+4. The decision entry; live check on the live copy: a draft of a project with Word, PDF and company files; the Brief, Seeds, sign-off, the report, and a second draft that stores no new text. Done 2026-10-27 (the decision entry "2026-10-27 (sixth)"; live results in `docs/todos/context-pipeline-mvp-push.md`), then the review fixes.
 
 Each step is its own commit with the full gate; step 3 lands only after steps 1 and 2.
 

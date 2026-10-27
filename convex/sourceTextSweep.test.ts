@@ -102,6 +102,26 @@ describe("company file text versions (B1, second part)", () => {
     expect(await s.pieces(projectVersion)).toBe(1);
   });
 
+  it("cleans a deleted version's pieces by its id only, so a replacement version with the same text keeps all of its own", async () => {
+    const s = await setup();
+    // The swept version is deleted; before its pieces are cleaned up, the
+    // same text is stored again (a reservation that found no version).
+    const replacement = await s.t.run(async (ctx) => {
+      await ctx.db.delete(s.unused);
+      const versionId = await ctx.db.insert("sourceTextVersions", {
+        companyFileId: s.companyFileId, clientId: s.clientId, textHash: "h150", textLength: 150, textBytes: 150, createdAt: 2,
+      });
+      for (let start = 0; start < 150; start += 1) {
+        await ctx.db.insert("sourceTextVersionPieces", { versionId, companyFileId: s.companyFileId, start, text: "x" });
+      }
+      return versionId;
+    });
+    await s.t.mutation(internal.sourceTextSweep.deleteVersionPieces, { versionId: s.unused });
+    await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    expect(await s.pieces(s.unused)).toBe(0);
+    expect(await s.pieces(replacement)).toBe(150);
+  });
+
   it("goes page by page past one sweep page", async () => {
     const s = await setup();
     await s.t.run(async (ctx) => {

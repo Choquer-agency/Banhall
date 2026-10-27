@@ -18,6 +18,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { countTextWords } from "../../shared/wordCount";
 import { domainError, sha256 } from "./contracts";
+import type { ReadCounter } from "./readMeter";
 
 /** Characters per stored piece: one piece covers a chat file's shown part. */
 export const DOCUMENT_TEXT_PIECE_CHARS = 32_000;
@@ -152,10 +153,11 @@ export async function readDocumentTextOrNull(
   ctx: QueryCtx,
   doc: TextFields & { _id: Id<"projectDocuments"> },
   start = 0,
-  end?: number
+  end?: number,
+  meter?: ReadCounter
 ): Promise<string | null> {
   try {
-    return await readDocumentText(ctx, doc, start, end);
+    return await readDocumentText(ctx, doc, start, end, meter);
   } catch (error) {
     if (error instanceof DocumentTextIncompleteError) {
       console.warn(`document text: ${doc._id} has incomplete pieces; left out`);
@@ -169,31 +171,36 @@ export async function readDocumentTextOrNull(
  * The text from `start` to `end` (UTF-16 offsets), exactly as
  * `content.slice(start, end)`: it may end inside a surrogate pair, as a
  * slice does. Reads only the pieces the range covers. Throws when a moved
- * row's pieces do not cover the range.
+ * row's pieces do not cover the range. `meter` counts the pieces it reads.
  */
 export async function readDocumentText(
   ctx: QueryCtx,
   doc: TextFields & { _id: Id<"projectDocuments"> },
   start = 0,
-  end?: number
+  end?: number,
+  meter?: ReadCounter
 ): Promise<string> {
   if (!documentTextMoved(doc)) return (doc.content ?? "").slice(start, end);
   const length = doc.textLength ?? 0;
   const from = clampOffset(start, length);
   const to = end === undefined ? length : clampOffset(end, length);
   if (to <= from) return "";
+  await meter?.beforeRead?.();
   const covering = await ctx.db
     .query("projectDocumentTexts")
     .withIndex("by_documentId_and_start", (q) => q.eq("documentId", doc._id).lte("start", from))
     .order("desc")
     .first();
   if (!covering) throw new DocumentTextIncompleteError();
+  meter?.read(covering);
+  await meter?.beforeRead?.();
   const after = await ctx.db
     .query("projectDocumentTexts")
     .withIndex("by_documentId_and_start", (q) =>
       q.eq("documentId", doc._id).gt("start", covering.start).lt("start", to))
     .take(MAX_DOCUMENT_TEXT_PIECES + 1);
   if (after.length > MAX_DOCUMENT_TEXT_PIECES) throw new DocumentTextIncompleteError("Document text has too many pieces");
+  for (const piece of after) meter?.read(piece);
   let joined = covering.text;
   for (const piece of after) {
     if (piece.start !== covering.start + joined.length) {

@@ -14,7 +14,8 @@ import {
   FROZEN_TRANSCRIPT_CHARS,
   MAX_TRANSCRIPTS_PER_PROJECT,
   TRANSCRIPT_BUDGET_CHARS,
-  listProjectTranscripts,
+  listActiveTranscriptRows,
+  projectTranscriptsFrom,
   transcriptLabel,
 } from "./transcripts";
 import { transcriptPlaceholdersEnabled } from "../appSettings";
@@ -25,6 +26,7 @@ import { documentHasText, documentTextLength, readDocumentText } from "./documen
 import { readCompanyFileTextOrNull } from "./companyFileText";
 import { companyIdentityNames } from "./clients";
 import { quotableFileText } from "../../shared/wordMarkdown";
+import { countedRows, type ReadCounter } from "./readMeter";
 
 /**
  * The text a draft freezes from a file's text: Word Markdown without its
@@ -88,42 +90,54 @@ export type FrozenEvidence = {
  * The evidence a run reads (decision 56 leave-out lists applied): every
  * current transcript cut to FROZEN_TRANSCRIPT_CHARS, then the first
  * FROZEN_DOCUMENT_ROWS document rows that are not archived, not empty and
- * not left out, each cut to FROZEN_DOCUMENT_CHARS.
+ * not left out, each cut to FROZEN_DOCUMENT_CHARS. `meter` counts every
+ * row and text piece it reads (a draft's reservation, B1 review 2026-10-27).
  */
 export async function selectFrozenEvidence(
   ctx: Ctx,
   projectId: Id<"projects">,
-  excluded?: ExcludedSourceIds
+  excluded?: ExcludedSourceIds,
+  meter?: ReadCounter
 ): Promise<FrozenEvidence> {
   const excludedTranscripts = new Set<Id<"transcripts">>(excluded?.transcriptIds ?? []);
   const excludedDocuments = new Set<Id<"projectDocuments">>(excluded?.documentIds ?? []);
-  const projectTranscripts = await listProjectTranscripts(ctx, projectId);
+  const transcriptRows = await listActiveTranscriptRows(ctx, projectId, meter);
+  const projectTranscripts = projectTranscriptsFrom(transcriptRows);
   const transcripts = projectTranscripts.filter((row) => !excludedTranscripts.has(row._id));
   const frozenTranscripts = transcripts.map((row) => ({
     row,
     content: row.content.slice(0, FROZEN_TRANSCRIPT_CHARS),
   }));
-  const documents = await ctx.db
-    .query("projectDocuments")
-    .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-    .take(FROZEN_DOCUMENT_ROWS);
+  // Row by row, so a meter stops before a transaction's reads: an older
+  // file row holds its whole text (B1 review, 2026-10-27).
+  const documents: Doc<"projectDocuments">[] = [];
+  for await (const document of countedRows(
+    ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", projectId)),
+    meter
+  )) {
+    documents.push(document);
+    if (documents.length >= FROZEN_DOCUMENT_ROWS) break;
+  }
   // 2026-10-22 (fourth): the same slices, read through the text helper,
   // which returns exactly `content.slice(0, FROZEN_DOCUMENT_CHARS)` (rule 2).
   // 2026-10-26: Word Markdown is frozen without its bold and italic marks.
   const frozenDocuments: FrozenEvidence["frozenDocuments"] = [];
   for (const document of documents) {
     if (document.archived || !documentHasText(document) || excludedDocuments.has(document._id)) continue;
-    const text = await readDocumentText(ctx, document, 0, FROZEN_DOCUMENT_CHARS);
+    const text = await readDocumentText(ctx, document, 0, FROZEN_DOCUMENT_CHARS, meter);
     frozenDocuments.push({
       document,
       content: frozenFileText(text, document.textFormat),
       truncated: text.length !== documentTextLength(document),
     });
   }
-  const company = await selectCompanyFiles(ctx, projectId, excluded, [
-    ...frozenTranscripts.map((item) => item.content),
-    ...frozenDocuments.map((item) => item.content),
-  ]);
+  const company = await selectCompanyFiles(
+    ctx,
+    projectId,
+    excluded,
+    [...frozenTranscripts.map((item) => item.content), ...frozenDocuments.map((item) => item.content)],
+    meter
+  );
   return { projectTranscripts, transcripts, frozenTranscripts, frozenDocuments, ...company };
 }
 
@@ -171,11 +185,12 @@ async function selectCompanyFiles(
   ctx: Ctx,
   projectId: Id<"projects">,
   excluded: ExcludedSourceIds | undefined,
-  frozenSoFar: readonly string[]
+  frozenSoFar: readonly string[],
+  meter?: ReadCounter
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
   const project = await ctx.db.get(projectId);
   const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
-  return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar, projectId);
+  return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar, projectId, meter);
 }
 
 /**
@@ -189,7 +204,8 @@ export async function selectCompanyFilesOf(
   excluded: ExcludedSourceIds | undefined,
   frozenSoFar: readonly string[],
   /** The draft's own project, left out of the company's names (`companyIdentityNames`). */
-  ownProjectId?: Id<"projects">
+  ownProjectId?: Id<"projects">,
+  meter?: ReadCounter
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
   const none = { frozenCompanyFiles: [], companyNames: { organizations: [], people: [] } };
   if (!client || client.status !== "active") return none;
@@ -197,9 +213,11 @@ export async function selectCompanyFilesOf(
   const encoder = new TextEncoder();
   let bytes = frozenSoFar.reduce((total, text) => total + encoder.encode(text).length, 0);
   const frozenCompanyFiles: FrozenEvidence["frozenCompanyFiles"] = [];
-  for (const { file, limit } of eligibleCompanyFiles(await companyFilesNewestFirst(ctx, client._id))) {
+  const newestFirst = await companyFilesNewestFirst(ctx, client._id);
+  for (const file of newestFirst) meter?.read(file);
+  for (const { file, limit } of eligibleCompanyFiles(newestFirst)) {
     if (leftOut.has(file._id)) continue;
-    const text = await readCompanyFileTextOrNull(ctx, file, 0, limit);
+    const text = await readCompanyFileTextOrNull(ctx, file, 0, limit, meter);
     if (text === null || !text.trim()) continue;
     const content = frozenFileText(text, file.textFormat);
     const size = encoder.encode(content).length;

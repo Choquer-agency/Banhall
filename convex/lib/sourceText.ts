@@ -1,6 +1,7 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { documentTextPieceEnds } from "./documentText";
 import type { Doc, Id } from "../_generated/dataModel";
+import type { ReadCounter } from "./readMeter";
 
 /**
  * B1, second part (2026-10-27): the one way to read the text a draft row
@@ -37,8 +38,9 @@ export class SourceTextMismatchError extends Error {
   }
 }
 
-async function versionText(ctx: Db, row: SourceTextRow): Promise<string> {
+async function versionText(ctx: Db, row: SourceTextRow, meter?: ReadCounter): Promise<string> {
   const version = row.textVersionId ? await ctx.db.get(row.textVersionId) : null;
+  meter?.read(version);
   if (!version) throw new SourceTextMismatchError(`Draft source ${row._id}: its text version is gone`);
   if (version.textHash !== row.contentHash || (row.textLength !== undefined && version.textLength !== row.textLength)) {
     throw new SourceTextMismatchError(`Draft source ${row._id}: its text version does not match the row`);
@@ -48,6 +50,7 @@ async function versionText(ctx: Db, row: SourceTextRow): Promise<string> {
     .query("sourceTextVersionPieces")
     .withIndex("by_versionId_and_start", (q) => q.eq("versionId", version._id))
     .order("asc")) {
+    meter?.read(piece);
     if (piece.start !== text.length) throw new SourceTextMismatchError(`Draft source ${row._id}: a piece of its text is missing`);
     text += piece.text;
   }
@@ -55,8 +58,10 @@ async function versionText(ctx: Db, row: SourceTextRow): Promise<string> {
   return text;
 }
 
-async function transcriptText(ctx: Db, row: SourceTextRow): Promise<string> {
+async function transcriptText(ctx: Db, row: SourceTextRow, meter?: ReadCounter): Promise<string> {
   const transcript = row.transcriptId ? await ctx.db.get(row.transcriptId) : null;
+  // The whole transcript is read, however little of it the row used.
+  meter?.read(transcript);
   const length = row.textLength;
   if (!transcript || length === undefined) throw new SourceTextMismatchError(`Draft source ${row._id}: its transcript is gone`);
   if (transcript.content.length < length) throw new SourceTextMismatchError(`Draft source ${row._id}: its transcript is shorter than it read`);
@@ -66,23 +71,31 @@ async function transcriptText(ctx: Db, row: SourceTextRow): Promise<string> {
   return transcript.content.slice(0, length);
 }
 
-/** The whole text a draft row read. */
-export async function sourceRowText(ctx: Db, row: SourceTextRow): Promise<string> {
+/** The whole text a draft row read; `meter` is told of every document read for it. */
+export async function sourceRowText(ctx: Db, row: SourceTextRow, meter?: ReadCounter): Promise<string> {
   if (row.content !== undefined) return row.content;
-  if (row.textVersionId) return await versionText(ctx, row);
-  if (row.kind === "transcript" && row.transcriptId) return await transcriptText(ctx, row);
+  if (row.textVersionId) return await versionText(ctx, row, meter);
+  if (row.kind === "transcript" && row.transcriptId) return await transcriptText(ctx, row, meter);
   throw new SourceTextMismatchError(`Draft source ${row._id}: it holds no text and refers to none`);
 }
 
 /**
  * Characters [start, end) of a row's text, reading only the pieces they
- * fall in (a quote check, a report save).
+ * fall in (for a quote check that needs a part; today every reader reads
+ * the whole text). The pieces read must join without a gap and reach `to`,
+ * or it refuses by name, as the whole-text reader does.
  */
 export async function sourceRowSlice(ctx: Db, row: SourceTextRow, start: number, end: number): Promise<string> {
   if (row.content !== undefined) return row.content.slice(start, end);
   if (!row.textVersionId) return (await sourceRowText(ctx, row)).slice(start, end);
   const version = await ctx.db.get(row.textVersionId);
-  if (!version || version.textHash !== row.contentHash) throw new SourceTextMismatchError(`Draft source ${row._id}: its text version does not match the row`);
+  if (
+    !version ||
+    version.textHash !== row.contentHash ||
+    (row.textLength !== undefined && version.textLength !== row.textLength)
+  ) {
+    throw new SourceTextMismatchError(`Draft source ${row._id}: its text version does not match the row`);
+  }
   const to = Math.min(Math.max(end, start), version.textLength);
   if (start >= to) return "";
   // The pieces from the last one starting at or before `start` up to `to`.
@@ -96,7 +109,13 @@ export async function sourceRowSlice(ctx: Db, row: SourceTextRow, start: number,
   }
   const first = pieces[0];
   if (!first || first.start > start) throw new SourceTextMismatchError(`Draft source ${row._id}: a piece of its text is missing`);
-  return pieces.map((piece) => piece.text).join("").slice(start - first.start, to - first.start);
+  let joined = "";
+  for (const piece of pieces) {
+    if (piece.start !== first.start + joined.length) throw new SourceTextMismatchError(`Draft source ${row._id}: a piece of its text is missing`);
+    joined += piece.text;
+  }
+  if (first.start + joined.length < to) throw new SourceTextMismatchError(`Draft source ${row._id}: its text is incomplete`);
+  return joined.slice(start - first.start, to - first.start);
 }
 
 /** A row in the old shape, its text on it and the new fields left out. */

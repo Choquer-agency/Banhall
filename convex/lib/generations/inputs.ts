@@ -76,7 +76,7 @@ export async function getGenerationInputHandler(
         .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
         // One transcript row and one digest row per transcript, plus the 50
         // context documents. A tighter bound would drop the digest rows of a
-        // many-transcript project — the case digest mode exists for — and hand
+        // many-transcript project, the case digest mode exists for, and hand
         // the model the over-budget full text instead.
         .take(MAX_FROZEN_SOURCE_ROWS)
     )
