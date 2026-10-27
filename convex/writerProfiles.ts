@@ -521,6 +521,12 @@ export type EffectiveWriterStyle = {
   matchesProfile: boolean;
   /** Phase E (E1b): the writer's saved preferences joined to the instructions, when any. */
   savedPreferences?: { count: number; textHash: string; ids?: Id<"writerMemories">[] };
+  /**
+   * Sixth re-check: those preferences' texts, as composed into
+   * customInstructions, so a reader can tell which rules are theirs
+   * without looking for a heading inside the writer's text.
+   */
+  savedPreferenceTexts?: string[];
 } & OrderedProfileContext;
 
 const effectiveWriterStyleValidator = v.object({
@@ -530,6 +536,7 @@ const effectiveWriterStyleValidator = v.object({
   savedProfileSuperseded: v.boolean(),
   matchesProfile: v.boolean(),
   savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
+  savedPreferenceTexts: v.optional(v.array(v.string())),
   ...orderedProfileContextValidator.fields,
 });
 
@@ -693,7 +700,7 @@ export async function getEffectiveWriterStyle(
     settingsSource,
     savedProfileSuperseded,
     matchesProfile,
-    ...(savedPreferences ? { savedPreferences } : {}),
+    ...(savedPreferences ? { savedPreferences, savedPreferenceTexts: savedTexts } : {}),
     profileState,
     categoryOutcomes,
     buildOrder: order.buildOrder,
@@ -742,6 +749,7 @@ export const getProfileForGeneration = internalQuery({
       // E1b review: how many saved preferences joined, so the fallback path
       // records them too.
       savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
+      savedPreferenceTexts: v.optional(v.array(v.string())),
     }),
     v.null()
   ),
@@ -763,6 +771,7 @@ export const getProfileForGeneration = internalQuery({
       styleOverrides: style.styleOverrides,
       profileInstructions: stored.length > 0 ? stored : null,
       ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
+      ...(style.savedPreferenceTexts ? { savedPreferenceTexts: style.savedPreferenceTexts } : {}),
     };
   },
 });

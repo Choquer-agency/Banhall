@@ -406,12 +406,171 @@ describe("the number rule matches whole clauses (fifth re-check)", () => {
   });
 
   it("reads every ordinal, multiplier and count of one as a number", () => {
-    for (const text of ["The eleventh batch passed.", "The twentieth run held.", "Output rose fivefold.", "Costs halved.", "The one machine failed.", "Each one held."]) {
+    for (const text of [
+      "The eleventh batch passed.", "The twentieth run held.", "Output rose fivefold.", "Costs halved.", "The one machine failed.", "Each one held.",
+      // Sixth re-check.
+      "Output grew sixteenfold.", "Output rose sixtyfold.", "Uses fifteenfold pressure.", "No one employee attended.", "The one another machine replaced failed.",
+    ]) {
       expect([text, checkPreferenceText(text, { names: NAMES })]).toEqual([text, { ok: false, reason: "number" }]);
     }
     for (const text of ["Writes so no one guesses the subject.", "Keeps ideas close to one another.", "Gives each abbreviation its full name on the first use."]) {
       expect([text, checkPreferenceText(text, { names: NAMES })]).toEqual([text, { ok: true }]);
     }
+  });
+});
+
+/**
+ * Sixth re-check (gpt-6-astra, medium): its 112 probes. Every figure is
+ * refused; where a probe could be either, the decision is pinned below.
+ */
+const R6_FACTS = [
+  "Keeps 40 bullets of inventory in the warehouse.",
+  "Limits each shift to 8 hours.",
+  "Uses 12 point welds.",
+  "Writes 3 reports a year.",
+  "Number each pallet from one.",
+  "Adds two colons per sample.",
+  "Gives three examples of machine failures.",
+  "Uses four bullets per cartridge.",
+  "Uses five numbered lists for stock control.",
+  "Uses seven sections in each report to describe the factory.",
+  "Starts the second section with the furnace.",
+  "Opens the third section with a valve.",
+  "Closes the fourth section with a seal.",
+  "Uses two spaces and keeps the warehouse open.",
+  "Keeps the output at twelve units.",
+  "Writes numbers above twenty on each carton.",
+  "Rounds costs to the nearest five dollars.",
+  "Uses 12 point text on shipping labels.",
+  "Keeps each batch below eight items.",
+  "Uses fifteenfold pressure.",
+  "Output grew sixteenfold.",
+  "Output rose sixtyfold.",
+  "Output increased ten-fold.",
+  "The one another machine replaced failed.",
+  "No one employee attended.",
+  "Uses \u2153 of the stock.",
+  "Uses \u00bd of the resin.",
+  "Uses \u00b2 litres of solvent.",
+  "Keeps stock below \uff14\uff10 units.",
+  "Uses ninety workers.",
+  "Uses several dozen components.",
+  "Keeps each shift under eight hours.",
+  "Writes three orders per minute.",
+  "Uses ten spaces in the warehouse.",
+  "Numbers each item from seven.",
+  "Uses three paragraphs and reports seventeen failures.",
+];
+/**
+ * Probes that could be writing or a fact, refused: "design", "part" and
+ * "section" layouts may be a product's; "quotes" may be price quotes;
+ * spaces count only around punctuation and parts or as an indent; columns
+ * only in a table; a table holds no sections.
+ */
+const R6_DECIDED_REFUSED = [
+  "Uses a three-column design.",
+  "Keeps two quotes per report.",
+  "Keeps each section to 6 columns.",
+  "Uses a two-part structure.",
+  "Uses a four-section layout.",
+  "Keeps the opening to two spaces.",
+  "Uses three spaces.",
+  "Keeps each table to four sections.",
+];
+const R6_STYLE = [
+  "Keep each sentence to 21 words.",
+  "Please keep the summary under 95 words.",
+  "Aim to use three short paragraphs.",
+  "Use no more than six bullet points per section.",
+  "Prefer two examples in each paragraph.",
+  "Leave one blank line between paragraphs.",
+  "Keep each title below eight words.",
+  "Use five heading levels.",
+  "Limit each paragraph to 70 words.",
+  "Use 14-point font.",
+  "Set the captions to 9 pt.",
+  "Use 1.15 line spacing.",
+  "Write dates with four digits for the year.",
+  "Spell out numbers from two through eight.",
+  "Use numerals for amounts above twelve.",
+  "Write percentages to one decimal place.",
+  "Round measurements to the nearest whole number.",
+  "Use two significant digits for values.",
+  "Number every list starting at three.",
+  "Start the second paragraph with a summary.",
+  "Keep the sixth sentence simple.",
+  "Use a three-sentence conclusion.",
+  "End each section with a two-sentence summary.",
+  "Use three short sentences per bullet.",
+  "Keep the abstract to half a page.",
+  "Keep the summary to two paragraphs and use plain words.",
+  "Use two short paragraphs and keep each sentence under 19 words.",
+  "Use one space after each colon.",
+  "Use no more than two commas per sentence.",
+  "Use at most one pair of parentheses per paragraph.",
+  "Never repeat a word more than two times per sentence.",
+  "Indent the first line of each paragraph by three spaces.",
+  "Use a two-column format.",
+  "Use second-person pronouns.",
+  "Use the third person singular throughout.",
+  "Write a maximum of 90 words in the conclusion.",
+  "Keep Line 244 to 650 words.",
+  "Use 250 words for Line 242.",
+  "Keep captions under ten words and use sentence case.",
+  "Use five to seven bullets in each summary.",
+  "I prefer sentences under twenty words.",
+  "Please aim for about 80 words per paragraph.",
+  "Try to keep headings shorter than six words.",
+  "Keep paragraphs between 45 and 75 words.",
+  "Use one idea per paragraph.",
+  "Use a maximum of three nested levels of bullets.",
+  "Never use more than one exclamation mark per report.",
+  "Keep the first two paragraphs brief.",
+  "Use double quotation marks for direct speech.",
+  "Use a single blank line before headings.",
+  "Keep sentences to twenty-four words or fewer.",
+  "Use a semicolon only once per paragraph.",
+  "Spell out zero to eight and use digits for nine and above.",
+  "Keep each list under nine entries.",
+  "Use two examples at most in each section.",
+  "Prefer four concise paragraphs.",
+];
+/**
+ * Accepted on purpose. A clause with no number is the model check's to judge
+ * (it refuses facts without names, numbers or codes); "first", "last" and "a
+ * couple" are order and plain words, not figures; significant figures and
+ * decimal places for measurements or results are ways of writing numbers.
+ */
+const R6_ACCEPTED_BY_DESIGN = [
+  "Uses four short paragraphs and keeps stock full.",
+  "Uses four short paragraphs; the company owns the factory.",
+  "Uses three bullets and writes invoices daily.",
+  "Uses two sentences: production has stopped.",
+  "Uses five words and uses the patented process.",
+  "Keeps the table to six columns and uses steel.",
+  "Keeps the report under 100 words and gives refunds.",
+  "The first batch failed.",
+  "The last machine stopped.",
+  "Uses a couple of machines.",
+  "Uses two significant figures for measurements.",
+  "Reports results to three decimal places.",
+];
+
+describe("the number rule after the sixth re-check", () => {
+  it.each([...R6_FACTS, ...R6_DECIDED_REFUSED])("refuses %s as a number", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: false, reason: "number" });
+  });
+
+  it.each([...R6_STYLE, ...R6_ACCEPTED_BY_DESIGN])("lets %s stand", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: true });
+  });
+
+  it("reads full-width, superscript, fraction and other-script digits as numbers", () => {
+    for (const text of ["Keeps stock below \uff14\uff10 units.", "Uses \u00bd of the resin.", "Uses \u2153 of the stock.", "Uses \u00b2 litres of solvent.", "Uses \u09ea\u09e6 sensors."]) {
+      expect([text, checkPreferenceText(text, { names: NAMES })]).toEqual([text, { ok: false, reason: "number" }]);
+    }
+    // A full-width count in a writing instruction is still a writing instruction.
+    expect(checkPreferenceText("Keep each sentence to \uff12\uff10 words.", { names: NAMES })).toEqual({ ok: true });
   });
 });
 

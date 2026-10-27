@@ -249,6 +249,7 @@ export type FrozenBrainArtifact = {
   qaCalibrationDigestId?: Id<"learningDigests">;
   draftStyleDigestId?: Id<"learningDigests">;
   writerFlavor?: string;
+  savedPreferenceTexts?: string[];
   styleOverrides?: OrderedPayload["styleOverrides"];
 };
 
@@ -309,6 +310,9 @@ export async function frozenOrderedPayload(
       ? { draftStyleDigestId: artifact.draftStyleDigestId }
       : {}),
     ...(artifact.writerFlavor ? { writerFlavor: artifact.writerFlavor } : {}),
+    ...(artifact.writerFlavor && Array.isArray(artifact.savedPreferenceTexts) && artifact.savedPreferenceTexts.every((text) => typeof text === "string")
+      ? { savedPreferenceTexts: artifact.savedPreferenceTexts }
+      : {}),
     ...(artifact.styleOverrides ? { styleOverrides: artifact.styleOverrides } : {}),
     orderedContext: artifact.orderedContext,
     frozenStyleGuidance: artifact.styleGuidance,

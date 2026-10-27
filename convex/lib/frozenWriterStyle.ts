@@ -24,6 +24,8 @@ export type FrozenWriterStyle = {
   qaCalibrationDigestId?: Id<"learningDigests">;
   draftStyleDigestId?: Id<"learningDigests">;
   writerFlavor?: string;
+  /** Sixth re-check: the saved preference texts composed into writerFlavor. */
+  savedPreferenceTexts?: string[];
   styleOverrides: StyleOverrides;
 };
 
@@ -48,6 +50,7 @@ function styleFields(style: FrozenWriterStyle) {
       ? { draftStyleDigestId: style.draftStyleDigestId }
       : {}),
     ...(style.writerFlavor ? { writerFlavor: style.writerFlavor } : {}),
+    ...(style.savedPreferenceTexts ? { savedPreferenceTexts: style.savedPreferenceTexts } : {}),
     // Frozen at start like styleGuidance, including the all-false "full
     // enforcement" state, so a later profile or mode change can never
     // re-score this draft under waivers it was not written with.

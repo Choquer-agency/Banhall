@@ -93,8 +93,18 @@ const CARDINAL_WORDS = new Set([
 ]);
 const ORDINAL = /^(?:second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|[a-z]+teenth|[a-z]+tieth|hundredth|thousandth|millionth|billionth)$/;
 const MULTIPLIER = /^(?:doubled|doubles|doubling|tripled|triples|tripling|quadrupled|quadruples|quadrupling|halved|halving)$/;
-/** "fivefold", "tenfold", "hundredfold"; never "manifold". */
-const FOLD = /^(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|million)fold$/;
+/** Any number word before "fold": "fivefold", "sixteenfold", "sixtyfold", "hundredfold"; never "manifold". */
+const FOLD = new RegExp(`^(?:${[...CARDINAL_WORDS].join("|")})+fold$`);
+/**
+ * "one" is not a count in "no one" and "one another" used as pronouns: "no
+ * one" before a verb or the end ("so no one guesses"), never before a noun
+ * ("No one employee attended"); "one another" not after "the" or "a".
+ */
+const PRONOUN_NEXT = new Set([
+  "", ".", ",", "!", "?", ";", ":", "is", "was", "will", "would", "can", "could", "should", "shall", "may", "might", "must",
+  "has", "had", "have", "does", "did", "else", "at", "in", "on", "to", "who", "that", "but", "and", "or", "ever", "really",
+]);
+const DETERMINERS = new Set(["the", "a", "an", "this", "that", "each", "every", "any", "no", "one"]);
 const PLACEHOLDER = /\b(?:N|D|BIG|ORD|MULT|DOUBLE)\b/;
 const LINE_NUMBERS = new Set(["242", "244", "246"]);
 /** Verbs that start an instruction; "and" before one of them starts a new clause. */
@@ -104,28 +114,33 @@ const CLAUSE_VERBS = new Set([
   "indent", "aims", "aim", "expresses", "express", "gives", "give",
 ]);
 
-const ADVERB_WORDS = new Set(["always", "never", "usually", "generally", "ideally", "please", "only", "also"]);
+const ADVERB_WORDS = new Set(["always", "never", "usually", "generally", "ideally", "please", "only", "also", "i", "we"]);
 
 // Template parts. A clause is matched whole, so every part is closed.
-const ADVERBS = "(?:(?:always|never|usually|generally|ideally|please|only|also|try to|aim to) )*";
+// "I prefer ...", "We use ...": the writer speaking for themselves.
+const ADVERBS = "(?:(?:always|never|usually|generally|ideally|please|only|also|try to|aim to|i|we) )*";
 const CONTEXT = "(?:(?:in|for|within) (?:each |every |the |all |a )?(?:Line(?: LN)?|Lines(?: LN(?: (?:and|or) LN)*)?|summary|summaries|introduction|conclusion|report|paragraphs?|sections?|bullets?|lists?) )?";
 const AMOUNT = "(?:between N and N|N(?: (?:to|or|and) N)?|an? N|N an?|N of an?|an? ORD of an?)";
 const DESCRIBING =
   "(?: (?:short|shorter|long|longer|full|plain|simple|separate|single|clear|brief|briefer|concise|compact|tight|complete|distinct|main|key|nested|numbered|bulleted|blank|empty|new|whole|plain language|technical))*";
 /** Units of writing that may be counted on their own: "Uses two short paragraphs." */
+// Sixth re-check: "quotes" may be price quotes and "spaces" rooms, so neither
+// is counted on its own; spaces count only after or before punctuation and
+// parts, or as an indent.
 const CORE_UNITS =
-  "(?:words?|sentences?|paragraphs?|bullets?|bullet points?|characters?|headings?|subheadings?|Lines?|lists?|list items?|list entries|list entry|examples?|semicolons?|commas?|colons?|dashes|exclamation marks?|pairs? of parentheses|parentheses|quotes?|quotations?|acronyms?|abbreviations?|spaces?|blank lines?|empty lines?)";
+  "(?:words?|sentences?|paragraphs?|bullets?|bullet points?|characters?|headings?|subheadings?|Lines?|lists?|list items?|list entries|list entry|examples?|semicolons?|commas?|colons?|dashes|exclamation marks?|pairs? of parentheses|parentheses|direct quotes?|quotations?|acronyms?|abbreviations?)";
 /**
  * Units counted only with a unit of writing beside them: "six entries in a
  * list", "one term for each idea", "two levels of bullets", a table's
  * columns. Never a bare count ("Uses three sections of the warehouse").
  */
-const CONTEXT_UNITS = "(?:entries|entry|items?|terms?|ideas?|clauses?|lines?|pages?|columns?|sections?|claims?|topics?|levels?|pairs?|pair)";
+const CONTEXT_UNITS = "(?:entries|entry|items?|terms?|ideas?|clauses?|lines?|pages?|sections?|claims?|topics?|levels?|pairs?|pair)";
+/** Units a length limit may set on a part: never sections, claims, topics or clauses of something else. */
+const LIMIT_UNITS = `(?:${CORE_UNITS}|entries|entry|items?|terms?|ideas?|lines?|pages?|levels?|pairs?|pair)`;
 const PART = "(?:sentence|paragraph|bullet|bullet point|heading|subheading|caption|title|Line|Line LN|section|list|list item|table|summary|introduction|conclusion|opening|closing|abstract|idea|answer|quote|quotation|page|report)";
 const PART_EDGE = "(?:(?:opening|closing|first|last|final|introductory|concluding) )?";
 /** Where a count applies: "per sentence", "in each paragraph", "in the closing paragraph", "for each bullet". */
 const TARGET = `(?:(?:per|in each|in every|in a|in an|in the|in any|in one|in N|for each|for every|for a|for the|within each|within a|within the) ${PART_EDGE}${PART}s?|(?:for|in) Lines? LN(?: (?:and|or) LN)*|joined by (?:and|or|but|a comma|a semicolon|a conjunction))`;
-const SPACING_TAIL = "(?: (?:after|before|between) (?:a |an |each |every |the )?(?:full stop|period|sentence|sentences|colon|comma|punctuation|heading|headings|paragraph|paragraphs|bullet|bullets))?";
 const AFTER_UNIT = "(?: (?:or (?:fewer|less|more)|at most|at the most|maximum|or so|at a time|not more|no more))?";
 /** "to around 80 words". */
 const ABOUT = "(?:(?:about|around|roughly|approximately) )?";
@@ -137,7 +152,12 @@ const SUBJECT =
 const BOUND =
   "(?:to|under|below|at|within|at most|at no more than|no more than|to at most|to no more than|to a maximum of|to fewer than|to less than|to under|fewer than|less than|between|to between|at or below|at or under)";
 const ANY_UNIT = `(?:${CORE_UNITS}|${CONTEXT_UNITS})`;
-const LENGTH = `${AMOUNT}${DESCRIBING} ${ANY_UNIT}(?: (?:and|or) ${AMOUNT}${DESCRIBING} ${ANY_UNIT})?`;
+const LENGTH = `${AMOUNT}${DESCRIBING} ${LIMIT_UNITS}(?: (?:and|or) ${AMOUNT}${DESCRIBING} ${LIMIT_UNITS})?`;
+/** What a part opens or closes with: a part of writing, never a thing ("with a valve"). */
+const WRITING_OBJECT =
+  "(?:(?:the|a|an|its|one) )?(?:(?:main|key|short|brief|clear|plain|central|overall|direct) )?(?:summary|result|results|finding|findings|question|questions|quote|quotation|sentence|claim|objective|aim|uncertainty|uncertainties|method|methods|conclusion|overview|definition|example|answer|point|hypothesis|context|background|recommendation|statement|transition|topic sentence|takeaway|outcome|outcomes|problem|goal|purpose)";
+const SPACED_PLACES =
+  "(?:full stops?|periods?|sentences?|colons?|commas?|semicolons?|punctuation|headings?|subheadings?|paragraphs?|bullets?|lists?|Lines?|sections?)";
 const NUMBER_NOUNS = "(?:numbers|numerals|figures|quantities|integers|values|digits|amounts|counts)";
 const RANGE =
   "(?:(?:under|below|over|above|up to|less than|fewer than|greater than|more than|lower than|higher than|smaller than|larger than|beyond) N" +
@@ -157,9 +177,17 @@ const NUMBER_TEMPLATES: readonly RegExp[] = [
   `(?:prefers?|uses?|writes?|keeps?) ${SUBJECT} (?:of|with|under|below|between|of at most|of no more than|of under|no longer than|shorter than) ${ABOUT}${LENGTH}${AFTER_UNIT}`,
   // A part sized by its count: "Opens with a two-sentence summary", "Uses a five-paragraph structure".
   `(?:opens?|starts?|begins?|ends?|closes?)(?: (?:each|every|the) (?:Line|section|report|summary|answer))? with (?:a|an) N (?:sentence|paragraph|line|word) (?:summary|introduction|opening|overview|answer|statement|conclusion)`,
-  `(?:uses?|prefers?|follows?) (?:a|an) N (?:paragraph|part|section|sentence) (?:structure|format|layout|summary|outline)`,
+  `(?:uses?|writes?|prefers?|gives?|adds?|includes?) (?:a|an) N (?:sentence|paragraph|line|word) (?:summary|introduction|opening|overview|answer|statement|conclusion|abstract|closing)`,
+  // "parts" and "sections" may be physical ("a two-part structure"), so only sentences and paragraphs.
+  `(?:uses?|prefers?|follows?) (?:a|an) N (?:paragraph|sentence) (?:structure|format|layout|outline)`,
+  // Spacing: "Use one space after each colon", "Leave two blank lines after each heading".
+  `(?:uses?|puts?|leaves?|adds?|prefers?|inserts?) ${QUALIFIER}(?:an? |N )(?:(?:single|blank|empty) )?(?:spaces?|lines?) (?:after|before|between) (?:(?:a|an|each|every|the|all) )?${SPACED_PLACES}`,
+  // A table's columns: "Keep each table to six columns" (never another part's).
+  `(?:keeps?|limits?|caps?) (?:(?:each|every|the|a|all) )?tables? (?:to|under|at|within|at most|to at most|to no more than) N columns?`,
+  // "Keep the first two paragraphs brief."
+  `(?:keeps?|makes?) the (?:first|last|opening|closing|final) N (?:sentences|paragraphs|bullets|lines) (?:brief|short|shorter|plain|simple|concise)`,
   // Counts of units of writing: "Uses two or three bullets at most", "Write no more than 120 words in the closing paragraph".
-  `(?:uses?|writes?|puts?|prefers?|includes?|gives?|aims? for|targets?|leaves?|adds?|allows?|sticks? to|keeps? to|keeps?|inserts?|places?) ${QUALIFIER}${AMOUNT}${DESCRIBING} ${CORE_UNITS}${AFTER_UNIT}${SPACING_TAIL}(?: ${TARGET})?`,
+  `(?:uses?|writes?|puts?|prefers?|includes?|gives?|aims? for|targets?|adds?|allows?|sticks? to|keeps? to|keeps?|places?) ${QUALIFIER}${AMOUNT}${DESCRIBING} ${CORE_UNITS}${AFTER_UNIT}(?: ${TARGET})?`,
   // A unit counted only beside a unit of writing: "Put a maximum of six entries in a list", "Uses one term for each idea".
   `(?:uses?|writes?|puts?|prefers?|includes?|gives?|aims? for|targets?|allows?|keeps?|places?) ${QUALIFIER}${AMOUNT}${DESCRIBING} ${CONTEXT_UNITS}${AFTER_UNIT} ${TARGET}`,
   // Without a verb: "At most 25 words per sentence", "Three sentences per paragraph at most".
@@ -202,26 +230,28 @@ const NUMBER_TEMPLATES: readonly RegExp[] = [
   `(?:writes?|uses?|formats?|gives?|shows?) (?:all )?(?:dates|years) (?:with|using|in|as) (?:a |an )?N digit (?:years?|months?|days?)`,
   // Numbered lists: "Uses numbered lists starting at 1", "Number each list from one".
   `(?:uses?|writes?|starts?|begins?) numbered (?:lists?|steps?|items?|points?|bullets?) (?:that )?(?:starting|beginning|starts?|begins?) (?:at|from|with) N`,
-  `numbers? (?:each |every |all )?(?:lists?|steps?|items?|list items?|points?) (?:from|starting at|starting from|beginning at|at) N`,
+  // Only parts of writing are numbered ("Number each pallet from one" and "each item" are refused).
+  `numbers? (?:each |every |all )?(?:lists?|list items?|steps?|points?|bullets?|questions?|paragraphs?|sections?(?: of the report)?) (?:from|starting at|starting from|beginning at|at) N`,
   // Typography: line spacing, type size, double quotes, columns.
   `(?:uses?|sets?|keeps?|prefers?|writes? (?:in|with)) (?:N|D|DOUBLE|single) (?:line )?(?:spacing|spaced)`,
   `(?:sets?|keeps?|uses?) (?:the )?line spacing (?:to|at|of) (?:N|D)`,
   `(?:uses?|sets?|prefers?|writes? in) (?:a |an )?N (?:point|pt) (?:font|fonts|type|text|body text|typeface|font size|size)`,
   `(?:sets?|keeps?) (?:the )?(?:body text|text|type|font|font size|headings?|captions?) (?:to|at|in) N (?:point|pt|points)(?: type| font)?`,
   `(?:uses?|prefers?) DOUBLE (?:quotes|quotation marks)(?: (?:for|around) (?:quotes|quotations|direct speech|titles))?`,
-  `(?:uses?|prefers?) (?:a |an )?N column (?:layout|format|design)`,
+  // "a three-column design" may be a product's design, so only layouts and formats.
+  `(?:uses?|prefers?) (?:a |an )?N column (?:layout|format)`,
   // Person: "Writes in the third person", "Use third-person wording throughout".
   `(?:writes?|stays?) (?:in|to) (?:the )?ORD person(?: (?:plural|singular))?(?: (?:when addressing the reader|throughout))?`,
   `(?:uses?|prefers?|keeps? to) (?:the )?ORD person(?: (?:plural|singular))?(?: (?:wording|voice|pronouns|forms?))?(?: throughout)?`,
   // Order of parts: "Start the fourth paragraph with the result", "Keep the tenth sentence brief".
-  `(?:starts?|begins?|opens?|ends?|closes?) the ORD (?:sentence|paragraph|bullet|heading|subheading|Line|section)(?: of (?:each|every|the) (?:Line|section|paragraph|summary))? with (?:the |a |an )?[a-z]+(?: [a-z]+){0,2}`,
+  `(?:starts?|begins?|opens?|ends?|closes?) the ORD (?:sentence|paragraph|bullet|heading|subheading|Line|section)(?: of (?:each|every|the) (?:Line|section|paragraph|summary))? with ${WRITING_OBJECT}`,
   `(?:keeps?|makes?) the ORD (?:sentence|paragraph|bullet|heading|subheading)(?: of (?:each|every|the) (?:Line|section|paragraph))? (?:brief|short|shorter|plain|simple|concise)`,
 ].map((template) => new RegExp(`^${CONTEXT}${ADVERBS}${template}$`));
 
 /** A preference's clauses as the number rule reads them, placeholders in. */
 function numberClauses(text: string): string[] {
   const prepared = text.replace(/\b(?:the|all) three Lines\b/g, "the form Lines");
-  const raw = [...prepared.matchAll(/\d+(?:[.,]\d+)*(?:\s*-\s*\d+(?:[.,]\d+)*)?|[\p{L}]+(?:['’][\p{L}]+)*|[.!?;:,]|-/gu)].map(
+  const raw = [...prepared.matchAll(/\d+(?:[.,/\u2044]\d+)*(?:\s*-\s*\d+(?:[.,]\d+)*)?|[\p{L}]+(?:['’][\p{L}]+)*|[.!?;:,]|-/gu)].map(
     (match) => match[0]
   );
   const clauses: string[][] = [[]];
@@ -255,7 +285,10 @@ function numberClauses(text: string): string[] {
     if (!/^(?:and|or)$/i.test(token)) lineNumberChain = false;
     const word = token.toLowerCase();
     let placeholder: string | null = null;
-    if (word === "one") placeholder = previous.toLowerCase() === "no" || next === "another" ? null : "N";
+    const pronoun =
+      (previous.toLowerCase() === "no" && (PRONOUN_NEXT.has(next) || /(?:s|ed)$/.test(next))) ||
+      (next === "another" && !DETERMINERS.has(previous.toLowerCase()));
+    if (word === "one") placeholder = pronoun ? null : "N";
     else if (CARDINAL_WORDS.has(word)) placeholder = "N";
     else if (ORDINAL.test(word)) placeholder = "ORD";
     else if (word === "twice") {
@@ -367,7 +400,9 @@ export function checkPreferenceText(
   input: string,
   context: PreferenceCheckContext
 ): { ok: true } | { ok: false; reason: PreferenceRefusal } {
-  const text = input.trim();
+  // Sixth re-check: full-width digits, superscripts and fractions ("４０",
+  // "²", "½") read as the digits they are.
+  const text = input.normalize("NFKC").trim();
   if (!text) return { ok: false, reason: "empty" };
   if (text.length > MAX_PREFERENCE_CHARS) return { ok: false, reason: "too_long" };
   if (/\[[A-Z][A-Z_]*_\d+\]|\b[A-Z][A-Z]+_\d+\b/.test(text)) return { ok: false, reason: "placeholder" };
@@ -375,6 +410,8 @@ export function checkPreferenceText(
     return { ok: false, reason: "contact" };
   }
   if (UNCASED_SCRIPT.test(text)) return { ok: false, reason: "script" };
+  // Any other numeric character (a digit of another script) is a figure.
+  if (/[^\P{N}0-9]/u.test(text)) return { ok: false, reason: "number" };
   // The form's own name is a style word, never a figure or a code.
   // "11-point type", "a two-column layout": a size, not a code.
   const plain = text

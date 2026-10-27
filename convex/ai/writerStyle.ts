@@ -39,8 +39,8 @@ export async function fetchWriterStyle(
   log: (line: string) => Promise<unknown>,
   /** E3 review: the generation's project, for a release suite --compare arm. */
   projectId?: Id<"projects">
-): Promise<{ writerFlavor?: string; styleOverrides?: StyleOverrides; savedPreferences?: { count: number; textHash: string } }> {
-  const result: { writerFlavor?: string; styleOverrides?: StyleOverrides; savedPreferences?: { count: number; textHash: string } } = {};
+): Promise<{ writerFlavor?: string; styleOverrides?: StyleOverrides; savedPreferences?: { count: number; textHash: string }; savedPreferenceTexts?: string[] }> {
+  const result: { writerFlavor?: string; styleOverrides?: StyleOverrides; savedPreferences?: { count: number; textHash: string }; savedPreferenceTexts?: string[] } = {};
   try {
     // Called even without a requestedBy: org-wide "off" modes (PSOS-50)
     // apply to legacy generations with no recorded requester too.
@@ -54,6 +54,7 @@ export async function fetchWriterStyle(
       await log(APPLYING_WRITER_STYLE_LOG);
     }
     if (profile.savedPreferences) result.savedPreferences = profile.savedPreferences;
+    if (profile.savedPreferenceTexts) result.savedPreferenceTexts = profile.savedPreferenceTexts;
     const overrides = normalizeStyleOverrides(profile.styleOverrides);
     if (hasAnyStyleOverride(overrides)) {
       result.styleOverrides = overrides;

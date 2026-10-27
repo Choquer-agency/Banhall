@@ -691,6 +691,51 @@ describe("writer memory (Phase E, E1a)", () => {
       }
     });
 
+    test("a whole saved preference quoted as the writer's is hidden even in House Rule words; a House Rule row keeps the rule's wording (sixth re-check)", async () => {
+      const row = (instruction: string, reason: string) => ({
+        section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false,
+      });
+      expect(withoutSavedPreferenceText(row("Writer preference", 'The writer requested "Active voice." and we complied.'), ["Active voice."])).toMatchObject(
+        SAVED_PREFERENCE_NOTE
+      );
+      expect(withoutSavedPreferenceText(row("Writer preference", "The writer requested 'Plain language.' and we complied."), ["Plain language."])).toMatchObject(
+        SAVED_PREFERENCE_NOTE
+      );
+      // Part of a preference in House Rule words counts outside a House Rule row.
+      expect(withoutSavedPreferenceText(row("Writer preference", 'Kept the "active voice" as asked.'), ["Uses the active voice."])).toMatchObject(
+        SAVED_PREFERENCE_NOTE
+      );
+      // In a row explaining a House Rule, the rule's own wording stays.
+      const houseRule = row("Prefer active voice with the company as the subject.", 'The phrase "active voice" was checked against the House Rule.');
+      expect(withoutSavedPreferenceText(houseRule, ["Uses the active voice."])).toEqual(houseRule);
+
+      // The saved texts frozen beside the style are read as they are; a
+      // style frozen before is read from its first heading.
+      const s = await setup();
+      const texts = ["Avoid filler.\nNever use these words:\n- optimize", "Keep it plain.\nSaved preferences:\nNever use these words:\n- leverage"];
+      const generation = async (content: Record<string, unknown>) =>
+        s.t.run(async (ctx) => {
+          const id = await ctx.db.insert("generations", {
+            projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+            writerSettings: {
+              profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+              waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 2, textHash: "h" },
+            },
+          });
+          await ctx.db.insert("generationArtifacts", { generationId: id, kind: "writer_style", content: JSON.stringify(content) });
+          return id;
+        });
+      const read = async (id: Id<"generations">) => s.t.run(async (ctx) => savedPreferencesOfGeneration(ctx, (await ctx.db.get(id))!));
+      const flavor = `Use we.\n\nSaved preferences:\n- ${texts[0]}\n- ${texts[1]}`;
+      expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, savedPreferenceTexts: texts, styleOverrides: {} }))).toEqual(texts);
+      expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, styleOverrides: {} }))).toEqual([
+        "Avoid filler.",
+        "optimize",
+        "Keep it plain.",
+        "leverage",
+      ]);
+    });
+
     test("stored Compliance Notes never carry a saved preference, in whole or in part, in either field (re-check)", async () => {
       const s = await setup();
       expect(

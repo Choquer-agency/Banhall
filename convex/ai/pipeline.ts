@@ -1581,7 +1581,7 @@ export const generateReport = internalAction({
       // Story 2 (CAP-5/6, AD-26): read once, handed to every candidate, so
       // compare candidates share one Build Order. Never silent: a profile
       // that does not apply is reported as "no effective writer profile".
-      const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
+      const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
       if (orderedContext.profileState !== "applied") {
         await log(
           `No effective writer profile (${orderedContext.profileState}): House Rules apply and sections draft in the default order 242 → 244 → 246.`
@@ -1648,6 +1648,7 @@ export const generateReport = internalAction({
             ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
             ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
+            ...(writerFlavor && savedPreferenceTexts ? { savedPreferenceTexts } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
             orderedContext,
           }
@@ -1688,6 +1689,8 @@ export const generateCandidate = internalAction({
     qaCalibrationDigestId: v.optional(v.id("learningDigests")),
     draftStyleDigestId: v.optional(v.id("learningDigests")),
     writerFlavor: v.optional(v.string()),
+    // Sixth re-check: the saved preference texts composed into writerFlavor.
+    savedPreferenceTexts: v.optional(v.array(v.string())),
     styleOverrides: v.optional(styleOverridesValidator),
     // Resolved by generateReport when it recorded the budget report; absent
     // only for a candidate scheduled before this field existed.
@@ -1771,6 +1774,7 @@ export const generateCandidate = internalAction({
               ? { draftStyleDigestId: args.draftStyleDigestId }
               : {}),
             ...(args.writerFlavor ? { writerFlavor: args.writerFlavor } : {}),
+            ...(args.writerFlavor && args.savedPreferenceTexts ? { savedPreferenceTexts: args.savedPreferenceTexts } : {}),
             ...(args.styleOverrides ? { styleOverrides: args.styleOverrides } : {}),
             orderedContext,
           },

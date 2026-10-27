@@ -238,7 +238,7 @@ async function resolveFrozenWriterStyle(
   } catch (err) {
     console.error("learning digest fetch failed for generation", genId, err);
   }
-  const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
+  const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
   return {
     style: {
       styleGuidance: buildStyleGuidance(
@@ -252,6 +252,7 @@ async function resolveFrozenWriterStyle(
       ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
       ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
       ...(writerFlavor ? { writerFlavor } : {}),
+      ...(writerFlavor && savedPreferenceTexts ? { savedPreferenceTexts } : {}),
       styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
     },
     ...(styleOverrides ? { resolvedStyleOverrides: styleOverrides } : {}),
@@ -684,6 +685,7 @@ export const startIterativeGeneration = internalAction({
         qaCalibrationDigestId,
         draftStyleDigestId,
         writerFlavor,
+        savedPreferenceTexts,
       } = style;
 
       // Frozen once: analyzer output shared by every section draft.
@@ -741,6 +743,7 @@ export const startIterativeGeneration = internalAction({
             ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
             ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
+            ...(writerFlavor && savedPreferenceTexts ? { savedPreferenceTexts } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
           }
         );

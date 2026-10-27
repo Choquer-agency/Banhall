@@ -89,6 +89,7 @@ import {
 } from "../lib/orderedChain";
 import {
   assembleSectionNotes,
+  rowsWithRepairLosses,
   consistencyNoteDrafts,
   consistencySummaryNote,
   glossaryTermOf,
@@ -103,7 +104,7 @@ import {
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
-import { extractWriterWordingRules, unreadWritingRules } from "../lib/settingsExtraction";
+import { unreadWritingRules, writerWordingRulesFor } from "../lib/settingsExtraction";
 import { hasWriterWordingRules, wordingLossDetails, type WriterWordingRules } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
@@ -1287,10 +1288,12 @@ export async function draftCheckedSection(input: {
   // read from the instruction text the Writer Profile applied. Absent for a
   // writer with no such rule, so every row and request stays as before.
   // E1b review: also when only the writer's saved preferences applied.
+  // Sixth re-check: each rule knows whether a saved preference holds it,
+  // from the texts frozen beside the composed text (writerWordingRulesFor).
   const extractedWording =
     (payload.orderedContext.profileState === "applied" || payload.orderedContext.savedPreferencesApplied === true) &&
     payload.writerFlavor?.trim()
-    ? extractWriterWordingRules(payload.writerFlavor)
+    ? writerWordingRulesFor(payload.writerFlavor, payload.savedPreferenceTexts)
     : null;
   const writerWording = hasWriterWordingRules(extractedWording) ? extractedWording : undefined;
   // Re-check P1-1 (b): what of the settings the extractor left to the model.
@@ -1951,7 +1954,7 @@ export async function draftCheckedSection(input: {
     storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
       ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
       : undefined;
-  const { rows: baseRows, summary: baseSummary } = assembleSectionNotes({
+  const { rows: baseRows, summary: baseSummary, rowIndexByKey } = assembleSectionNotes({
     section,
     before,
     after,
@@ -1977,22 +1980,13 @@ export async function draftCheckedSection(input: {
     ...(payload.writerFlavor ? { writerInstructions: payload.writerFlavor } : {}),
     ...(finalOrdinary ? { finalVerdicts: finalOrdinary } : {}),
   });
-  const rows = [...baseRows];
   // Final re-check P2-C1 (lead decision, owner informed): a used repair that
   // broke a measured rule of the writer's was kept for what outranks the
   // Writer Profile; that rule's row names the loss plainly, as Rule 12 does
   // for the cap.
   // Greptile on PR #27 (P2): every loss, each on its own rule's row.
   const keptLosses = repair.succeeded && writerWording ? wordingLossDetails(text, finalText, writerWording, section) : [];
-  for (const loss of keptLosses) {
-    const index = rows.findIndex((row) => row.instruction === loss.instruction);
-    if (index >= 0) {
-      rows[index] = {
-        ...rows[index]!,
-        reason: `${rows[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
-      };
-    }
-  }
+  const rows = rowsWithRepairLosses(baseRows, rowIndexByKey, keptLosses);
   let planRows: ComplianceNoteDraft[] = [];
   if (payload.summaryVersionId) {
     planRows = planComplianceNoteDrafts({

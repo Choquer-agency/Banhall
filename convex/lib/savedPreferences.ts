@@ -30,12 +30,14 @@ export function savedPreferencesLine(count: number): string | null {
 
 /**
  * The saved preferences a frozen style text holds, read back from the block
- * `composeWithSavedPreferences` wrote (E1b review). A profile that writes
- * the same heading itself is read the same way, which only hides more.
+ * `composeWithSavedPreferences` wrote (E1b review), for a style frozen
+ * before the texts were kept beside it. Read from the first heading, so a
+ * heading inside a saved preference cannot hide the ones before it; a
+ * profile that writes the same heading itself only hides more.
  */
 export function savedPreferencesIn(styleText: string | undefined): string[] {
   if (!styleText) return [];
-  const at = styleText.lastIndexOf(`${SAVED_PREFERENCES_HEADING}\n`);
+  const at = styleText.indexOf(`${SAVED_PREFERENCES_HEADING}\n`);
   if (at < 0) return [];
   return styleText
     .slice(at + SAVED_PREFERENCES_HEADING.length + 1)
@@ -107,7 +109,7 @@ function quotedSpans(field: string): Array<{ text: string; wholeOnly: boolean }>
   for (const match of field.matchAll(/(?<![\p{L}\p{N}])['‘]([^'‘’]+?)['’](?![\p{L}\p{N}])/gu)) {
     spans.push({ text: folded(match[1]!), wholeOnly: !/\S\s+\S/.test(match[1]!) });
   }
-  return spans.filter((span) => span.text !== "" && !inHouseRules(span.text));
+  return spans.filter((span) => span.text !== "");
 }
 
 /**
@@ -115,16 +117,18 @@ function quotedSpans(field: string): Array<{ text: string; wholeOnly: boolean }>
  * preference names it only as a saved preference, since people other than
  * the writer can read the notes. Only rows the Self-check model wrote are
  * read here. Code reads saved preferences too: a wording rule read from one
- * (a banned word, a required term or opening) is marked where it is read
- * (settingsExtraction.ts), and its rows carry the saved-preference label
- * from the start (selfCheckRules.ts, writerWording.ts). Every other row code
- * writes comes from fixed labels, the House Rules and the Writer Profile's
- * or settings document's own rules (fifth re-check).
+ * (a banned word, a required term or opening) is read from that preference
+ * on its own and marked (settingsExtraction.writerWordingRulesFor), and its
+ * rows carry the saved-preference label from the start (selfCheckRules.ts,
+ * writerWording.ts). Every other row code writes comes from fixed labels,
+ * the House Rules and the Writer Profile's or settings document's own rules
+ * (fifth and sixth re-checks).
  * - A quote, in the instruction or the reason: the whole preference
- *   (one word in single quotes too: 'Concise.'), a quote holding it, or two
- *   or more of its words in a row that are not all common words ("under 25
- *   words"). A quote of two or more words that is House Rule wording
- *   ("active voice") is not a quote of a preference.
+ *   (one word in single quotes too: 'Concise.'), even in House Rule words,
+ *   a quote holding it, or two or more of its words in a row that are not
+ *   all common words ("under 25 words"). Only in a row explaining a House
+ *   Rule (its instruction is House Rule text) is a part of a preference
+ *   that is House Rule wording ("active voice") not a quote of it.
  * - The whole preference in either field; a preference of one or two words
  *   only when it is the whole field.
  * - Part of it, unquoted: five of its words in a row, or four when one of
@@ -139,7 +143,8 @@ export function withoutSavedPreferenceText<T extends { instruction: string; reas
   saved: readonly string[]
 ): T {
   if (saved.length === 0 || note.source !== "model") return note;
-  const raw = isHouseRuleText(note.instruction) ? [note.reason] : [note.instruction, note.reason];
+  const houseRuleRow = isHouseRuleText(note.instruction);
+  const raw = houseRuleRow ? [note.reason] : [note.instruction, note.reason];
   const fields = raw.map(folded);
   const spans = raw.flatMap(quotedSpans);
   const joined = ` ${fields.join(" | ")} `;
@@ -149,13 +154,14 @@ export function withoutSavedPreferenceText<T extends { instruction: string; reas
     const preference = folded(text);
     const words = preference.split(" ").filter(Boolean);
     if (words.length === 0) return false;
-    const quoted = spans.some(({ text: span, wholeOnly }) =>
-      wholeOnly
-        ? span === preference
-        : span === preference ||
-          ` ${span} `.includes(` ${preference} `) ||
-          (span.split(" ").length >= 2 && ` ${preference} `.includes(` ${span} `) && !allCommon(span))
-    );
+    // A quote of the whole preference always counts, House Rule words or
+    // not ('The writer requested "Active voice."'). Part of it counts unless
+    // the row explains a House Rule and the part is that rule's wording.
+    const quoted = spans.some(({ text: span, wholeOnly }) => {
+      if (span === preference || (!wholeOnly && ` ${span} `.includes(` ${preference} `))) return true;
+      if (wholeOnly || span.split(" ").length < 2 || allCommon(span) || !` ${preference} `.includes(` ${span} `)) return false;
+      return !(houseRuleRow && inHouseRules(span));
+    });
     if (quoted) return true;
     if (words.length < 3) return fields.includes(preference);
     if (joined.includes(` ${preference} `)) return true;

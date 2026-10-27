@@ -196,6 +196,16 @@ export const openingRowInstruction = (rule: Pick<RequiredOpeningRule, "statement
 const SAVED_PREFERENCE_LOSS = "broke a saved preference of the writer's";
 
 /**
+ * Sixth re-check: a measured wording rule's stable key, the same on its
+ * Self-check entry, its repair losses and its row, so a loss lands on its
+ * own rule's row even when several rows share the saved-preference label.
+ */
+export const wordingRuleKey = (kind: "term" | "banned" | "opening", index: number) => `wording:${kind}:${index}`;
+
+/** A way a text broke a measured wording rule, on the row its key names. */
+export type WordingLoss = { key: string; reason: string; instruction: string };
+
+/**
  * Round 5 (rule 4): every way a text broke a measured wording rule its
  * input kept, each with the row of its rule (Greptile on PR #27, P2: a kept
  * repair that broke two rules explains both). It removed a required opening
@@ -208,12 +218,13 @@ export function wordingLossDetails(
   output: string,
   rules: WriterWordingRules,
   section: SectionNumber
-): Array<{ reason: string; instruction: string }> {
-  const losses: Array<{ reason: string; instruction: string }> = [];
-  for (const rule of rules.openings) {
+): WordingLoss[] {
+  const losses: WordingLoss[] = [];
+  for (const [index, rule] of rules.openings.entries()) {
     if (rule.section !== section) continue;
     if (openingAt(input, rule.opening) && !openingAt(output, rule.opening)) {
       losses.push({
+        key: wordingRuleKey("opening", index),
         reason: rule.savedPreference ? SAVED_PREFERENCE_LOSS : `removed the opening "${rule.opening}" the writer's settings require`,
         instruction: openingRowInstruction(rule),
       });
@@ -225,26 +236,29 @@ export function wordingLossDetails(
       ? after.find((hit) => !before.some((other) => other.words.toLowerCase() === hit.words.toLowerCase())) ?? after[after.length - 1]
       : undefined;
   const terms = rules.terms.map((rule) => rule.term);
-  for (const rule of rules.terms) {
+  for (const [index, rule] of rules.terms.entries()) {
     const others = terms.filter((term) => term !== rule.term);
     const added = introduced(termRuleHits(input, rule, others), termRuleHits(output, rule, others));
     if (added) {
       losses.push({
+        key: wordingRuleKey("term", index),
         reason: rule.savedPreference ? SAVED_PREFERENCE_LOSS : `wrote "${added.words}", which the writer's settings ban in favour of "${rule.term}"`,
         instruction: termRowInstruction(rule),
       });
     }
     if (holdsPhrase(input, rule.term) && !holdsPhrase(output, rule.term)) {
       losses.push({
+        key: wordingRuleKey("term", index),
         reason: rule.savedPreference ? SAVED_PREFERENCE_LOSS : `removed the last use of "${rule.term}", the writer's term`,
         instruction: termRowInstruction(rule),
       });
     }
   }
-  for (const rule of rules.banned) {
+  for (const [index, rule] of rules.banned.entries()) {
     const added = introduced(bannedRuleHits(input, rule, terms), bannedRuleHits(output, rule, terms));
     if (added) {
       losses.push({
+        key: wordingRuleKey("banned", index),
         reason: rule.savedPreference ? SAVED_PREFERENCE_LOSS : `wrote "${added.words}", which the writer's settings ban`,
         instruction: bannedRowInstruction(rule),
       });

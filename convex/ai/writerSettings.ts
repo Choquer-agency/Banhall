@@ -135,6 +135,8 @@ export const SETTINGS_CLASSIFIER_VERSION = settingsClassifierVersionFor(MODEL);
 
 export type ResolvedWriterSettings = {
   writerFlavor?: string;
+  /** Sixth re-check: the saved preference texts composed into writerFlavor. */
+  savedPreferenceTexts?: string[];
   styleOverrides?: StyleOverrides;
   orderedContext: OrderedProfileContext;
 };
@@ -346,6 +348,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
   await logAppliedStyle(args.log, writerFlavor, styleOverrides);
   return {
     ...(writerFlavor ? { writerFlavor } : {}),
+    ...(writerFlavor && style.savedPreferenceTexts ? { savedPreferenceTexts: style.savedPreferenceTexts } : {}),
     ...(styleOverrides ? { styleOverrides } : {}),
     orderedContext: pickOrderedProfileContext(style),
   };

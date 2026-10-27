@@ -20,7 +20,11 @@ export async function savedPreferencesOfGeneration(
       .first();
     if (!artifact?.content) continue;
     try {
-      const parsed = JSON.parse(artifact.content) as { writerFlavor?: unknown };
+      const parsed = JSON.parse(artifact.content) as { writerFlavor?: unknown; savedPreferenceTexts?: unknown };
+      // Sixth re-check: the texts frozen beside the composed text; a style
+      // frozen before they were kept is read back from the composed text.
+      const texts = parsed.savedPreferenceTexts;
+      if (Array.isArray(texts) && texts.every((text) => typeof text === "string")) return texts;
       return savedPreferencesIn(typeof parsed.writerFlavor === "string" ? parsed.writerFlavor : undefined);
     } catch {
       return [];

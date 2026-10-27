@@ -253,6 +253,9 @@ export const orderedPayloadValidator = v.object({
   qaCalibrationDigestId: v.optional(v.id("learningDigests")),
   draftStyleDigestId: v.optional(v.id("learningDigests")),
   writerFlavor: v.optional(v.string()),
+  // Sixth re-check: the saved preference texts composed into writerFlavor,
+  // so wording rules know their source (settingsExtraction.writerWordingRulesFor).
+  savedPreferenceTexts: v.optional(v.array(v.string())),
   styleOverrides: v.optional(styleOverridesValidator),
   orderedContext: orderedProfileContextValidator,
   // Present only for the seeds workflow. The immutable Summary is loaded by

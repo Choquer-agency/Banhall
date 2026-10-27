@@ -1,4 +1,4 @@
-import { SAVED_PREFERENCES_HEADING } from "./savedPreferences";
+import { composeWithSavedPreferences, SAVED_PREFERENCES_HEADING } from "./savedPreferences";
 import {
   DEFAULT_BUILD_ORDER,
   MAX_SELF_CHECK_INSTRUCTION_CHARS,
@@ -423,14 +423,7 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
     readFromList = false;
     listLeads = lead ? [lead] : [];
   };
-  // Fifth re-check: rules read after the saved preferences heading (the
-  // block composeWithSavedPreferences adds last) come from saved preferences.
-  const lines = text.split(/\r?\n/);
-  const savedFrom = lines.map((line) => line.trim()).lastIndexOf(SAVED_PREFERENCES_HEADING);
-  let lineIndex = -1;
-  const marked = <T extends object>(rule: T): T => (savedFrom >= 0 && lineIndex > savedFrom ? { ...rule, savedPreference: true as const } : rule);
-  for (const raw of lines) {
-    lineIndex += 1;
+  for (const raw of text.split(/\r?\n/)) {
     const line = raw.trimEnd();
     const trimmed = line.trim();
     const item = LIST_MARKER.test(line);
@@ -442,13 +435,13 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
         if (state === "terms") {
           const term = termRule(body);
           if (term && !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) {
-            terms.push(marked(term));
+            terms.push(term);
             readFromList = true;
           }
         } else {
           const entry = bannedItem(body);
           if (entry && !banned.some((other) => other.phrase.toLowerCase() === entry.phrase.toLowerCase())) {
-            banned.push(marked(entry));
+            banned.push(entry);
             readFromList = true;
           }
         }
@@ -488,7 +481,7 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
     const body = (item ? line.replace(LIST_MARKER, "") : line).trim();
     const opening = openingRule(body);
     if (opening && !openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening)) {
-      openings.push(marked(opening));
+      openings.push(opening);
     }
   }
   open("none");
@@ -498,6 +491,58 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
 /** Round 5: the writer's terms, banned words and required openings. */
 export function extractWriterWordingRules(text: string): WriterWordingRules {
   return extractWriterWordingRulesWithLeads(text).rules;
+}
+
+/**
+ * Sixth re-check (2026-10-27): the wording rules of a Writer Profile (or the
+ * settings document applied as one) and of each saved preference, each text
+ * read on its own so no text continues another's list, then merged. Every
+ * rule from a saved preference is marked, and a rule the profile also holds
+ * stays the profile's. Where the writer's own text ends is never looked for
+ * inside that text.
+ */
+export function extractWordingRulesBySource(profileText: string, savedTexts: readonly string[]): WriterWordingRules {
+  const rules = extractWriterWordingRules(profileText);
+  for (const text of savedTexts) {
+    const saved = extractWriterWordingRules(text);
+    for (const term of saved.terms) {
+      if (!rules.terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) rules.terms.push({ ...term, savedPreference: true });
+    }
+    for (const entry of saved.banned) {
+      if (!rules.banned.some((other) => other.phrase.toLowerCase() === entry.phrase.toLowerCase())) rules.banned.push({ ...entry, savedPreference: true });
+    }
+    for (const opening of saved.openings) {
+      if (!rules.openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening)) {
+        rules.openings.push({ ...opening, savedPreference: true });
+      }
+    }
+  }
+  return rules;
+}
+
+/**
+ * The wording rules of a frozen writer style: the composed text drafts
+ * read, and the saved preference texts frozen beside it. The profile's part
+ * is the composed text without the exact block those preferences composed.
+ * A style frozen before the texts were kept beside it (a draft in progress
+ * when this shipped) is split at the first saved preferences heading, and
+ * a text that does not compose as expected counts as saved throughout:
+ * either way a rule is never shown when it might be a saved preference's.
+ */
+export function writerWordingRulesFor(composed: string, savedTexts: readonly string[] | undefined): WriterWordingRules {
+  if (savedTexts !== undefined) {
+    const block = composeWithSavedPreferences("", savedTexts);
+    if (block === "") return extractWordingRulesBySource(composed, []);
+    if (composed === block) return extractWordingRulesBySource("", savedTexts);
+    if (composed.endsWith(`\n\n${block}`)) {
+      return extractWordingRulesBySource(composed.slice(0, composed.length - block.length - 2), savedTexts);
+    }
+    return extractWordingRulesBySource("", [composed]);
+  }
+  const lines = composed.split(/\r?\n/);
+  const heading = lines.findIndex((line) => line.trim() === SAVED_PREFERENCES_HEADING);
+  if (heading < 0) return extractWriterWordingRules(composed);
+  return extractWordingRulesBySource(lines.slice(0, heading).join("\n"), [lines.slice(heading + 1).join("\n")]);
 }
 
 // Final re-check P2-A2: "Avoid ...", "Never include ...", "banned",

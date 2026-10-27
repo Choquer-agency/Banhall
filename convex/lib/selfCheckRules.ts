@@ -42,8 +42,10 @@ import {
   openingRowInstruction,
   openingStatement,
   termRowInstruction,
+  wordingRuleKey,
   SAVED_PREFERENCE_ROW_INSTRUCTION,
   type RequiredTermRule,
+  type WordingLoss,
   type WriterWordingRules,
 } from "./writerWording";
 
@@ -576,7 +578,7 @@ export function runDeterministicSelfCheck(input: {
       const used = holdsPhrase(text, rule.term);
       const instruction = termRowInstruction(rule);
       if (hits.length === 0) {
-        add(`wording:term:${index}`, {
+        add(wordingRuleKey("term", index), {
           instruction,
           outcome: "applied",
           tier: "none",
@@ -587,7 +589,7 @@ export function runDeterministicSelfCheck(input: {
       }
       const found = hitsPhrase(hits);
       add(
-        `wording:term:${index}`,
+        wordingRuleKey("term", index),
         {
           instruction,
           paragraphIndex: hits[0]!.paragraphIndex,
@@ -608,13 +610,13 @@ export function runDeterministicSelfCheck(input: {
       const hits = bannedRuleHits(text, rule, requiredTerms);
       const instruction = bannedRowInstruction(rule);
       if (hits.length === 0) {
-        add(`wording:banned:${index}`, { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
+        add(wordingRuleKey("banned", index), { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
         measuredEntry(rule.source);
         return;
       }
       const found = hitsPhrase(hits);
       add(
-        `wording:banned:${index}`,
+        wordingRuleKey("banned", index),
         {
           instruction,
           paragraphIndex: hits[0]!.paragraphIndex,
@@ -636,7 +638,7 @@ export function runDeterministicSelfCheck(input: {
       const instruction = openingRowInstruction(rule);
       // The House Rule openers outrank the writer's opening unless waived.
       if (openers && !openers.effective) {
-        add(`wording:opening:${index}`, {
+        add(wordingRuleKey("opening", index), {
           instruction,
           outcome: "not_applied",
           tier: openers.tier,
@@ -646,7 +648,7 @@ export function runDeterministicSelfCheck(input: {
       }
       const at = openingAt(text, rule.opening);
       if (at) {
-        add(`wording:opening:${index}`, {
+        add(wordingRuleKey("opening", index), {
           instruction,
           paragraphIndex: at.paragraphIndex,
           outcome: "applied",
@@ -657,7 +659,7 @@ export function runDeterministicSelfCheck(input: {
         return;
       }
       add(
-        `wording:opening:${index}`,
+        wordingRuleKey("opening", index),
         {
           instruction,
           outcome: "not_applied",
@@ -1513,7 +1515,12 @@ export function assembleSectionNotes(input: {
         sameAsChecked?: true;
       }
     | { ok: false; reason: string };
-}): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
+}): {
+  rows: ComplianceNoteDraft[];
+  summary: SelfCheckSummary;
+  /** Sixth re-check: each code check's row by its entry key (a wording rule's key is wordingRuleKey). */
+  rowIndexByKey: Record<string, number>;
+} {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
     before.entries
@@ -1916,6 +1923,7 @@ export function assembleSectionNotes(input: {
       : "repair_attempted";
   return {
     rows,
+    rowIndexByKey: Object.fromEntries(finalEntries.map((entry, index) => [entry.key, index])),
     summary: {
       status,
       repairAttempted: repair.attempted,
@@ -1930,6 +1938,28 @@ export function assembleSectionNotes(input: {
         : {}),
     },
   };
+}
+
+/**
+ * Final re-check P2-C1, sixth re-check: each loss of a kept repair, on its
+ * own rule's row, found by the rule's key (never by the row's instruction,
+ * which saved-preference rows share).
+ */
+export function rowsWithRepairLosses(
+  rows: readonly ComplianceNoteDraft[],
+  rowIndexByKey: Readonly<Record<string, number>>,
+  losses: readonly WordingLoss[]
+): ComplianceNoteDraft[] {
+  const out = [...rows];
+  for (const loss of losses) {
+    const index = rowIndexByKey[loss.key] ?? -1;
+    if (index < 0) continue;
+    out[index] = {
+      ...out[index]!,
+      reason: `${out[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
+    };
+  }
+  return out;
 }
 
 const CONSISTENCY_KIND_LABELS: Record<ConsistencyFinding["kind"], string> = {
