@@ -542,7 +542,39 @@ export function writerWordingRulesFor(composed: string, savedTexts: readonly str
   const lines = composed.split(/\r?\n/);
   const heading = lines.findIndex((line) => line.trim() === SAVED_PREFERENCES_HEADING);
   if (heading < 0) return extractWriterWordingRules(composed);
-  return extractWordingRulesBySource(lines.slice(0, heading).join("\n"), [lines.slice(heading + 1).join("\n")]);
+  return extractWordingRulesBySource(lines.slice(0, heading).join("\n"), legacyPreferenceChunks(lines.slice(heading + 1)));
+}
+
+/**
+ * Seventh re-check: the saved preferences of a style frozen before their
+ * texts were kept beside it, as near as the composed block allows. Each was
+ * composed as "- " and its text, and a list inside one also uses "- ", so a
+ * bulleted line starts a new preference unless a list is open and the line
+ * reads as a list item: at most four words, no heading and no sentence or
+ * lead ending ("- optimize", never "- Keep it plain." or "- Never use these
+ * words:"). Each part is read on its own, so a list never runs on into the
+ * next preference and invents a ban.
+ */
+function legacyPreferenceChunks(lines: readonly string[]): string[] {
+  const chunks: string[][] = [];
+  let listOpen = false;
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const trimmed = line.trim();
+    const bulleted = /^- /.test(line);
+    const body = bulleted ? line.slice(2).trim() : trimmed;
+    const listItem = bulleted && listOpen && !/[.!?:]$/.test(body) && !HEADING.test(body) && wordCount(body) <= 4;
+    if (bulleted && !listItem) {
+      chunks.push([body]);
+      listOpen = BAN_LEAD.test(body) || BAN_HEADING.test(body) || termsLead(body);
+      continue;
+    }
+    if (chunks.length === 0) chunks.push([]);
+    chunks[chunks.length - 1]!.push(line);
+    if (listItem) continue;
+    listOpen = trimmed !== "" && (BAN_LEAD.test(trimmed) || BAN_HEADING.test(trimmed) || termsLead(trimmed));
+  }
+  return chunks.map((chunk) => chunk.join("\n"));
 }
 
 // Final re-check P2-A2: "Avoid ...", "Never include ...", "banned",

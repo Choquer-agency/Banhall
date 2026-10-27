@@ -573,7 +573,8 @@ describe("writer memory (Phase E, E1a)", () => {
     test("a Compliance Note row never carries a saved preference's text (review)", async () => {
       const s = await setup();
       const saved = savedPreferencesIn("Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.\n- Uses Canadian spelling.");
-      expect(saved).toEqual(["Keeps sentences under 25 words.", "Uses Canadian spelling."]);
+      // Each item, and (seventh re-check) the whole block too.
+      expect(saved).toEqual(["Keeps sentences under 25 words.", "Uses Canadian spelling.", "Keeps sentences under 25 words.\nUses Canadian spelling."]);
       expect(savedPreferencesIn("Use we.")).toEqual([]);
       const note = (instruction: string, reason: string) => ({ section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false });
       expect(withoutSavedPreferenceText(note("Keeps sentences under 25 words.", "Every sentence is short."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
@@ -729,11 +730,53 @@ describe("writer memory (Phase E, E1a)", () => {
       const flavor = `Use we.\n\nSaved preferences:\n- ${texts[0]}\n- ${texts[1]}`;
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, savedPreferenceTexts: texts, styleOverrides: {} }))).toEqual(texts);
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, styleOverrides: {} }))).toEqual([
-        "Avoid filler.",
+        "Avoid filler.\nNever use these words:",
         "optimize",
-        "Keep it plain.",
+        "Keep it plain.\nSaved preferences:\nNever use these words:",
         "leverage",
+        "Avoid filler.\nNever use these words:\noptimize\nKeep it plain.\nSaved preferences:\nNever use these words:\nleverage",
       ]);
+    });
+
+    test("a style frozen before the texts were kept loses no line of a saved preference on the way to stored notes (seventh re-check)", async () => {
+      const s = await setup();
+      // The reviewer's preference: its second line has no bullet.
+      const saved = "Keep it plain.\nPrefer crisp verbs over ornate descriptions.";
+      const reason = 'The writer requested "Prefer crisp verbs over ornate descriptions." and we complied.';
+      for (const legacy of [true, false]) {
+        const { generationId, candidateRunId } = await s.t.run(async (ctx) => {
+          const generationId = await ctx.db.insert("generations", {
+            projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+            writerSettings: {
+              profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+              waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+            },
+          });
+          await ctx.db.insert("generationArtifacts", {
+            generationId, kind: "writer_style",
+            content: JSON.stringify({
+              styleGuidance: "", writerFlavor: `Use we.\n\nSaved preferences:\n- ${saved}`, styleOverrides: {},
+              ...(legacy ? {} : { savedPreferenceTexts: [saved] }),
+            }),
+          });
+          await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
+          const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+            generationId, projectId: s.projectId, model: "m", label: "A", status: "running", queuedAt: 1,
+          });
+          return { generationId, candidateRunId };
+        });
+        await s.t.mutation(internal.generations.insertConsistencyNotes, {
+          generationId,
+          candidateRunId,
+          notes: [{ section: "244", source: "model", instruction: "Writer preference", outcome: "applied", tier: "none", reason, repaired: false }],
+        });
+        // Another reader: an Admin sees only the label.
+        const rows = await s.admin.query(api.complianceNotes.listForGeneration, { generationId, candidateRunId });
+        expect([legacy, rows.map((row) => [row.instruction, row.reason])]).toEqual([
+          legacy,
+          [[SAVED_PREFERENCE_NOTE.instruction, SAVED_PREFERENCE_NOTE.reason]],
+        ]);
+      }
     });
 
     test("stored Compliance Notes never carry a saved preference, in whole or in part, in either field (re-check)", async () => {

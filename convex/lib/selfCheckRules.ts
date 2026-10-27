@@ -305,12 +305,13 @@ function savedPreferenceRuleRow(row: ComplianceNoteDraft): ComplianceNoteDraft {
     instruction: SAVED_PREFERENCE_ROW_INSTRUCTION,
     outcome: row.outcome,
     tier: row.tier,
-    // "Not measured: the House Rule openers apply ..." holds none of the rule's words.
+    // "Not measured: the House Rule openers apply ..." holds none of the rule's
+    // words. No full stop, as other measured rows, so a note can follow it.
     reason: row.reason.startsWith("Not measured")
       ? row.reason
       : row.outcome === "applied"
-        ? "Followed, as measured by code."
-        : `Not followed${where}, as measured by code.`,
+        ? "Followed, as measured by code"
+        : `Not followed${where}, as measured by code`,
     repaired: row.repaired,
   });
 }
@@ -1956,7 +1957,8 @@ export function rowsWithRepairLosses(
     if (index < 0) continue;
     out[index] = {
       ...out[index]!,
-      reason: `${out[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
+      // Seventh re-check: never ".;" after a reason that ends a sentence.
+      reason: `${out[index]!.reason.replace(/\.$/, "")}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
     };
   }
   return out;

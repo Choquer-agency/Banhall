@@ -29,22 +29,31 @@ export function savedPreferencesLine(count: number): string | null {
 }
 
 /**
- * The saved preferences a frozen style text holds, read back from the block
- * `composeWithSavedPreferences` wrote (E1b review), for a style frozen
- * before the texts were kept beside it. Read from the first heading, so a
- * heading inside a saved preference cannot hide the ones before it; a
- * profile that writes the same heading itself only hides more.
+ * What a style frozen before the saved preference texts were kept beside it
+ * holds of them, for privacy matching only (E1b review; seventh re-check).
+ * Read from the first heading at the start of a line, so a heading inside a
+ * saved preference cannot hide the ones before it. Where one preference
+ * ends cannot be told for certain, so this returns each bulleted item with
+ * the lines that follow it, and the whole block as well: a line without a
+ * bullet ("Prefer crisp verbs ...") is never dropped. A profile that writes
+ * the same heading itself only hides more.
  */
 export function savedPreferencesIn(styleText: string | undefined): string[] {
   if (!styleText) return [];
-  const at = styleText.indexOf(`${SAVED_PREFERENCES_HEADING}\n`);
-  if (at < 0) return [];
-  return styleText
-    .slice(at + SAVED_PREFERENCES_HEADING.length + 1)
-    .split("\n")
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim())
-    .filter(Boolean);
+  const heading = new RegExp(`(?:^|\n)${SAVED_PREFERENCES_HEADING}\n`).exec(styleText);
+  if (!heading) return [];
+  const lines = styleText.slice(heading.index + heading[0].length).split("\n");
+  const items: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("- ")) items.push(line.slice(2).trim());
+    else if (items.length > 0 && line.trim()) items[items.length - 1] = `${items[items.length - 1]}\n${line.trim()}`;
+  }
+  const whole = lines
+    .map((line) => (line.startsWith("- ") ? line.slice(2) : line).trim())
+    .filter(Boolean)
+    .join("\n");
+  const found = items.filter(Boolean);
+  return whole && !found.includes(whole) ? [...found, whole] : found;
 }
 
 const folded = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();

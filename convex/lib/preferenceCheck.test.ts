@@ -468,6 +468,8 @@ const R6_FACTS = [
  * only in a table; a table holds no sections.
  */
 const R6_DECIDED_REFUSED = [
+  // Seventh re-check: "a couple of" is an amount (the reviewer disagreed with accepting it).
+  "Uses a couple of machines.",
   "Uses a three-column design.",
   "Keeps two quotes per report.",
   "Keeps each section to 6 columns.",
@@ -537,9 +539,9 @@ const R6_STYLE = [
 ];
 /**
  * Accepted on purpose. A clause with no number is the model check's to judge
- * (it refuses facts without names, numbers or codes); "first", "last" and "a
- * couple" are order and plain words, not figures; significant figures and
- * decimal places for measurements or results are ways of writing numbers.
+ * (it refuses facts without names, numbers or codes); "first" and "last" are
+ * order words, not figures; significant figures and decimal places for
+ * measurements or results are ways of writing numbers.
  */
 const R6_ACCEPTED_BY_DESIGN = [
   "Uses four short paragraphs and keeps stock full.",
@@ -551,7 +553,6 @@ const R6_ACCEPTED_BY_DESIGN = [
   "Keeps the report under 100 words and gives refunds.",
   "The first batch failed.",
   "The last machine stopped.",
-  "Uses a couple of machines.",
   "Uses two significant figures for measurements.",
   "Reports results to three decimal places.",
 ];
@@ -571,6 +572,136 @@ describe("the number rule after the sixth re-check", () => {
     }
     // A full-width count in a writing instruction is still a writing instruction.
     expect(checkPreferenceText("Keep each sentence to \uff12\uff10 words.", { names: NAMES })).toEqual({ ok: true });
+  });
+});
+
+/**
+ * Seventh re-check (gpt-6-astra, medium): its 104 probes. Roman numeral
+ * characters, large and collective amounts ("a trillion", "a score of", "a
+ * couple of", "nought", "nil"), every multiplicative ("quintupled"), French
+ * number words and "no one" before a noun are numbers.
+ */
+const R7_FACTS = [
+  "Uses ⅲ valves.",
+  "Keeps ⅳ pumps running.",
+  "Uses ⅻ litres of coolant.",
+  "Ⅻ machines failed.",
+  "Uses ⑫ litres of coolant.",
+  "Uses 𝟡 tanks.",
+  "Keeps output below ٣٠ tonnes.",
+  "Uses ₈ motors.",
+  "Uses ⅝ of the mixture.",
+  "Uses ７ bearings.",
+  "Uses ⓶ filters.",
+  "Uses ፫ workers.",
+  "Uses a trillion cells.",
+  "Uses trillions of cells.",
+  "Uses a score of valves.",
+  "Uses scores of filters.",
+  "Output quintupled.",
+  "Output sextupled.",
+  "Uses nought litres of solvent.",
+  "Keeps stock at nil.",
+  "Uses deux pumps.",
+  "Uses quatre valves.",
+  "Keeps no one damaged machine.",
+  "Keeps no one surplus motor.",
+  "No one failed component was replaced.",
+  "No one spare motor remains.",
+  "Uses sixteen valves.",
+  "Keeps inventory under forty barrels.",
+  "Uses eightyfold pressure.",
+  "Uses a half-dozen workers.",
+  "Uses three tenths of the supply.",
+  "Uses two-thirds of the batch.",
+  "Uses twice the feedstock.",
+  "Keeps the second furnace warm.",
+  "Uses seven short paragraphs and reports nine injuries.",
+  "Keeps the report under eighty words; output reached ninety units.",
+  "Numbers each valve from eleven.",
+  "Opens the fifth section with a piston.",
+  "Uses a six-column reactor.",
+  "Uses a five-part assembly.",
+  "Uses three quotes for each order.",
+  "Keeps each chamber to four spaces.",
+  "Uses eight paragraphs and runs the mill overnight.",
+  "Uses a couple of compressors.",
+  "Reports measurements to four significant figures.",
+  "Uses two bullets per magazine.",
+  "Uses seven lines per machine.",
+  "Uses forty thousand components.",
+];
+const R7_STYLE = [
+  "Keep each sentence under 23 words.",
+  "Use four short sentences per paragraph.",
+  "Use seven concise bullet points per section.",
+  "Keep the introduction to 85 words.",
+  "Write the conclusion in three sentences.",
+  "Use a four-sentence abstract.",
+  "Keep the first three paragraphs short.",
+  "I prefer paragraphs under sixty words.",
+  "Use one space before each parenthesis.",
+  "Leave two blank lines before each heading.",
+  "Use double quotes around titles.",
+  "Use 1.35 line spacing.",
+  "Set the font size to 13 points.",
+  "Use a three-column format.",
+  "Keep each table to five columns.",
+  "Number all paragraphs from two.",
+  "Start the seventh paragraph with the conclusion.",
+  "Close the eighth paragraph with a summary.",
+  "Keep the ninth sentence concise.",
+  "Use second-person wording throughout.",
+  "Write in the third person plural.",
+  "Spell out numbers below eleven.",
+  "Use numerals for numbers above thirteen.",
+  "Write dates with two digits for the day.",
+  "Use three significant figures for values.",
+  "Report percentages to two decimal places.",
+  "Round numbers to the nearest whole number.",
+  "Use one term for each idea.",
+  "Use four examples per section.",
+  "Use at most two pairs of parentheses per paragraph.",
+  "Use a colon before lists of five items.",
+  "Use Oxford commas in lists of four or more.",
+  "Indent quotations by five spaces.",
+  "Use four heading levels.",
+  "Avoid two-word headings.",
+  "Never repeat a technical term more than four times per paragraph.",
+  "Keep the summary to twenty-eight words.",
+  "Use 30 words for Line 246.",
+  "Keep Line 242 under 300 words.",
+  "Use one sentence per bullet.",
+  "Keep each heading below nine words.",
+  "Use no more than three commas per sentence.",
+  "Keep the closing to a half page.",
+  "Use １２-point type.",
+  "Use ２ short paragraphs.",
+  "Keep each sentence under eighteen words and use active voice.",
+  "Use concrete verbs.",
+  "Avoid ornate transitions.",
+  "Keep headings descriptive.",
+  "Prefer short familiar words.",
+  "Use consistent spelling.",
+  "Write direct explanations.",
+  "Writes per cent in full.",
+  "Writes so no one doubts the claim.",
+];
+/** Accepted on purpose, as in the sixth re-check: a mixed clause, order words, and decimal places for measurements. */
+const R7_ACCEPTED_BY_DESIGN = [
+  "Uses six bullets; the plant is closed.",
+  "The first reactor leaked.",
+  "The last shipment arrived.",
+  "Uses two decimal places for measurements.",
+];
+
+describe("the number rule after the seventh re-check", () => {
+  it.each(R7_FACTS)("refuses %s as a number", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: false, reason: "number" });
+  });
+
+  it.each([...R7_STYLE, ...R7_ACCEPTED_BY_DESIGN])("lets %s stand", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: true });
   });
 });
 

@@ -9,6 +9,18 @@
  * and an edit of an approved one. It is pure; the caller gathers the names
  * and, for a suggestion, the masked texts of its whole request. A text that
  * passes still gets the model's style-only check (convex/ai/writerMemory.ts).
+ *
+ * Two layers (seventh re-check). This check is the first: it refuses names,
+ * placeholders, contact details, codes, capitalized terms and, by templates
+ * that match a whole clause, any number outside a way of writing. The model's style
+ * check (`styleOnlyTexts`) is the second, for what this one cannot read.
+ * This first layer does not guarantee:
+ * - a clause with no number holding a fact ("Uses six bullets; the plant is
+ *   closed": the second clause is the model check's);
+ * - order words, which it does not read as numbers ("The first reactor
+ *   leaked", "the last shipment");
+ * - number forms outside its lists (other languages than English and
+ *   French, unusual spellings or slang for amounts).
  */
 import * as houseRules from "../../shared/houseRules";
 import * as humanProse from "../../shared/humanProse";
@@ -90,19 +102,32 @@ const CARDINAL_WORDS = new Set([
   "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty",
   "seventy", "eighty", "ninety", "hundred", "hundreds", "thousand", "thousands", "million", "millions", "billion", "billions",
   "dozen", "dozens", "half", "halves", "quarter", "quarters", "thirds",
+  // Seventh re-check: larger and nothing amounts.
+  "trillion", "trillions", "quadrillion", "quadrillions", "nought", "naught", "nil",
+  // French, since the firm works in Canada (preferences may be in French).
+  "deux", "trois", "quatre", "cinq", "sept", "huit", "neuf", "dix", "onze", "douze", "treize", "quatorze", "quinze", "seize",
+  "vingt", "vingts", "trente", "quarante", "cinquante", "soixante", "cent", "cents", "mille", "milliard", "milliards",
 ]);
 const ORDINAL = /^(?:second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|[a-z]+teenth|[a-z]+tieth|hundredth|thousandth|millionth|billionth)$/;
-const MULTIPLIER = /^(?:doubled|doubles|doubling|tripled|triples|tripling|quadrupled|quadruples|quadrupling|halved|halving)$/;
+/** "doubled", "halved", "quadruple", "quintupled", "decuple": every multiplicative ("-tuple", "-uple"). */
+const MULTIPLIER =
+  /^(?:doubled|doubles|doubling|tripled|triples|tripling|halved|halving|(?:quadr|oct|non|dec|cent)upl(?:e|ed|es|ing)|[a-z]+tupl(?:e|ed|es|ing))$/;
 /** Any number word before "fold": "fivefold", "sixteenfold", "sixtyfold", "hundredfold"; never "manifold". */
 const FOLD = new RegExp(`^(?:${[...CARDINAL_WORDS].join("|")})+fold$`);
 /**
- * "one" is not a count in "no one" and "one another" used as pronouns: "no
- * one" before a verb or the end ("so no one guesses"), never before a noun
- * ("No one employee attended"); "one another" not after "the" or "a".
+ * "one" is not a count in "no one" and "one another" used as pronouns. "no
+ * one" is a pronoun only before the end of the clause, an auxiliary, a
+ * function word or a verb this list knows ("so no one guesses"); before
+ * anything else it is a count ("No one employee attended", "No one failed
+ * component was replaced", "Keeps no one damaged machine"). "one another"
+ * is not a pronoun after "the" or "a".
  */
 const PRONOUN_NEXT = new Set([
   "", ".", ",", "!", "?", ";", ":", "is", "was", "will", "would", "can", "could", "should", "shall", "may", "might", "must",
   "has", "had", "have", "does", "did", "else", "at", "in", "on", "to", "who", "that", "but", "and", "or", "ever", "really",
+  "else's", "needs", "knows", "wants", "reads", "sees", "likes", "expects", "guesses", "understands", "cares", "notices",
+  "misses", "follows", "gets", "says", "thinks", "writes", "remembers", "doubts", "asks", "believes", "feels", "hears",
+  "uses", "minds", "agrees", "knew", "saw", "said", "thought", "wrote", "read", "asked", "expected", "noticed",
 ]);
 const DETERMINERS = new Set(["the", "a", "an", "this", "that", "each", "every", "any", "no", "one"]);
 const PLACEHOLDER = /\b(?:N|D|BIG|ORD|MULT|DOUBLE)\b/;
@@ -157,7 +182,7 @@ const LENGTH = `${AMOUNT}${DESCRIBING} ${LIMIT_UNITS}(?: (?:and|or) ${AMOUNT}${D
 const WRITING_OBJECT =
   "(?:(?:the|a|an|its|one) )?(?:(?:main|key|short|brief|clear|plain|central|overall|direct) )?(?:summary|result|results|finding|findings|question|questions|quote|quotation|sentence|claim|objective|aim|uncertainty|uncertainties|method|methods|conclusion|overview|definition|example|answer|point|hypothesis|context|background|recommendation|statement|transition|topic sentence|takeaway|outcome|outcomes|problem|goal|purpose)";
 const SPACED_PLACES =
-  "(?:full stops?|periods?|sentences?|colons?|commas?|semicolons?|punctuation|headings?|subheadings?|paragraphs?|bullets?|lists?|Lines?|sections?)";
+  "(?:full stops?|periods?|sentences?|colons?|commas?|semicolons?|punctuation|headings?|subheadings?|paragraphs?|bullets?|lists?|Lines?|sections?|parenthesis|parentheses|brackets?|dashes?|quotation marks?)";
 const NUMBER_NOUNS = "(?:numbers|numerals|figures|quantities|integers|values|digits|amounts|counts)";
 const RANGE =
   "(?:(?:under|below|over|above|up to|less than|fewer than|greater than|more than|lower than|higher than|smaller than|larger than|beyond) N" +
@@ -184,6 +209,8 @@ const NUMBER_TEMPLATES: readonly RegExp[] = [
   `(?:uses?|puts?|leaves?|adds?|prefers?|inserts?) ${QUALIFIER}(?:an? |N )(?:(?:single|blank|empty) )?(?:spaces?|lines?) (?:after|before|between) (?:(?:a|an|each|every|the|all) )?${SPACED_PLACES}`,
   // A table's columns: "Keep each table to six columns" (never another part's).
   `(?:keeps?|limits?|caps?) (?:(?:each|every|the|a|all) )?tables? (?:to|under|at|within|at most|to at most|to no more than) N columns?`,
+  // "Write the conclusion in three sentences."
+  `(?:writes?|keeps?|puts?|gives?|states?) ${SUBJECT} in ${ABOUT}${AMOUNT}${DESCRIBING} ${CORE_UNITS}`,
   // "Keep the first two paragraphs brief."
   `(?:keeps?|makes?) the (?:first|last|opening|closing|final) N (?:sentences|paragraphs|bullets|lines) (?:brief|short|shorter|plain|simple|concise)`,
   // Counts of units of writing: "Uses two or three bullets at most", "Write no more than 120 words in the closing paragraph".
@@ -256,7 +283,9 @@ function numberClauses(text: string): string[] {
   );
   const clauses: string[][] = [[]];
   let lineNumberChain = false;
+  const skipped = new Set<number>();
   raw.forEach((token, index) => {
+    if (skipped.has(index)) return;
     const current = clauses[clauses.length - 1]!;
     if (/^[.!?;:]$/.test(token)) {
       clauses.push([]);
@@ -286,10 +315,16 @@ function numberClauses(text: string): string[] {
     const word = token.toLowerCase();
     let placeholder: string | null = null;
     const pronoun =
-      (previous.toLowerCase() === "no" && (PRONOUN_NEXT.has(next) || /(?:s|ed)$/.test(next))) ||
+      (previous.toLowerCase() === "no" && PRONOUN_NEXT.has(next)) ||
       (next === "another" && !DETERMINERS.has(previous.toLowerCase()));
     if (word === "one") placeholder = pronoun ? null : "N";
-    else if (CARDINAL_WORDS.has(word)) placeholder = "N";
+    else if (word === "cent" && previous.toLowerCase() === "per") placeholder = null;
+    else if ((word === "couple" || word === "score" || word === "scores") && next === "of") {
+      // "a couple of", "a score of", "scores of": an amount, read as one count.
+      if (current[current.length - 1] === "a") current.pop();
+      skipped.add(index + 1);
+      placeholder = "N";
+    } else if (CARDINAL_WORDS.has(word)) placeholder = "N";
     else if (ORDINAL.test(word)) placeholder = "ORD";
     else if (word === "twice") {
       current.push("N", "times");
@@ -405,13 +440,16 @@ export function checkPreferenceText(
   const text = input.normalize("NFKC").trim();
   if (!text) return { ok: false, reason: "empty" };
   if (text.length > MAX_PREFERENCE_CHARS) return { ok: false, reason: "too_long" };
+  // Seventh re-check: Roman numeral characters ("Ⅻ", "ⅲ") are numbers, read
+  // before NFKC turns them into letters.
+  if (/[\u2160-\u2188]/u.test(input)) return { ok: false, reason: "number" };
   if (/\[[A-Z][A-Z_]*_\d+\]|\b[A-Z][A-Z]+_\d+\b/.test(text)) return { ok: false, reason: "placeholder" };
   if (/\S+@\S+\.\S+|https?:\/\/|\bwww\./i.test(text) || /\+?\d[\d\s().-]{6,}\d/.test(text)) {
     return { ok: false, reason: "contact" };
   }
-  if (UNCASED_SCRIPT.test(text)) return { ok: false, reason: "script" };
   // Any other numeric character (a digit of another script) is a figure.
   if (/[^\P{N}0-9]/u.test(text)) return { ok: false, reason: "number" };
+  if (UNCASED_SCRIPT.test(text)) return { ok: false, reason: "script" };
   // The form's own name is a style word, never a figure or a code.
   // "11-point type", "a two-column layout": a size, not a code.
   const plain = text
