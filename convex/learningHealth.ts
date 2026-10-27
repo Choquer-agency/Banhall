@@ -8,6 +8,8 @@ import { readSeedLearningHealth } from "./lib/seedLearningHealth";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
 
 const DAY = 86_400_000;
+/** The readings Learning health's edit-size chart averages (E3 review). */
+const MILESTONE_TRIGGERS = ["candidate_selection", "milestone", "client_publish"] as const;
 export const HEALTH_LIMITS = { ped: 2000, generations: 200, outcomes: 2000, join: 20, joinBudget: 1000, passages: 2000 };
 
 export const recordRerankOutcome = internalMutation({
@@ -50,7 +52,21 @@ export const getHealth = query({
     const outcomeRead = await reads.list("rerank outcomes", ctx.db.query("rerankOutcomes").withIndex("by_observedAt", q => q.gte("observedAt", start).lte("observedAt", end)).order("asc"), HEALTH_LIMITS.outcomes);
     const earliestRead = await reads.one("earliest rerank observation", () => ctx.db.query("rerankOutcomes").withIndex("by_observedAt").first());
     const earliest = earliestRead.kind === "loaded" ? earliestRead.value : null;
-    const pedRead = await reads.list("PED samples", ctx.db.query("reportEditDistance").withIndex("by_computedAt", q => q.gte("computedAt", start).lte("computedAt", end)).order("asc"), HEALTH_LIMITS.ped);
+    // E3 review: the chart reads the three milestone readings only; chat
+    // applies and editing bursts are shown by version (getEditSizeByVersion).
+    const pedRows: Doc<"reportEditDistance">[] = [];
+    let pedComplete = true;
+    for (const trigger of MILESTONE_TRIGGERS) {
+      const read = await reads.list("PED samples", ctx.db.query("reportEditDistance").withIndex("by_trigger_and_computedAt", q => q.eq("trigger", trigger).gte("computedAt", start).lte("computedAt", end)).order("asc"), HEALTH_LIMITS.ped);
+      pedRows.push(...read.rows);
+      pedComplete &&= read.complete;
+    }
+    pedRows.sort((a, b) => a.computedAt - b.computedAt || a._creationTime - b._creationTime);
+    if (pedRows.length > HEALTH_LIMITS.ped) {
+      truncated.add("PED samples");
+      pedComplete = false;
+    }
+    const pedRead = { rows: pedRows.slice(0, HEALTH_LIMITS.ped), complete: pedComplete };
     const generationRead = await reads.list("generations", ctx.db.query("generations").withIndex("by_startedAt", q => q.gte("startedAt", start).lte("startedAt", end)).order("asc"), HEALTH_LIMITS.generations);
     const samples = pedRead.rows;
     const generations = generationRead.rows;
@@ -217,40 +233,52 @@ export const getEditSizeByVersion = query({
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end - start > 90 * DAY || end > 8.64e15) {
       domainError("INVALID_INPUT", "Choose finite ordered bounds spanning at most 90 days");
     }
-    const rows = await ctx.db
-      .query("reportEditDistance")
-      .withIndex("by_computedAt", (q) => q.gte("computedAt", start).lte("computedAt", end))
-      .order("desc")
-      .take(VERSION_LIMITS.readings + 1);
-    const readingsPartial = rows.length > VERSION_LIMITS.readings;
-    const loaded = rows.slice(0, VERSION_LIMITS.readings);
+    // Review: every read shares the page's byte budget, so a window of
+    // large drafts gives partial results, never a failed query.
+    const truncated = new Set<string>();
+    const reads = learningHealthReads(truncated);
+    const readingRead = await reads.list(
+      "edit size readings",
+      ctx.db
+        .query("reportEditDistance")
+        .withIndex("by_computedAt", (q) => q.gte("computedAt", start).lte("computedAt", end))
+        .order("desc"),
+      VERSION_LIMITS.readings,
+    );
+    const loaded = readingRead.rows;
 
-    const generations = new Map<Id<"generations">, Doc<"generations"> | null>();
-    let generationsPartial = false;
+    // A draft not read (past the cap or the budget) is "not-loaded".
+    const generations = new Map<Id<"generations">, Doc<"generations"> | null | "not-loaded">();
+    let draftsRead = 0;
     for (const row of loaded) {
       if (!row.generationId || generations.has(row.generationId)) continue;
-      if (generations.size >= VERSION_LIMITS.generations) {
-        generationsPartial = true;
+      if (draftsRead >= VERSION_LIMITS.generations) {
+        truncated.add("drafts");
+        generations.set(row.generationId, "not-loaded");
         continue;
       }
-      generations.set(row.generationId, await ctx.db.get(row.generationId));
+      draftsRead += 1;
+      const read = await reads.one("drafts", () => ctx.db.get(row.generationId!));
+      generations.set(row.generationId, read.kind === "loaded" ? read.value : "not-loaded");
     }
     const lessonSets = new Map<Id<"learningDigests">, LessonSetView>();
-    let lessonSetsPartial = false;
     async function lessonSet(id: Id<"learningDigests">): Promise<LessonSetView> {
       const known = lessonSets.get(id);
       if (known) return known;
       if (lessonSets.size >= VERSION_LIMITS.lessonSets) {
-        lessonSetsPartial = true;
+        truncated.add("lesson sets");
         return { id, kind: null, createdAt: null };
       }
-      const digest = await ctx.db.get(id);
+      const read = await reads.one("lesson sets", () => ctx.db.get(id));
+      const digest = read.kind === "loaded" ? read.value : null;
       const view = { id, kind: digest?.kind ?? null, createdAt: digest?.createdAt ?? null };
       lessonSets.set(id, view);
       return view;
     }
 
-    type DraftVersion = { promptVersion: string | null; lessonSetIds: Id<"learningDigests">[]; savedPreferencesUsed: boolean; known: boolean };
+    // `recorded`: the reading names a draft (false only for readings with no
+    // generation, shown as "No draft recorded").
+    type DraftVersion = { promptVersion: string | null; lessonSetIds: Id<"learningDigests">[]; savedPreferencesUsed: boolean; known: boolean; recorded: boolean };
     const draftVersions = new Map<string, DraftVersion>();
     const draftGroups = new Map<string, SizeGroup>();
     const chatGroups = new Map<string, SizeGroup>();
@@ -258,20 +286,21 @@ export const getEditSizeByVersion = query({
     for (const row of loaded) {
       let version: DraftVersion;
       if (!row.generationId) {
-        version = { promptVersion: null, lessonSetIds: [], savedPreferencesUsed: false, known: false };
-      } else if (!generations.has(row.generationId)) {
+        version = { promptVersion: null, lessonSetIds: [], savedPreferencesUsed: false, known: false, recorded: false };
+      } else if (!generations.has(row.generationId) || generations.get(row.generationId) === "not-loaded") {
         notLoaded++;
         continue;
       } else {
-        const generation = generations.get(row.generationId) ?? null;
+        const generation = (generations.get(row.generationId) as Doc<"generations"> | null | undefined) ?? null;
         version = generation
           ? {
               promptVersion: generation.promptVersion ?? null,
               lessonSetIds: [...(generation.learningDigestIds ?? [])].sort(),
               savedPreferencesUsed: (generation.writerSettings?.savedPreferences?.count ?? 0) > 0,
               known: true,
+              recorded: true,
             }
-          : { promptVersion: null, lessonSetIds: [], savedPreferencesUsed: false, known: false };
+          : { promptVersion: null, lessonSetIds: [], savedPreferencesUsed: false, known: false, recorded: true };
       }
       const key = JSON.stringify(version);
       draftVersions.set(key, version);
@@ -287,6 +316,7 @@ export const getEditSizeByVersion = query({
         lessonSets: await Promise.all(version.lessonSetIds.map(lessonSet)),
         savedPreferencesUsed: version.savedPreferencesUsed,
         known: version.known,
+        recorded: version.recorded,
         ...sizeSummary(group),
       });
     }
@@ -305,7 +335,8 @@ export const getEditSizeByVersion = query({
       byVersion,
       byChatLessonSet,
       notLoaded,
-      partial: readingsPartial || generationsPartial || lessonSetsPartial,
+      partial: truncated.size > 0,
+      truncated: [...truncated],
       limits: VERSION_LIMITS,
     };
   },

@@ -1,3 +1,4 @@
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import { v } from "convex/values";
 import { internalQuery, mutation, query } from "./_generated/server";
 import { components } from "./_generated/api";
@@ -252,8 +253,14 @@ export const getFeedbackForDigest = internalQuery({
       .sort((a, b) => signalTime(b) - signalTime(a) || b._creationTime - a._creationTime)
       .slice(0, limit);
     const signals = [];
+    // Phase E (E3, review): an evaluation project's votes never teach lessons.
+    const evaluation = new Map<string, boolean>();
     for (const row of rows) {
       if (!row.learningSnapshot?.answerText.trim()) continue;
+      if (row.projectId) {
+        if (!evaluation.has(row.projectId)) evaluation.set(row.projectId, isEvaluationProject(await ctx.db.get(row.projectId)));
+        if (evaluation.get(row.projectId)) continue;
+      }
       const reasonCode = row.vote === -1 ? row.learningSnapshot.reasonCode : undefined;
       const reasonText = reasonCode ? row.learningSnapshot.reasonText : undefined;
       signals.push({

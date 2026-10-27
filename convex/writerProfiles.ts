@@ -714,8 +714,22 @@ export async function getEffectiveWriterStyle(
  * try/catch — a failure here must never break generation. The ordered
  * generation context is a separate read (getGenerationProfileContext).
  */
+/**
+ * Phase E (E3): a release suite --compare arm's saved preferences, by the
+ * generation's project; undefined for any other project (the writer's own).
+ */
+async function evaluationPreferencesOf(
+  ctx: QueryCtx,
+  projectId: Id<"projects"> | undefined
+): Promise<{ savedPreferences?: readonly string[] }> {
+  const project = projectId ? await ctx.db.get(projectId) : null;
+  const savedPreferences = isEvaluationProject(project) ? project?.evaluation?.preferences : undefined;
+  return savedPreferences !== undefined ? { savedPreferences } : {};
+}
+
 export const getProfileForGeneration = internalQuery({
-  args: { userId: v.optional(v.id("users")) },
+  // E3 review: the project too, so the fallback path honours a --compare arm.
+  args: { userId: v.optional(v.id("users")), projectId: v.optional(v.id("projects")) },
   returns: v.union(
     v.object({
       customInstructions: v.union(v.string(), v.null()),
@@ -731,7 +745,7 @@ export const getProfileForGeneration = internalQuery({
     v.null()
   ),
   handler: async (ctx, args) => {
-    const style = await getEffectiveWriterStyle(ctx, args.userId);
+    const style = await getEffectiveWriterStyle(ctx, args.userId, undefined, await evaluationPreferencesOf(ctx, args.projectId));
     if (
       style.customInstructions === null &&
       !hasAnyStyleOverride(style.styleOverrides)
@@ -759,10 +773,10 @@ export const getProfileForGeneration = internalQuery({
  * missing or disabled profile still yields the House Rules default order.
  */
 export const getGenerationProfileContext = internalQuery({
-  args: { userId: v.optional(v.id("users")) },
+  args: { userId: v.optional(v.id("users")), projectId: v.optional(v.id("projects")) },
   returns: orderedProfileContextValidator,
   handler: async (ctx, args): Promise<OrderedProfileContext> => {
-    const style = await getEffectiveWriterStyle(ctx, args.userId);
+    const style = await getEffectiveWriterStyle(ctx, args.userId, undefined, await evaluationPreferencesOf(ctx, args.projectId));
     return pickOrderedProfileContext(style);
   },
 });
@@ -898,11 +912,7 @@ export const getGenerationWriterStyle = internalQuery({
   },
   returns: effectiveWriterStyleValidator,
   handler: async (ctx, args): Promise<EffectiveWriterStyle> => {
-    const project = args.projectId ? await ctx.db.get(args.projectId) : null;
-    const savedPreferences = isEvaluationProject(project) ? project?.evaluation?.preferences : undefined;
-    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument, {
-      ...(savedPreferences !== undefined ? { savedPreferences } : {}),
-    });
+    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument, await evaluationPreferencesOf(ctx, args.projectId));
   },
 });
 

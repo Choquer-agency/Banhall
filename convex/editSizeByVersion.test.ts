@@ -4,7 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { EDIT_SIZE_BURST_MS } from "./lib/editDistance";
+import { closeEditBurst, EDIT_SIZE_BURST_MS } from "./lib/editDistance";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -235,6 +235,44 @@ describe("editing bursts (Phase E, E3)", () => {
     ]);
   });
 
+  it("an AI redraft first closes a person's open burst at the person's own revision (review)", async () => {
+    const f = await setup();
+    await f.save(f.owner, 1);
+    // The redraft's write path closes the burst before the AI's text lands.
+    await f.t.run(async (ctx) => {
+      const report = (await ctx.db.get(f.reportId))!;
+      await closeEditBurst(ctx, report);
+      await ctx.db.patch(f.reportId, { content: doc("AI redrafted every Section here."), revisionNumber: (report.revisionNumber ?? 0) + 1 });
+    });
+    expect(await f.due()).toEqual([]);
+    await f.endBurst();
+    expect((await f.readings()).map((row) => [row.trigger, row.revisionNumber, row.editorUserId])).toEqual([["edit", 1, f.ownerId]]);
+    // With no burst open, closing records nothing.
+    await f.t.run(async (ctx) => closeEditBurst(ctx, (await ctx.db.get(f.reportId))!));
+    expect(await f.readings()).toHaveLength(1);
+  });
+
+  it("a one-by-one apply records its reading too, and a card from no chat turn carries no lesson set (review)", async () => {
+    const f = await setup();
+    const card = await f.propose("inconclusive", "clear");
+    await f.owner.mutation(api.chatV2.markProposalApplied, {
+      proposalId: card,
+      content: doc("The team ran a controlled trial.", "Results were clear."),
+      expectedRevisionNumber: 0,
+    });
+    expect(await f.readings()).toMatchObject([{ trigger: "chat_apply", revisionNumber: 1, editorUserId: f.ownerId, learningDigestId: f.digestId }]);
+    const loose = await f.t.run((ctx) =>
+      ctx.db.insert("chatProposals", {
+        agentThreadId: "size-thread", projectId: f.projectId, reportId: f.reportId, kind: "edit" as const,
+        targetText: "clear", newText: "plain", state: "pending" as const, createdAt: Date.now(),
+      })
+    );
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: loose });
+    const [, second] = await f.readings();
+    expect(second).toMatchObject({ trigger: "chat_apply", revisionNumber: 2 });
+    expect(second!.learningDigestId).toBeUndefined();
+  });
+
   it("records nothing for a project being erased, and clears the burst", async () => {
     const f = await setup();
     await f.save(f.owner, 1);
@@ -346,6 +384,36 @@ describe("edit size by version (Phase E, E3)", () => {
     expect(view.byChatLessonSet).toHaveLength(2);
     expect(view.byChatLessonSet.find((row) => row.lessonSet?.id === f.lessonA)).toMatchObject({ mean: 0.5, reports: 1, readings: 1 });
     expect(view.byChatLessonSet.find((row) => row.lessonSet === null)).toMatchObject({ mean: 0.3, reports: 1, readings: 1 });
+  });
+
+  it("keeps Learning health's chart to the three milestone readings (review)", async () => {
+    const f = await seedVersions();
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("reportEditDistance", {
+        reportId: f.reportId, projectId: f.projectId, revisionNumber: 1, ped: 0.6, computedAt: f.end - DAY, trigger: "milestone",
+      });
+    });
+    const health = await f.admin.query(api.learningHealth.getHealth, { start: f.end - 30 * DAY, end: f.end });
+    // Only the milestone reading; the edit and chat apply readings are left out.
+    expect(health.ped.samples).toBe(1);
+    expect(health.ped.mean).toBeCloseTo(0.6);
+  });
+
+  it("gives partial results within the read budget when drafts are large (review)", async () => {
+    const f = await seedVersions();
+    await f.t.run(async (ctx) => {
+      const big = "x".repeat(900_000);
+      for (let index = 0; index < 12; index += 1) {
+        const generationId = await ctx.db.insert("generations", { projectId: f.projectId, status: "completed", startedAt: 1, agentOutputs: big });
+        await ctx.db.insert("reportEditDistance", {
+          reportId: f.reportId, projectId: f.projectId, generationId, revisionNumber: 1, ped: 0.5, computedAt: f.end - DAY - index, trigger: "edit",
+        });
+      }
+    });
+    const view = await f.admin.query(api.learningHealth.getEditSizeByVersion, { start: f.start, end: f.end });
+    expect(view.partial).toBe(true);
+    expect(view.truncated).toContain("read byte budget");
+    expect(view.notLoaded).toBeGreaterThan(0);
   });
 
   it("is for administrators only, over at most 90 days", async () => {

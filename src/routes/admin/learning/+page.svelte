@@ -26,8 +26,11 @@
     allowed && !versionsQ.error && !versionsQ.isStale && versionsQ.data?.window.start === start && versionsQ.data.window.end === end
       ? versionsQ.data : undefined
   );
-  const lessonSetName = (set: { kind: "qa_calibration" | "draft_style" | null; createdAt: number | null }) =>
-    `${set.kind === "qa_calibration" ? "QA lessons" : set.kind === "draft_style" ? "Style lessons" : "Lesson set"}${set.createdAt === null ? "" : ` of ${date(set.createdAt)}`}`;
+  // A set not read (past the limit) is told apart by the end of its id.
+  const lessonSetName = (set: { id: string; kind: "qa_calibration" | "draft_style" | null; createdAt: number | null }) =>
+    set.kind === null
+      ? `Lesson set ${set.id.slice(-6)}`
+      : `${set.kind === "qa_calibration" ? "QA lessons" : "Style lessons"}${set.createdAt === null ? "" : ` of ${date(set.createdAt)}`}`;
   function refresh() { end = Math.max(Date.now(), end + 1); }
   function selectRange(value: 30 | 90) { days = value; refresh(); }
   const date = (value: number) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -163,7 +166,7 @@
             <p class="px-5 pb-5 text-body" role="status">Loading edit size by version…</p>
           {:else}
             {#if versions.partial}
-              <p class="px-5 pb-3 text-body" role="status">Partial results: only the newest {versions.limits.readings} readings, {versions.limits.generations} drafts and {versions.limits.lessonSets} lesson sets are read. {versions.notLoaded} readings of drafts past the limit are left out.</p>
+              <p class="px-5 pb-3 text-body" role="status">Partial results: only the newest {versions.limits.readings} readings, {versions.limits.generations} drafts and {versions.limits.lessonSets} lesson sets are read, within the page's read budget.{versions.notLoaded > 0 ? ` ${versions.notLoaded} readings of drafts not read are left out.` : ""}</p>
             {/if}
             {#if versions.byVersion.length}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -173,7 +176,7 @@
                   <thead class="border-y border-line bg-chrome text-label"><tr><th class="px-5 py-3 font-medium">Prompt version</th><th class="px-4 py-3 font-medium">Lesson sets</th><th class="px-4 py-3 font-medium">Saved preferences</th><th class="px-4 py-3 font-medium">Mean edit size</th><th class="px-4 py-3 font-medium">Reports</th><th class="px-4 py-3 font-medium">Readings</th></tr></thead>
                   <tbody>{#each versions.byVersion as row, index (index)}
                     <tr class="border-b border-line-soft" data-version-row>
-                      <th scope="row" class="px-5 py-4 font-normal"><span class="break-all text-data">{row.promptVersion ?? (row.known ? "Not recorded" : "Draft not found")}</span></th>
+                      <th scope="row" class="px-5 py-4 font-normal"><span class="break-all text-data">{row.promptVersion ?? (!row.recorded ? "No draft recorded" : row.known ? "Not recorded" : "Draft not found")}</span></th>
                       <td class="px-4 py-4 text-body">{row.lessonSets.length ? row.lessonSets.map(lessonSetName).join(", ") : "None"}</td>
                       <td class="px-4 py-4 text-body">{row.savedPreferencesUsed ? "Used" : "Not used"}</td>
                       <td class="px-4 py-4 text-data">{percent(row.mean)}</td><td class="px-4 py-4 text-data">{row.reports}</td><td class="px-4 py-4 text-data">{row.readings}</td>
@@ -188,11 +191,14 @@
               <h3 class="text-body font-medium">Chat applies by style lesson set</h3>
               <p class="mt-1 text-body">The report's edit size after a chat card applied, by the style lessons its chat used. Each report counts once per lesson set, with its latest apply.</p>
               {#if versions.byChatLessonSet.length}
-                <table class="mt-3 w-full text-left">
-                  <caption class="sr-only">Mean edit size after chat applies, by style lesson set</caption>
-                  <thead><tr class="border-b border-line"><th class="py-2 font-medium">Style lessons</th><th class="py-2 font-medium">Mean edit size</th><th class="py-2 font-medium">Reports</th><th class="py-2 font-medium">Applies</th></tr></thead>
-                  <tbody>{#each versions.byChatLessonSet as row, index (index)}<tr class="border-b border-line-soft" data-chat-lesson-row><td class="py-2 text-body">{row.lessonSet ? lessonSetName(row.lessonSet) : "None"}</td><td class="text-data">{percent(row.mean)}</td><td class="text-data">{row.reports}</td><td class="text-data">{row.readings}</td></tr>{/each}</tbody>
-                </table>
+                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+                <div class="mt-3 overflow-x-auto" role="region" aria-label="Chat applies by style lesson set table" tabindex="0">
+                  <table class="w-full text-left">
+                    <caption class="sr-only">Mean edit size after chat applies, by style lesson set</caption>
+                    <thead><tr class="border-b border-line"><th class="py-2 font-medium">Style lessons</th><th class="py-2 font-medium">Mean edit size</th><th class="py-2 font-medium">Reports</th><th class="py-2 font-medium">Applies</th></tr></thead>
+                    <tbody>{#each versions.byChatLessonSet as row, index (index)}<tr class="border-b border-line-soft" data-chat-lesson-row><td class="py-2 text-body">{row.lessonSet ? lessonSetName(row.lessonSet) : "None"}</td><td class="text-data">{percent(row.mean)}</td><td class="text-data">{row.reports}</td><td class="text-data">{row.readings}</td></tr>{/each}</tbody>
+                  </table>
+                </div>
               {:else}
                 <p class="mt-3 text-body">No chat applies in this window.</p>
               {/if}

@@ -766,8 +766,12 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
-- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+- [x] Code review by two reviewers: Claude Opus 5.5 (requested high, it reported low) and gpt-6-astra (medium); fixes in the review commit after efb1882e.
+- [x] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Automated, live on localhost
+
+- [x] On the live copy (2026-10-27): two saves opened one burst (one row, no second), a real chat turn's edit card applied and recorded a chat apply reading (revision 10, naming who applied it, no lesson set as none is published there), a third save inside the burst added no row, and the burst's reading landed exactly 10 minutes after its first save on the latest revision (11, "edit"). Admin, Learning health, "Edit size by version" showed the report once, at its latest reading (7.2 percent, 1 report, 2 readings), and the chat table one apply with no style lessons.
 
 ### Owner
 
@@ -787,12 +791,12 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [x] Code review by two reviewers: Claude Opus 5.5 (requested high, it reported low) and gpt-6-astra (medium); fixes in the review commit after efb1882e.
+- [x] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
 
-- [ ] One release suite fixture on the live copy: its project is marked, and it makes no learning signal, edit size reading or Brain source.
+- [x] One release suite fixture on the live copy (2026-10-27, both arms of the compare run below): each project was marked as an evaluation project, and the scripted Seed edits and Feedback made no learning signal.
 
 ## Phase E, fifth part: comparing drafts with and without a change
 
@@ -804,10 +808,10 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [x] Code review by two reviewers: Claude Opus 5.5 (requested high, it reported low) and gpt-6-astra (medium); fixes in the review commit after efb1882e.
+- [x] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
 
-- [ ] `node scripts/seed-plan-eval.mjs --deployment local --as <reviewer> --confirm-spend --compare preferences --fixture skipped-role-supported`: two projects, the "with" draft records 3 saved preferences used and the "without" draft none, and `compare.md` says so.
+- [x] `node scripts/seed-plan-eval.mjs --deployment local --as <reviewer> --confirm-spend --compare preferences --fixture skipped-role-supported` on the live copy at 3f724739 (2026-10-27, $2.33): the "without" draft used 0 saved preferences although the acting reviewer has 2 switched on, the "with" draft used 3, both passed all 12 automatic checks, and `compare.md` said so. The preferences showed in the text: "the team" 6 times without and 0 with, "we" 0 times without and 26 with, and the mean sentence 32.1 words without and 23.6 with (16 of 55 sentences over 25 words, against 23 of 41). This run predates the review fix that gives both arms the same title.
 

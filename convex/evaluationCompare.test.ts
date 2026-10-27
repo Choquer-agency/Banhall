@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { preferenceTextKey } from "./lib/preferenceCheck";
@@ -8,6 +8,11 @@ import { releaseEvalProjectTitle } from "../shared/releaseEval";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
+
+// E3 review: evaluation projects are made only on a local backend (or where
+// allowed); these tests run as one.
+beforeEach(() => vi.stubEnv("CONVEX_CLOUD_URL", "http://127.0.0.1:3210"));
+afterEach(() => vi.unstubAllEnvs());
 
 /**
  * 2026-10-27 (Phase E, E3): the release suite's --compare arms. A lesson set

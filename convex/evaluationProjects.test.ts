@@ -9,6 +9,11 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
+// E3 review: evaluation projects are made only on a local backend (or where
+// allowed); these tests run as one.
+beforeEach(() => vi.stubEnv("CONVEX_CLOUD_URL", "http://127.0.0.1:3210"));
+afterEach(() => vi.unstubAllEnvs());
+
 /**
  * 2026-10-27 (Phase E, E3): the release suite's evaluation projects never
  * feed learning, writer memory, edit size or Brain nomination. Every name
@@ -111,8 +116,28 @@ describe("marking evaluation projects (Phase E, E3)", () => {
       })
     );
     vi.stubEnv("CONVEX_CLOUD_URL", "https://energized-salamander-237.convex.cloud");
+    // Even with the allow setting.
+    vi.stubEnv("BANHALL_EVALUATION_PROJECTS", "allowed");
     await expect(s.t.mutation(internal.seedPlanEval.markEvaluationProject, { projectId })).rejects.toThrow(/never made on production/);
     expect((await s.t.run((ctx) => ctx.db.get(projectId)))!.evaluation).toBeUndefined();
+  });
+
+  it("is refused on a cloud deployment unless the owner allowed it there, and when the deployment is unknown (review)", async () => {
+    const s = await setup();
+    const projectId = await s.t.run((ctx) =>
+      ctx.db.insert("projects", {
+        title: releaseEvalProjectTitle("Fourth"), clientName: "C", status: "draft", createdBy: s.writerId,
+        shareToken: "fourth", createdAt: 1, updatedAt: 1,
+      })
+    );
+    for (const url of ["https://brave-otter-123.convex.cloud", ""]) {
+      vi.stubEnv("CONVEX_CLOUD_URL", url);
+      await expect(s.t.mutation(internal.seedPlanEval.markEvaluationProject, { projectId })).rejects.toThrow(/only on a local deployment/);
+    }
+    vi.stubEnv("CONVEX_CLOUD_URL", "https://brave-otter-123.convex.cloud");
+    vi.stubEnv("BANHALL_EVALUATION_PROJECTS", "allowed");
+    await s.t.mutation(internal.seedPlanEval.markEvaluationProject, { projectId });
+    expect((await s.t.run((ctx) => ctx.db.get(projectId)))!.evaluation).toBeDefined();
   });
 });
 
@@ -159,6 +184,25 @@ describe("evaluation projects are left out (Phase E, E3)", () => {
       const rows = (await s.t.query(reader, { limit: 50 })) as Array<{ projectId: Id<"projects"> | null }>;
       expect(rows.map((row) => row.projectId)).toEqual([s.normal.projectId]);
     }
+  });
+
+  it("of chat answer votes (review)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (const ids of [s.normal, s.evaluation]) {
+        const turnId = await ctx.db.insert("chatTurns", {
+          userId: s.writerId, agentThreadId: `thread-${ids.projectId}`, promptMessageId: "prompt", order: 0, status: "completed", stepCount: 1,
+        });
+        await ctx.db.insert("chatAnswerFeedback", {
+          turnId, userId: s.writerId, projectId: ids.projectId, reportId: ids.reportId, agentThreadId: `thread-${ids.projectId}`,
+          promptMessageId: "prompt", answerMessageId: "answer", promptText: "Shorten Line 242.", answerText: "Here is a shorter Line 242.",
+          learningSnapshot: { version: 2, promptText: "Shorten Line 242.", answerText: "Here is a shorter Line 242." },
+          vote: 1, createdAt: 1,
+        });
+      }
+    });
+    const rows = await s.t.query(internal.chatFeedback.getFeedbackForDigest, { limit: 50 });
+    expect(rows.map((row) => row.projectId)).toEqual([s.normal.projectId]);
   });
 
   it("of learning signals: none is made, and one made before the mark is no longer read", async () => {
@@ -217,6 +261,22 @@ describe("evaluation projects are left out (Phase E, E3)", () => {
       const readings = await s.t.run((ctx) => ctx.db.query("reportEditDistance").collect());
       expect(readings.map((row) => row.projectId)).toEqual([s.normal.projectId]);
       expect(await s.t.run((ctx) => ctx.db.query("reportEditSizeDue").collect())).toEqual([]);
+
+      // Review: a chat apply on the evaluation project records nothing either.
+      const proposalId = await s.t.run(async (ctx) => {
+        await ctx.db.insert("agentChatThreads", {
+          projectId: s.evaluation.projectId, reportId: s.evaluation.reportId, agentThreadId: "eval-thread", title: "Chat", createdAt: 1,
+        });
+        await ctx.db.insert("chatTurns", {
+          userId: s.writerId, agentThreadId: "eval-thread", promptMessageId: "eval-prompt", order: 0, status: "completed", stepCount: 1,
+        });
+        return await ctx.db.insert("chatProposals", {
+          agentThreadId: "eval-thread", promptMessageId: "eval-prompt", projectId: s.evaluation.projectId, reportId: s.evaluation.reportId,
+          kind: "edit", targetText: "Every word here changed.", newText: "Each word here changed.", state: "pending", createdAt: 1,
+        });
+      });
+      expect(await s.writer.mutation(api.chatV2.applyProposal, { proposalId })).toMatchObject({ applied: true });
+      expect((await s.t.run((ctx) => ctx.db.query("reportEditDistance").collect())).map((row) => row.projectId)).toEqual([s.normal.projectId]);
     });
   });
 

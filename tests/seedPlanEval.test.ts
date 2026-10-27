@@ -46,6 +46,8 @@ import {
   validateFixture,
   writePack,
   compareArms,
+  compareApplied,
+  comparePairDifference,
   packFileName,
   type CompareLessonSet,
   RATE_LIMIT_MARGIN_MS,
@@ -2310,8 +2312,8 @@ describe("--compare (Phase E, E3)", () => {
 
   it("makes two arms: none against the lesson set, or none against the fixture's own preferences", () => {
     expect(compareArms("lessons", {}, lessonSet)).toEqual([
-      { name: "without", label: "without lessons", compare: { lessons: { kind: "draft_style", learningDigestId: null } } },
-      { name: "with", label: "with lesson set kd7set", compare: { lessons: { kind: "draft_style", learningDigestId: "kd7set" } } },
+      { name: "without", label: "without lessons", compare: { lessons: { kind: "draft_style", learningDigestId: null } }, lessonSetId: "kd7set" },
+      { name: "with", label: "with lesson set kd7set", compare: { lessons: { kind: "draft_style", learningDigestId: "kd7set" } }, lessonSetId: "kd7set" },
     ]);
     expect(compareArms("preferences", { preferences: ["Uses the active voice."] }, null)).toEqual([
       { name: "without", label: "without saved preferences", compare: { preferences: [] } },
@@ -2349,13 +2351,18 @@ describe("--compare (Phase E, E3)", () => {
       log: () => undefined,
     };
     const fixture = byCase("skipped_role_supported");
-    const [, arm] = compareArms("preferences", fixture, null)!;
+    const [without, arm] = compareArms("preferences", fixture, null)!;
     await runFixture(fixture, driver, { arm: arm! });
-    expect(order[0]![1].title).toBe(releaseEvalProjectTitle(`${fixture.title} (with 3 saved preferences)`));
+    // Review: the title the models read is the same for both arms.
+    expect(order[0]![1].title).toBe(releaseEvalProjectTitle(fixture.title));
     expect(order.slice(1, 3)).toEqual([
       ["seedPlanEval:markEvaluationProject", { projectId: "project-1" }],
       ["seedPlanEval:setEvaluationCompare", { projectId: "project-1", preferences: fixture.preferences }],
     ]);
+    const withCreate = order[0]![1];
+    order.length = 0;
+    await runFixture(fixture, driver, { arm: without! });
+    expect(order[0]![1]).toEqual(withCreate);
   });
 
   it("writes one file per arm and compare.md naming the set and what each draft used", () => {
@@ -2365,7 +2372,7 @@ describe("--compare (Phase E, E3)", () => {
       const arms = compareArms("lessons", fixture, lessonSet)!;
       const results = arms.map((arm) => {
         const log = emptyRunLog(fixture.id, 0);
-        return { fixture, log, collected: null, checks: runChecks(fixture, null, log), arm: { name: arm.name, label: arm.label } };
+        return { fixture, log, collected: null, checks: runChecks(fixture, null, log), arm: { name: arm.name, label: arm.label, compare: arm.compare, lessonSetId: arm.lessonSetId } };
       });
       const written = writePack(root, results, context);
       expect(written.map((file) => path.basename(file))).toEqual([
@@ -2378,12 +2385,30 @@ describe("--compare (Phase E, E3)", () => {
       expect(packFileName({ fixture })).toBe("withdrawn-feedback.md");
       const compare = readFileSync(path.join(root, "compare.md"), "utf8");
       expect(compare).toContain("Lesson set `kd7set` (style lessons, made 2026-10-26 from 12 items), against none.");
-      expect(compare).toContain("| [withdrawn-feedback](withdrawn-feedback-with.md) | with lesson set kd7set | No draft was collected. |");
+      expect(compare).toContain("| [withdrawn-feedback](withdrawn-feedback-with.md) | with lesson set kd7set | No draft was collected. | unknown |");
+      expect(compare).toContain("- withdrawn-feedback: the arms differ in more than the change (one arm has no draft); compare with care.");
       expect(readFileSync(path.join(root, "withdrawn-feedback-without.md"), "utf8")).toContain("Compare arm: **without lessons**.");
       expect(readFileSync(path.join(root, "summary.md"), "utf8")).toContain("[withdrawn-feedback (with lesson set kd7set)](withdrawn-feedback-with.md)");
       expect(DASHES.test(compare)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("says whether each arm's change applied, names the control, and flags pairs that differ in more than the change (review)", () => {
+    const collected = (fields: Record<string, unknown>) =>
+      ({ generation: { learningDigestIds: [], promptVersion: "pv", models: { writing: "m" }, writerSettings: { source: "profile", savedPreferences: 0 }, ...fields } }) as never;
+    const [withoutSet, withSet] = compareArms("lessons", {}, lessonSet)!;
+    expect(compareApplied(withSet!, collected({ learningDigestIds: ["kd7set"] }))).toBe("applied");
+    expect(compareApplied(withSet!, collected({ learningDigestIds: [] }))).toBe("did not apply");
+    expect(compareApplied(withoutSet!, collected({ learningDigestIds: ["kd7set"] }))).toBe("did not apply");
+    expect(compareApplied(withoutSet!, collected({ learningDigestIds: ["other"] }))).toBe("applied");
+    const [, withPrefs] = compareArms("preferences", { preferences: ["A.", "B."] }, null)!;
+    expect(compareApplied(withPrefs!, collected({ writerSettings: { source: "profile", savedPreferences: 2 } }))).toBe("applied");
+    expect(compareApplied(withPrefs!, collected({ writerSettings: { source: "profile", savedPreferences: 0 } }))).toBe("did not apply");
+    expect(compareApplied(withPrefs!, collected({ writerSettings: { source: "writer_notes", savedPreferences: 0 } }))).toBe("control");
+    expect(compareApplied(withPrefs!, null)).toBe("unknown");
+    expect(comparePairDifference(collected({}), collected({}))).toBeNull();
+    expect(comparePairDifference(collected({}), collected({ promptVersion: "pv2", models: { writing: "n" } }))).toBe("prompt version and models");
   });
 });

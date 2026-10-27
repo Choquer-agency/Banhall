@@ -182,6 +182,21 @@ export async function recordReportEditDistance(
   }
 }
 
+/**
+ * E3 review: before an AI change to the report's text (a redraft), an open
+ * editing burst is closed with its reading of the person's own revision, so
+ * its later reading never measures the AI's text under the person's name.
+ */
+export async function closeEditBurst(ctx: MutationCtx, report: Doc<"reports">): Promise<void> {
+  const due = await ctx.db
+    .query("reportEditSizeDue")
+    .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
+    .unique();
+  if (!due) return;
+  await ctx.db.delete(due._id);
+  await recordReportEditDistance(ctx, report, "edit", { editorUserId: due.editorUserId });
+}
+
 /** An editing burst: its reading is taken this long after its first save. */
 export const EDIT_SIZE_BURST_MS = 10 * 60 * 1000;
 

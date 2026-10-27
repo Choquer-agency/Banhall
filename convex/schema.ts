@@ -2899,7 +2899,9 @@ export default defineSchema({
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
     .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"])
-    .index("by_computedAt", ["computedAt"]),
+    .index("by_computedAt", ["computedAt"])
+    // E3 review: Learning health's chart reads the three milestones only.
+    .index("by_trigger_and_computedAt", ["trigger", "computedAt"]),
 
   // 2026-10-27 (Phase E, E3): one row per report while an editing burst is
   // open. The first save of a burst writes it and schedules the burst's

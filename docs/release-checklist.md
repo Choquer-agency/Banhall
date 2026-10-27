@@ -43,7 +43,7 @@ node scripts/seed-plan-eval.mjs --deployment local --as <reviewer email> --confi
 
 `--as` names the internal account the suite acts as. The script refuses production, and it refuses a cloud deployment unless you add `--allow-cloud-dev`. Every project it creates is named "Release eval - <fixture>". It writes a judging pack to `_bmad-output/test-artifacts/seed-plan-eval/<date>/`: one file per fixture with the signed-off plan, the drafted Sections, the Compliance Note and the automatic checks, and a `summary.md` with the timings and request counts.
 
-Each project is marked as an evaluation project, so its fictional work never teaches the lesson sets, writer memory, edit size or the Brain.
+Each project is marked as an evaluation project, so its fictional work never teaches the lesson sets, writer memory, edit size or the Brain. A local backend allows this; on a cloud development deployment (`--allow-cloud-dev`), first set `BANHALL_EVALUATION_PROJECTS` to `allowed` on that deployment. Production never allows it.
 
 To compare a change, run the suite with `--compare lessons --lesson-set <id>` (a saved lesson set, published or not, against none) or `--compare preferences` (each fixture's own saved preferences against none; fixtures without a list are skipped). Each fixture then runs twice, each arm on its own project, and the pack adds `compare.md` with the arms side by side and what each draft used. Run the two separately. A lesson set that drew on withdrawn feedback is refused.
 

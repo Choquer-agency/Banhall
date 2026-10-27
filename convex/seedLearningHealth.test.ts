@@ -617,6 +617,42 @@ async function insertWorkedTrace() {
     });
   });
 
+  // Phase E (E3, review): a release suite evaluation project contributes
+  // nothing either, so every total below also proves it is left out.
+  const evaluationProjectId = await t.run((ctx) =>
+    ctx.db.insert("projects", {
+      title: "Release eval - Metrics",
+      clientName: "Metrics client",
+      status: "draft",
+      createdBy: ids.writerId,
+      shareToken: "share-evaluation",
+      createdAt: P1 - MINUTE,
+      updatedAt: P1 - MINUTE,
+      evaluation: { markedAt: P1 - MINUTE },
+    }),
+  );
+  const evaluationGenerationId = await insertGeneration(t, evaluationProjectId);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("seedDecisionEvents", {
+      projectId: evaluationProjectId,
+      generationId: evaluationGenerationId,
+      kind: "select",
+      roleId: "company_context",
+      at: P1 + 10 * MINUTE,
+      actorUserId: ids.writerId,
+    });
+    await ctx.db.insert("aiUsage", {
+      projectId: evaluationProjectId,
+      generationId: evaluationGenerationId,
+      callSite: "generation:seeds:company_context",
+      model: "model-a",
+      inputTokens: 10,
+      outputTokens: 10,
+      costUsd: 9,
+      createdAt: P1 + 10 * MINUTE,
+    });
+  });
+
   return {
     t,
     admin: t.withIdentity({ subject: "seed-health-admin" }),

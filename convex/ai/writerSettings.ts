@@ -365,8 +365,8 @@ async function degrade(
     args.log,
     `Writer settings could not be resolved (${reason}); the saved Writer Profile applies and no settings document is read.`
   );
-  const style = await fetchWriterStyle(ctx, args.requestedBy, args.log);
-  const orderedContext = await readOrderedProfileContext(ctx, args.requestedBy);
+  const style = await fetchWriterStyle(ctx, args.requestedBy, args.log, args.projectId);
+  const orderedContext = await readOrderedProfileContext(ctx, args.requestedBy, args.projectId);
   try {
     const applied = orderedContext.profileState === "applied";
     await ctx.runMutation(internal.generations.recordWriterSettings, {

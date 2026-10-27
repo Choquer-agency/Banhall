@@ -11,8 +11,20 @@ export function isEvaluationProject(project: Pick<Doc<"projects">, "evaluation">
   return project?.evaluation !== undefined;
 }
 
-/** True on a production deployment, where projects are never marked. */
-export function onProductionDeployment(): boolean {
+/**
+ * Why a deployment may not make evaluation projects, or null when it may.
+ * E3 review: an allow list, not a deny list. A local backend may; any other
+ * deployment only when the owner sets BANHALL_EVALUATION_PROJECTS to
+ * "allowed" on it; production never, whatever is set.
+ */
+export function evaluationRefusal(): string | null {
   const url = (process.env.CONVEX_CLOUD_URL ?? "").toLowerCase();
-  return PRODUCTION_DEPLOYMENTS.some((name) => url.includes(name));
+  if (PRODUCTION_DEPLOYMENTS.some((name) => url.includes(name))) {
+    return "Evaluation projects are never made on production";
+  }
+  const local = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/|$)/.test(url);
+  if (!local && process.env.BANHALL_EVALUATION_PROJECTS !== "allowed") {
+    return "Evaluation projects are made only on a local deployment, or one where BANHALL_EVALUATION_PROJECTS is allowed";
+  }
+  return null;
 }

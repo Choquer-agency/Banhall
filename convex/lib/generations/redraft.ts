@@ -6,6 +6,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { closeEditBurst } from "../editDistance";
 import { savedPreferencesOfGeneration } from "../savedPreferenceNotes";
 import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -801,6 +802,9 @@ export async function settleSeedRedraft(
     filled = merged.filled.map((key) => key.slice(1) as SectionNumber);
     skipped = merged.skipped.map((key) => key.slice(1) as SectionNumber);
     if (merged.filled.length > 0) {
+      // Phase E (E3, review): a person's open editing burst is read before
+      // the AI's Sections land, never after.
+      await closeEditBurst(ctx, report);
       await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
       await ctx.db.patch(report._id, {
         content: merged.content,

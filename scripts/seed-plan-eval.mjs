@@ -229,7 +229,7 @@ try {
       console.log(`\n=== ${name} ===`);
       const { log, collected } = await evalModule.runFixture(fixture, driver, { singleBaseline: options.singleBaseline, rateLimitBudget, ...(arm ? { arm } : {}) });
       const checks = evalModule.runChecks(fixture, collected, log);
-      results.push({ fixture: { ...fixture, dir: undefined, texts: undefined }, log, collected, checks, ...(arm ? { arm: { name: arm.name, label: arm.label } } : {}) });
+      results.push({ fixture: { ...fixture, dir: undefined, texts: undefined }, log, collected, checks, ...(arm ? { arm: { name: arm.name, label: arm.label, compare: arm.compare, ...(arm.lessonSetId ? { lessonSetId: arm.lessonSetId } : {}) } } : {}) });
       const failed = checks.filter((item) => item.status === "fail");
       console.log(`${name}: ${checks.filter((item) => item.status === "pass").length} checks passed, ${failed.length} failed`);
       for (const item of failed) console.log(`  FAIL ${item.label}: ${item.evidence}`);

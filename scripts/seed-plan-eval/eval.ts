@@ -1274,6 +1274,8 @@ export type CompareArm = {
     lessons?: { kind: "qa_calibration" | "draft_style"; learningDigestId: string | null };
     preferences?: string[];
   };
+  /** E3 review: the lesson set the pair compares, so the pack can check both arms (not sent). */
+  lessonSetId?: string;
 };
 
 /** The lesson set `--compare lessons` names, read before any run. */
@@ -1291,8 +1293,8 @@ export function compareArms(
   if (compare === "lessons") {
     if (!lessonSet) throw new Error("--compare lessons needs the lesson set");
     return [
-      { name: "without", label: "without lessons", compare: { lessons: { kind: lessonSet.kind, learningDigestId: null } } },
-      { name: "with", label: `with lesson set ${lessonSet.id}`, compare: { lessons: { kind: lessonSet.kind, learningDigestId: lessonSet.id } } },
+      { name: "without", label: "without lessons", compare: { lessons: { kind: lessonSet.kind, learningDigestId: null } }, lessonSetId: lessonSet.id },
+      { name: "with", label: `with lesson set ${lessonSet.id}`, compare: { lessons: { kind: lessonSet.kind, learningDigestId: lessonSet.id } }, lessonSetId: lessonSet.id },
     ];
   }
   if (!fixture.preferences?.length) return null;
@@ -1963,7 +1965,9 @@ export async function runFixture(
       .map((source) => ({ content: fixture.texts[source.file], label: source.label ?? source.file }));
     // projects.createProject returns { projectId, transcriptIds }.
     const created = (await act("projects:createProject", {
-      title: releaseEvalProjectTitle(options.arm ? `${fixture.title} (${options.arm.label})` : fixture.title),
+      // E3 review: both arms of a --compare pair get the same title, which
+      // the models read; the arm lives on the project and in the pack only.
+      title: releaseEvalProjectTitle(fixture.title),
       clientName: fixture.clientName,
       ...(fixture.industry ? { industry: fixture.industry } : {}),
       ...(fixture.interviewees?.length ? { interviewees: fixture.interviewees } : {}),
@@ -2087,6 +2091,9 @@ export type Collected = {
     };
     /** 2026-10-27 (E3): the lesson sets the draft used; absent in older results. */
     learningDigestIds?: string[];
+    /** E3 review: the prompt version and models a --compare pair must share; absent in older results. */
+    promptVersion?: string | null;
+    models?: Record<string, string> | null;
   };
   subsections: Array<{
     roleId: string;
@@ -3912,8 +3919,8 @@ export type FixtureResult = {
   log: RunLog;
   collected: Collected | null;
   checks: Check[];
-  /** 2026-10-27 (E3): the `--compare` arm this result ran, if any. */
-  arm?: { name: CompareArm["name"]; label: string };
+  /** 2026-10-27 (E3): the `--compare` arm this result ran, if any, and what it set. */
+  arm?: { name: CompareArm["name"]; label: string; compare?: CompareArm["compare"]; lessonSetId?: string };
 };
 
 export type PackContext = {
@@ -4162,6 +4169,47 @@ export function compareUsedLine(c: Collected | null): string {
 }
 
 /**
+ * E3 review: whether a compare arm's draft used what the arm set. "control"
+ * when a settings document replaced the profile, so no saved preference
+ * could apply (the writer settings document fixture).
+ */
+export function compareApplied(
+  arm: NonNullable<FixtureResult["arm"]>,
+  c: Collected | null,
+): "applied" | "did not apply" | "control" | "unknown" {
+  if (!c || !arm.compare) return "unknown";
+  const lessons = arm.compare.lessons;
+  if (lessons) {
+    const sets = c.generation.learningDigestIds;
+    const setId = arm.lessonSetId ?? lessons.learningDigestId;
+    if (sets === undefined || setId === null) return "unknown";
+    // The "with" arm must have used the set, the "without" arm must not.
+    return sets.includes(setId) === (lessons.learningDigestId !== null) ? "applied" : "did not apply";
+  }
+  const preferences = arm.compare.preferences;
+  if (preferences) {
+    const settings = c.generation.writerSettings;
+    const saved = settings?.savedPreferences;
+    if (saved === undefined) return "unknown";
+    if (settings && (settings.source === "writer_notes" || settings.source === "attachment") && saved === 0) return "control";
+    return saved === preferences.length ? "applied" : "did not apply";
+  }
+  return "unknown";
+}
+
+/**
+ * E3 review: what differs between a pair's drafts besides the change (the
+ * prompt version, the models), or null when nothing recorded differs.
+ */
+export function comparePairDifference(a: Collected | null, b: Collected | null): string | null {
+  if (!a || !b) return "one arm has no draft";
+  const differs: string[] = [];
+  if ((a.generation.promptVersion ?? null) !== (b.generation.promptVersion ?? null)) differs.push("prompt version");
+  if (JSON.stringify(a.generation.models ?? null) !== JSON.stringify(b.generation.models ?? null)) differs.push("models");
+  return differs.length ? differs.join(" and ") : null;
+}
+
+/**
  * 2026-10-27 (Phase E, E3): the `--compare` summary. Each fixture's two
  * arms side by side, with what each draft actually used, for the reviewing
  * manager to judge which reads better.
@@ -4179,15 +4227,31 @@ export function renderCompare(results: readonly FixtureResult[], context: PackCo
       : compare?.kind === "preferences"
         ? ["Each fixture's own saved preferences, against none. They are set on the arm's project only, never on the reviewer's account.", ""]
         : []),
-    "| Fixture | Arm | What the draft used | Automatic checks | Which reads better (with, without or same) |",
-    "| --- | --- | --- | --- | --- |",
+    "| Fixture | Arm | What the draft used | The change | Automatic checks | Which reads better (with, without or same) |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...results
       .filter((r) => r.arm)
       .map((r) => {
         const passed = r.checks.filter((item) => item.status === "pass").length;
         const failed = r.checks.filter((item) => item.status === "fail").length;
-        return `| [${r.fixture.id}](${packFileName(r)}) | ${r.arm!.label} | ${compareUsedLine(r.collected)} | ${passed} pass, ${failed} fail |  |`;
+        const applied = compareApplied(r.arm!, r.collected);
+        const change =
+          applied === "control"
+            ? "control: a settings document replaced the profile, so no saved preference applies"
+            : applied === "did not apply"
+              ? "**did not apply**: compare this pair with care"
+              : applied;
+        return `| [${r.fixture.id}](${packFileName(r)}) | ${r.arm!.label} | ${compareUsedLine(r.collected)} | ${change} | ${passed} pass, ${failed} fail |  |`;
       }),
+    "",
+    // E3 review: each pair must differ only in the change.
+    ...[...new Set(results.filter((r) => r.arm).map((r) => r.fixture.id))].flatMap((id) => {
+      const pair = results.filter((r) => r.arm && r.fixture.id === id);
+      const without = pair.find((r) => r.arm!.name === "without");
+      const withArm = pair.find((r) => r.arm!.name === "with");
+      const difference = comparePairDifference(without?.collected ?? null, withArm?.collected ?? null);
+      return difference ? [`- ${id}: the arms differ in more than the change (${difference}); compare with care.`] : [];
+    }),
     "",
   ];
   return `${lines.join("\n")}\n`;

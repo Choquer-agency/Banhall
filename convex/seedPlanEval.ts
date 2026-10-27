@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
-import { isEvaluationProject, onProductionDeployment } from "./lib/evaluationProjects";
+import { evaluationRefusal, isEvaluationProject } from "./lib/evaluationProjects";
 import { drewOnWithdrawn } from "./lib/learningWithdrawal";
 import { MAX_PREFERENCE_CHARS } from "./lib/preferenceCheck";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -76,7 +76,8 @@ export const markEvaluationProject = internalMutation({
   args: { projectId: v.id("projects") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (onProductionDeployment()) throw new Error("Evaluation projects are never made on production");
+    const refusal = evaluationRefusal();
+    if (refusal) throw new Error(refusal);
     const project = await ctx.db.get(args.projectId);
     if (!project || !isReleaseEvalProjectTitle(project.title)) {
       throw new Error("Not a release eval project");
@@ -112,7 +113,8 @@ export const setEvaluationCompare = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (onProductionDeployment()) throw new Error("Evaluation projects are never made on production");
+    const refusal = evaluationRefusal();
+    if (refusal) throw new Error(refusal);
     const project = await ctx.db.get(args.projectId);
     if (!project || !isReleaseEvalProjectTitle(project.title) || !isEvaluationProject(project) || !project.evaluation) {
       throw new Error("Not an evaluation project");
@@ -497,6 +499,9 @@ export const collect = internalQuery({
           : null,
         // Phase E (E3): the lesson sets the draft used, for --compare.
         learningDigestIds: generation.learningDigestIds ?? [],
+        // E3 review: what a --compare pair must share to be compared.
+        promptVersion: generation.promptVersion ?? null,
+        models: generation.modelFreeze ? { ...generation.modelFreeze.roles } : null,
       },
       subsections: subsections.map((row) => ({
         roleId: row.roleId,

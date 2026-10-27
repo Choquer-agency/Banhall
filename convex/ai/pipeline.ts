@@ -1755,7 +1755,7 @@ export const generateCandidate = internalAction({
           args.brainExemplars.analyzer
         );
         const orderedContext =
-          args.orderedContext ?? (await readOrderedProfileContext(ctx, input.requestedBy));
+          args.orderedContext ?? (await readOrderedProfileContext(ctx, input.requestedBy, input.projectId));
         await ctx.runMutation(internal.generations.createOrderedSectionRuns, {
           generationId: args.generationId,
           candidateRunId: args.candidateRunId,
