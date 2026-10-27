@@ -1292,9 +1292,16 @@ export const getOutline = query({
 export const getSubsection = query({
   args: { generationId: v.id("generations"), roleId: seedRoleIdValidator },
   handler: async (ctx, args) => {
-    await requireSeedRead(ctx, args.generationId);
+    const generation = await requireSeedRead(ctx, args.generationId);
     const data = await getSubsectionData(ctx, args.generationId, args.roleId);
-    return { ...data, pendingBatch: await pendingBatchOf(ctx, data.pendingBatchId) };
+    return {
+      ...data,
+      pendingBatch: await pendingBatchOf(ctx, data.pendingBatchId),
+      // 2026-10-27 (twelfth): why Previous-year status opened skipped.
+      ...(args.roleId === "prior_year_status" && generation.previousYearMaterial === false
+        ? { noPreviousYearMaterial: true as const }
+        : {}),
+    };
   },
 });
 export const getApprovalReview = query({

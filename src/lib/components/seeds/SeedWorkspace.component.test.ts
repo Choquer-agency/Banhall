@@ -721,6 +721,21 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
   });
 
+  // 2026-10-27 (twelfth, owner): Previous-year status opens skipped when the
+  // draft has nothing from a previous year, and says why.
+  it("says why Previous-year status opened skipped, and offers Restore step", async () => {
+    const optional = { title: "Previous-year status", objective: "Describe prior-year status.", kind: "optional" } as const;
+    const view = await render(SeedSubsectionPane, paneProps(
+      subsection({ roleId: "prior_year_status", state: "skipped", items: [], noPreviousYearMaterial: true }),
+      optional,
+    ));
+    await expect.element(page.getByText("Skipped because this draft has no previous-year files. Restore it from the More menu if the project had a previous year.")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Restore step", exact: true })).toBeVisible();
+    // Skipped by the writer: the usual line.
+    await view.rerender(paneProps(subsection({ roleId: "prior_year_status", state: "skipped", items: [] }), optional));
+    await expect.element(page.getByText("Skipped. Restore it from the More menu to pick seeds.")).toBeVisible();
+  });
+
   // 2026-10-22 (alerts): two writers did not find Skip step in the More menu.
   it("offers Skip beside the approval on an optional step, moves on after it, and Restore step once skipped", async () => {
     const onApproved = vi.fn();

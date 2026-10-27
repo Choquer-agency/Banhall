@@ -193,6 +193,57 @@ function openArgs(s: Fixture, version: number, commandId: string, roleId = FIRST
   return { generationId: s.generationId, roleId, expectedSeedStageVersion: version, commandId };
 }
 
+// 2026-10-27 (twelfth, owner): "skip the step if its the project's first
+// year or no prior files available".
+describe("Previous-year status with nothing from a previous year", () => {
+  async function priorYear(s: Fixture) {
+    return await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(s.generationId),
+      row: await ctx.db
+        .query("seedSubsections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", "prior_year_status"))
+        .unique(),
+      events: (await ctx.db.query("seedDecisionEvents").collect())
+        .map((event) => event as { generationId: string; roleId?: string; kind: string; actorSystem?: boolean; actorUserId?: string })
+        .filter((event) => event.generationId === s.generationId && event.roleId === "prior_year_status")
+        .map((event) => ({ kind: event.kind, actorSystem: event.actorSystem ?? false, actorUserId: event.actorUserId ?? null })),
+      batches: (await ctx.db.query("seedBatches").collect()).filter((batch) => batch.roleId === "prior_year_status"),
+    }));
+  }
+
+  it.each([
+    [false, "skipped"],
+    [true, "untouched"],
+    [undefined, "untouched"],
+  ] as const)("opens it with previous-year material %s as %s", async (material, expected) => {
+    const s = await setup();
+    if (material !== undefined) await s.t.run((ctx) => ctx.db.patch(s.generationId, { previousYearMaterial: material }));
+    await initialize(s);
+    const state = await priorYear(s);
+    expect(state.row?.state).toBe(expected);
+    expect(state.events).toEqual(expected === "skipped" ? [{ kind: "skip", actorSystem: true, actorUserId: null }] : []);
+    expect(state.batches).toEqual([]);
+    // Every other step opens as before.
+    const others = await s.t.run((ctx) =>
+      ctx.db.query("seedSubsections").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(others.filter((row) => row.roleId !== "prior_year_status").every((row) => row.state === "untouched")).toBe(true);
+  });
+
+  it("lets the writer restore it", async () => {
+    const s = await setup();
+    await s.t.run((ctx) => ctx.db.patch(s.generationId, { previousYearMaterial: false }));
+    await initialize(s);
+    const before = await priorYear(s);
+    await s.writer.mutation(api.seeds.unskip, {
+      generationId: s.generationId,
+      roleId: "prior_year_status",
+      expectedSeedStageVersion: before.generation?.seedStageVersion ?? 0,
+    });
+    expect((await priorYear(s)).row?.state).toBe("untouched");
+  });
+});
+
 describe("the server starts the first Seed Batch (decision 65)", () => {
   it("schedules one first-Batch command when the stage opens, and none on a repeated initialization", async () => {
     const s = await setup();

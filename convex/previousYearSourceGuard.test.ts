@@ -363,7 +363,10 @@ describe("a card duplicate (decision 42)", () => {
     const f = await setup();
     const projectId = await duplicate(f, { keepTranscript: true, leaveNotes: true, newTranscript: true });
     await f.writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "iterative" });
-    expect((await state(f, projectId)).generations).toHaveLength(1);
+    const { generations } = await state(f, projectId);
+    expect(generations).toHaveLength(1);
+    // 2026-10-27 (twelfth): last year's report and transcript are there.
+    expect(generations[0]?.previousYearMaterial).toBe(true);
   });
 
   it("drafts when a current file comes along with last year's copied transcript", async () => {
@@ -521,3 +524,41 @@ describe("the rule runs on what the writer left in (decision 56)", () => {
     await expectNothingReserved(f, projectId);
   });
 });
+
+// 2026-10-27 (twelfth, owner): a draft records whether it froze anything from
+// a previous year, so its Seed stage can open with Previous-year status
+// skipped when it did not.
+describe("whether a draft reads anything from a previous year", () => {
+  async function material(f: Fixture, projectId: Id<"projects">, excludeDocumentIds?: Id<"projectDocuments">[]) {
+    const generationId = await f.writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "iterative",
+      ...(excludeDocumentIds ? { excludeDocumentIds } : {}),
+    });
+    return (await f.t.run((ctx) => ctx.db.get(generationId)))?.previousYearMaterial;
+  }
+
+  it("is false for a first-year project with only this year's interview", async () => {
+    const f = await setup();
+    const projectId = await freshProject(f, ["Interviewer: What did you test?\nEngineer: The furnace controller."]);
+    expect(await material(f, projectId)).toBe(false);
+  });
+
+  it("is true with a previous-year report, and false when the writer leaves it out", async () => {
+    const f = await setup();
+    const projectId = await freshProject(f, ["Interviewer: What did you test?\nEngineer: The furnace controller."], [
+      { fileName: "FY2024 PD.docx", category: "previous_pd", content: LAST_YEAR },
+    ]);
+    expect(await material(f, projectId)).toBe(true);
+    const report = await f.t.run(async (ctx) =>
+      (await ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).first())!._id
+    );
+    await f.t.run(async (ctx) => {
+      const generation = (await ctx.db.query("generations").withIndex("by_projectId", (q) => q.eq("projectId", projectId)).first())!;
+      await ctx.db.patch(generation._id, { status: "failed" });
+      await ctx.db.patch(projectId, { activeGenerationId: undefined, status: "draft" });
+    });
+    expect(await material(f, projectId, [report])).toBe(false);
+  });
+});
+

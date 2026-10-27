@@ -990,3 +990,27 @@ What changes:
 - [ ] Give a long Feedback on a card (several sentences): it is sent whole and the revised cards follow it.
 - [ ] Edit a card's bullet to a long paragraph: it saves with no note.
 
+## Previous-year status skips itself on a first-year project
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (twelfth)" (owner decision).
+
+What changes:
+
+- **A draft with nothing from a previous year opens with Previous-year status already skipped.** "Nothing from a previous year" means no previous-year report or note (project or company) and no transcript copied from last year's project. No cards are made for it.
+- **The step says why, and Restore step brings it back.**
+- **Drafts with previous-year files, and drafts started before this change, open as before.**
+
+### Automated, offline
+
+- [x] Server and browser tests (see the decision entry).
+- [x] Full gate: `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` (8,164 unit and 1,992 browser tests).
+- [ ] Code review.
+
+### Automated, live on localhost
+
+- [ ] A new Step by step draft on a first-year project opens with the step skipped; one with a previous-year file opens it as before.
+
+### Manual on localhost
+
+- [ ] Start a draft on a first-year project: Previous-year status shows as skipped with its reason; Restore step brings its cards.
+

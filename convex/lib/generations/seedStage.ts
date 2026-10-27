@@ -72,7 +72,7 @@ import { readSeedReadiness } from "../seedReadiness";
 import { matchesSeedExclusion, pickedLinks } from "../seedApproval";
 import { pickedUncertaintyFor } from "../../../shared/advancementLinks";
 import { terminateSeedAttempts } from "../../seedRuns";
-import { bypassSeedEpisodes } from "../seedDecisionWrites";
+import { appendSeedRoleEvent, bypassSeedEpisodes, recomputeSeedDecisions } from "../seedDecisionWrites";
 import { appendGenerationProgress } from "../generationProgress";
 import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
@@ -232,6 +232,20 @@ export async function initializeSeedStageHandler(
     projectId: generation.projectId, generationId: generation._id,
     kind: "initialized", at: Date.now(), actorSystem: true,
   });
+  // 2026-10-27 (twelfth, owner): with nothing from a previous year in the
+  // draft, Previous-year status opens skipped, as the Skip action leaves it
+  // (no Batch is made); the writer can still restore it.
+  if (generation.previousYearMaterial === false) {
+    const row = await ctx.db
+      .query("seedSubsections")
+      .withIndex("by_generationId_and_roleId", q => q.eq("generationId", generation._id).eq("roleId", "prior_year_status"))
+      .unique();
+    if (row) {
+      await ctx.db.patch(row._id, { state: "skipped" });
+      const recomputed = await recomputeSeedDecisions(ctx, generation._id, "prior_year_status", true);
+      await appendSeedRoleEvent(ctx, recomputed, "skip", null);
+    }
+  }
   // Owner decision 65: the first step's Batch starts now, not when a browser
   // mounts the Seed workspace; the browser's open reuses it. Scheduled, so a
   // refused dispatch never undoes the stage opening.

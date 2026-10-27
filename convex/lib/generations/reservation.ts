@@ -425,7 +425,16 @@ export async function reserveGeneration(
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
-  if ((await currentYearTranscripts(ctx, project, transcripts, frozenLimits)).length === 0) {
+  const thisYearTranscripts = await currentYearTranscripts(ctx, project, transcripts, frozenLimits);
+  // 2026-10-27 (twelfth, owner): Previous-year status is skipped when the
+  // draft reads nothing from a previous year (the project's first year, or
+  // no previous-year files): no previous-year report or note, project or
+  // company, and no transcript copied from an earlier fiscal year.
+  const previousYearMaterial =
+    evidence.frozenDocuments.some((item) => isPreviousYearDocument(item.document)) ||
+    evidence.frozenCompanyFiles.some((item) => isPreviousYearDocument(item.file)) ||
+    thisYearTranscripts.length < transcripts.length;
+  if (thisYearTranscripts.length === 0) {
     // The files this draft reads (not archived, with text, not left out),
     // already loaded: reading every row again could pass a transaction's
     // reads (B1 review, 2026-10-27).
@@ -574,6 +583,7 @@ export async function reserveGeneration(
     seededCandidates: seededCandidates || undefined,
     ...(confirmedExcluded ? { excludedSources: confirmedExcluded } : {}),
     ...(evidence.frozenCompanyFiles[0] ? { companyFilesFrom: evidence.frozenCompanyFiles[0].file.clientId } : {}),
+    previousYearMaterial,
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
     candidatesDone: seededCandidates,

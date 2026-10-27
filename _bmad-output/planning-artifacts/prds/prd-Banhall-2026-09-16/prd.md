@@ -284,6 +284,7 @@ The writer can mark an Optional Subsection as not applicable, and reverse that. 
 - Skip and Unskip are Decision Set changes: every approved Successor becomes Stale (FR-17).
 - Unskip returns the Subsection to *in progress* with its retained Seed Selections active again (or to *untouched* if it never had a Batch); it never returns directly to *approved*.
 - A skipped Subsection counts as decided for Summary Review readiness (FR-20), is listed as "Skipped" in the Summary, and its Skip is a plan decision carried into Prose Generation (FR-25): the drafter must not cover that role from the Brief or sources.
+- Previous-year status opens skipped when the draft reads nothing from a previous year (the project's first year, or no previous-year files): no previous-year report or note, project or company, and no transcript copied from an earlier fiscal year. The step says why and the writer can Unskip it. (Amended 2026-10-27, owner approved.)
 - Skipping a Stale Subsection disposes its stale episode as *bypassed*; its active Feedback becomes inactive.
 
 #### FR-15: Approve a Subsection

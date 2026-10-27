@@ -1188,6 +1188,12 @@ export default defineSchema({
     // draft froze, when it froze any. Lets a reader that cannot afford to
     // read every frozen row tell whether the project has left that company.
     companyFilesFrom: v.optional(v.id("clients")),
+    // 2026-10-27 (twelfth, owner): whether the draft froze anything from a
+    // previous year (a file in the previous-year category, or a transcript a
+    // duplicate copied from an earlier fiscal year). False: the Seed stage
+    // opens with Previous-year status skipped. Absent (older drafts): no
+    // automatic skip.
+    previousYearMaterial: v.optional(v.boolean()),
     // 2026-10-26 (Phase D, step 2, re-check): a Summary recovery could not
     // copy every record of what the draft it recovers read, so the Inputs
     // band says its records were cut short. Carried to later recoveries.

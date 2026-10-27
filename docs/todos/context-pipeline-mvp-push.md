@@ -100,7 +100,7 @@ Each has a recommended answer. Work goes on with it until the owner says otherwi
 8. **Stress test spend cap** (F5). Recommended: $40. Waits: the live stress test does not start without it.
 9. **Words for a step whose evidence is too large for the model** (F1, step 4): "This step's evidence is too large for the model. Leave some files out and start again." Recommended: yes.
 10. **Azure** (B3): the account and its key, entered privately when asked. Waits: scan reading's live test.
-11. **Previous-year status on a first-year project.** The step does not fail, but with no previous year in the files it still writes 3 to 5 cards, so it fills them with this year's open items (on the first-year test draft: untested alloys, internal edges, GPU speed), and nothing tells the writer to skip the step. Recommended: let this optional step return no cards when the files show no previous year, saying "No previous-year work found; skip this step if this is the project's first year", and allow 1 to 5 cards otherwise. (Corrected 2026-10-27: this first said the step's Batch fails; those failures were the release tests pressing Skip while it was still being made.)
+11. **Previous-year status on a first-year project.** Answered 2026-10-27: "is optional and skip the step if its the project's first year or no prior files available". Built: the step opens skipped when the draft reads nothing from a previous year, says why, and can be restored (decision entry "2026-10-27 (twelfth)").
 
 ## Azure setup
 
