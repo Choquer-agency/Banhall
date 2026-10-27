@@ -147,6 +147,7 @@ import type * as lib_citationSpeakers from "../lib/citationSpeakers.js";
 import type * as lib_citations from "../lib/citations.js";
 import type * as lib_claimExclusionMatcher from "../lib/claimExclusionMatcher.js";
 import type * as lib_clients from "../lib/clients.js";
+import type * as lib_companyEvidence from "../lib/companyEvidence.js";
 import type * as lib_companyFileText from "../lib/companyFileText.js";
 import type * as lib_comparisonText from "../lib/comparisonText.js";
 import type * as lib_completionReport from "../lib/completionReport.js";
@@ -447,6 +448,7 @@ declare const fullApi: ApiFromModules<{
   "lib/citations": typeof lib_citations;
   "lib/claimExclusionMatcher": typeof lib_claimExclusionMatcher;
   "lib/clients": typeof lib_clients;
+  "lib/companyEvidence": typeof lib_companyEvidence;
   "lib/companyFileText": typeof lib_companyFileText;
   "lib/comparisonText": typeof lib_comparisonText;
   "lib/completionReport": typeof lib_completionReport;

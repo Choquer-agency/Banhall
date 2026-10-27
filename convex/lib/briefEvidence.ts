@@ -12,6 +12,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
 import {
   FROZEN_TRANSCRIPT_CHARS,
+  MAX_TRANSCRIPTS_PER_PROJECT,
   TRANSCRIPT_BUDGET_CHARS,
   listProjectTranscripts,
   transcriptLabel,
@@ -21,6 +22,8 @@ import { projectPlaceholderMap } from "./transcriptPlaceholders";
 import type { PlaceholderEntry } from "./deidentify";
 import { dashboardFiscalYear } from "../../shared/dashboardProjection";
 import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
+import { readCompanyFileTextOrNull } from "./companyFileText";
+import { companyOtherNames } from "./clients";
 import { quotableFileText } from "../../shared/wordMarkdown";
 
 /**
@@ -36,10 +39,27 @@ type Ctx = QueryCtx | MutationCtx;
 export const FROZEN_DOCUMENT_CHARS = 200_000;
 /** Document rows a run looks at, in index order, before filtering. */
 export const FROZEN_DOCUMENT_ROWS = 50;
+/**
+ * Company files (2026-10-26, Phase C): at most this many, newest first,
+ * after the project's own files; their text together at most
+ * FROZEN_COMPANY_CHARS; and none once every frozen row together would pass
+ * FROZEN_TOTAL_BYTES (UTF-8), so a project's own evidence never loses room.
+ */
+export const FROZEN_COMPANY_FILES = 12;
+export const FROZEN_COMPANY_CHARS = 600_000;
+export const FROZEN_TOTAL_BYTES = 8 * 1024 * 1024;
+/** Company file rows a run looks at, newest first, before filtering. */
+const COMPANY_FILE_ROWS = 50;
+/**
+ * The most rows one generation freezes: a transcript, its digest and its
+ * fact pack each, the files, the Storyline, and the company files.
+ */
+export const MAX_FROZEN_SOURCE_ROWS = 3 * MAX_TRANSCRIPTS_PER_PROJECT + FROZEN_DOCUMENT_ROWS + 1 + FROZEN_COMPANY_FILES;
 
 export type ExcludedSourceIds = {
   documentIds: Id<"projectDocuments">[];
   transcriptIds: Id<"transcripts">[];
+  companyFileIds?: Id<"companyFiles">[];
 };
 
 export type FrozenEvidence = {
@@ -50,6 +70,10 @@ export type FrozenEvidence = {
   frozenTranscripts: Array<{ row: Doc<"transcripts">; content: string }>;
   /** `truncated`: the file's text is longer than the part frozen. */
   frozenDocuments: Array<{ document: Doc<"projectDocuments">; content: string; truncated: boolean }>;
+  /** The project's company's files (Phase C), after the project's own; empty without a company. */
+  frozenCompanyFiles: Array<{ file: Doc<"companyFiles">; content: string; truncated: boolean }>;
+  /** The company's other names (earlier names, merged companies), hidden when its files are sent. */
+  companyNames: string[];
 };
 
 /**
@@ -88,7 +112,55 @@ export async function selectFrozenEvidence(
       truncated: text.length !== documentTextLength(document),
     });
   }
-  return { projectTranscripts, transcripts, frozenTranscripts, frozenDocuments };
+  const company = await selectCompanyFiles(ctx, projectId, excluded, [
+    ...frozenTranscripts.map((item) => item.content),
+    ...frozenDocuments.map((item) => item.content),
+  ]);
+  return { projectTranscripts, transcripts, frozenTranscripts, frozenDocuments, ...company };
+}
+
+/**
+ * The project's company's files a run reads (Phase C, decision "2026-10-26",
+ * part 1): the company the project is linked to now, if it is active; its
+ * files that are not archived, have text and are not left out, newest
+ * first, within the caps above. A file whose stored text is damaged is left
+ * out. Nothing at all for a project with no company.
+ */
+async function selectCompanyFiles(
+  ctx: Ctx,
+  projectId: Id<"projects">,
+  excluded: ExcludedSourceIds | undefined,
+  frozenSoFar: readonly string[]
+): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
+  const none = { frozenCompanyFiles: [], companyNames: [] };
+  const project = await ctx.db.get(projectId);
+  const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
+  if (!client || client.status !== "active") return none;
+  const leftOut = new Set<Id<"companyFiles">>(excluded?.companyFileIds ?? []);
+  const encoder = new TextEncoder();
+  let bytes = frozenSoFar.reduce((total, text) => total + encoder.encode(text).length, 0);
+  let chars = 0;
+  const rows = await ctx.db
+    .query("companyFiles")
+    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", client._id).eq("archived", undefined))
+    .order("desc")
+    .take(COMPANY_FILE_ROWS);
+  const frozenCompanyFiles: FrozenEvidence["frozenCompanyFiles"] = [];
+  for (const file of rows) {
+    if (frozenCompanyFiles.length >= FROZEN_COMPANY_FILES || chars >= FROZEN_COMPANY_CHARS) break;
+    if (!file.hasText || leftOut.has(file._id)) continue;
+    const limit = Math.min(FROZEN_DOCUMENT_CHARS, FROZEN_COMPANY_CHARS - chars);
+    const text = await readCompanyFileTextOrNull(ctx, file, 0, limit);
+    if (text === null || !text.trim()) continue;
+    const content = frozenFileText(text, file.textFormat);
+    const size = encoder.encode(content).length;
+    if (bytes + size > FROZEN_TOTAL_BYTES) break;
+    bytes += size;
+    chars += text.length;
+    frozenCompanyFiles.push({ file, content, truncated: text.length !== file.textLength });
+  }
+  if (frozenCompanyFiles.length === 0) return none;
+  return { frozenCompanyFiles, companyNames: await companyOtherNames(ctx, client) };
 }
 
 /**
@@ -105,11 +177,18 @@ export async function frozenPlaceholders(
 ): Promise<PlaceholderEntry[]> {
   if (!(await transcriptPlaceholdersEnabled(ctx))) return [];
   return [
-    ...(await projectPlaceholderMap(ctx, project, evidence.projectTranscripts, [
-      ...evidence.frozenTranscripts.map((item) => item.content),
-      ...evidence.frozenDocuments.map((item) => item.content),
-      ...extraTexts,
-    ])),
+    ...(await projectPlaceholderMap(
+      ctx,
+      project,
+      evidence.projectTranscripts,
+      [
+        ...evidence.frozenTranscripts.map((item) => item.content),
+        ...evidence.frozenDocuments.map((item) => item.content),
+        ...evidence.frozenCompanyFiles.map((item) => item.content),
+        ...extraTexts,
+      ],
+      evidence.companyNames
+    )),
   ];
 }
 
@@ -124,9 +203,11 @@ export function frozenTranscriptChars(evidence: FrozenEvidence): number {
 
 /** The fields of one frozen source row, whichever table holds it. */
 export type FrozenSourceFields = {
-  kind: "transcript" | "project_document";
+  kind: "transcript" | "project_document" | "company_file";
   transcriptId?: Id<"transcripts">;
   projectDocumentId?: Id<"projectDocuments">;
+  companyFileId?: Id<"companyFiles">;
+  clientId?: Id<"clients">;
   /** A private intake draft's row (decision 65, stage 2): its source and stable key. */
   intakeSourceId?: Id<"intakeSources">;
   sourceKey?: string;
@@ -138,7 +219,7 @@ export type FrozenSourceFields = {
   uploaderRole?: "writer" | "manager" | "admin";
 };
 
-/** Transcripts first, then documents: the order the Brief spends its budget in. */
+/** Transcripts first, then documents, then company files: the order the Brief spends its budget in. */
 export async function frozenSourceFields(evidence: FrozenEvidence): Promise<FrozenSourceFields[]> {
   const rows: FrozenSourceFields[] = [];
   for (const { row, content } of evidence.frozenTranscripts) {
@@ -164,6 +245,19 @@ export async function frozenSourceFields(evidence: FrozenEvidence): Promise<Froz
       // CAP-3: trust is pinned to the freeze, never re-read live. Absent
       // (legacy document rows) means client trust downstream.
       ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
+    });
+  }
+  // Phase C: company files last, with client trust always (no uploader role).
+  for (const { file, content, truncated } of evidence.frozenCompanyFiles) {
+    rows.push({
+      kind: "company_file",
+      companyFileId: file._id,
+      clientId: file.clientId,
+      label: `${file.category ?? "other"}:${file.fileName}`,
+      content,
+      contentHash: await sha256(content),
+      truncated,
+      originalLength: file.textLength,
     });
   }
   return rows;

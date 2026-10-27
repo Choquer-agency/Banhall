@@ -1,5 +1,6 @@
 "use node";
 
+import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE } from "../lib/companyEvidence";
 import { sha256 } from "../lib/contracts";
 import {
   ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
@@ -922,6 +923,15 @@ export const generationPromptProgram = {
     },
   },
   templates: {
+    // 2026-10-26 (Phase C): a draft's company files. The note goes before
+    // the first company file in the analyzer, Brief and Seed prompts, only
+    // when the draft froze one; the analyzer labels each, after every
+    // project file, and the facts check names them the same way.
+    companyFiles: {
+      note: COMPANY_FILES_NOTE,
+      analyzerLabelPrefix: COMPANY_FILE_LABEL_PREFIX,
+      placement: "after-every-project-file-only-when-frozen",
+    },
     writing: GENERATION_WRITING_PROMPT_PROGRAM,
     lengthBudget: LENGTH_BUDGET_SCAFFOLD,
     styleGuidance: STYLE_GUIDANCE_SCAFFOLDS,

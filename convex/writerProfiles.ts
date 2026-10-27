@@ -66,7 +66,7 @@ import {
   type SettingsSupplyPath,
 } from "./lib/settingsDocument";
 import { extractSettingsRules } from "./lib/settingsExtraction";
-import { MAX_TRANSCRIPTS_PER_PROJECT } from "./lib/transcripts";
+import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
@@ -731,7 +731,7 @@ const settingsCandidateValidator = v.object({
 // Every frozen source a generation can hold: one transcript, one digest and
 // (2026-09-24) one fact pack row per transcript, 50 context documents, and
 // a writer Storyline.
-const MAX_GENERATION_SOURCES = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
+const MAX_GENERATION_SOURCES = MAX_FROZEN_SOURCE_ROWS + 1;
 
 /** A cached waiver analysis at exactly this classifier version, or null. */
 async function readSettingsAnalysis(

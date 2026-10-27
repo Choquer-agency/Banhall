@@ -10,7 +10,6 @@ import { v, type ObjectType } from "convex/values";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import {
-  MAX_TRANSCRIPTS_PER_PROJECT,
   generationTranscriptIds,
   buildTranscriptPromptText,
 } from "../transcripts";
@@ -22,6 +21,8 @@ import { getInternalProjectAccessOrNull } from "../auth";
 import { createReadBudget } from "../readBudget";
 import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclusion";
 import { documentHasText } from "../documentText";
+import { MAX_FROZEN_SOURCE_ROWS } from "../briefEvidence";
+import { hasCapability } from "../../../shared/capabilities";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
 export const getGenerationPlaceholdersArgs = { generationId: v.id("generations") };
@@ -70,7 +71,7 @@ export async function getGenerationInputHandler(
     // context documents. A tighter bound would drop the digest rows of a
     // many-transcript project — the case digest mode exists for — and hand
     // the model the over-budget full text instead.
-    .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+    .take(MAX_FROZEN_SOURCE_ROWS);
   const transcriptIds = generationTranscriptIds(generation);
   const inputMode = generation.inputMode ?? "full";
   const toPart = (source: Doc<"generationSources">) => ({
@@ -163,8 +164,10 @@ export async function getGenerationInputHandler(
     seededCandidates: generation.seededCandidates ?? 0,
     industry: project.industry,
     scienceCode: project.scienceCode,
+    // Project files, then the company's (Phase C), which the analyzer puts
+    // in a block of their own after every project file.
     contextDocs: sources
-      .filter((source) => source.kind === "project_document")
+      .filter((source) => source.kind === "project_document" || source.kind === "company_file")
       .map((source) => {
         const separator = source.label.indexOf(":");
         const category = separator >= 0 ? source.label.slice(0, separator) : "other";
@@ -175,6 +178,7 @@ export async function getGenerationInputHandler(
           content: source.content,
           // CAP-3: frozen at reservation. Absent = client trust.
           ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
+          ...(source.kind === "company_file" ? { company: true as const } : {}),
         };
       }),
     // Analyzer context budget as configured right now. Each candidate
@@ -328,5 +332,7 @@ export async function getContextInclusionHandler(
     fallbackCap: budget.maxDocuments,
     documentsTruncated,
     sourcesTruncated,
+    // Phase C: company file names only for viewers who may read them.
+    showCompanyFiles: hasCapability(access.user.role ?? null, "companyFiles.read"),
   });
 }

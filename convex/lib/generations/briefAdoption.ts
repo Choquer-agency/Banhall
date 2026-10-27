@@ -71,8 +71,8 @@ async function releaseAttachment(ctx: MutationCtx, generation: Doc<"generations"
 
 /**
  * The preparation's frozen rows mapped onto the run's, position by
- * position: same count, and each pair the same kind, the same transcript
- * or file, the same label, trust, cut and content hash. Equal text alone
+ * position: same count, and each pair the same kind, the same transcript,
+ * file or company file, the same label, trust, cut and content hash. Equal text alone
  * never maps a row. Null when any pair disagrees.
  */
 export function verifiedSourceMapping(
@@ -88,6 +88,7 @@ export function verifiedSourceMapping(
       from.kind !== to.kind ||
       (from.transcriptId ?? null) !== (to.transcriptId ?? null) ||
       (from.projectDocumentId ?? null) !== (to.projectDocumentId ?? null) ||
+      (from.companyFileId ?? null) !== (to.companyFileId ?? null) ||
       from.label !== to.label ||
       (from.uploaderRole ?? null) !== (to.uploaderRole ?? null) ||
       from.truncated !== to.truncated ||
@@ -137,7 +138,8 @@ async function attachToQueued(ctx: MutationCtx, generation: Doc<"generations">):
       row.confirmedAt !== undefined &&
       row.confirmedAt > now - QUEUED_WAITER_DEADLINE_MS &&
       sorted(row.excludedTranscriptIds) === sorted(generation.excludedSources?.transcriptIds) &&
-      sorted(row.excludedDocumentIds) === sorted(generation.excludedSources?.documentIds)
+      sorted(row.excludedDocumentIds) === sorted(generation.excludedSources?.documentIds) &&
+      sorted(row.excludedCompanyFileIds) === sorted(generation.excludedSources?.companyFileIds)
   );
   if (!queued) return null;
   const deadlineAt = now + QUEUED_WAITER_DEADLINE_MS;

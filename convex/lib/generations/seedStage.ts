@@ -7,6 +7,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { COMPANY_FILE_LABEL_PREFIX } from "../companyEvidence";
 import { makeFunctionReference } from "convex/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import { type SectionNumber, type OrderedPayload, sectionKeyOf } from "../orderedChain";
@@ -1417,7 +1418,7 @@ export async function loadFactsSourceDocuments(
   for await (const row of ctx.db
     .query("generationSources")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
-    if (row.kind !== "transcript" && row.kind !== "project_document") continue;
+    if (row.kind !== "transcript" && row.kind !== "project_document" && row.kind !== "company_file") continue;
     const document = factsSourceDocumentOf(row);
     const bytes = new TextEncoder().encode(document.content).byteLength;
     if (used + bytes > budget) {
@@ -1430,7 +1431,7 @@ export async function loadFactsSourceDocuments(
   return { documents, leftOut, budget };
 }
 
-/** One frozen transcript or project document, marker-safe, as the facts check reads it. */
+/** One frozen transcript, project document or company file (Phase C), marker-safe, as the facts check reads it. */
 export function factsSourceDocumentOf(
   row: Pick<Doc<"generationSources">, "kind" | "label" | "content" | "uploaderRole">
 ): FactsSourceDocument {
@@ -1450,7 +1451,7 @@ export function factsSourceDocumentOf(
     ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
   });
   return {
-    label: `${ANALYZER_CATEGORY_LABELS[shown]}: ${sanitizeFileName(fileName)}`,
+    label: `${row.kind === "company_file" ? COMPANY_FILE_LABEL_PREFIX : ""}${ANALYZER_CATEGORY_LABELS[shown]}: ${sanitizeFileName(fileName)}`,
     content,
     ...(shown === "writer_notes" ? { writer: true } : {}),
   };

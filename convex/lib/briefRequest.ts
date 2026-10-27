@@ -18,6 +18,7 @@ import {
 } from "../ai/trustedContext";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 import { chooseSettingsSource } from "./settingsDocument";
+import { COMPANY_FILES_NOTE } from "./companyEvidence";
 
 export const CLAIM_EXCLUSION_REASONS = [
   "business_risk",
@@ -209,10 +210,18 @@ export function buildBriefUserMessage(
   let remaining = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
   let omitted = 0;
   const blocks: string[] = [];
+  // Phase C: one note before the first company file the request carries.
+  let companyNoted = false;
+  const noteCompany = (kind: string) => {
+    if (kind !== "company_file" || companyNoted) return;
+    blocks.push(COMPANY_FILES_NOTE);
+    companyNoted = true;
+  };
   for (const s of evidence) {
     const block = (body: string) =>
       `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${body}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`;
     if (!s.content.length) {
+      noteCompany(s.kind);
       blocks.push(block(s.content));
       continue;
     }
@@ -225,6 +234,7 @@ export function buildBriefUserMessage(
     }
     remaining -= kept.length;
     if (s === settings) settingsSent = true;
+    noteCompany(s.kind);
     blocks.push(
       block(
         kept.length < s.content.length

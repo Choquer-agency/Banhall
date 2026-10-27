@@ -1155,6 +1155,8 @@ export default defineSchema({
       v.object({
         documentIds: v.array(v.id("projectDocuments")),
         transcriptIds: v.array(v.id("transcripts")),
+        // 2026-10-26 (Phase C): company files left out.
+        companyFileIds: v.optional(v.array(v.id("companyFiles"))),
       })
     ),
     seededCandidates: v.optional(v.number()),
@@ -3012,7 +3014,10 @@ export default defineSchema({
       // 2026-09-24 widen (transcript method): one rendered fact pack per
       // transcript, frozen next to that transcript's full-text row. Citations
       // always validate against the transcript row, never the pack.
-      v.literal("transcript_facts")
+      v.literal("transcript_facts"),
+      // 2026-10-26 widen (Phase C): a file of the project's company, frozen
+      // after the project's own files. Client trust always (no uploaderRole).
+      v.literal("company_file")
     ),
     transcriptId: v.optional(v.id("transcripts")),
     digestId: v.optional(v.id("transcriptDigests")),
@@ -3041,6 +3046,9 @@ export default defineSchema({
       )
     ),
     projectDocumentId: v.optional(v.id("projectDocuments")),
+    // A company_file row's file and the company it came from at the freeze.
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
     label: v.string(),
     content: v.string(),
     contentHash: v.string(),
@@ -3852,6 +3860,7 @@ export default defineSchema({
     // when it was set (a new queued row takes it over while it is fresh).
     excludedTranscriptIds: v.optional(v.array(v.id("transcripts"))),
     excludedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+    excludedCompanyFileIds: v.optional(v.array(v.id("companyFiles"))),
     selectionAt: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
@@ -3922,9 +3931,11 @@ export default defineSchema({
     preparationId: v.id("briefPreparations"),
     projectId: v.optional(v.id("projects")),
     intakeDraftId: v.optional(v.id("intakeDrafts")),
-    kind: v.union(v.literal("transcript"), v.literal("project_document")),
+    kind: v.union(v.literal("transcript"), v.literal("project_document"), v.literal("company_file")),
     transcriptId: v.optional(v.id("transcripts")),
     projectDocumentId: v.optional(v.id("projectDocuments")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
     // A draft's frozen row names its intake source; promotion adds the
     // project's transcript or file id through the exact source-key link.
     intakeSourceId: v.optional(v.id("intakeSources")),

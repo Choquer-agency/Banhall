@@ -472,6 +472,7 @@ async function readProjectEvidence(
   const evidence = await selectFrozenEvidence(ctx, project._id, {
     transcriptIds: preparation.excludedTranscriptIds ?? [],
     documentIds: preparation.excludedDocumentIds ?? [],
+    companyFileIds: preparation.excludedCompanyFileIds ?? [],
   });
   const cancel = async (reason: string) => {
     await obsoleteReady(ctx, scope);
@@ -839,7 +840,7 @@ async function currentProjectSelection(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   now: number
-): Promise<{ transcriptIds: string[]; documentIds: string[] }> {
+): Promise<{ transcriptIds: string[]; documentIds: string[]; companyFileIds: string[] }> {
   const queued = await scopeRows(ctx, { projectId }, "queued", 1);
   const latest =
     queued[0] ??
@@ -852,6 +853,7 @@ async function currentProjectSelection(
   return {
     transcriptIds: fresh ? [...(latest?.excludedTranscriptIds ?? [])].sort() : [],
     documentIds: fresh ? [...(latest?.excludedDocumentIds ?? [])].sort() : [],
+    companyFileIds: fresh ? [...(latest?.excludedCompanyFileIds ?? [])].sort() : [],
   };
 }
 
@@ -870,6 +872,8 @@ export const setProjectStartSelection = mutation({
     projectId: v.id("projects"),
     excludedTranscriptIds: v.array(v.id("transcripts")),
     excludedDocumentIds: v.array(v.id("projectDocuments")),
+    // Phase C: the company's files left out (absent from older pages).
+    excludedCompanyFileIds: v.optional(v.array(v.id("companyFiles"))),
     confirm: v.optional(v.boolean()),
     // Cancel (review P3-5): a queued start for the unticked files ends, so
     // closing the dialog spends nothing, and the list no longer applies.
@@ -890,6 +894,7 @@ export const setProjectStartSelection = mutation({
           await ctx.db.patch(row._id, {
             excludedTranscriptIds: undefined,
             excludedDocumentIds: undefined,
+            excludedCompanyFileIds: undefined,
             selectionAt: undefined,
             updatedAt: now,
           });
@@ -911,10 +916,12 @@ export const setProjectStartSelection = mutation({
     const excluded = await validatedExcludedSources(ctx, project._id, {
       excludeTranscriptIds: args.excludedTranscriptIds,
       excludeDocumentIds: args.excludedDocumentIds,
+      excludeCompanyFileIds: args.excludedCompanyFileIds,
     });
     const next = {
       transcriptIds: [...new Set(excluded?.transcriptIds ?? [])].sort(),
       documentIds: [...new Set(excluded?.documentIds ?? [])].sort(),
+      companyFileIds: [...new Set(excluded?.companyFileIds ?? [])].sort(),
     };
     const now = Date.now();
     const current = await currentProjectSelection(ctx, project._id, now);
@@ -929,6 +936,7 @@ export const setProjectStartSelection = mutation({
         await ctx.db.patch(queuedId, {
           excludedTranscriptIds: next.transcriptIds.length ? (next.transcriptIds as Id<"transcripts">[]) : undefined,
           excludedDocumentIds: next.documentIds.length ? (next.documentIds as Id<"projectDocuments">[]) : undefined,
+          excludedCompanyFileIds: next.companyFileIds.length ? (next.companyFileIds as Id<"companyFiles">[]) : undefined,
           selectionAt: now,
         });
       }

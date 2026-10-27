@@ -59,6 +59,7 @@ export type BriefKeySource = Pick<
   | "originalLength"
   | "transcriptId"
   | "projectDocumentId"
+  | "companyFileId"
   | "digestId"
   | "uploaderRole"
   | "factsVersion"
@@ -112,7 +113,7 @@ async function keyNames(ctx: Ctx, scope: BriefKeyScope) {
 }
 
 function rowIdentity(
-  source: Pick<BriefKeySource, "sourceKey" | "transcriptId" | "projectDocumentId">,
+  source: Pick<BriefKeySource, "sourceKey" | "transcriptId" | "projectDocumentId" | "companyFileId">,
   names: { byTranscript: Map<string, string>; byDocument: Map<string, string> }
 ): string | null {
   if (source.sourceKey) return `intake:${source.sourceKey}`;
@@ -124,6 +125,8 @@ function rowIdentity(
     const key = names.byDocument.get(source.projectDocumentId);
     return key ? `intake:${key}` : `document:${source.projectDocumentId}`;
   }
+  // Phase C: a company file is named by its own id (no intake links).
+  if (source.companyFileId) return `company:${source.companyFileId}`;
   return null;
 }
 

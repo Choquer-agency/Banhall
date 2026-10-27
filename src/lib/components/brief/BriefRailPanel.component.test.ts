@@ -87,6 +87,21 @@ describe("BriefRailPanel", () => {
     expect(page.getByRole("button", { name: "Close Brief" }).elements()).toHaveLength(0);
   });
 
+  it("names a company file the draft used as one (Phase C)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 1,
+      documentsTotal: 1,
+      rows: [{ key: "source:c1", kind: "company", label: "acme-history.docx", inclusion: "included" }],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect.poll(() => container.querySelector("[data-inclusion-company]")?.textContent).toBe("Company file");
+    expect(container.textContent).toContain("acme-history.docx");
+  });
+
   it("saves an edit through saveEntryEdit with the project, Brief and version fence", async () => {
     __setQueryData("briefs:getBrief", storedBrief());
     __setQueryData("writerProfiles:getGenerationWriterSettings", null);

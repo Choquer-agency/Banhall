@@ -19,6 +19,9 @@ import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { requireAttemptKey } from "./lib/uploadAttempts";
 import { labelsCurrent } from "./lib/fileLabels";
 import { companyFileNeedsServerReading } from "./companyFileWork";
+import { FROZEN_COMPANY_FILES } from "./lib/briefEvidence";
+import { getInternalProjectAccessOrNull } from "./lib/auth";
+import { hasCapability } from "../shared/capabilities";
 import { deriveProcessingStatus } from "../shared/documentStatus";
 import {
   companyFileTextFacts,
@@ -42,6 +45,8 @@ export const COMPANY_FILE_LIST_LIMIT = 500;
 const LINK_PROJECT_PAGE = 200;
 /** Merges followed to name the company a merged one ended up in. */
 const MERGE_CHAIN_HOPS = 10;
+/** Company files a project's start dialog lists (the freeze reads the same newest rows). */
+const START_DIALOG_FILES = 50;
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -448,5 +453,52 @@ export const removeCompanyFile = mutation({
     await ctx.db.delete(file._id);
     if (file.storageId) await deleteStorageIfUnreferenced(ctx, file.storageId);
     return null;
+  },
+});
+
+/**
+ * The company files a project's next draft can read (Phase C), for its start
+ * dialog: the project's company's files that are not archived and have
+ * text, newest first, as the freeze takes them, and how many the freeze
+ * reads at most. Empty for a project with no active company, and for a
+ * viewer who may not read company files.
+ */
+export const listForProject = query({
+  args: { projectId: v.id("projects") },
+  returns: v.object({
+    files: v.array(
+      v.object({
+        _id: v.id("companyFiles"),
+        fileName: v.string(),
+        category: v.union(categoryValidator, v.null()),
+        wordCount: v.number(),
+        createdAt: v.number(),
+      })
+    ),
+    usedAtMost: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const empty = { files: [], usedAtMost: FROZEN_COMPANY_FILES };
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access?.user.role || !hasCapability(access.user.role, "companyFiles.read")) return empty;
+    const client = access.project.clientId ? await ctx.db.get(access.project.clientId) : null;
+    if (!client || client.status !== "active") return empty;
+    const rows = await ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", client._id).eq("archived", undefined))
+      .order("desc")
+      .take(START_DIALOG_FILES);
+    return {
+      files: rows
+        .filter((file) => file.hasText)
+        .map((file) => ({
+          _id: file._id,
+          fileName: file.fileName,
+          category: file.category ?? null,
+          wordCount: file.wordCount,
+          createdAt: file.createdAt,
+        })),
+      usedAtMost: FROZEN_COMPANY_FILES,
+    };
   },
 });

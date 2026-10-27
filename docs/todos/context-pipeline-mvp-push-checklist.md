@@ -524,3 +524,27 @@ What changes:
 - [ ] As a Consultant, open a company on the Projects page, choose Files, upload a PDF, a Word file and a scanned PDF; each appears, the Word file previews formatted, the scan gets its text from the server within a minute.
 - [ ] As a Manager, archive a file, find it under Show archived files, restore it, and remove another after confirming.
 - [ ] Merge two companies that both have files; the dialog says how many move, and afterwards the kept company lists them all.
+
+## Phase C, step 3: drafts read the company's files
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (seventh)".
+
+What changes:
+
+- **A draft reads the project's company's files** after the project's own: the newest 12, at most 600,000 characters, as "company files" the AI is told are about the company, not necessarily this project or year.
+- **They never count as this year's source**, and their company's former names are hidden like every other name.
+- **The start dialog lists them** so a writer can leave one out, and **the Inputs band names the ones a draft used.**
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Automated, live on localhost
+
+- [ ] A Step-by-step run on a project whose company has files: the Brief and Seeds cite them where they help, the Inputs band names them.
+
+### Manual on localhost
+
+- [ ] Start a run on a company's project: the dialog lists its company files last; untick one and check the Inputs band leaves it out.
+

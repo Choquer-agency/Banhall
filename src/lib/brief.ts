@@ -25,7 +25,9 @@ export type SourceKind =
   | "project_document"
   | "transcript_digest"
   | "writer_storyline"
-  | "transcript_facts";
+  | "transcript_facts"
+  // 2026-10-26 (Phase C): a file of the project's company.
+  | "company_file";
 
 export const INCLUSION_WORDS: Record<Inclusion, string> = {
   included: "included",
@@ -55,7 +57,8 @@ export const CONFIDENCE_WORDS: Record<Confidence, string> = {
 
 export type InclusionRow = {
   key: string;
-  kind: "transcript" | "document";
+  /** "company": a file of the project's company the draft used (Phase C). */
+  kind: "transcript" | "document" | "company";
   label: string;
   inclusion: Inclusion | null;
   reason?: InclusionReason;
@@ -173,7 +176,7 @@ export function entryOrigin(entry: Pick<BriefEntryLike, "edited">): EntryOrigin 
 export function sourceChipLabel(entry: Pick<BriefEntryLike, "source">): string {
   const source = entry.source;
   if (!source) return "source";
-  if (source.kind === "project_document") return parseSourceLabel(source.label).fileName;
+  if (source.kind === "project_document" || source.kind === "company_file") return parseSourceLabel(source.label).fileName;
   if (source.kind === "transcript_digest") return `${source.label} (digest)`;
   return source.label;
 }

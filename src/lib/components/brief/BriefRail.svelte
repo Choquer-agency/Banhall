@@ -224,7 +224,9 @@
     <ul class="m-0 list-none p-0">
       {#each inclusion.rows as row (row.key)}
         <li class="flex items-baseline gap-3 border-b border-line-soft px-4 py-2.5">
-          <span class="min-w-0 flex-1 break-words text-body">{row.label}</span>
+          <span class="min-w-0 flex-1 break-words text-body">
+            {#if row.kind === "company"}<span class="mr-1.5 text-data text-ink-muted" data-inclusion-company>Company file</span>{/if}{row.label}
+          </span>
           {#if row.inclusion}
             <span
               data-inclusion={row.inclusion}

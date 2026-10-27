@@ -49,7 +49,14 @@ export const startPdReview = mutation({
     // Decision 65, stage 2: not while the project is still being set up.
     await requireProjectSetUp(ctx, args.projectId);
     requireAnthropicConfigured("review");
-    const excludedSources = await validatedExcludedSources(ctx, args.projectId, args);
+    // PD reviews never read company files: only the project's lists are kept.
+    const validated = await validatedExcludedSources(ctx, args.projectId, {
+      excludeDocumentIds: args.excludeDocumentIds,
+      excludeTranscriptIds: args.excludeTranscriptIds,
+    });
+    const excludedSources = validated
+      ? { documentIds: validated.documentIds, transcriptIds: validated.transcriptIds }
+      : undefined;
     if (excludedSources?.documentIds.includes(args.documentId)) {
       domainError("INVALID_INPUT", "The written PD is always reviewed");
     }

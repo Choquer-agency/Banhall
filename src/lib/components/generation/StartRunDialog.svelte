@@ -9,7 +9,8 @@
 
   export type StartRunSource = {
     id: string;
-    kind: "transcript" | "document" | "writtenPd";
+    /** "companyFile": a file of the project's company (2026-10-26, Phase C). */
+    kind: "transcript" | "document" | "writtenPd" | "companyFile";
     name: string;
     /** The chip at the right: "Transcript" or the document category label. */
     typeLabel: string;
@@ -23,7 +24,8 @@
     locked?: boolean;
   };
 
-  export type StartRunExcluded = { transcriptIds: string[]; documentIds: string[] };
+  /** `companyFileIds`: present only when a company file is unticked (Phase C). */
+  export type StartRunExcluded = { transcriptIds: string[]; documentIds: string[]; companyFileIds?: string[] };
 
   /** F1, G1 to G3 copy (ws3 spec section 3). */
   export const START_RUN_COPY: Record<StartRunMode, { title: string; subtitle: string }> = {
@@ -192,9 +194,13 @@
   const cancelId = $props.id();
 
   const tickable = $derived(sources.filter((source) => !source.locked));
-  const excluded = $derived<StartRunExcluded>({
-    transcriptIds: tickable.filter((s) => s.kind === "transcript" && unticked.has(s.id)).map((s) => s.id),
-    documentIds: tickable.filter((s) => s.kind === "document" && unticked.has(s.id)).map((s) => s.id),
+  const excluded = $derived.by<StartRunExcluded>(() => {
+    const companyFileIds = tickable.filter((s) => s.kind === "companyFile" && unticked.has(s.id)).map((s) => s.id);
+    return {
+      transcriptIds: tickable.filter((s) => s.kind === "transcript" && unticked.has(s.id)).map((s) => s.id),
+      documentIds: tickable.filter((s) => s.kind === "document" && unticked.has(s.id)).map((s) => s.id),
+      ...(companyFileIds.length > 0 ? { companyFileIds } : {}),
+    };
   });
   const tickedCount = $derived(sources.filter((s) => s.locked || !unticked.has(s.id)).length);
   const anyTickedReading = $derived(
@@ -226,10 +232,17 @@
   $effect(() => {
     if (!open || !onSelectionChange) return;
     const current = excluded;
-    untrack(() =>
-      onSelectionChange?.({ transcriptIds: [...current.transcriptIds], documentIds: [...current.documentIds] })
-    );
+    untrack(() => onSelectionChange?.(copyExcluded(current)));
   });
+
+  /** A plain copy of the leave-out list; company files only when one is left out. */
+  function copyExcluded(from: StartRunExcluded): StartRunExcluded {
+    return {
+      transcriptIds: [...from.transcriptIds],
+      documentIds: [...from.documentIds],
+      ...(from.companyFileIds?.length ? { companyFileIds: [...from.companyFileIds] } : {}),
+    };
+  }
 
   function toggle(id: string, next: boolean) {
     if (next) unticked.delete(id);
@@ -246,7 +259,7 @@
   function confirm() {
     if (problem || busy || activeRun) return;
     confirmedClose = true;
-    onConfirm({ transcriptIds: [...excluded.transcriptIds], documentIds: [...excluded.documentIds] });
+    onConfirm(copyExcluded(excluded));
   }
 </script>
 

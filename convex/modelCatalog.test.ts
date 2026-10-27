@@ -1134,9 +1134,12 @@ describe("prompt versions", () => {
     // sha256:3be5d07a.... Re-read after 2026-10-26 (Phase A), which moves
     // the program on purpose (the judges' 16,384-token answers, the repair
     // with more room, the Summary Self-check in several requests); before
-    // it they were sha256:3f2fa8ea... and sha256:1612a2fd....
-    expect(await hashPromptProgram()).toBe("sha256:9e7bbee8a790ed5305a3e6fe9a46bc4afc4d583b3ef5ef7dcc5533e936d4240b");
-    expect(await legacyPromptVersion()).toBe("sha256:b72505c936e2d7409d366410480b5bc4d7d23a4f423c1331d05d1f0341bc61ac");
+    // it they were sha256:3f2fa8ea... and sha256:1612a2fd.... Re-read after
+    // 2026-10-26 (Phase C), which adds the company files note to the program
+    // on purpose (prompts without a company file are unchanged); before it
+    // they were sha256:9e7bbee8... and sha256:b72505c9....
+    expect(await hashPromptProgram()).toBe("sha256:ebd32cd8ca0e604127ae1ebf67f48cb55c45219562fd775d69168e021cb815cc");
+    expect(await legacyPromptVersion()).toBe("sha256:fd39c17fd621ad62325e76f2595c918fedba86e859faad80a2b62b5391e96e8d");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

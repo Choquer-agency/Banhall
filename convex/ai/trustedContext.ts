@@ -15,6 +15,7 @@
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE } from "../lib/companyEvidence";
 import { SEED_PROMPT_PROGRAM, WRITER_PREFERENCES_HEADING } from "./promptDefinitions";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
 import type { GenerationTextBlock } from "./openrouterCore";
@@ -67,6 +68,11 @@ export interface ContextDoc {
   uploaderRole?: UploaderRole;
   /** Frozen source row this document came from, when the caller has it. */
   sourceId?: Id<"generationSources">;
+  /**
+   * A file of the project's company (Phase C, 2026-10-26): client trust,
+   * placed after every project file, under its own label and note.
+   */
+  company?: true;
 }
 
 /**
@@ -470,7 +476,8 @@ export function omittedMaterialsNotice(count: number): string {
 }
 
 function documentBlock(doc: ContextDoc, content: string): string {
-  const label = ANALYZER_CATEGORY_LABELS[effectiveCategory(doc)];
+  const category = ANALYZER_CATEGORY_LABELS[effectiveCategory(doc)];
+  const label = doc.company ? `${COMPANY_FILE_LABEL_PREFIX}${category}` : category;
   const d = CONTEXT_SCAFFOLDS.documentDelimiters;
   const line = `${label}${d.categoryToFile}${sanitizeFileName(doc.fileName)}${d.lineSuffix}`;
   return `${d.beginPrefix}${line}${d.contentPrefix}${content}${d.contentSuffix}${d.endPrefix}${line}`;
@@ -567,15 +574,18 @@ export function buildTrustedContext(input: TrustedContextInput): {
     });
   }
 
-  // ── Documents, in trust order then insertion order ────────────────────────
+  // ── Documents, in trust order then insertion order; company files last ──
   const ordered = documents
     .map((doc, index) => ({ doc, index }))
     .sort((a, b) => {
+      const scope = (a.doc.company ? 1 : 0) - (b.doc.company ? 1 : 0);
+      if (scope !== 0) return scope;
       const trust =
         ANALYZER_CATEGORY_ORDER.indexOf(effectiveCategory(a.doc)) -
         ANALYZER_CATEGORY_ORDER.indexOf(effectiveCategory(b.doc));
       return trust !== 0 ? trust : a.index - b.index;
     });
+  let companyNoted = false;
   const perDocChars = Math.max(0, budget.perDocumentTokens) * CHARS_PER_TOKEN;
   const blocks: string[] = [];
   ordered.forEach(({ doc }, rank) => {
@@ -608,6 +618,10 @@ export function buildTrustedContext(input: TrustedContextInput): {
       ? `${kept}\n${truncationNotice(safe.length - charged, safe.length)}`
       : kept;
     remaining -= charged;
+    if (doc.company && !companyNoted) {
+      blocks.push(COMPANY_FILES_NOTE);
+      companyNoted = true;
+    }
     blocks.push(documentBlock(doc, content));
     sources.push({
       ...base,
@@ -1042,6 +1056,8 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     `${input.citationMode === "facts" ? prompt.factGuidance : prompt.guidance}${
       seedWriterWordingApplies(input.writerSettings) ? prompt.writerWording : ""
     }`,
+    // Phase C: only when the draft froze a company file.
+    ...(input.sources.some((source) => source.kind === "company_file") ? [COMPANY_FILES_NOTE] : []),
     seedBlock(prompt.blocks.brief, seedValue(input.brief)),
   ];
   // The role-specific part of the tail (it differs between roles and modes).

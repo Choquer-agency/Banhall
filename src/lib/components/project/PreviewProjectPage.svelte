@@ -239,6 +239,9 @@
         projectId,
         excludedTranscriptIds: excluded.transcriptIds as Id<"transcripts">[],
         excludedDocumentIds: excluded.documentIds as Id<"projectDocuments">[],
+        ...(excluded.companyFileIds?.length
+          ? { excludedCompanyFileIds: excluded.companyFileIds as Id<"companyFiles">[] }
+          : {}),
         ...flags,
       }),
   });
@@ -1080,7 +1083,13 @@
   let startTrigger: HTMLElement | null = null;
   const NOTHING_LEFT_OUT: StartRunExcluded = { transcriptIds: [], documentIds: [] };
   let startExcluded: StartRunExcluded = NOTHING_LEFT_OUT;
-  const startSources = $derived(projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? []));
+  // Phase C: the company's files a draft can read, for its own group.
+  const companyFilesQ = useQuery(api.companyFiles.listForProject, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const startSources = $derived(
+    projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? [], companyFilesQ.data?.files ?? [])
+  );
   const startModels = $derived(
     startRunModels({
       mode: requestMode,
@@ -1142,6 +1151,9 @@
           : {}),
         ...(excluded.documentIds.length
           ? { excludeDocumentIds: excluded.documentIds as Id<"projectDocuments">[] }
+          : {}),
+        ...(excluded.companyFileIds?.length
+          ? { excludeCompanyFileIds: excluded.companyFileIds as Id<"companyFiles">[] }
           : {}),
         ...(requestMode !== "compare" && singleModelId
           ? { singleModelId }
@@ -1925,7 +1937,9 @@
   const runFileCount = $derived.by(() => {
     const read = runSourcesQ.data;
     if (!seedRunId || !read || read.generationId !== seedRunId || !read.complete) return null;
-    return read.sources.filter((source) => source.kind === "transcript" || source.kind === "project_document").length;
+    return read.sources.filter(
+      (source) => source.kind === "transcript" || source.kind === "project_document" || source.kind === "company_file"
+    ).length;
   });
   const sourceCount = $derived(
     runFileCount ?? transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length

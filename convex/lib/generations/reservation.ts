@@ -26,10 +26,7 @@ import {
 } from "../modelRoles";
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
-import {
-  scheduleStructureRebuildIfStale,
-  MAX_TRANSCRIPTS_PER_PROJECT,
-} from "../transcripts";
+import { scheduleStructureRebuildIfStale } from "../transcripts";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { defaultModelId, transcriptFactsMode } from "../../appSettings";
 import { normalizeCraScienceCode } from "../../../shared/craScienceCodes";
@@ -51,6 +48,7 @@ import {
   frozenPlaceholders,
   frozenSourceFields,
   frozenTranscriptChars,
+  MAX_FROZEN_SOURCE_ROWS,
   selectFrozenEvidence,
 } from "../briefEvidence";
 import { appendGenerationProgress } from "../generationProgress";
@@ -126,11 +124,15 @@ export const MAX_EXCLUDED_SOURCES = 250;
 export const excludedIdsArgs = {
   excludeDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   excludeTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+  // 2026-10-26 (Phase C): the project's company's files left out.
+  excludeCompanyFileIds: v.optional(v.array(v.id("companyFiles"))),
 };
 
 export type ExcludedSources = {
   documentIds: Id<"projectDocuments">[];
   transcriptIds: Id<"transcripts">[];
+  /** Present only when a company file is left out. */
+  companyFileIds?: Id<"companyFiles">[];
 };
 
 /**
@@ -145,11 +147,17 @@ export async function validatedExcludedSources(
   args: {
     excludeDocumentIds?: Id<"projectDocuments">[];
     excludeTranscriptIds?: Id<"transcripts">[];
+    excludeCompanyFileIds?: Id<"companyFiles">[];
   }
 ): Promise<ExcludedSources | undefined> {
   const documentIds = [...new Set(args.excludeDocumentIds ?? [])];
   const transcriptIds = [...new Set(args.excludeTranscriptIds ?? [])];
-  if (documentIds.length > MAX_EXCLUDED_SOURCES || transcriptIds.length > MAX_EXCLUDED_SOURCES) {
+  const companyFileIds = [...new Set(args.excludeCompanyFileIds ?? [])];
+  if (
+    documentIds.length > MAX_EXCLUDED_SOURCES ||
+    transcriptIds.length > MAX_EXCLUDED_SOURCES ||
+    companyFileIds.length > MAX_EXCLUDED_SOURCES
+  ) {
     domainError("INVALID_INPUT", `Leave out at most ${MAX_EXCLUDED_SOURCES} files of each kind`);
   }
   const keptDocuments: Id<"projectDocuments">[] = [];
@@ -166,8 +174,25 @@ export async function validatedExcludedSources(
     if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out transcript belongs to another project");
     keptTranscripts.push(id);
   }
-  if (keptDocuments.length === 0 && keptTranscripts.length === 0) return undefined;
-  return { documentIds: keptDocuments, transcriptIds: keptTranscripts };
+  // A company file must be the project's company's (Phase C).
+  const keptCompanyFiles: Id<"companyFiles">[] = [];
+  if (companyFileIds.length > 0) {
+    const project = await ctx.db.get(projectId);
+    for (const id of companyFileIds) {
+      const row = await ctx.db.get(id);
+      if (!row) continue;
+      if (!project?.clientId || row.clientId !== project.clientId) {
+        domainError("INVALID_INPUT", "A left-out file belongs to another company");
+      }
+      keptCompanyFiles.push(id);
+    }
+  }
+  if (keptDocuments.length === 0 && keptTranscripts.length === 0 && keptCompanyFiles.length === 0) return undefined;
+  return {
+    documentIds: keptDocuments,
+    transcriptIds: keptTranscripts,
+    ...(keptCompanyFiles.length > 0 ? { companyFileIds: keptCompanyFiles } : {}),
+  };
 }
 
 /**
@@ -627,7 +652,7 @@ export async function retryFromSummaryHandler(
     domainError("INVALID_STATE", "Frozen Summary lineage is unavailable");
   }
   // One transcript, digest and fact pack row per transcript (2026-09-24).
-  const maxFrozenSources = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 51;
+  const maxFrozenSources = MAX_FROZEN_SOURCE_ROWS;
   const [originSources, currentSources, analysisArtifacts, brainArtifacts] = await Promise.all([
     ctx.db.query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", originGenerationId))
@@ -751,6 +776,8 @@ export async function retryFromSummaryHandler(
       // is identical, so every fact id still resolves.
       ...(current.factSpans ? { factSpans: current.factSpans } : {}),
       projectDocumentId: current.projectDocumentId,
+      companyFileId: current.companyFileId,
+      clientId: current.clientId,
       label: current.label,
       content: current.content,
       contentHash: current.contentHash,

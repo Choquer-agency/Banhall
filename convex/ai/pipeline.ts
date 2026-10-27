@@ -854,6 +854,7 @@ export function toContextDocs(
     content: string;
     uploaderRole?: string;
     sourceId?: Id<"generationSources">;
+    company?: true;
   }>
 ): ContextDoc[] {
   return documents.map((document) => {
@@ -877,6 +878,8 @@ export function toContextDocs(
         ? { uploaderRole: document.uploaderRole }
         : {}),
       ...(document.sourceId ? { sourceId: document.sourceId } : {}),
+      // Phase C: a company file never takes an uploader's trust.
+      ...(document.company ? { company: true as const } : {}),
     };
   });
 }

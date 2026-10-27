@@ -80,13 +80,16 @@ export async function projectPlaceholderMap(
   ctx: Ctx,
   project: Doc<"projects">,
   transcripts: readonly Doc<"transcripts">[],
-  texts: readonly string[] = []
+  texts: readonly string[] = [],
+  /** Other names of the project's company (Phase C), when its files are sent. */
+  companyNames: readonly string[] = []
 ): Promise<PlaceholderMap> {
   const names: Array<{ people: string[]; organizations: string[]; phrases: string[] }> = [];
   for (const transcript of transcripts) {
     const rows = await listSpeakerRows(ctx, transcript._id);
     names.push(transcriptNamesToHide(transcript, rows.map((row) => row.label)));
   }
+  if (companyNames.length > 0) names.push({ people: [], organizations: [...companyNames], phrases: [] });
   return await placeholderMapFrom(ctx, project, names, texts);
 }
 

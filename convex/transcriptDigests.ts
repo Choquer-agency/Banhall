@@ -8,11 +8,8 @@ import {
 } from "./lib/sectionRunData";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import {
-  CONDENSE_VERSION,
-  generationTranscriptIds,
-  MAX_TRANSCRIPTS_PER_PROJECT,
-} from "./lib/transcripts";
+import { CONDENSE_VERSION, generationTranscriptIds } from "./lib/transcripts";
+import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 import {
   FACT_PACK_MAX_CHARS,
   FACTS_VERSION,
@@ -51,7 +48,7 @@ export const getCondenseInputs = internalQuery({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const byTranscriptId = new Map(
       sources
         .filter((source) => source.kind === "transcript" && source.transcriptId)
@@ -181,7 +178,7 @@ export const freezeDigestSource = internalMutation({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const transcriptSource = sources.find(
       (source) =>
         source.kind === "transcript" && source.transcriptId === args.transcriptId
@@ -217,7 +214,7 @@ export const freezeDigestSource = internalMutation({
     const frozen = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const digestByTranscriptId = new Map(
       frozen
         .filter((source) => source.kind === "transcript_digest")
@@ -260,7 +257,7 @@ export const getFactInputs = internalQuery({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const now = Date.now();
     const transcripts = [];
     for (const transcriptId of generationTranscriptIds(generation) ?? []) {
@@ -325,7 +322,7 @@ export const freezeFactsSource = internalMutation({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const transcriptSource = sources.find(
       (source) => source.kind === "transcript" && source.transcriptId === transcript._id
     );

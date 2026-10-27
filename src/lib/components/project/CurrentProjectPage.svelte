@@ -202,6 +202,9 @@
         projectId,
         excludedTranscriptIds: excluded.transcriptIds as Id<"transcripts">[],
         excludedDocumentIds: excluded.documentIds as Id<"projectDocuments">[],
+        ...(excluded.companyFileIds?.length
+          ? { excludedCompanyFileIds: excluded.companyFileIds as Id<"companyFiles">[] }
+          : {}),
         ...flags,
       }),
   });
@@ -751,7 +754,13 @@
   const NOTHING_LEFT_OUT: StartRunExcluded = { transcriptIds: [], documentIds: [] };
   let startExcluded: StartRunExcluded = NOTHING_LEFT_OUT;
   const startMode = $derived(modeFor(startSource));
-  const startSources = $derived(projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? []));
+  // Phase C: the company's files a draft can read, for its own group.
+  const companyFilesQ = useQuery(api.companyFiles.listForProject, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const startSources = $derived(
+    projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? [], companyFilesQ.data?.files ?? [])
+  );
   const startModels = $derived(
     startRunModels({
       mode: startMode,
@@ -814,6 +823,9 @@
           : {}),
         ...(excluded.documentIds.length
           ? { excludeDocumentIds: excluded.documentIds as Id<"projectDocuments">[] }
+          : {}),
+        ...(excluded.companyFileIds?.length
+          ? { excludeCompanyFileIds: excluded.companyFileIds as Id<"companyFiles">[] }
           : {}),
         ...(mode !== "compare" && singleModelId
           ? { singleModelId }

@@ -19,6 +19,9 @@
  *   `not_included` with the reason it was skipped (CAP-17).
  * - Counts are Supporting Documents only: the cap (`maxDocuments`) applies to
  *   documents, so transcripts are excluded from both counts.
+ * - Company files the draft used (Phase C, 2026-10-26) get rows of their own,
+ *   after the documents (`kind: "company"`), counted with the documents;
+ *   a viewer who may not read company files gets none of them.
  */
 
 import { sourceInclusion, type SourceInclusion } from "../ai/trustedContext";
@@ -34,7 +37,8 @@ export type InclusionSourceRow = {
     | "project_document"
     | "transcript_digest"
     | "writer_storyline"
-    | "transcript_facts";
+    | "transcript_facts"
+    | "company_file";
   label: string;
   transcriptId?: string;
   inclusion?: Inclusion;
@@ -54,7 +58,7 @@ export type UnfrozenDocument = {
 
 export type ContextInclusionRow = {
   key: string;
-  kind: "transcript" | "document";
+  kind: "transcript" | "document" | "company";
   label: string;
   inclusion: Inclusion | null;
   reason?: InclusionReason;
@@ -100,6 +104,8 @@ export function assembleContextInclusion(input: {
   documentsTruncated?: boolean;
   /** Whether the frozen-source read behind `sources` was cut short. */
   sourcesTruncated?: boolean;
+  /** False for a viewer who may not read company files (companyFiles.read). */
+  showCompanyFiles?: boolean;
 }): ContextInclusion {
   const digestByTranscript = new Map<string, InclusionSourceRow>();
   for (const row of input.sources) {
@@ -118,6 +124,7 @@ export function assembleContextInclusion(input: {
 
   const transcriptRows: ContextInclusionRow[] = [];
   const documentRows: ContextInclusionRow[] = [];
+  const companyRows: ContextInclusionRow[] = [];
   let recordedCap: number | null = null;
 
   for (const row of input.sources) {
@@ -152,6 +159,13 @@ export function assembleContextInclusion(input: {
         label: parseSourceLabel(row.label).fileName,
         inclusion: recordedInclusion(row),
       });
+    } else if (row.kind === "company_file" && input.showCompanyFiles !== false) {
+      companyRows.push({
+        key: `source:${row._id}`,
+        kind: "company",
+        label: parseSourceLabel(row.label).fileName,
+        inclusion: recordedInclusion(row),
+      });
     }
   }
 
@@ -168,12 +182,12 @@ export function assembleContextInclusion(input: {
   return {
     recorded: input.sources.some((row) => recordedInclusion(row) !== null),
     cap: recordedCap ?? input.fallbackCap,
-    documentsInContext: documentRows.filter(
+    documentsInContext: [...documentRows, ...companyRows].filter(
       (row) => row.inclusion === "included" || row.inclusion === "condensed"
     ).length,
-    documentsTotal: documentRows.length,
+    documentsTotal: documentRows.length + companyRows.length,
     documentsTruncated: (input.documentsTruncated ?? false) || (input.sourcesTruncated ?? false),
     sourcesTruncated: input.sourcesTruncated ?? false,
-    rows: [...transcriptRows, ...documentRows],
+    rows: [...transcriptRows, ...documentRows, ...companyRows],
   };
 }
