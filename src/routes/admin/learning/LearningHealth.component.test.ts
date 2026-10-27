@@ -450,11 +450,68 @@ describe("/admin/learning actual page", () => {
     await expect.poll(() => __navigationCalls.some(call => call.url === LOGIN)).toBe(true);
   });
 
+  // Phase E (E3): edit size by version.
+  const VERSIONS = "learningHealth:getEditSizeByVersion";
+  type Versions = FunctionReturnType<typeof api.learningHealth.getEditSizeByVersion>;
+  const lessonId = "kd7lesson000000000000000000000a" as Versions["byVersion"][number]["lessonSets"][number]["id"];
+  function versionData(overrides: Partial<Versions> = {}): Versions {
+    return {
+      window: bounds(),
+      readings: 6,
+      byVersion: [
+        { promptVersion: "pv-2026-10-27", lessonSets: [{ id: lessonId, kind: "draft_style", createdAt: Date.UTC(2026, 8, 1) }], savedPreferencesUsed: true, known: true, mean: 0.1, reports: 1, readings: 2 },
+        { promptVersion: null, lessonSets: [], savedPreferencesUsed: false, known: false, mean: 0.3, reports: 2, readings: 4 },
+      ],
+      byChatLessonSet: [
+        { lessonSet: { id: lessonId, kind: "draft_style", createdAt: Date.UTC(2026, 8, 1) }, mean: 0.5, reports: 1, readings: 3 },
+        { lessonSet: null, mean: 0.25, reports: 2, readings: 2 },
+      ],
+      notLoaded: 0,
+      partial: false,
+      limits: { readings: 4000, generations: 500, lessonSets: 200 },
+      ...overrides,
+    };
+  }
+
+  it("shows edit size by version and chat applies by style lesson set over the selected window", async () => {
+    __setQueryDataForArgs(QUERY, bounds(), data());
+    __setQueryDataForArgs(VERSIONS, bounds(), versionData());
+    render(LearningPage);
+    await ready();
+    await expect.poll(() => document.querySelectorAll("[data-version-row]").length).toBe(2);
+    expect(__activeQueryArgs(VERSIONS)).toEqual([bounds()]);
+    const [first, second] = [...document.querySelectorAll("[data-version-row]")].map((row) => [...row.children].map((cell) => cell.textContent?.trim()));
+    expect(first).toEqual(["pv-2026-10-27", "Style lessons of Sep 1, 2026", "Used", "10.0%", "1", "2"]);
+    expect(second).toEqual(["Draft not found", "None", "Not used", "30.0%", "2", "4"]);
+    const chat = [...document.querySelectorAll("[data-chat-lesson-row]")].map((row) => [...row.children].map((cell) => cell.textContent?.trim()));
+    expect(chat).toEqual([["Style lessons of Sep 1, 2026", "50.0%", "1", "3"], ["None", "25.0%", "2", "2"]]);
+    const section = document.querySelector("[data-edit-size-by-version]")!;
+    for (const element of section.querySelectorAll("*")) {
+      expect(Number.parseInt(getComputedStyle(element).fontWeight, 10)).toBeLessThanOrEqual(500);
+    }
+    expect(/[\u2013\u2014]/.test(section.textContent ?? "")).toBe(false);
+    noOverflow();
+  });
+
+  it("says when there are no readings, discloses partial results, and pauses with administrator access", async () => {
+    __setQueryDataForArgs(QUERY, bounds(), data());
+    __setQueryDataForArgs(VERSIONS, bounds(), versionData({ byVersion: [], byChatLessonSet: [], readings: 0, partial: true, notLoaded: 3 }));
+    render(LearningPage);
+    await ready();
+    await expect.poll(() => document.querySelector("[data-edit-size-by-version]")?.textContent).toContain("No edit size readings in this window.");
+    const text = document.querySelector("[data-edit-size-by-version]")!.textContent!;
+    expect(text).toContain("No chat applies in this window.");
+    expect(text).toContain("Partial results: only the newest 4000 readings, 500 drafts and 200 lesson sets are read. 3 readings of drafts past the limit are left out.");
+    __setQueryData("users:getCurrentUser", { role: "writer", isAnonymous: false });
+    await expect.poll(() => __isQueryActive(VERSIONS)).toBe(false);
+  });
+
   it("redirects an unauthenticated visitor without subscribing to internal data", async () => {
     __setAuthState({ isAuthenticated: false });
     render(LearningPage);
     await expect.poll(() => __navigationCalls.some((call) => call.url === LOGIN)).toBe(true);
     expect(__isQueryActive(QUERY)).toBe(false);
+    expect(__isQueryActive(VERSIONS)).toBe(false);
     expect(__isQueryActive("users:getCurrentUser")).toBe(false);
   });
 });

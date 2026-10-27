@@ -20,7 +20,7 @@ import {
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
-import { computeEditDistance } from "./lib/editDistance";
+import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 export const getLatestReport = query({
   args: {
@@ -79,6 +79,9 @@ export const updateReportContent = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, args.reportId);
+    // Phase E (E3): the editing burst's size is read 10 minutes after its
+    // first save.
+    await noteReportEditForSize(ctx, report, user._id);
     return revisionNumber + 1;
   },
 });

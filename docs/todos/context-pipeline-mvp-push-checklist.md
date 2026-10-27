@@ -751,3 +751,24 @@ What changes:
 - [ ] On Writing preferences, approve a suggestion, add one of your own, and turn one off. Start a draft: the Brief says how many saved preferences it used.
 - [ ] Try to add "Mentions Acme by name": it is refused, with the reason.
 
+## Phase E, fifth part: edit size by version
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (third)".
+
+What changes:
+
+- **Each chat apply and each burst of editing records how much of the draft has changed**, and who edited. A burst is read 10 minutes after its first save, so the last save is always read.
+- **Admin learning health shows edit size by version**: prompt version, lesson sets and saved preferences used, and chat applies by the style lessons their chat used.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Owner
+
+- [ ] Confirm that recording per editing burst (up to 10 minutes) and at each chat apply meets "each report edit's size is recorded".
+
+### Manual on localhost
+
+- [ ] Edit a report for a minute, wait 10 minutes, and apply a chat card. On Admin, Learning health, "Edit size by version" counts the report, and the chat table names the chat's style lessons (or None).

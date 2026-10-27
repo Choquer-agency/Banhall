@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { getInternalProjectAccessOrNull, requireCurrentUser } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { recordReportEditDistance } from "./lib/editDistance";
+import { isProjectDeleting } from "./lib/projectDeletion";
 
 // ─── BNH-10 flywheel (CAP-2): persisted post-edit distance ───────────────────
 // Read surface for the learning dashboard (CAP-3). Both series are bounded and
@@ -110,6 +111,29 @@ export const seriesForWriter = query({
         computedAt: row.computedAt,
         trigger: row.trigger,
       }));
+  },
+});
+
+/**
+ * 2026-10-27 (Phase E, E3): the end of an editing burst
+ * (convex/lib/editDistance.ts, noteReportEditForSize): the size of the
+ * report's latest revision, named for the burst's latest editor, unless that
+ * revision already has a reading.
+ */
+export const recordEditBurst = internalMutation({
+  args: { reportId: v.id("reports") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const due = await ctx.db
+      .query("reportEditSizeDue")
+      .withIndex("by_reportId", (q) => q.eq("reportId", args.reportId))
+      .unique();
+    if (!due) return null;
+    await ctx.db.delete(due._id);
+    const report = await ctx.db.get(args.reportId);
+    if (!report || (await isProjectDeleting(ctx, report.projectId))) return null;
+    await recordReportEditDistance(ctx, report, "edit", { editorUserId: due.editorUserId });
+    return null;
   },
 });
 

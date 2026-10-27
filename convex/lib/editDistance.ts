@@ -1,5 +1,6 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import { tryExtractPlainText } from "./reportEdits";
 
 // ─── BNH-10 flywheel: post-edit distance (PED) ───────────────────────────────
@@ -89,11 +90,22 @@ export function computeEditDistance(
   };
 }
 
-/** The three milestones at which PED is frozen into `reportEditDistance`. */
+/**
+ * When PED is frozen into `reportEditDistance`: the three milestones, a chat
+ * card applied, and the end of an editing burst (2026-10-27, Phase E, E3).
+ */
 export type EditDistanceTrigger =
   | "candidate_selection"
   | "milestone"
-  | "client_publish";
+  | "client_publish"
+  | "chat_apply"
+  | "edit";
+
+/** Who made the change a reading measures, and a chat apply's lesson set. */
+export type EditDistanceExtra = {
+  editorUserId?: Id<"users">;
+  learningDigestId?: Id<"learningDigests">;
+};
 
 /**
  * Persist one PED reading for a report. Never throws into the caller's path:
@@ -103,7 +115,8 @@ export type EditDistanceTrigger =
 export async function recordReportEditDistance(
   ctx: MutationCtx,
   report: Doc<"reports">,
-  trigger: EditDistanceTrigger
+  trigger: EditDistanceTrigger,
+  extra: EditDistanceExtra = {}
 ): Promise<Id<"reportEditDistance"> | null> {
   try {
     const baseline = await ctx.db
@@ -136,6 +149,11 @@ export async function recordReportEditDistance(
     ) {
       return null;
     }
+    // An editing burst records the latest revision only when that revision
+    // has no reading yet (a chat apply or a milestone may have read it).
+    if (trigger === "edit" && newest && newest.revisionNumber === revisionNumber) {
+      return null;
+    }
 
     const project = await ctx.db.get(report.projectId);
     return await ctx.db.insert("reportEditDistance", {
@@ -147,6 +165,8 @@ export async function recordReportEditDistance(
       ped,
       computedAt: Date.now(),
       trigger,
+      ...(extra.editorUserId ? { editorUserId: extra.editorUserId } : {}),
+      ...(extra.learningDigestId ? { learningDigestId: extra.learningDigestId } : {}),
     });
   } catch (error) {
     console.error("recordReportEditDistance failed", {
@@ -157,4 +177,39 @@ export async function recordReportEditDistance(
     });
     return null;
   }
+}
+
+/** An editing burst: its reading is taken this long after its first save. */
+export const EDIT_SIZE_BURST_MS = 10 * 60 * 1000;
+
+/**
+ * A person changed the report's text (a save, an accepted client edit, a
+ * restore, an undo). The first change of a burst writes the report's
+ * `reportEditSizeDue` row and schedules the burst's reading
+ * (`reportEditDistance.recordEditBurst`); later changes only name the latest
+ * editor. Saves never read `reportEditDistance`, and the reading reads the
+ * report's latest revision, so the last change of a burst is always read.
+ */
+export async function noteReportEditForSize(
+  ctx: MutationCtx,
+  report: Doc<"reports">,
+  editorUserId: Id<"users">
+): Promise<void> {
+  const due = await ctx.db
+    .query("reportEditSizeDue")
+    .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
+    .unique();
+  if (due) {
+    if (due.editorUserId !== editorUserId) await ctx.db.patch(due._id, { editorUserId });
+    return;
+  }
+  await ctx.db.insert("reportEditSizeDue", {
+    reportId: report._id,
+    projectId: report.projectId,
+    editorUserId,
+    dueAt: Date.now() + EDIT_SIZE_BURST_MS,
+  });
+  await ctx.scheduler.runAfter(EDIT_SIZE_BURST_MS, internal.reportEditDistance.recordEditBurst, {
+    reportId: report._id,
+  });
 }

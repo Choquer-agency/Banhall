@@ -134,6 +134,8 @@ export const PROJECT_SCOPED_TABLES = [
   // 2026-10-27 (Phase E, E1a): an open suggestion's request texts. The
   // suggestion itself has no project; it is withdrawn when its texts are gone.
   { table: "writerMemorySources", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-10-27 (Phase E, E3): an open editing burst; its readings are kept.
+  { table: "reportEditSizeDue", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "candidateScores", field: "projectId", disposition: "delete", index: "by_projectId" },

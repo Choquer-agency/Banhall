@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireRole } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { learningHealthReads } from "./lib/learningHealthReads";
@@ -174,6 +175,138 @@ export const getHealth = query({
         observations: outcomes.length, earliestRecordedAtIncomplete: earliestRead.kind === "not-loaded", earliestRecordedAt: earliest?.observedAt ?? null,
         firstInWindowAt: outcomes.length ? outcomes[0].observedAt : null, lastInWindowAt: outcomes.length ? outcomes[outcomes.length - 1].observedAt : null, partial: truncated.has("rerank outcomes") },
       coverage: { partial: truncated.size > 0, truncated: [...truncated], limits: HEALTH_LIMITS, byteBudget: reads.snapshot(), recording: "best-effort" },
+    };
+  },
+});
+
+/** Caps of the edit size by version view; each probes one extra row. */
+export const VERSION_LIMITS = { readings: 4000, generations: 500, lessonSets: 200 };
+
+type LessonSetView = { id: Id<"learningDigests">; kind: "qa_calibration" | "draft_style" | null; createdAt: number | null };
+type SizeGroup = { latest: Map<string, Doc<"reportEditDistance">>; readings: number };
+
+function addReading(groups: Map<string, SizeGroup>, key: string, row: Doc<"reportEditDistance">) {
+  const group = groups.get(key) ?? { latest: new Map(), readings: 0 };
+  group.readings++;
+  // Rows load newest first, so the first one per report is its latest.
+  if (!group.latest.has(row.reportId)) group.latest.set(row.reportId, row);
+  groups.set(key, group);
+}
+
+function sizeSummary(group: SizeGroup) {
+  const latest = [...group.latest.values()];
+  return {
+    mean: latest.length ? latest.reduce((sum, row) => sum + row.ped, 0) / latest.length : null,
+    reports: latest.length,
+    readings: group.readings,
+  };
+}
+
+/**
+ * 2026-10-27 (Phase E, E3): edit size by version. One reading per report
+ * per version, its latest in the window, averaged. A draft's version is its
+ * prompt version, the lesson sets it used and whether saved preferences were
+ * used, all read through the reading's generation; nothing is copied onto
+ * the reading. Chat applies are also grouped by the style lesson set their
+ * chat turn used. Evaluation projects record no readings (E3).
+ */
+export const getEditSizeByVersion = query({
+  args: { start: v.number(), end: v.number() },
+  handler: async (ctx, { start, end }) => {
+    await requireRole(ctx, ["admin"]);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end - start > 90 * DAY || end > 8.64e15) {
+      domainError("INVALID_INPUT", "Choose finite ordered bounds spanning at most 90 days");
+    }
+    const rows = await ctx.db
+      .query("reportEditDistance")
+      .withIndex("by_computedAt", (q) => q.gte("computedAt", start).lte("computedAt", end))
+      .order("desc")
+      .take(VERSION_LIMITS.readings + 1);
+    const readingsPartial = rows.length > VERSION_LIMITS.readings;
+    const loaded = rows.slice(0, VERSION_LIMITS.readings);
+
+    const generations = new Map<Id<"generations">, Doc<"generations"> | null>();
+    let generationsPartial = false;
+    for (const row of loaded) {
+      if (!row.generationId || generations.has(row.generationId)) continue;
+      if (generations.size >= VERSION_LIMITS.generations) {
+        generationsPartial = true;
+        continue;
+      }
+      generations.set(row.generationId, await ctx.db.get(row.generationId));
+    }
+    const lessonSets = new Map<Id<"learningDigests">, LessonSetView>();
+    let lessonSetsPartial = false;
+    async function lessonSet(id: Id<"learningDigests">): Promise<LessonSetView> {
+      const known = lessonSets.get(id);
+      if (known) return known;
+      if (lessonSets.size >= VERSION_LIMITS.lessonSets) {
+        lessonSetsPartial = true;
+        return { id, kind: null, createdAt: null };
+      }
+      const digest = await ctx.db.get(id);
+      const view = { id, kind: digest?.kind ?? null, createdAt: digest?.createdAt ?? null };
+      lessonSets.set(id, view);
+      return view;
+    }
+
+    type DraftVersion = { promptVersion: string | null; lessonSetIds: Id<"learningDigests">[]; savedPreferencesUsed: boolean; known: boolean };
+    const draftVersions = new Map<string, DraftVersion>();
+    const draftGroups = new Map<string, SizeGroup>();
+    const chatGroups = new Map<string, SizeGroup>();
+    let notLoaded = 0;
+    for (const row of loaded) {
+      let version: DraftVersion;
+      if (!row.generationId) {
+        version = { promptVersion: null, lessonSetIds: [], savedPreferencesUsed: false, known: false };
+      } else if (!generations.has(row.generationId)) {
+        notLoaded++;
+        continue;
+      } else {
+        const generation = generations.get(row.generationId) ?? null;
+        version = generation
+          ? {
+              promptVersion: generation.promptVersion ?? null,
+              lessonSetIds: [...(generation.learningDigestIds ?? [])].sort(),
+              savedPreferencesUsed: (generation.writerSettings?.savedPreferences?.count ?? 0) > 0,
+              known: true,
+            }
+          : { promptVersion: null, lessonSetIds: [], savedPreferencesUsed: false, known: false };
+      }
+      const key = JSON.stringify(version);
+      draftVersions.set(key, version);
+      addReading(draftGroups, key, row);
+      if (row.trigger === "chat_apply") addReading(chatGroups, row.learningDigestId ?? "", row);
+    }
+
+    const byVersion = [];
+    for (const [key, group] of draftGroups) {
+      const version = draftVersions.get(key)!;
+      byVersion.push({
+        promptVersion: version.promptVersion,
+        lessonSets: await Promise.all(version.lessonSetIds.map(lessonSet)),
+        savedPreferencesUsed: version.savedPreferencesUsed,
+        known: version.known,
+        ...sizeSummary(group),
+      });
+    }
+    const byChatLessonSet = [];
+    for (const [key, group] of chatGroups) {
+      byChatLessonSet.push({
+        lessonSet: key ? await lessonSet(key as Id<"learningDigests">) : null,
+        ...sizeSummary(group),
+      });
+    }
+    byVersion.sort((a, b) => b.reports - a.reports || (b.promptVersion ?? "").localeCompare(a.promptVersion ?? ""));
+    byChatLessonSet.sort((a, b) => b.reports - a.reports);
+    return {
+      window: { start, end },
+      readings: loaded.length,
+      byVersion,
+      byChatLessonSet,
+      notLoaded,
+      partial: readingsPartial || generationsPartial || lessonSetsPartial,
+      limits: VERSION_LIMITS,
     };
   },
 });

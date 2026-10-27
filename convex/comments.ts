@@ -1,4 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { noteReportEditForSize } from "./lib/editDistance";
 import { query, mutation } from "./_generated/server";
 import { removeCommentSignal, scheduleSignalCapture } from "./learningSignals";
 import { v } from "convex/values";
@@ -225,6 +226,8 @@ export const acceptEdit = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
+    // Phase E (E3): an accepted client edit is part of an editing burst.
+    await noteReportEditForSize(ctx, report, user._id);
     await ctx.db.patch(args.commentId, { resolved: true });
     await pruneSnapshots(ctx, report._id);
   },

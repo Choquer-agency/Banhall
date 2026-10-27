@@ -12,7 +12,7 @@ import {
   snapshotAuditFields,
 } from "./lib/snapshots";
 import { domainError } from "./lib/contracts";
-import { recordReportEditDistance } from "./lib/editDistance";
+import { noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
 
 const MILESTONE_LABELS: Record<string, string> = {
   R0: "R0 draft",
@@ -275,7 +275,7 @@ export const restoreSnapshot = mutation({
     const snapshot = await ctx.db.get(args.snapshotId);
     if (!snapshot) domainError("NOT_FOUND", "Snapshot not found");
     // Restoring rewrites report prose: same report.editProse gate as saves.
-    await requireReportEditAccess(ctx, snapshot.projectId);
+    const { user } = await requireReportEditAccess(ctx, snapshot.projectId);
     const report = await ctx.db.get(args.targetReportId);
     if (!report || report.projectId !== snapshot.projectId) {
       domainError("NOT_AUTHORIZED", "Restore target belongs to another project");
@@ -311,6 +311,8 @@ export const restoreSnapshot = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
+    // Phase E (E3): a restore is part of an editing burst.
+    await noteReportEditForSize(ctx, report, user._id);
     await pruneSnapshots(ctx, report._id);
     return revisionNumber + 1;
   },

@@ -2864,13 +2864,35 @@ export default defineSchema({
     trigger: v.union(
       v.literal("candidate_selection"),
       v.literal("milestone"),
-      v.literal("client_publish")
+      v.literal("client_publish"),
+      // 2026-10-27 (Phase E, E3), widen only: a chat card applied, and the
+      // end of an editing burst (convex/lib/editDistance.ts).
+      v.literal("chat_apply"),
+      v.literal("edit")
     ),
+    // 2026-10-27 (Phase E, E3), widen only. Who made the change read
+    // (writerUserId stays the project owner); absent on older rows.
+    editorUserId: v.optional(v.id("users")),
+    // A chat apply's reading: the style lesson set its chat turn used.
+    learningDigestId: v.optional(v.id("learningDigests")),
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
     .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"])
     .index("by_computedAt", ["computedAt"]),
+
+  // 2026-10-27 (Phase E, E3): one row per report while an editing burst is
+  // open. The first save of a burst writes it and schedules the burst's
+  // reading 10 minutes later; saves never read reportEditDistance.
+  reportEditSizeDue: defineTable({
+    reportId: v.id("reports"),
+    projectId: v.id("projects"),
+    // The latest editor in the burst.
+    editorUserId: v.id("users"),
+    dueAt: v.number(),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"]),
 
   // Human-verified claimant/participant identity and relationship evidence.
   // Rows are retained and rejected/superseded rather than deleted.

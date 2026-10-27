@@ -1,4 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
 import { chatCompanyFilesFor } from "./chatDocuments";
 import { quotableFileText } from "../shared/wordMarkdown";
 import {
@@ -1362,11 +1363,40 @@ export const applyProposal = mutation({
           appliedBy: applier._id,
         });
     await markAppliedWithRecord(ctx, proposal, appliedChange);
+    await recordChatApplySize(ctx, proposal, report._id, applier._id);
     await pruneSnapshots(ctx, report._id);
 
     return { applied: true, count };
   },
 });
+
+/**
+ * Phase E (E3): the report's edit size once a chat card applied, named for
+ * who applied it and carrying the style lesson set its chat turn used (none
+ * for a research card or a turn without one).
+ */
+async function recordChatApplySize(
+  ctx: MutationCtx,
+  proposal: Doc<"chatProposals">,
+  reportId: Id<"reports">,
+  applierId: Id<"users">
+): Promise<void> {
+  const applied = await ctx.db.get(reportId);
+  if (!applied) return;
+  const promptMessageId = proposal.promptMessageId;
+  const turn = promptMessageId
+    ? await ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+          q.eq("agentThreadId", proposal.agentThreadId).eq("promptMessageId", promptMessageId)
+        )
+        .first()
+    : null;
+  await recordReportEditDistance(ctx, applied, "chat_apply", {
+    editorUserId: applierId,
+    ...(turn?.learningDigestId ? { learningDigestId: turn.learningDigestId } : {}),
+  });
+}
 
 /**
  * Reject editor content the same way `reports.updateReportContent` does
@@ -1488,6 +1518,7 @@ export const markProposalApplied = mutation({
           touchedBy: proposalPairs(proposal),
         });
     await markAppliedWithRecord(ctx, proposal, appliedChange);
+    await recordChatApplySize(ctx, proposal, report._id, user._id);
     await pruneSnapshots(ctx, report._id);
 
     return {
@@ -1677,6 +1708,8 @@ export const undoProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
+    // Phase E (E3): an Undo is part of an editing burst.
+    await noteReportEditForSize(ctx, report, user._id);
     // The record is spent: applying the card again writes a new one.
     if (record) await ctx.db.delete(record._id);
     await ctx.db.patch(proposal._id, {
