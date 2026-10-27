@@ -370,6 +370,11 @@ async function seedProjectRows(
     });
     // 2026-10-22 (fourth): a file's text piece.
     await ctx.db.insert("projectDocumentTexts", { documentId, projectId, start: 0, text: "doc" });
+    // B1: an earlier text version of the file and its text.
+    const textVersionId = await ctx.db.insert("projectDocumentTextVersions", {
+      documentId, projectId, version: 1, textHash: "h", textLength: 3, why: "word_markdown", keptAt: now,
+    });
+    await ctx.db.insert("projectDocumentTextVersionPieces", { versionId: textVersionId, projectId, start: 0, text: "old" });
     await ctx.db.insert("documentSearchPieces", {
       documentId, projectId, textHash: "hash", order: 0, start: 0, end: 3, searchText: "doc", prefixChars: 0,
     });

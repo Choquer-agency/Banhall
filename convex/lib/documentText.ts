@@ -340,6 +340,78 @@ export async function insertDocumentWithText(
 }
 
 /** Deletes a file's text pieces. */
+/**
+ * 2026-10-26 (B1, first part): keeps a file's current text as its next
+ * version before a better reading replaces it, so the earlier text is never
+ * lost (part 4 of the first 2026-10-26 entry). Nothing is kept for a file
+ * with no text.
+ */
+export async function keepDocumentTextVersion(
+  ctx: MutationCtx,
+  doc: Doc<"projectDocuments">,
+  why: "word_markdown" | "server_reading",
+  now = Date.now()
+): Promise<Id<"projectDocumentTextVersions"> | null> {
+  const text = await readDocumentText(ctx, doc);
+  if (!text) return null;
+  const previous = await ctx.db
+    .query("projectDocumentTextVersions")
+    .withIndex("by_documentId_and_version", (q) => q.eq("documentId", doc._id))
+    .order("desc")
+    .first();
+  const versionId = await ctx.db.insert("projectDocumentTextVersions", {
+    documentId: doc._id,
+    projectId: doc.projectId,
+    version: (previous?.version ?? 0) + 1,
+    textHash: await sha256(text),
+    textLength: text.length,
+    ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
+    ...(doc.serverReader ? { reader: doc.serverReader } : {}),
+    why,
+    keptAt: now,
+  });
+  let at = 0;
+  for (const end of documentTextPieceEnds(text)) {
+    await ctx.db.insert("projectDocumentTextVersionPieces", { versionId, projectId: doc.projectId, start: at, text: text.slice(at, end) });
+    at = end;
+  }
+  return versionId;
+}
+
+/** A kept version's text, whole (B1). */
+export async function readDocumentTextVersion(
+  ctx: QueryCtx,
+  versionId: Id<"projectDocumentTextVersions">
+): Promise<string> {
+  const pieces = await ctx.db
+    .query("projectDocumentTextVersionPieces")
+    .withIndex("by_versionId_and_start", (q) => q.eq("versionId", versionId))
+    .take(MAX_DOCUMENT_TEXT_PIECES + 1);
+  if (pieces.length > MAX_DOCUMENT_TEXT_PIECES) throw new Error("Document text version has too many pieces");
+  return pieces.map((piece) => piece.text).join("");
+}
+
+/** Deletes every kept version of a file and its text: only when the file itself is deleted (B1). */
+export async function deleteDocumentTextVersions(
+  ctx: MutationCtx,
+  documentId: Id<"projectDocuments">
+): Promise<void> {
+  for (const version of await ctx.db
+    .query("projectDocumentTextVersions")
+    .withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId))
+    .take(100)) {
+    for (;;) {
+      const pieces = await ctx.db
+        .query("projectDocumentTextVersionPieces")
+        .withIndex("by_versionId_and_start", (q) => q.eq("versionId", version._id))
+        .take(MAX_DOCUMENT_TEXT_PIECES);
+      for (const piece of pieces) await ctx.db.delete(piece._id);
+      if (pieces.length < MAX_DOCUMENT_TEXT_PIECES) break;
+    }
+    await ctx.db.delete(version._id);
+  }
+}
+
 export async function deleteDocumentText(
   ctx: MutationCtx,
   documentId: Id<"projectDocuments">

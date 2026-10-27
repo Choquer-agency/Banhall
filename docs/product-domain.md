@@ -4429,6 +4429,34 @@ Context pipeline plan, Phase D, step 2 (`docs/todos/phase-d-search-first.md`), P
 - **Review of e4367f0e.** Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), both "ship after fixes". Fixed: records written before a request answered (a failed or never-run step showed as read); the analyzer recorded with its budget, before it ran; a reused Brief's record recomputed from this draft's rows; the facts check recorded for a Line that does not run it; Seed runs counted per Batch instead of per step; one step's many records hiding another's; the cut-short flag never shown; transcripts read through a digest shown as "whole"; a Summary recovery's band empty.
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all".
 
+### 2026-10-26 (eleventh): Older Word files are read again as Markdown, and their earlier text is kept as a version (owner)
+
+Context pipeline plan, B1, first part: the owner's backfill ("should be properly markdown so we can see italic, bolds and headings and properly backfilled for any current/past files to all work"), owed by "2026-10-26 (fourth)", and part 4 of the first 2026-10-26 entry: "Upgrading a reader makes a new version instead of overwriting. Old text stays." No workflow stage, transition or permission is added, and no AI writes any file text.
+
+- **Which files.** A Word file (`.docx`) whose stored text is not Markdown yet, because a browser read it before Word was kept as Markdown, or an older browser tab sent plain text. When it has its original, it is read on the server again (`needsServerReading`; server reader version 3). That happens when it is added, and through the one-off pass `queueServerReadings` that the owner runs for existing files. The pass is already on the owner's list, dev first.
+- **What changes.**
+  - The server's Markdown reading replaces the plain text (`saveServerReading`), even though the file already has read text. Every other file keeps the rule that a server reading replaces only a file with nothing read.
+  - Before any replacement, the text the file had is kept as its next version (`projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`). The version holds a number, a fingerprint, its length and format, the reader that had read it and why it was replaced (`word_markdown`). It is never changed.
+  - The file's current text, search pieces and labels are then made again from the Markdown, as for any new text.
+- **What stays exact.**
+  - Drafts made before froze their own copy of every file, so their quotes and source links do not move.
+  - A PD review keeps the fingerprint it recorded; nothing compares it later.
+  - Uploading the same Word file again now matches the Markdown text, so the "second file" known limit of the fourth entry goes away once the pass has run.
+- **Costs of the pass.**
+  - Reading Word files costs nothing (mammoth, on the server).
+  - Each file's new text gets new search pieces and labels (Claude Haiku, about $0.001 a file).
+  - Each project with a changed file gets one new Brief head start, as when a file is added. Run it dev first and watch the head starts.
+- **Deletion.** A file's versions are deleted with the file (`deleteDocument`) and with its project (`PROJECT_SCOPED_TABLES`). No draft reads a version yet. When drafts record versions instead of copies (B1, second part), a version a draft uses will be kept, as part 4 says.
+- **Migration and compatibility.** Widen only: two new tables, an optional argument on `serverReadingReplaces`, and the reader version string. Files read by version 2 are read once more only if they are Word files without Markdown, or still have nothing read.
+- **Tests.** `convex/documentReading.test.ts` covers:
+  - the rules for a Word file;
+  - an upload of plain text from an older tab, read again as Markdown, the plain text kept as version 1 and read back exactly;
+  - no second reading;
+  - the versions deleted with the file.
+
+  `convex/projectErasure.test.ts` covers erasure.
+- **Approval:** Product owner, 2026-10-26 (chat), quoted above, and part 4 of the first 2026-10-26 entry.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

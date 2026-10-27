@@ -11,7 +11,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { pdfPageStopMarker } from "../shared/documentStatus";
-import { documentTextHash, readDocumentText } from "./lib/documentText";
+import { documentTextHash, readDocumentText, readDocumentTextVersion } from "./lib/documentText";
 import { hasReadText, needsServerReading, serverReadingReplaces } from "./lib/serverReading";
 import { insertDocumentWithText } from "./lib/documentText";
 import { readFileOnServer, SERVER_READER_VERSION } from "./ai/fileReader";
@@ -108,6 +108,58 @@ describe("when the server reads a file again", () => {
     expect(serverReadingReplaces(false, pdfPageStopMarker(1).trim())).toBe(false);
     // A file with read text keeps it, even a PDF the browser stopped part way.
     expect(serverReadingReplaces(true, whole)).toBe(false);
+  });
+
+  test("a Word file stored before Word was kept as Markdown is read again, and its Markdown replaces the plain text (B1)", () => {
+    const storageId = "storage" as Id<"_storage">;
+    const word = { fileName: "notes.docx", storageId, hasReadText: true };
+    expect(needsServerReading(word)).toBe(true);
+    expect(needsServerReading({ ...word, textFormat: "markdown" })).toBe(false);
+    expect(needsServerReading({ ...word, serverReader: SERVER_READER_VERSION, serverReadAt: 1 })).toBe(false);
+    // An attempt by the reader before this one does not count.
+    expect(needsServerReading({ ...word, serverReader: "server-reader-2", serverReadAt: 1 })).toBe(true);
+    expect(needsServerReading({ ...word, fileName: "notes.txt" })).toBe(false);
+    expect(serverReadingReplaces(true, "# Notes\n\nThe **seal** held.", true)).toBe(true);
+    expect(serverReadingReplaces(true, "   ", true)).toBe(false);
+  });
+});
+
+describe("the Word backfill keeps the earlier text (B1)", () => {
+  test("a Word file stored as plain text is read again as Markdown, and the plain text is kept as version 1", async () => {
+    // Zip reading waits on real timers; the reading the upload queued runs on its own.
+    vi.useRealTimers();
+    const { t, projectId, writer } = await setup();
+    const plain = "Plain text the browser read before Word was kept as Markdown.";
+    // An older browser tab sent plain text and no format.
+    const documentId = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "rich.docx",
+      fileType: "docx",
+      content: plain,
+      storageId: await store(t, await richWordFile()),
+    });
+    await vi.waitFor(async () => expect((await fileState(t, documentId)).doc.textFormat).toBe("markdown"), {
+      timeout: 15_000,
+      interval: 100,
+    });
+    const { text } = await fileState(t, documentId);
+    expect(text).toBe(RICH_WORD_MARKDOWN);
+    const versions = await t.run(async (ctx) =>
+      ctx.db.query("projectDocumentTextVersions").withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId)).collect()
+    );
+    expect(versions.map((version) => [version.version, version.why, version.textLength])).toEqual([[1, "word_markdown", plain.length]]);
+    expect(await t.run(async (ctx) => readDocumentTextVersion(ctx, versions[0]!._id))).toBe(plain);
+    // Read as Markdown now: not read again.
+    expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
+    // Deleting the file deletes its versions too.
+    await writer.mutation(api.documents.deleteDocument, { documentId });
+    expect(
+      await t.run(
+        async (ctx) =>
+          (await ctx.db.query("projectDocumentTextVersions").collect()).length +
+          (await ctx.db.query("projectDocumentTextVersionPieces").collect()).length
+      )
+    ).toBe(0);
   });
 });
 

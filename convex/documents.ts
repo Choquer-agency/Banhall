@@ -1,6 +1,7 @@
 import { countTextWords } from "../shared/wordCount";
 import {
   deleteDocumentText,
+  deleteDocumentTextVersions,
   documentHasText,
   documentTextEquals,
   documentTextHash,
@@ -359,6 +360,8 @@ export const deleteDocument = mutation({
     const { user } = await requireReportEditAccess(ctx, doc.projectId);
     // 2026-10-22 (fourth): its text pieces go with it.
     await deleteDocumentText(ctx, args.documentId);
+    // B1: and its earlier text versions.
+    await deleteDocumentTextVersions(ctx, args.documentId);
     await ctx.db.delete(args.documentId);
     if (doc.storageId) await deleteStorageIfUnreferenced(ctx, doc.storageId);
     await requestBriefPreparation(ctx, doc.projectId, { userId: user._id, reason: "document_deleted" });

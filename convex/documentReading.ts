@@ -8,13 +8,14 @@ import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { deriveProcessingStatus } from "../shared/documentStatus";
-import { documentTextHash, writeDocumentText } from "./lib/documentText";
+import { documentTextHash, keepDocumentTextVersion, writeDocumentText } from "./lib/documentText";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import {
   documentHasReadText,
   needsServerReading,
   SERVER_READER_VERSION,
   serverReadingReplaces,
+  wordWithoutMarkdown,
 } from "./lib/serverReading";
 import { isProjectDeleting } from "./lib/projectDeletion";
 
@@ -71,10 +72,16 @@ export const saveServerReading = internalMutation({
       return "failed";
     }
     const now = Date.now();
-    if (!serverReadingReplaces(await documentHasReadText(ctx, doc), args.text)) {
+    const storedHasReadText = await documentHasReadText(ctx, doc);
+    // B1 (2026-10-26, owner's backfill): a Word file's Markdown reading
+    // replaces the plain text it was stored with.
+    const wordMarkdown = args.textFormat === "markdown" && wordWithoutMarkdown(doc);
+    if (!serverReadingReplaces(storedHasReadText, args.text, wordMarkdown)) {
       await ctx.db.patch(doc._id, { serverReader: args.reader, serverReadAt: now });
       return "not_better";
     }
+    // The text it had is kept as an earlier version, never lost.
+    if (storedHasReadText) await keepDocumentTextVersion(ctx, doc, wordMarkdown ? "word_markdown" : "server_reading", now);
     const written = await writeDocumentText(ctx, doc, args.text, now);
     const derived = deriveProcessingStatus({ fileName: doc.fileName, content: args.text });
     await ctx.db.patch(doc._id, {

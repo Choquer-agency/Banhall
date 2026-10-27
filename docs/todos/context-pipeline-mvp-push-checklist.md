@@ -633,3 +633,25 @@ What changes:
 ### Manual on localhost
 
 - [ ] Open the Brief's Inputs band on a finished draft and read the line under each file.
+
+## B1, first part: older Word files read again as Markdown
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (eleventh)".
+
+What changes:
+
+- **Word files stored before Word was kept as Markdown are read again** from their original, so their headings, bold, italics, lists and tables show.
+- **The plain text they had is kept** as an earlier version, never lost.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Owner, once, dev first
+
+- [ ] Run `documentReading:queueServerReadings` (dry run first). It now also reads older Word files as Markdown. Each project with a changed file gets one new Brief head start.
+
+### Manual on localhost
+
+- [ ] Open an older Word file's preview: headings, bold and lists show.

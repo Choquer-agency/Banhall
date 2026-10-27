@@ -2506,6 +2506,37 @@ export default defineSchema({
     at: v.number(),
   }).index("by_clientId_and_at", ["clientId", "at"]),
 
+  // 2026-10-26 (B1, first part): a file's earlier text, kept when a better
+  // reading replaces it (part 4 of the first 2026-10-26 entry: "upgrading a
+  // reader makes a new version instead of overwriting"). The file's current
+  // text stays in `projectDocumentTexts`; each earlier one is a version here,
+  // its text in `projectDocumentTextVersionPieces`, never changed.
+  projectDocumentTextVersions: defineTable({
+    documentId: v.id("projectDocuments"),
+    projectId: v.id("projects"),
+    /** 1 for the first text kept, then up. */
+    version: v.number(),
+    textHash: v.string(),
+    textLength: v.number(),
+    textFormat: v.optional(v.literal("markdown")),
+    /** The server reader that had read it, when one had. */
+    reader: v.optional(v.string()),
+    /** Why it was replaced. */
+    why: v.union(v.literal("word_markdown"), v.literal("server_reading")),
+    keptAt: v.number(),
+  })
+    .index("by_documentId_and_version", ["documentId", "version"])
+    .index("by_projectId", ["projectId"]),
+
+  projectDocumentTextVersionPieces: defineTable({
+    versionId: v.id("projectDocumentTextVersions"),
+    projectId: v.id("projects"),
+    start: v.number(),
+    text: v.string(),
+  })
+    .index("by_versionId_and_start", ["versionId", "start"])
+    .index("by_projectId", ["projectId"]),
+
   // 2026-10-22 (fourth): a project file's text, in pieces of at most
   // DOCUMENT_TEXT_PIECE_CHARS characters that never split a character, each
   // with its exact starting position. Written and read only through

@@ -15,9 +15,17 @@ import { documentHasText, documentTextLength, readDocumentText } from "./documen
 /**
  * The server reader's version, recorded on each file it reads. A file read
  * (or tried) by this version is not read again; a newer version may read it.
- * 2: Word files as Markdown (2026-10-26, owner).
+ * 2: Word files as Markdown (2026-10-26, owner). 3: a Word file whose
+ * stored text is not Markdown yet is read again, and its Markdown replaces
+ * the plain text, which is kept as an earlier version (B1, 2026-10-26,
+ * owner: "properly backfilled for any current/past files").
  */
-export const SERVER_READER_VERSION = "server-reader-2";
+export const SERVER_READER_VERSION = "server-reader-3";
+
+/** A Word file whose stored text is not Markdown yet (B1: read again). */
+export function wordWithoutMarkdown(doc: { fileName: string; textFormat?: "markdown" }): boolean {
+  return /\.docx$/i.test(doc.fileName.trim()) && doc.textFormat !== "markdown";
+}
 
 /**
  * The line a reader adds when it stops reading a PDF early. Matched without
@@ -59,6 +67,7 @@ export async function documentHasReadText(
 
 type ReadingState = {
   fileName: string;
+  textFormat?: "markdown";
   storageId?: Id<"_storage">;
   archived?: boolean;
   serverReader?: string;
@@ -82,7 +91,8 @@ export function needsServerReading(doc: ReadingState & { hasReadText: boolean })
   ) {
     return false;
   }
-  return !doc.hasReadText;
+  // B1: a Word file read before Word was kept as Markdown is read again.
+  return !doc.hasReadText || wordWithoutMarkdown(doc);
 }
 
 /**
@@ -93,8 +103,13 @@ export function needsServerReading(doc: ReadingState & { hasReadText: boolean })
  * reading it again waits for text versions (Phase B1), which keep the old
  * text beside the new one.
  */
-export function serverReadingReplaces(storedHasReadText: boolean, reading: string): boolean {
-  return !storedHasReadText && hasReadText(reading);
+export function serverReadingReplaces(
+  storedHasReadText: boolean,
+  reading: string,
+  /** B1: a Word file's Markdown reading of plain text it already has; the plain text is kept as a version. */
+  wordMarkdown = false
+): boolean {
+  return hasReadText(reading) && (!storedHasReadText || wordMarkdown);
 }
 
 /**

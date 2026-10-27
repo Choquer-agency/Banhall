@@ -124,6 +124,9 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "intakeSourceLinks", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "intakeDrafts", field: "projectId", disposition: "detach", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
+  // 2026-10-26 (B1, first part): files' earlier text.
+  { table: "projectDocumentTextVersions", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "projectDocumentTextVersionPieces", field: "projectId", disposition: "delete", index: "by_projectId" },
   // 2026-10-26 (Phase D, step 2): what each step sent of each frozen row.
   { table: "generationSourceUse", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
