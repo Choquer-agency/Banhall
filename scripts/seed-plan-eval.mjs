@@ -5,11 +5,13 @@
 // Release-blocking semantic suite for Step by step (CAP-13) and the CAP-14
 // seed-stage numbers. For each fictional fixture under
 // scripts/seed-plan-eval/fixtures/ it creates a project named
-// "Release eval - <fixture>", starts Step by step, performs the scripted
-// writer actions (selections, edits, Feedback, skips, regenerations,
-// approvals) through the public mutations as the named reviewer, signs off,
-// waits for the report, and writes a judging pack for the reviewing manager
-// under _bmad-output/test-artifacts/seed-plan-eval/<date>/.
+// "Release eval - <fixture>", marks it as an evaluation project (left out
+// of learning, writer memory, edit size and Brain nomination), starts Step
+// by step, performs the scripted writer actions (selections, edits,
+// Feedback, skips, regenerations, approvals) through the public mutations
+// as the named reviewer, signs off, waits for the report, and writes a
+// judging pack for the reviewing manager under
+// _bmad-output/test-artifacts/seed-plan-eval/<date>/.
 //
 // Billable: every fixture makes real model calls on the chosen deployment.
 //

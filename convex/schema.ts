@@ -328,6 +328,11 @@ export default defineSchema({
     // here so the transcript history cap never reads archived text; absent
     // means none.
     archivedTranscriptCount: v.optional(v.number()),
+    // 2026-10-27 (Phase E, E3), widen only: a release suite project, left out
+    // of learning, writer memory, edit size and Brain nomination
+    // (convex/lib/evaluationProjects.ts). Set only by the suite through
+    // seedPlanEval.markEvaluationProject, never on production.
+    evaluation: v.optional(v.object({ markedAt: v.number() })),
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])

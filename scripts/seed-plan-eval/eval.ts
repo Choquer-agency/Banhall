@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from "node:path";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../shared/pdSubsections";
 import { droppedUncertaintyFigures, figuresOf, LEAVE_OUT_FIGURE_NOTE_PREFIX } from "../../shared/planFigures";
-import { releaseEvalProjectTitle } from "../../shared/releaseEval";
+import { PRODUCTION_DEPLOYMENTS, releaseEvalProjectTitle } from "../../shared/releaseEval";
 import { findSourceTalk, sourceTalkSubject } from "../../shared/humanProse";
 import { bannedTermPattern } from "../../shared/bannedWords";
 import { sectionMetrics, WORD_CAPS } from "../../convex/lib/lineLimits";
@@ -716,7 +716,7 @@ export function describeStep(step: Step): string {
 
 // ─── Deployment guard and options ───────────────────────────────────────────
 
-export const PRODUCTION_DEPLOYMENTS = ["energized-salamander-237"];
+export { PRODUCTION_DEPLOYMENTS };
 
 export type EvalOptions = {
   dryRun: boolean;
@@ -1898,6 +1898,11 @@ export async function runFixture(
     if (!projectId) throw new Error(`projects:createProject returned no projectId (${JSON.stringify(created)})`);
     log.projectId = projectId;
     say(`created project ${projectId}`);
+    // Phase E (E3): an evaluation project, left out of learning, writer
+    // memory, edit size and Brain nomination. A backend that cannot mark it
+    // stops the run, so the fixture never feeds learning.
+    await driver.internal("seedPlanEval:markEvaluationProject", { projectId });
+    say("marked as an evaluation project");
     for (const source of fixture.sources.filter((candidate) => candidate.kind === "document")) {
       const fileName = source.fileName ?? source.file;
       await act("documents:uploadDocument", {

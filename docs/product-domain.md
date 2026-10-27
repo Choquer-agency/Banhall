@@ -4570,6 +4570,17 @@ Context pipeline plan, Phase E, fifth part (E3 in `docs/todos/phase-e-learning.m
 - **Tests:** `convex/editSizeByVersion.test.ts` (a burst's first save writes one row and one job, later saves none, its end reads the latest revision once and names the latest editor; a chat apply's reading with its applier and its turn's lesson set, and a burst ending on that revision adding nothing; an Undo, a restore and an accepted client edit in bursts; nothing for a project being erased; one latest reading per report per version, the chat lesson set table, Admin only, at most 90 days), `convex/projectErasure.test.ts` (the burst row deleted with its project), `src/routes/admin/learning/LearningHealth.component.test.ts` (the two tables, the empty and partial states, the query paused without Admin access, weight at most 500, no em or en dashes).
 - **Approval:** Product owner, 2026-10-26 (chat): part 6 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed in three rounds (see the twelfth 2026-10-26 entry).
 
+### 2026-10-27 (fourth): Evaluation projects (owner)
+
+Context pipeline plan, Phase E, fifth part (E3 in `docs/todos/phase-e-learning.md`, second step). No workflow stage, transition or permission is added, and no AI writes report prose.
+
+- **What.** The release suite (`scripts/seed-plan-eval.mjs`) marks each project it makes as an evaluation project right after creating it (`seedPlanEval.markEvaluationProject`, an internal mutation, `projects.evaluation`). The mutation refuses a project whose title does not carry the release-eval prefix, and refuses to run on production (the deployment named in `PRODUCTION_DEPLOYMENTS`, now in `shared/releaseEval.ts`, which the script also refuses). A project that cannot be marked stops its fixture before drafting.
+- **Left out of.** Learning: every lesson set input (QA item feedback, candidate scores, chat wording edits, Section edits, approved Brain feedback) skips an evaluation project's rows, no learning signal is made from one, and a signal made before the mark is no longer read. Writer memory: no signal from one reaches a suggestion run. Edit size: no reading is recorded (a burst row may open and is cleared). Brain nomination: a rated report is not nominated, and approving feedback on one records the decision but nominates no source.
+- **Known limit.** Release eval projects made before this change are not marked; `--cleanup` deletes them.
+- **Migration and compatibility.** Widen only: optional `projects.evaluation` (`{ markedAt }`). Projects without it read as before.
+- **Tests:** `convex/evaluationProjects.test.ts` (marked once, a client project refused, refused on production; each lesson set input, learning signals made and read, writer memory, edit size and both Brain nominations leave an evaluation project out), `tests/seedPlanEval.test.ts` (marked right after creation; a refused mark stops the fixture before drafting).
+- **Approval:** Product owner, 2026-10-26 (chat): part 6 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed in three rounds (see the twelfth 2026-10-26 entry).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

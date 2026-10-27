@@ -1,3 +1,4 @@
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import {
   query,
   mutation,
@@ -226,7 +227,8 @@ export const nominateFromReport = internalMutation({
     const report = await ctx.db.get(args.reportId);
     if (!report) return;
     const project = await ctx.db.get(report.projectId);
-    if (!project) return;
+    // Phase E (E3): an evaluation project's report is never nominated.
+    if (!project || isEvaluationProject(project)) return;
     const rawContent = extractPlainText(report.content);
     if (!rawContent.trim()) return;
     // CAP-1: this row becomes firm-wide Brain knowledge, and both its content
@@ -717,8 +719,9 @@ export const reviewFeedback = mutation({
       const body = fb.body.trim();
       const promotable =
         !!rule || body.length >= MIN_PROMOTABLE_FEEDBACK_CHARS;
-      if (promotable) {
-        const project = fb.projectId ? await ctx.db.get(fb.projectId) : null;
+      const project = fb.projectId ? await ctx.db.get(fb.projectId) : null;
+      // Phase E (E3): feedback on an evaluation project is never nominated.
+      if (promotable && !isEvaluationProject(project)) {
         sourceId = await importSource(
           ctx,
           {

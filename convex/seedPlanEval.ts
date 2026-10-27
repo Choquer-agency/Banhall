@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { internalQuery, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { onProductionDeployment } from "./lib/evaluationProjects";
 import type { Doc, Id } from "./_generated/dataModel";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import { isReleaseEvalProjectTitle } from "../shared/releaseEval";
@@ -61,6 +62,27 @@ export const evalActor = internalQuery({
       return null;
     }
     return { userId: user._id, authId: user.authId, role: user.role };
+  },
+});
+
+/**
+ * 2026-10-27 (Phase E, E3): marks a release-eval project as an evaluation
+ * project, so it never feeds learning, writer memory, edit size or Brain
+ * nomination. Refused for any other project, and on production.
+ */
+export const markEvaluationProject = internalMutation({
+  args: { projectId: v.id("projects") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (onProductionDeployment()) throw new Error("Evaluation projects are never made on production");
+    const project = await ctx.db.get(args.projectId);
+    if (!project || !isReleaseEvalProjectTitle(project.title)) {
+      throw new Error("Not a release eval project");
+    }
+    if (project.evaluation === undefined) {
+      await ctx.db.patch(project._id, { evaluation: { markedAt: Date.now() } });
+    }
+    return null;
   },
 });
 

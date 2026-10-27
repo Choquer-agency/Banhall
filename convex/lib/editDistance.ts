@@ -2,6 +2,7 @@ import type { MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { tryExtractPlainText } from "./reportEdits";
+import { isEvaluationProject } from "./evaluationProjects";
 
 // ─── BNH-10 flywheel: post-edit distance (PED) ───────────────────────────────
 
@@ -119,6 +120,9 @@ export async function recordReportEditDistance(
   extra: EditDistanceExtra = {}
 ): Promise<Id<"reportEditDistance"> | null> {
   try {
+    const project = await ctx.db.get(report.projectId);
+    // Phase E (E3): an evaluation project records no edit size.
+    if (isEvaluationProject(project)) return null;
     const baseline = await ctx.db
       .query("reportSnapshots")
       .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
@@ -155,7 +159,6 @@ export async function recordReportEditDistance(
       return null;
     }
 
-    const project = await ctx.db.get(report.projectId);
     return await ctx.db.insert("reportEditDistance", {
       reportId: report._id,
       projectId: report.projectId,

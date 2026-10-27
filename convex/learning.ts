@@ -1,3 +1,4 @@
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import {
   mutation,
   query,
@@ -41,6 +42,10 @@ const digestKind = v.union(
 const MAX_REASON_LENGTH = 500;
 
 /** One cache per bounded query; missing projects still get contact scrubbing. */
+/**
+ * The scrubber for a row's project, or null for an evaluation project's row
+ * (Phase E, E3), which lesson sets never read.
+ */
 function projectScrubber(ctx: QueryCtx) {
   const projects = new Map<Id<"projects">, Doc<"projects"> | null>();
   return async (projectId: Id<"projects"> | undefined) => {
@@ -48,6 +53,7 @@ function projectScrubber(ctx: QueryCtx) {
       projects.set(projectId, await ctx.db.get(projectId));
     }
     const project = projectId ? (projects.get(projectId) ?? null) : null;
+    if (isEvaluationProject(project)) return null;
     return (text: string, limit: number) =>
       deidentify(text, project).slice(0, limit);
   };
@@ -65,6 +71,7 @@ export const getFeedbackForDigest = internalQuery({
     const results = [];
     for (const row of rows) {
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId,
@@ -95,6 +102,7 @@ export const getCandidateFeedbackForDigest = internalQuery({
     const results = [];
     for (const row of rows) {
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId,
@@ -122,6 +130,7 @@ export const getProposalWordingEditsForDigest = internalQuery({
     const results = [];
     for (const row of rows) {
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId,
@@ -150,6 +159,7 @@ export const getSectionEditsForDigest = internalQuery({
     for (const row of rows) {
       if (!(row.editRatio >= 0.05)) continue;
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId ?? null,
@@ -198,6 +208,7 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
         .order("desc")
         .first();
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       items.push({
         signalId: row._id,
         producerId: row.fromUserId,

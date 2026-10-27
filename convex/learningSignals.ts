@@ -8,6 +8,7 @@
  * these copies; builds never build maps.
  */
 import { v } from "convex/values";
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -101,9 +102,10 @@ async function putSignal(
 }
 
 /** A live project that is not being erased, or null. */
+/** A project that may feed learning: not being erased, not an evaluation project (E3). */
 async function liveProject(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
   const project = await ctx.db.get(projectId);
-  return project && project.deletionStartedAt === undefined ? project : null;
+  return project && project.deletionStartedAt === undefined && !isEvaluationProject(project) ? project : null;
 }
 
 export const SEED_SELECTION_KEY = (id: Id<"seedSelections">) => `seedSelection:${id}`;

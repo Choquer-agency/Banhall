@@ -1274,6 +1274,51 @@ describe("runner", () => {
     expect(log.lines.at(-1)).toContain("stopped: An active internal role is required");
   });
 
+  it("marks the project as an evaluation project right after creating it (Phase E, E3)", async () => {
+    const order: string[] = [];
+    const internalCalls: Array<[string, Record<string, unknown>]> = [];
+    const driver: EvalDriver = {
+      mutation: async (name) => {
+        order.push(name);
+        if (name === "generations:requestGeneration") throw new Error("stop here");
+        return name === "projects:createProject" ? { projectId: "project-1", transcriptIds: ["t-1"] } : "document-1";
+      },
+      query: async () => null,
+      internal: async (name, args) => {
+        order.push(name);
+        internalCalls.push([name, args]);
+        return null;
+      },
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    await runFixture(byCase("exclusion_conflict"), driver);
+    expect(order.slice(0, 2)).toEqual(["projects:createProject", "seedPlanEval:markEvaluationProject"]);
+    expect(internalCalls[0]).toEqual(["seedPlanEval:markEvaluationProject", { projectId: "project-1" }]);
+  });
+
+  it("stops before drafting when the project cannot be marked (Phase E, E3)", async () => {
+    const calls: string[] = [];
+    const driver: EvalDriver = {
+      mutation: async (name) => {
+        calls.push(name);
+        return name === "projects:createProject" ? { projectId: "project-1", transcriptIds: ["t-1"] } : "document-1";
+      },
+      query: async () => null,
+      internal: async (name) => {
+        if (name === "seedPlanEval:markEvaluationProject") throw new Error("Not a release eval project");
+        return null;
+      },
+      now: () => 0,
+      sleep: async () => undefined,
+      log: () => undefined,
+    };
+    const { log } = await runFixture(byCase("exclusion_conflict"), driver);
+    expect(calls).toEqual(["projects:createProject"]);
+    expect(log.error).toContain("Not a release eval project");
+  });
+
   it("creates the project with the fixture's sources and the release-eval name", async () => {
     const created: Array<Record<string, unknown>> = [];
     const driver: EvalDriver = {

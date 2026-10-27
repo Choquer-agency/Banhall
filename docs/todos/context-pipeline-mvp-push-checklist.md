@@ -772,3 +772,21 @@ What changes:
 ### Manual on localhost
 
 - [ ] Edit a report for a minute, wait 10 minutes, and apply a chat card. On Admin, Learning health, "Edit size by version" counts the report, and the chat table names the chat's style lessons (or None).
+
+## Phase E, fifth part: evaluation projects
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (fourth)".
+
+What changes:
+
+- **Release suite projects are marked as evaluation projects**, so their fictional work never teaches the lesson sets, writer memory, edit size or the Brain.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] One release suite fixture on the live copy: its project is marked, and it makes no learning signal, edit size reading or Brain source.
+

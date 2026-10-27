@@ -8,6 +8,7 @@
  * (convex/lib/preferenceCheck.ts) and the model's style-only check.
  */
 import { v } from "convex/values";
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import {
   internalMutation,
   internalQuery,
@@ -580,7 +581,8 @@ export const gatherForWriter = internalQuery({
     for (const candidate of candidates) {
       if (signals.length >= MAX_RUN_SIGNALS) break;
       const project = await ctx.db.get(candidate.projectId);
-      if (!project || project.deletionStartedAt !== undefined) continue;
+      // Phase E (E3): an evaluation project's work is never a signal.
+      if (!project || project.deletionStartedAt !== undefined || isEvaluationProject(project)) continue;
       let text: string;
       if (candidate.masked) text = candidate.render(candidate.texts);
       else {
