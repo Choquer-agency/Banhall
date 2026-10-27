@@ -4532,6 +4532,16 @@ Context pipeline plan, Phase E, third part (E1a in `docs/todos/phase-e-learning.
 - **Known limits.** Evaluation projects are not yet told apart (E3). Offboarding a writer has no deletion step today; "Delete all" on the page is the writer's own.
 - **Migration and compatibility.** Widen only: three new tables, a `sectionEditEvents` index by writer, two daily jobs.
 - **Tests:** `convex/lib/preferenceCheck.test.ts` (the two sets, request words, keys), `convex/writerMemory.test.ts` (another writer and an Admin cannot read or change a row; approval re-checks the request; an erased request withdraws a suggestion; dismissed text kept then cleared; five open at most; written and edited texts through both checks, a fact refused by the model; a run keeps only suggestions with two signals that pass both checks, keeps its whole request, masks what the model reads, and a sign-off run waits a day; delete all; erasure), `convex/projectErasure.test.ts`.
+- **Review of 80f1e0ef.** gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), both "ship after fixes". Fixed:
+  - an open suggestion from erased work stayed, held one of the five places, was sent to the model again, and an edit could still approve it; now a suggestion counts as standing only with every request text from a project not being erased, editing or approving one that is not withdraws it, and a daily sweep withdraws the rest;
+  - the dismissed-text cleanup stalled after its first page; cleared rows now move to a "cleared" state that leaves its range, and it continues page by page;
+  - a run moved its cursor even when it failed or had too little to go on, losing signals; the cursor now moves only once the model has answered, and a run reads the writer's newest signals across every stream by time, not one stream after another;
+  - masking built a map for every project a run touched; it now uses each project's newest frozen draft map, and builds one for at most three projects;
+  - a run held no lease id, so an older run could clear a newer one's; saving checks the lease too; a run with five open suggestions makes no model call;
+  - the check let through spelled-out numbers, long numbers and "per" measures, name parts ("dana", "acme's") and text in scripts without capitals, and refused "T661", "'I'", "'The'", "2-3 sentences", "US", "AI" and "ALL CAPS", and style words a request capitalized; all now as intended;
+  - a written duplicate could slip past a dismissed row with the same text.
+
+  Tests added: the review's probe cases, an edit and an approval of withdrawn work, the sweep freeing places, the cleanup past one page, the lease, a failed run read again, streams by time with the project's names masked, and the sign-off gap.
 - **Approval:** Product owner, 2026-10-26 (chat): part 5 of the first 2026-10-26 entry, and "yes continue and finish all". Plan reviewed in three rounds (see the twelfth 2026-10-26 entry).
 
 ### 2026-10-27 (second): Saved preferences on the Writing preferences page, and in the writer's own drafts, Seeds and chat (owner)

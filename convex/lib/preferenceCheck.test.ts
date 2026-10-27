@@ -25,6 +25,15 @@ const STYLE_PREFERENCES = [
   "Keeps the Brief's wording when a Seed already says it well.",
   "Leads with what was uncertain, then the experiments.",
   "Spells out what changed between iterations.",
+  // Review probe: refused before, style all the same.
+  "Uses T661 wording for each Line.",
+  "Uses 'we' rather than 'I'.",
+  "Avoids starting bullets with 'The'.",
+  "Keeps the summary to 2-3 sentences.",
+  "Writes in Canadian English, not US English.",
+  "Uses AI only as a noun.",
+  "Avoids ALL CAPS.",
+  "Uses two spaces after a full stop.",
 ];
 
 /** Preferences that carry a company or project fact: each must be refused. */
@@ -40,6 +49,13 @@ const FACT_PREFERENCES: Array<[string, PreferenceRefusal]> = [
   ["Writes 'Seal' with a capital.", "quote"],
   ["Mentions acme pumps by name in every Line.", "name"],
   ["Credits dana whitlock for the method.", "name"],
+  // Review probe: passed before.
+  ["Says the seal held at four bar.", "number"],
+  ["Says trials ran in twenty twenty-three.", "number"],
+  ["Says the pump runs 500 lines per minute.", "number"],
+  ["Keeps 2023 words.", "number"],
+  ["Keeps sentences under 1,000,000 words.", "number"],
+  ["Mentions 株式会社 in every Line.", "script"],
 ];
 
 describe("checkPreferenceText (Phase E, E1a)", () => {
@@ -71,6 +87,8 @@ describe("checkPreferenceText (Phase E, E1a)", () => {
     expect(checkPreferenceText("Credits dana for each result.", { names: [], request })).toEqual({ ok: false, reason: "request_capitalized" });
     // "flotation" is a term of one company's work, not of writing.
     expect(checkPreferenceText("Calls the flotation work 'the trials'.", { names: [], request })).toEqual({ ok: false, reason: "request_word" });
+    // A style word the request capitalizes stays allowed (review).
+    expect(checkPreferenceText("Uses Canadian spelling.", { names: [], request: [{ text: "Use Canadian spelling, said Dana.", company: "a" }] })).toEqual({ ok: true });
     // Words of writing pass, even when the request uses them.
     expect(checkPreferenceText("Keeps the result before the method.", { names: [], request })).toEqual({ ok: true });
   });

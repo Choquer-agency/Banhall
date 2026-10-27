@@ -3566,7 +3566,9 @@ export default defineSchema({
     text: v.string(),
     /** The folded text, so the same preference is never suggested twice. */
     textKey: v.string(),
-    state: v.union(v.literal("suggested"), v.literal("on"), v.literal("off"), v.literal("dismissed")),
+    // "cleared": dismissed more than 90 days ago, text gone, key kept (review:
+    // a cleared row leaves the cleanup's range).
+    state: v.union(v.literal("suggested"), v.literal("on"), v.literal("off"), v.literal("dismissed"), v.literal("cleared")),
     origin: v.union(v.literal("suggested"), v.literal("written")),
     /** How many of the writer's own signals backed a suggestion. */
     support: v.optional(v.number()),
@@ -3601,7 +3603,12 @@ export default defineSchema({
   writerMemoryRuns: defineTable({
     userId: v.id("users"),
     leaseUntil: v.number(),
+    /** The run holding the lease (review: an older run never clears a newer one's). */
+    leaseId: v.optional(v.string()),
+    /** When a run last answered (the sign-off run waits a day after it). */
     lastRunAt: v.optional(v.number()),
+    /** The newest signal a run that answered read; moves only then (review). */
+    cursorAt: v.optional(v.number()),
   }).index("by_userId", ["userId"]),
 
   // 2026-10-26 (Phase E, E2b): Step-by-step choices and reviewer outcomes

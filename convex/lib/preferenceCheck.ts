@@ -28,7 +28,8 @@ export type PreferenceRefusal =
   | "quote"
   | "name"
   | "request_capitalized"
-  | "request_word";
+  | "request_word"
+  | "script";
 
 /** What a refusal says to the writer, in plain words. */
 export const PREFERENCE_REFUSAL_WORDS: Record<PreferenceRefusal, string> = {
@@ -36,13 +37,14 @@ export const PREFERENCE_REFUSAL_WORDS: Record<PreferenceRefusal, string> = {
   too_long: `Keep a preference to ${MAX_PREFERENCE_CHARS} characters.`,
   placeholder: "A preference cannot hold a hidden name such as [CLIENT_1].",
   contact: "A preference cannot hold an email, web address or phone number.",
-  number: "A preference can hold a number only as a length, such as \"under 25 words\".",
+  number: "A preference can hold a number only as a length, such as \"under 25 words\", or a Line number.",
   code: "A preference cannot hold a code or model name.",
-  capitalized: "A preference cannot hold a name. Describe how you like to write instead.",
+  capitalized: "A preference cannot hold a name or a capitalized term. Describe how you like to write instead.",
   quote: "Quote at most three plain words, with no names or numbers.",
   name: "A preference cannot hold the name of a company, project or person.",
   request_capitalized: "This holds a name from the work it came from.",
   request_word: "This holds a term from the work it came from, not a way of writing.",
+  script: "Write the preference in English or French.",
 };
 
 export type PreferenceCheckContext = {
@@ -55,10 +57,21 @@ export type PreferenceCheckContext = {
 /** Words a style preference may capitalize after its first word. */
 const STYLE_WORDS = new Set([
   "I", "Line", "Lines", "CRA", "SR&ED", "T661", "Seed", "Seeds", "Brief", "Storyline", "Summary",
-  "English", "French", "Canadian", "British", "American", "Oxford", "Markdown",
+  "English", "French", "Canadian", "British", "American", "Oxford", "Markdown", "US", "UK", "AI", "ALL", "CAPS",
 ]);
+const STYLE_WORDS_LOWER = new Set([...STYLE_WORDS].map((word) => word.toLowerCase()));
 /** Units a number may stand before. */
-const STYLE_UNITS = /^\s*(?:words?|sentences?|paragraphs?|bullets?|lines?|characters?|pages?|items?)\b/i;
+const STYLE_UNITS = /^\s*(?:words?|sentences?|paragraphs?|bullets?|lines?|characters?|pages?|items?|spaces?|columns?|levels?|points?)\b/i;
+/** A unit followed by "per", as in "500 lines per minute", is a measure, not a length. */
+const UNIT_PER = /^\s*\p{L}+\s+per\b/iu;
+/** Spelled-out numbers (review); "one" is too common in plain prose to refuse. */
+const NUMBER_WORDS = new Set([
+  "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+  "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy",
+  "eighty", "ninety", "hundred", "thousand", "million", "billion", "dozen", "twice", "percent",
+]);
+/** Letters of scripts with no capitals, which the name rules cannot read. */
+const UNCASED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Thai}\p{Script=Devanagari}]/u;
 const LINE_NUMBERS = new Set(["242", "244", "246"]);
 /** Common words a preference uses that the app's own text may not. */
 const PLAIN_WORDS = [
@@ -133,22 +146,39 @@ export function checkPreferenceText(
   if (/\S+@\S+\.\S+|https?:\/\/|\bwww\./i.test(text) || /\+?\d[\d\s().-]{6,}\d/.test(text)) {
     return { ok: false, reason: "contact" };
   }
+  if (UNCASED_SCRIPT.test(text)) return { ok: false, reason: "script" };
+  // The form's own name is a style word, never a figure or a code.
+  const plain = text.replace(/\bT661\b/g, "form");
   // A letter-and-number code ("XR-200", "OS1").
-  if (/(?<![\p{L}\p{N}])(?=[\p{L}\p{N}-]*\p{L})(?=[\p{L}\p{N}-]*\p{N})[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*/u.test(text.replace(/\bT661\b/g, ""))) {
+  if (/(?<![\p{L}\p{N}])(?=[\p{L}\p{N}-]*\p{L})(?=[\p{L}\p{N}-]*\p{N})[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*/u.test(plain)) {
     return { ok: false, reason: "code" };
   }
-  for (const match of text.matchAll(/\d+(?:[.,]\d+)*/g)) {
-    const before = text.slice(0, match.index);
-    const after = text.slice(match.index + match[0].length);
+  // A number only as a short length ("under 25 words", "2-3 sentences") or a Line number.
+  for (const match of plain.matchAll(/\d+(?:[.,]\d+)*(?:\s*-\s*\d+)?/g)) {
+    const before = plain.slice(0, match.index);
+    const after = plain.slice(match.index + match[0].length);
     const lineNumber = /\bLines?\s*$/i.test(before) && LINE_NUMBERS.has(match[0]);
-    if (!lineNumber && !STYLE_UNITS.test(after)) return { ok: false, reason: "number" };
+    const length = /^\d{1,3}(?:\s*-\s*\d{1,3})?$/.test(match[0]) && STYLE_UNITS.test(after) && !UNIT_PER.test(after);
+    if (!lineNumber && !length) return { ok: false, reason: "number" };
   }
-  for (const quote of text.matchAll(/["“]([^"”]*)["”]|(?<![\p{L}])['‘]([^'’]*)['’](?![\p{L}])/gu)) {
+  for (const match of plain.matchAll(/[\p{L}]+/gu)) {
+    if (!NUMBER_WORDS.has(match[0].toLowerCase())) continue;
+    const after = plain.slice(match.index + match[0].length);
+    if (!STYLE_UNITS.test(after) || UNIT_PER.test(after)) return { ok: false, reason: "number" };
+  }
+  const vocabulary = appVocabulary();
+  for (const quote of text.matchAll(/["\u201c]([^"\u201d]*)["\u201d]|(?<![\p{L}])['\u2018]([^'\u2019]*)['\u2019](?![\p{L}])/gu)) {
     const inner = (quote[1] ?? quote[2] ?? "").trim();
-    if (inner.split(/\s+/).filter(Boolean).length > 3 || /[\p{Lu}\p{N}]/u.test(inner)) return { ok: false, reason: "quote" };
+    const words = inner.split(/\s+/).filter(Boolean);
+    if (words.length > 3 || /\p{N}/u.test(inner)) return { ok: false, reason: "quote" };
+    // A capital only as "I", or a quoted word of the app's own vocabulary ("'The'").
+    const capitalsOk = words.every(
+      (word) => word === word.toLowerCase() || word === "I" || (vocabulary.has(word.toLowerCase()) && word.slice(1) === word.slice(1).toLowerCase())
+    );
+    if (!capitalsOk) return { ok: false, reason: "quote" };
   }
-  const starts = sentenceStarts(text);
-  for (const match of text.matchAll(/[\p{L}][\p{L}'&-]*/gu)) {
+  const starts = sentenceStarts(plain);
+  for (const match of plain.matchAll(/[\p{L}][\p{L}'&-]*/gu)) {
     const word = match[0].replace(/['\u2019]s$/u, "");
     if (word !== word.toLowerCase() && !starts.has(match.index) && !STYLE_WORDS.has(word)) {
       return { ok: false, reason: "capitalized" };
@@ -161,11 +191,11 @@ export function checkPreferenceText(
     const midCapital = new Set(seen.flatMap((entry) => [...entry.midCapital]));
     const lower = new Set(seen.flatMap((entry) => [...entry.lower]));
     for (const word of words) {
+      if (STYLE_WORDS_LOWER.has(word)) continue;
       if (midCapital.has(word) && !lower.has(word)) return { ok: false, reason: "request_capitalized" };
     }
-    const vocabularyWords = appVocabulary();
     for (const word of words) {
-      if (word.length < 5 || vocabularyWords.has(word)) continue;
+      if (word.length < 5 || vocabulary.has(word)) continue;
       const companies = new Set(seen.filter((entry) => entry.words.has(word)).map((entry) => entry.company));
       if (companies.size > 0 && companies.size < 3) return { ok: false, reason: "request_word" };
     }

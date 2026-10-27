@@ -114,7 +114,7 @@ describe("writer memory (Phase E, E1a)", () => {
     await s.t.run((ctx) => ctx.db.patch(suggestion!._id, { decidedAt: Date.now() - DISMISSED_TEXT_KEPT_MS - 1 }));
     expect(await s.t.mutation(internal.writerMemory.clearDismissedTexts, {})).toBe(1);
     const row = await s.t.run((ctx) => ctx.db.get(suggestion!._id));
-    expect(row).toMatchObject({ text: "", state: "dismissed", textKey: preferenceTextKey("Avoids the passive voice.") });
+    expect(row).toMatchObject({ text: "", state: "cleared", textKey: preferenceTextKey("Avoids the passive voice.") });
   });
 
   test("at most five open suggestions", async () => {
@@ -171,12 +171,111 @@ describe("writer memory (Phase E, E1a)", () => {
     expect(mine.suggestions.map((row) => [row.text, row.support])).toEqual([["Prefers 'we' to 'the team'.", 2]]);
     // The suggestion keeps its whole request, not only the signals it cited.
     expect(await s.t.run(async (ctx) => (await ctx.db.query("writerMemorySources").collect()).length)).toBe(3);
-    // The request the model read was masked: the record's company name is gone.
-    const suggestRequest = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [unknown, { body: string }])[1].body));
-    expect(JSON.stringify(suggestRequest)).not.toContain("Acme Pumps");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    // A sign-off run within a day of the last run does nothing.
+    // A new signal arrives; a sign-off run within a day of the last one does nothing, with no call.
+    await s.t.run((ctx) =>
+      ctx.db.insert("learningSignals", {
+        kind: "seed_rewording", sourceKey: "seedSelection:new", projectId: s.projectId, producerId: s.writerId,
+        payload: { before: "Long.", after: "Short." }, at: Date.now(),
+      })
+    );
     expect(await s.t.action(internal.ai.writerMemory.suggestForWriter, { userId: s.writerId, reason: "sign_off" })).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("a failed run leaves its signals; the next reads every stream newest first, with the project's names masked (review)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("transcripts", { projectId: s.projectId, content: "Priya Raman: We tuned the seal.\nInterviewer: Why?", label: "Interview", createdAt: 1 });
+      const generationId = await ctx.db.insert("generations", { projectId: s.projectId, status: "completed", requestedBy: s.writerId, startedAt: 1 });
+      await ctx.db.insert("learningSignals", {
+        kind: "seed_rewording", sourceKey: "seedSelection:old", projectId: s.projectId, producerId: s.writerId,
+        payload: { before: "Old idea.", after: "An older rewording." }, at: 5,
+      });
+      await ctx.db.insert("sectionEditEvents", {
+        projectId: s.projectId, generationId, section: "s242", userId: s.writerId, editRatio: 0.4, createdAt: 50,
+        draftText: "Acme Pumps and Priya Raman performed testing of the seal.", approvedText: "We tested the seal.",
+      });
+    });
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "no" } }), { status: 400 })));
+    await expect(s.t.action(internal.ai.writerMemory.suggestForWriter, { userId: s.writerId, reason: "nightly" })).rejects.toThrow();
+    const [failed] = await s.t.run((ctx) => ctx.db.query("writerMemoryRuns").collect());
+    expect(failed).toMatchObject({ leaseUntil: 0 });
+    expect(failed!.cursorAt).toBeUndefined();
+
+    const fetchMock = stubModel({ suggestions: [] });
+    await s.t.action(internal.ai.writerMemory.suggestForWriter, { userId: s.writerId, reason: "nightly" });
+    const body = String((fetchMock.mock.calls[0] as unknown as [unknown, { body: string }])[1].body);
+    // The section edit (newer) comes before the Seed rewording (older).
+    expect(body.indexOf("Section edit.")).toBeGreaterThan(-1);
+    expect(body.indexOf("Section edit.")).toBeLessThan(body.indexOf("Seed rewording."));
+    expect(body).not.toContain("Acme Pumps");
+    expect(body).not.toContain("Priya Raman");
+    const [done] = await s.t.run((ctx) => ctx.db.query("writerMemoryRuns").collect());
+    expect(done!.cursorAt).toBe(50);
+  });
+
+  test("names on the writer's projects are refused by their parts; a company by its first word (review)", async () => {
+    const s = await setup();
+    await s.t.run((ctx) => ctx.db.patch(s.projectId, { interviewer: "Dana Whitlock" }));
+    stubModel({ verdicts: [{ index: 1, styleOnly: true }] });
+    await expect(s.writer.action(api.ai.writerMemory.saveText, { text: "Mentions dana by first name." })).rejects.toThrow(/name of a company/);
+    await expect(s.writer.action(api.ai.writerMemory.saveText, { text: "Calls acme's pump the prototype." })).rejects.toThrow(/name of a company/);
+  });
+
+  test("an edit or approval of a suggestion whose project is being erased withdraws it (review)", async () => {
+    const s = await setup();
+    const [first, second] = await suggest(s, ["Keeps it short.", "Avoids jargon."]);
+    await s.t.run((ctx) => ctx.db.patch(s.projectId, { deletionStartedAt: 9 }));
+    stubModel({ verdicts: [{ index: 1, styleOnly: true }] });
+    await expect(s.writer.action(api.ai.writerMemory.saveText, { memoryId: first!._id, text: "Keeps it very short." })).rejects.toThrow(/withdrawn/);
+    expect(await s.writer.mutation(api.writerMemory.approve, { memoryId: second!._id })).toBe("withdrawn");
+    expect((await s.writer.query(api.writerMemory.listMine, {})).suggestions).toEqual([]);
+  });
+
+  test("the sweep withdraws suggestions of erased work, freeing their places (review)", async () => {
+    const s = await setup();
+    await suggest(s, ["Keeps it short.", "Avoids jargon.", "Uses plain words.", "Starts with the result.", "Writes in the past tense."]);
+    await s.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("writerMemorySources").collect()) await ctx.db.delete(row._id);
+    });
+    expect(await s.t.mutation(internal.writerMemory.withdrawBrokenSuggestions, {})).toBe(5);
+    expect(await s.t.run((ctx) => ctx.db.query("writerMemories").collect())).toEqual([]);
+    expect(await suggest(s, ["Avoids repeating words."])).toHaveLength(1);
+  });
+
+  test("the cleanup reaches every dismissed text past its first page (review)", async () => {
+    vi.useFakeTimers();
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      for (let index = 0; index < 250; index += 1) {
+        await ctx.db.insert("writerMemories", {
+          userId: s.writerId, text: `Old idea ${index}.`, textKey: `old idea ${index}`, state: "dismissed", origin: "suggested",
+          createdAt: 1, decidedAt: 1, updatedAt: 1,
+        });
+      }
+    });
+    await s.t.mutation(internal.writerMemory.clearDismissedTexts, {});
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const rows = await s.t.run((ctx) => ctx.db.query("writerMemories").collect());
+    expect(rows.filter((row) => row.state === "cleared" && row.text === "")).toHaveLength(250);
+  });
+
+  test("an older run never clears a newer run's lease (review)", async () => {
+    const s = await setup();
+    const first = await s.t.mutation(internal.writerMemory.leaseRun, { userId: s.writerId, reason: "nightly" });
+    await s.t.run(async (ctx) => {
+      const [run] = await ctx.db.query("writerMemoryRuns").collect();
+      await ctx.db.patch(run!._id, { leaseUntil: 0 });
+    });
+    const second = await s.t.mutation(internal.writerMemory.leaseRun, { userId: s.writerId, reason: "nightly" });
+    await s.t.mutation(internal.writerMemory.finishRun, { userId: s.writerId, leaseId: first!.leaseId, consumedAt: 99 });
+    const [run] = await s.t.run((ctx) => ctx.db.query("writerMemoryRuns").collect());
+    expect(run).toMatchObject({ leaseId: second!.leaseId });
+    expect(run!.leaseUntil).toBeGreaterThan(0);
+    expect(run!.cursorAt).toBeUndefined();
   });
 
   test("deleting all removes every preference, suggestion and dismissed one", async () => {

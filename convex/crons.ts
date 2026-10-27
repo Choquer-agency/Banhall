@@ -107,6 +107,12 @@ crons.cron(
   internal.writerMemory.clearDismissedTexts,
   {}
 );
+crons.cron(
+  "withdraw preference suggestions of erased work",
+  "50 8 * * *",
+  internal.writerMemory.withdrawBrokenSuggestions,
+  {}
+);
 crons.interval(
   "reconcile stalled oversight rebuilds",
   { minutes: 5 },

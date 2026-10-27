@@ -26,10 +26,14 @@ import {
 import { domainError } from "../lib/contracts";
 import type { RunSignal } from "../writerMemory";
 
+const WITHDRAWN_MESSAGE = "The work this suggestion came from was removed, so it was withdrawn.";
+
 /** At most this many suggestions one run makes. */
 const MAX_SUGGESTIONS = 3;
 /** A run needs at least this many signals to suggest anything. */
 const MIN_RUN_SIGNALS = 2;
+/** At most this many open suggestions a writer holds (convex/writerMemory.ts). */
+const MAX_OPEN = 5;
 
 export const SUGGEST_SYSTEM_PROMPT = `You help one professional writer of SR&ED (Canadian R&D tax credit) reports keep a short list of their own writing preferences.
 
@@ -114,10 +118,14 @@ export const suggestForWriter = internalAction({
     startActionDeadline(ctx);
     const lease = await ctx.runMutation(internal.writerMemory.leaseRun, args);
     if (!lease) return 0;
-    const ranAt = Date.now();
+    // Review: the cursor moves only once the model has answered on enough
+    // signals; a failed run, or one with too little, reads them again.
+    let consumedAt: number | undefined;
     try {
       const gathered = await ctx.runQuery(internal.writerMemory.gatherForWriter, { userId: args.userId, since: lease.since });
-      if (!gathered.active || gathered.signals.length < MIN_RUN_SIGNALS) return 0;
+      if (!gathered.active || !gathered.hasNew || gathered.signals.length < MIN_RUN_SIGNALS) return 0;
+      // Five open suggestions already: nothing could be saved, so no call.
+      if (gathered.openSuggestions >= MAX_OPEN) return 0;
       const signals: RunSignal[] = gathered.signals;
       const { client, model } = await clientForRole(ctx, "learning_digest", { callSite: "writer-memory:suggest" });
       const answer = await generateStructured<{ suggestions: Array<{ text: string; signals: number[] }> }>(client, {
@@ -137,6 +145,7 @@ export const suggestForWriter = internalAction({
         schema: SUGGEST_SCHEMA,
         maxTokens: 1024,
       });
+      consumedAt = gathered.newest;
       const request = signals.map((signal) => ({ text: signal.text, company: signal.company }));
       const candidates: Array<{ text: string; support: number }> = [];
       for (const suggestion of answer.suggestions.slice(0, MAX_SUGGESTIONS)) {
@@ -156,11 +165,16 @@ export const suggestForWriter = internalAction({
       if (passed.length === 0) return 0;
       return await ctx.runMutation(internal.writerMemory.saveSuggestions, {
         userId: args.userId,
+        leaseId: lease.leaseId,
         suggestions: passed.map((candidate) => ({ ...candidate, checkedTextKey: preferenceTextKey(candidate.text) })),
         request: signals,
       });
     } finally {
-      await ctx.runMutation(internal.writerMemory.finishRun, { userId: args.userId, ranAt });
+      await ctx.runMutation(internal.writerMemory.finishRun, {
+        userId: args.userId,
+        leaseId: lease.leaseId,
+        ...(consumedAt !== undefined ? { consumedAt } : {}),
+      });
     }
   },
 });
@@ -180,17 +194,20 @@ export const saveText = action({
       userId,
       ...(args.memoryId ? { memoryId: args.memoryId } : {}),
     });
+    if (context.withdrawn) domainError("INVALID_STATE", WITHDRAWN_MESSAGE);
     const check = checkPreferenceText(text, context);
     if (!check.ok) domainError("INVALID_INPUT", PREFERENCE_REFUSAL_WORDS[check.reason]);
     const styleOnly = await styleOnlyTexts(ctx, [text], "writer-memory:check");
     if (!styleOnly.has(0)) {
       domainError("INVALID_INPUT", "This reads as a fact about the work, not a way of writing. Describe how you like to write instead.");
     }
-    return await ctx.runMutation(internal.writerMemory.saveCheckedText, {
+    const saved = await ctx.runMutation(internal.writerMemory.saveCheckedText, {
       userId,
       ...(args.memoryId ? { memoryId: args.memoryId } : {}),
       text,
       checkedTextKey: preferenceTextKey(text),
     });
+    if (saved === "withdrawn") domainError("INVALID_STATE", WITHDRAWN_MESSAGE);
+    return saved;
   },
 });
