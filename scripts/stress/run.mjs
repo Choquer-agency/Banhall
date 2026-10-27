@@ -128,9 +128,14 @@ async function main(argv) {
   const checkStop = () => {
     if (stopSignal) throw new Stopped(`stopped by ${stopSignal}`);
   };
-  /** Lets a pending signal handler run first: Node runs it between tasks. */
+  /**
+   * Two turns of the event loop, so a waiting signal handler runs first even
+   * right after a network reply (one turn is not enough there: checked
+   * locally, a SIGTERM during a read that follows a reply registers only on
+   * the second).
+   */
   const checkStopAfterSignals = async () => {
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
     checkStop();
   };
 
@@ -283,6 +288,7 @@ async function main(argv) {
       entry.spendUnknown = String(error?.message ?? error);
       results.steps.push(entry);
       save();
+      console.log(`${entry.ok ? "ok  " : "FAIL"} ${name} (${(entry.ms / 1000).toFixed(1)} s, spend unknown)${entry.ok ? "" : `: ${entry.error}`}`);
       throw capReached ?? error;
     }
     entry.stepCostUsd = current.costUsd - spentSoFar;
@@ -474,8 +480,9 @@ async function main(argv) {
         for (let waited = 0; waited < 20 && !stopSignal; waited += 1) await new Promise((resolve) => setTimeout(resolve, 1000));
         if (stopSignal) break;
       }
-      // Null when no read finished (a stop killed the first one).
-      results.finalSpendUsd = last >= 0 ? last : null;
+      // Null when no read finished (a stop killed the first one); 0 when no
+      // project was made, so there was nothing to spend.
+      results.finalSpendUsd = !projectId ? 0 : last >= 0 ? last : null;
       // False when the fifteen minutes ran out while the spend still rose.
       results.finalSpendSettled = settled;
     } catch (error) {
