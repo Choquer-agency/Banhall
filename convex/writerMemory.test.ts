@@ -4,7 +4,8 @@
  * preferences, private to that writer, suggested by the AI from their own
  * signals and kept only when they approve.
  */
-import { SAVED_PREFERENCE_NOTE, savedPreferencesIn, withoutSavedPreferenceText } from "./lib/savedPreferences";
+import { composeWithSavedPreferences, SAVED_PREFERENCE_NOTE, withoutSavedPreferenceText } from "./lib/savedPreferences";
+import { legacySavedPreferenceTexts } from "./lib/settingsExtraction";
 import { savedPreferencesOfGeneration } from "./lib/savedPreferenceNotes";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -572,10 +573,10 @@ describe("writer memory (Phase E, E1a)", () => {
 
     test("a Compliance Note row never carries a saved preference's text (review)", async () => {
       const s = await setup();
-      const saved = savedPreferencesIn("Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.\n- Uses Canadian spelling.");
+      const saved = legacySavedPreferenceTexts("Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.\n- Uses Canadian spelling.");
       // Each item, and (seventh re-check) the whole block too.
       expect(saved).toEqual(["Keeps sentences under 25 words.", "Uses Canadian spelling.", "Keeps sentences under 25 words.\nUses Canadian spelling."]);
-      expect(savedPreferencesIn("Use we.")).toEqual([]);
+      expect(legacySavedPreferenceTexts("Use we.")).toEqual([]);
       const note = (instruction: string, reason: string) => ({ section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false });
       expect(withoutSavedPreferenceText(note("Keeps sentences under 25 words.", "Every sentence is short."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
       expect(withoutSavedPreferenceText(note("Keeps sentences under 25", "Quoted in part."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
@@ -730,12 +731,61 @@ describe("writer memory (Phase E, E1a)", () => {
       const flavor = `Use we.\n\nSaved preferences:\n- ${texts[0]}\n- ${texts[1]}`;
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, savedPreferenceTexts: texts, styleOverrides: {} }))).toEqual(texts);
       expect(await read(await generation({ styleGuidance: "", writerFlavor: flavor, styleOverrides: {} }))).toEqual([
-        "Avoid filler.\nNever use these words:",
-        "optimize",
-        "Keep it plain.\nSaved preferences:\nNever use these words:",
-        "leverage",
+        // Eighth re-check: each preference as it was saved, and the whole block.
+        texts[0],
+        texts[1],
         "Avoid filler.\nNever use these words:\noptimize\nKeep it plain.\nSaved preferences:\nNever use these words:\nleverage",
       ]);
+    });
+
+    test("a quoted word of a saved preference's wording rule never reaches stored notes; the profile's and House Rules' stay (eighth re-check)", async () => {
+      const s = await setup();
+      const profile = "Never use these words:\n- synergy";
+      const notes = [
+        // The reviewer's leak: one banned word of a saved preference, quoted.
+        'The writer requested that we avoid "ornate" and we complied.',
+        // The Writer Profile's own ban and a House Rule's banned word stay.
+        'The Line avoids "synergy" as the profile asks.',
+        'The Line never says "furthermore".',
+      ];
+      for (const marker of ["*", "-"]) {
+        const saved = `Avoid filler.\nNever use these words:\n${marker} ornate\n${marker} furthermore`;
+        for (const legacy of [true, false]) {
+          const { generationId, candidateRunId } = await s.t.run(async (ctx) => {
+            const generationId = await ctx.db.insert("generations", {
+              projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+              writerSettings: {
+                profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+                waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+              },
+            });
+            await ctx.db.insert("generationArtifacts", {
+              generationId, kind: "writer_style",
+              content: JSON.stringify({
+                styleGuidance: "", writerFlavor: composeWithSavedPreferences(profile, [saved]), styleOverrides: {},
+                ...(legacy ? {} : { savedPreferenceTexts: [saved] }),
+              }),
+            });
+            await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
+            const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+              generationId, projectId: s.projectId, model: "m", label: "A", status: "running", queuedAt: 1,
+            });
+            return { generationId, candidateRunId };
+          });
+          await s.t.mutation(internal.generations.insertConsistencyNotes, {
+            generationId,
+            candidateRunId,
+            notes: notes.map((reason) => ({ section: "244" as const, source: "model" as const, instruction: "Writer preference", outcome: "applied" as const, tier: "none" as const, reason, repaired: false })),
+          });
+          const rows = await s.admin.query(api.complianceNotes.listForGeneration, { generationId, candidateRunId });
+          expect([marker, legacy, rows.map((row) => row.reason).sort()]).toEqual([
+            marker,
+            legacy,
+            [SAVED_PREFERENCE_NOTE.reason, notes[1], notes[2]].sort(),
+          ]);
+          expect(JSON.stringify(rows)).not.toMatch(/ornate/);
+        }
+      }
     });
 
     test("a style frozen before the texts were kept loses no line of a saved preference on the way to stored notes (seventh re-check)", async () => {

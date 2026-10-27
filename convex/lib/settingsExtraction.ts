@@ -546,14 +546,43 @@ export function writerWordingRulesFor(composed: string, savedTexts: readonly str
 }
 
 /**
- * Seventh re-check: the saved preferences of a style frozen before their
- * texts were kept beside it, as near as the composed block allows. Each was
- * composed as "- " and its text, and a list inside one also uses "- ", so a
- * bulleted line starts a new preference unless a list is open and the line
- * reads as a list item: at most four words, no heading and no sentence or
- * lead ending ("- optimize", never "- Keep it plain." or "- Never use these
- * words:"). Each part is read on its own, so a list never runs on into the
- * next preference and invents a ban.
+ * What a style frozen before the saved preference texts were kept beside it
+ * holds of them, for privacy matching only (E1b review; seventh and eighth
+ * re-checks). Read from the first saved preferences heading, so a heading
+ * inside a preference cannot hide the ones before it: each preference as
+ * legacyPreferenceChunks reads it, and the whole block as well, so no line
+ * ("Prefer crisp verbs ...") is ever dropped. A profile that writes the same
+ * heading itself only hides more.
+ */
+export function legacySavedPreferenceTexts(composed: string | undefined): string[] {
+  if (!composed) return [];
+  const lines = composed.split(/\r?\n/);
+  const heading = lines.findIndex((line) => line.trim() === SAVED_PREFERENCES_HEADING);
+  if (heading < 0) return [];
+  const after = lines.slice(heading + 1);
+  const chunks = legacyPreferenceChunks(after).map((chunk) => chunk.trim()).filter(Boolean);
+  const whole = after
+    .map((line) => (line.startsWith("- ") ? line.slice(2) : line).trim())
+    .filter(Boolean)
+    .join("\n");
+  return whole && !chunks.includes(whole) ? [...chunks, whole] : chunks;
+}
+
+/** A line that reads as an instruction of its own: "Keep verbs crisp", "Never hedge". */
+const INSTRUCTION_START =
+  /^(?:always|never|please|do\s+not|don['\u2019]t|(?:keep|use|avoid|write|prefer|start|end|limit|open|close|begin|put|make|spell|round|cap|cut|lead|name|give|state|explain|describe|leave|add|include|stay|aim|place|set|number|follow|match|stick|shorten|drop|replace)s?|try|tries)\b/i;
+
+/**
+ * Seventh and eighth re-checks: the saved preferences of a style frozen
+ * before their texts were kept beside it, as near as the composed block
+ * allows. Each was composed as "- " and its text, and a list inside one also
+ * uses "- ", so a bulleted line in an open list is a list item only when it
+ * is one or two words with no sentence or lead ending, no heading, and not
+ * an instruction ("- ornate"). An instruction ("- Keep verbs crisp", "-
+ * Keep it plain.") starts a new preference, and so does any other line, so
+ * a line that could be either is left unread as a rule rather than made a
+ * ban. Each part is read on its own, so a list never runs on into the next
+ * preference.
  */
 function legacyPreferenceChunks(lines: readonly string[]): string[] {
   const chunks: string[][] = [];
@@ -563,7 +592,8 @@ function legacyPreferenceChunks(lines: readonly string[]): string[] {
     const trimmed = line.trim();
     const bulleted = /^- /.test(line);
     const body = bulleted ? line.slice(2).trim() : trimmed;
-    const listItem = bulleted && listOpen && !/[.!?:]$/.test(body) && !HEADING.test(body) && wordCount(body) <= 4;
+    const listItem =
+      bulleted && listOpen && !/[.!?:]$/.test(body) && !HEADING.test(body) && !INSTRUCTION_START.test(body) && wordCount(body) <= 2;
     if (bulleted && !listItem) {
       chunks.push([body]);
       listOpen = BAN_LEAD.test(body) || BAN_HEADING.test(body) || termsLead(body);

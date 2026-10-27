@@ -28,34 +28,6 @@ export function savedPreferencesLine(count: number): string | null {
   return count === 1 ? "1 saved preference used." : `${count} saved preferences used.`;
 }
 
-/**
- * What a style frozen before the saved preference texts were kept beside it
- * holds of them, for privacy matching only (E1b review; seventh re-check).
- * Read from the first heading at the start of a line, so a heading inside a
- * saved preference cannot hide the ones before it. Where one preference
- * ends cannot be told for certain, so this returns each bulleted item with
- * the lines that follow it, and the whole block as well: a line without a
- * bullet ("Prefer crisp verbs ...") is never dropped. A profile that writes
- * the same heading itself only hides more.
- */
-export function savedPreferencesIn(styleText: string | undefined): string[] {
-  if (!styleText) return [];
-  const heading = new RegExp(`(?:^|\n)${SAVED_PREFERENCES_HEADING}\n`).exec(styleText);
-  if (!heading) return [];
-  const lines = styleText.slice(heading.index + heading[0].length).split("\n");
-  const items: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith("- ")) items.push(line.slice(2).trim());
-    else if (items.length > 0 && line.trim()) items[items.length - 1] = `${items[items.length - 1]}\n${line.trim()}`;
-  }
-  const whole = lines
-    .map((line) => (line.startsWith("- ") ? line.slice(2) : line).trim())
-    .filter(Boolean)
-    .join("\n");
-  const found = items.filter(Boolean);
-  return whole && !found.includes(whole) ? [...found, whole] : found;
-}
-
 const folded = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 /** What a Compliance Note row about a saved preference says instead of its text. */
@@ -149,13 +121,23 @@ function quotedSpans(field: string): Array<{ text: string; wholeOnly: boolean }>
  */
 export function withoutSavedPreferenceText<T extends { instruction: string; reason: string; source?: string }>(
   note: T,
-  saved: readonly string[]
+  saved: readonly string[],
+  /**
+   * Eighth re-check: the words of the wording rules read from the saved
+   * preferences (savedPreferenceNotes.ts). A quote of one, a single word
+   * too ('avoid "ornate"'), hides the row, unless the House Rules use it.
+   */
+  wording: readonly string[] = []
 ): T {
-  if (saved.length === 0 || note.source !== "model") return note;
+  if ((saved.length === 0 && wording.length === 0) || note.source !== "model") return note;
   const houseRuleRow = isHouseRuleText(note.instruction);
   const raw = houseRuleRow ? [note.reason] : [note.instruction, note.reason];
   const fields = raw.map(folded);
   const spans = raw.flatMap(quotedSpans);
+  const privateWords = wording.map(folded).filter((word) => word !== "" && !houseRuleText().some((line) => line.includes(` ${word} `)));
+  if (spans.some(({ text: span }) => privateWords.some((word) => ` ${span} `.includes(` ${word} `)))) {
+    return { ...note, ...SAVED_PREFERENCE_NOTE };
+  }
   const joined = ` ${fields.join(" | ")} `;
   const vocabulary = appVocabulary();
   const ownWording = (run: string) => run.split(" ").some((word) => /\p{N}/u.test(word) || !vocabulary.has(word));

@@ -715,5 +715,37 @@ describe("the requests drafts send are as before round 7, except where that read
     expect(scoped.before).toContain('"novel"');
     expect(scoped.now).not.toContain('"novel"');
     expect(scoped.legacy).toBe(scoped.now);
+    // 4. Eighth re-check: a heading's scope in the Writer Profile, or in an
+    // earlier preference, ran on into a later preference and silenced its bans.
+    const fromProfile = readings("# Line 244\nNever use these words:\n- synergy", ["Avoid filler.\nNever use these words:\n- ornate"]);
+    expect(fromProfile.before).not.toContain('"ornate"');
+    expect(fromProfile.now).toContain('"ornate"');
+    expect(fromProfile.legacy).toBe(fromProfile.now);
+    const fromPreference = readings("", ["Avoid filler.\n# Line 244\nNever use these words:\n- novel", "Keep it short.\nNever use these words:\n- ornate"]);
+    expect(fromPreference.before).not.toContain('"ornate"');
+    expect(fromPreference.now).toContain('"ornate"');
+    expect(fromPreference.legacy).toBe(fromPreference.now);
+  });
+});
+
+describe("an older draft's saved block never turns an instruction into a ban (eighth re-check)", () => {
+  const SAVED = ["Avoid filler.\nNever use these words:\n- ornate", "Keep verbs crisp"];
+  const DRAFT = "We used ornate and verbose wording with synergy. Keep verbs crisp.";
+
+  it("reads an unpunctuated instruction after a ban list as a new preference", () => {
+    const composed = composeWithSavedPreferences("Never use these words:\n- synergy", SAVED);
+    const legacy = writerWordingRulesFor(composed, undefined);
+    expect(legacy.banned.map((rule) => rule.phrase)).toEqual(["synergy", "ornate"]);
+    expect(legacy).toEqual(writerWordingRulesFor(composed, SAVED));
+    const issues = repairIssues(check("242", DRAFT, legacy), []);
+    const request = repairGuidanceBlock(issues, DRAFT, [], false, false, legacy);
+    expect(request).not.toContain('ban "Keep verbs crisp"');
+    expect(request).toContain('replace "ornate"');
+  });
+
+  it("leaves a line that could be either unread rather than a ban", () => {
+    // "state of the art" may be a banned phrase or a preference of its own.
+    const composed = composeWithSavedPreferences("", ["Never use these words:\n- ornate\n- state of the art"]);
+    expect(writerWordingRulesFor(composed, undefined).banned.map((rule) => rule.phrase)).toEqual(["ornate"]);
   });
 });

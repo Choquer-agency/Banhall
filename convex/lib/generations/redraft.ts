@@ -7,7 +7,7 @@
  * this module holds their handlers and helpers.
  */
 import { closeEditBurst } from "../editDistance";
-import { savedPreferencesOfGeneration } from "../savedPreferenceNotes";
+import { savedPreferenceMatchOfGeneration } from "../savedPreferenceNotes";
 import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
@@ -1086,9 +1086,9 @@ export async function applySeedRedraftHandler(
     candidateRunId: fence.run._id,
   };
   // E1b review: a row quoting a saved preference names it only as one.
-  const saved = await savedPreferencesOfGeneration(ctx, fence.generation);
+  const saved = await savedPreferenceMatchOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved), owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved.wording), owner));
   }
   if (args.notes.length > 0) {
     await ctx.db.patch(fence.run._id, { consistencyCheckedAt: Date.now() });
