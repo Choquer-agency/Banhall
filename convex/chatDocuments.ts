@@ -17,6 +17,8 @@
 
 import { searchCompanyPieces } from "./lib/searchPieces";
 import { readCompanyFileTextOrNull } from "./lib/companyFileText";
+import { companyFileCategory } from "./lib/briefEvidence";
+import { labelsCurrent } from "./lib/fileLabels";
 import { hasCapability } from "../shared/capabilities";
 import { MAX_CHAT_COMPANY_FILES, type ChatCompanyFile } from "./ai/chatEvidence";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
@@ -187,14 +189,25 @@ export async function chatCompanyScope(
   return client && client.status === "active" ? client._id : null;
 }
 
-/** The company files a chat turn lists (facts only), newest first. */
+/** The company files a chat turn lists (facts only): see `listedCompanyFiles`. */
 export async function chatCompanyFilesFor(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   userId: Id<"users"> | undefined
 ): Promise<ChatCompanyFile[]> {
   const clientId = await chatCompanyScope(ctx, projectId, userId);
-  if (!clientId) return [];
+  return clientId ? await listedCompanyFiles(ctx, clientId) : [];
+}
+
+/**
+ * The company files a chat turn may reach: its newest 30 with text, listed
+ * oldest first, so a file added later joins the end and the handles before
+ * it keep naming the same files (review 2, 2026-10-26). Each has the
+ * category a draft gives it (`companyFileCategory`) and a title only from
+ * labels of its current text. Search reaches only these, so every excerpt
+ * can be opened.
+ */
+async function listedCompanyFiles(ctx: QueryCtx, clientId: Id<"clients">): Promise<ChatCompanyFile[]> {
   const rows = await ctx.db
     .query("companyFiles")
     .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId).eq("archived", undefined))
@@ -203,12 +216,13 @@ export async function chatCompanyFilesFor(
   return rows
     .filter((file) => file.hasText)
     .slice(0, MAX_CHAT_COMPANY_FILES)
+    .reverse()
     .map((file) => ({
       companyFileId: file._id,
       fileName: file.fileName,
-      ...(file.category ? { category: file.category } : {}),
+      category: companyFileCategory(file.category),
       textLength: file.textLength,
-      ...(file.labels?.title ? { title: file.labels.title } : {}),
+      ...(file.labels?.title && labelsCurrent(file, file.textHash) ? { title: file.labels.title } : {}),
     }));
 }
 
@@ -384,7 +398,8 @@ export const readDocumentForChat = internalQuery({
 /**
  * Up to `maxChars` characters of one company file's text, from `start`
  * (2026-10-26, Phase C): only a file of the thread's project's company now,
- * not archived, for a sender who may read company files.
+ * not archived, for a sender who may read company files. Its category is
+ * the one a draft gives it (`companyFileCategory`).
  */
 export const readCompanyFileForChat = internalQuery({
   args: {
@@ -415,7 +430,7 @@ export const readCompanyFileForChat = internalQuery({
     return {
       status: "ok",
       fileName: file.fileName,
-      ...(file.category ? { category: file.category } : {}),
+      category: companyFileCategory(file.category),
       totalChars,
       start: range.start + windowStart,
       end: range.end + windowStart,
@@ -955,6 +970,8 @@ export const searchForChat = internalQuery({
         query: args.query,
         limit: CHAT_SEARCH_MAX_EXCERPTS - excerpts.length,
         perFile: SEARCH_EXCERPTS_PER_SOURCE,
+        // Only files the turn lists, which readDocument can open.
+        onlyFileIds: new Set((await listedCompanyFiles(ctx, clientId)).map((file) => file.companyFileId)),
       });
       if (!found.complete) complete = false;
       for (const hit of found.hits) {

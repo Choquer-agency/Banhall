@@ -1,5 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
-import { withCurrentCompanyFiles } from "./briefEvidence";
+import { refuseWhenCompanyLeft } from "./briefEvidence";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   PD_SUBSECTIONS,
@@ -354,9 +354,12 @@ export async function loadFrozenSeedActionInput(
       "Frozen seed inputs exceed the processing budget",
     );
   const briefEntries = entryRead.rows,
-    // Phase C: no company file of a company the project has left.
-    sources = await withCurrentCompanyFiles(ctx, args.generation.projectId, sourceRead.rows),
+    sources = sourceRead.rows,
     settingsArtifact = settingsRead.value;
+  // Phase C review 2: a draft that read the files of a company the project
+  // has left makes no more Seeds. Its Brief may quote those files, and
+  // dropping their rows would leave entries citing rows that are gone.
+  await refuseWhenCompanyLeft(ctx, args.generation.projectId, sources);
   if (briefEntries.length > MAX_SEED_BRIEF_ENTRY_ROWS) {
     throw new SeedContextLimitError(
       "rows",

@@ -417,6 +417,30 @@ describe("review fixes, 2026-10-26", () => {
     });
   });
 
+  it("the promoted project's first run reads the same company names as its head start, whatever case the draft typed (review 2)", async () => {
+    const s = await setup();
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    const names = await s.t.run(async (ctx) => {
+      // Another of the company's projects, whose people the names hide.
+      await ctx.db.insert("projects", {
+        title: "Warm seal", clientName: "Acme Seals Inc", clientId: s.clientId, interviewer: "Priya Natarajan",
+        status: "draft", createdBy: s.userId, ownerId: s.userId, shareToken: "cd-other", createdAt: 1, updatedAt: 1,
+      });
+      const draftId = await ctx.db.insert("intakeDrafts", {
+        ownerId: s.userId, status: "open", createdAt: Date.now(), lastEditedAt: Date.now(),
+        expiresAt: Date.now() + 60 * 60 * 1000, transcriptCount: 0, clientName: "ACME SEALS",
+      });
+      const headStart = (await selectDraftEvidence(ctx, (await ctx.db.get(draftId))!)).companyNames;
+      // Promoted: the project carries the draft's spelling and is the company's newest.
+      await ctx.db.patch(s.projectId, { clientName: "ACME SEALS", createdAt: Date.now() });
+      const firstRun = (await selectFrozenEvidence(ctx, s.projectId)).companyNames;
+      return { headStart, firstRun };
+    });
+    expect(names.firstRun).toEqual(names.headStart);
+    expect(names.headStart.organizations).toEqual(["Northgate Gaskets", "Acme Seals Inc", "Acme Seals"]);
+    expect(names.headStart.people).toEqual(["Priya Natarajan"]);
+  });
+
   it("a project relinked to another company stops sending the first company's files; a merge into the new one keeps them", async () => {
     const s = await setup();
     await addCompanyFile(s, "history.txt", "Acme history.");

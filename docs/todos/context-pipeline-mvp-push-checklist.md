@@ -537,7 +537,7 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers, two rounds (Claude Opus 5.5, below high as it reported, and gpt-6-astra, medium).
 - [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
 
 ### Automated, live on localhost
@@ -558,7 +558,8 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers, two rounds (Claude Opus 5.5, below high as it reported, and gpt-6-astra, medium). Round 2 fixes are in the seventh and eighth decision entries.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
 
 ### Manual on localhost
 

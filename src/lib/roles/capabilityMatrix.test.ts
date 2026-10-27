@@ -84,3 +84,17 @@ describe("role capability matrix", () => {
     expect(hasCapability("admin", "project.readInternal")).toBe(true);
   });
 });
+
+describe("company file quotes in drafts (Phase C review 2, 2026-10-26)", () => {
+  it("every role that may read a project's drafts may also read company files", () => {
+    // Seed and Summary provenance and Brief entry text show company file
+    // quotes to anyone who may read the draft; only file names and Brief
+    // quotes are hidden without companyFiles.read. A role that may read
+    // drafts but not company files needs those hidden first.
+    for (const role of roles) {
+      if (getEffectiveCapabilityLevel(role, "project.readInternal") !== "none") {
+        expect(hasCapability(role, "companyFiles.read"), role).toBe(true);
+      }
+    }
+  });
+});

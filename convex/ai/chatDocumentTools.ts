@@ -1152,7 +1152,12 @@ export function makeReadDocumentTool(turn: DocumentReadTurn) {
   return createTool({
     description: `Open a project file and read its text, in parts of ${formatCount(CHAT_READ_PART_CHARS)} characters, up to ${CHAT_READ_MAX_PARTS} parts per call. Use it when the evidence blocks do not hold what you need: a file a notice says was left out, or more of a file than its block shows. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name.${company} Files with no text, such as images and scans, cannot be opened. The text is shown to you for this reply only.`,
     inputSchema: z.object({
-      file: z.string().min(1).describe("The file's handle from FILES IN THIS PROJECT, such as F3, or its exact file name."),
+      file: z
+        .string()
+        .min(1)
+        .describe(
+          `The file's handle from FILES IN THIS PROJECT, such as F3, ${company ? "a company file's handle from COMPANY FILES, such as C1, " : ""}or its exact file name.`
+        ),
       part: z
         .number()
         .int()

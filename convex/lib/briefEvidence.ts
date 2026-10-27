@@ -9,7 +9,7 @@
  */
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
-import { sha256 } from "./contracts";
+import { domainError, sha256 } from "./contracts";
 import {
   FROZEN_TRANSCRIPT_CHARS,
   MAX_TRANSCRIPTS_PER_PROJECT,
@@ -175,7 +175,7 @@ async function selectCompanyFiles(
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
   const project = await ctx.db.get(projectId);
   const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
-  return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar);
+  return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar, projectId);
 }
 
 /**
@@ -187,7 +187,9 @@ export async function selectCompanyFilesOf(
   ctx: Ctx,
   client: Doc<"clients"> | null,
   excluded: ExcludedSourceIds | undefined,
-  frozenSoFar: readonly string[]
+  frozenSoFar: readonly string[],
+  /** The draft's own project, left out of the company's names (`companyIdentityNames`). */
+  ownProjectId?: Id<"projects">
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
   const none = { frozenCompanyFiles: [], companyNames: { organizations: [], people: [] } };
   if (!client || client.status !== "active") return none;
@@ -207,7 +209,7 @@ export async function selectCompanyFilesOf(
   }
   if (frozenCompanyFiles.length === 0) return none;
   try {
-    return { frozenCompanyFiles, companyNames: await companyIdentityNames(ctx, client) };
+    return { frozenCompanyFiles, companyNames: await companyIdentityNames(ctx, client, ownProjectId) };
   } catch (error) {
     console.warn(`company files left out of a draft: ${(error as Error).message}`);
     return none;
@@ -371,6 +373,26 @@ export async function currentYearTranscripts(
 
 /** Merges followed from a frozen company to the project's company now. */
 const LINEAGE_HOPS = 10;
+
+/** Why a draft that read the files of a company the project has left goes no further. */
+export const COMPANY_CHANGED_MESSAGE =
+  "This draft used files of a company the project no longer belongs to. Start a new draft.";
+
+/**
+ * Refuses (`COMPANY_CHANGED`) when `rows` hold a company file of a company
+ * the project no longer belongs to (Phase C review 2, 2026-10-26). For a
+ * step that reads what earlier steps made from those rows, such as the
+ * Brief's storyline and entries, which no filter can take the files out of.
+ */
+export async function refuseWhenCompanyLeft(
+  ctx: { db: QueryCtx["db"] },
+  projectId: Id<"projects">,
+  rows: readonly { kind: string; clientId?: Id<"clients"> }[]
+): Promise<void> {
+  if ((await withCurrentCompanyFiles(ctx, projectId, rows)).length !== rows.length) {
+    domainError("INVALID_STATE", COMPANY_CHANGED_MESSAGE, { reason: "COMPANY_CHANGED" });
+  }
+}
 
 /**
  * A draft's frozen rows without company files of a company the project no

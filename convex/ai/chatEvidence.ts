@@ -292,7 +292,7 @@ export interface ChatCompanyFile {
   fileName: string;
   category?: string;
   textLength: number;
-  /** The file's label title, when it has labels (never evidence). */
+  /** The file's label title, from labels of its current text (never evidence). */
   title?: string;
 }
 

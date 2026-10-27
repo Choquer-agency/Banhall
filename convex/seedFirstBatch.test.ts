@@ -520,4 +520,35 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
     ).rejects.toThrow(/SEED_PROCESSING_LIMIT/);
     expect(await read(s)).toEqual(refused);
   });
+
+  it("a draft that read the files of a company the project has left makes no Seeds (Phase C review 2)", async () => {
+    const s = await setup();
+    const { acme, borealis } = await s.t.run(async (ctx) => {
+      const company = (name: string) =>
+        ctx.db.insert("clients", { name, nameKey: name.toLowerCase(), status: "active", createdBy: s.userId, createdAt: 1, updatedAt: 1 });
+      const acme = await company("Acme");
+      const borealis = await company("Borealis");
+      await ctx.db.patch(s.projectId, { clientId: acme });
+      const content = "Acme has sealed cryogenic pumps since 2011.";
+      await ctx.db.insert("generationSources", {
+        generationId: s.generationId, projectId: s.projectId, kind: "company_file", clientId: acme, label: "background:history.txt",
+        content, contentHash: "company-hash", truncated: false, originalLength: content.length, capturedAt: 1,
+      });
+      return { acme, borealis };
+    });
+    // Relinked to another company after the Brief was made: its entries may quote Acme's file.
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: borealis }));
+    await initialize(s);
+    await expect(runFirstBatchJob(s)).rejects.toThrow(/COMPANY_CHANGED/);
+    await expect(s.writer.mutation(api.seeds.open, openArgs(s, 0, "open:mount"))).rejects.toThrow(
+      /no longer belongs to\. Start a new draft/
+    );
+    expect((await read(s)).batches).toEqual([]);
+    // Back with Acme, or with a company Acme was merged into, the draft goes on.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(acme, { status: "merged", mergedIntoClientId: borealis });
+    });
+    expect((await s.writer.mutation(api.seeds.open, openArgs(s, 0, "open:mount"))).kind).not.toBe("skipped");
+    expect((await read(s)).batches).toHaveLength(1);
+  });
 });

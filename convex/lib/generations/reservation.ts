@@ -50,7 +50,7 @@ import {
   frozenTranscriptChars,
   MAX_FROZEN_SOURCE_ROWS,
   selectFrozenEvidence,
-  withCurrentCompanyFiles,
+  refuseWhenCompanyLeft,
 } from "../briefEvidence";
 import { appendGenerationProgress } from "../generationProgress";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
@@ -764,11 +764,7 @@ export async function retryFromSummaryHandler(
   }> = [];
   // Phase C: a draft that read another company's files is not recovered
   // once the project has left that company; a new draft reads its own.
-  if ((await withCurrentCompanyFiles(ctx, failed.projectId, originSources)).length !== originSources.length) {
-    domainError("INVALID_STATE", "This draft used files of a company the project no longer belongs to. Start a new draft.", {
-      reason: "COMPANY_CHANGED",
-    });
-  }
+  await refuseWhenCompanyLeft(ctx, failed.projectId, originSources);
   for (const origin of originSources) {
     const currentId = resolveFrozenSourceId(origin._id, priorMap);
     const current = currentById.get(currentId as Id<"generationSources">);

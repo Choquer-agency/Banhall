@@ -118,10 +118,16 @@ const IDENTITY_PROJECT_READ = 1_000;
  * files hide them all. Throws when it cannot read them all (more than
  * 1,000 projects hold fewer than 50 live ones, or too many merges), so no
  * caller sends a name it could not hide.
+ *
+ * A draft passes its own project as `ownProjectId`: that project's names
+ * are already in its own map, and leaving it out makes a promoted New
+ * project's first run read the same names as its head start did before the
+ * project existed (review 2, 2026-10-26).
  */
 export async function companyIdentityNames(
   ctx: Ctx,
-  client: Doc<"clients">
+  client: Doc<"clients">,
+  ownProjectId?: Id<"projects">
 ): Promise<{ organizations: string[]; people: string[] }> {
   const organizations = new Set<string>(await companyOtherNames(ctx, client));
   const people: string[] = [];
@@ -134,7 +140,7 @@ export async function companyIdentityNames(
         `Read ${IDENTITY_PROJECT_READ} projects without finding ${IDENTITY_PROJECTS} live ones; nothing goes out with a name it could not hide`
       );
     }
-    if (project.deletionStartedAt !== undefined) continue;
+    if (project.deletionStartedAt !== undefined || project._id === ownProjectId) continue;
     live += 1;
     for (const name of [project.interviewer, project.writer, ...(project.interviewees ?? [])]) {
       if (name?.trim()) people.push(name.trim());

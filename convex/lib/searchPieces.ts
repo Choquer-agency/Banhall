@@ -157,7 +157,14 @@ export type CompanyPieceHit = Omit<PieceHit, "documentId"> & { companyFileId: Id
  */
 export async function searchCompanyPieces(
   ctx: QueryCtx,
-  args: { clientId: Id<"clients">; query: string; limit?: number; perFile?: number }
+  args: {
+    clientId: Id<"clients">;
+    query: string;
+    limit?: number;
+    perFile?: number;
+    /** When set, only pieces of these files. */
+    onlyFileIds?: ReadonlySet<Id<"companyFiles">>;
+  }
 ): Promise<{ hits: CompanyPieceHit[]; complete: boolean }> {
   const terms = searchTerms(args.query);
   const limit = Math.max(1, Math.min(args.limit ?? 8, 50));
@@ -174,7 +181,7 @@ export async function searchCompanyPieces(
   for (const piece of scanned) {
     if (hits.length >= limit) break;
     const companyFileId = piece.companyFileId;
-    if (!companyFileId) continue;
+    if (!companyFileId || (args.onlyFileIds && !args.onlyFileIds.has(companyFileId))) continue;
     let file = files.get(companyFileId);
     if (file === undefined) {
       file = await ctx.db.get(companyFileId);

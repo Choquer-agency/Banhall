@@ -13,14 +13,16 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { chatCompanyFilesFor } from "./chatDocuments";
 import { companyFileTextFacts, insertCompanyFileTextPieces } from "./lib/companyFileText";
-import { buildChatEvidence, EVIDENCE_LABELS, type ChatCompanyFile } from "./ai/chatEvidence";
+import { buildChatEvidence, EVIDENCE_LABELS, MAX_CHAT_COMPANY_FILES, type ChatCompanyFile } from "./ai/chatEvidence";
 import {
   makeReadDocumentTool,
   makeSearchDocumentsTool,
   newDocumentReadTurn,
   runReadDocument,
+  runSearchDocuments,
 } from "./ai/chatDocumentTools";
 import { COMPANY_FILES_NOTE } from "./lib/companyEvidence";
+import { FILE_LABELS_PROMPT_VERSION } from "./lib/fileLabels";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -65,7 +67,7 @@ async function setup() {
     const historyId = await companyFile(acmeId, "history.txt", "Acme has used graphite packing on cryogenic pumps since 2011.");
     const archivedId = await companyFile(acmeId, "archived.txt", "Archived graphite note.", { archived: true });
     const theirsId = await companyFile(otherId, "theirs.txt", "Borealis graphite valves.");
-    return { writerId, rolelessId, acmeId, otherId, projectId, historyId, archivedId, theirsId };
+    return { writerId, rolelessId, acmeId, otherId, projectId, reportId, historyId, archivedId, theirsId };
   });
   // Cut the company files' search pieces.
   await t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
@@ -123,6 +125,109 @@ describe("which company files a chat turn may reach", () => {
     const without = await search();
     if (without.status !== "ok") throw new Error(without.status);
     expect(without.excerpts.map((excerpt) => excerpt.kind)).toEqual(["file"]);
+  });
+});
+
+/** A company file of Acme's with text, added after the setup's. */
+async function addAcmeFile(
+  s: Setup,
+  fileName: string,
+  text: string,
+  extra: { category?: "previous_pd"; title?: string; staleTitle?: string } = {}
+) {
+  return await s.t.run(async (ctx) => {
+    const facts = await companyFileTextFacts(text);
+    const label = (title: string, textHash: string) => ({
+      documentType: "report", fiscalYear: null, title, summary: "A summary.", model: "claude-haiku-5-5",
+      promptVersion: FILE_LABELS_PROMPT_VERSION, textHash, fileName, labeledAt: 1,
+    });
+    const id = await ctx.db.insert("companyFiles", {
+      clientId: s.acmeId, fileName, fileType: "txt", ...facts, processingStatus: "ready", uploadedBy: s.writerId, createdAt: Date.now(),
+      ...(extra.category ? { category: extra.category } : {}),
+      ...(extra.title ? { labels: label(extra.title, facts.textHash) } : {}),
+      ...(extra.staleTitle ? { labels: label(extra.staleTitle, "an-earlier-text") } : {}),
+    });
+    await insertCompanyFileTextPieces(ctx, id, text);
+    return id;
+  });
+}
+
+describe("the company files a chat turn lists and searches (review 2)", () => {
+  test("listed only for a sender who may read them, oldest first, with a draft's category and a title only from current labels", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => ctx.db.patch(s.historyId, {
+      labels: {
+        documentType: "history", fiscalYear: null, title: "Old title", summary: "A summary.", model: "claude-haiku-5-5",
+        promptVersion: FILE_LABELS_PROMPT_VERSION, textHash: "an-earlier-text", fileName: "history.txt", labeledAt: 1,
+      },
+    }));
+    const pdId = await addAcmeFile(s, "report-2024.txt", "Acme's 2024 report.", { category: "previous_pd", title: "2024 report" });
+    const context = async (userId?: Id<"users">) =>
+      (await s.t.query(internal.chatV2.getChatContextV2, {
+        reportId: s.reportId,
+        agentThreadId: "thread-company",
+        ...(userId ? { userId } : {}),
+      })).companyFiles;
+    expect(await context(s.writerId)).toEqual([
+      expect.objectContaining({ companyFileId: s.historyId, fileName: "history.txt", category: "other" }),
+      expect.objectContaining({ companyFileId: pdId, fileName: "report-2024.txt", category: "background", title: "2024 report" }),
+    ]);
+    expect((await context(s.writerId))?.[0]).not.toHaveProperty("title");
+    expect(await context()).toBeUndefined();
+    expect(await context(s.rolelessId)).toBeUndefined();
+    // Read through the chat, a previous-year report of the company is background, not this project's prior year.
+    expect(await read(s, pdId, s.writerId)).toMatchObject({ status: "ok", category: "background" });
+  });
+
+  test("search reaches only listed files, and none after an archive, a relink or a merge", async () => {
+    const s = await setup();
+    // Excerpts of Acme's history.txt.
+    const historyExcerpts = async () => {
+      const found = await s.t.query(internal.chatDocuments.searchForChat, {
+        agentThreadId: "thread-company", query: "graphite packing", maxChars: 20_000, userId: s.writerId,
+      });
+      if (found.status !== "ok") throw new Error(found.status);
+      return found.excerpts.filter((excerpt) => excerpt.kind === "company" && excerpt.companyFileId === s.historyId).length;
+    };
+    expect(await historyExcerpts()).toBe(1);
+    await s.t.run(async (ctx) => ctx.db.patch(s.historyId, { archived: true }));
+    expect(await historyExcerpts()).toBe(0);
+    await s.t.run(async (ctx) => ctx.db.patch(s.historyId, { archived: undefined }));
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: s.otherId }));
+    expect(await historyExcerpts()).toBe(0);
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: s.acmeId }));
+    await s.t.run(async (ctx) => ctx.db.patch(s.acmeId, { status: "merged", mergedIntoClientId: s.otherId }));
+    expect(await historyExcerpts()).toBe(0);
+    await s.t.run(async (ctx) => ctx.db.patch(s.acmeId, { status: "active", mergedIntoClientId: undefined }));
+    expect(await historyExcerpts()).toBe(1);
+    // 30 newer files push history.txt out of the list: search no longer finds what readDocument could not open.
+    for (let index = 0; index < MAX_CHAT_COMPANY_FILES; index += 1) {
+      await addAcmeFile(s, `note-${index}.txt`, `Acme note ${index} about valves.`);
+    }
+    expect(await historyExcerpts()).toBe(0);
+  });
+
+  test("a company excerpt is placed by its handle and shown as a company file", async () => {
+    const files: ChatCompanyFile[] = [
+      { companyFileId: "cf1" as Id<"companyFiles">, fileName: "history.txt", textLength: 900 },
+    ];
+    const turn = newDocumentReadTurn({ documents: [], transcripts: [], companyFiles: files }, "user-1" as Id<"users">);
+    const sent: unknown[] = [];
+    const ctx = {
+      threadId: "thread-company",
+      runQuery: (async (_ref: unknown, args: unknown) => {
+        sent.push(args);
+        return {
+          status: "ok",
+          complete: true,
+          excerpts: [{ kind: "company", companyFileId: "cf1", fileName: "history.txt", start: 0, text: "Acme has used graphite packing." }],
+        };
+      }) as never,
+    };
+    const receipt = await runSearchDocuments(ctx, { query: "graphite" }, { toolCallId: "call-1" }, turn);
+    expect(receipt).toContain("C1 part 1");
+    expect(String(turn.opened.get("call-1"))).toContain("company file history.txt");
+    expect(sent).toEqual([expect.objectContaining({ userId: "user-1" })]);
   });
 });
 

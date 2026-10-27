@@ -28,6 +28,7 @@ import {
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
+import { withCurrentCompanyFiles } from "./lib/briefEvidence";
 import { requireReportEditAccess } from "./lib/roleCapabilities";
 import { provenanceForEdit } from "./lib/editProvenance";
 import {
@@ -3146,7 +3147,8 @@ async function openQuestionsFor(
     MAX_BRIEF_ENTRY_SCAN,
     isOpen
   );
-  const labels = new Map<Id<"generationSources">, string>();
+  // A label, or null for a company file of a company the project has left.
+  const labels = new Map<Id<"generationSources">, string | null>();
   for (const entry of rows) {
     if (open.length >= MAX_OPEN_QUESTIONS) {
       omitted += 1;
@@ -3158,8 +3160,14 @@ async function openQuestionsFor(
     // unavailable label rather than read (Astra review 2 of DW-138).
     if (!labels.has(entry.sourceId)) {
       const source = await budget.read(() => ctx.db.get(entry.sourceId));
-      if (source.ok && source.value) labels.set(entry.sourceId, source.value.label);
+      if (source.ok && source.value) {
+        // Phase C review 2: a question from the files of a company the
+        // project has left is not shown.
+        const kept = await withCurrentCompanyFiles(ctx, generation.projectId, [source.value]);
+        labels.set(entry.sourceId, kept.length > 0 ? source.value.label : null);
+      }
     }
+    if (labels.get(entry.sourceId) === null) continue;
     open.push({
       text: entry.text,
       confidence: entry.confidence,

@@ -493,6 +493,34 @@ describe("getChatContextV2 open questions", () => {
     expect(context.openQuestionsOmitted).toEqual({ count: 0, exact: true });
   });
 
+  test("leaves out questions from the files of a company the project has left (Phase C review 2)", async () => {
+    const t = convexTest(schema, modules);
+    const { reportId, projectId, generationId } = await seedBrief(t, [
+      { text: "The cycle count was never measured.", confidence: "unresolved" },
+    ]);
+    const acme = await t.run(async (ctx) => {
+      const userId = (await ctx.db.get(projectId))!.createdBy;
+      const company = (name: string) =>
+        ctx.db.insert("clients", { name, nameKey: name.toLowerCase(), status: "active", createdBy: userId, createdAt: 1, updatedAt: 1 });
+      const acme = await company("Acme");
+      const borealis = await company("Borealis");
+      const source = await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+        .first();
+      await ctx.db.patch(source!._id, { kind: "company_file", clientId: acme, label: "background:history.txt" });
+      await ctx.db.patch(projectId, { clientId: borealis });
+      return acme;
+    });
+    const read = async () =>
+      (await t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread-open-questions-company" })).openQuestions;
+    expect(await read()).toEqual([]);
+    await t.run(async (ctx) => ctx.db.patch(projectId, { clientId: acme }));
+    expect(await read()).toEqual([
+      { text: "The cycle count was never measured.", confidence: "unresolved", sourceLabel: "background:history.txt" },
+    ]);
+  });
+
   test("still finds open questions behind more than 500 entries of other groups (DW-138)", async () => {
     // The read used to take 500 rows and THEN filter, so a Brief whose
     // Confidence Map sat after 500 glossary or exclusion rows returned no open
