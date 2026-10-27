@@ -163,21 +163,22 @@ export function withoutSavedPreferenceText<T extends { instruction: string; reas
   const raw = houseRuleRow ? [note.reason] : [note.instruction, note.reason];
   const fields = raw.map(folded);
   const spans = raw.flatMap(quotedSpans);
-  const publicTerms = (extra.publicWording ?? []).map(folded).filter(Boolean);
-  // Public: part of a Writer Profile rule, or of a House Rule banned term.
-  const publicTerm = (span: string) =>
-    [...publicTerms, ...houseRuleTerms()].some((term) => ` ${term} `.includes(` ${span} `));
-  // Public wording, in any form the wording checker reads ("bauble" holds
-  // "baubles" and the other way round): a Writer Profile rule, a House Rule
-  // banned term, or words the House Rules or plain-language rules use.
-  const publicWords = (phrase: string) => {
+  const publicTerms = [...(extra.publicWording ?? []).map(folded).filter(Boolean), ...houseRuleTerms()];
+  // Whether any of these texts holds the phrase, in any form the wording
+  // checker reads ("velvet fog" in "velvet fogs", "bauble" in "baubles").
+  const heldBy = (texts: readonly string[], phrase: string) => {
     const pattern = wordingPattern(phrase);
-    const holds = (text: string) => {
+    return texts.some((text) => {
       pattern.lastIndex = 0;
       return pattern.test(text);
-    };
-    return [...publicTerms, ...houseRuleTerms()].some(holds) || houseRuleText().some(holds);
+    });
   };
+  // Public: part of a Writer Profile rule or of a House Rule banned term,
+  // in any form (eleventh re-check).
+  const publicTerm = (span: string) => heldBy(publicTerms, span);
+  // Public wording: a public term, or words the House Rules or
+  // plain-language rules use.
+  const publicWords = (phrase: string) => publicTerm(phrase) || heldBy(houseRuleText(), phrase);
 
   // Eighth to tenth re-checks: a quote holding a saved rule's phrase, or any
   // word of it that is not a function word ('the word "sought"'), in any form
@@ -194,8 +195,10 @@ export function withoutSavedPreferenceText<T extends { instruction: string; reas
   const joined = ` ${fields.join(" | ")} `;
   const vocabulary = appVocabulary();
   const ownWording = (run: string) => run.split(" ").some((word) => /\p{N}/u.test(word) || !vocabulary.has(word));
+  // Eleventh re-check: a run the public rules hold is theirs ("veiled amber
+  // lattice coats" when the Writer Profile bans it too).
   const unquotedRun = (words: readonly string[]) => {
-    const quotesRun = (run: string) => !allCommon(run) && joined.includes(` ${run} `);
+    const quotesRun = (run: string) => !allCommon(run) && joined.includes(` ${run} `) && !publicWords(run);
     return wordRuns(words, 5).some(quotesRun) || wordRuns(words, 4).some((run) => ownWording(run) && quotesRun(run));
   };
   // A part of a preference quoted: two or more of its words in a row, not

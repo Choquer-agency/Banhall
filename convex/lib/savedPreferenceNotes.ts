@@ -2,7 +2,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import type { WriterWordingRules } from "./writerWording";
 import { holdsSavedBlock } from "./savedPreferences";
-import { writerWordingRulesFor } from "./settingsExtraction";
+import { extractWriterWordingRules, writerWordingRulesFor } from "./settingsExtraction";
 
 /** What a generation's Compliance Note rows are checked against before they are stored. */
 export type SavedPreferenceMatch = {
@@ -27,8 +27,8 @@ export type SavedPreferenceMatch = {
 
 const NO_MATCH: SavedPreferenceMatch = { texts: [], wording: [], publicWording: [] };
 
-function ruleWords(rules: WriterWordingRules, saved: boolean): string[] {
-  const own = <T extends { savedPreference?: true }>(rule: T) => (rule.savedPreference === true) === saved;
+function ruleWords(rules: WriterWordingRules, saved: boolean | "all"): string[] {
+  const own = <T extends { savedPreference?: true }>(rule: T) => saved === "all" || (rule.savedPreference === true) === saved;
   return [
     ...rules.terms.filter(own).flatMap((rule) => [rule.term, ...rule.banned]),
     ...rules.banned.filter(own).flatMap((rule) => [rule.phrase, ...rule.forms]),
@@ -60,10 +60,15 @@ export async function savedPreferenceMatchOfGeneration(
       const frozen = parsed.savedPreferenceTexts;
       const kept = Array.isArray(frozen) && frozen.every((text) => typeof text === "string") ? (frozen as string[]) : undefined;
       if (!kept) return flavor && holdsSavedBlock(flavor) ? { ...NO_MATCH, hideModelRows: true } : NO_MATCH;
+      // Eleventh re-check: the private words come from each saved text read
+      // on its own, before any merging with the Writer Profile's rules, so a
+      // synonym or form a preference adds to a rule the profile also holds
+      // stays private. A word is public only when the profile's own rules
+      // (or the House Rules) hold it.
       const rules = flavor ? writerWordingRulesFor(flavor, kept) : null;
       return {
         texts: kept,
-        wording: rules ? ruleWords(rules, true) : [],
+        wording: kept.flatMap((text) => ruleWords(extractWriterWordingRules(text), "all")),
         publicWording: rules ? ruleWords(rules, false) : [],
       };
     } catch {

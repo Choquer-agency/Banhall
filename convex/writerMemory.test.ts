@@ -913,6 +913,79 @@ describe("writer memory (Phase E, E1a)", () => {
       expect(await store(profile, repeated, false, veiled)).toEqual(veiled.map(shown));
     });
 
+    test("private words come from each saved text on its own, and public forms stay visible in quotes and runs (eleventh re-check)", async () => {
+      const s = await setup();
+      type Note = { instruction: string; reason: string };
+      const store = async (profile: string, saved: string, notes: Note[]) => {
+        const { generationId, candidateRunId } = await s.t.run(async (ctx) => {
+          const generationId = await ctx.db.insert("generations", {
+            projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+            writerSettings: {
+              profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+              waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+            },
+          });
+          await ctx.db.insert("generationArtifacts", {
+            generationId, kind: "writer_style",
+            content: JSON.stringify({
+              styleGuidance: "", writerFlavor: composeWithSavedPreferences(profile, [saved]), savedPreferenceTexts: [saved], styleOverrides: {},
+            }),
+          });
+          await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
+          const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+            generationId, projectId: s.projectId, model: "m", label: "A", status: "running", queuedAt: 1,
+          });
+          return { generationId, candidateRunId };
+        });
+        await s.t.mutation(internal.generations.insertConsistencyNotes, {
+          generationId,
+          candidateRunId,
+          notes: notes.map((note) => ({ section: "244" as const, source: "model" as const, instruction: note.instruction, outcome: "applied" as const, tier: "none" as const, reason: note.reason, repaired: false })),
+        });
+        const rows = await s.admin.query(api.complianceNotes.listForGeneration, { generationId, candidateRunId });
+        return rows.map((row) => [row.instruction, row.reason]);
+      };
+      const hidden = [SAVED_PREFERENCE_NOTE.instruction, SAVED_PREFERENCE_NOTE.reason];
+      const both = (text: string): Note[] => [
+        { instruction: text, reason: "Followed." },
+        { instruction: "Writer preference", reason: text },
+      ];
+
+      // 1. A synonym or form a saved preference adds to a rule the profile holds stays private.
+      for (const [profile, saved, text] of [
+        [
+          "Required terms:\n- amber lattice: A wording choice. Never write fog.",
+          "Required terms:\n- amber lattice: A wording choice. Never write mist.",
+          'The writer bans "mist".',
+        ],
+        ["Never use these words:\n- glimmer", "Avoid filler.\nNever use these words:\n- glimmer (also glimmering, glimmered)", 'The writer bans "glimmered".'],
+      ] as const) {
+        expect([text, await store(profile, saved, both(text))]).toEqual([text, [hidden, hidden]]);
+      }
+      // 2 and 3. A phrase the Writer Profile holds, in any form, quoted or as a run, stays visible.
+      for (const [publicPhrase, savedPhrase] of [
+        ["velvet fogs", "velvet fog"],
+        ["amber lattices", "amber lattice"],
+        ["veiled amber lattice", "veiled amber lattice"],
+        ["veiled amber lattice coats", "veiled amber lattice coats"],
+      ] as const) {
+        const notes = [
+          { instruction: "Writer preference", reason: `The profile bans "${savedPhrase}".` },
+          { instruction: "Writer preference", reason: `The profile bans ${savedPhrase}.` },
+        ];
+        expect([savedPhrase, await store(`Never use these words:\n- ${publicPhrase}`, `Avoid filler.\nNever use these words:\n- ${savedPhrase}`, notes)]).toEqual([
+          savedPhrase,
+          notes.map((note) => [note.instruction, note.reason]),
+        ]);
+      }
+      // The whole saved preference, quoted as the writer's, still hides.
+      expect(
+        await store("Never use these words:\n- veiled amber lattice coats", "Avoid veiled amber lattice coats.", [
+          { instruction: "Writer preference", reason: 'The writer requested "Avoid veiled amber lattice coats." and we complied.' },
+        ])
+      ).toEqual([hidden]);
+    });
+
     test("a style frozen before the texts were kept loses no line of a saved preference on the way to stored notes (seventh re-check)", async () => {
       const s = await setup();
       // The reviewer's preference: its second line has no bullet.
