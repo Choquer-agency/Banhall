@@ -4639,6 +4639,18 @@ Context pipeline plan, B1, second part (`docs/todos/b1-text-versions.md`, review
 - **Review:** Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), 2026-10-27, each "ship after fixes"; every finding fixed or recorded above (the read limit, the test record, the slice checks, the Seed budget, the known limits, one dash in a comment).
 - **Approval:** Product owner, 2026-10-26 (chat): part 4 of the first 2026-10-26 entry ("each draft's record kept as shared versions"), and "yes continue and finish all".
 
+### 2026-10-27 (seventh): Request size measured (owner)
+
+Context pipeline plan, Phase F, F1 steps 1 and 2 (`docs/todos/phase-f-scale.md`, reviewed: Claude Opus 5.5, requested high, it reported low, "go with changes", every change taken). Measurement only: no workflow stage, transition or permission is added, no AI writes report prose, and nothing a writer sees or any model reads changes.
+
+- **What.** Every evidence budget turns tokens into characters at 4 characters a token, and nothing measured how far off that is. Each Anthropic request sent through the instrumented client now records on its usage row the characters it sent (`requestChars`: the system prompt, every message's text, document text and titles, tool calls' inputs, tool results, thinking text, and the tool definitions as JSON) and the part sent in user turns (`evidenceChars`), measured on the request as sent (after the cache marks; no JSON framing, no base64).
+- **Report.** Admin, AI usage and cost, shows characters per token by feature for the last 30 days: the characters sent over every input token charged (input, cache writes and cache reads), with how many requests each figure rests on (`aiUsage.requestSizeReport`, the newest 4,000 rows, saying so when the window holds more).
+- **Not measured.** Report chat sends through the AI SDK, not the instrumented client; its rows carry no characters. Calls to other providers (OpenRouter models, Voyage) carry none.
+- **Next.** The budgets change only in F1's step 3, from this data, as their own change with a decision entry.
+- **Migration and compatibility.** Widen only: optional `aiUsage.requestChars` and `evidenceChars`. Older rows read as before and are left out of the report.
+- **Tests:** `convex/ai/requestSize.sdk.test.ts` (through the Anthropic SDK with only `fetch` stubbed: a cached generation request, a tool-using request and a citations-mode request with a PDF, each count checked against the body sent; the per-feature figure over all input tokens), `convex/ai/requestSize.test.ts` (what counts and what does not).
+- **Approval:** Product owner, 2026-10-26 (chat): "yes continue and finish all"; F1 is P2 item 12 of the work plan.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

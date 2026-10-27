@@ -122,8 +122,14 @@ const usageArgs = {
   // first output block; see the schema.
   effort: v.optional(v.string()),
   firstTokenMs: v.optional(v.number()),
+  // 2026-10-27 (F1, step 1): the request's characters; see the schema.
+  requestChars: v.optional(v.number()),
+  evidenceChars: v.optional(v.number()),
   createdAt: v.optional(v.number()),
 };
+
+const characterCount = (value: number | undefined): number | undefined =>
+  value !== undefined && Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
 
 /** Persist one provider response's billed usage. */
 export const logUsage = internalMutation({
@@ -240,6 +246,8 @@ export const logUsage = internalMutation({
       args.firstTokenMs >= 0
         ? { firstTokenMs: args.firstTokenMs }
         : {}),
+      ...(characterCount(args.requestChars) !== undefined ? { requestChars: characterCount(args.requestChars) } : {}),
+      ...(characterCount(args.evidenceChars) !== undefined ? { evidenceChars: characterCount(args.evidenceChars) } : {}),
       createdAt: args.createdAt ?? Date.now(),
     });
     // Decision 65: the preparation's spend settles from its usage rows, in
@@ -449,6 +457,68 @@ export async function projectRollingCostUsdUnits(
   for await (const row of rows) costUsd += usdDecimalUnits(row.costUsd);
   return costUsd;
 }
+
+// ─── Characters per token (F1, step 2, 2026-10-27) ──────────────────────────
+
+/** The report's window: the last 30 days. */
+const REQUEST_SIZE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/** Newest usage rows read, at most, well under a query's read limits. */
+export const REQUEST_SIZE_MAX_ROWS = 4_000;
+
+type RequestSizeRow = Pick<
+  Doc<"aiUsage">,
+  "callSite" | "requestChars" | "evidenceChars" | "inputTokens" | "cacheCreationInputTokens" | "cacheReadInputTokens"
+>;
+
+/**
+ * For each call site, the characters its requests sent over every input
+ * token they were charged (input, cache writes and cache reads), from the
+ * rows that recorded their characters; most requests first.
+ */
+export function charsPerTokenByCallSite(rows: readonly RequestSizeRow[]) {
+  const groups = new Map<string, { requests: number; requestChars: number; evidenceChars: number; inputSideTokens: number }>();
+  for (const row of rows) {
+    if (row.requestChars === undefined) continue;
+    const group = groups.get(row.callSite) ?? { requests: 0, requestChars: 0, evidenceChars: 0, inputSideTokens: 0 };
+    group.requests += 1;
+    group.requestChars += row.requestChars;
+    group.evidenceChars += row.evidenceChars ?? 0;
+    group.inputSideTokens += row.inputTokens + (row.cacheCreationInputTokens ?? 0) + (row.cacheReadInputTokens ?? 0);
+    groups.set(row.callSite, group);
+  }
+  return [...groups.entries()]
+    .filter(([, group]) => group.inputSideTokens > 0)
+    .map(([callSite, group]) => ({
+      callSite,
+      ...group,
+      charsPerToken: Math.round((group.requestChars / group.inputSideTokens) * 100) / 100,
+    }))
+    .sort((a, b) => b.requests - a.requests || (a.callSite < b.callSite ? -1 : a.callSite > b.callSite ? 1 : 0));
+}
+
+/**
+ * Admin only (F1, step 2): characters per input token by call site, from
+ * the newest usage rows of the last 30 days that recorded their
+ * characters, with how many requests each rests on. Numbers only.
+ */
+export const requestSizeReport = query({
+  args: { sinceMs: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, ["admin"]);
+    const since = args.sinceMs ?? Date.now() - REQUEST_SIZE_WINDOW_MS;
+    const read = await ctx.db
+      .query("aiUsage")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", since))
+      .order("desc")
+      .take(REQUEST_SIZE_MAX_ROWS + 1);
+    return {
+      since,
+      /** The window holds more rows than the report reads. */
+      truncated: read.length > REQUEST_SIZE_MAX_ROWS,
+      callSites: charsPerTokenByCallSite(read.slice(0, REQUEST_SIZE_MAX_ROWS)),
+    };
+  },
+});
 
 // ─── Chat timing report (chat parity Phase B, 2026-10-20) ───────────────────
 

@@ -747,6 +747,11 @@ export default defineSchema({
     // time from the request to the first output block. Absent elsewhere.
     effort: v.optional(v.string()),
     firstTokenMs: v.optional(v.number()),
+    // 2026-10-27 widen (F1, step 1): an Anthropic request's characters as
+    // sent, as text (system, messages, tools), and the part in user turns.
+    // Absent on older rows and on other providers' calls.
+    requestChars: v.optional(v.number()),
+    evidenceChars: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])

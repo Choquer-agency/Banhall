@@ -823,16 +823,39 @@ What changes:
 
 - **A draft no longer keeps its own copy of each file's text.** The text is stored once and every later draft of the project refers to it, so a project with many drafts takes far less room. Transcripts are referred to where they are kept.
 - **Nothing a writer sees changes**: the Brief, Seeds, drafts, quotes and chat read the same text as before.
-
 - **A draft whose files are too large to freeze at once is refused by name** ("This draft's files are too large to freeze at once. Leave some files out and start again.") instead of failing with a platform error.
 
 ### Automated, offline
 
 - [x] Code review by two reviewers: Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), 2026-10-27, each "ship after fixes"; every finding fixed or recorded in the decision entry.
-- [ ] `bash scripts/loop-verify.sh` on the final code.
+- [ ] Round 2 review of the fixes (08ea6469): pending.
+- [x] `bash scripts/loop-verify.sh` on the fixes (08ea6469): 7,602 tests passed.
 
 ### Automated, live on localhost
 
 - [x] A draft of a project with Word, PDF and company files on the live copy (2026-10-27, on the code before the review fixes): every new row refers to its text, none holds a copy; 30 of 30 Brief quotes and the Seed's quote match the stored text exactly; a second draft of the same project stored no new text (3 versions, 4 pieces before and after); a Single report on another project cited its transcript 14 times, every citation exact. Sign-off of a Step by step draft was not run live; the sign-off suite runs on new-style rows.
-- [ ] After the review fixes: a draft starts on the live copy (the read count under Convex's real limits).
+- [x] After the review fixes (2026-10-27, at 4b047280): a Step by step draft of the same project started on the live copy under Convex's real limits and was cancelled; its three rows (two project files, one company file) refer to stored text with no copies, and the project still holds 3 versions, so it stored nothing new.
 
+
+## F1, steps 1 and 2: how many characters each request sends
+
+Plan: `docs/todos/phase-f-scale.md`, F1. Decision record: `docs/product-domain.md`, entry "2026-10-27 (seventh)".
+
+What changes:
+
+- **Every Anthropic request records its size.** Its usage row keeps the characters it sent and the part sent in user turns, measured on the request as sent.
+- **Admin, AI usage and cost, shows characters per token** by feature for the last 30 days, with how many requests each rests on. Nothing a writer sees changes; the budgets stay at 4 characters a token until there is data.
+
+### Automated, offline
+
+- [ ] Code review.
+- [x] `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh`: 7,716 unit tests and 1,988 browser tests passed.
+
+### Automated, live on localhost
+
+- [x] One Step by step draft on the live copy (2026-10-27): every Anthropic call's usage row recorded its characters, and the Admin table read them back: Seeds 2.83 characters per token (2 requests, 200,843 characters), the analyzer 3.10, the retrieval brief 1.54 (a short request, where the tool definitions' fixed cost weighs most). All below the 4 the budgets assume.
+- [ ] After the release suite or the stress test: the Admin table shows each drafting step's characters per token.
+
+### Manual on localhost
+
+- [ ] Admin, AI usage and cost: the "Characters per token" table reads clearly, and says when nothing is measured yet.

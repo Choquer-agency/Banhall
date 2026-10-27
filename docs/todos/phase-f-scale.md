@@ -13,6 +13,8 @@ Plan, 2026-10-27, revised after a review (Claude Opus 5.5, requested high, it re
 4. **The window guard is the API's own answer.** No pre-count on the normal path. Where the API answers that a request is over the window, the builders that own evidence (drafting, analysis, the Brief) rebuild once at build time with the evidence budget cut by the share the API reported, before anything is recorded (`recordContextBudget`), so every candidate and the Inputs band read the same smaller context; still over, the step fails by name ("This step's evidence is too large for the model; leave some files out"). The error is never retried and never moves the call to the OpenRouter fallback. Chat trims its oldest history and tool results instead.
 5. The token count endpoint is used only in tests and the measurement script, never on a request's path.
 
+Steps 1 and 2 done 2026-10-27 (decision entry "2026-10-27 (seventh)"): `convex/ai/requestSize.ts`, `aiUsage.requestChars` and `evidenceChars`, and `aiUsage.requestSizeReport` on the Admin usage page. Report chat (`chat_v2`) sends through the AI SDK, not the instrumented client, so it is not measured; its budget keeps 4 characters a token until a later step measures it.
+
 **Tests.** Through the SDK with `fetch` stubbed: `requestChars` and `evidenceChars` on the usage row for a cached, a tool-using and a citations-mode request; the ratio over all input tokens; an over-window answer rebuilt once at build time with the Inputs band matching; a second over-window answer failing by name with no retry and no fallback.
 
 ## F2. Project copies in batches

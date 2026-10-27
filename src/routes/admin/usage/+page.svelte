@@ -99,6 +99,11 @@
       : 0
   );
 
+  // F1, step 2 (2026-10-27): characters per token by call site.
+  const sizeQ = useQuery(api.aiUsage.requestSizeReport, () =>
+    auth.isAuthenticated && accessQ.data === true ? {} : "skip"
+  );
+
   const TABLES: { key: "byProject" | "byWriter"; title: string; col: string }[] = [
     { key: "byProject", title: "Spend by project", col: "Project" },
     { key: "byWriter", title: "Spend by consultant", col: "Consultant" },
@@ -235,5 +240,49 @@
         {/each}
       {/if}
       </div>
+
+      <!-- F1: how many characters each feature sends per input token -->
+      <h2 class="text-title mt-8">Characters per token</h2>
+      <p class="mt-1 text-sm leading-[1.5] text-gray-500">
+        Last 30 days, Anthropic requests only, input tokens including cache writes and reads. Evidence budgets assume 4 characters a token.
+      </p>
+      {#if sizeQ.data && sizeQ.data.callSites.length > 0}
+        <div class="card mt-3 overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-label border-b border-gray-100 text-left">
+                  <th class="px-4 py-2.5 font-medium">Feature</th>
+                  <th class="px-4 py-2.5 text-right font-medium">Requests</th>
+                  <th class="px-4 py-2.5 text-right font-medium">Characters sent</th>
+                  <th class="px-4 py-2.5 text-right font-medium">In user turns</th>
+                  <th class="px-4 py-2.5 text-right font-medium">Input tokens</th>
+                  <th class="px-4 py-2.5 text-right font-medium">Characters per token</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each sizeQ.data.callSites as r (r.callSite)}
+                  <tr class="border-b border-gray-50 last:border-0">
+                    <td class="max-w-[18rem] truncate px-4 py-2.5 text-gray-800">{r.callSite}</td>
+                    <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.requests)}</td>
+                    <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.requestChars)}</td>
+                    <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.evidenceChars)}</td>
+                    <td class="px-4 py-2.5 text-right text-data text-gray-500">{num(r.inputSideTokens)}</td>
+                    <td class="px-4 py-2.5 text-right text-data font-medium text-navy">{r.charsPerToken.toFixed(2)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {#if sizeQ.data.truncated}
+          <p class="mt-2 text-xs leading-[1.5] text-gray-400">From the newest 4,000 requests in the window.</p>
+        {/if}
+      {:else if sizeQ.data}
+        <div class="card mt-3 py-8 text-center">
+          <p class="text-sm text-gray-600">No requests measured yet.</p>
+          <p class="mt-1 text-xs leading-[1.5] text-gray-400">Counting starts with requests sent after this change.</p>
+        </div>
+      {/if}
   </AdminWorkspacePage>
 {/if}

@@ -173,7 +173,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [ ] E3. Edit size by version, and a test-case set comparing drafts with and without each change. Done 2026-10-27, pending review: edit size by version (decision entry "2026-10-27 (third)"), evaluation projects ("(fourth)") and `--compare` ("(fifth)").
 
 **Phase F: scale and release**
-- [ ] F1. Request size from Anthropic's token count endpoint (P2 item 12).
+- [ ] F1. Request size from Anthropic's token count endpoint (P2 item 12). Plan revised 2026-10-27 (`docs/todos/phase-f-scale.md`): measure first. Steps 1 and 2 done 2026-10-27: every Anthropic request's characters on its usage row, characters per token by feature on the Admin usage page (decision entry "2026-10-27 (seventh)"); steps 3 and 4 wait for the release suite and stress test data.
 - [ ] F2. Project copies in scheduled batches (known limit of the text move).
 - [ ] F3. Brain company and fiscal-year filters; the Voyage model comparison (P2 item 13).
 - [ ] F4. The exclusion-conflict fixture.

@@ -52,6 +52,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
 import { estimateCostFromTable, type BilledTokens } from "../../shared/modelPricing";
+import { requestSize } from "./requestSize";
 import {
   LARGE_ANSWER_STREAM_THRESHOLD,
   acceptsForcedToolChoice,
@@ -99,6 +100,12 @@ export type UsageEvent = {
   preparationAttemptId?: string;
   /** A call stopped part way (2026-09-27, second): output estimated. */
   partial?: boolean;
+  /**
+   * F1 (2026-10-27): the characters the request sent, as text, and the part
+   * sent in user turns (`requestSize`).
+   */
+  requestChars?: number;
+  evidenceChars?: number;
   createdAt?: number;
 };
 
@@ -910,6 +917,8 @@ export function instrumentedAnthropic(
         // A preparation's request is sent exactly as the generation's would
         // be (decision 65), cached prefix included.
         const prefixed = meta.attribution || meta.preparation ? cacheGenerationPrefix(request) : request;
+        // F1 (2026-10-27): measured on the request as sent.
+        const size = requestSize(prefixed);
         const rest = args.slice(2);
         /** Logs one answer's usage row (and the caller's usage tap). */
         const logUsage = async (
@@ -979,6 +988,8 @@ export function instrumentedAnthropic(
               model,
               inputTokens: usage.inputTokens,
               outputTokens: usage.outputTokens,
+              requestChars: size.requestChars,
+              evidenceChars: size.evidenceChars,
               ...(usage.cacheCreationInputTokens !== undefined
                 ? {
                     cacheCreationInputTokens:
