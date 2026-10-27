@@ -463,6 +463,7 @@ export async function reserveGeneration(
     retryModelIds: persistedRetryModelIds,
     seededCandidates: seededCandidates || undefined,
     ...(excludedSources ? { excludedSources } : {}),
+    ...(evidence.frozenCompanyFiles[0] ? { companyFilesFrom: evidence.frozenCompanyFiles[0].file.clientId } : {}),
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
     candidatesDone: seededCandidates,
@@ -728,6 +729,7 @@ export async function retryFromSummaryHandler(
     // Summary recovery reads the same fact packs and placeholders.
     ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
     ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
+    ...(failed.companyFilesFrom ? { companyFilesFrom: failed.companyFilesFrom } : {}),
     status: "reserved",
     // 2026-09-25: this generation's outputs live in generationArtifacts rows.
     outputsInArtifactsAt: now,

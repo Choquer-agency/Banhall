@@ -521,6 +521,32 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
     expect(await read(s)).toEqual(refused);
   });
 
+  it("a Batch queued before the project left the company fails at once as a company change (review round 3)", async () => {
+    const s = await setup();
+    const { borealis } = await s.t.run(async (ctx) => {
+      const company = (name: string) =>
+        ctx.db.insert("clients", { name, nameKey: name.toLowerCase(), status: "active", createdBy: s.userId, createdAt: 1, updatedAt: 1 });
+      const acme = await company("Acme");
+      const borealis = await company("Borealis");
+      await ctx.db.patch(s.projectId, { clientId: acme });
+      const content = "Acme has sealed cryogenic pumps since 2011.";
+      await ctx.db.insert("generationSources", {
+        generationId: s.generationId, projectId: s.projectId, kind: "company_file", clientId: acme, label: "background:history.txt",
+        content, contentHash: "company-hash", truncated: false, originalLength: content.length, capturedAt: 1,
+      });
+      return { borealis };
+    });
+    await initialize(s);
+    // Queued while the project is still Acme's.
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    expect((await read(s)).batches.map((batch) => batch.status)).toEqual(["queued"]);
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: borealis }));
+    await runGenerateBatchJob(s);
+    const after = await read(s);
+    expect(after.batches.map((batch) => [batch.status, batch.error])).toEqual([["failed", "COMPANY_CHANGED"]]);
+    expect(after.rows.find((row) => row.roleId === FIRST_ROLE)?.pendingBatchId).toBeUndefined();
+  });
+
   it("a draft that read the files of a company the project has left makes no Seeds (Phase C review 2)", async () => {
     const s = await setup();
     const { acme, borealis } = await s.t.run(async (ctx) => {

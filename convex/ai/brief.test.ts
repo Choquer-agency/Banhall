@@ -3591,6 +3591,24 @@ describe("a Brief answer that leaves fields out (live check, 2026-10-26)", () =>
     await expect(runBriefAgent(client, "evidence", "claude-sonnet-5-5")).rejects.toThrow(/left out required fields/);
   });
 
+  it("an empty Brief saved after a complete one does not hide it (review round 3)", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "empty-after-complete";
+    const first = await makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, "complete-first-source");
+    const second = await makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, "complete-second-source");
+    const complete = await publishDerivedBrief(briefPublishCtx(t).ctx, {
+      projectId, generationId: first, inputsHash, origin: "derived", storylineText: "The team screened coatings.", entries: [],
+    });
+    // An empty one written after it, as the live run saved before the fix.
+    await t.run(async (ctx) =>
+      ctx.db.insert("generationBriefs", {
+        projectId, generationId: first, inputsHash, version: 2, origin: "derived", storylineText: "", createdAt: Date.now(),
+      })
+    );
+    expect((await t.query(internal.generations.findReusableBrief, { generationId: second, inputsHash }))?._id).toBe(complete);
+  });
+
   it("a Brief saved with nothing in it is never reused; the next draft on the same inputs derives it again", async () => {
     const t = convexTest(schema, modules);
     const { userId, projectId } = await makeProject(t);

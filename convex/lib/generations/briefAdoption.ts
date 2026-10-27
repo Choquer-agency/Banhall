@@ -177,6 +177,10 @@ async function adopt(
     .withIndex("by_preparationId", (q) => q.eq("preparationId", preparation._id))
     .take(MAX_BRIEF_ENTRY_ROWS + 1);
   if (entries.length > MAX_BRIEF_ENTRY_ROWS) return { kind: "miss" };
+  // Review round 3: a head start that came back with nothing in it is not
+  // adopted; the run derives its own Brief, as for a stored one
+  // (latestBriefForInputs).
+  if (entries.length === 0 && !preparation.storylineText?.trim()) return { kind: "miss" };
   // Every entry again, on the run's own rows: the mapped row must hold the
   // cited bytes, and the span must still be evidence under decision 25.
   const speakerOf = citationSpeakerReader(ctx);

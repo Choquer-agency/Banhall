@@ -38,8 +38,31 @@ const BOUND_WORDING: Record<string, (value: unknown) => string | null> = {
 /** String formats strict accepts; any other is dropped. */
 const STRICT_FORMATS = new Set(["date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid"]);
 
-/** Keywords strict refuses outright, with nothing to say instead. */
-const DROPPED = new Set(["oneOf", "not", "if", "then", "else", "dependentRequired", "dependentSchemas", "patternProperties", "pattern"]);
+/** Keywords strict refuses outright, with nothing to say instead (`oneOf` is handled on its own). */
+const DROPPED = new Set(["not", "if", "then", "else", "dependentRequired", "dependentSchemas", "patternProperties", "pattern"]);
+
+/** A description that already gives `value` as a bound ("at most 32 ... bytes"). */
+function statesBound(description: string, value: unknown): boolean {
+  if (typeof value !== "number") return false;
+  return new RegExp(`\\b(at most|at least|up to|no more than|no fewer than|exactly)\\s+${value}\\b`, "i").test(description);
+}
+
+/**
+ * The field names a `oneOf` of required-field choices (`[{required: ["a"]},
+ * {required: ["b"]}]`) offers, or null for any other `oneOf`.
+ */
+function requiredChoices(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const names: string[] = [];
+  for (const branch of value) {
+    if (!branch || typeof branch !== "object" || Array.isArray(branch)) return null;
+    const keys = Object.keys(branch);
+    const required = (branch as { required?: unknown }).required;
+    if (keys.length !== 1 || keys[0] !== "required" || !Array.isArray(required) || required.length !== 1) return null;
+    names.push(String(required[0]));
+  }
+  return names;
+}
 
 /** Keys whose value maps names to schemas, not keywords. */
 const NAMED_SCHEMAS = new Set(["properties", "$defs", "definitions"]);
@@ -58,9 +81,11 @@ export type StrictSchema = {
 };
 
 /**
- * `schema` as strict tool use accepts it, or null when it cannot be (an
- * object that allows extra keys, a recursive `$ref`, or more optional or
- * union parameters than one request may hold).
+ * `schema` as strict tool use accepts it, or null when it should not be:
+ * an object that allows extra keys or names no properties, a `$ref` outside
+ * the schema, a list that must hold two or more items, a `oneOf` that is not
+ * a choice of required fields, or more optional or union parameters than one
+ * request may hold.
  */
 export function strictToolSchema(schema: unknown): StrictSchema | null {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
@@ -75,11 +100,23 @@ export function strictToolSchema(schema: unknown): StrictSchema | null {
     const bounds: string[] = [];
     const described = typeof source.description === "string" ? source.description : "";
     for (const [key, value] of Object.entries(source)) {
+      // A required count of two or more ("one verdict per listed item") is
+      // what the answer is checked against; strict would drop it, and a live
+      // A/B on the Summary Self-check left more items unchecked and took
+      // twice as long. Such a schema is sent as before.
+      if (key === "minItems" && typeof value === "number" && value > 1) expressible = false;
       if (key in BOUND_WORDING) {
-        // A description that already states the bound ("at most 32 ... bytes") is left as it is.
-        const wording = typeof value === "number" && described.includes(String(value)) ? null : BOUND_WORDING[key]!(value);
+        const wording = statesBound(described, value) ? null : BOUND_WORDING[key]!(value);
         if (wording) bounds.push(wording);
         if (key === "minItems" && typeof value === "number" && value <= 1) out[key] = value;
+        continue;
+      }
+      // A choice of one required field among several is said in words; the
+      // runtime check still holds the answer to it (review round 3).
+      if (key === "oneOf") {
+        const names = requiredChoices(value);
+        if (names) bounds.push(`exactly one of ${names.join(", ")}`);
+        else expressible = false;
         continue;
       }
       if (DROPPED.has(key)) continue;
@@ -97,6 +134,10 @@ export function strictToolSchema(schema: unknown): StrictSchema | null {
     }
     if (Array.isArray(source.anyOf) || Array.isArray(source.type)) unions += 1;
     if (source.type === "object" || (source.properties && typeof source.properties === "object")) {
+      // Closed with no properties, the only answer strict would allow is {}.
+      if (!source.properties || typeof source.properties !== "object" || Object.keys(source.properties).length === 0) {
+        expressible = false;
+      }
       out.additionalProperties = false;
       const required = new Set(Array.isArray(source.required) ? source.required : []);
       optional += Object.keys((source.properties as Record<string, unknown> | undefined) ?? {}).filter(

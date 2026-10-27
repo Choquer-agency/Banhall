@@ -692,6 +692,41 @@ describe("getChatContextV2 open questions", () => {
     expect(context.openQuestions.some((q) => q.sourceLabel !== null)).toBe(true);
   });
 
+  test("leaves out questions it cannot check when the draft read a company the project has left (review round 3)", async () => {
+    const t = convexTest({ schema, modules, transactionLimits: true });
+    const { reportId, projectId, generationId } = await seedBrief(t, []);
+    const briefId = await t.run(async (ctx) => (await ctx.db.get(generationId))?.briefId);
+    if (!briefId) throw new Error("fixture brief missing");
+    await t.run(async (ctx) => {
+      const userId = (await ctx.db.get(projectId))!.createdBy;
+      const company = (name: string) =>
+        ctx.db.insert("clients", { name, nameKey: name.toLowerCase(), status: "active", createdBy: userId, createdAt: 1, updatedAt: 1 });
+      const acme = await company("Acme");
+      await ctx.db.patch(generationId, { companyFilesFrom: acme });
+      await ctx.db.patch(projectId, { clientId: await company("Borealis") });
+    });
+    // As the budget test above: twenty large sources, so the later ones cannot be read.
+    const bigSource = "source text ".repeat(60_000);
+    for (let i = 0; i < 20; i += 1) {
+      await t.run(async (ctx) => {
+        const sourceId = await ctx.db.insert("generationSources", {
+          generationId, projectId, kind: "transcript", label: `Source ${i + 1}`, content: bigSource,
+          contentHash: `hash-source-${i + 1}`, truncated: false, originalLength: bigSource.length, capturedAt: 1,
+        });
+        await ctx.db.insert("generationBriefEntries", {
+          briefId, projectId, group: "confidenceMap", text: `Open fact ${i + 1}.`, confidence: "unresolved", sourceId,
+          sourceContentHash: `hash-source-${i + 1}`, startOffset: 0, endOffset: 11, exactExcerpt: "source text", createdAt: 1,
+        });
+      });
+    }
+    const context = await t.query(internal.chatV2.getChatContextV2, { reportId, agentThreadId: "thread-open-questions-company-budget" });
+    // The ones read are transcripts and stay; the rest are left out and the count says it is not exact.
+    expect(context.openQuestions.length).toBeGreaterThan(0);
+    expect(context.openQuestions.length).toBeLessThan(20);
+    expect(context.openQuestions.every((question) => question.sourceLabel !== null)).toBe(true);
+    expect(context.openQuestionsOmitted).toEqual({ count: 20 - context.openQuestions.length, exact: false });
+  });
+
   test("returns an empty list for a generation with no Brief", async () => {
     const t = convexTest(schema, modules);
     const { projectId, transcriptId } = await seedProject(t);

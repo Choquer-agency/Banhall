@@ -50,6 +50,26 @@ describe("toChatCompletions", () => {
     expect(unforced.models).toEqual(["anthropic/claude-sonnet-5", ...fallbackModels]);
   });
 
+  it("sends the forced tool strict to a model that refuses a forced call, and nothing else changes (review round 3)", () => {
+    const schema = {
+      type: "object" as const,
+      properties: { storyline: { type: "string" }, claims: { type: "array", maxItems: 3, items: { type: "string" } } },
+      required: ["storyline", "claims"],
+    };
+    const params = {
+      max_tokens: 100,
+      messages: [{ role: "user" as const, content: "Judge it." }],
+      tools: [{ name: "submit", description: "Submit.", input_schema: schema }],
+      tool_choice: { type: "tool" as const, name: "submit" },
+    };
+    const refusing = toChatCompletions({ ...params, model: "anthropic/claude-sonnet-5.5" });
+    expect(refusing.tool_choice).toBe("auto");
+    expect(refusing.tools?.[0]?.function).toMatchObject({ name: "submit", strict: true });
+    expect(refusing.tools?.[0]?.function.parameters).toMatchObject({ additionalProperties: false });
+    const forcing = toChatCompletions({ ...params, model: "anthropic/claude-sonnet-5" });
+    expect(forcing.tools?.[0]?.function).toEqual({ name: "submit", description: "Submit.", parameters: schema });
+  });
+
   it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
     const content = [
       { type: "text" as const, text: "Shared sources. ", cache_control: { type: "ephemeral" as const, ttl: "1h" as const } },

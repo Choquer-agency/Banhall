@@ -159,9 +159,9 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [ ] B4. Searchable pieces split along structure, labels from Haiku 5.5, keyword search limited to project and company (P1 item 7). First step, Word as Markdown (owner, 2026-10-26: "should be properly markdown so we can see italic, bolds and headings and properly backfilled"): decision entry "2026-10-26 (fourth)"; the backfill of older Word files runs with B1. Second step, search pieces, project search and labels: decision entry "2026-10-26 (fifth)". Each email attachment as its own file moves to after Phase D.
 
 **Phase C: company files**
-- [ ] C1. Company files table, permissions, log, merge and erasure rules.
-- [ ] C2. Company page with the Files tab (Paper Z8a).
-- [ ] C3. Company files in drafts, chat and the Inputs band.
+- [x] C1. Company files table, permissions, log, merge and erasure rules. Done 2026-10-26: decision entry "2026-10-26 (sixth)".
+- [x] C2. Company page with the Files tab (Paper Z8a). Done 2026-10-26, same entry. "Edit company" waits for the owner's answer on who may edit company details.
+- [x] C3. Company files in drafts, chat and the Inputs band. Done 2026-10-26: decision entries "2026-10-26 (seventh)" and "(eighth)", reviewed in three rounds.
 
 **Phase D: search-first evidence**
 - [ ] D1. Drafting gets a file list and search and read tools; fact-finding still reads every piece (P1 item 8).
@@ -204,7 +204,7 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
 - [ ] **9. Keep source links all the way through.** Anthropic's citation feature can't be combined with its strict JSON answer format, so keep Banhall's own quote fields in the structured steps.
 - [ ] **10. Lighter evidence snapshots.** Each run copies all evidence text into `generationSources`; saving a fingerprint and parser version per file would be much lighter. This touches rule 2 ("every draft traces to exact inputs"), so discuss with the owner first.
 
-- [ ] **Release fixture "exclusion-conflict" stopped twice on 2026-10-22.** The AI-written Brief derived no Claim Exclusion, likely since Briefs moved to Sonnet 5.5 (PR #29). Check the fixture or the Brief prompt on the new model.
+- [ ] **Release fixture "exclusion-conflict" stopped twice on 2026-10-22.** The AI-written Brief derived no Claim Exclusion, likely since Briefs moved to Sonnet 5.5 (PR #29). Check the fixture or the Brief prompt on the new model. 2026-10-26: the cause was found live (Sonnet 5.5 without a forced call wrote lists as tool markup, so fields arrived empty or as text); strict tools fix it (the Sonnet 5.5 entry in `docs/product-domain.md`). Rerun live to close this.
 
 ### P2: prove it at scale
 

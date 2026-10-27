@@ -417,6 +417,20 @@ describe("review fixes, 2026-10-26", () => {
     });
   });
 
+  it("a draft records the company whose files it froze, and nothing when it froze none (review round 3)", async () => {
+    const s = await setup();
+    const without = await start(s);
+    expect((await s.t.run(async (ctx) => ctx.db.get(without)))?.companyFilesFrom).toBeUndefined();
+    await s.t.run(async (ctx) => {
+      const generation = await ctx.db.get(without);
+      await ctx.db.patch(without, { status: "failed" });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined, status: generation?.previousProjectStatus ?? "draft" });
+    });
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    const withFiles = await start(s, { confirmRegeneration: true });
+    expect((await s.t.run(async (ctx) => ctx.db.get(withFiles)))?.companyFilesFrom).toBe(s.clientId);
+  });
+
   it("the promoted project's first run reads the same company names as its head start, whatever case the draft typed (review 2)", async () => {
     const s = await setup();
     await addCompanyFile(s, "history.txt", "Acme history.");

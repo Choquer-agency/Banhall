@@ -3149,6 +3149,14 @@ async function openQuestionsFor(
   );
   // A label, or null for a company file of a company the project has left.
   const labels = new Map<Id<"generationSources">, string | null>();
+  // Review round 3: when this draft froze the files of a company the project
+  // has left, a question whose source cannot be read is left out too, since
+  // it may come from those files.
+  const companyLeft =
+    generation.companyFilesFrom !== undefined &&
+    (await withCurrentCompanyFiles(ctx, generation.projectId, [{ kind: "company_file", clientId: generation.companyFilesFrom }]))
+      .length === 0;
+  let unverified = false;
   for (const entry of rows) {
     if (open.length >= MAX_OPEN_QUESTIONS) {
       omitted += 1;
@@ -3168,13 +3176,18 @@ async function openQuestionsFor(
       }
     }
     if (labels.get(entry.sourceId) === null) continue;
+    if (companyLeft && labels.get(entry.sourceId) === undefined) {
+      omitted += 1;
+      unverified = true;
+      continue;
+    }
     open.push({
       text: entry.text,
       confidence: entry.confidence,
       sourceLabel: labels.get(entry.sourceId) ?? null,
     });
   }
-  return { questions: open, omitted: { count: omitted, exact: complete } };
+  return { questions: open, omitted: { count: omitted, exact: complete && !unverified } };
 }
 
 /** Grounding context for streamChatReply — thread history stays componentside. */

@@ -1,5 +1,5 @@
 import { makeFunctionReference } from "convex/server";
-import { v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -98,7 +98,10 @@ const failureCodeValidator = v.union(
   v.literal("CONTEXT_LIMIT"),
   v.literal("INTERNAL_ERROR"),
   v.literal("LEASE_EXPIRED"),
-  v.literal("GENERATION_TERMINATED")
+  v.literal("GENERATION_TERMINATED"),
+  // 2026-10-26 (Phase C, review round 3): the draft read the files of a
+  // company the project has left.
+  v.literal("COMPANY_CHANGED")
 );
 
 const failureDetailValidator = v.union(
@@ -113,7 +116,8 @@ type SeedFailureCode =
   | "CONTEXT_LIMIT"
   | "INTERNAL_ERROR"
   | "LEASE_EXPIRED"
-  | "GENERATION_TERMINATED";
+  | "GENERATION_TERMINATED"
+  | "COMPANY_CHANGED";
 
 const generateBatchRef = makeFunctionReference<
   "action",
@@ -618,7 +622,13 @@ type NotClaimedReason =
   | "wrong_workflow"
   | "deleting"
   | "not_pending"
-  | "lease_expired";
+  | "lease_expired"
+  | "company_changed";
+
+/** The refusal `refuseWhenCompanyLeft` throws. */
+function isCompanyChanged(error: unknown): boolean {
+  return error instanceof ConvexError && (error.data as { reason?: unknown } | undefined)?.reason === "COMPANY_CHANGED";
+}
 
 function notClaimed(reason: NotClaimedReason) {
   return { kind: "not_claimed" as const, reason };
@@ -660,10 +670,20 @@ export const claimAttempt = internalMutation({
     // 2026-09-29 (first, review P2-2): an uncertainty and its revisions are one.
     const uncertaintyRoots =
       batch.roleId === "specific_advancements" ? await loadUncertaintyRoots(ctx, context) : {};
-    const input = await loadFrozenSeedActionInput(ctx, {
-      generation,
-      briefVersionId: batch.briefVersionId,
-    });
+    let input: Awaited<ReturnType<typeof loadFrozenSeedActionInput>>;
+    try {
+      input = await loadFrozenSeedActionInput(ctx, {
+        generation,
+        briefVersionId: batch.briefVersionId,
+      });
+    } catch (error) {
+      // Review round 3: a Batch queued before the project left the company
+      // whose files the draft read fails now, as what it is, instead of
+      // waiting out its lease.
+      if (!isCompanyChanged(error)) throw error;
+      await failSeedAttempt(ctx, { batch, requestsMade: 0, errorCode: "COMPANY_CHANGED" });
+      return notClaimed("company_changed");
+    }
     const now = Date.now();
     await ctx.db.patch(batch._id, { status: "running", startedAt: now });
     await bumpSeedStageVersion(ctx, generation._id);
@@ -812,7 +832,7 @@ async function failSeedAttempt(
     // neither says "Writing seeds for this step failed" nor counts toward
     // the three-failure state (step-by-step review s1 P3-2).
     const failures =
-      args.errorCode === "GENERATION_TERMINATED"
+      args.errorCode === "GENERATION_TERMINATED" || args.errorCode === "COMPANY_CHANGED"
         ? subsection.consecutiveFailures
         : subsection.consecutiveFailures + 1;
     const wasGenerating = subsection.state === "generating";

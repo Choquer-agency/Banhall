@@ -33,7 +33,8 @@ import {
   SELF_CHECK_REQUEST,
   SELF_CHECK_SCHEMA,
 } from "./ai/promptDefinitions";
-import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
+import { ANALYSIS_SCHEMA, ANALYZER_REQUEST } from "./ai/analyzerAgent";
+import { BRIEF_SCHEMA } from "./lib/briefRequest";
 import { strictToolSchema } from "./ai/strictTools";
 import { seedTools } from "./ai/seeds";
 import { seedToolSchema } from "./lib/seedContract";
@@ -43,7 +44,7 @@ import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
-import { CHRONOLOGY_REQUEST } from "./ai/chronologyAgent";
+import { CHRONOLOGY_REQUEST, CHRONOLOGY_SCHEMA } from "./ai/chronologyAgent";
 import {
   ANTHROPIC_TIMEOUT_MS,
   SEED_PROVIDER_TIMEOUT_MS,
@@ -329,10 +330,18 @@ const withoutStrictTools = (json: Record<string, unknown>) => {
     ),
   };
 };
-/** The schemas, by tool name, whose strict form drops a bound (strictTools.ts). */
+/**
+ * The app's schemas by tool name, put back exactly (review round 3), so a
+ * change that dropped one of their own closed objects would not still match
+ * the pin. A tool missing here (the Summary Self-check, whose schema is
+ * built per request) has only the closed objects taken out.
+ */
 const STRICT_ORIGINALS: Array<{ name: string; schema: unknown }> = [
   { name: "submit_self_check", schema: SELF_CHECK_SCHEMA },
   { name: "submit_consistency_findings", schema: CONSISTENCY_SCHEMA },
+  { name: "submit_generation_brief", schema: BRIEF_SCHEMA },
+  { name: "submit_transcript_analysis", schema: ANALYSIS_SCHEMA },
+  { name: "submit_chronology_table", schema: CHRONOLOGY_SCHEMA },
   ...[seedToolSchema(), seedToolSchemaForFacts()].flatMap((base) =>
     seedTools(base, "shared").tools.map((tool) => ({ name: tool.name, schema: tool.input_schema }))
   ),
@@ -755,7 +764,13 @@ async function runStepByStep(model: string, freeze: FreezeKind = "current", role
     return await ctx.db.query("seedBatches").first();
   });
   if (!batch) throw new Error("Opening the first role dispatched no batch");
-  await f.t.action(generateBatchRef, { batchId: batch._id });
+  // 2026-10-26: only Date is faked, so the scheduled Batch job can start on
+  // its own before the loop above cancels it; then it has claimed the Batch
+  // and is the one sending its request. Wait for it instead of claiming again.
+  await f.t.finishInProgressScheduledFunctions();
+  if ((await f.t.run(async (ctx) => ctx.db.get(batch._id)))?.status === "queued") {
+    await f.t.action(generateBatchRef, { batchId: batch._id });
+  }
   return { ...f, wire, batch };
 }
 

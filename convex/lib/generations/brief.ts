@@ -321,15 +321,23 @@ export async function latestBriefForInputs(
   projectId: Id<"projects">,
   inputsHash: string
 ) {
-  const brief = await ctx.db
+  // The newest of the last few that holds something (review round 3), so an
+  // empty one does not hide a complete one saved before it.
+  const briefs = await ctx.db
     .query("generationBriefs")
     .withIndex("by_projectId_and_inputsHash", (q) =>
       q.eq("projectId", projectId).eq("inputsHash", inputsHash)
     )
     .order("desc")
-    .first();
-  return brief && !(await holdsNothing(ctx, brief)) ? brief : null;
+    .take(REUSE_SCAN);
+  for (const brief of briefs) {
+    if (!(await holdsNothing(ctx, brief))) return brief;
+  }
+  return null;
 }
+
+/** Briefs for one set of inputs looked at for reuse, newest first. */
+const REUSE_SCAN = 5;
 
 /**
  * A derived Brief with no storyline and no entries: what an answer with

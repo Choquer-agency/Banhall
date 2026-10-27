@@ -17,6 +17,7 @@ import { QA_SCHEMA } from "./qaAgent";
 import { summaryPlanSelfCheckSchemaFor } from "./selfCheck";
 import { CONSISTENCY_SCHEMA, SELF_CHECK_SCHEMA } from "./promptDefinitions";
 import { RETRIEVAL_BRIEF_SCHEMA } from "./brain/query";
+import { FACTS_MATCH_SOURCES_RULE_ID, RESULTS_AGAINST_TARGETS_RULE_ID } from "../lib/seedRevisions";
 
 /** Every schema a structured call forces, as the app sends it. */
 const FORCED_SCHEMAS: Record<string, unknown> = {
@@ -30,10 +31,10 @@ const FORCED_SCHEMAS: Record<string, unknown> = {
   condense: CONDENSE_SCHEMA,
   speakerRoles: SPEAKER_ROLES_SCHEMA,
   selfCheck: SELF_CHECK_SCHEMA,
-  summarySelfCheck: summaryPlanSelfCheckSchemaFor(
-    [{ label: "Line 242 names the uncertainty" }],
-    [{ itemId: "item-1" }, { skippedRoleId: "role-1" }, { droppedSeedId: "seed-1" }, { ruleId: "rule-1" }] as never
-  ),
+  // With one plan check, so no list must hold two or more items.
+  summarySelfCheck: summaryPlanSelfCheckSchemaFor([{ label: "Line 242 names the uncertainty" }], [{ itemId: "item-1" }]),
+  summarySelfCheckFacts: summaryPlanSelfCheckSchemaFor([], [{ ruleId: FACTS_MATCH_SOURCES_RULE_ID }]),
+  summarySelfCheckTargets: summaryPlanSelfCheckSchemaFor([], [{ ruleId: RESULTS_AGAINST_TARGETS_RULE_ID }]),
   consistency: CONSISTENCY_SCHEMA,
   retrievalBrief: RETRIEVAL_BRIEF_SCHEMA,
 };
@@ -45,6 +46,16 @@ describe("strict tool schemas (live check, 2026-10-26)", () => {
 
   it("QA's schema has more optional fields than strict allows, so it is sent as before", () => {
     expect(strictToolSchema(QA_SCHEMA)).toBeNull();
+  });
+
+  it("a Summary Self-check with one verdict per two or more items is sent as before (live A/B, 2026-10-26)", () => {
+    const schema = summaryPlanSelfCheckSchemaFor(
+      [{ label: "Line 242 names the uncertainty" }, { label: "Line 242 states the objective" }],
+      [{ itemId: "item-1" }, { skippedRoleId: "role-1" }, { droppedSeedId: "seed-1" }, { ruleId: FACTS_MATCH_SOURCES_RULE_ID }]
+    );
+    expect(strictToolSchema(schema)).toBeNull();
+    const tools = [{ name: "submit_self_check", input_schema: schema }];
+    expect(strictTools(tools, "submit_self_check")).toEqual(tools);
   });
 
   it.each([
@@ -88,7 +99,12 @@ describe("strict tool schemas (live check, 2026-10-26)", () => {
         score: { type: "integer", description: "(at least 0, at most 100.)" },
         when: { type: "string", format: "date" },
         note: { type: "string" },
-        either: { type: "object", properties: { a: { type: "string" }, b: { type: "string" } }, additionalProperties: false },
+        either: {
+          type: "object",
+          properties: { a: { type: "string" }, b: { type: "string" } },
+          additionalProperties: false,
+          description: "(exactly one of a, b.)",
+        },
       },
       required: ["reason", "items", "score", "when", "either"],
       additionalProperties: false,
@@ -97,8 +113,26 @@ describe("strict tool schemas (live check, 2026-10-26)", () => {
     expect(converted?.optional).toBe(3);
   });
 
-  it("refuses what strict cannot say: extra keys, too many optional or union parameters", () => {
+  it("a bound is left unsaid only when the description already gives it", () => {
+    const said = strictToolSchema({
+      type: "object",
+      properties: {
+        a: { type: "string", maxLength: 32, description: "Return at most 32 bytes." },
+        b: { type: "array", maxItems: 1, items: { type: "string" }, description: "Line 1-based." },
+      },
+      required: ["a", "b"],
+    })?.schema as { properties: Record<string, { description: string }> };
+    expect(said.properties.a.description).toBe("Return at most 32 bytes.");
+    expect(said.properties.b.description).toBe("Line 1-based. (at most 1 item.)");
+  });
+
+  it("refuses what strict cannot say: extra keys, no properties, other oneOf, too many optional or union parameters", () => {
     expect(strictToolSchema({ type: "object", properties: {}, additionalProperties: { type: "string" } })).toBeNull();
+    expect(strictToolSchema({ type: "object" })).toBeNull();
+    expect(strictToolSchema({ type: "object", properties: { a: { type: "object" } }, required: ["a"] })).toBeNull();
+    expect(
+      strictToolSchema({ type: "object", properties: { a: { type: "string" } }, oneOf: [{ properties: { a: { const: "x" } } }] })
+    ).toBeNull();
     const many = (count: number, make: (index: number) => unknown) =>
       Object.fromEntries(Array.from({ length: count }, (_, index) => [`p${index}`, make(index)]));
     expect(strictToolSchema({ type: "object", properties: many(STRICT_LIMITS.optional + 1, () => ({ type: "string" })) })).toBeNull();

@@ -2,7 +2,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { MODEL } from "./model";
 import {
-  acceptsForcedToolChoice,
   alwaysThinkingMaxTokens,
   gatewayForModel,
   maxTokensWithReasoningHeadroom,
@@ -469,11 +468,10 @@ export async function generateStructured<T>(
      */
     encodedFieldRecovery?: boolean;
     /**
-     * 2026-10-26: on a model that cannot be forced to call the tool, treat
-     * an answer that leaves out a field the tool schema requires as invalid,
-     * even when `validate` would default it. For an answer whose defaults
-     * would hide skipped work (the Brief); calls whose lists may be empty
-     * on purpose (the analyzer) leave it off.
+     * 2026-10-26: treat an answer that leaves out a field the tool schema
+     * requires as invalid, even when `validate` would default it. For an
+     * answer whose defaults would hide skipped work (the Brief); calls whose
+     * lists may be empty on purpose (the analyzer) leave it off.
      */
     requireEveryField?: boolean;
     /**
@@ -765,29 +763,43 @@ async function structuredAttempts<T>(
         [{ path: "(root)", code: "wrong_tool", message: validationSummary }]
       );
     }
-    // 2026-10-26 (live check): a model that cannot be forced to call a tool
-    // (Sonnet 5.5, Opus 5.5, Fable 5.1) may call it with fields left out,
-    // and a schema that defaults missing lists reads that as a complete
-    // answer. For a call that sets `requireEveryField`, such an answer spends
-    // the repair, which names the fields, and fails if the repair leaves
-    // fields out too. Models that take a forced call keep their earlier
-    // handling.
-    if (opts.requireEveryField && !acceptsForcedToolChoice(model)) {
-      const schema = tools.find((tool) => tool.name === opts.toolName)?.input_schema;
-      const missing = missingRequiredFields(schema, block.input);
-      if (missing.length > 0) {
-        await settle({ ok: false, code: "invalid_output" });
-        validationSummary = `it left out required fields: ${missing.join(", ")}`;
-        console.error(`${opts.toolName}: the answer left out required fields (${missing.join(", ")})`);
-        if (!lastAttempt) continue;
+    // 2026-10-26 (live check): a model may call a tool with fields left out
+    // (Sonnet 5.5 without a forced call did), or wrap its answer in one more
+    // key (Sonnet 5 did), and a schema that defaults missing lists reads
+    // either as a complete answer. For a call that sets `requireEveryField`,
+    // on any model (review round 3), whatever form of the answer would be
+    // kept (as sent, read from JSON text, from inside a wrapper key, or with
+    // fields read from JSON text) must hold every field the tool schema
+    // requires; otherwise the answer spends the repair, which names the
+    // fields, and fails if the repair leaves fields out too.
+    const requiresEvery = opts.requireEveryField === true;
+    const requiredSchema = tools.find((tool) => tool.name === opts.toolName)?.input_schema;
+    let leftOut: string[] | null = null;
+    const complete = (candidate: unknown): boolean => {
+      if (!requiresEvery) return true;
+      const missing = missingRequiredFields(requiredSchema, candidate);
+      if (missing.length === 0) return true;
+      // The repair names what the most complete form still lacks.
+      if (!leftOut || missing.length < leftOut.length) leftOut = missing;
+      return false;
+    };
+    const failLeftOut = async (missing: string[]): Promise<void> => {
+      await settle({ ok: false, code: "invalid_output" });
+      validationSummary = `it left out required fields: ${missing.join(", ")}`;
+      console.error(`${opts.toolName}: the answer left out required fields (${missing.join(", ")})`);
+      if (lastAttempt) {
         throw new StructuredValidationError(
           `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
           missing.map((field) => ({ path: field, code: "missing_required" }))
         );
       }
-    }
+    };
 
     if (!opts.validate) {
+      if (!complete(block.input)) {
+        await failLeftOut(leftOut!);
+        continue;
+      }
       await settle({ ok: true });
       return block.input as T;
     }
@@ -796,7 +808,7 @@ async function structuredAttempts<T>(
     // a JSON-looking string must not be silently parsed into an object.
     // Unwrapping is a recovery path, not a preprocessing step.
     const asReturned = opts.validate.safeParse(block.input);
-    if (asReturned.success) {
+    if (asReturned.success && complete(block.input)) {
       await settle({ ok: true });
       if (!(await askedSoftRepair(asReturned.data, block.input, lastAttempt))) return await settled(asReturned.data);
       continue;
@@ -809,7 +821,7 @@ async function structuredAttempts<T>(
       unwrapped === block.input
         ? asReturned
         : opts.validate.safeParse(unwrapped);
-    if (parsed.success) {
+    if (parsed.success && complete(unwrapped)) {
       await settle({ ok: true });
       if (!(await askedSoftRepair(parsed.data, block.input, lastAttempt))) return await settled(parsed.data);
       continue;
@@ -819,7 +831,7 @@ async function structuredAttempts<T>(
     // the drafts. Such an answer is read from inside that key.
     const wrapped = wrappedAnswer(unwrapped, tools.find((tool) => tool.name === opts.toolName)?.input_schema);
     const inner = wrapped ? opts.validate.safeParse(wrapped.value) : null;
-    if (inner?.success) {
+    if (inner?.success && complete(wrapped!.value)) {
       console.warn(`${opts.toolName}: read the answer inside its one key "${wrapped!.key}"`);
       await settle({ ok: true });
       if (!(await askedSoftRepair(inner.data, block.input, lastAttempt))) return await settled(inner.data);
@@ -830,10 +842,15 @@ async function structuredAttempts<T>(
       ? decodeEncodedToolFields(unwrapped, opts.schema)
       : null;
     const decoded = fields && fields.paths.length > 0 ? opts.validate.safeParse(fields.value) : null;
-    if (decoded?.success) {
+    if (decoded?.success && complete(fields!.value)) {
       console.warn(`${opts.toolName}: read ${fields!.paths.join(", ")} sent as JSON text`);
       await settle({ ok: true });
       if (!(await askedSoftRepair(decoded.data, block.input, lastAttempt))) return await settled(decoded.data);
+      continue;
+    }
+    // An answer that would otherwise be kept but left fields out.
+    if (leftOut) {
+      await failLeftOut(leftOut);
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });
@@ -846,6 +863,8 @@ async function structuredAttempts<T>(
     // answer still fails, report what fails once read (a missing category,
     // say), not the encoding the decode already undid.
     const failed = decoded && !decoded.success ? decoded : parsed;
+    // A form that validated was either kept or left fields out (above).
+    if (failed.success) throw new Error(`${opts.toolName}: an answer that validated was not kept`);
 
     try {
       invalidAnswerText = opts.invalidAnswerRepair?.(block.input) ?? null;

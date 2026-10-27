@@ -21,6 +21,7 @@ import {
   type OpenRouterProviderPreferences,
 } from "../../shared/modelCatalog";
 import { isAnthropicOpenRouterModel } from "../../shared/anthropicTransport";
+import { strictTools } from "./strictTools";
 
 export type GenerationContentBlock =
   | { type: "text"; text: string }
@@ -283,6 +284,8 @@ export type ChatCompletionsBody = {
       name: string;
       description?: string;
       parameters: Record<string, unknown>;
+      /** A model that refuses a forced call (strictTools.ts). */
+      strict?: true;
     };
   }>;
   /** "auto" only for a model that rejects a forced tool call. */
@@ -370,7 +373,14 @@ export function toChatCompletions(
     usage: OPENROUTER_CONVERSION.usageRequest,
   };
   if (params.tools?.length) {
-    body.tools = params.tools.map((tool) => ({
+    // 2026-10-26 (review round 3): a model that refuses a forced call gets
+    // the tools it would have been forced to use strict, as on the direct
+    // gateway (strictTools.ts); OpenRouter passes `strict` on (live check).
+    const forcedName = toolRequest.toolChoice?.type === "auto" ? params.tool_choice?.name : undefined;
+    const tools = (forcedName ? strictTools(params.tools, forcedName) : params.tools) as Array<
+      (typeof params.tools)[number] & { strict?: boolean }
+    >;
+    body.tools = tools.map((tool) => ({
       type: OPENROUTER_CONVERSION.toolType,
       function: {
         name: tool.name,
@@ -379,6 +389,7 @@ export function toChatCompletions(
           ? { description: tool.description }
           : {}),
         parameters: tool.input_schema as Record<string, unknown>,
+        ...(tool.strict === true ? { strict: true } : {}),
       },
     }));
   }

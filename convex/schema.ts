@@ -1159,6 +1159,10 @@ export default defineSchema({
         companyFileIds: v.optional(v.array(v.id("companyFiles"))),
       })
     ),
+    // 2026-10-26 (Phase C, review round 3): the company whose files this
+    // draft froze, when it froze any. Lets a reader that cannot afford to
+    // read every frozen row tell whether the project has left that company.
+    companyFilesFrom: v.optional(v.id("clients")),
     seededCandidates: v.optional(v.number()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(

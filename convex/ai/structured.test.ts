@@ -582,6 +582,27 @@ describe("answers that leave out required fields (live check, 2026-10-26)", () =
     ).rejects.toThrow(/left out required fields: claims/);
   });
 
+  it("an answer sent as JSON text, or wrapped in one key, is checked once read (review round 3)", async () => {
+    const encoded = clientWith([JSON.stringify({ storyline: "Only this." }), { storyline: "The seal held.", claims: [] }]);
+    expect(
+      await generateStructured(encoded, {
+        system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5-5", validate,
+        requireEveryField: true,
+      })
+    ).toEqual({ storyline: "The seal held.", claims: [] });
+    expect(encoded.messages.create).toHaveBeenCalledTimes(2);
+    const repair = JSON.stringify(vi.mocked(encoded.messages.create).mock.calls[1][0].messages[0].content);
+    expect(repair).toContain("it left out required fields: claims");
+
+    const wrappedClient = clientWith([{ brief: { storyline: "Only this." } }, { brief: { storyline: "Still only this." } }]);
+    await expect(
+      generateStructured(wrappedClient, {
+        system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-opus-5-5", validate,
+        requireEveryField: true,
+      })
+    ).rejects.toThrow(/left out required fields: claims/);
+  });
+
   it("a call that leaves the check off keeps its defaults, as the analyzer does", async () => {
     const client = clientWith([{ storyline: "Only this." }]);
     const result = await generateStructured(client, {
@@ -591,14 +612,14 @@ describe("answers that leave out required fields (live check, 2026-10-26)", () =
     expect(client.messages.create).toHaveBeenCalledTimes(1);
   });
 
-  it("a model that takes a forced call keeps its earlier handling", async () => {
-    const client = clientWith([{}]);
+  it("a model that takes a forced call is held to it too, and a wrapped answer is read from inside (review round 3)", async () => {
+    const client = clientWith([{}, { brief: { storyline: "The seal held.", claims: ["held at 4.2 bar"] } }]);
     const result = await generateStructured(client, {
       system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
       requireEveryField: true,
     });
-    expect(result).toEqual({ storyline: "", claims: [] });
-    expect(client.messages.create).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ storyline: "The seal held.", claims: ["held at 4.2 bar"] });
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
   });
 });
 
