@@ -1004,7 +1004,7 @@ What changes:
 
 - [x] Server and browser tests (see the decision entry).
 - [x] Full gate: `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` (8,164 unit and 1,992 browser tests).
-- [ ] Code review.
+- [x] Code review (f24621bb and ec54be29): gpt-6-astra (medium), "ship", no findings.
 
 ### Automated, live on localhost
 

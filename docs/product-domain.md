@@ -4738,6 +4738,7 @@ Owner decision, 2026-10-27, answering question 11 of `docs/todos/context-pipelin
 - **The writer.** The step says "Skipped because this draft has no previous-year files. Restore it from the More menu if the project had a previous year." Restore step works as for any Skip, and its cards are then made.
 - **Live check (2026-10-27, the live copy at f24621bb, Sonnet 5.5).** Two evaluation projects with the same interview, each drafted Step by step and cancelled once the Seed stage opened ($0.14 in all): the first-year one recorded no previous-year material and opened Previous-year status skipped, with the system's `skip` event and no Batch; the one with last year's report (a `previous_pd` file) recorded previous-year material and opened the step untouched. Script: `/tmp/claude-501/live6/priorcheck.mjs` (not committed).
 - **Tests:** `convex/previousYearSourceGuard.test.ts` (a first-year project gives false; a previous-year report gives true and false once left out; last year's report and copied transcript give true), `convex/seedFirstBatch.test.ts` (false opens the step skipped with a system `skip` event and no Batch, true and absent open it untouched, and the writer can restore it), and the browser test of the step's line.
+- **Review:** gpt-6-astra (medium), "ship", no findings.
 - **Approval:** owner, 2026-10-27 (quoted above).
 
 ## Amendment process
