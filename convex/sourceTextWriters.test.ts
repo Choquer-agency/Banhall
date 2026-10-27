@@ -6,7 +6,8 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
-import { FROZEN_TEXT_TOO_LARGE_MESSAGE, reserveGeneration } from "./lib/generations/reservation";
+import { FROZEN_TEXT_TOO_LARGE_MESSAGE, RECOVERY_TOO_LARGE_MESSAGE, reserveGeneration } from "./lib/generations/reservation";
+import { decisionFixture } from "./seedDecision.fixture";
 import { sourceRowText } from "./lib/sourceText";
 import { TRANSCRIPT_FACTS_MODE_KEY } from "./appSettings";
 
@@ -154,7 +155,7 @@ describe("drafts refer to their text (B1, second part)", () => {
 
   // Convex's transaction limits on (B1 review, 2026-10-27): the reservation
   // counts what it reads as well as what it writes.
-  it("reserves the largest supported draft within a transaction's limits", async () => {
+  it("reserves the largest supported draft (files of one-byte characters) within a transaction's limits", async () => {
     const s = await setup(
       Array.from({ length: 50 }, (_, index) => `${index}`.padEnd(3, " ") + "a".repeat(199_997)),
       { transcripts: Array.from({ length: 4 }, (_, index) => `Speaker ${index}: ` + "b".repeat(500_000)), transactionLimits: true }
@@ -233,6 +234,103 @@ describe("drafts refer to their text (B1, second part)", () => {
     });
     await expect(s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId })).rejects.toThrow(
       FROZEN_TEXT_TOO_LARGE_MESSAGE
+    );
+  });
+});
+
+describe("leave-out lists (B1 review, round 3)", () => {
+  it("a new draft keeps an archived or later file's id, drops a deleted one, and refuses another project's", async () => {
+    const s = await setup(Array.from({ length: 52 }, (_, index) => `Seal notes ${index}.`));
+    const ids = await s.t.run(async (ctx) => {
+      const files = await ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", s.projectId)).collect();
+      await ctx.db.patch(files[1]!._id, { archived: true });
+      const gone = files[2]!._id;
+      await ctx.db.delete(gone);
+      const otherProject = await ctx.db.insert("projects", {
+        title: "Other", clientName: "Quillmere", status: "draft", createdBy: s.userId, shareToken: "other", createdAt: 1, updatedAt: 1,
+      });
+      const foreign = await ctx.db.insert("projectDocuments", {
+        projectId: otherProject, fileName: "other.txt", fileType: "txt", content: "Other notes.", source: "upload", uploadedBy: s.userId, createdAt: 1,
+      });
+      // files[51] is past the 50 rows a draft reads.
+      return { archived: files[1]!._id, gone, later: files[51]!._id, foreign, first: files[0]!._id };
+    });
+    await expect(
+      s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId, excludeDocumentIds: [ids.first, ids.foreign] })
+    ).rejects.toThrow("A left-out file belongs to another project");
+    const generationId = await s.authed.mutation(api.generations.requestGeneration, {
+      projectId: s.projectId,
+      excludeDocumentIds: [ids.first, ids.archived, ids.gone, ids.later],
+    });
+    const stored = await s.t.run(async (ctx) => (await ctx.db.get(generationId))?.excludedSources);
+    expect(stored?.documentIds).toEqual([ids.first, ids.archived, ids.later]);
+  });
+
+  it("a retry keeps its stored list as it was, even after a left-out file is deleted", async () => {
+    const s = await setup(["Left out.", "Kept."], { transactionLimits: true });
+    const leftOut = await s.t.run(async (ctx) => (await ctx.db.query("projectDocuments").first())!._id);
+    const first = await s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId, excludeDocumentIds: [leftOut] });
+    await s.finish(first);
+    await s.t.run((ctx) => ctx.db.delete(leftOut));
+    const retry = await s.authed.mutation(api.generations.retryGeneration, { generationId: first });
+    const [before, after] = await s.t.run(async (ctx) => [await ctx.db.get(first), await ctx.db.get(retry)]);
+    expect(after?.excludedSources).toEqual(before?.excludedSources);
+  });
+
+  it("a retry does not read its archived left-out transcripts again", async () => {
+    const s = await setup([], { transactionLimits: true });
+    const excluded: Id<"transcripts">[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      excluded.push(
+        await s.t.run((ctx) => ctx.db.insert("transcripts", { projectId: s.projectId, content: "x".repeat(900_000), createdAt: index, archivedAt: 1 }))
+      );
+    }
+    const first = await s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId, excludeTranscriptIds: excluded });
+    await s.finish(first);
+    for (let index = 0; index < 9; index += 1) {
+      await s.t.run((ctx) => ctx.db.insert("transcripts", { projectId: s.projectId, content: "x".repeat(900_000), createdAt: index + 10 }));
+    }
+    await expect(s.authed.mutation(api.generations.retryGeneration, { generationId: first })).resolves.toBeDefined();
+  });
+});
+
+describe("Summary recovery of a draft whose rows hold their own copies (B1 review, round 3)", () => {
+  async function failedSignedOffDraft(rows: number, text: string) {
+    const s = await decisionFixture({ sourceRows: "copies", transactionLimits: true });
+    await s.t.run(async (ctx) => {
+      const summaryVersionId = await ctx.db.insert("summaryVersions", {
+        projectId: s.projectId, generationId: s.generationId, originGenerationId: s.generationId,
+        briefVersionId: s.briefId, version: 1, settingsHash: "x", skippedRoleIds: [], readiness: true,
+        signedOffBy: s.userId, signedOffAt: 1,
+      });
+      await ctx.db.patch(s.generationId, { status: "failed", summaryVersionId });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined, status: "draft" });
+    });
+    for (let index = 0; index < rows; index += 1) {
+      await s.t.run((ctx) =>
+        ctx.db.insert("generationSources", {
+          projectId: s.projectId, generationId: s.generationId, kind: "project_document", label: `other:legacy-${index}.txt`,
+          content: text, contentHash: "hash", truncated: false, originalLength: text.length, capturedAt: 1,
+        })
+      );
+    }
+    return s;
+  }
+
+  it("reads the rows once and copies 45 files of 200,000 one-byte characters", async () => {
+    const s = await failedSignedOffDraft(45, "a".repeat(200_000));
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId });
+    const copies = await s.t.run(async (ctx) =>
+      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", recoveryId)).collect()).length
+    );
+    expect(copies).toBe(46);
+  });
+
+  it("refuses by name, before the limit, a recovery whose copies would pass it", async () => {
+    // 45 files of 200,000 two-byte characters: 18 MB to read and write.
+    const s = await failedSignedOffDraft(45, "\u00e9".repeat(200_000));
+    await expect(s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId })).rejects.toThrow(
+      RECOVERY_TOO_LARGE_MESSAGE
     );
   });
 });

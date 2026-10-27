@@ -367,9 +367,17 @@ describe("QA runs and PD reviews: 20 an hour per user each", () => {
     await expect(f.as("writer").action(api.reviewFromProject.createReviewFromProject, { projectId: f.projectId }))
       .rejects.toMatchObject(rateLimited());
     expect(await f.t.run(async (ctx) => (await ctx.db.query("projects").collect()).length)).toBe(projectsBefore);
-    // Another user starts one.
-    await expect(f.as("manager").mutation(api.pdReviews.startPdReview, { projectId: f.projectId, documentId: f.documentId }))
-      .resolves.toEqual(expect.any(String));
+    // Another user starts one. Its review runs on the scheduler; wait for it
+    // here, so its model call never lands on a later test's mock.
+    const reviewId = await f.as("manager").mutation(api.pdReviews.startPdReview, { projectId: f.projectId, documentId: f.documentId });
+    expect(reviewId).toEqual(expect.any(String));
+    await vi.waitFor(
+      async () => {
+        const row = await f.t.run(async (ctx) => ctx.db.get(reviewId as Id<"pdReviews">));
+        expect(row?.status).not.toBe("running");
+      },
+      { timeout: 10_000, interval: 50 }
+    );
   });
 });
 

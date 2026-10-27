@@ -8,7 +8,7 @@
  * this module holds their handlers and helpers.
  */
 import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
-import { TransactionGuard } from "../readMeter";
+import { TransactionGuard, countedRows } from "../readMeter";
 import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "../projectCopy";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
@@ -97,6 +97,13 @@ export const FROZEN_ESTIMATE_LIMIT_BYTES = 15 * 1024 * 1024;
  */
 export const FROZEN_TEXT_TOO_LARGE_MESSAGE =
   "This project's files are too large to read at once. Remove files or transcripts you no longer need, then start again.";
+/**
+ * B1 review, round 3: a Summary recovery copies the failed draft's frozen
+ * rows, and older rows hold their own copies, so removing project files
+ * cannot make it smaller.
+ */
+export const RECOVERY_TOO_LARGE_MESSAGE =
+  "This draft's frozen files are too large to recover at once. Start a new draft instead.";
 export async function activeRunSummary(
   ctx: QueryCtx,
   active: Doc<"generations">
@@ -380,7 +387,12 @@ export async function reserveGeneration(
   // Audit wave 2: spend the caller's generation-start tokens once every
   // refusal below has had its say, just before the first write. False when
   // the caller already spent them before writes of its own.
-  spendRateLimit = true
+  spendRateLimit = true,
+  // B1 review, round 3: true only for a leave-out list the writer just
+  // sent (a draft's start), whose file and transcript ids are checked here
+  // against the rows read anyway. A retry's stored list was checked when it
+  // was made and is kept as it is.
+  confirmExcludedRows = false
 ) {
   // "Default" in single/iterative modes resolves to the writing role's model
   // (model catalog), persisted here so retries reuse the same model even if
@@ -406,9 +418,10 @@ export async function reserveGeneration(
   );
   const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources, frozenLimits);
   const { transcripts } = evidence;
-  const confirmedExcluded = excludedSources
-    ? await confirmedExcludedRows(ctx, project._id, excludedSources, evidence, frozenLimits)
-    : undefined;
+  const confirmedExcluded =
+    excludedSources && confirmExcludedRows
+      ? await confirmedExcludedRows(ctx, project._id, excludedSources, evidence, frozenLimits)
+      : excludedSources;
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
@@ -681,7 +694,9 @@ export async function requestGenerationHandler(
     args.writerSuppliedStoryline,
     undefined,
     undefined,
-    excludedSources
+    excludedSources,
+    true,
+    true
   );
 }
 
@@ -772,13 +787,28 @@ export async function retryFromSummaryHandler(
   }
   // One transcript, digest and fact pack row per transcript (2026-09-24).
   const maxFrozenSources = MAX_FROZEN_SOURCE_ROWS;
-  const [originSources, currentSources, analysisArtifacts, brainArtifacts] = await Promise.all([
-    ctx.db.query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", originGenerationId))
-      .take(maxFrozenSources + 1),
-    ctx.db.query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", failed._id))
-      .take(maxFrozenSources + 1),
+  // B1 review, round 3: older rows hold their own copies, so the rows are
+  // read one at a time under a guard, once when the failed draft is its own
+  // origin, and every copy written is checked first.
+  const recoveryLimits = new TransactionGuard(
+    ctx,
+    { marginBytes: FROZEN_MARGIN_BYTES, estimateLimitBytes: FROZEN_ESTIMATE_LIMIT_BYTES },
+    () => domainError("INVALID_STATE", RECOVERY_TOO_LARGE_MESSAGE)
+  );
+  const frozenRowsOf = async (generationId: Id<"generations">) => {
+    const rows: Doc<"generationSources">[] = [];
+    for await (const row of countedRows(
+      ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)),
+      recoveryLimits
+    )) {
+      rows.push(row);
+      if (rows.length > maxFrozenSources) break;
+    }
+    return rows;
+  };
+  const originSources = await frozenRowsOf(originGenerationId);
+  const currentSources = originGenerationId === failed._id ? originSources : await frozenRowsOf(failed._id);
+  const [analysisArtifacts, brainArtifacts] = await Promise.all([
     // Only the two frozen drafting inputs are copied: the chain's stored
     // payload (kind ordered_payload, 2026-09-25) belongs to the failed
     // chain and is rebuilt for the recovery chain from these two.
@@ -792,6 +822,7 @@ export async function retryFromSummaryHandler(
       .take(2),
   ]);
   const artifacts = [...analysisArtifacts, ...brainArtifacts];
+  for (const artifact of artifacts) recoveryLimits.read(artifact);
   if (
     originSources.length === 0 ||
     currentSources.length === 0 ||
@@ -885,10 +916,15 @@ export async function retryFromSummaryHandler(
   // Phase C: a draft that read another company's files is not recovered
   // once the project has left that company; a new draft reads its own.
   await refuseWhenCompanyLeft(ctx, failed.projectId, originSources);
+  let recoveryWritten = 0;
   for (const origin of originSources) {
     const currentId = resolveFrozenSourceId(origin._id, priorMap);
     const current = currentById.get(currentId as Id<"generationSources">);
     if (!current) domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+    // At most 3 UTF-8 bytes a UTF-16 unit, and the row's own fields.
+    const rowBytes = (current.content?.length ?? 0) * 3 + 64 * 1024;
+    await recoveryLimits.beforeWrite(recoveryWritten, rowBytes);
+    recoveryWritten += rowBytes;
     const recoverySourceId = await ctx.db.insert("generationSources", {
       generationId,
       projectId: current.projectId,
@@ -923,6 +959,9 @@ export async function retryFromSummaryHandler(
     sourceIdMap: nextMap,
   });
   for (const artifact of artifacts) {
+    const artifactBytes = artifact.content.length * 3 + 64 * 1024;
+    await recoveryLimits.beforeWrite(recoveryWritten, artifactBytes);
+    recoveryWritten += artifactBytes;
     await ctx.db.insert("generationArtifacts", {
       generationId,
       kind: artifact.kind,

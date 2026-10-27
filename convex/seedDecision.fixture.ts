@@ -37,9 +37,11 @@ export function decisionMutation<Export>(name: string) {
  * frozen: the row refers to its transcript. "copies" is the older shape,
  * the text on the row.
  */
-export async function decisionFixture(options: { sourceRows?: "copies" | "references" } = {}) {
+export async function decisionFixture(
+  options: { sourceRows?: "copies" | "references"; transactionLimits?: boolean } = {}
+) {
   const sourceRows = options.sourceRows ?? "references";
-  const t = convexTest(schema, modules);
+  const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
   rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {

@@ -829,7 +829,8 @@ What changes:
 
 - [x] Code review by two reviewers: Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), 2026-10-27, each "ship after fixes"; every finding fixed or recorded in the decision entry.
 - [x] Round 2 review of the fixes (08ea6469): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
-- [ ] Round 3 review of the round 2 fixes.
+- [x] Round 3 review of the round 2 fixes (24cad190): gpt-6-astra (medium), "ship after fixes"; fixed in the next commit.
+- [ ] Round 4 review of the round 3 fixes.
 - [x] `bash scripts/loop-verify.sh` on the fixes (08ea6469): 7,602 tests passed.
 
 ### Automated, live on localhost
