@@ -331,6 +331,8 @@ describe("writer settings document allowance", () => {
       reportText: "R",
       analysisText: "A",
       documents: [clientCopy],
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     expect(filesBlock(message)).not.toContain("writer settings document");
     const row = report.sources.find((source) => source.label === clientCopy.fileName);
@@ -539,5 +541,18 @@ describe("Phase B evidence guidance", () => {
     expect(CHAT_EVIDENCE_GUIDANCE).toContain("Quote sparingly");
     expect(CHAT_EVIDENCE_GUIDANCE).not.toContain("You never see the raw interview transcripts");
     expect(CHAT_EVIDENCE_GUIDANCE).not.toMatch(/[\u2010-\u2015\u2212]/);
+  });
+});
+
+describe("the settings document in a turn whose files go by search (Phase D, step 1)", () => {
+  it("keeps its own block while the other files' text is left to search", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [settingsDoc(2_000), doc({ fileName: "big.txt", content: "", textLength: 500_000 })],
+      budget: { ...DEFAULT_CHAT_EVIDENCE_BUDGET },
+    });
+    expect(message).toContain("Writing settings for Northwind Fictional reports");
+    expect(message).toContain("[The text of this project's 1 file(s) with text is not shown in this turn.");
   });
 });

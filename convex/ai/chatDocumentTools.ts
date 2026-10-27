@@ -624,17 +624,19 @@ async function runReadCompanyFile(
 function excerptPlace(excerpt: SearchExcerpt, turn: DocumentReadTurn): string {
   // Phase D (step 1): an excerpt from a search piece names every part the
   // piece reaches, which readDocument opens, and its page when known.
-  const filePlace = (start: number, end: number | undefined, page: number | undefined) =>
-    `${end !== undefined ? partsLabel(start, end) : `part ${partAt(start)}`}${page !== undefined ? `, page ${page}` : ""}`;
+  const pages = (page: number | undefined, pageEnd: number | undefined) =>
+    page === undefined ? "" : pageEnd !== undefined && pageEnd !== page ? `, pages ${page}-${pageEnd}` : `, page ${page}`;
+  const filePlace = (start: number, end: number | undefined, page: number | undefined, pageEnd: number | undefined) =>
+    `${end !== undefined ? partsLabel(start, end) : `part ${partAt(start)}`}${pages(page, pageEnd)}`;
   if (excerpt.kind === "file") {
     const file = turn.files.find((entry) => entry.documentId === excerpt.documentId);
     const name = file?.handle ?? quoted(excerpt.fileName);
-    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page)}`;
+    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page, excerpt.pageEnd)}`;
   }
   if (excerpt.kind === "company") {
     const file = turn.companyFiles.find((entry) => entry.companyFileId === excerpt.companyFileId);
     const name = file?.handle ?? quoted(excerpt.fileName);
-    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page)}`;
+    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page, excerpt.pageEnd)}`;
   }
   const transcript = turn.transcripts.find((entry) => entry.transcriptId === excerpt.transcriptId);
   const name = transcript?.handle ?? quoted(excerpt.label);

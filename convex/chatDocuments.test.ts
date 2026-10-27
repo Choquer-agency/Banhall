@@ -229,6 +229,43 @@ describe("searchForChat", () => {
     }
   });
 
+  test("says the search was not complete when files with current pieces crowd the old path's places (review)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      const ids = await f.t.run(async (ctx) => {
+        const made = [];
+        for (let index = 0; index < 17; index += 1) {
+          made.push(
+            await ctx.db.insert("projectDocuments", {
+              projectId: f.projectId, fileName: `graphite-${index}.txt`, fileType: "txt", content: `Graphite packing note ${index}.`,
+              source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+            })
+          );
+        }
+        // Sixteen get their pieces; the last waits for them.
+        for (const id of made.slice(0, 16)) await ctx.db.patch(id, { searchPiecesDue: true, searchPiecesNextAt: 0 });
+        return made;
+      });
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(ids).toHaveLength(17);
+      const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
+      if (result.status !== "ok") throw new Error(result.status);
+      expect(result.complete).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("finds an accented word late in a long piece, by the folded terms search uses (review)", () => {
+    const text = `${"Intro paragraph about the fictional rig. ".repeat(60)}Le contrôle de l'étalonnage du capteur a dérivé. ${"tail ".repeat(40)}`;
+    const { terms } = chatSearchTerms("étalonnage capteur");
+    const window = excerptWindow(text, terms, 1_500);
+    expect(text.length).toBeGreaterThan(2_500);
+    expect(window).toContain("Le contrôle de l'étalonnage du capteur a dérivé.");
+  });
+
   test("cuts an excerpt around its match, from a word, at most the size asked", () => {
     const text = `${"filler words here ".repeat(200)}the gasket crept at 3.1 bar ${"after text ".repeat(100)}`;
     const window = excerptWindow(text, ["gasket"], 500);

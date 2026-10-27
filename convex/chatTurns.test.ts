@@ -654,7 +654,7 @@ describe("bounded chat context", () => {
     expect(evidence).not.toContain("Body of second.md");
     expect(evidence.match(/--- BEGIN \[OTHER SUPPORTING MATERIAL\]/g)).toBeNull();
     expect(evidence).toContain(
-      "[The text of this project's 2 file(s) with text is not shown in this turn, since it does not all fit. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]"
+      "[The text of this project's 2 file(s) with text is not shown in this turn. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]"
     );
     const cutLine = infoLines.find((line) =>
       line.startsWith(`chat evidence ${result.threadId}`)

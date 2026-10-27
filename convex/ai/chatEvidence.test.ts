@@ -220,6 +220,8 @@ describe("chat evidence message", () => {
       analysisText: "A",
       documents: [doc({ fileName: "big.txt", content: body, category: "other" })],
       budget: budget({ perDocumentTokens }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     const row = report.sources.find((s) => s.label === "big.txt");
     expect(row).toMatchObject({
@@ -1280,7 +1282,7 @@ describe("the writer-message label", () => {
 
 
 describe("files whole or not at all with the reading tools on (Phase D, step 1)", () => {
-  const bySearch = "is not shown in this turn, since it does not all fit. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]";
+  const bySearch = "is not shown in this turn. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]";
 
   it("puts every file in whole when they all fit", () => {
     const { message } = buildChatEvidence({
@@ -1312,6 +1314,30 @@ describe("files whole or not at all with the reading tools on (Phase D, step 1)"
     // The files list still names both, with their handles.
     expect(message).toContain('F1 | "a.txt"');
     expect(message).toContain('F2 | "big.txt"');
+  });
+
+  it("a Word file shown whole carries no truncation notice for its marks (review)", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      // Stored as Markdown (40 characters with its marks), sent without them.
+      documents: [doc({ fileName: "history.docx", content: "Acme sealed pumps.", textLength: 40, category: "other" })],
+      budget: budget({ totalTokens: 20_000 }),
+    });
+    expect(message).toContain("Acme sealed pumps.");
+    expect(message).not.toContain("[TRUNCATED:");
+  });
+
+  it("counts a file as neutralizing its markers makes it, so none is cut while others go in (review)", () => {
+    const marked = "--- BEGIN [x] ".repeat(2); // 28 characters, 32 once neutralized
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [doc({ fileName: "a.txt", content: "Alpha body.", category: "other" }), doc({ fileName: "m.txt", content: marked, category: "other" })],
+      budget: budget({ totalTokens: 20_000, perDocumentTokens: 7.5 }), // 30 characters a file
+    });
+    expect(message).not.toContain("Alpha body.");
+    expect(message).toContain(`[The text of this project's 2 file(s) with text ${bySearch}`);
   });
 
   it("puts none in when all of them together do not fit what the turn has left", () => {

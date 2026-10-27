@@ -689,19 +689,40 @@ type Span = { start: number; end: number };
  * excerpt size, with offsets so an excerpt can say which part it is in.
  */
 /**
- * At most `size` characters of a search piece, from a little before the
- * first place one of `terms` appears (Phase D, step 1), so the matching
+ * At most `size` characters of a search piece, from a little before where
+ * its rarest matching term first appears (Phase D, step 1), so the matching
  * words are in the excerpt rather than cut off past its first `size`
- * characters. Starts at a word when it can, never inside a surrogate pair.
+ * characters. `terms` are folded as `foldForSearch` folds (accents off,
+ * lower case), so the piece is folded the same way with a map back to its
+ * own positions (review: an accented word was never found). Starts at a
+ * word when it can, never inside a surrogate pair.
  */
 export function excerptWindow(text: string, terms: readonly string[], size: number): string {
   if (text.length <= size) return text;
-  const lower = text.toLowerCase();
-  const hits = terms.map((term) => lower.indexOf(term.toLowerCase())).filter((index) => index >= 0);
-  let start = hits.length > 0 ? Math.max(0, Math.min(...hits) - Math.floor(size / 4)) : 0;
+  let folded = "";
+  const origin: number[] = [];
+  for (let index = 0; index < text.length; ) {
+    const point = text.codePointAt(index)!;
+    const width = point > 0xffff ? 2 : 1;
+    const piece = foldForSearch(String.fromCodePoint(point));
+    for (let k = 0; k < piece.length; k += 1) origin.push(index);
+    folded += piece;
+    index += width;
+  }
+  // The longest term found is the rarest: anchor there.
+  let anchor = -1;
+  let anchorLength = 0;
+  for (const term of terms) {
+    const at = folded.indexOf(term);
+    if (at >= 0 && term.length > anchorLength) {
+      anchor = origin[at] ?? 0;
+      anchorLength = term.length;
+    }
+  }
+  let start = anchor >= 0 ? Math.max(0, anchor - Math.floor(size / 4)) : 0;
   if (start > 0) {
     const space = text.indexOf(" ", start);
-    if (space >= 0 && space - start < 40) start = space + 1;
+    if (space >= 0 && space - start < 40 && space < anchor) start = space + 1;
   }
   start = Math.min(start, text.length - size);
   const range = safeRange(text, start, start + size);
@@ -764,6 +785,7 @@ export type SearchExcerpt =
       end?: number;
       textHash?: string;
       page?: number;
+      pageEnd?: number;
       text: string;
     }
   | {
@@ -788,6 +810,7 @@ export type SearchExcerpt =
       end?: number;
       textHash?: string;
       page?: number;
+      pageEnd?: number;
       text: string;
     };
 
@@ -875,6 +898,7 @@ export const searchForChat = internalQuery({
       query: args.query,
       limit: CHAT_SEARCH_PIECE_HITS,
       perFile: SEARCH_EXCERPTS_PER_SOURCE,
+      budget,
     });
     if (!found.scanComplete) complete = false;
     for (const hit of found.hits) {
@@ -888,7 +912,7 @@ export const searchForChat = internalQuery({
         start: hit.start,
         end: hit.end,
         textHash: hit.textHash,
-        ...(hit.page !== undefined ? { page: hit.page } : {}),
+        ...(hit.page !== undefined ? { page: hit.page, ...(hit.pageEnd !== undefined ? { pageEnd: hit.pageEnd } : {}) } : {}),
         text: window,
       });
     }
@@ -924,6 +948,9 @@ export const searchForChat = internalQuery({
       ...unmoved.rows.map((doc) => doc._id),
     ])];
     let filesRead = 0;
+    // Phase D (review): candidates whose pieces are current still fill the
+    // index's places, so a file waiting for pieces could be crowded out.
+    let skippedCurrent = 0;
     for (const documentId of candidateIds) {
       if (filesRead >= SEARCH_FILE_CANDIDATES) break;
       let doc = loadedRows.get(documentId) ?? null;
@@ -938,7 +965,10 @@ export const searchForChat = internalQuery({
       // A piece whose file is gone, archived or in another project is dropped.
       if (!doc || doc.archived || doc.projectId !== scope.projectId || !documentHasText(doc)) continue;
       // Phase D: a file with current pieces was searched above.
-      if (await piecesCurrent(doc)) continue;
+      if (await piecesCurrent(doc)) {
+        skippedCurrent += 1;
+        continue;
+      }
       filesRead += 1;
       const current = doc;
       // Charged as the text it returns (an object, which the budget sizes).
@@ -967,6 +997,8 @@ export const searchForChat = internalQuery({
         });
       }
     }
+
+    if (skippedCurrent > 0 && candidateIds.length >= SEARCH_FILE_CANDIDATES) complete = false;
 
     // Active transcripts, in memory: by groups of whole turns where the
     // turn build stored them, by characters otherwise.
@@ -1052,7 +1084,7 @@ export const searchForChat = internalQuery({
           start: hit.start,
           end: hit.end,
           textHash: hit.textHash,
-          ...(hit.page !== undefined ? { page: hit.page } : {}),
+          ...(hit.page !== undefined ? { page: hit.page, ...(hit.pageEnd !== undefined ? { pageEnd: hit.pageEnd } : {}) } : {}),
           text,
         });
         left -= text.length;

@@ -1080,12 +1080,16 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   // goes in only when the context sent every file with text whole and all of
   // it fits what the turn has left; otherwise none does, and the assistant
   // finds passages with searchDocuments and opens files with readDocument.
+  // Counted as `spend` sends it, after markers are neutralized (review: a
+  // file that grows there would otherwise be cut while the rest go in).
   const withText = others.filter(({ doc }) => textLengthOf(doc) > 0);
+  const sentLengths = withText.map(({ doc }) => neutralizeMarkers(doc.content).length);
   const filesBySearch =
     readingOn &&
     withText.length > 0 &&
     (withText.some(({ doc }) => !doc.content.trim()) ||
-      withText.reduce((total, { doc }) => total + doc.content.length + DOCUMENT_BLOCK_ALLOWANCE_CHARS, 0) > headRemaining);
+      sentLengths.some((length) => length > perDocChars) ||
+      sentLengths.reduce((total, length) => total + length + DOCUMENT_BLOCK_ALLOWANCE_CHARS, 0) > headRemaining);
   // Phase C: the sources whose file viewFile can show.
   const viewableSources = new Set<TrustedContextSource>();
   others.forEach(({ doc, handle }) => {
@@ -1121,7 +1125,9 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
         perDocChars,
         headRemaining,
         extra,
-        textLengthOf(doc)
+        // With the reading tools on, a file shown is shown whole: its stored
+        // length (a Word file's counts its marks) is not a longer whole.
+        readingOn ? undefined : textLengthOf(doc)
       )
     );
     handleOfSource.set(source, handle);
@@ -1171,7 +1177,7 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     ...(unreadableNames.length ? [unreadableNotice(unreadableNames)] : []),
     ...(viewableNoTextNames.length ? [viewableNotice(viewableNoTextNames)] : []),
   ];
-  const bySearchNotice = `[The text of this project's ${droppedDocuments} file(s) with text is not shown in this turn, since it does not all fit. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]`;
+  const bySearchNotice = `[The text of this project's ${droppedDocuments} file(s) with text is not shown in this turn. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]`;
   const documentNotices = [
     ...(droppedDocuments && documentBlocks.length ? [filesBySearch ? bySearchNotice : furtherOmittedNotice(droppedNames)] : []),
     ...noTextNotices,

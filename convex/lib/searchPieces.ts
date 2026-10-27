@@ -114,17 +114,39 @@ export async function piecesCurrent(doc: Doc<"projectDocuments">): Promise<boole
  */
 export async function searchProjectPieces(
   ctx: QueryCtx,
-  args: { projectId: Id<"projects">; query: string; limit?: number; perFile?: number }
+  args: {
+    projectId: Id<"projects">;
+    query: string;
+    limit?: number;
+    perFile?: number;
+    /**
+     * Phase D (review): the caller's read budget, so the pieces and the file
+     * rows they name are charged with its other reads. A read the budget
+     * refuses ends the scan, not complete.
+     */
+    budget?: {
+      read<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }>;
+      list<T>(source: AsyncIterable<T>, cap: number): Promise<{ rows: T[]; complete: boolean }>;
+    };
+  }
 ): Promise<PieceSearch> {
   const terms = searchTerms(args.query);
   const limit = Math.max(1, Math.min(args.limit ?? 8, 50));
   const perFile = Math.max(1, args.perFile ?? 2);
   if (terms.length === 0) return { hits: [], complete: true, scanComplete: true };
   const scanCap = Math.min(256, limit * 8);
-  const scanned = await ctx.db
+  const pieceQuery = ctx.db
     .query("documentSearchPieces")
-    .withSearchIndex("search_text", (q) => q.search("searchText", terms.join(" ")).eq("projectId", args.projectId))
-    .take(scanCap);
+    .withSearchIndex("search_text", (q) => q.search("searchText", terms.join(" ")).eq("projectId", args.projectId));
+  let budgetStopped = false;
+  let scanned: Doc<"documentSearchPieces">[];
+  if (args.budget) {
+    const listed = await args.budget.list(pieceQuery, scanCap);
+    scanned = listed.rows;
+    if (!listed.complete && listed.rows.length < scanCap) budgetStopped = true;
+  } else {
+    scanned = await pieceQuery.take(scanCap);
+  }
   const files = new Map<string, { doc: Doc<"projectDocuments"> | null; textHash: string | null }>();
   const perFileCount = new Map<string, number>();
   const hits: PieceHit[] = [];
@@ -132,9 +154,21 @@ export async function searchProjectPieces(
     if (hits.length >= limit) break;
     const documentId = piece.documentId;
     if (!documentId) continue;
+    // A file whose pieces already gave their share is not read again.
+    if ((perFileCount.get(documentId) ?? 0) >= perFile) continue;
     let file = files.get(documentId);
     if (!file) {
-      const doc = await ctx.db.get(documentId);
+      let doc: Doc<"projectDocuments"> | null;
+      if (args.budget) {
+        const loaded = await args.budget.read(() => ctx.db.get(documentId));
+        if (!loaded.ok) {
+          budgetStopped = true;
+          break;
+        }
+        doc = loaded.value;
+      } else {
+        doc = await ctx.db.get(documentId);
+      }
       file = { doc, textHash: doc ? await documentTextHash(doc) : null };
       files.set(documentId, file);
     }
@@ -164,7 +198,7 @@ export async function searchProjectPieces(
     .withIndex("by_projectId_and_searchPiecesDue", (q) => q.eq("projectId", args.projectId).eq("searchPiecesDue", true))
     .first();
   // Complete when every match was read, or the hits asked for were found.
-  const scanComplete = scanned.length < scanCap || hits.length >= limit;
+  const scanComplete = !budgetStopped && (scanned.length < scanCap || hits.length >= limit);
   return { hits, complete: notIndexed === null && scanComplete, scanComplete };
 }
 
