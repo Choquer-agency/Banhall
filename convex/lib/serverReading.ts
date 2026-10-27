@@ -9,7 +9,8 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { isImageFile, isSupportedFile } from "../../shared/documentStatus";
+import { CAP_TRUNCATION_MARKER, isImageFile, isSupportedFile } from "../../shared/documentStatus";
+import { escapeMarks, quotableWordText } from "../../shared/wordMarkdown";
 import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
 
 /**
@@ -77,8 +78,9 @@ type ReadingState = {
 
 /**
  * Whether the server should read a file's original: a stored original of a
- * supported type that is not a picture, with nothing read yet, that this
- * reader version has not read or started reading. A reading that started
+ * supported type that is not a picture, with nothing read yet (or, for a
+ * project file, Word text that is not Markdown yet, B1), that this reader
+ * version has not read or started reading. A reading that started
  * and never finished (its action was stopped) is not tried again by the
  * same version; a reading that failed released its claim and may be.
  */
@@ -103,12 +105,11 @@ export function needsServerReading(
 }
 
 /**
- * Whether the server's reading may replace a file's text: only when the
- * file has nothing read and the server read something. A file with read
- * text keeps it, even when the browser stopped part way, because PD
- * reviews, upload retries and duplicate checks hold its fingerprint;
- * reading it again waits for text versions (Phase B1), which keep the old
- * text beside the new one.
+ * Whether the server's reading may replace a file's text: when the file has
+ * nothing read and the server read something, or (B1) when a Word file's
+ * Markdown reading replaces the plain text it was stored with, which is kept
+ * as a version. Any other file with read text keeps it, even when the
+ * browser stopped part way.
  */
 export function serverReadingReplaces(
   storedHasReadText: boolean,
@@ -117,6 +118,35 @@ export function serverReadingReplaces(
   wordMarkdown = false
 ): boolean {
   return hasReadText(reading) && (!storedHasReadText || wordMarkdown);
+}
+
+/** A previous-year report's first lines: its header, then the year's note, then a blank line. */
+const PREVIOUS_YEAR_PREFIX = /^(\[Previous-year report \u2014 fiscal \d{4}\]\n)(?:Note: ([\s\S]*?)\n)?\n/;
+
+/** The letters and digits a text starts with, to tell whether two readings are of the same words. */
+function openingWords(text: string, size = 80): string {
+  return text.replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase().slice(0, size);
+}
+
+/**
+ * B1 (review): the text a Word file's Markdown reading leaves the file, or
+ * null when it may not replace the plain text it has.
+ *
+ * - A previous-year report keeps its header and the writer's note (escaped
+ *   for Markdown) before the reading: they are not in the original file.
+ * - The rest of the stored text must start with the same words as the
+ *   reading; otherwise something else wrote it and it is kept.
+ * - A reading cut at the size cap never replaces text that was not cut.
+ */
+export function wordBackfillText(stored: string, reading: string): string | null {
+  if (reading.endsWith(CAP_TRUNCATION_MARKER) && !stored.endsWith(CAP_TRUNCATION_MARKER)) return null;
+  const prefix = PREVIOUS_YEAR_PREFIX.exec(stored);
+  const body = prefix ? stored.slice(prefix[0].length) : stored;
+  const opening = openingWords(body);
+  if (!opening || opening !== openingWords(quotableWordText(reading)).slice(0, opening.length)) return null;
+  if (!prefix) return reading;
+  const note = prefix[2] === undefined ? "" : `Note: ${escapeMarks(prefix[2])}\n`;
+  return `${prefix[1]}${note}\n${reading}`;
 }
 
 /**

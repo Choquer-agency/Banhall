@@ -16,6 +16,13 @@ import { hasReadText, needsServerReading, serverReadingReplaces } from "./lib/se
 import { insertDocumentWithText } from "./lib/documentText";
 import { readFileOnServer, SERVER_READER_VERSION } from "./ai/fileReader";
 import { RICH_WORD_MARKDOWN, richWordFile, textPdf } from "./ai/testFiles.fixture";
+import { CAP_TRUNCATION_MARKER } from "../shared/documentStatus";
+import { previousYearReportHeader } from "../shared/previousYear";
+import { escapeMarks } from "../shared/wordMarkdown";
+import { insertDocumentWithText as insertWithText } from "./lib/documentText";
+
+/** The rich Word file's words as an older tab read them, with no marks. */
+const WORD_PLAIN = "Seal trials\n\nThe seal held at 4.2 bar in trial 3, and 5 * 3 = 15.\n\nTrial\tPressure\n1\t3.1 bar\n2\t4.2 bar";
 
 const modules = import.meta.glob("./**/*.ts");
 const writerAuthId = "auth-writer-document-reading-tests";
@@ -132,7 +139,7 @@ describe("the Word backfill keeps the earlier text (B1)", () => {
     // Zip reading waits on real timers; the reading the upload queued runs on its own.
     vi.useRealTimers();
     const { t, projectId, writer } = await setup();
-    const plain = "Plain text the browser read before Word was kept as Markdown.";
+    const plain = WORD_PLAIN;
     // An older browser tab sent plain text and no format.
     const documentId = await writer.mutation(api.documents.uploadDocument, {
       projectId,
@@ -192,6 +199,135 @@ describe("the Word backfill keeps the earlier text (B1)", () => {
       ctx.db.query("projectDocumentTextVersions").withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId)).collect()
     );
     expect(versions.map((version) => [version.version, version.why, version.reader])).toEqual([[1, "word_markdown", "server-reader-2"]]);
+  });
+});
+
+describe("the Word backfill, review fixes (B1)", () => {
+  // Word files are zips, read on real timers; the reading an upload queues
+  // runs on its own, so each test waits for it to finish.
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function uploadOlderWord(s: Setup, content: string, options: { attemptKey?: string; withOriginal?: boolean } = {}) {
+    const storageId = options.withOriginal === false ? undefined : await store(s.t, await richWordFile());
+    const documentId = await s.writer.mutation(api.documents.uploadDocument, {
+      projectId: s.projectId, fileName: "rich.docx", fileType: "docx", content,
+      ...(storageId ? { storageId } : {}),
+      ...(options.attemptKey ? { attemptKey: options.attemptKey } : {}),
+    });
+    return { storageId, documentId };
+  }
+
+  async function readingFinished(t: Setup["t"], documentId: Id<"projectDocuments">) {
+    await vi.waitFor(async () => expect((await fileState(t, documentId)).doc.serverReadAt).toEqual(expect.any(Number)), {
+      timeout: 15_000,
+      interval: 100,
+    });
+    return await fileState(t, documentId);
+  }
+
+  async function versionsOf(t: Setup["t"], documentId: Id<"projectDocuments">) {
+    return await t.run(async (ctx) =>
+      ctx.db.query("projectDocumentTextVersions").withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId)).collect()
+    );
+  }
+
+  test("a previous-year report keeps its header and the writer's note, escaped, before the Markdown", async () => {
+    const s = await setup();
+    const prefix = `${previousYearReportHeader(2024)}Note: Use *only* the 2024 figures.\n\n`;
+    const { documentId } = await uploadOlderWord(s, prefix + WORD_PLAIN);
+    const { doc, text } = await readingFinished(s.t, documentId);
+    expect(doc.textFormat).toBe("markdown");
+    expect(text).toBe(`${previousYearReportHeader(2024)}Note: ${escapeMarks("Use *only* the 2024 figures.")}\n\n${RICH_WORD_MARKDOWN}`);
+    expect((await versionsOf(s.t, documentId)).map((version) => version.textLength)).toEqual([(prefix + WORD_PLAIN).length]);
+  });
+
+  test("text that is not the file's own words is kept, with no version", async () => {
+    const s = await setup();
+    const typed = "Notes a writer typed about the seal trials, not the file's words.";
+    const { documentId } = await uploadOlderWord(s, typed);
+    const { doc, text } = await readingFinished(s.t, documentId);
+    expect(doc.textFormat).toBeUndefined();
+    expect(text).toBe(typed);
+    expect(doc.serverReader).toBe(SERVER_READER_VERSION);
+    expect(await versionsOf(s.t, documentId)).toEqual([]);
+  });
+
+  test("a reading cut at the size cap never replaces text that was not cut", async () => {
+    const s = await setup();
+    // No original, so nothing is queued; the reading is saved by hand.
+    const { documentId } = await uploadOlderWord(s, WORD_PLAIN, { withOriginal: false });
+    const expectedTextHash = await s.t.run(async (ctx) => documentTextHash((await ctx.db.get(documentId))!));
+    const outcome = await s.t.mutation(internal.documentReading.saveServerReading, {
+      documentId, expectedTextHash, text: RICH_WORD_MARKDOWN + CAP_TRUNCATION_MARKER, reader: SERVER_READER_VERSION, textFormat: "markdown",
+    });
+    expect(outcome).toBe("not_better");
+    expect((await fileState(s.t, documentId)).text).toBe(WORD_PLAIN);
+  });
+
+  test("an upload retried after its text was replaced finds its file", async () => {
+    const s = await setup();
+    const attemptKey = "44444444-4444-4444-8444-444444444444";
+    await s.writer.mutation(api.uploadAttempts.recordUploadAttempts, {
+      projectId: s.projectId,
+      attempts: [{ attemptKey, fileName: "rich.docx", origin: "context_input" }],
+    });
+    const { storageId, documentId } = await uploadOlderWord(s, WORD_PLAIN, { attemptKey });
+    expect((await readingFinished(s.t, documentId)).doc.textFormat).toBe("markdown");
+    // The older tab never saw the answer and sends the same save again.
+    const retried = await s.writer.mutation(api.documents.uploadDocument, {
+      projectId: s.projectId, fileName: "rich.docx", fileType: "docx", content: WORD_PLAIN, storageId, attemptKey,
+    });
+    expect(retried).toBe(documentId);
+    expect(await s.t.run(async (ctx) => (await ctx.db.query("projectDocuments").collect()).length)).toBe(1);
+  });
+
+  test("a current tab's Word Markdown queues no reading, and the pass finds an older one", async () => {
+    const s = await setup();
+    await s.writer.mutation(api.documents.uploadDocument, {
+      projectId: s.projectId, fileName: "rich.docx", fileType: "docx", content: RICH_WORD_MARKDOWN, textFormat: "markdown",
+      storageId: await store(s.t, await richWordFile()),
+    });
+    expect(await scheduledReadings(s.t)).toEqual([]);
+    await s.t.run(async (ctx) =>
+      insertWithText(ctx, {
+        projectId: s.projectId, fileName: "older.docx", fileType: "docx", source: "upload", uploadedBy: "writer",
+        processingStatus: "ready", createdAt: 1, storageId: await ctx.storage.store(new Blob(["x"])),
+      }, WORD_PLAIN)
+    );
+    expect(await s.t.mutation(internal.documentReading.queueServerReadings, { dryRun: true })).toMatchObject({ queued: 1 });
+  });
+
+  test("a project copy keeps the reader that wrote the text", async () => {
+    const s = await setup();
+    const { documentId } = await uploadOlderWord(s, WORD_PLAIN);
+    expect((await readingFinished(s.t, documentId)).doc.textFormat).toBe("markdown");
+    const toProjectId = await s.t.run(async (ctx) => {
+      const project = (await ctx.db.get(s.projectId))!;
+      const { _id, _creationTime, ...fields } = project;
+      return await ctx.db.insert("projects", { ...fields, title: "Copy", shareToken: "document-reading-copy" });
+    });
+    await s.writer.mutation(internal.projects.prepareProjectContentCopy, { fromProjectId: s.projectId, toProjectId });
+    const copy = await s.t.run(async (ctx) =>
+      (await ctx.db.query("projectDocuments").collect()).find((doc) => doc.projectId === toProjectId)
+    );
+    expect(copy).toMatchObject({ textFormat: "markdown", textReader: SERVER_READER_VERSION });
+  });
+});
+
+describe("a stop line alone is kept as a version (B1 review)", () => {
+  test("when the server's reading replaces it", async () => {
+    const s = await setup();
+    const storageId = await store(s.t, textPdf(PAGES));
+    const documentId = await s.writer.mutation(api.documents.uploadDocument, {
+      projectId: s.projectId, fileName: "trials.pdf", fileType: "pdf", content: pdfPageStopMarker(1).trim(), storageId, mimeType: "application/pdf",
+    });
+    await s.t.action(internal.ai.fileReading.readStoredDocument, { documentId });
+    const versions = await s.t.run(async (ctx) =>
+      ctx.db.query("projectDocumentTextVersions").withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId)).collect()
+    );
+    expect(versions.map((version) => version.why)).toEqual(["server_reading"]);
   });
 });
 

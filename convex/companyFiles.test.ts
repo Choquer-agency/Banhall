@@ -84,7 +84,7 @@ async function add(
   clientId: Id<"clients">,
   fileName: string,
   content: string,
-  extra: { storageId?: Id<"_storage">; fileType?: "txt" | "pdf" } = {}
+  extra: { storageId?: Id<"_storage">; fileType?: "txt" | "pdf" | "docx" } = {}
 ) {
   return await s.writer.mutation(api.companyFiles.addCompanyFile, {
     clientId,
@@ -414,6 +414,20 @@ describe("archiving, restoring and removing", () => {
     expect(file?.labelsDue).toBeUndefined();
     const jobs = await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect());
     expect(jobs.filter((job) => job.state.kind === "pending" && job.name.includes("readStoredCompanyFile"))).toHaveLength(1);
+  });
+
+  test("a Word company file stored as plain text is not read again for Markdown, on add or restore (B1 review)", async () => {
+    const s = await setup();
+    const storageId = await s.t.run(async (ctx) => ctx.storage.store(new Blob(["word bytes"])));
+    const fileId = await add(s, s.acmeId, "history.docx", "Company history, as an older tab read it.", { storageId, fileType: "docx" });
+    const readings = async () =>
+      (await s.t.run(async (ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+        (job) => job.state.kind === "pending" && job.name.includes("readStoredCompanyFile")
+      );
+    expect(await readings()).toHaveLength(0);
+    await s.manager.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: true });
+    await s.manager.mutation(api.companyFiles.setCompanyFileArchived, { companyFileId: fileId, archived: false });
+    expect(await readings()).toHaveLength(0);
   });
 
   test("a scan archived while it was being read is read once it is restored", async () => {

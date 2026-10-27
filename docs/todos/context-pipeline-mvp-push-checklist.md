@@ -645,7 +645,7 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers (gpt-6-astra, medium; Claude Opus 5.5, low as it reported), both "ship after fixes". Fixes in the eleventh decision entry.
 - [ ] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost

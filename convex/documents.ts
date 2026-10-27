@@ -3,6 +3,7 @@ import {
   deleteDocumentText,
   deleteDocumentTextVersions,
   documentHasText,
+  documentKeptVersionEquals,
   documentTextEquals,
   documentTextHash,
   documentTextLength,
@@ -148,7 +149,10 @@ export const uploadDocument = mutation({
       madeByAttempt.fileName === args.fileName &&
       (!canDedupe ||
         !documentHasText(madeByAttempt) ||
-        (await documentTextEquals(madeByAttempt, args.content)))
+        (await documentTextEquals(madeByAttempt, args.content)) ||
+        // B1 review: the server replaced the text this attempt sent (an older
+        // tab's plain Word text, now Markdown); the attempt kept it as a version.
+        (await documentKeptVersionEquals(ctx, madeByAttempt._id, args.content)))
         ? madeByAttempt
         : null;
     // 2026-10-22 (fourth): found by fingerprint, without reading every
@@ -256,7 +260,12 @@ export const uploadDocument = mutation({
     await queueServerReadingIfNeeded(
       ctx,
       documentId,
-      { fileName: args.fileName, ...(args.storageId ? { storageId: args.storageId } : {}) },
+      {
+        fileName: args.fileName,
+        ...(args.storageId ? { storageId: args.storageId } : {}),
+        // Review: Word Markdown from a current tab is not read again.
+        ...(args.textFormat && hasReadText(args.content) ? { textFormat: args.textFormat } : {}),
+      },
       hasReadText(args.content)
     );
     // Decision 65: readable new evidence may change the prepared Brief.

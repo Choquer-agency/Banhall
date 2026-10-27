@@ -1323,7 +1323,12 @@ async function installDocument(
   await queueServerReadingIfNeeded(
     ctx,
     projectDocumentId,
-    { fileName: source.label, ...(source.storageId ? { storageId: source.storageId } : {}) },
+    {
+      fileName: source.label,
+      ...(source.storageId ? { storageId: source.storageId } : {}),
+      // B1 review: Word Markdown from a current tab is not read again.
+      ...(source.textFormat ? { textFormat: source.textFormat } : {}),
+    },
     hasReadText(content)
   );
   await ctx.db.insert("intakeSourceLinks", {

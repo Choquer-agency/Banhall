@@ -4443,13 +4443,14 @@ Context pipeline plan, B1, first part: the owner's backfill ("should be properly
 
 - **Which files.** A Word file (`.docx`) whose stored text is not Markdown yet, because a browser read it before Word was kept as Markdown, or an older browser tab sent plain text. When it has its original, it is read on the server again (`needsServerReading`; server reader version 3). That happens when it is added, and through the one-off pass `queueServerReadings` that the owner runs for existing files. The pass is already on the owner's list, dev first.
 - **What changes.**
-  - The server's Markdown reading replaces the plain text (`saveServerReading`), even though the file already has read text. Every other file keeps the rule that a server reading replaces only a file with nothing read.
-  - Before any replacement, the text the file had is kept as its next version (`projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`). The version holds a number, a fingerprint, its length and format, the server reader that wrote it when one did, and why it was replaced (`word_markdown`). It is never changed. A file now records the server reader that wrote its current text (`textReader`), apart from `serverReader`, which names the latest attempt even when it kept the text it found.
+  - The server's Markdown reading replaces the plain text (`saveServerReading`), even though the file already has read text, but only when the rest of the stored text starts with the same words as the reading, and never with a reading cut at the size cap when the stored text was not cut (`wordBackfillText`). A previous-year report keeps its header and the writer's note, escaped for Markdown, before the reading: they are not in the original file. Text that is not the file's own words is kept as it is. Every other file keeps the rule that a server reading replaces only a file with nothing read.
+  - Before any replacement, the text the file had, even a stop line alone, is kept as its next version (`projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`). The version holds a number, a fingerprint, its length and format, the server reader that wrote it when one did, and why it was replaced (`word_markdown`). It is never changed. A file now records the server reader that wrote its current text (`textReader`), apart from `serverReader`, which names the latest attempt even when it kept the text it found.
   - The file's current text, search pieces and labels are then made again from the Markdown, as for any new text.
 - **What stays exact.**
   - Drafts made before froze their own copy of every file, so their quotes and source links do not move.
   - A PD review keeps the fingerprint it recorded; nothing compares it later.
-  - Uploading the same Word file again now matches the Markdown text, so the "second file" known limit of the fourth entry goes away once the pass has run.
+  - Uploading the same Word file again from a current tab matches the Markdown text, so the "second file" known limit of the fourth entry goes away for current tabs once the pass has run; an older tab still sends plain text and makes a second file.
+  - An upload retried after its answer was lost still finds its file when the server has replaced its text in between: the retry matches a kept version (`documentKeptVersionEquals`).
 - **Costs of the pass.**
   - Reading Word files costs nothing (mammoth, on the server).
   - Each file's new text gets new search pieces and labels (Claude Haiku, about $0.001 a file).
@@ -4464,6 +4465,7 @@ Context pipeline plan, B1, first part: the owner's backfill ("should be properly
   - a version of text an earlier server reader wrote names that reader, and one the browser read names none.
 
   `convex/projectErasure.test.ts` covers erasure.
+- **Review of a2d96557 and 9abb9c92.** gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), both "ship after fixes". Fixed: a previous-year report's header and note were dropped; a retried upload failed after its text was replaced; a reading cut at the size cap could replace complete text; a stop line was replaced with no version; a project copy dropped `textReader`; current Word uploads queued a reading that did nothing; deleting versions stopped at 100; stale comments. Tests added for each, and for company files on add and restore.
 - **Company files are not read again for Markdown.** They have no earlier versions to keep plain text in, so a Word company file stored as plain text keeps it (`needsServerReading` reads Word text again only for project files). Company files added through the Files tab are read as Markdown in the browser.
 - **Live check on localhost** (a2d96557): a Word file uploaded as an older tab would send it (plain text, no format) was read again as Markdown on the server and its plain text kept as version 1 (83 characters, `word_markdown`). It showed the version naming the current reader for text the browser had read, fixed with `textReader`.
 - **Approval:** Product owner, 2026-10-26 (chat), quoted above, and part 4 of the first 2026-10-26 entry.

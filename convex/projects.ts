@@ -1488,6 +1488,8 @@ async function copyProjectInputRows(ctx: MutationCtx, args: CopyScope) {
       ...(doc.mimeType ? { mimeType: doc.mimeType } : {}),
       ...(doc.category ? { category: doc.category } : {}),
       ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
+      // B1 review: the same text, so the same reader wrote it.
+      ...(doc.textReader ? { textReader: doc.textReader } : {}),
       ...(doc.archived !== undefined ? { archived: doc.archived } : {}),
       processingStatus: processing.status,
       ...(processing.detail ? { processingDetail: processing.detail } : {}),

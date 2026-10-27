@@ -339,7 +339,6 @@ export async function insertDocumentWithText(
   return documentId;
 }
 
-/** Deletes a file's text pieces. */
 /**
  * 2026-10-26 (B1, first part): keeps a file's current text as its next
  * version before a better reading replaces it, so the earlier text is never
@@ -379,6 +378,24 @@ export async function keepDocumentTextVersion(
   return versionId;
 }
 
+/**
+ * Whether one of a file's kept versions holds exactly `text` (B1 review): an
+ * upload retried after the file's text was replaced still finds its file.
+ */
+export async function documentKeptVersionEquals(
+  ctx: QueryCtx,
+  documentId: Id<"projectDocuments">,
+  text: string
+): Promise<boolean> {
+  const versions = await ctx.db
+    .query("projectDocumentTextVersions")
+    .withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId))
+    .take(20);
+  if (versions.length === 0) return false;
+  const hash = await sha256(text);
+  return versions.some((version) => version.textHash === hash && version.textLength === text.length);
+}
+
 /** A kept version's text, whole (B1). */
 export async function readDocumentTextVersion(
   ctx: QueryCtx,
@@ -397,22 +414,28 @@ export async function deleteDocumentTextVersions(
   ctx: MutationCtx,
   documentId: Id<"projectDocuments">
 ): Promise<void> {
-  for (const version of await ctx.db
-    .query("projectDocumentTextVersions")
-    .withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId))
-    .take(100)) {
-    for (;;) {
-      const pieces = await ctx.db
-        .query("projectDocumentTextVersionPieces")
-        .withIndex("by_versionId_and_start", (q) => q.eq("versionId", version._id))
-        .take(MAX_DOCUMENT_TEXT_PIECES);
-      for (const piece of pieces) await ctx.db.delete(piece._id);
-      if (pieces.length < MAX_DOCUMENT_TEXT_PIECES) break;
+  // In batches until none are left (review: not only the first 100).
+  for (;;) {
+    const versions = await ctx.db
+      .query("projectDocumentTextVersions")
+      .withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId))
+      .take(100);
+    for (const version of versions) {
+      for (;;) {
+        const pieces = await ctx.db
+          .query("projectDocumentTextVersionPieces")
+          .withIndex("by_versionId_and_start", (q) => q.eq("versionId", version._id))
+          .take(MAX_DOCUMENT_TEXT_PIECES);
+        for (const piece of pieces) await ctx.db.delete(piece._id);
+        if (pieces.length < MAX_DOCUMENT_TEXT_PIECES) break;
+      }
+      await ctx.db.delete(version._id);
     }
-    await ctx.db.delete(version._id);
+    if (versions.length < 100) break;
   }
 }
 
+/** Deletes a file's text pieces. */
 export async function deleteDocumentText(
   ctx: MutationCtx,
   documentId: Id<"projectDocuments">

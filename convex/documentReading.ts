@@ -8,13 +8,14 @@ import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { deriveProcessingStatus } from "../shared/documentStatus";
-import { documentTextHash, keepDocumentTextVersion, writeDocumentText } from "./lib/documentText";
+import { documentTextHash, keepDocumentTextVersion, readDocumentText, writeDocumentText } from "./lib/documentText";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
 import {
   documentHasReadText,
   needsServerReading,
   SERVER_READER_VERSION,
   serverReadingReplaces,
+  wordBackfillText,
   wordWithoutMarkdown,
 } from "./lib/serverReading";
 import { isProjectDeleting } from "./lib/projectDeletion";
@@ -74,16 +75,21 @@ export const saveServerReading = internalMutation({
     const now = Date.now();
     const storedHasReadText = await documentHasReadText(ctx, doc);
     // B1 (2026-10-26, owner's backfill): a Word file's Markdown reading
-    // replaces the plain text it was stored with.
+    // replaces the plain text it was stored with, keeping a previous-year
+    // report's header and note, and only when it reads the same words and
+    // was not cut shorter (review).
     const wordMarkdown = args.textFormat === "markdown" && wordWithoutMarkdown(doc);
-    if (!serverReadingReplaces(storedHasReadText, args.text, wordMarkdown)) {
+    let text: string | null = args.text;
+    if (wordMarkdown && storedHasReadText) text = wordBackfillText(await readDocumentText(ctx, doc), args.text);
+    if (text === null || !serverReadingReplaces(storedHasReadText, text, wordMarkdown)) {
       await ctx.db.patch(doc._id, { serverReader: args.reader, serverReadAt: now });
       return "not_better";
     }
-    // The text it had is kept as an earlier version, never lost.
-    if (storedHasReadText) await keepDocumentTextVersion(ctx, doc, wordMarkdown ? "word_markdown" : "server_reading", now);
-    const written = await writeDocumentText(ctx, doc, args.text, now);
-    const derived = deriveProcessingStatus({ fileName: doc.fileName, content: args.text });
+    // The text it had, even a stop line alone, is kept as an earlier
+    // version, never lost (review); a file with no text keeps none.
+    await keepDocumentTextVersion(ctx, doc, wordMarkdown ? "word_markdown" : "server_reading", now);
+    const written = await writeDocumentText(ctx, doc, text, now);
+    const derived = deriveProcessingStatus({ fileName: doc.fileName, content: text });
     await ctx.db.patch(doc._id, {
       ...written,
       // The pieces are the text now; a row that still held its own copy
