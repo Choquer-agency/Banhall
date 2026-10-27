@@ -18,7 +18,8 @@ import {
   settleWriterSettingsVerdicts,
   type ModelVerdict,
 } from "./selfCheckRules";
-import { bannedRuleHits, openingAt, termRuleHits, wordingLoss, type WriterWordingRules } from "./writerWording";
+import { bannedRuleHits, openingAt, termRuleHits, wordingLoss, wordingLossDetails, type WriterWordingRules } from "./writerWording";
+import { composeWithSavedPreferences } from "./savedPreferences";
 import type { CategoryOutcome, OrderedProfileContext, SectionNumber } from "./orderedChain";
 
 const SETTINGS_TEXT = readFileSync(
@@ -563,5 +564,43 @@ describe("saved preferences without a Writer Profile (E1b review)", () => {
     expect(measured(missing(true))).toBe(measured(profile()));
     // No profile and no saved preferences: nothing is measured, as before.
     expect(measured(missing(false))).toBe(0);
+  });
+});
+
+describe("a wording rule read from a saved preference stays private (fifth re-check)", () => {
+  // The reviewer's path: a saved preference composed after the profile, then read.
+  const SAVED = "Avoid filler.\nNever use these words:\n- optimize";
+  const rules = extractWriterWordingRules(composeWithSavedPreferences("Never use these words:\n- leverage", [SAVED]));
+  const saved = (result: ReturnType<typeof check>) => result.entries.filter((entry) => entry.row.instruction === "Saved preference");
+
+  it("marks the saved preference's rule, and not the profile's", () => {
+    expect(rules.banned).toEqual([
+      { phrase: "leverage", forms: [], source: "leverage" },
+      { phrase: "optimize", forms: [], source: "optimize", savedPreference: true },
+    ]);
+    expect(extractWriterWordingRules("Never use these words:\n- optimize").banned[0]).not.toHaveProperty("savedPreference");
+  });
+
+  it("names it only as a saved preference, with its outcome and paragraph", () => {
+    const followed = check("242", "The company tested the coating.", rules);
+    expect(saved(followed).map((entry) => entry.row)).toEqual([
+      expect.objectContaining({ source: "deterministic", outcome: "applied", reason: "Followed, as measured by code." }),
+    ]);
+    // The profile's own rule stays visible.
+    expect(row(followed, "Writer's banned word: leverage")?.row.reason).toBe('"leverage" not used');
+    const broken = check("242", "The company tested the coating.\n\nThe team set out to optimize the cure.", rules);
+    expect(saved(broken).map((entry) => entry.row)).toEqual([
+      expect.objectContaining({ outcome: "not_applied", paragraphIndex: 1, reason: "Not followed in paragraph 2, as measured by code." }),
+    ]);
+    expect(row(broken, "Writer Profile")?.row.reason).toContain("a saved preference is not followed in paragraph 2");
+    expect(JSON.stringify(broken.entries.map((entry) => entry.row))).not.toMatch(/optimi/i);
+    // The repair still gets the words it must fix.
+    expect(saved(broken)[0]?.guidance).toMatch(/optimize/);
+  });
+
+  it("a repair that broke it says so without its words", () => {
+    expect(wordingLossDetails("The team tested the cure.", "The team set out to optimize the cure.", rules, "242")).toEqual([
+      { reason: "broke a saved preference of the writer's", instruction: "Saved preference" },
+    ]);
   });
 });

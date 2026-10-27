@@ -591,9 +591,9 @@ describe("writer memory (Phase E, E1a)", () => {
       expect(withoutSavedPreferenceText(note("Concise.", "Checked."), ["Concise."])).toMatchObject(SAVED_PREFERENCE_NOTE);
       const mentionsConcise = note("Keep the summary concise.", "Checked.");
       expect(withoutSavedPreferenceText(mentionsConcise, ["Concise."])).toEqual(mentionsConcise);
-      // Fourth re-check: no deterministic row is hidden. Code writes them
-      // from fixed labels, the House Rules, the Writer Profile's own rules
-      // and measured words, never from a saved preference's text.
+      // Fourth and fifth re-checks: rows written by code are not read here.
+      // A wording rule from a saved preference is labelled where its row is
+      // built (writerWording.test.ts); other code rows hold no saved text.
       const measured = { ...note("Keeps sentences under 25 words.", "Measured."), source: "deterministic" as const };
       expect(withoutSavedPreferenceText(measured, saved)).toEqual(measured);
       expect(withoutSavedPreferenceText(note("Writer Profile", "The writer asked: uses Canadian spelling."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
@@ -661,6 +661,34 @@ describe("writer memory (Phase E, E1a)", () => {
       );
       expect(withoutSavedPreferenceText(row("Opens with a zingy hook", "Checked."), ["Always opens with a zingy hook."])).toMatchObject(SAVED_PREFERENCE_NOTE);
       expect(withoutSavedPreferenceText(row("Starts with zingy hooks", "Checked."), ["Never starts with zingy hooks."])).toMatchObject(SAVED_PREFERENCE_NOTE);
+    });
+
+    test("a single-quoted whole preference is hidden, and House Rule wording in quotes is not a quote of one (fifth re-check)", () => {
+      const row = (instruction: string, reason: string) => ({
+        section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false,
+      });
+      expect(withoutSavedPreferenceText(row("Writer preference", "The writer requested 'Concise.' and we complied."), ["Concise."])).toMatchObject(
+        SAVED_PREFERENCE_NOTE
+      );
+      // One single-quoted word that is not the whole preference stays.
+      const oneWord = row("Writer preference", "The Line is 'concise' throughout.");
+      expect(withoutSavedPreferenceText(oneWord, ["Keeps every Line concise."])).toEqual(oneWord);
+      // A House Rule row whose reason quotes House Rule wording stays.
+      const houseRule = row("Prefer active voice with the company as the subject.", 'The phrase "active voice" was checked against the House Rule.');
+      expect(withoutSavedPreferenceText(houseRule, ["Uses the active voice."])).toEqual(houseRule);
+      const plainLanguage = row("Use plain language.", "Checked.");
+      expect(withoutSavedPreferenceText(plainLanguage, ["Uses plain language."])).toEqual(plainLanguage);
+      expect(
+        withoutSavedPreferenceText(row("Writer preference", 'Followed the request for "sentences under 25 words throughout".'), ["Keeps sentences under 25 words."])
+      ).toMatchObject(SAVED_PREFERENCE_NOTE);
+      // Known limit: a paraphrase, or a short preference inside a sentence, is not recognized.
+      for (const [saved, reason] of [
+        ["Avoid jargon.", "The writer asked us to avoid jargon."],
+        ["Keeps sentences under 25 words.", "The writer prefers sentences shorter than 25 words."],
+      ] as const) {
+        const paraphrase = row("Writer preference", reason);
+        expect(withoutSavedPreferenceText(paraphrase, [saved])).toEqual(paraphrase);
+      }
     });
 
     test("stored Compliance Notes never carry a saved preference, in whole or in part, in either field (re-check)", async () => {

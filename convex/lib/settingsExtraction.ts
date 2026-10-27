@@ -1,3 +1,4 @@
+import { SAVED_PREFERENCES_HEADING } from "./savedPreferences";
 import {
   DEFAULT_BUILD_ORDER,
   MAX_SELF_CHECK_INSTRUCTION_CHARS,
@@ -422,7 +423,14 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
     readFromList = false;
     listLeads = lead ? [lead] : [];
   };
-  for (const raw of text.split(/\r?\n/)) {
+  // Fifth re-check: rules read after the saved preferences heading (the
+  // block composeWithSavedPreferences adds last) come from saved preferences.
+  const lines = text.split(/\r?\n/);
+  const savedFrom = lines.map((line) => line.trim()).lastIndexOf(SAVED_PREFERENCES_HEADING);
+  let lineIndex = -1;
+  const marked = <T extends object>(rule: T): T => (savedFrom >= 0 && lineIndex > savedFrom ? { ...rule, savedPreference: true as const } : rule);
+  for (const raw of lines) {
+    lineIndex += 1;
     const line = raw.trimEnd();
     const trimmed = line.trim();
     const item = LIST_MARKER.test(line);
@@ -434,13 +442,13 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
         if (state === "terms") {
           const term = termRule(body);
           if (term && !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) {
-            terms.push(term);
+            terms.push(marked(term));
             readFromList = true;
           }
         } else {
           const entry = bannedItem(body);
           if (entry && !banned.some((other) => other.phrase.toLowerCase() === entry.phrase.toLowerCase())) {
-            banned.push(entry);
+            banned.push(marked(entry));
             readFromList = true;
           }
         }
@@ -480,7 +488,7 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
     const body = (item ? line.replace(LIST_MARKER, "") : line).trim();
     const opening = openingRule(body);
     if (opening && !openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening)) {
-      openings.push(opening);
+      openings.push(marked(opening));
     }
   }
   open("none");

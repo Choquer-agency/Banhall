@@ -185,7 +185,10 @@ export const getHealth = query({
     const attempts = successes + fallbacks;
     const sourcePartial = ["generations", "project joins", "brain provenance", "source passages", "source metadata", "candidate scores", "linked reports", "writer reviews"].some(name => truncated.has(name));
     // Omitted generations/passages can carry additional judgments for any source.
-    const sourceCohortIncomplete = !generationRead.complete || truncated.has("source passages");
+    // Fifth re-check: so can a generation whose project or provenance the
+    // budget left unread, whichever source it would have counted for.
+    const sourceCohortIncomplete =
+      !generationRead.complete || ["source passages", "project joins", "brain provenance"].some(name => truncated.has(name));
     return {
       window: { start, end },
       ped: { selection: selection(samples, pedRead.complete, row => row.computedAt), daily: [...daily.values()].map(bucket => ({ ...bucket, mean: bucket.mean / bucket.samples })).sort((a, b) => a.day - b.day),

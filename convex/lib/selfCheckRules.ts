@@ -42,6 +42,7 @@ import {
   openingRowInstruction,
   openingStatement,
   termRowInstruction,
+  SAVED_PREFERENCE_ROW_INSTRUCTION,
   type RequiredTermRule,
   type WriterWordingRules,
 } from "./writerWording";
@@ -287,6 +288,35 @@ export const REPAIR_LEFT_CHECKED_TEXT = "; the repair left the checked text as i
 /** Story 3 (AD-26): the reason on a waiver row an org-enforced mode ignored. */
 export const ORG_ENFORCED_WAIVER_REASON =
   "org-enforced: this House Rule applies regardless of the Writer Profile";
+
+/**
+ * Fifth re-check (2026-10-27): the row of a wording rule read from a saved
+ * preference. People other than the writer read Compliance Notes, so it
+ * says only what code measured: the outcome and the paragraph.
+ */
+function savedPreferenceRuleRow(row: ComplianceNoteDraft): ComplianceNoteDraft {
+  const where = row.paragraphIndex !== undefined ? ` in paragraph ${row.paragraphIndex + 1}` : "";
+  return noteDraft({
+    section: row.section,
+    ...(row.paragraphIndex !== undefined ? { paragraphIndex: row.paragraphIndex } : {}),
+    source: "deterministic",
+    instruction: SAVED_PREFERENCE_ROW_INSTRUCTION,
+    outcome: row.outcome,
+    tier: row.tier,
+    // "Not measured: the House Rule openers apply ..." holds none of the rule's words.
+    reason: row.reason.startsWith("Not measured")
+      ? row.reason
+      : row.outcome === "applied"
+        ? "Followed, as measured by code."
+        : `Not followed${where}, as measured by code.`,
+    repaired: row.repaired,
+  });
+}
+
+/** How the Writer Profile row and the Self-check's row name a broken saved preference. */
+function savedPreferenceRuleFailure(row: ComplianceNoteDraft): string {
+  return `a saved preference is not followed${row.paragraphIndex !== undefined ? ` in paragraph ${row.paragraphIndex + 1}` : ""}`;
+}
 
 export function runDeterministicSelfCheck(input: {
   section: SectionNumber;
@@ -641,6 +671,17 @@ export function runDeterministicSelfCheck(input: {
       );
       measuredEntry(rule.source, `no sentence of Line ${section} opens with "${rule.opening}"`, rule.opening);
     });
+    // Fifth re-check: a rule read from a saved preference keeps its outcome
+    // and paragraph, and its row and its failure name it only as a saved
+    // preference. The repair guidance, sent only to the model, keeps the words.
+    for (const entry of entries) {
+      const match = /^wording:(term|banned|opening):(\d+)$/.exec(entry.key);
+      if (!match) continue;
+      const rules = match[1] === "term" ? wording.terms : match[1] === "banned" ? wording.banned : wording.openings;
+      if (!rules[Number(match[2])]?.savedPreference) continue;
+      entry.row = savedPreferenceRuleRow(entry.row);
+      if (entry.profileRuleFailure) entry.profileRuleFailure = savedPreferenceRuleFailure(entry.row);
+    }
   }
 
   // 2026-10-04 (first): the Writer Profile row says the profile was used to

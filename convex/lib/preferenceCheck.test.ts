@@ -101,8 +101,7 @@ const FACT_PREFERENCES: Array<[string, PreferenceRefusal]> = [
 
 /**
  * Fourth re-check (gpt-6-astra, medium): the reviewer's 72 probes, every
- * one as the reviewer expected it, and more of each kind. The number rule is
- * an allowlist of ways of writing; anything else with a number is a figure.
+ * one as the reviewer expected it, and more of each kind.
  */
 const PROBE_STYLE = [
   "Keeps sentences under 25 words.",
@@ -222,6 +221,197 @@ describe("the number rule reads numbers only as part of how to write (fourth re-
 
   it.each(PROBE_FACTS)("refuses %s as a number", (text) => {
     expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: false, reason: "number" });
+  });
+});
+
+/**
+ * Fifth re-check (gpt-6-astra, medium): its 100 probes, and more of each
+ * kind. A clause holding a number is accepted only when one whole template
+ * covers it.
+ */
+const R5_STYLE = [
+  "Keep each sentence below 22 words.",
+  "Use four compact paragraphs per Line.",
+  "Prefer paragraphs of 65 words or fewer.",
+  "Cap the opening at 35 words.",
+  "Limit the conclusion to 90 words.",
+  "Aim for 18 words per sentence.",
+  "Keep bullet points between 8 and 14 words.",
+  "Use a single space after punctuation.",
+  "Indent quotations by four spaces.",
+  "Use no more than seven subheadings.",
+  "Keep each heading to 45 characters.",
+  "Use two nested levels of bullets.",
+  "Use three examples per section.",
+  "Put a maximum of six entries in a list.",
+  "Write dates with two digits for the month.",
+  "Use a comma in numbers over 999.",
+  "Write quantities below twelve in words.",
+  "Express percentages to three decimal places.",
+  "Round figures to the nearest ten.",
+  "Spell out integers from zero to twelve.",
+  "Write numbers above ninety-nine as numerals.",
+  "Use numerals for values over nine.",
+  "Write one hundred as digits.",
+  "Limit each Line to three quarters of a page.",
+  "Keep the introduction to a quarter page.",
+  "Use 11-point type.",
+  "Set body text to 11 pt.",
+  "Leave two blank lines after each heading.",
+  "Use 1.25 line spacing.",
+  "Use a two-column layout.",
+  "Write in second person when addressing the reader.",
+  "Use third-person wording throughout.",
+  "Start the fourth paragraph with the result.",
+  "Keep the tenth sentence brief.",
+  "Do not repeat a technical term more than three times per paragraph.",
+  "Use at most two semicolons per paragraph.",
+  "Keep parentheses to one pair per sentence.",
+  "Use a colon before lists of four items.",
+  "Give each abbreviation its full name on the first use.",
+  "Keep captions below 30 words.",
+  "Use four to six bullets in the summary.",
+  "Use two short clauses joined by and.",
+  "Write no more than 120 words in the closing paragraph.",
+  "Keep each table to six columns.",
+  "Limit nesting to two levels.",
+  "Write at least three sentences in each paragraph.",
+  "Use a maximum of eight words in a subheading.",
+  "Keep Line 246 below 180 words.",
+  "Number each list from one.",
+  "Use 10 to 12 words for each bullet.",
+  "Keeps paragraphs to around 80 words.",
+  "Writes Lines of about 300 words.",
+  "Never more than two ideas per sentence.",
+  "Keeps sentences short, under 25 words.",
+  "Uses two to three sentences for the summary.",
+  "Keeps each Line to one page.",
+  "Opens with a two-sentence summary.",
+  "Uses three bullets, not more.",
+  "Limits jargon to one term per paragraph.",
+  "Keeps lists under seven items.",
+  "Uses a five-paragraph structure.",
+  "Keeps the Brief to a single page.",
+  "Keep each Line to a third of a page.",
+  "Use up to three subheadings per Line.",
+  "Keeps the first sentence under 20 words.",
+  "Prefers sentences between 15 and 20 words.",
+  "Writes 2 to 3 bullets per idea.",
+  "Spell out numbers below 10.",
+  "Uses words for numbers under ten.",
+  "Starts each Line with a one-sentence summary.",
+  "Cuts each Line to 300 words.",
+  "Keeps headings to five words or fewer.",
+  "Keeps Line 242 under 350 words; Line 244 under 700 words.",
+  "Writes 300 to 350 words for Line 242.",
+  "Summarizes each Line in two sentences.",
+  "Puts the key result in the first two sentences.",
+  "Uses Oxford commas in lists of three or more.",
+  "Gives two examples at most.",
+  "Keeps each Line to roughly half a page.",
+];
+const R5_FACTS = [
+  "Says the report ran to 40 pages.",
+  "Notes 12 sections of the plant were rebuilt.",
+  "Uses 3 suppliers.",
+  "The company printed 32 pages.",
+  "The company published 14 paragraphs.",
+  "The contract contains six clauses.",
+  "Our report contained 450 words.",
+  "The team filed two claims.",
+  "Has three columns supporting the roof.",
+  "Uses two columns to support the roof.",
+  "Uses three sections of the warehouse.",
+  "Keeps stock below 40 items.",
+  "Keeps the output under 30 pages per minute.",
+  "Writes invoices for 40 dollars.",
+  "The company earned 900 dollars.",
+  "Revenue was $750.",
+  "Yield reached 92 percent.",
+  "The yield was 0.75.",
+  "The plant opened in 2021.",
+  "The test ran on 12/04/2024.",
+  "The trial lasted three days.",
+  "The sample weighed half a kilogram.",
+  "Has one employee at the plant.",
+  "Has the one employee at the plant.",
+  "The one machine failed.",
+  "The eleventh batch passed.",
+  "The twelfth trial succeeded.",
+  "The company has a dozen clients.",
+  "Output rose fivefold.",
+  "Output increased sixfold.",
+  "The building has twenty floors.",
+  "Printed 30 words on each label.",
+  "Produced two lists of suppliers.",
+  "Published four headings on the website.",
+  "The team uses 1.5 line spacing in its manuals.",
+  "The printer supports a 12 point font.",
+  "Uses numbers under ten as part identifiers.",
+  "Shows numbers above 30 on the gauge.",
+  "Writes numbers below 50 on shipping crates.",
+  "Uses figures over 80 as acceptance limits.",
+  "Uses two significant figures in the instrument output.",
+  "Has two decimal places in its sensor display.",
+  "The company filed the third claim.",
+  "Keeps orders under 25 items.",
+  "The board approved three topics for research.",
+  "Built two sections of the furnace.",
+  "Maintains five terms in the contract.",
+  "Always reports seven failures.",
+  "Uses short prose and reports four claims.",
+  "Keeps paragraphs short; the company has three sections.",
+  "Limits the budget to 40 dollars.",
+  "Uses the 40 page manual.",
+  "Keeps 40 workers per shift.",
+  "Writes 12 sections.",
+  "Keeps the plant under 40 degrees.",
+  "Caps the order at 30 units.",
+  "Uses three prototypes per test.",
+  "Keeps two sites in Quebec.",
+  "Puts 40 bolts in each box.",
+  "Prefers suppliers with 20 staff.",
+  "Limits each shift to 8 hours.",
+  "Uses two sensors per line.",
+  "Describes the 40 tests in two sentences.",
+  "Starts the second paragraph with the 40 tests.",
+];
+/**
+ * Style texts no template covers yet, refused as numbers. The brief accepts
+ * a few such refusals over letting a figure through; the writer can say the
+ * same in a covered way ("Keeps the summary under 100 words").
+ */
+const KNOWN_FALSE_REFUSALS = [
+  "Keeps the summary brief, about 100 words.",
+  "Writes in short paragraphs of three to four sentences each.",
+  "Uses numbers sparingly, at most three per paragraph.",
+  "Writes one claim per sentence, then the evidence.",
+  "Uses one idea per paragraph and one claim per sentence.",
+  "Answers each of the three questions in turn.",
+];
+
+describe("the number rule matches whole clauses (fifth re-check)", () => {
+  it.each(R5_STYLE)("lets %s stand", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: true });
+  });
+
+  it.each(R5_FACTS)("refuses %s as a number", (text) => {
+    expect(checkPreferenceText(text, { names: NAMES })).toEqual({ ok: false, reason: "number" });
+  });
+
+  it("still refuses a few style texts no template covers (known false refusals)", () => {
+    for (const text of KNOWN_FALSE_REFUSALS) {
+      expect([text, checkPreferenceText(text, { names: NAMES })]).toEqual([text, { ok: false, reason: "number" }]);
+    }
+  });
+
+  it("reads every ordinal, multiplier and count of one as a number", () => {
+    for (const text of ["The eleventh batch passed.", "The twentieth run held.", "Output rose fivefold.", "Costs halved.", "The one machine failed.", "Each one held."]) {
+      expect([text, checkPreferenceText(text, { names: NAMES })]).toEqual([text, { ok: false, reason: "number" }]);
+    }
+    for (const text of ["Writes so no one guesses the subject.", "Keeps ideas close to one another.", "Gives each abbreviation its full name on the first use."]) {
+      expect([text, checkPreferenceText(text, { names: NAMES })]).toEqual([text, { ok: true }]);
+    }
   });
 });
 

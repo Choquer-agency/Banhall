@@ -83,6 +83,28 @@ describe("learning health shared byte budget with enforced Convex transaction li
     expect(result.sources.partial).toBe(true);
   });
 
+  test("an unread project leaves every source's evidence incomplete, even one fully read before it (fifth re-check)", async () => {
+    const { t, admin, project, user } = await setup();
+    // The fixture's generation reads the shared entry with all its joins.
+    const provenance: { sourceId: string; entryId: string; score: number }[] = [];
+    for (let i = 0; i < 24; i++) await t.run(async ctx => {
+      const sourceId = await ctx.db.insert("brainSources", { kind: "pd_pair", status: "approved", title: `Source ${i}`, industry: "tech", writerTier: 1, docType: "pd", content: prose, ragKey: `${i}`, sourceHash: `${i}`, createdBy: user, createdAt: start });
+      provenance.push({ sourceId, entryId: `${i}`, score: 1 });
+    });
+    await t.run(async ctx => {
+      // A later generation of the same project spends the budget on its sources.
+      await ctx.db.insert("generations", { projectId: project, status: "completed", startedAt: start + 1, brainProvenance: provenance });
+      // The next one's project cannot be read, and it may have used the entry too.
+      const other = await ctx.db.insert("projects", { title: "Other", clientName: "Fixture", shareToken: "other", status: "draft", createdBy: user, createdAt: start, updatedAt: start });
+      await ctx.db.insert("generations", { projectId: other, status: "completed", startedAt: start + 2, brainProvenance: [{ entryId: "entry", score: 1 }] });
+    });
+    const result = await admin.query(api.learningHealth.getHealth, { start, end });
+    expect(result.coverage.truncated).toContain("project joins");
+    expect(result.sources.selection.complete).toBe(true);
+    const entry = result.sources.rows.find(row => row.identity === "entry:entry");
+    expect(entry).toMatchObject({ generations: 1, candidateIncomplete: true, reviewIncomplete: true });
+  });
+
   test.each(["sources", "candidates", "reports", "reviews"] as const)("guards large %s bodies and marks row-level missing loading separately", async population => {
     const { t, admin, project, generation, report, candidate, user } = await setup();
     const provenance: { sourceId: string; entryId: string; score: number }[] = [];

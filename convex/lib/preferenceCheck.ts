@@ -37,7 +37,7 @@ export const PREFERENCE_REFUSAL_WORDS: Record<PreferenceRefusal, string> = {
   too_long: `Keep a preference to ${MAX_PREFERENCE_CHARS} characters.`,
   placeholder: "A preference cannot hold a hidden name such as [CLIENT_1].",
   contact: "A preference cannot hold an email, web address or phone number.",
-  number: "A preference can hold a number only as part of how to write, such as \"under 25 words\" or \"spells out numbers under ten\", or as a Line number.",
+  number: "A preference can hold a number only in a whole instruction about writing, such as \"Keeps sentences under 25 words\" or \"Spells out numbers under ten\", or as a Line number.",
   code: "A preference cannot hold a code or model name.",
   capitalized: "A preference cannot hold a name or a capitalized term. Describe how you like to write instead.",
   quote: "Quote at most three plain words, with no names or numbers.",
@@ -63,191 +63,240 @@ const STYLE_WORDS = new Set([
 ]);
 const STYLE_WORDS_LOWER = new Set([...STYLE_WORDS].map((word) => word.toLowerCase()));
 /**
- * The number rule (fourth re-check, 2026-10-27): an allowlist, not a list
- * of words to refuse. Every number a preference holds (digits, number words
- * from zero up, ordinals, "twice", "doubled" and the like) must sit inside
- * one of a few complete ways of saying how to write; anything else is a
- * figure and refused. Each number is read as a placeholder in a joined,
- * lowercased text of the sentence:
- * - NUM: a short count (1 to 3 digits, "2-3", or number words such as
- *   "twenty-five" or "one hundred"); DEC: a short decimal ("1.5"); BIG: any
- *   other figure, never allowed;
- * - ORD: an ordinal from "second" to "tenth" ("first" is too common in
- *   plain prose to count); TWICE; MULT: "doubled", "halved" and the like,
- *   never allowed; DOUBLE: "double" or "triple".
- * "one" counts only as a count ("one employee"), not in "no one", "one of"
- * or "each one". A Line number (242, 244, 246 after "Line") is not a
- * figure.
+ * The number rule (fifth re-check, 2026-10-27): whole-clause templates.
+ * Each sentence, and each clause after ";" or ":" (or after "and" or a
+ * comma before a new instruction: "Spells out numbers under ten and uses
+ * digits for 10 or more"), that holds a number must match one complete template from its
+ * first word to its last, with an explicit object of writing; any other
+ * clause holding a number is refused. No fragment of a sentence is enough.
+ *
+ * Numbers are read broadly: digits; number words from zero up ("one" too,
+ * except in "no one" and "one another"); fractions ("half", "three
+ * quarters"); every ordinal from "second" up ("eleventh", "twentieth"),
+ * but not "first" or "last", which plain prose uses for order; "twice";
+ * multipliers ("doubled", "halved", "fivefold"), never allowed; "double"
+ * and "triple", allowed only in "double quotes" and "double spacing". A
+ * Line number (242, 244 or 246 after "Line") and "the three Lines" name
+ * the form, not a figure.
+ *
+ * In a clause each number is a placeholder: N a count (up to 3 digits, a
+ * short range such as "2-3", or number words such as "twenty-five" or
+ * "one hundred"), D a short decimal ("1.5"), BIG any other figure, ORD an
+ * ordinal, MULT a multiplier, DOUBLE "double" or "triple", LN a Line
+ * number. Words are lowercased, except "Line" and "Lines".
  */
 const CARDINAL_WORDS = new Set([
   "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen",
   "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty",
-  "seventy", "eighty", "ninety", "hundred", "thousand", "million", "billion", "dozen", "half", "halves", "quarter", "quarters",
+  "seventy", "eighty", "ninety", "hundred", "hundreds", "thousand", "thousands", "million", "millions", "billion", "billions",
+  "dozen", "dozens", "half", "halves", "quarter", "quarters", "thirds",
 ]);
-const ORDINAL_WORDS = new Set(["second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"]);
-const MULTIPLIER_WORDS = new Set([
-  "doubled", "doubling", "tripled", "tripling", "quadrupled", "halved", "halving", "twofold", "threefold", "fourfold", "tenfold",
-]);
-/** Words around "one" that make it not a count: "no one", "one of", "each one", "one by one". */
-const ONE_BEFORE = new Set(["no", "each", "any", "every", "the", "this", "that", "which"]);
-const ONE_AFTER = new Set(["another", "of", "by", "at"]);
-
-/** Units of writing a count may stand before: "under 25 words", "three short paragraphs", "the three Lines". */
-const WRITING_UNITS =
-  "(?:words?|sentences?|paragraphs?|bullets?|bullet points?|characters?|spaces?|headings?|subheadings?|sections?|subsections?|clauses?|syllables?|ideas?|topics?|claims?|terms?|lists?|columns?|Lines?|quotes?|acronyms?|abbreviations?|commas?|verbs?|adjectives?)";
-/**
- * Units that are as often a figure as a length ("printed 40 pages", "prints
- * 40 lines", "20 items", "three levels", "five points"): a count of them is
- * style only with a bound in a sentence led by a way of writing ("Keeps each
- * Line to half a page"), with "per" a unit of writing, or in a fixed
- * construction ("three levels of headings", "a 12 point font").
- */
-const LOOSE_UNITS = "(?:pages?|lines?|items?)";
-/** What "per" may count by after a unit: "words per sentence", never "lines per minute". */
-const PER_TARGETS = `(?:${WRITING_UNITS}|pages?|lines?|Line|tables?)`;
-/** Words that may describe a unit after its count: "two or three short plain sentences". */
-const DESCRIBING =
-  "(?:short|shorter|long|longer|full|plain|simple|separate|single|clear|more|fewer|less|brief|briefer|concise|tight|complete|distinct|main|key|numbered|bulleted|blank|empty)";
-/** A count, a range or a choice of counts: "25", "2-3", "20 to 25", "three or four", "40 and 60". */
-const COUNT = "NUM(?: (?:to|or|and|through) NUM)*";
-const NOT_BAD_PER = `(?! per (?!${PER_TARGETS}\\b))`;
-/** Bounds before a count of a loose unit: "to half a page", "under 40 pages", "at most two pages". */
-const BOUND = "(?:to|under|below|over|above|within|most|max|maximum|minimum|least|than|maximum of|minimum of|limit of|up to)";
-/** Words that lead a sentence about how to write, after any of ADVERBS. */
-const STYLE_LEADS = new Set([
-  "keeps", "keep", "limits", "limit", "caps", "cap", "holds", "hold", "stays", "stay", "fits", "fit", "restricts", "restrict",
-  "trims", "trim", "writes", "write", "uses", "use", "prefers", "prefer", "aims", "aim", "targets", "target", "shortens",
-  "shorten", "sets", "set", "cuts", "cut",
-  // A sentence that is itself a bound: "At most two pages per Line."
-  "at", "no", "under", "up", "below", "within", "over", "more", "fewer", "less", "maximum", "max",
-]);
-const ADVERBS = new Set(["always", "never", "usually", "often", "generally", "only", "also", "then", "ideally", "preferably"]);
-/** Words that lead a sentence reporting what happened: no number in it is a way of writing ("Says the paper had 12 sections"). */
-const REPORTING_LEADS = new Set([
-  "says", "said", "reports", "reported", "notes", "noted", "states", "stated", "mentions", "mentioned", "records", "recorded",
-  "claims", "claimed", "confirms", "confirmed", "finds", "found",
-]);
-const CLAUSE_START = "(?<=(?:^|, |\\band |\\bbut |\\bthen )(?:(?:always|never|usually|often|generally|only|also) )*)";
-/** Verbs that say how numbers are written: "Spells out numbers under ten", "Uses digits for 10 and above". */
-const NUMBER_VERBS = "(?:writes?|spells?|spell|uses?|puts?|gives?|expresses?|renders?|keeps?|prefers?|shows?|sets?|formats?)";
-const NUMBER_TOPIC = "(?:numbers|digits|numerals|figures)";
-/** "under ten", "greater than nine", "one through nine", "10 and above", "10 or more", "from 10 upward". */
-const NUMBER_RANGE =
-  "(?:(?:under|below|over|above|up to|less than|fewer than|greater than|more than|lower than|higher than|larger than|smaller than) NUM" +
-  "|(?:(?:from|between|for|of) )?NUM (?:to|through|and) NUM" +
-  "|(?:(?:from|for|of) )?NUM (?:(?:and|or) (?:above|over|up|upward|upwards|more|higher|greater|larger|below|under|less|fewer|lower|smaller)|upward|upwards|onward|onwards))";
-const AS_FORM = "(?: (?:in|as) (?:words|digits|numerals|figures|text|letters))?";
-
-/** The complete ways a number may be part of how to write; each match covers the numbers inside it. */
-const ALLOWED_NUMBER_USES: readonly RegExp[] = [
-  // A length in units of writing.
-  new RegExp(`\\b${COUNT}(?: (?:a|an))?(?: ${DESCRIBING}){0,3} ${WRITING_UNITS}\\b${NOT_BAD_PER}`, "g"),
-  // A loose unit counted by a unit of writing: "five items per list".
-  new RegExp(`\\b${COUNT}(?: (?:a|an))?(?: ${DESCRIBING}){0,3} (?:${LOOSE_UNITS}|levels?|points?) per ${PER_TARGETS}\\b`, "g"),
-  // Fixed constructions.
-  new RegExp(`\\b${COUNT} (?:levels?|tiers?) of (?:headings?|subheadings?|bullets?|lists?|nesting|indentation)\\b`, "g"),
-  new RegExp(`\\b${COUNT} (?:points?|pt) (?:font|fonts|type|text|size)\\b`, "g"),
-  new RegExp(`\\b(?:NUM|DEC) (?:line )?(?:spacing|spaced)\\b`, "g"),
-  new RegExp(`\\b${COUNT} (?:blank|empty) lines? (?:between|after|before)\\b`, "g"),
-  new RegExp(`\\b${COUNT} (?:decimal places?|significant (?:figures?|digits?)|digit (?:years?|dates?))\\b`, "g"),
-  new RegExp(`\\bnumbered (?:lists?|steps?|items?|points?|bullets?) (?:that )?(?:starts?|starting|begins?|beginning) (?:at|from|with) NUM\\b`, "g"),
-  new RegExp(`\\bDOUBLE (?:quotes?|quotation marks?|spacing|line spacing|spaces?|negatives?|hyphens?)\\b`, "g"),
-  new RegExp(`\\bORD person\\b`, "g"),
-  new RegExp(`\\bORD(?: ${DESCRIBING}){0,2} ${WRITING_UNITS}\\b`, "g"),
-  new RegExp(`\\b(?:TWICE|NUM times) (?:in|per) (?:a|an|NUM|the same|each|every|any) ${WRITING_UNITS}\\b`, "g"),
-  // How numbers are written, led by a verb of writing.
-  new RegExp(
-    `${CLAUSE_START}${NUMBER_VERBS} (?:out )?(?:(?:digits|numerals|figures|words) (?:for|from) (?:(?:all )?(?:the )?numbers )?|(?:all )?(?:the )?${NUMBER_TOPIC} )${NUMBER_RANGE}${AS_FORM}`,
-    "g"
-  ),
-  new RegExp(`${CLAUSE_START}(?:spells?|spell|writes?|write) out ${NUMBER_RANGE}${AS_FORM}`, "g"),
-  new RegExp(`^${NUMBER_TOPIC} ${NUMBER_RANGE} (?:are )?(?:(?:spelled|spelt|written) out|in words|as words|as digits|in digits|as numerals)`, "g"),
-];
-/** A loose unit with a bound, allowed only in a sentence led by a way of writing. */
-const BOUNDED_LOOSE_UNIT = new RegExp(
-  `\\b${BOUND} ${COUNT}(?: (?:a|an))?(?: ${DESCRIBING}){0,3} ${LOOSE_UNITS}\\b${NOT_BAD_PER}`,
-  "g"
-);
+const ORDINAL = /^(?:second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|[a-z]+teenth|[a-z]+tieth|hundredth|thousandth|millionth|billionth)$/;
+const MULTIPLIER = /^(?:doubled|doubles|doubling|tripled|triples|tripling|quadrupled|quadruples|quadrupling|halved|halving)$/;
+/** "fivefold", "tenfold", "hundredfold"; never "manifold". */
+const FOLD = /^(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty|forty|fifty|hundred|thousand|million)fold$/;
+const PLACEHOLDER = /\b(?:N|D|BIG|ORD|MULT|DOUBLE)\b/;
 const LINE_NUMBERS = new Set(["242", "244", "246"]);
-const NUMBER_PLACEHOLDER = /\b(?:NUM|DEC|BIG|ORD|TWICE|MULT|DOUBLE)\b/g;
+/** Verbs that start an instruction; "and" before one of them starts a new clause. */
+const CLAUSE_VERBS = new Set([
+  "keeps", "keep", "limits", "limit", "caps", "cap", "uses", "use", "writes", "write", "spells", "spell", "puts", "put",
+  "prefers", "prefer", "rounds", "round", "sets", "set", "starts", "start", "leaves", "leave", "avoids", "avoid", "indents",
+  "indent", "aims", "aim", "expresses", "express", "gives", "give",
+]);
 
-/** One sentence of a preference as the number rule reads it. */
-type NumberSentence = { text: string; styleLead: boolean; reportingLead: boolean };
+const ADVERB_WORDS = new Set(["always", "never", "usually", "generally", "ideally", "please", "only", "also"]);
 
-/** Splits a preference into sentences and reads each number as a placeholder. */
-function numberSentences(text: string): NumberSentence[] {
-  const raw = [...text.matchAll(/\d+(?:[.,]\d+)*(?:\s*-\s*\d+(?:[.,]\d+)*)?|[\p{L}]+(?:['’][\p{L}]+)*|[.!?;:,]/gu)].map(
+// Template parts. A clause is matched whole, so every part is closed.
+const ADVERBS = "(?:(?:always|never|usually|generally|ideally|please|only|also|try to|aim to) )*";
+const CONTEXT = "(?:(?:in|for|within) (?:each |every |the |all |a )?(?:Line(?: LN)?|Lines(?: LN(?: (?:and|or) LN)*)?|summary|summaries|introduction|conclusion|report|paragraphs?|sections?|bullets?|lists?) )?";
+const AMOUNT = "(?:between N and N|N(?: (?:to|or|and) N)?|an? N|N an?|N of an?|an? ORD of an?)";
+const DESCRIBING =
+  "(?: (?:short|shorter|long|longer|full|plain|simple|separate|single|clear|brief|briefer|concise|compact|tight|complete|distinct|main|key|nested|numbered|bulleted|blank|empty|new|whole|plain language|technical))*";
+/** Units of writing that may be counted on their own: "Uses two short paragraphs." */
+const CORE_UNITS =
+  "(?:words?|sentences?|paragraphs?|bullets?|bullet points?|characters?|headings?|subheadings?|Lines?|lists?|list items?|list entries|list entry|examples?|semicolons?|commas?|colons?|dashes|exclamation marks?|pairs? of parentheses|parentheses|quotes?|quotations?|acronyms?|abbreviations?|spaces?|blank lines?|empty lines?)";
+/**
+ * Units counted only with a unit of writing beside them: "six entries in a
+ * list", "one term for each idea", "two levels of bullets", a table's
+ * columns. Never a bare count ("Uses three sections of the warehouse").
+ */
+const CONTEXT_UNITS = "(?:entries|entry|items?|terms?|ideas?|clauses?|lines?|pages?|columns?|sections?|claims?|topics?|levels?|pairs?|pair)";
+const PART = "(?:sentence|paragraph|bullet|bullet point|heading|subheading|caption|title|Line|Line LN|section|list|list item|table|summary|introduction|conclusion|opening|closing|abstract|idea|answer|quote|quotation|page|report)";
+const PART_EDGE = "(?:(?:opening|closing|first|last|final|introductory|concluding) )?";
+/** Where a count applies: "per sentence", "in each paragraph", "in the closing paragraph", "for each bullet". */
+const TARGET = `(?:(?:per|in each|in every|in a|in an|in the|in any|in one|in N|for each|for every|for a|for the|within each|within a|within the) ${PART_EDGE}${PART}s?|(?:for|in) Lines? LN(?: (?:and|or) LN)*|joined by (?:and|or|but|a comma|a semicolon|a conjunction))`;
+const SPACING_TAIL = "(?: (?:after|before|between) (?:a |an |each |every |the )?(?:full stop|period|sentence|sentences|colon|comma|punctuation|heading|headings|paragraph|paragraphs|bullet|bullets))?";
+const AFTER_UNIT = "(?: (?:or (?:fewer|less|more)|at most|at the most|maximum|or so|at a time|not more|no more))?";
+/** "to around 80 words". */
+const ABOUT = "(?:(?:about|around|roughly|approximately) )?";
+const QUALIFIER =
+  "(?:(?:a maximum of|a minimum of|at most|at least|no more than|no fewer than|not more than|up to|about|around|roughly|only|exactly|fewer than|less than|more than|under|over) )?";
+/** The writing part a limit is set on: "each Line", "the opening", "bullet points", "Line 246", "nesting". */
+const SUBJECT =
+  "(?:(?:each|every|a|an|the|any|all|my|our) )?(?:(?:opening|closing|first|last|final|introductory|concluding|technical) )?(?:sentences?|paragraphs?|bullets?|bullet points?|headings?|subheadings?|captions?|titles?|Line LN(?: (?:and|or) LN)*|Lines LN(?: (?:and|or) LN)*|Lines?|summary|summaries|introduction|conclusion|opening|closing|abstract|report|lists?|list items?|quotes?|quotations?|tables?|sections?|answers?|parentheses|semicolons|commas|acronyms|abbreviations|nesting|indentation|bullet nesting|heading levels|jargon|technical terms)";
+const BOUND =
+  "(?:to|under|below|at|within|at most|at no more than|no more than|to at most|to no more than|to a maximum of|to fewer than|to less than|to under|fewer than|less than|between|to between|at or below|at or under)";
+const ANY_UNIT = `(?:${CORE_UNITS}|${CONTEXT_UNITS})`;
+const LENGTH = `${AMOUNT}${DESCRIBING} ${ANY_UNIT}(?: (?:and|or) ${AMOUNT}${DESCRIBING} ${ANY_UNIT})?`;
+const NUMBER_NOUNS = "(?:numbers|numerals|figures|quantities|integers|values|digits|amounts|counts)";
+const RANGE =
+  "(?:(?:under|below|over|above|up to|less than|fewer than|greater than|more than|lower than|higher than|smaller than|larger than|beyond) N" +
+  "|(?:from |between )?N (?:to|through|and) N" +
+  "|(?:from |of |for )?N (?:(?:and|or) (?:above|over|up|upward|upwards|more|higher|greater|larger|below|under|less|fewer|lower|smaller)|upwards?|onwards?|and beyond))";
+const AS_FORM = "(?:in words|as words|in digits|as digits|as numerals|in numerals|as figures|in figures|in full)";
+const MEASURE_NOUNS = "(?:all )?(?:numbers|numerals|figures|quantities|values|amounts|percentages|measurements|results|costs|totals|decimals)";
+const MEASURES = `(?:${MEASURE_NOUNS} )`;
+
+/** The complete instructions a clause holding a number may be. */
+const NUMBER_TEMPLATES: readonly RegExp[] = [
+  // Length limits on a writing part: "Keeps each Line to half a page", "Cap the opening at 35 words".
+  `(?:keeps?|limits?|caps?|holds?|restricts?|trims?|shortens?|cuts?|brings?) ${SUBJECT} (?:(?:short|brief|tight|concise) )?${BOUND} ${ABOUT}${LENGTH}${AFTER_UNIT}(?: ${TARGET})?`,
+  // Without a verb: "Line 244 under 700 words".
+  `${SUBJECT} ${BOUND} ${ABOUT}${LENGTH}${AFTER_UNIT}`,
+  // "Prefer paragraphs of 65 words or fewer."
+  `(?:prefers?|uses?|writes?|keeps?) ${SUBJECT} (?:of|with|under|below|between|of at most|of no more than|of under|no longer than|shorter than) ${ABOUT}${LENGTH}${AFTER_UNIT}`,
+  // A part sized by its count: "Opens with a two-sentence summary", "Uses a five-paragraph structure".
+  `(?:opens?|starts?|begins?|ends?|closes?)(?: (?:each|every|the) (?:Line|section|report|summary|answer))? with (?:a|an) N (?:sentence|paragraph|line|word) (?:summary|introduction|opening|overview|answer|statement|conclusion)`,
+  `(?:uses?|prefers?|follows?) (?:a|an) N (?:paragraph|part|section|sentence) (?:structure|format|layout|summary|outline)`,
+  // Counts of units of writing: "Uses two or three bullets at most", "Write no more than 120 words in the closing paragraph".
+  `(?:uses?|writes?|puts?|prefers?|includes?|gives?|aims? for|targets?|leaves?|adds?|allows?|sticks? to|keeps? to|keeps?|inserts?|places?) ${QUALIFIER}${AMOUNT}${DESCRIBING} ${CORE_UNITS}${AFTER_UNIT}${SPACING_TAIL}(?: ${TARGET})?`,
+  // A unit counted only beside a unit of writing: "Put a maximum of six entries in a list", "Uses one term for each idea".
+  `(?:uses?|writes?|puts?|prefers?|includes?|gives?|aims? for|targets?|allows?|keeps?|places?) ${QUALIFIER}${AMOUNT}${DESCRIBING} ${CONTEXT_UNITS}${AFTER_UNIT} ${TARGET}`,
+  // Without a verb: "At most 25 words per sentence", "Three sentences per paragraph at most".
+  `${QUALIFIER}${AMOUNT}${DESCRIBING} ${ANY_UNIT} ${TARGET}(?: at most| at the most| maximum| max)?`,
+  // Saying a thing at a length: "Summarizes each Line in two sentences", "Puts the key result in the first two sentences".
+  `(?:summari[sz]es?|sums? up|explains?|states?|describes?|introduces?|answers?|covers?) (?:${SUBJECT}|(?:each |every |the |a |an |its |their )?[a-z]+(?: [a-z]+)?) in ${ABOUT}${AMOUNT}${DESCRIBING} ${CORE_UNITS}`,
+  `(?:puts?|places?|states?|gives?) (?:the |a |an |its )?[a-z]+(?: [a-z]+)? (?:in|within) the (?:first|last|opening|closing) ${AMOUNT}${DESCRIBING} ${CORE_UNITS}`,
+  // "Uses Oxford commas in lists of three or more."
+  `uses? (?:the )?(?:oxford|serial) commas? in lists of N(?: or more)?(?: items)?`,
+  // Indents: "Indent quotations by four spaces."
+  `indents? (?:${SUBJECT}|the first line(?: of each paragraph)?) by N (?:spaces|characters|tabs?)`,
+  // Levels: "Use two nested levels of bullets", "Uses three heading levels".
+  `(?:uses?|allows?|prefers?|keeps? to) ${QUALIFIER}N${DESCRIBING} (?:levels?|tiers?) of (?:bullets|headings|subheadings|nesting|indentation|lists)`,
+  `(?:uses?|allows?|prefers?|keeps? to) ${QUALIFIER}N (?:heading|bullet|list|nesting) levels`,
+  // Repetition: "Never uses the same word twice in a sentence", "Do not repeat a technical term more than three times per paragraph".
+  `(?:(?:do not|don't|does not|avoids?|avoid) )?(?:repeats?|repeating|uses?|using) (?:the same|a|an|any|each|N)(?: (?:technical|key|long|opening))? (?:word|term|phrase|opening|transition|connector)s?(?: (?:more than|over) N times| N times)? (?:in|per|within) (?:(?:a|an|N|the same|each|any|every) )?(?:sentence|paragraph|bullet|Line|section|heading)`,
+  // "Avoids one-word sentences."
+  `(?:avoids?|avoid|never writes?|never uses?|no) N word (?:sentences|paragraphs|bullets|headings|answers|replies)`,
+  // "Use a colon before lists of four items."
+  `(?:uses?|puts?|adds?) a colon before (?:a list|lists)(?: of (?:(?:more than|over|at least) )?N (?:items|entries|points|bullets))?`,
+  // How numbers are written: "Spells out numbers one through nine", "Spell out integers from zero to twelve".
+  `(?:spells?|spell) out (?:all )?(?:${NUMBER_NOUNS} )?${RANGE}(?: ${AS_FORM})?`,
+  // "Writes numbers below 10 in words", "Write numbers above ninety-nine as numerals".
+  `(?:writes?|express(?:es)?|renders?|gives?|puts?|keeps?|sets?|shows?) (?:all )?${NUMBER_NOUNS} ${RANGE} ${AS_FORM}`,
+  // "Uses digits for 10 and above", "Use numerals for values over nine", "Uses digits from 10 upward".
+  `(?:uses?|prefers?) (?:digits|numerals|figures|words) (?:for|from) (?:all )?(?:${NUMBER_NOUNS} )?${RANGE}`,
+  // "Write one hundred as digits."
+  `(?:writes?|spells?|gives?) (?:the number )?N (?:as|in) (?:digits|numerals|figures|words|a numeral)`,
+  // Without a verb: "Numbers under ten in words."
+  `${NUMBER_NOUNS} ${RANGE} (?:are )?(?:(?:spelled|spelt|written) out|${AS_FORM})`,
+  // "Use a comma in numbers over 999."
+  `(?:uses?|puts?|adds?|inserts?|includes?) (?:a )?commas? in (?:all )?${NUMBER_NOUNS} (?:over|above|greater than|larger than|from|of) N(?: (?:digits|and (?:above|over|up)|or more))?`,
+  // Decimal places, significant figures and rounding.
+  `(?:uses?|keeps?|gives?|writes?|express(?:es)?|shows?|reports?|states?|formats?|rounds?) ${MEASURES}?(?:to|with|at|in) N decimal places?`,
+  `(?:uses?|keeps?) N decimal places?(?: (?:for|in) ${MEASURE_NOUNS})?`,
+  `(?:uses?|keeps?|gives?|reports?|writes?|states?|rounds? to) N significant (?:figures|digits)(?: (?:for|in) ${MEASURE_NOUNS})?`,
+  `rounds? ${MEASURES}?to (?:N significant (?:figures|digits)|the nearest (?:N|ORD|whole number|percent|dollar))`,
+  // Dates: "Writes dates with a four digit year", "Write dates with two digits for the month".
+  `(?:writes?|uses?|formats?|gives?|shows?) (?:all )?(?:dates|years|the year|months|the month) (?:with|using|in|as) (?:a |an )?N digits?(?: (?:for|in) (?:the )?(?:year|month|day)s?)?`,
+  `(?:writes?|uses?|formats?|gives?|shows?) (?:all )?(?:dates|years) (?:with|using|in|as) (?:a |an )?N digit (?:years?|months?|days?)`,
+  // Numbered lists: "Uses numbered lists starting at 1", "Number each list from one".
+  `(?:uses?|writes?|starts?|begins?) numbered (?:lists?|steps?|items?|points?|bullets?) (?:that )?(?:starting|beginning|starts?|begins?) (?:at|from|with) N`,
+  `numbers? (?:each |every |all )?(?:lists?|steps?|items?|list items?|points?) (?:from|starting at|starting from|beginning at|at) N`,
+  // Typography: line spacing, type size, double quotes, columns.
+  `(?:uses?|sets?|keeps?|prefers?|writes? (?:in|with)) (?:N|D|DOUBLE|single) (?:line )?(?:spacing|spaced)`,
+  `(?:sets?|keeps?|uses?) (?:the )?line spacing (?:to|at|of) (?:N|D)`,
+  `(?:uses?|sets?|prefers?|writes? in) (?:a |an )?N (?:point|pt) (?:font|fonts|type|text|body text|typeface|font size|size)`,
+  `(?:sets?|keeps?) (?:the )?(?:body text|text|type|font|font size|headings?|captions?) (?:to|at|in) N (?:point|pt|points)(?: type| font)?`,
+  `(?:uses?|prefers?) DOUBLE (?:quotes|quotation marks)(?: (?:for|around) (?:quotes|quotations|direct speech|titles))?`,
+  `(?:uses?|prefers?) (?:a |an )?N column (?:layout|format|design)`,
+  // Person: "Writes in the third person", "Use third-person wording throughout".
+  `(?:writes?|stays?) (?:in|to) (?:the )?ORD person(?: (?:plural|singular))?(?: (?:when addressing the reader|throughout))?`,
+  `(?:uses?|prefers?|keeps? to) (?:the )?ORD person(?: (?:plural|singular))?(?: (?:wording|voice|pronouns|forms?))?(?: throughout)?`,
+  // Order of parts: "Start the fourth paragraph with the result", "Keep the tenth sentence brief".
+  `(?:starts?|begins?|opens?|ends?|closes?) the ORD (?:sentence|paragraph|bullet|heading|subheading|Line|section)(?: of (?:each|every|the) (?:Line|section|paragraph|summary))? with (?:the |a |an )?[a-z]+(?: [a-z]+){0,2}`,
+  `(?:keeps?|makes?) the ORD (?:sentence|paragraph|bullet|heading|subheading)(?: of (?:each|every|the) (?:Line|section|paragraph))? (?:brief|short|shorter|plain|simple|concise)`,
+].map((template) => new RegExp(`^${CONTEXT}${ADVERBS}${template}$`));
+
+/** A preference's clauses as the number rule reads them, placeholders in. */
+function numberClauses(text: string): string[] {
+  const prepared = text.replace(/\b(?:the|all) three Lines\b/g, "the form Lines");
+  const raw = [...prepared.matchAll(/\d+(?:[.,]\d+)*(?:\s*-\s*\d+(?:[.,]\d+)*)?|[\p{L}]+(?:['’][\p{L}]+)*|[.!?;:,]|-/gu)].map(
     (match) => match[0]
   );
-  const sentences: string[][] = [[]];
+  const clauses: string[][] = [[]];
   let lineNumberChain = false;
   raw.forEach((token, index) => {
+    const current = clauses[clauses.length - 1]!;
     if (/^[.!?;:]$/.test(token)) {
-      sentences.push([]);
+      clauses.push([]);
       lineNumberChain = false;
       return;
     }
-    const current = sentences[sentences.length - 1]!;
-    const previous = (raw[index - 1] ?? "").toLowerCase();
+    if (token === "-") return;
+    const previous = (raw[index - 1] === "-" ? raw[index - 2] : raw[index - 1]) ?? "";
     const next = (raw[index + 1] ?? "").toLowerCase();
     if (/^\d/.test(token)) {
-      if (LINE_NUMBERS.has(token) && (/^lines?$/.test(previous) || (lineNumberChain && /^(?:and|or|to|,)$/.test(previous)))) {
-        current.push("LINENO");
+      if (LINE_NUMBERS.has(token) && (/^Lines?$/i.test(previous) || (lineNumberChain && /^(?:and|or|,)$/i.test(previous)))) {
+        current.push("LN");
         lineNumberChain = true;
         return;
       }
-      current.push(/^\d{1,3}(?:\s*-\s*\d{1,3})?$/.test(token) ? "NUM" : /^\d{1,2}\.\d{1,2}$/.test(token) ? "DEC" : "BIG");
+      lineNumberChain = false;
+      const placeholder = /^\d{1,3}(?:\s*-\s*\d{1,3})?$/.test(token) ? "N" : /^\d{1,2}\.\d{1,2}$/.test(token) ? "D" : "BIG";
+      if (placeholder === "N" && current[current.length - 1] === "N") return;
+      current.push(placeholder);
       return;
     }
-    if (token !== "," && !/^(?:and|or|to)$/i.test(token)) lineNumberChain = false;
     if (token === ",") {
       current.push(",");
       return;
     }
+    if (!/^(?:and|or)$/i.test(token)) lineNumberChain = false;
     const word = token.toLowerCase();
     let placeholder: string | null = null;
-    if (word === "one") placeholder = ONE_BEFORE.has(previous) || ONE_AFTER.has(next) ? null : "NUM";
-    else if (CARDINAL_WORDS.has(word)) placeholder = "NUM";
-    else if (ORDINAL_WORDS.has(word)) placeholder = "ORD";
-    else if (word === "twice") placeholder = "TWICE";
-    else if (MULTIPLIER_WORDS.has(word)) placeholder = "MULT";
+    if (word === "one") placeholder = previous.toLowerCase() === "no" || next === "another" ? null : "N";
+    else if (CARDINAL_WORDS.has(word)) placeholder = "N";
+    else if (ORDINAL.test(word)) placeholder = "ORD";
+    else if (word === "twice") {
+      current.push("N", "times");
+      return;
+    } else if (MULTIPLIER.test(word) || FOLD.test(word)) placeholder = "MULT";
     else if (word === "double" || word === "triple") placeholder = "DOUBLE";
-    if (placeholder === "NUM" && current[current.length - 1] === "NUM" && /^[\p{L}]/u.test(raw[index - 1] ?? "")) return; // "twenty-five", "one hundred"
+    // "twenty-five", "one hundred", "three quarters", "2 million": one number.
+    if (placeholder === "N" && current[current.length - 1] === "N") return;
     current.push(placeholder ?? (token === "Line" || token === "Lines" ? token : word));
   });
-  return sentences
-    .filter((tokens) => tokens.length > 0)
-    .map((tokens) => {
-      const lead = tokens.find((token) => !ADVERBS.has(token)) ?? "";
-      return { text: tokens.join(" ").replace(/ ,/g, ","), styleLead: STYLE_LEADS.has(lead), reportingLead: REPORTING_LEADS.has(lead) };
-    });
+  return clauses.flatMap((tokens) => {
+    // "and" or a comma before a verb of instruction starts a new clause.
+    const parts: string[][] = [[]];
+    const startsInstruction = (from: number) => {
+      let at = from;
+      while (ADVERB_WORDS.has(tokens[at] ?? "")) at += 1;
+      return CLAUSE_VERBS.has(tokens[at] ?? "");
+    };
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index]!;
+      if (token === "," && tokens[index + 1] === "and" && startsInstruction(index + 2)) {
+        parts.push([]);
+        index += 1;
+        continue;
+      }
+      if ((token === "and" || token === ",") && startsInstruction(index + 1)) {
+        parts.push([]);
+        continue;
+      }
+      if (token !== ",") parts[parts.length - 1]!.push(token);
+    }
+    return parts.map((part) => part.join(" ")).filter(Boolean);
+  });
 }
 
-/** Whether every number in a preference is part of how to write. */
+/** Whether every clause that holds a number is one complete instruction about writing. */
 function numbersAreStyle(text: string): boolean {
-  for (const sentence of numberSentences(text)) {
-    const slots = [...sentence.text.matchAll(NUMBER_PLACEHOLDER)].map((match) => ({
-      start: match.index,
-      end: match.index + match[0].length,
-    }));
-    if (slots.length === 0) continue;
-    if (sentence.reportingLead) return false;
-    const covered = new Set<number>();
-    const patterns = sentence.styleLead ? [...ALLOWED_NUMBER_USES, BOUNDED_LOOSE_UNIT] : ALLOWED_NUMBER_USES;
-    for (const pattern of patterns) {
-      pattern.lastIndex = 0;
-      for (let match = pattern.exec(sentence.text); match; match = pattern.exec(sentence.text)) {
-        const end = match.index + match[0].length;
-        slots.forEach((slot, index) => {
-          if (slot.start >= match!.index && slot.end <= end) covered.add(index);
-        });
-        // Overlapping uses of one pattern each get their turn.
-        pattern.lastIndex = match.index + 1;
-      }
-    }
-    if (covered.size < slots.length) return false;
-  }
-  return true;
+  return numberClauses(text).every(
+    (clause) => !PLACEHOLDER.test(clause) || NUMBER_TEMPLATES.some((template) => template.test(clause))
+  );
 }
 
 /** Letters of scripts with no capitals, which the name rules cannot read. */
@@ -327,7 +376,10 @@ export function checkPreferenceText(
   }
   if (UNCASED_SCRIPT.test(text)) return { ok: false, reason: "script" };
   // The form's own name is a style word, never a figure or a code.
-  const plain = text.replace(/\bT661\b/g, "form");
+  // "11-point type", "a two-column layout": a size, not a code.
+  const plain = text
+    .replace(/\bT661\b/g, "form")
+    .replace(/\b(\d{1,3})-(?=(?:point|pt|words?|sentences?|lines?|columns?|digits?|pages?|characters?|spaces?|levels?)\b)/gi, "$1 ");
   // A letter-and-number code ("XR-200", "OS1").
   if (/(?<![\p{L}\p{N}])(?=[\p{L}\p{N}-]*\p{L})(?=[\p{L}\p{N}-]*\p{N})[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*/u.test(plain)) {
     return { ok: false, reason: "code" };
