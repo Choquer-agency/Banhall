@@ -628,7 +628,7 @@ What changes:
 
 ### Automated, live on localhost
 
-- [ ] A Step-by-step draft: the band names, for each file, the steps that read it.
+- [x] A Step-by-step draft: the band names, for each file, the steps that read it. On InnovMine (7 files with text, 1 image) after the review fixes: each file read whole by the analysis, the Brief and the first Seed step ("company_context"), one record each; the image has none.
 
 ### Manual on localhost
 
@@ -647,6 +647,10 @@ What changes:
 
 - [ ] Code review by two reviewers.
 - [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [x] A Word file uploaded as an older browser tab would send it (plain text) was read again on the server as Markdown (heading, bold, italics, a table), and its plain text was kept as version 1. The check found the version naming the wrong reader; fixed (`textReader`).
 
 ### Owner, once, dev first
 

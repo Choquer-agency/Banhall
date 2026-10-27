@@ -33,7 +33,7 @@ export const startServerReading = internalMutation({
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
     if (!doc?.storageId || (await isProjectDeleting(ctx, doc.projectId))) return null;
-    if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) })) return null;
+    if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) }, { wordMarkdownBackfill: true })) return null;
     const stored = await ctx.db.system.get(doc.storageId);
     if (!stored) return null;
     await ctx.db.patch(doc._id, { serverReader: SERVER_READER_VERSION, serverReadStartedAt: Date.now() });
@@ -94,6 +94,7 @@ export const saveServerReading = internalMutation({
       ...(args.pageCount !== undefined ? { pageCount: args.pageCount, pageCountStorageId: doc.storageId } : {}),
       textFormat: args.textFormat,
       serverReader: args.reader,
+      textReader: args.reader,
       serverReadAt: now,
     });
     // Decision 65: readable new evidence may change the prepared Brief.
@@ -125,7 +126,7 @@ export const queueServerReadings = internalMutation({
     let queued = args.queuedSoFar ?? 0;
     for (const doc of page.page) {
       if (!doc.storageId) continue;
-      if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) })) continue;
+      if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) }, { wordMarkdownBackfill: true })) continue;
       if (!args.dryRun) {
         await ctx.scheduler.runAfter(queued * 2_000, internal.ai.fileReading.readStoredDocument, {
           documentId: doc._id,

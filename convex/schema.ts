@@ -2236,6 +2236,11 @@ export default defineSchema({
     serverReader: v.optional(v.string()),
     serverReadStartedAt: v.optional(v.number()),
     serverReadAt: v.optional(v.number()),
+    // 2026-10-26 widen (B1, live check): the server reader that wrote the
+    // file's current text. Absent when the browser read it, or when a server
+    // reading wrote it before this field existed. `serverReader` names the
+    // latest attempt, which may have kept the text it found.
+    textReader: v.optional(v.string()),
     // 2026-10-26 widen (owner): "markdown" when the text is Word Markdown
     // (shared/wordMarkdown.ts). Drafts freeze it without its bold and italic
     // marks (quotableWordText), so quotes are checked as before. Absent:

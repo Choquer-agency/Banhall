@@ -82,7 +82,14 @@ type ReadingState = {
  * and never finished (its action was stopped) is not tried again by the
  * same version; a reading that failed released its claim and may be.
  */
-export function needsServerReading(doc: ReadingState & { hasReadText: boolean }): boolean {
+export function needsServerReading(
+  doc: ReadingState & { hasReadText: boolean },
+  /**
+   * B1: project files only. A company file has no earlier versions to keep
+   * its plain text in, so its Word text is not read again (review).
+   */
+  options: { wordMarkdownBackfill?: boolean } = {}
+): boolean {
   if (!doc.storageId || doc.archived) return false;
   if (!isSupportedFile(doc.fileName) || isImageFile(doc.fileName)) return false;
   if (
@@ -92,7 +99,7 @@ export function needsServerReading(doc: ReadingState & { hasReadText: boolean })
     return false;
   }
   // B1: a Word file read before Word was kept as Markdown is read again.
-  return !doc.hasReadText || wordWithoutMarkdown(doc);
+  return !doc.hasReadText || (options.wordMarkdownBackfill === true && wordWithoutMarkdown(doc));
 }
 
 /**
@@ -122,7 +129,7 @@ export async function queueServerReadingIfNeeded(
   doc: ReadingState,
   fileHasReadText: boolean
 ): Promise<boolean> {
-  const needed = needsServerReading({ ...doc, hasReadText: fileHasReadText });
+  const needed = needsServerReading({ ...doc, hasReadText: fileHasReadText }, { wordMarkdownBackfill: true });
   if (needed) await ctx.scheduler.runAfter(0, internal.ai.fileReading.readStoredDocument, { documentId });
   return needed;
 }

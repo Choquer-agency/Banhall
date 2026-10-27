@@ -4436,7 +4436,7 @@ Context pipeline plan, B1, first part: the owner's backfill ("should be properly
 - **Which files.** A Word file (`.docx`) whose stored text is not Markdown yet, because a browser read it before Word was kept as Markdown, or an older browser tab sent plain text. When it has its original, it is read on the server again (`needsServerReading`; server reader version 3). That happens when it is added, and through the one-off pass `queueServerReadings` that the owner runs for existing files. The pass is already on the owner's list, dev first.
 - **What changes.**
   - The server's Markdown reading replaces the plain text (`saveServerReading`), even though the file already has read text. Every other file keeps the rule that a server reading replaces only a file with nothing read.
-  - Before any replacement, the text the file had is kept as its next version (`projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`). The version holds a number, a fingerprint, its length and format, the reader that had read it and why it was replaced (`word_markdown`). It is never changed.
+  - Before any replacement, the text the file had is kept as its next version (`projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`). The version holds a number, a fingerprint, its length and format, the server reader that wrote it when one did, and why it was replaced (`word_markdown`). It is never changed. A file now records the server reader that wrote its current text (`textReader`), apart from `serverReader`, which names the latest attempt even when it kept the text it found.
   - The file's current text, search pieces and labels are then made again from the Markdown, as for any new text.
 - **What stays exact.**
   - Drafts made before froze their own copy of every file, so their quotes and source links do not move.
@@ -4447,14 +4447,17 @@ Context pipeline plan, B1, first part: the owner's backfill ("should be properly
   - Each file's new text gets new search pieces and labels (Claude Haiku, about $0.001 a file).
   - Each project with a changed file gets one new Brief head start, as when a file is added. Run it dev first and watch the head starts.
 - **Deletion.** A file's versions are deleted with the file (`deleteDocument`) and with its project (`PROJECT_SCOPED_TABLES`). No draft reads a version yet. When drafts record versions instead of copies (B1, second part), a version a draft uses will be kept, as part 4 says.
-- **Migration and compatibility.** Widen only: two new tables, an optional argument on `serverReadingReplaces`, and the reader version string. Files read by version 2 are read once more only if they are Word files without Markdown, or still have nothing read.
+- **Migration and compatibility.** Widen only: two new tables, an optional `projectDocuments.textReader`, an optional argument on `serverReadingReplaces`, and the reader version string. Text a server reading wrote before `textReader` existed gets a version that names no reader. Files read by version 2 are read once more only if they are Word files without Markdown, or still have nothing read.
 - **Tests.** `convex/documentReading.test.ts` covers:
   - the rules for a Word file;
   - an upload of plain text from an older tab, read again as Markdown, the plain text kept as version 1 and read back exactly;
   - no second reading;
-  - the versions deleted with the file.
+  - the versions deleted with the file;
+  - a version of text an earlier server reader wrote names that reader, and one the browser read names none.
 
   `convex/projectErasure.test.ts` covers erasure.
+- **Company files are not read again for Markdown.** They have no earlier versions to keep plain text in, so a Word company file stored as plain text keeps it (`needsServerReading` reads Word text again only for project files). Company files added through the Files tab are read as Markdown in the browser.
+- **Live check on localhost** (a2d96557): a Word file uploaded as an older tab would send it (plain text, no format) was read again as Markdown on the server and its plain text kept as version 1 (83 characters, `word_markdown`). It showed the version naming the current reader for text the browser had read, fixed with `textReader`.
 - **Approval:** Product owner, 2026-10-26 (chat), quoted above, and part 4 of the first 2026-10-26 entry.
 
 ## Amendment process

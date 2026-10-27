@@ -366,7 +366,8 @@ export async function keepDocumentTextVersion(
     textHash: await sha256(text),
     textLength: text.length,
     ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
-    ...(doc.serverReader ? { reader: doc.serverReader } : {}),
+    // The reader that wrote this text, not the latest attempt (live check).
+    ...(doc.textReader ? { reader: doc.textReader } : {}),
     why,
     keptAt: now,
   });

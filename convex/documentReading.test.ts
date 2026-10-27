@@ -113,12 +113,15 @@ describe("when the server reads a file again", () => {
   test("a Word file stored before Word was kept as Markdown is read again, and its Markdown replaces the plain text (B1)", () => {
     const storageId = "storage" as Id<"_storage">;
     const word = { fileName: "notes.docx", storageId, hasReadText: true };
-    expect(needsServerReading(word)).toBe(true);
-    expect(needsServerReading({ ...word, textFormat: "markdown" })).toBe(false);
-    expect(needsServerReading({ ...word, serverReader: SERVER_READER_VERSION, serverReadAt: 1 })).toBe(false);
+    const project = { wordMarkdownBackfill: true };
+    expect(needsServerReading(word, project)).toBe(true);
+    expect(needsServerReading({ ...word, textFormat: "markdown" }, project)).toBe(false);
+    expect(needsServerReading({ ...word, serverReader: SERVER_READER_VERSION, serverReadAt: 1 }, project)).toBe(false);
     // An attempt by the reader before this one does not count.
-    expect(needsServerReading({ ...word, serverReader: "server-reader-2", serverReadAt: 1 })).toBe(true);
-    expect(needsServerReading({ ...word, fileName: "notes.txt" })).toBe(false);
+    expect(needsServerReading({ ...word, serverReader: "server-reader-2", serverReadAt: 1 }, project)).toBe(true);
+    expect(needsServerReading({ ...word, fileName: "notes.txt" }, project)).toBe(false);
+    // A company file has no versions to keep its plain text in: not read again (review).
+    expect(needsServerReading(word)).toBe(false);
     expect(serverReadingReplaces(true, "# Notes\n\nThe **seal** held.", true)).toBe(true);
     expect(serverReadingReplaces(true, "   ", true)).toBe(false);
   });
@@ -148,6 +151,9 @@ describe("the Word backfill keeps the earlier text (B1)", () => {
       ctx.db.query("projectDocumentTextVersions").withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId)).collect()
     );
     expect(versions.map((version) => [version.version, version.why, version.textLength])).toEqual([[1, "word_markdown", plain.length]]);
+    // The browser read it, so the version names no server reader.
+    expect(versions[0]!.reader).toBeUndefined();
+    expect((await fileState(t, documentId)).doc.textReader).toBe(SERVER_READER_VERSION);
     expect(await t.run(async (ctx) => readDocumentTextVersion(ctx, versions[0]!._id))).toBe(plain);
     // Read as Markdown now: not read again.
     expect(await t.mutation(internal.documentReading.startServerReading, { documentId })).toBeNull();
@@ -160,6 +166,32 @@ describe("the Word backfill keeps the earlier text (B1)", () => {
           (await ctx.db.query("projectDocumentTextVersionPieces").collect()).length
       )
     ).toBe(0);
+  });
+
+  test("a version of text an earlier server reader wrote names that reader (live check)", async () => {
+    vi.useRealTimers();
+    const { t, projectId, writer } = await setup();
+    const documentId = await writer.mutation(api.documents.uploadDocument, {
+      projectId,
+      fileName: "rich.docx",
+      fileType: "docx",
+      content: "",
+      storageId: await store(t, await richWordFile()),
+    });
+    await vi.waitFor(async () => expect((await fileState(t, documentId)).doc.textFormat).toBe("markdown"), {
+      timeout: 15_000,
+      interval: 100,
+    });
+    // As if an older server reader had written plain text.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(documentId, { textFormat: undefined, serverReader: "server-reader-2", textReader: "server-reader-2" });
+    });
+    await t.action(internal.ai.fileReading.readStoredDocument, { documentId });
+    expect((await fileState(t, documentId)).doc).toMatchObject({ textFormat: "markdown", textReader: SERVER_READER_VERSION });
+    const versions = await t.run(async (ctx) =>
+      ctx.db.query("projectDocumentTextVersions").withIndex("by_documentId_and_version", (q) => q.eq("documentId", documentId)).collect()
+    );
+    expect(versions.map((version) => [version.version, version.why, version.reader])).toEqual([[1, "word_markdown", "server-reader-2"]]);
   });
 });
 
