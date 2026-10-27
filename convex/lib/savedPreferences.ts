@@ -56,27 +56,44 @@ function wordRuns(words: readonly string[], size: number): string[] {
   return runs;
 }
 
-/** Shortest run of a preference's words that counts as quoting it. */
-const QUOTED_RUN_WORDS = 3;
+/** Shortest run of a preference's words that counts as quoting part of it. */
+const QUOTED_RUN_WORDS = 4;
+/** Words a run must hold more than, to count as quoting anything. */
+const COMMON_WORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "for", "with", "by", "as", "is", "are", "be", "it", "its",
+  "that", "this", "than", "then", "we", "our", "each", "every", "no", "not", "one", "all",
+]);
 
 /**
- * E1b review and re-check: a Compliance Note row that quotes a saved
- * preference, in its instruction or its reason, names it only as a saved
- * preference, since people other than the writer can read the notes. Any
- * three of its words in a row count as a quote ("sentences under 25 words"),
- * so a row may be hidden that only shares three words with one; that errs on
- * the private side. Other rows are unchanged.
+ * E1b review and re-checks: a Compliance Note row that quotes a saved
+ * preference names it only as a saved preference, since people other than
+ * the writer can read the notes.
+ * - The whole preference, in the instruction or the reason of any row, is a
+ *   quote; a preference of one or two words only when it is the whole field.
+ * - Part of it counts only in a row the Self-check model wrote (which may
+ *   quote the writer's text): any four of its words in a row, unless they
+ *   are all common words ("sentences under 25 words").
+ * Deterministic rows (House Rules and the like) are never hidden for
+ * sharing words with a preference (third re-check). Other rows are unchanged.
  */
-export function withoutSavedPreferenceText<T extends { instruction: string; reason: string }>(
+export function withoutSavedPreferenceText<T extends { instruction: string; reason: string; source?: string }>(
   note: T,
   saved: readonly string[]
 ): T {
   if (saved.length === 0) return note;
-  const fields = ` ${folded(note.instruction)} | ${folded(note.reason)} `;
+  const instruction = folded(note.instruction);
+  const reason = folded(note.reason);
+  const fields = ` ${instruction} | ${reason} `;
   const quotes = saved.some((text) => {
-    const words = folded(text).split(" ").filter(Boolean);
+    const preference = folded(text);
+    const words = preference.split(" ").filter(Boolean);
     if (words.length === 0) return false;
-    return wordRuns(words, QUOTED_RUN_WORDS).some((run) => fields.includes(` ${run} `));
+    if (words.length < 3) return instruction === preference || reason === preference;
+    if (fields.includes(` ${preference} `)) return true;
+    if (note.source !== "model") return false;
+    return wordRuns(words, QUOTED_RUN_WORDS).some(
+      (run) => !run.split(" ").every((word) => COMMON_WORDS.has(word)) && fields.includes(` ${run} `)
+    );
   });
   return quotes ? { ...note, ...SAVED_PREFERENCE_NOTE } : note;
 }

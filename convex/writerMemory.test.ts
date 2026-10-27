@@ -577,7 +577,24 @@ describe("writer memory (Phase E, E1a)", () => {
       expect(savedPreferencesIn("Use we.")).toEqual([]);
       const note = (instruction: string, reason: string) => ({ section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false });
       expect(withoutSavedPreferenceText(note("Keeps sentences under 25 words.", "Every sentence is short."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
-      expect(withoutSavedPreferenceText(note("Keeps sentences under", "Quoted in part."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
+      expect(withoutSavedPreferenceText(note("Keeps sentences under 25", "Quoted in part."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
+      // Third re-check: a deterministic row is never hidden for sharing
+      // words; a model row needs four of a preference's words in a row,
+      // not only common ones; a short preference only as the whole field.
+      const houseRule = { ...note("Use the active voice.", "Every sentence names who acted."), source: "deterministic" as const };
+      expect(withoutSavedPreferenceText(houseRule, ["Uses the active voice in every Line."])).toEqual(houseRule);
+      const sharesThree = note("Use the active voice.", "Checked.");
+      expect(withoutSavedPreferenceText(sharesThree, ["Uses the active voice in every Line."])).toEqual(sharesThree);
+      // "with it and the" is all common words; nothing else is shared.
+      const sharesCommon = note("Start with it and the summary.", "Checked.");
+      expect(withoutSavedPreferenceText(sharesCommon, ["Leads with it and the result."])).toEqual(sharesCommon);
+      expect(withoutSavedPreferenceText(note("Concise.", "Checked."), ["Concise."])).toMatchObject(SAVED_PREFERENCE_NOTE);
+      const mentionsConcise = note("Keep the summary concise.", "Checked.");
+      expect(withoutSavedPreferenceText(mentionsConcise, ["Concise."])).toEqual(mentionsConcise);
+      // The whole preference in a deterministic row is still hidden.
+      expect(
+        withoutSavedPreferenceText({ ...note("Keeps sentences under 25 words.", "Measured."), source: "deterministic" as const }, saved)
+      ).toMatchObject(SAVED_PREFERENCE_NOTE);
       expect(withoutSavedPreferenceText(note("Writer Profile", "The writer asked: uses Canadian spelling."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
       const profileRow = note("Use we.", "The Line uses we.");
       expect(withoutSavedPreferenceText(profileRow, saved)).toEqual(profileRow);

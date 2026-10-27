@@ -73,19 +73,35 @@ const PER_TARGETS = new Set([
   ...STYLE_UNITS, "section", "sections", "heading", "headings", "idea", "ideas", "list", "lists", "subsection", "subsections",
 ]);
 /**
- * Words that may sit between a number and its unit: "20 to 25 words", "three
- * short paragraphs", "half a page". At most two of them (second re-check:
- * "rose by half in a short sentence" is a figure, not a length).
+ * Words that may sit between a number and its unit, counted by kind: "20 to
+ * 25 words" and "three or four sentences" (joining words, at most two),
+ * "three short plain paragraphs" (describing words, at most three), "half a
+ * page". Nothing else: "rose by half in a short sentence" is a figure, not a
+ * length (second and third re-checks).
  */
-const LENGTH_FILLERS = new Set([
-  "to", "or", "and", "a", "an", "short", "shorter", "long", "longer", "full", "plain", "simple", "separate", "single",
-  "clear", "more", "fewer", "less",
+const JOINING_FILLERS = new Set(["to", "or", "and", "a", "an"]);
+const DESCRIBING_FILLERS = new Set([
+  "short", "shorter", "long", "longer", "full", "plain", "simple", "separate", "single", "clear", "more", "fewer", "less",
 ]);
-const MAX_LENGTH_FILLERS = 2;
+const MAX_JOINING_FILLERS = 2;
+const MAX_DESCRIBING_FILLERS = 3;
 /** Words that make a number a matter of how numbers are written: "Spells out numbers under ten." */
 const NUMBER_TOPIC = new Set(["number", "numbers", "digit", "digits", "numeral", "numerals"]);
-/** What must stand just before such a number: "numbers under ten", "from one to nine". */
-const NUMBER_BOUNDS = new Set(["under", "over", "below", "above", "from", "to", "than", "between", "and"]);
+/** What may stand just before such a number: "numbers under ten", "digits for 10 and above". */
+const NUMBER_BOUNDS = new Set(["under", "over", "below", "above", "from", "to", "than", "between", "through", "for", "of"]);
+/** What may follow such a number. */
+const NUMBER_FOLLOWERS = new Set(["and", "or", "as", "through", "to"]);
+/** "10 and above", "10 or more". */
+const NUMBER_BOUND_AFTER: Record<string, ReadonlySet<string>> = {
+  and: new Set(["above", "over", "up", "below", "under"]),
+  or: new Set(["more", "fewer", "less", "higher", "lower", "above", "over", "under", "below"]),
+};
+/** Words that make what follows a figure the text reports: "numbers rose to 40". */
+const CHANGE_WORDS = new Set([
+  "rose", "rise", "rises", "risen", "fell", "fall", "falls", "fallen", "dropped", "drop", "drops", "increased", "increase",
+  "decreased", "decrease", "grew", "grow", "reached", "reach", "hit", "climbed", "declined", "doubled", "tripled",
+  "jumped", "went", "was", "were", "is", "are", "totalled", "totaled", "came",
+]);
 /**
  * Spelled-out numbers, ordinals and fractions (review, re-check); "one" and
  * "first" are too common in plain prose to refuse.
@@ -105,16 +121,21 @@ const PERSON_ORDINALS = new Set(["second", "third"]);
  * four sentences"), and a "per" after the unit only by a part of the text.
  */
 function lengthFollows(after: string, number?: string): boolean {
-  const words = after.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 6) ?? [];
-  let fillers = 0;
+  const words = after.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 7) ?? [];
+  let joining = 0;
+  let describing = 0;
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
     if (STYLE_UNITS.has(word)) return words[index + 1] !== "per" || PER_TARGETS.has(words[index + 2] ?? "");
     // "twice in a sentence": only a count of times may say where.
     if (word === "in" && number === "twice" && index === 0) continue;
     if (/^\d{1,3}$/.test(word) || NUMBER_WORDS.has(word)) continue;
-    if (LENGTH_FILLERS.has(word) && fillers < MAX_LENGTH_FILLERS) {
-      fillers += 1;
+    if (JOINING_FILLERS.has(word) && joining < MAX_JOINING_FILLERS) {
+      joining += 1;
+      continue;
+    }
+    if (DESCRIBING_FILLERS.has(word) && describing < MAX_DESCRIBING_FILLERS) {
+      describing += 1;
       continue;
     }
     return false;
@@ -123,15 +144,25 @@ function lengthFollows(after: string, number?: string): boolean {
 }
 
 /**
- * Whether a number is about how numbers are written: a bound word right
- * before it and a word for numbers just before that ("Spells out numbers
- * under ten", "Writes numbers from one to nine as words"), never a figure
- * the text reports ("numbers rose by 40 percent").
+ * Whether a number is about how numbers are written ("Spells out numbers
+ * under ten", "Uses digits for 10 and above", "Writes numbers of 10 or more
+ * as digits", "Spells out numbers one through nine"): a word for numbers
+ * shortly before it with no word of change between ("numbers rose to 40"
+ * is a figure), a bound just before it or just after it, and nothing after
+ * it but a joining word ("40 percent", "300 units" are figures).
  */
-function aboutNumbers(before: string): boolean {
-  const words = before.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(-4) ?? [];
-  if (!NUMBER_BOUNDS.has(words.at(-1) ?? "")) return false;
-  return words.slice(0, -1).some((word) => NUMBER_TOPIC.has(word));
+function aboutNumbers(before: string, after: string): boolean {
+  const prior = before.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(-5) ?? [];
+  let topicAt = -1;
+  prior.forEach((word, index) => {
+    if (NUMBER_TOPIC.has(word)) topicAt = index;
+  });
+  if (topicAt < 0 || prior.slice(topicAt + 1).some((word) => CHANGE_WORDS.has(word))) return false;
+  const next = after.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 2) ?? [];
+  if (next[0] !== undefined && !NUMBER_FOLLOWERS.has(next[0])) return false;
+  const boundBefore = NUMBER_BOUNDS.has(prior.at(-1) ?? "");
+  const boundAfter = next[0] !== undefined && (NUMBER_BOUND_AFTER[next[0]]?.has(next[1] ?? "") ?? false);
+  return boundBefore || boundAfter;
 }
 /** Letters of scripts with no capitals, which the name rules cannot read. */
 const UNCASED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Thai}\p{Script=Devanagari}]/u;
@@ -222,7 +253,7 @@ export function checkPreferenceText(
     const after = plain.slice(match.index + match[0].length);
     const lineNumber = /\bLines?\s*$/i.test(before) && LINE_NUMBERS.has(match[0]);
     const short = /^\d{1,3}(?:\s*-\s*\d{1,3})?$/.test(match[0]);
-    if (!lineNumber && !(short && (lengthFollows(after) || aboutNumbers(before)))) return { ok: false, reason: "number" };
+    if (!lineNumber && !(short && (lengthFollows(after) || aboutNumbers(before, after)))) return { ok: false, reason: "number" };
   }
   for (const match of plain.matchAll(/[\p{L}]+/gu)) {
     const word = match[0].toLowerCase();
@@ -230,7 +261,7 @@ export function checkPreferenceText(
     const before = plain.slice(0, match.index);
     const after = plain.slice(match.index + match[0].length);
     const person = PERSON_ORDINALS.has(word) && /^\s+person\b/i.test(after);
-    if (!person && !lengthFollows(after, word) && !aboutNumbers(before)) return { ok: false, reason: "number" };
+    if (!person && !lengthFollows(after, word) && !aboutNumbers(before, after)) return { ok: false, reason: "number" };
   }
   const vocabulary = appVocabulary();
   for (const quote of text.matchAll(/["\u201c]([^"\u201d]*)["\u201d]|(?<![\p{L}])['\u2018]([^'\u2019]*)['\u2019](?![\p{L}])/gu)) {

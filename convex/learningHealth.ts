@@ -1,3 +1,4 @@
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -89,7 +90,14 @@ export const getHealth = query({
     let missingReportGenerations = 0, excludedVersionReviews = 0, legacyVersionReviews = 0;
     let passageBudget = HEALTH_LIMITS.passages;
     const budgets = { candidates: HEALTH_LIMITS.joinBudget, reports: HEALTH_LIMITS.joinBudget, reviews: HEALTH_LIMITS.joinBudget };
+    // E3 re-check: release suite evaluation projects are not real work.
+    const evaluationProjects = new Map<Id<"projects">, boolean>();
     for (const generation of generations) {
+      if (!evaluationProjects.has(generation.projectId)) {
+        const projectRead = await reads.one("project joins", () => ctx.db.get(generation.projectId));
+        evaluationProjects.set(generation.projectId, projectRead.kind === "loaded" && isEvaluationProject(projectRead.value));
+      }
+      if (evaluationProjects.get(generation.projectId)) continue;
       // Since 2026-09-25 a generation's provenance lives in a
       // generationArtifacts row once outputsInArtifactsAt is set; that read
       // shares the byte budget. Older rows keep it on the row.

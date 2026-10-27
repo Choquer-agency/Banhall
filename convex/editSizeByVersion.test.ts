@@ -171,17 +171,41 @@ describe("editing bursts (Phase E, E3)", () => {
     expect(await f.readings()).toMatchObject([{ trigger: "edit", revisionNumber: 2, editorUserId: f.managerId, writerUserId: f.ownerId }]);
   });
 
-  it("a chat apply records its own reading with who applied it and its turn's lesson set; a burst ending on that revision adds nothing", async () => {
+  it("a chat apply first reads the person's open burst at their own revision, then records its own reading with who applied it and its turn's lesson set (re-check)", async () => {
     const f = await setup();
     await f.save(f.owner, 1);
     const card = await f.propose("rewrote this whole", "changed this");
     expect(await f.owner.mutation(api.chatV2.applyProposal, { proposalId: card })).toMatchObject({ applied: true });
     expect(await f.readings()).toMatchObject([
+      { trigger: "edit", revisionNumber: 1, editorUserId: f.ownerId },
       { trigger: "chat_apply", revisionNumber: 2, editorUserId: f.ownerId, learningDigestId: f.digestId },
     ]);
-    await f.endBurst();
-    expect((await f.readings()).map((row) => row.trigger)).toEqual(["chat_apply"]);
     expect(await f.due()).toEqual([]);
+    // The burst's job, when it fires, finds its burst closed and adds nothing.
+    await f.endBurst();
+    expect((await f.readings()).map((row) => row.trigger)).toEqual(["edit", "chat_apply"]);
+  });
+
+  it("a burst closed early never has its job cut the next burst short (re-check)", async () => {
+    const f = await setup();
+    await f.save(f.owner, 1);
+    const card = await f.propose("rewrote this whole", "changed this");
+    await f.owner.mutation(api.chatV2.applyProposal, { proposalId: card });
+    // A new burst opens five minutes later; the first burst's job fires at ten.
+    vi.advanceTimersByTime(EDIT_SIZE_BURST_MS / 2);
+    await f.save(f.owner, 3);
+    vi.advanceTimersByTime(EDIT_SIZE_BURST_MS / 2);
+    await f.t.finishInProgressScheduledFunctions();
+    expect(await f.due()).toHaveLength(1);
+    expect((await f.readings()).map((row) => row.trigger)).toEqual(["edit", "chat_apply"]);
+    // Its own job reads it at its end.
+    vi.advanceTimersByTime(EDIT_SIZE_BURST_MS / 2);
+    await f.t.finishInProgressScheduledFunctions();
+    expect((await f.readings()).map((row) => [row.trigger, row.revisionNumber])).toEqual([
+      ["edit", 1],
+      ["chat_apply", 2],
+      ["edit", 3],
+    ]);
   });
 
   it("an Undo, a restore and an accepted client edit each take part in a burst", async () => {
@@ -397,6 +421,23 @@ describe("edit size by version (Phase E, E3)", () => {
     // Only the milestone reading; the edit and chat apply readings are left out.
     expect(health.ped.samples).toBe(1);
     expect(health.ped.mean).toBeCloseTo(0.6);
+  });
+
+  it("leaves evaluation projects' drafts out of the Brain source table (re-check)", async () => {
+    const f = await seedVersions();
+    await f.t.run(async (ctx) => {
+      const evaluation = await ctx.db.insert("projects", {
+        title: "Release eval - Seals", clientName: "Q", status: "draft", createdBy: f.ownerId, shareToken: "eval-src",
+        createdAt: 1, updatedAt: 1, evaluation: { markedAt: 1 },
+      });
+      for (const projectId of [f.projectId, evaluation]) {
+        await ctx.db.insert("generations", {
+          projectId, status: "completed", startedAt: f.end - DAY, brainProvenance: [{ entryId: `entry-${projectId}`, score: 1 }],
+        });
+      }
+    });
+    const health = await f.admin.query(api.learningHealth.getHealth, { start: f.end - 30 * DAY, end: f.end });
+    expect(health.sources.rows.map((row) => row.identity)).toEqual([`entry:entry-${f.projectId}`]);
   });
 
   it("gives partial results within the read budget when drafts are large (review)", async () => {

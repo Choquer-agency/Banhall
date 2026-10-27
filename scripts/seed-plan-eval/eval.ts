@@ -4198,15 +4198,22 @@ export function compareApplied(
 }
 
 /**
- * E3 review: what differs between a pair's drafts besides the change (the
- * prompt version, the models), or null when nothing recorded differs.
+ * E3 review and re-check: what differs between a pair's drafts besides the
+ * change, or null when nothing recorded differs: the prompt version, the
+ * models, the lesson sets other than the one compared, and where the
+ * writer's settings came from.
  */
-export function comparePairDifference(a: Collected | null, b: Collected | null): string | null {
+export function comparePairDifference(a: Collected | null, b: Collected | null, lessonSetId?: string): string | null {
   if (!a || !b) return "one arm has no draft";
   const differs: string[] = [];
   if ((a.generation.promptVersion ?? null) !== (b.generation.promptVersion ?? null)) differs.push("prompt version");
   if (JSON.stringify(a.generation.models ?? null) !== JSON.stringify(b.generation.models ?? null)) differs.push("models");
-  return differs.length ? differs.join(" and ") : null;
+  const otherSets = (c: Collected) =>
+    JSON.stringify([...(c.generation.learningDigestIds ?? [])].filter((id) => id !== lessonSetId).sort());
+  if (otherSets(a) !== otherSets(b)) differs.push("other lesson sets");
+  const settings = (c: Collected) => JSON.stringify([c.generation.writerSettings?.source ?? null, c.generation.writerSettings?.profileState ?? null]);
+  if (settings(a) !== settings(b)) differs.push("writer settings");
+  return differs.length ? differs.join(", ") : null;
 }
 
 /**
@@ -4249,7 +4256,7 @@ export function renderCompare(results: readonly FixtureResult[], context: PackCo
       const pair = results.filter((r) => r.arm && r.fixture.id === id);
       const without = pair.find((r) => r.arm!.name === "without");
       const withArm = pair.find((r) => r.arm!.name === "with");
-      const difference = comparePairDifference(without?.collected ?? null, withArm?.collected ?? null);
+      const difference = comparePairDifference(without?.collected ?? null, withArm?.collected ?? null, withArm?.arm?.lessonSetId);
       return difference ? [`- ${id}: the arms differ in more than the change (${difference}); compare with care.`] : [];
     }),
     "",

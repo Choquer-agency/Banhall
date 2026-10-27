@@ -2409,6 +2409,11 @@ describe("--compare (Phase E, E3)", () => {
     expect(compareApplied(withPrefs!, collected({ writerSettings: { source: "writer_notes", savedPreferences: 0 } }))).toBe("control");
     expect(compareApplied(withPrefs!, null)).toBe("unknown");
     expect(comparePairDifference(collected({}), collected({}))).toBeNull();
-    expect(comparePairDifference(collected({}), collected({ promptVersion: "pv2", models: { writing: "n" } }))).toBe("prompt version and models");
+    expect(comparePairDifference(collected({}), collected({ promptVersion: "pv2", models: { writing: "n" } }))).toBe("prompt version, models");
+    // Re-check: the compared set differs by design; any other set, or where
+    // the settings came from, is flagged.
+    expect(comparePairDifference(collected({ learningDigestIds: ["qa"] }), collected({ learningDigestIds: ["qa", "kd7set"] }), "kd7set")).toBeNull();
+    expect(comparePairDifference(collected({ learningDigestIds: ["qa"] }), collected({ learningDigestIds: ["qa2", "kd7set"] }), "kd7set")).toBe("other lesson sets");
+    expect(comparePairDifference(collected({}), collected({ writerSettings: { source: "writer_notes", savedPreferences: 0 } }))).toBe("writer settings");
   });
 });

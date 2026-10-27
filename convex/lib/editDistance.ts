@@ -221,13 +221,17 @@ export async function noteReportEditForSize(
     if (due.editorUserId !== editorUserId) await ctx.db.patch(due._id, { editorUserId });
     return;
   }
+  const dueAt = Date.now() + EDIT_SIZE_BURST_MS;
   await ctx.db.insert("reportEditSizeDue", {
     reportId: report._id,
     projectId: report.projectId,
     editorUserId,
-    dueAt: Date.now() + EDIT_SIZE_BURST_MS,
+    dueAt,
   });
+  // The job names its burst, so a burst closed early never has its job cut
+  // the next burst short (re-check).
   await ctx.scheduler.runAfter(EDIT_SIZE_BURST_MS, internal.reportEditDistance.recordEditBurst, {
     reportId: report._id,
+    dueAt,
   });
 }

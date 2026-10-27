@@ -1,5 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
-import { noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
+import { closeEditBurst, noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
 import { chatCompanyFilesFor } from "./chatDocuments";
 import { quotableFileText } from "../shared/wordMarkdown";
 import {
@@ -1333,6 +1333,9 @@ export const applyProposal = mutation({
     const content = JSON.stringify(updated);
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
+    // Phase E (E3, re-check): a person's open editing burst is read at their
+    // own revision before the card's change lands.
+    await closeEditBurst(ctx, report);
     await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
       createdAt: now,
       ...(proposal.researchSessionId
@@ -1491,6 +1494,8 @@ export const markProposalApplied = mutation({
     }
 
     const now = Date.now();
+    // Phase E (E3, re-check): an open burst is read before the card lands.
+    await closeEditBurst(ctx, report);
     await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
     await ctx.db.patch(report._id, {
       content: args.content,

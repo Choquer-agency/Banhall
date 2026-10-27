@@ -49,6 +49,14 @@ const STYLE_PREFERENCES = [
   "Writes in the third person.",
   "Keeps each Line to half a page.",
   "Never uses the same word twice in a sentence.",
+  // Third re-check: refused by the second fix, style all the same.
+  "Uses digits for 10 and above.",
+  "Uses digits for numbers 10 and above.",
+  "Uses numerals for 10 and over.",
+  "Writes numbers of 10 or more as digits.",
+  "Spells out numbers one through nine.",
+  "Spells out numbers under ten and uses digits for 10 or more.",
+  "Writes two or three short plain sentences.",
 ];
 
 /** Preferences that carry a company or project fact: each must be refused. */
@@ -84,6 +92,11 @@ const FACT_PREFERENCES: Array<[string, PreferenceRefusal]> = [
   ["Reports the yield as 40 in a short paragraph.", "number"],
   ["Reports numbers rose by 40 percent.", "number"],
   ["Reports the yield as 40 in a paragraph.", "number"],
+  // Third re-check: passed the second fix.
+  ["Says the numbers rose to 40 percent.", "number"],
+  ["Notes that numbers fell below 300 units.", "number"],
+  ["Says defect numbers dropped to twelve.", "number"],
+  ["Reports numbers of 40 percent.", "number"],
 ];
 
 describe("checkPreferenceText (Phase E, E1a)", () => {
