@@ -121,6 +121,23 @@ export function namesFound(text, names) {
   return found;
 }
 
+/**
+ * Invented names that share a word of 4 or more letters with a real name
+ * (a surname alone, one word of a company's name): the whole-name scan of
+ * the text would miss them.
+ */
+export function inventedWordsFound(invented, names) {
+  const real = new Set();
+  for (const name of names) {
+    for (const word of String(name).toLowerCase().split(/[^\p{L}\p{N}]+/u)) if (word.length >= 4) real.add(word);
+  }
+  const found = new Set();
+  for (const name of invented) {
+    for (const word of String(name).toLowerCase().split(/[^\p{L}\p{N}]+/u)) if (real.has(word)) found.add(word);
+  }
+  return [...found];
+}
+
 /** The whole data set for a seed, in memory: the company, people, files and the interview. */
 export function stressData({ seed = 7, files = 50, fileChars = 400_000, hours = 3 } = {}) {
   const random = seeded(seed);
@@ -141,7 +158,7 @@ export function stressData({ seed = 7, files = 50, fileChars = 400_000, hours = 
     kind: "transcript",
     text: transcriptText(random, Math.round(hours * TRANSCRIPT_CHARS_PER_HOUR), [interviewer, ...people.slice(0, 2)], names),
   });
-  return { seed, company, people, files: out };
+  return { seed, company, people, terms, files: out };
 }
 
 function sha256(text) {
@@ -169,6 +186,7 @@ export function main(argv) {
   const forbidden = namesFile ? JSON.parse(readFileSync(namesFile, "utf8")) : [];
   const hits = [];
   for (const name of namesFound([data.company, ...data.people].join("\n"), forbidden)) hits.push({ file: "names", name });
+  for (const word of inventedWordsFound([data.company, ...data.people, ...data.terms], forbidden)) hits.push({ file: "invented names", name: word });
   for (const file of data.files) for (const name of namesFound(file.text, forbidden)) hits.push({ file: file.name, name });
   mkdirSync(out, { recursive: true });
   for (const file of data.files) writeFileSync(path.join(out, file.name), file.text);

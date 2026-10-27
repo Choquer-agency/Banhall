@@ -244,7 +244,7 @@
       <!-- F1: how many characters each feature sends per input token -->
       <h2 class="text-title mt-8">Characters per token</h2>
       <p class="mt-1 text-sm leading-[1.5] text-gray-500">
-        Drafting and analysis requests from the last 30 days, by feature and model. Characters include each request's instructions and tool definitions, so requests with tools read lower than their files alone. Report chat is not counted yet.
+        Anthropic requests from the last 30 days, by feature and model. Characters include each request's instructions and tool definitions, so requests with tools read lower than their files alone. Report chat is not counted yet.
       </p>
       {#if sizeQ.error}
         <p class="mt-3 text-sm leading-[1.5] text-danger-ink">This table could not be loaded.</p>
@@ -260,7 +260,7 @@
                   <th class="px-4 py-2.5 font-medium">Model</th>
                   <th class="px-4 py-2.5 text-right font-medium">Requests</th>
                   <th class="px-4 py-2.5 text-right font-medium">Characters sent</th>
-                  <th class="px-4 py-2.5 text-right font-medium">Files and instructions</th>
+                  <th class="px-4 py-2.5 text-right font-medium">Sent in user turns</th>
                   <th class="px-4 py-2.5 text-right font-medium">All input tokens</th>
                   <th class="px-4 py-2.5 text-right font-medium">Characters per token</th>
                 </tr>

@@ -371,15 +371,20 @@ function decodeSummaryItems(value: {
  * answer's byte ceiling (the release suite of 2026-10-27 saw a stray
  * top-level `repairGuidance`), is ignored, as a merged id is (2026-10-22,
  * third), and logged by name only; it is never a reason to drop the whole
- * Self-check. A key is model text, so only a name that looks like a field
- * name is logged, at most five.
+ * Self-check. A key is model text, so only a field name the answer's own
+ * schema uses (or a near miss of a list's name) is logged; any other key is
+ * logged by its size; at most five.
  */
 const SUMMARY_SELF_CHECK_ROOT_KEYS = new Set(["verdicts", "planVerdicts", "storylineQuestion"]);
-const LOGGED_ROOT_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/;
+const LOGGED_ROOT_KEYS = new Set([
+  "paragraph", "check", "instruction", "outcome", "reason", "repairGuidance", "itemId", "skippedRoleId",
+  "droppedSeedId", "ruleId", "findings", "targetFindings", "mergedItemIds", "position",
+  "verdict", "plan_verdicts", "planVerdict", "storyline_question", "notes", "summary",
+]);
 const MAX_LOGGED_ROOT_KEYS = 5;
 function ignoredRootKeysNote(keys: readonly string[]): string {
   const shown = keys.slice(0, MAX_LOGGED_ROOT_KEYS).map((key) =>
-    LOGGED_ROOT_KEY.test(key) ? key : `a field of ${new TextEncoder().encode(key).byteLength} bytes`
+    LOGGED_ROOT_KEYS.has(key) ? key : `a field of ${new TextEncoder().encode(key).byteLength} bytes`
   );
   const more = keys.length - shown.length;
   return `${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`;

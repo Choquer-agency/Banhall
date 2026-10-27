@@ -956,8 +956,9 @@ describe("a verdict list of the wrong type is asked for again (real SDK, fetch s
         ...Object.fromEntries(Array.from({ length: 7 }, (_, index) => [`extra${index}`, index])),
       })).toEqual({ diagnostic: null, calls: 1 });
       const logged = warn.mock.calls.flat().join(" ");
-      expect(logged).toContain("ignored 8 unknown top-level field(s): a field of 24 bytes, extra0, extra1, extra2, extra3 and 3 more");
+      expect(logged).toContain("ignored 8 unknown top-level field(s): a field of 24 bytes, a field of 6 bytes, a field of 6 bytes, a field of 6 bytes, a field of 6 bytes and 3 more");
       expect(logged).not.toContain("names a loss");
+      expect(logged).not.toContain("extra0");
       // A misspelled list beside a real one is read as missing: every
       // label it should have held is asked for in the one follow-up.
       expect((await diagnosticFor({
