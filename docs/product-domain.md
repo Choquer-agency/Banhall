@@ -4343,6 +4343,19 @@ Context pipeline plan, Phase C, step 3 (drafts): part 1 of the first 2026-10-26 
 - **Tests.** `convex/companyFileDrafts.test.ts` (the freeze, order, kind, trust, Markdown, no company, a merged company, archived, empty and other companies' files, the file and character caps, leaving one out and refusing another company's, decision 42, former names in the placeholder map, a project without company files unchanged, the analyzer input, the analyzer, Brief and Seed notes, the facts check label, the Inputs band and its permission, adoption, the start dialog's list and the head start's list), `src/lib/components/project/ProjectStartDialog.component.test.ts`, `src/lib/components/brief/BriefRailPanel.component.test.ts`.
 - **Approval:** Product owner, 2026-10-26 (chat): part 1 of the first 2026-10-26 entry, and "yes continue and finish all".
 
+### 2026-10-26 (eighth): Chat finds and opens the project's company's files through its tools only (owner)
+
+Context pipeline plan, Phase C, step 3 (chat): part 1 of the first 2026-10-26 entry, "Chat reaches company files only through its search and reading tools, limited to the project's own company; it never loads them whole on every message", and "company files ... are never searched from another company's project". No workflow stage, transition or permission is added, and the assistant still only proposes edits.
+
+- **Who.** A chat turn reaches company files only when its sender may read them (`companyFiles.read`) and the project is linked to an active company. The reply action passes the sender to the turn's context and tools; every list, search and read checks it again (`chatCompanyScope`), along with the project's company now, so a project relinked to another company, or a company merged meanwhile, reaches nothing.
+- **What the chat sees.** A COMPANY FILES list (`EVIDENCE_LABELS.companyFiles`) after the transcripts list: the company files note (as in drafts), then up to 30 files, newest first, each with a handle (C1, C2 and so on), its name, category, size and its label title. Never their text. The chat guidance names the list. Without company files, or with the reading tools off, the list is absent and nothing else changes.
+- **Searching.** `searchDocuments` returns the project's own excerpts first, as before, then fills what is left with the company's (`searchCompanyPieces`, the company's search pieces, each checked to be a file the company holds now, not archived, with current text), placed as "C2 part 1". The tool's description names company files only when the turn lists some.
+- **Reading.** `readDocument` opens a company file by its C handle or exact name (a project file of the same name wins), in the same parts and reading allowance as a project file, through `chatDocuments.readCompanyFileForChat`, shown as "company file <name>" with client trust.
+- **Not reached.** viewFile does not show company files; pinned files are project files only; Contextual Research and PD reviews do not read company files.
+- **Migration and compatibility.** Widen only: optional arguments (`userId`) on `getChatContextV2` and `searchForChat`, a new internal query, a new list in the chat evidence, and one line in the chat guidance (`CHAT_EVIDENCE_GUIDANCE`).
+- **Tests.** `convex/companyFileChat.test.ts` (who may reach which files, a merged company and a relinked project, reading archived and other companies' files, search order and the sender check, the list, its absence and the reading tools off, readDocument by C handle, tool descriptions).
+- **Approval:** Product owner, 2026-10-26 (chat): part 1 of the first 2026-10-26 entry, and "yes continue and finish all".
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

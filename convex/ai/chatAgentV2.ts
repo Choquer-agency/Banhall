@@ -2001,6 +2001,7 @@ export const streamChatReply = internalAction({
         {
           reportId: args.reportId,
           agentThreadId: args.agentThreadId,
+          ...(args.userId ? { userId: args.userId } : {}),
         }
       );
       // PSOS-49/50: the sender's EFFECTIVE house-style waivers + preferences
@@ -2126,7 +2127,7 @@ export const streamChatReply = internalAction({
       });
       // Phase B: the turn's reading state (handles from this turn's
       // evidence, the shared character allowance), created once per turn.
-      const documentReads = newDocumentReadTurn(context);
+      const documentReads = newDocumentReadTurn(context, args.userId);
       // Phase C (W1): the pinned files, one ephemeral user message after the
       // options note. Never saved; the recovery pass repeats `turnMessages`.
       const pinned = await pinnedFilesMessage(ctx, args.agentThreadId, args.pinnedDocumentIds ?? [], documentReads, context.documents);

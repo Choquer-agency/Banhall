@@ -548,3 +548,19 @@ What changes:
 
 - [ ] Start a run on a company's project: the dialog lists its company files last; untick one and check the Inputs band leaves it out.
 
+## Phase C, step 3: chat finds and opens company files
+
+Decision record: `docs/product-domain.md`, entry "2026-10-26 (eighth)".
+
+What changes:
+
+- **The assistant sees a list of the company's files** (names only) and can search and open them, after the project's own files. It never gets their text unless it opens one.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+
+### Manual on localhost
+
+- [ ] On a company's project, ask the assistant about something only a company file says: it searches, opens the company file and answers, naming it as a company file.
+

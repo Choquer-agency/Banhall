@@ -21,6 +21,7 @@
 // imports the budget shape while `convex/ai/chatAgentV2.ts` imports the
 // builder.
 
+import { COMPANY_FILES_NOTE } from "../lib/companyEvidence";
 import type { ModelMessage } from "ai";
 import { lineLengthsText } from "./chatLineLengths";
 import {
@@ -53,7 +54,7 @@ import {
   normalizeSettingsText,
   settingsDocumentText,
 } from "../lib/settingsDocument";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { chatViewMedia, type ChatMediaKind } from "../lib/chatMedia";
 import {
   NO_STYLE_OVERRIDES,
@@ -176,6 +177,9 @@ export const EVIDENCE_LABELS = {
   // Chat parity Phase B (2026-10-20): every active transcript with its
   // handle, opened with readTranscript.
   transcripts: "TRANSCRIPTS IN THIS PROJECT",
+  // 2026-10-26 (Phase C): the project's company's files with their
+  // handles, found with searchDocuments and opened with readDocument.
+  companyFiles: "COMPANY FILES",
   // Heads the per-turn evidence sent after the writer's newest message.
   turnHeading: "# EVIDENCE FOR THIS TURN, CONTINUED",
   // 2026-10-21: each Line's form lines and words as the editor's meters show
@@ -254,6 +258,8 @@ export interface ChatEvidenceInput {
    * the files list and notices do not offer viewFile. Absent means on.
    */
   viewingOff?: boolean;
+  /** 2026-10-26 (Phase C): the company's files, listed after the transcripts. */
+  companyFiles?: ChatCompanyFile[];
 }
 
 /** The raw grounding row `chatV2.getChatContextV2` returns. */
@@ -273,6 +279,46 @@ export interface ChatTurnContext {
   documentTools?: boolean;
   /** Phase C: `ai.chatVision`; absent means on. */
   chatVision?: boolean;
+  /**
+   * 2026-10-26 (Phase C): the project's company's files (facts, never
+   * text), only for a sender who may read company files.
+   */
+  companyFiles?: ChatCompanyFile[];
+}
+
+/** One company file the chat may search and open (Phase C). */
+export interface ChatCompanyFile {
+  companyFileId: Id<"companyFiles">;
+  fileName: string;
+  category?: string;
+  textLength: number;
+  /** The file's label title, when it has labels (never evidence). */
+  title?: string;
+}
+
+/** At most this many company files are listed (and get a handle). */
+export const MAX_CHAT_COMPANY_FILES = 30;
+
+/** The handle of the company file at `position` in its list (`C1`...), or null past it. */
+export function chatCompanyFileHandle(position: number): string | null {
+  return position >= 0 && position < MAX_CHAT_COMPANY_FILES ? `C${position + 1}` : null;
+}
+
+/** The COMPANY FILES list: what they are, then one row per file. */
+function companyFilesListText(files: readonly ChatCompanyFile[]): string {
+  const lines = files.slice(0, MAX_CHAT_COMPANY_FILES).map((file, index) =>
+    [
+      chatCompanyFileHandle(index) ?? "",
+      quotedFileName(file.fileName),
+      ANALYZER_CATEGORY_LABELS[(file.category && file.category in ANALYZER_CATEGORY_LABELS ? file.category : "other") as ContextDocCategory],
+      `${formatCount(file.textLength)} characters`,
+      ...(file.title ? [`titled ${quotedFileName(file.title)}`] : []),
+    ].join(" | ")
+  );
+  return [
+    `${COMPANY_FILES_NOTE} They are not in the evidence blocks: searchDocuments finds them after this project's own files, and readDocument opens one by its handle. ${formatCount(files.length)} file(s). Each line: handle | name | category | text size | title.`,
+    ...lines,
+  ].join("\n");
 }
 
 const D = CONTEXT_SCAFFOLDS.documentDelimiters;
@@ -981,6 +1027,19 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
     );
   }
 
+  // ── Company files list (head; Phase C, after the transcripts list) ───────
+  // Facts only, and only while the reading tools are on (nothing could open
+  // them otherwise). Byte-stable while the company's files do not change.
+  const companyFiles = input.readingToolsOff === true ? [] : (input.companyFiles ?? []);
+  let companyFilesBody: string | null = null;
+  if (companyFiles.length) {
+    companyFilesBody = soloBody(
+      charge(
+        spend("files", EVIDENCE_LABELS.companyFiles, "client", companyFilesListText(companyFiles), totalChars, headRemaining)
+      )
+    );
+  }
+
   const perDocChars = chars(budget.perDocumentTokens);
   const documentBlocks: string[] = [];
 
@@ -1121,6 +1180,9 @@ export function buildChatEvidence(input: ChatEvidenceInput): {
   }
   if (transcriptsBody !== null) {
     stableParts.push(labelledBlock(EVIDENCE_LABELS.transcripts, transcriptsBody));
+  }
+  if (companyFilesBody !== null) {
+    stableParts.push(labelledBlock(EVIDENCE_LABELS.companyFiles, companyFilesBody));
   }
   const notices = documentNotices.length ? `\n\n${documentNotices.join("\n")}` : "";
   if (documentBlocks.length) {
@@ -1264,6 +1326,7 @@ export function buildChatTurnRequest(args: {
     ...(args.context.transcriptsIncomplete ? { transcriptsIncomplete: true } : {}),
     ...(args.context.documentTools === false ? { readingToolsOff: true } : {}),
     ...(args.context.chatVision === false ? { viewingOff: true } : {}),
+    ...(args.context.companyFiles?.length ? { companyFiles: args.context.companyFiles } : {}),
   });
   return {
     system: buildChatSystem(styleOverrides, args.customInstructions),

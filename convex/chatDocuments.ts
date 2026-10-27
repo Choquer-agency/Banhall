@@ -15,6 +15,10 @@
 // internal mutation, storePdfPageCount, keeps a PDF's page count once the
 // server has counted it.
 
+import { searchCompanyPieces } from "./lib/searchPieces";
+import { readCompanyFileTextOrNull } from "./lib/companyFileText";
+import { hasCapability } from "../shared/capabilities";
+import { MAX_CHAT_COMPANY_FILES, type ChatCompanyFile } from "./ai/chatEvidence";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { quotableFileText } from "../shared/wordMarkdown";
 import { getConvexSize, v, type Value } from "convex/values";
@@ -161,6 +165,51 @@ async function chatScope(ctx: QueryCtx, agentThreadId: string): Promise<{ projec
   const report = await ctx.db.get(thread.reportId);
   if (!report || report.projectId !== thread.projectId) return null;
   return { projectId: thread.projectId };
+}
+
+/**
+ * The company whose files a chat turn may search and open (2026-10-26,
+ * Phase C): the project's company now, if it is active, and only for a
+ * sender who may read company files. Null otherwise; checked again on
+ * every search and read, so a file that moved to another company, or a
+ * project relinked meanwhile, is never reached.
+ */
+export async function chatCompanyScope(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  userId: Id<"users"> | undefined
+): Promise<Id<"clients"> | null> {
+  if (!userId) return null;
+  const user = await ctx.db.get(userId);
+  if (!user?.role || user.isAnonymous === true || !hasCapability(user.role, "companyFiles.read")) return null;
+  const project = await ctx.db.get(projectId);
+  const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
+  return client && client.status === "active" ? client._id : null;
+}
+
+/** The company files a chat turn lists (facts only), newest first. */
+export async function chatCompanyFilesFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  userId: Id<"users"> | undefined
+): Promise<ChatCompanyFile[]> {
+  const clientId = await chatCompanyScope(ctx, projectId, userId);
+  if (!clientId) return [];
+  const rows = await ctx.db
+    .query("companyFiles")
+    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId).eq("archived", undefined))
+    .order("desc")
+    .take(MAX_CHAT_COMPANY_FILES * 2);
+  return rows
+    .filter((file) => file.hasText)
+    .slice(0, MAX_CHAT_COMPANY_FILES)
+    .map((file) => ({
+      companyFileId: file._id,
+      fileName: file.fileName,
+      ...(file.category ? { category: file.category } : {}),
+      textLength: file.textLength,
+      ...(file.labels?.title ? { title: file.labels.title } : {}),
+    }));
 }
 
 /** An active transcript of the project: not removed, not replaced, not empty. */
@@ -328,6 +377,49 @@ export const readDocumentForChat = internalQuery({
       end: range.end,
       // 2026-10-26: Word Markdown without its marks; the range stays the file's.
       text: quotableFileText(range.text, doc.textFormat),
+    };
+  },
+});
+
+/**
+ * Up to `maxChars` characters of one company file's text, from `start`
+ * (2026-10-26, Phase C): only a file of the thread's project's company now,
+ * not archived, for a sender who may read company files.
+ */
+export const readCompanyFileForChat = internalQuery({
+  args: {
+    agentThreadId: v.string(),
+    companyFileId: v.id("companyFiles"),
+    userId: v.optional(v.id("users")),
+    start: v.number(),
+    maxChars: v.number(),
+  },
+  handler: async (ctx, args): Promise<ReadDocumentResult> => {
+    if (!(await chatDocumentToolsEnabled(ctx))) return { status: "off" };
+    const scope = await chatScope(ctx, args.agentThreadId);
+    if (!scope) return { status: "unavailable" };
+    const clientId = await chatCompanyScope(ctx, scope.projectId, args.userId);
+    const file = await ctx.db.get(args.companyFileId);
+    if (!clientId || !file || file.clientId !== clientId || file.archived) return { status: "not_found" };
+    if (!file.hasText) return { status: "no_text", fileName: file.fileName };
+    const totalChars = file.textLength;
+    if (args.start >= totalChars) return { status: "past_end", fileName: file.fileName, totalChars };
+    // As readDocumentTextSafeRange: a window one character wider, so a range
+    // never starts or ends inside a surrogate pair.
+    const from = Math.max(0, Math.min(Math.floor(args.start), totalChars));
+    const to = Math.max(from, Math.min(from + Math.max(0, Math.floor(args.maxChars)), totalChars));
+    const windowStart = Math.max(0, from - 1);
+    const window = await readCompanyFileTextOrNull(ctx, file, windowStart, Math.min(totalChars, Math.max(to, from + 1)));
+    if (window === null) return { status: "unavailable" };
+    const range = safeRange(window, from - windowStart, to - windowStart);
+    return {
+      status: "ok",
+      fileName: file.fileName,
+      ...(file.category ? { category: file.category } : {}),
+      totalChars,
+      start: range.start + windowStart,
+      end: range.end + windowStart,
+      text: quotableFileText(window.slice(range.start, range.end), file.textFormat),
     };
   },
 });
@@ -639,6 +731,15 @@ export type SearchExcerpt =
       /** Where the excerpt starts in the text, for one without turns. */
       start?: number;
       text: string;
+    }
+  | {
+      /** 2026-10-26 (Phase C): a file of the project's company. */
+      kind: "company";
+      companyFileId: Id<"companyFiles">;
+      fileName: string;
+      /** Where the excerpt starts in the file's text. */
+      start: number;
+      text: string;
     };
 
 export type SearchDocumentsResult =
@@ -695,7 +796,13 @@ export function turnGroups(
  * `maxChars` in all, best first.
  */
 export const searchForChat = internalQuery({
-  args: { agentThreadId: v.string(), query: v.string(), maxChars: v.number() },
+  args: {
+    agentThreadId: v.string(),
+    query: v.string(),
+    maxChars: v.number(),
+    /** The sender: company files are searched only for one who may read them (Phase C). */
+    userId: v.optional(v.id("users")),
+  },
   handler: async (ctx, args): Promise<SearchDocumentsResult> => {
     if (!(await chatDocumentToolsEnabled(ctx))) return { status: "off" };
     const scope = await chatScope(ctx, args.agentThreadId);
@@ -836,6 +943,28 @@ export const searchForChat = internalQuery({
       excerpts.push({ ...candidate.excerpt, text });
       perSource.set(candidate.source, count + 1);
       left -= text.length;
+    }
+
+    // 2026-10-26 (Phase C): the company's files, only after this project's
+    // own excerpts, through the company's search pieces (each checked to be
+    // a file the company holds now, not archived, with current text).
+    const clientId = await chatCompanyScope(ctx, scope.projectId, args.userId);
+    if (clientId && excerpts.length < CHAT_SEARCH_MAX_EXCERPTS && left > 0) {
+      const found = await searchCompanyPieces(ctx, {
+        clientId,
+        query: args.query,
+        limit: CHAT_SEARCH_MAX_EXCERPTS - excerpts.length,
+        perFile: SEARCH_EXCERPTS_PER_SOURCE,
+      });
+      if (!found.complete) complete = false;
+      for (const hit of found.hits) {
+        if (excerpts.length >= CHAT_SEARCH_MAX_EXCERPTS || left <= 0) break;
+        const take = Math.min(hit.text.length, CHAT_SEARCH_EXCERPT_CHARS, left);
+        const text = hit.text.slice(0, safeRange(hit.text, 0, take).end);
+        if (!text) break;
+        excerpts.push({ kind: "company", companyFileId: hit.companyFileId, fileName: hit.fileName, start: hit.start, text });
+        left -= text.length;
+      }
     }
     return { status: "ok", excerpts, complete };
   },

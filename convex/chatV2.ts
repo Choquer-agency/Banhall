@@ -1,4 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { chatCompanyFilesFor } from "./chatDocuments";
 import { quotableFileText } from "../shared/wordMarkdown";
 import {
   query,
@@ -3170,7 +3171,13 @@ async function openQuestionsFor(
 
 /** Grounding context for streamChatReply — thread history stays componentside. */
 export const getChatContextV2 = internalQuery({
-  args: { reportId: v.id("reports"), agentThreadId: v.string() },
+  args: {
+    reportId: v.id("reports"),
+    agentThreadId: v.string(),
+    // 2026-10-26 (Phase C): the sender; the company's files are listed only
+    // for one who may read them.
+    userId: v.optional(v.id("users")),
+  },
   handler: async (ctx, args) => {
     // Charged in read order so the Brief walk at the end stops with headroom.
     // The document `.collect()` predates this budget and is charged, not
@@ -3270,6 +3277,8 @@ export const getChatContextV2 = internalQuery({
     const documentToolsRead = await budget.read(() => chatDocumentToolsEnabled(ctx), 1024);
     // Phase C (W1): whether the chat may see PDFs and images.
     const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
+    // 2026-10-26 (Phase C): the company's files, facts only (at most 30).
+    const companyFilesRead = await budget.read(() => chatCompanyFilesFor(ctx, report.projectId, args.userId), 64 * 1024);
 
     // BNH-24: archived docs are out of AI context.
     const activeDocuments = documents.filter((d) => !d.archived);
@@ -3345,6 +3354,7 @@ export const getChatContextV2 = internalQuery({
       // A setting the budget could not read stays on, as the setting does.
       documentTools: documentToolsRead.ok ? documentToolsRead.value : true,
       chatVision: chatVisionRead.ok ? chatVisionRead.value : true,
+      ...(companyFilesRead.ok && companyFilesRead.value.length > 0 ? { companyFiles: companyFilesRead.value } : {}),
     };
   },
 });
