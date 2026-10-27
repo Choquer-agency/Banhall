@@ -49,6 +49,8 @@ On the live copy, with real models, a spend cap set first (owner question 4):
 
 Record per step each answer's size, why it stopped, time and cost (with F1's measurements), and Convex function errors and log lines. Pass: no step fails on a limit the writer is not told about; named refusals are expected.
 
+**Ready 2026-10-27:** `scripts/stress/generate.mjs` (53 files, 22.2 million characters, company "Zorvelyar Works" for seed 7, scanned against the live copy's 111 client, company, project, speaker and user names with no match) and `scripts/stress/run.mjs` (the company, the evaluation project, the uploads, search pieces and labels, the first draft to its Seeds, stopping at the spend cap). The live run waits for the cap.
+
 **Data.** A seeded, template-based generator in `scripts/stress/` with a fictional word list (no model writes the text, so no real company name can appear), its output scanned against every client and company name on the live copy before upload. A dedicated fictional company and test user, marked as evaluation projects, so nothing feeds writer memory, lessons or the Brain; erased afterwards through the normal erasure path.
 
 ## F6. Release suite, live

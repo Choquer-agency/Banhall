@@ -86,6 +86,21 @@ Answered by the owner on 2026-10-26:
 
 Still with the owner: the Azure account, a card on the Voyage account, test pages for the OCR test, past cases and a judge for the blind test, and the client-agreement check before real client files go to Azure.
 
+### Open questions for the owner (2026-10-27)
+
+Each has a recommended answer. Work goes on with it until the owner says otherwise, except where it says "waits".
+
+1. **Who may edit a company's details** (name, other names, fiscal year end) from the company page. Recommended: Managers and Admins, the same people who archive and remove company files. Waits: "Edit company" stays hidden until answered.
+2. **Drafting picks file text by relevance** (Phase D, step 3, `docs/todos/phase-d-search-first.md`): "Each drafting step stays one request with the same time and price, and file text is chosen by relevance instead of upload order. Tools for drafting are tried later in a measured test only if this misses evidence." Recommended: yes. Waits: it replaces an approved rule, so it needs the owner's amendment first.
+3. **Edit size is recorded per editing burst** (up to 10 minutes) and at each chat apply, not after every autosave (decision entry "2026-10-27 (third)"). Recommended: keep it.
+4. **Sonnet 5.5 and structured answers.** Without a forced tool, Sonnet 5.5 sometimes wrote lists as tool markup, so Briefs came back empty; strict tools fixed it, and strict mode is skipped where a schema needs two or more items. Recommended: keep Sonnet 5.5 with strict tools; the release suite (F6) checks it again.
+5. **Brain filters** (F3): should drafting prefer the same company's earlier years, and may chat's Brain search be limited to a company or a fiscal year when the writer asks?
+6. **Voyage** (F3): add a card to the Voyage account so the embedding comparison can run.
+7. **Project copies** (F2): a copy finishes before the new project opens; "still being copied" shows only after a crash, and starting a draft waits until the copy finishes. Recommended: yes.
+8. **Stress test spend cap** (F5). Recommended: $40. Waits: the live stress test does not start without it.
+9. **Words for a step whose evidence is too large for the model** (F1, step 4): "This step's evidence is too large for the model. Leave some files out and start again." Recommended: yes.
+10. **Azure** (B3): the account and its key, entered privately when asked. Waits: scan reading's live test.
+
 ## Azure setup
 
 You need a phone number and a credit or debit card (not prepaid). Use the firm's own Microsoft work account, so the firm owns the billing and the client data.
