@@ -1286,7 +1286,10 @@ export async function draftCheckedSection(input: {
   // 2026-10-04 (first), Round 5: the writer's wording rules code measures,
   // read from the instruction text the Writer Profile applied. Absent for a
   // writer with no such rule, so every row and request stays as before.
-  const extractedWording = payload.orderedContext.profileState === "applied" && payload.writerFlavor?.trim()
+  // E1b review: also when only the writer's saved preferences applied.
+  const extractedWording =
+    (payload.orderedContext.profileState === "applied" || payload.orderedContext.savedPreferencesApplied === true) &&
+    payload.writerFlavor?.trim()
     ? extractWriterWordingRules(payload.writerFlavor)
     : null;
   const writerWording = hasWriterWordingRules(extractedWording) ? extractedWording : undefined;

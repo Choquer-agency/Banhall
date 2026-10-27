@@ -2010,6 +2010,7 @@ export const streamChatReply = internalAction({
       const profilePromise: Promise<{
         customInstructions: string | null;
         styleOverrides: StyleOverrides;
+        profileInstructions: string | null;
       } | null> = ctx
         .runQuery(
           internal.writerProfiles.getProfileForGeneration,
@@ -2046,6 +2047,9 @@ export const streamChatReply = internalAction({
         context,
         styleOverrides,
         customInstructions: writerStyle?.customInstructions ?? null,
+        // E1b review: a settings document is matched against the stored
+        // profile alone, not the saved preferences joined to it.
+        profileInstructions: writerStyle?.profileInstructions ?? null,
         learnedStyle: lessons?.content ?? null,
       });
       // The set this turn read, for edit size by version (Phase E, E3). A

@@ -519,7 +519,7 @@ export type EffectiveWriterStyle = {
   /** A settings document equals the enabled saved profile, which applies. */
   matchesProfile: boolean;
   /** Phase E (E1b): the writer's saved preferences joined to the instructions, when any. */
-  savedPreferences?: { count: number; textHash: string };
+  savedPreferences?: { count: number; textHash: string; ids?: Id<"writerMemories">[] };
 } & OrderedProfileContext;
 
 const effectiveWriterStyleValidator = v.object({
@@ -528,7 +528,7 @@ const effectiveWriterStyleValidator = v.object({
   settingsSource: writerSettingsSourceValidator,
   savedProfileSuperseded: v.boolean(),
   matchesProfile: v.boolean(),
-  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string() })),
+  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
   ...orderedProfileContextValidator.fields,
 });
 
@@ -655,10 +655,11 @@ export async function getEffectiveWriterStyle(
   // used when it applies or the writer has none (no row counts as on), not
   // when it is switched off or a settings document replaces it.
   const savedApply = userId !== undefined && document === undefined && (profile === null || profile.enabled);
-  const savedTexts = !savedApply
+  // E1b review: the ids too, so a draft records which preferences it used.
+  const savedRows = !savedApply
     ? []
     : options.savedPreferences !== undefined
-      ? options.savedPreferences.filter((text) => text.trim().length > 0)
+      ? options.savedPreferences.filter((text) => text.trim().length > 0).map((text) => ({ text, id: undefined }))
       : (
           await ctx.db
             .query("writerMemories")
@@ -666,11 +667,19 @@ export async function getEffectiveWriterStyle(
             .take(50)
         )
           .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
-          .map((row) => row.text)
-          .filter((text) => text.trim().length > 0);
+          .filter((row) => row.text.trim().length > 0)
+          .map((row) => ({ text: row.text, id: row._id as Id<"writerMemories"> | undefined }));
+  const savedTexts = savedRows.map((row) => row.text);
+  const savedIds = savedRows.flatMap((row) => (row.id ? [row.id] : []));
   const effectiveInstructions = composeWithSavedPreferences(instructions, savedTexts);
   const savedPreferences =
-    savedTexts.length > 0 ? { count: savedTexts.length, textHash: await sha256(savedTexts.join("\n")) } : undefined;
+    savedTexts.length > 0
+      ? {
+          count: savedTexts.length,
+          textHash: await sha256(savedTexts.join("\n")),
+          ...(savedIds.length > 0 ? { ids: savedIds } : {}),
+        }
+      : undefined;
 
   const savedProfileSuperseded = document !== undefined && savedEnabled;
   const profileReason =
@@ -711,6 +720,13 @@ export const getProfileForGeneration = internalQuery({
     v.object({
       customInstructions: v.union(v.string(), v.null()),
       styleOverrides: normalizedStyleOverridesValidator,
+      // E1b review: the stored Writer Profile text alone, which settings
+      // document matching reads; customInstructions also holds the saved
+      // preferences.
+      profileInstructions: v.union(v.string(), v.null()),
+      // E1b review: how many saved preferences joined, so the fallback path
+      // records them too.
+      savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
     }),
     v.null()
   ),
@@ -722,9 +738,16 @@ export const getProfileForGeneration = internalQuery({
     ) {
       return null;
     }
+    const userId = args.userId;
+    const profile = userId
+      ? await ctx.db.query("writerProfiles").withIndex("by_userId", (q) => q.eq("userId", userId)).unique()
+      : null;
+    const stored = profile?.enabled ? profile.customInstructions.trim() : "";
     return {
       customInstructions: style.customInstructions,
       styleOverrides: style.styleOverrides,
+      profileInstructions: stored.length > 0 ? stored : null,
+      ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
     };
   },
 });
@@ -748,6 +771,8 @@ export const getGenerationProfileContext = internalQuery({
 
 /** Story 4's "no Writer Profile applied" line. */
 export const NO_PROFILE_LINE = "No Writer Profile applied — House Rules in full.";
+/** E1b review: the same, beside "N saved preferences used." (no dash). */
+export const NO_PROFILE_WITH_SAVED_LINE = "No Writer Profile applied. House Rules apply in full, with the saved preferences below.";
 
 const settingsCandidateValidator = v.object({
   generationSourceId: v.id("generationSources"),
@@ -958,7 +983,12 @@ export const getGenerationWriterSettings = query({
       matchesProfile: record.matchesProfile,
       savedProfileSuperseded: record.savedProfileSuperseded,
       waiverAnalysis: record.waiverAnalysis,
-      noProfileLine: record.profileState === "applied" ? null : NO_PROFILE_LINE,
+      noProfileLine:
+        record.profileState === "applied"
+          ? null
+          : (record.savedPreferences?.count ?? 0) > 0
+            ? NO_PROFILE_WITH_SAVED_LINE
+            : NO_PROFILE_LINE,
       savedPreferencesLine: savedPreferencesLine(record.savedPreferences?.count ?? 0),
       offer,
     };

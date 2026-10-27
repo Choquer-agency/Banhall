@@ -378,12 +378,18 @@ async function degrade(
         savedProfileSuperseded: false,
         waiverAnalysis: applied ? "profile" : "none",
         truncated: false,
+        // E1b review: the saved preferences the fallback style carries.
+        ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
       },
     });
   } catch (recordError) {
     console.error("writer settings record failed", reasonOf(recordError), recordError);
   }
-  return { ...style, orderedContext };
+  const { savedPreferences, ...applied } = style;
+  return {
+    ...applied,
+    orderedContext: savedPreferences ? { ...orderedContext, savedPreferencesApplied: true } : orderedContext,
+  };
 }
 
 export async function resolveGenerationWriterSettings(

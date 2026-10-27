@@ -40,6 +40,9 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let confirmingDeleteAll = $state(false);
+  // E1b review: a switch flipped on a failed change is drawn again from the
+  // saved state.
+  let switchResets = $state(0);
 
   async function run(action: () => Promise<string | null>): Promise<boolean> {
     busy = true;
@@ -100,9 +103,9 @@
               <p class="text-sm leading-[calc(10/7)] text-ink">{suggestion.text}</p>
               <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{supportLine(suggestion.support)}</p>
               <div class="flex flex-wrap gap-2">
-                <Button size="xs" variant="secondary" disabled={busy} onclick={() => run(() => onApprove(suggestion._id))}>Approve</Button>
-                <Button size="xs" variant="ghost" disabled={busy} onclick={() => startEdit(suggestion._id, suggestion.text)}>Edit</Button>
-                <Button size="xs" variant="ghost" disabled={busy} onclick={() => run(() => onDismiss(suggestion._id))}>Dismiss</Button>
+                <Button size="xs" variant="secondary" disabled={busy} aria-label={`Approve: ${suggestion.text}`} onclick={() => run(() => onApprove(suggestion._id))}>Approve</Button>
+                <Button size="xs" variant="ghost" disabled={busy} aria-label={`Edit: ${suggestion.text}`} onclick={() => startEdit(suggestion._id, suggestion.text)}>Edit</Button>
+                <Button size="xs" variant="ghost" disabled={busy} aria-label={`Dismiss: ${suggestion.text}`} onclick={() => run(() => onDismiss(suggestion._id))}>Dismiss</Button>
               </div>
             {/if}
           </li>
@@ -128,15 +131,20 @@
                 </div>
               </div>
             {:else}
-              <Switch
-                checked={preference.on}
-                disabled={busy}
-                label={`Use: ${preference.text}`}
-                onCheckedChange={(on) => run(() => onSetOn(preference._id, on))}
-              />
+              {#key `${preference._id}:${preference.on}:${switchResets}`}
+                <Switch
+                  size="md"
+                  checked={preference.on}
+                  disabled={busy}
+                  label={`Use: ${preference.text}`}
+                  onCheckedChange={async (on) => {
+                    if (!(await run(() => onSetOn(preference._id, on)))) switchResets += 1;
+                  }}
+                />
+              {/key}
               <p class={`min-w-[12rem] flex-1 text-sm leading-[calc(10/7)] ${preference.on ? "text-ink" : "text-ink-muted"}`}>{preference.text}</p>
-              <Button size="xs" variant="ghost" disabled={busy} onclick={() => startEdit(preference._id, preference.text)}>Edit</Button>
-              <Button size="xs" variant="danger-ghost" disabled={busy} onclick={() => run(() => onDelete(preference._id))}>Delete</Button>
+              <Button size="xs" variant="ghost" disabled={busy} aria-label={`Edit: ${preference.text}`} onclick={() => startEdit(preference._id, preference.text)}>Edit</Button>
+              <Button size="xs" variant="danger-ghost" disabled={busy} aria-label={`Delete: ${preference.text}`} onclick={() => run(() => onDelete(preference._id))}>Delete</Button>
             {/if}
           </li>
         {/each}
@@ -160,7 +168,7 @@
   {/if}
 
   {#if error}
-    <p role="alert" data-preference-error class="text-sm leading-[calc(10/7)] text-red-700">{error}</p>
+    <p role="alert" data-preference-error class="text-sm leading-[calc(10/7)] text-danger-ink-muted">{error}</p>
   {/if}
 
   {#if saved.length > 0 || suggestions.length > 0}

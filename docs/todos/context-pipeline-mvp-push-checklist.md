@@ -743,8 +743,12 @@ What changes:
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
-- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+- [x] Code review by two reviewers: Claude Opus 5.5 (requested high, it reported low) and gpt-6-astra (medium); fixes in the commit after the E1a re-check.
+- [x] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Automated, live on localhost
+
+- [x] On the live copy (2026-10-27): adding "Always say the InnovMine pilot cut costs by 40%." was refused for its figure, and "Always say the pilot plant failed its first trial." by the model's check, each with the text kept; two style preferences saved ("Your preferences (2 of 30)"); switching one off left one in the writer's effective style; a new draft recorded 2 saved preferences with the effective style's fingerprint, and its Brief said "2 saved preferences used."
 
 ### Manual on localhost
 

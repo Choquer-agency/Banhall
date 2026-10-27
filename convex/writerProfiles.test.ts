@@ -174,6 +174,7 @@ describe("writer profile style overrides", () => {
     expect(forGeneration).toEqual({
       customInstructions: "Legacy instructions.",
       styleOverrides: NO_STYLE_OVERRIDES,
+      profileInstructions: "Legacy instructions.",
     });
   });
 
@@ -191,6 +192,7 @@ describe("writer profile style overrides", () => {
     expect(result).toEqual({
       customInstructions: null,
       styleOverrides: { ...NO_STYLE_OVERRIDES, repetitionCaps: true },
+      profileInstructions: null,
     });
   });
 
@@ -211,6 +213,7 @@ describe("writer profile style overrides", () => {
     expect(result).toEqual({
       customInstructions: null,
       styleOverrides: { ...NO_STYLE_OVERRIDES, openingClauses: true },
+      profileInstructions: null,
     });
   });
 
@@ -483,9 +486,12 @@ describe("ordered generation profile context", () => {
     const applied = await t.query(internal.writerProfiles.getProfileForGeneration, {
       userId: ids.writerId,
     });
+    // E1b review: plus the stored profile text, which settings document
+    // matching reads; still no Build Order or Self-check rules.
     expect(applied).toEqual({
       customInstructions: "Short sentences.",
       styleOverrides: NO_STYLE_OVERRIDES,
+      profileInstructions: "Short sentences.",
     });
     await writer.mutation(api.writerProfiles.saveMyProfile, {
       customInstructions: "Short sentences.",

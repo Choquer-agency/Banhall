@@ -6,6 +6,8 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { savedPreferencesOfGeneration } from "../savedPreferenceNotes";
+import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import {
@@ -370,10 +372,12 @@ export async function persistSectionNotes(
     generationId: args.generation._id,
     candidateRunId: args.run._id,
   };
+  // E1b review: a row quoting a saved preference names it only as one.
+  const saved = await savedPreferencesOfGeneration(ctx, args.generation);
   for (const note of args.notes) {
     // A section's rows belong to that section only.
     if (note.section !== args.section) continue;
-    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved), owner));
   }
   // AD-23/AD-25: the chain's one write outside complianceNotes. The
   // question cites the Confidence Map entry the section's stronger evidence
@@ -643,8 +647,9 @@ export async function insertConsistencyNotesHandler(
     generationId: fence.generation._id,
     candidateRunId: fence.run._id,
   };
+  const saved = await savedPreferencesOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved), owner));
   }
   const now = Date.now();
   await ctx.db.patch(fence.run._id, { consistencyCheckedAt: now });

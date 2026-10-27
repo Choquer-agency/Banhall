@@ -113,12 +113,18 @@ export const orderedProfileContextValidator = v.object({
   profileReason: v.optional(v.string()),
   /** Story 3: a settings document applied, but its waivers were not analysed. */
   waiverAnalysisFailed: v.optional(v.boolean()),
+  /**
+   * E1b review: the writer's saved preferences joined the style text, so
+   * their wording rules are measured even when no Writer Profile applied.
+   * Absent: none (and on contexts frozen before this field).
+   */
+  savedPreferencesApplied: v.optional(v.boolean()),
 });
 export type OrderedProfileContext = Infer<typeof orderedProfileContextValidator>;
 
 /** Exactly the ordered-profile fields of a wider effective-style result. */
 export function pickOrderedProfileContext(
-  style: OrderedProfileContext
+  style: OrderedProfileContext & { savedPreferences?: { count: number } }
 ): OrderedProfileContext {
   return {
     profileState: style.profileState,
@@ -130,6 +136,7 @@ export function pickOrderedProfileContext(
     selfCheckRules: style.selfCheckRules,
     ...(style.profileReason ? { profileReason: style.profileReason } : {}),
     ...(style.waiverAnalysisFailed ? { waiverAnalysisFailed: true } : {}),
+    ...(style.savedPreferencesApplied || (style.savedPreferences?.count ?? 0) > 0 ? { savedPreferencesApplied: true } : {}),
   };
 }
 
@@ -176,7 +183,7 @@ export const writerSettingsValidator = v.object({
    */
   addressedCategories: v.optional(v.array(styleCategoryValidator)),
   /** Phase E (E1b): how many saved preferences the draft froze, and their text's fingerprint. */
-  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string() })),
+  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
 });
 export type WriterSettingsRecord = Infer<typeof writerSettingsValidator>;
 

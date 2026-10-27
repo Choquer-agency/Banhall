@@ -529,7 +529,9 @@ export function runDeterministicSelfCheck(input: {
   // measured here, on this text, as the caps are. Each rule gets its own
   // row naming the paragraph and the words, a break goes to the repair as an
   // exact issue, and the Writer Profile row's caveat below covers it.
-  if (profile.profileState === "applied" && input.writerWording) {
+  // E1b review: saved preferences' wording rules are measured too, with or
+  // without a Writer Profile.
+  if ((profile.profileState === "applied" || profile.savedPreferencesApplied === true) && input.writerWording) {
     const wording = input.writerWording;
     const measuredEntry = (source: string, failure?: string, opening?: string) => {
       const entry = entries[entries.length - 1]!;

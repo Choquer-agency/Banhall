@@ -6,6 +6,8 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { savedPreferencesOfGeneration } from "../savedPreferenceNotes";
+import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
@@ -1079,8 +1081,10 @@ export async function applySeedRedraftHandler(
     generationId: fence.generation._id,
     candidateRunId: fence.run._id,
   };
+  // E1b review: a row quoting a saved preference names it only as one.
+  const saved = await savedPreferencesOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved), owner));
   }
   if (args.notes.length > 0) {
     await ctx.db.patch(fence.run._id, { consistencyCheckedAt: Date.now() });

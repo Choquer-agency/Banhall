@@ -548,3 +548,20 @@ describe("final re-check probes (Round 5 follow-up)", () => {
   });
 
 });
+
+describe("saved preferences without a Writer Profile (E1b review)", () => {
+  const missing = (savedPreferencesApplied: boolean): OrderedProfileContext => ({
+    ...profile(),
+    profileState: "missing",
+    ...(savedPreferencesApplied ? { savedPreferencesApplied: true } : {}),
+  });
+
+  it("measures the wording rules when only saved preferences applied", () => {
+    const measured = (context: OrderedProfileContext) =>
+      check("244", LINE_244, RULES, context).entries.filter((entry) => entry.measuredWording).length;
+    expect(measured(missing(true))).toBeGreaterThan(0);
+    expect(measured(missing(true))).toBe(measured(profile()));
+    // No profile and no saved preferences: nothing is measured, as before.
+    expect(measured(missing(false))).toBe(0);
+  });
+});

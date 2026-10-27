@@ -4,6 +4,8 @@
  * preferences, private to that writer, suggested by the AI from their own
  * signals and kept only when they approve.
  */
+import { SAVED_PREFERENCE_NOTE, savedPreferencesIn, withoutSavedPreferenceText } from "./lib/savedPreferences";
+import { savedPreferencesOfGeneration } from "./lib/savedPreferenceNotes";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -496,6 +498,109 @@ describe("writer memory (Phase E, E1a)", () => {
       );
       const view = await s.writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId });
       expect(view?.savedPreferencesLine).toBe("3 saved preferences used.");
+      // E1b review: a draft keeps its count after the writer deletes them all.
+      await s.writer.mutation(api.writerMemory.removeAll, {});
+      expect((await s.writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId }))?.savedPreferencesLine).toBe(
+        "3 saved preferences used."
+      );
+    });
+
+    test("join in the order they were approved, not made, and record their ids (review)", async () => {
+      const s = await setup();
+      await s.t.run(async (ctx) => {
+        for (const [text, createdAt, decidedAt] of [
+          ["Made first, approved last.", 1, 30],
+          ["Made last, approved first.", 20, 10],
+        ] as const) {
+          await ctx.db.insert("writerMemories", {
+            userId: s.writerId, text, textKey: preferenceTextKey(text), state: "on", origin: "suggested",
+            checkedTextKey: preferenceTextKey(text), createdAt, decidedAt, updatedAt: decidedAt,
+          });
+        }
+      });
+      const result = await style(s);
+      expect(result.customInstructions).toBe("Saved preferences:\n- Made last, approved first.\n- Made first, approved last.");
+      const rows = await s.t.run((ctx) => ctx.db.query("writerMemories").collect());
+      const idOf = (text: string) => rows.find((row) => row.text === text)!._id;
+      expect(result.savedPreferences?.ids).toEqual([idOf("Made last, approved first."), idOf("Made first, approved last.")]);
+    });
+
+    test("another writer's preferences never join a writer's style (review)", async () => {
+      const s = await setup();
+      await s.t.run((ctx) =>
+        ctx.db.insert("writerMemories", {
+          userId: s.otherId, text: "Uses British spelling.", textKey: "uses british spelling", state: "on", origin: "written",
+          checkedTextKey: "uses british spelling", createdAt: 1, decidedAt: 1, updatedAt: 1,
+        })
+      );
+      await savePreferences(s, [["Uses Canadian spelling.", "on"]]);
+      expect((await style(s)).customInstructions).toBe("Saved preferences:\n- Uses Canadian spelling.");
+      const other = await s.t.query(internal.writerProfiles.getGenerationWriterStyle, { userId: s.otherId });
+      expect(other.customInstructions).toBe("Saved preferences:\n- Uses British spelling.");
+    });
+
+    test("with no profile row: chat matches only the stored profile, wording rules apply, and the Brief says both (review)", async () => {
+      const s = await setup();
+      await savePreferences(s, [["Uses Canadian spelling.", "on"]]);
+      expect(await s.t.query(internal.writerProfiles.getProfileForGeneration, { userId: s.writerId })).toMatchObject({
+        customInstructions: "Saved preferences:\n- Uses Canadian spelling.",
+        profileInstructions: null,
+        savedPreferences: { count: 1 },
+      });
+      const context = await s.t.query(internal.writerProfiles.getGenerationProfileContext, { userId: s.writerId });
+      expect(context).toMatchObject({ profileState: "missing", savedPreferencesApplied: true });
+      await profile(s, "Use we.");
+      expect(await s.t.query(internal.writerProfiles.getProfileForGeneration, { userId: s.writerId })).toMatchObject({
+        profileInstructions: "Use we.",
+      });
+
+      const generationId = await s.t.run((ctx) =>
+        ctx.db.insert("generations", {
+          projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+          writerSettings: {
+            profileState: "missing", source: "none", matchesProfile: false, savedProfileSuperseded: false,
+            waiverAnalysis: "none", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+          },
+        })
+      );
+      const view = await s.writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId });
+      expect(view).toMatchObject({
+        noProfileLine: "No Writer Profile applied. House Rules apply in full, with the saved preferences below.",
+        savedPreferencesLine: "1 saved preference used.",
+      });
+    });
+
+    test("a Compliance Note row never carries a saved preference's text (review)", async () => {
+      const s = await setup();
+      const saved = savedPreferencesIn("Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.\n- Uses Canadian spelling.");
+      expect(saved).toEqual(["Keeps sentences under 25 words.", "Uses Canadian spelling."]);
+      expect(savedPreferencesIn("Use we.")).toEqual([]);
+      const note = (instruction: string, reason: string) => ({ section: "242" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false });
+      expect(withoutSavedPreferenceText(note("Keeps sentences under 25 words.", "Every sentence is short."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
+      expect(withoutSavedPreferenceText(note("Keeps sentences under", "Quoted in part."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
+      expect(withoutSavedPreferenceText(note("Writer Profile", "The writer asked: uses Canadian spelling."), saved)).toMatchObject(SAVED_PREFERENCE_NOTE);
+      const profileRow = note("Use we.", "The Line uses we.");
+      expect(withoutSavedPreferenceText(profileRow, saved)).toEqual(profileRow);
+      expect(withoutSavedPreferenceText(note("Keeps sentences under 25 words.", "x"), [])).toMatchObject({ instruction: "Keeps sentences under 25 words." });
+
+      // The generation's frozen style is read only when it used some.
+      const generationId = await s.t.run(async (ctx) => {
+        const id = await ctx.db.insert("generations", {
+          projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+          writerSettings: {
+            profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+            waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+          },
+        });
+        await ctx.db.insert("generationArtifacts", {
+          generationId: id, kind: "writer_style",
+          content: JSON.stringify({ styleGuidance: "", writerFlavor: "Use we.\n\nSaved preferences:\n- Uses Canadian spelling.", styleOverrides: {} }),
+        });
+        return id;
+      });
+      expect(await s.t.run(async (ctx) => savedPreferencesOfGeneration(ctx, (await ctx.db.get(generationId))!))).toEqual(["Uses Canadian spelling."]);
+      await s.t.run((ctx) => ctx.db.patch(generationId, { writerSettings: undefined }));
+      expect(await s.t.run(async (ctx) => savedPreferencesOfGeneration(ctx, (await ctx.db.get(generationId))!))).toEqual([]);
     });
   });
 });

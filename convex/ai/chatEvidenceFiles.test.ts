@@ -11,6 +11,7 @@ import {
   chatSettingsDocumentIndex,
   openedDocumentBlock,
   openedTranscriptBlock,
+  writerPreferencesBlock,
   type ChatEvidenceTranscript,
   type ChatEvidenceBudget,
   type ChatEvidenceDoc,
@@ -19,6 +20,8 @@ import { CHAT_EVIDENCE_GUIDANCE } from "./prompts";
 import { CHARS_PER_TOKEN, describeContextCuts } from "./trustedContext";
 import { MAX_INSTRUCTIONS_CHARS } from "../../shared/writerProfileLimits";
 import { findDashConnectors } from "../../shared/humanProse";
+import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
+import { composeWithSavedPreferences } from "../lib/savedPreferences";
 
 /**
  * 2026-10-19 (chat parity Phase A): the FILES IN THIS PROJECT list in the
@@ -387,6 +390,31 @@ describe("settings document already in the writer's saved preferences", () => {
   it("keeps the head byte-identical across turns for the same sender", () => {
     const profile = settings.content;
     expect(headOf(turn(profile))).toBe(headOf(turn(profile)));
+  });
+
+  it("matches the stored profile alone when saved preferences joined it (E1b review)", () => {
+    const joined = composeWithSavedPreferences(settings.content, ["Keeps sentences under 25 words."]);
+    const request = buildChatTurnRequest({
+      context: { reportContent: null, agentOutputs: null, documents: [settings, ...others], decisions: [] },
+      customInstructions: joined,
+      profileInstructions: settings.content,
+    });
+    const head = headOf(request);
+    expect(filesBlock(head).split("\n")[1]).toContain(SETTINGS_ROW_MARKS.in_preferences);
+    expect(head).not.toContain(`--- BEGIN [${label} ---`);
+    expect(request.system).toContain("Keeps sentences under 25 words.");
+    // Matched against the joined text, as before the fix, it was sent again.
+    const before = headOf(turn(joined));
+    expect(blockBody(before, label)).toBe(settings.content);
+  });
+
+  it("cuts a long profile, never the saved preferences after it (E1b review)", () => {
+    const long = "Prefer plain words. ".repeat(4_000);
+    const joined = composeWithSavedPreferences(long, ["Keeps sentences under 25 words."]);
+    expect(joined.length).toBeGreaterThan(MAX_INSTRUCTIONS_CHARS);
+    const block = writerPreferencesBlock(NO_STYLE_OVERRIDES, joined);
+    expect(block).toContain("Saved preferences:\\n- Keeps sentences under 25 words.");
+    expect(block).toContain("The style document was truncated.");
   });
 
   it("is explained by the evidence guidance", () => {

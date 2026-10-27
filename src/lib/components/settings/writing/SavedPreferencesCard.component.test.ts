@@ -46,11 +46,11 @@ describe("SavedPreferencesCard (Phase E, E1b)", () => {
   it("approves, dismisses, and saves an edited suggestion", async () => {
     const p = props();
     await render(SavedPreferencesCard, p);
-    await button("Approve").click();
+    await button("Approve: Prefers 'we' to 'the company'.").click();
     expect(p.onApprove).toHaveBeenCalledWith("s1");
-    await button("Dismiss").click();
+    await button("Dismiss: Prefers 'we' to 'the company'.").click();
     expect(p.onDismiss).toHaveBeenCalledWith("s1");
-    await page.getByRole("listitem").filter({ hasText: "Prefers" }).getByRole("button", { name: "Edit" }).click();
+    await button("Edit: Prefers 'we' to 'the company'.").click();
     const field = page.getByLabelText("Edit the suggestion");
     await field.clear();
     await field.fill("Prefers 'we' to 'the team'.");
@@ -63,7 +63,7 @@ describe("SavedPreferencesCard (Phase E, E1b)", () => {
     await render(SavedPreferencesCard, p);
     await page.getByRole("switch", { name: "Use: Uses Canadian spelling." }).click();
     await expect.poll(() => p.onSetOn.mock.calls).toEqual([["p1", false]]);
-    await page.getByRole("listitem").filter({ hasText: "Canadian" }).getByRole("button", { name: "Delete" }).click();
+    await button("Delete: Uses Canadian spelling.").click();
     expect(p.onDelete).toHaveBeenCalledWith("p1");
     await page.getByLabelText("Add a preference").fill("Avoids the passive voice.");
     await button("Add").click();
@@ -95,6 +95,31 @@ describe("SavedPreferencesCard (Phase E, E1b)", () => {
     const full = Array.from({ length: 2 }, (_, index) => ({ _id: `p${index}`, text: `Preference ${index}.`, on: true }));
     const { container: atLimit } = await render(SavedPreferencesCard, props({ saved: full, limit: 2 }));
     expect(atLimit.querySelector("[data-add-preference]")).toBeNull();
+  });
+});
+
+describe("SavedPreferencesCard review fixes (E1b)", () => {
+  it("draws a switch again from the saved state when turning it off fails", async () => {
+    const p = props({ onSetOn: vi.fn(async () => "The preference could not be changed. Try again.") });
+    const { container } = await render(SavedPreferencesCard, p);
+    const toggle = page.getByRole("switch", { name: "Use: Uses Canadian spelling." });
+    await toggle.click();
+    await expect.poll(() => container.querySelector("[data-preference-error]")?.textContent).toBe("The preference could not be changed. Try again.");
+    await expect.poll(() => toggle.element().getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("names each row's buttons by their preference, and shows a refusal in the danger ink", async () => {
+    const p = props({ onSave: vi.fn(async () => "A preference cannot hold a code or model name.") });
+    const { container } = await render(SavedPreferencesCard, p);
+    const names = [...container.querySelectorAll("button")].map((node) => node.getAttribute("aria-label")).filter(Boolean);
+    expect(names).toEqual(expect.arrayContaining([
+      "Approve: Prefers 'we' to 'the company'.",
+      "Edit: Uses Canadian spelling.",
+      "Delete: Keeps sentences under 25 words.",
+    ]));
+    await page.getByLabelText("Add a preference").fill("Calls the XR-200 rig the bench.");
+    await button("Add").click();
+    await expect.poll(() => container.querySelector("[data-preference-error]")?.className).toContain("text-danger-ink-muted");
   });
 });
 
