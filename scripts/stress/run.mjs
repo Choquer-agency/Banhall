@@ -24,7 +24,8 @@
 //   script ends for any other reason; one that reached its Seeds is left for
 //   the manual steps only on a clean finish. File labels and the Brief
 //   prepared ahead keep running in the background after a stop; the script
-//   keeps reading the spend until they settle and records the final figure.
+//   keeps reading the spend until they settle and records the final figure,
+//   except after Ctrl-C or SIGTERM, when it reads once and does not wait.
 //   Erasing the project stops them.
 //
 //   node scripts/stress/run.mjs --data /tmp/stress --checkout <checkout running convex dev> \
@@ -127,6 +128,11 @@ async function main(argv) {
   const checkStop = () => {
     if (stopSignal) throw new Stopped(`stopped by ${stopSignal}`);
   };
+  /** Lets a pending signal handler run first: Node runs it between tasks. */
+  const checkStopAfterSignals = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    checkStop();
+  };
 
   /** `npx convex run` on the local deployment. */
   const cli = (args, maxBuffer) => {
@@ -136,7 +142,8 @@ async function main(argv) {
     try {
       return JSON.parse(execFileSync("npx", ["convex", "run", "--deployment", "local", ...args], { cwd: checkout, env, encoding: "utf8", maxBuffer }));
     } catch (error) {
-      const signal = error?.signal ?? (error?.status === 130 ? "SIGINT" : error?.status === 143 ? "SIGTERM" : null);
+      // A read execFileSync killed itself (ENOBUFS, ETIMEDOUT) has a code.
+      const signal = error?.code ? null : (error?.signal ?? (error?.status === 130 ? "SIGINT" : error?.status === 143 ? "SIGTERM" : null));
       if (signal === "SIGINT" || signal === "SIGTERM") {
         stopSignal ??= signal;
         throw new Stopped(`stopped by ${stopSignal}`);
@@ -254,7 +261,7 @@ async function main(argv) {
   };
 
   async function step(name, body, { required = false } = {}) {
-    checkStop();
+    await checkStopAfterSignals();
     const started = Date.now();
     const entry = { step: name, ok: true };
     let capReached = null;
@@ -268,7 +275,16 @@ async function main(argv) {
     // A signal during a CLI read fails that read; record the stop instead.
     if (stopSignal && !capReached) capReached = new Stopped(`stopped by ${stopSignal}`);
     entry.ms = Date.now() - started;
-    const current = spend(started);
+    let current;
+    try {
+      current = spend(started);
+    } catch (error) {
+      // The step is kept in the results even when its spend cannot be read.
+      entry.spendUnknown = String(error?.message ?? error);
+      results.steps.push(entry);
+      save();
+      throw capReached ?? error;
+    }
     entry.stepCostUsd = current.costUsd - spentSoFar;
     entry.spentSoFar = current.costUsd;
     entry.byCallSite = current.byCallSite;
@@ -362,7 +378,7 @@ async function main(argv) {
     // one that failed, or never started, ends the wait with the cause.
     // Required: a draft that fails here is cancelled, never left running.
     await step("start a Step by step draft and wait for its Seeds", async () => {
-      checkStop();
+      await checkStopAfterSignals();
       generationId = await client.mutation(ref("generations:requestGeneration"), { projectId, candidateMode: "iterative", confirmRegeneration: true });
       let stageOpenSince = null;
       return await waitFor(
@@ -458,7 +474,8 @@ async function main(argv) {
         for (let waited = 0; waited < 20 && !stopSignal; waited += 1) await new Promise((resolve) => setTimeout(resolve, 1000));
         if (stopSignal) break;
       }
-      results.finalSpendUsd = Math.max(last, 0);
+      // Null when no read finished (a stop killed the first one).
+      results.finalSpendUsd = last >= 0 ? last : null;
       // False when the fifteen minutes ran out while the spend still rose.
       results.finalSpendSettled = settled;
     } catch (error) {
