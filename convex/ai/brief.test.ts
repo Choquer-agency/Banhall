@@ -3590,4 +3590,23 @@ describe("a Brief answer that leaves fields out (live check, 2026-10-26)", () =>
     const { client } = briefClient([{}, { storyline: "The seal held." }]);
     await expect(runBriefAgent(client, "evidence", "claude-sonnet-5-5")).rejects.toThrow(/left out required fields/);
   });
+
+  it("a Brief saved with nothing in it is never reused; the next draft on the same inputs derives it again", async () => {
+    const t = convexTest(schema, modules);
+    const { userId, projectId } = await makeProject(t);
+    const inputsHash = "empty-brief-not-reused";
+    const generation = (source: string) => makeGeneration(t, projectId, userId, TRANSCRIPT_TEXT, source);
+    const first = await generation("empty-first-source");
+    const second = await generation("empty-second-source");
+    await publishDerivedBrief(briefPublishCtx(t).ctx, {
+      projectId, generationId: first, inputsHash, origin: "derived", storylineText: "", entries: [],
+    });
+    expect(await t.query(internal.generations.findReusableBrief, { generationId: second, inputsHash })).toBeNull();
+    const kept = await publishDerivedBrief(briefPublishCtx(t).ctx, {
+      projectId, generationId: second, inputsHash, origin: "derived", storylineText: "The team screened coatings.", entries: [],
+    });
+    expect(kept).not.toBeNull();
+    const third = await generation("empty-third-source");
+    expect((await t.query(internal.generations.findReusableBrief, { generationId: third, inputsHash }))?._id).toBe(kept);
+  });
 });

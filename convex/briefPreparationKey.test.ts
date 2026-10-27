@@ -202,10 +202,10 @@ describe("the derivation bundle", () => {
   test("is pinned: a changed constant needs a new version and a new pin", async () => {
     const hash = await sha256(stableSerialize(BRIEF_DERIVATION_CONSTANTS as unknown as JsonValue));
     expect({ version: BRIEF_DERIVATION_VERSION, maxQuotePlaces: MAX_QUOTE_PLACES, hash }).toEqual({
-      // 9 (2026-10-26): the structured repair's cutOffMoreRoomSummary.
-      version: 9,
+      // 10 (2026-10-26, live check): the Brief's answer must hold every field its tool requires.
+      version: 10,
       maxQuotePlaces: 8,
-      hash: "5c491b62651ac77bafdf8e2c56fd3c53516be88cc6060a5ffbfeb9b496aed810",
+      hash: "d7c620c73082394762aa1a61a5ee42a6eb5101ac918f16e95b130961273497fb",
     });
   });
 

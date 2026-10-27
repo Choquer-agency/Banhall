@@ -321,13 +321,29 @@ export async function latestBriefForInputs(
   projectId: Id<"projects">,
   inputsHash: string
 ) {
-  return await ctx.db
+  const brief = await ctx.db
     .query("generationBriefs")
     .withIndex("by_projectId_and_inputsHash", (q) =>
       q.eq("projectId", projectId).eq("inputsHash", inputsHash)
     )
     .order("desc")
     .first();
+  return brief && !(await holdsNothing(ctx, brief)) ? brief : null;
+}
+
+/**
+ * A derived Brief with no storyline and no entries: what an answer with
+ * every field left out was saved as before 2026-10-26 (live check, Sonnet
+ * 5.5). It is never reused, so the next draft on the same inputs derives
+ * the Brief again.
+ */
+async function holdsNothing(ctx: { db: QueryCtx["db"] }, brief: Doc<"generationBriefs">): Promise<boolean> {
+  if (brief.origin !== "derived" || brief.storylineText.trim() !== "") return false;
+  const entry = await ctx.db
+    .query("generationBriefEntries")
+    .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
+    .first();
+  return entry === null;
 }
 
 export async function reusableBriefForGeneration(
