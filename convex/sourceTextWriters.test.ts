@@ -8,6 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
 import { FROZEN_TEXT_TOO_LARGE_MESSAGE, RECOVERY_TOO_LARGE_MESSAGE, reserveGeneration } from "./lib/generations/reservation";
 import { decisionFixture } from "./seedDecision.fixture";
+import { copyRecoverySourceUses, RECOVERY_SOURCE_USE_COPIES } from "./lib/generations/sourceUse";
 import { sourceRowText } from "./lib/sourceText";
 import { TRANSCRIPT_FACTS_MODE_KEY } from "./appSettings";
 
@@ -339,8 +340,9 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
   });
 
   it("leaves out step records that would not fit, and says so, instead of failing the recovery", async () => {
-    // 16 older rows of 900,000 characters, then 2,500 records per step.
-    const s = await failedSignedOffDraft(16, "a".repeat(900_000));
+    // 16 older rows of 950,000 characters, then 2,500 records per step: the
+    // room left runs out before the 4,000-record cap.
+    const s = await failedSignedOffDraft(16, "a".repeat(950_000));
     const first = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId });
     await s.t.run(async (ctx) => {
       await ctx.db.patch(first, { status: "failed" });
@@ -369,7 +371,8 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
     }));
     expect(copied.truncated).toBe(true);
     expect(copied.records).toBeGreaterThan(0);
-    expect(copied.records).toBeLessThan(7_500);
+    // Fewer than the 4,000-copy cap: the guard, not the cap, cut them.
+    expect(copied.records).toBeLessThan(RECOVERY_SOURCE_USE_COPIES);
   });
 
   it("does not mark a large recovery incomplete when its steps have few records", async () => {
@@ -404,5 +407,54 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
     await expect(s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId })).rejects.toThrow(
       RECOVERY_TOO_LARGE_MESSAGE
     );
+  });
+});
+
+describe("a recovery's step records at the edge of the room left (B1 review, round 7)", () => {
+  async function stepRecords(rows: Array<{ step: "analyzer" | "brief" | "seeds"; run: string; state: "whole" | "part" }>) {
+    const t = convexTest(schema, modules);
+    return await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId: "edge", role: "writer" });
+      const projectId = await ctx.db.insert("projects", {
+        title: "Seals", clientName: "Quillmere", status: "draft", createdBy: userId, shareToken: "edge", createdAt: 1, updatedAt: 1,
+      });
+      const from = await ctx.db.insert("generations", { projectId, status: "failed", startedAt: 1 });
+      const to = await ctx.db.insert("generations", { projectId, status: "reserved", startedAt: 1 });
+      const base = { projectId, kind: "transcript" as const, label: "Interview", content: "x", contentHash: "h", truncated: false, originalLength: 1, capturedAt: 1 };
+      const sourceId = await ctx.db.insert("generationSources", { ...base, generationId: from });
+      const copyId = await ctx.db.insert("generationSources", { ...base, generationId: to });
+      for (const row of rows) {
+        await ctx.db.insert("generationSourceUse", {
+          generationId: from, projectId, sourceId, step: row.step, run: row.run, state: row.state, sent: 1, total: 1, unit: "chars", at: 1,
+        });
+      }
+      return { projectId, from, to, sourceId, copyId };
+    }).then((ids) => ({ t, ...ids, copyOf: new Map([[ids.sourceId, ids.copyId]]) }));
+  }
+  /** A guard with room for `pages` read pages, then none. */
+  function roomFor(pages: number) {
+    let left = pages;
+    return { read: () => undefined, hasRoom: async (kind: "read" | "write") => (kind === "write" ? true : left-- > 0) };
+  }
+
+  it("is not marked incomplete when the room runs out exactly as the records end", async () => {
+    const s = await stepRecords(Array.from({ length: 100 }, (_, index) => ({ step: "analyzer" as const, run: `run-${String(index).padStart(3, "0")}`, state: "whole" as const })));
+    const result = await s.t.run((ctx) => copyRecoverySourceUses(ctx, s.from, { _id: s.to, projectId: s.projectId }, s.copyOf, roomFor(1)));
+    expect(result).toEqual({ truncated: false });
+    expect(await s.t.run(async (ctx) => (await ctx.db.query("generationSourceUse").withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", s.to)).collect()).length)).toBe(100);
+  });
+
+  it("leaves out a run cut part way rather than show it weaker than it was", async () => {
+    // 99 runs, then run "zz" with a part record at 100 and its whole record at 101.
+    const s = await stepRecords([
+      ...Array.from({ length: 99 }, (_, index) => ({ step: "analyzer" as const, run: `run-${String(index).padStart(3, "0")}`, state: "whole" as const })),
+      { step: "analyzer", run: "zz", state: "part" },
+      { step: "analyzer", run: "zz", state: "whole" },
+    ]);
+    const result = await s.t.run((ctx) => copyRecoverySourceUses(ctx, s.from, { _id: s.to, projectId: s.projectId }, s.copyOf, roomFor(1)));
+    expect(result).toEqual({ truncated: true });
+    const copied = await s.t.run((ctx) => ctx.db.query("generationSourceUse").withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", s.to)).collect());
+    expect(copied).toHaveLength(99);
+    expect(copied.some((row) => row.run === "zz")).toBe(false);
   });
 });

@@ -174,12 +174,12 @@ export async function copyRecoverySourceUses(
   to: { _id: Id<"generations">; projectId: Id<"projects"> },
   copyOf: ReadonlyMap<Id<"generationSources">, Id<"generationSources">>,
   /**
-   * The recovery's transaction guard (B1 review, rounds 5 and 6): records
-   * are read and written a page at a time, asking first, so only records
-   * that really do not fit what is left of the transaction are left out,
-   * and the copy then says it is incomplete, instead of failing the
-   * recovery. `read` counts each record read, for runtimes that cannot
-   * report their usage.
+   * The recovery's transaction guard (B1 review, rounds 5 to 7): records
+   * are read and written a page at a time, asking first, so at most a page
+   * more than needed is left out, and the copy then says it is incomplete,
+   * instead of failing the recovery; it says so only when a record was
+   * really left out. `read` counts each record read, for runtimes that
+   * cannot report their usage.
    */
   limits?: {
     hasRoom(kind: "read" | "write", bytes: number, writtenBytes?: number): Promise<boolean>;
@@ -190,6 +190,8 @@ export async function copyRecoverySourceUses(
   const copies: Doc<"generationSourceUse">[] = [];
   for (const step of ["analyzer", "brief", "seeds"] as const) {
     const rows: Doc<"generationSourceUse">[] = [];
+    // The first record not kept, when the step was cut.
+    let firstLeft: Doc<"generationSourceUse"> | undefined;
     const iterator = ctx.db
       .query("generationSourceUse")
       .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", fromGenerationId).eq("step", step))
@@ -197,23 +199,41 @@ export async function copyRecoverySourceUses(
     try {
       pages: for (;;) {
         if (limits && !(await limits.hasRoom("read", (SOURCE_USE_PAGE + 1) * SOURCE_USE_ROW_BYTES))) {
-          truncated = true;
+          // One record more fits in the page's own allowance: it shows
+          // whether anything is really left (round 7).
+          const next = await iterator.next();
+          if (!next.done) {
+            limits.read(next.value);
+            firstLeft = next.value;
+          }
           break;
         }
         for (let index = 0; index < SOURCE_USE_PAGE; index += 1) {
           const next = await iterator.next();
           if (next.done) break pages;
           limits?.read(next.value);
+          if (rows.length === RECOVERY_SOURCE_USE_ROWS_PER_STEP) {
+            firstLeft = next.value;
+            break pages;
+          }
           rows.push(next.value);
-          if (rows.length > RECOVERY_SOURCE_USE_ROWS_PER_STEP) break pages;
         }
       }
     } finally {
       await iterator.return?.();
     }
-    if (rows.length > RECOVERY_SOURCE_USE_ROWS_PER_STEP) truncated = true;
+    let kept = rows;
+    if (firstLeft) {
+      truncated = true;
+      // The run cut part way may have its best record among those left
+      // out; its records are left out too rather than shown weaker (round 7).
+      const cutRun = firstLeft.run ?? "";
+      if (kept.length > 0 && (kept[kept.length - 1]!.run ?? "") === cutRun) {
+        kept = kept.filter((row) => (row.run ?? "") !== cutRun);
+      }
+    }
     const best = new Map<string, Doc<"generationSourceUse">>();
-    for (const row of rows.slice(0, RECOVERY_SOURCE_USE_ROWS_PER_STEP)) {
+    for (const row of kept) {
       if (!copyOf.has(row.sourceId)) continue;
       const key = `${row.run ?? ""}\u0000${row.sourceId}`;
       const before = best.get(key);
