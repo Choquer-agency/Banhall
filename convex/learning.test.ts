@@ -6,7 +6,7 @@ import { z } from "zod";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -655,6 +655,46 @@ describe("writer feedback distillation stream", () => {
     const regenerated = await allDraftStyleDigests(t);
     expect(regenerated).toHaveLength(2);
     expect(regenerated.map((row) => row.sourceCount)).toContain(6);
+  });
+
+  test("a build after a Brain source is revoked leaves its feedback out, records the revision, and the next run finds nothing new (Phase E, E2a review)", async () => {
+    const { t, admin } = await setup();
+    const fixture = await seedAdmissionFixture(t);
+    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    const fetchMock = vi.fn(
+      async (_input: unknown, _init?: { body?: unknown }) =>
+        anthropicToolResponse(["State the specific metrics tested instead of summarizing outcomes."]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const feedbackIds: Id<"brainFeedbackQueue">[] = [];
+    for (const [index, body] of FEEDBACK_BODIES.slice(0, 6).entries()) {
+      const side = index % 2;
+      const feedbackId = await t
+        .withIdentity({ subject: `admission-writer-${side}` })
+        .mutation(api.brain.submitBrainFeedback, { body, projectId: fixture.projects[side] });
+      await admin.mutation(api.brain.reviewFeedback, { feedbackId, decision: "approved" });
+      feedbackIds.push(feedbackId);
+    }
+    await t.action(internal.ai.learning.generateDraftStyleDigest, {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Revoke the source of the oldest approval: the cutoff does not move.
+    const sourceId = (await t.run((ctx) => ctx.db.get(feedbackIds[0]!)))!.brainSourceId!;
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    await t.action(internal.ai.learning.generateDraftStyleDigest, {});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const request = JSON.parse(fetchMock.mock.calls[1][1]!.body as string);
+    expect(request.messages[0].content).not.toContain(FEEDBACK_BODIES[0]);
+    expect(request.messages[0].content).toContain(FEEDBACK_BODIES[1]);
+    const digests = await allDraftStyleDigests(t);
+    expect(digests).toHaveLength(2);
+    const rebuilt = digests.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
+    expect(rebuilt.learningRevision).toBeGreaterThan(0);
+
+    // Nothing new since: no model call, no new set.
+    await t.action(internal.ai.learning.generateDraftStyleDigest, {});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await allDraftStyleDigests(t)).toHaveLength(2);
   });
 });
 

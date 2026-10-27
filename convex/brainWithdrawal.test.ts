@@ -308,4 +308,116 @@ describe("removing a Brain source withdraws its lessons (Phase E, E2a)", () => {
     // Run again: nothing more to do.
     expect(await t.mutation(internal.brain.linkBrainFeedbackSources, {})).toEqual({ linked: 0, withdrawn: 0, done: true });
   });
+
+  test("an old withdrawal still blocks publication after many newer ones (review)", async () => {
+    const { t, admin } = await setup();
+    const sourceId = await insertSource(t, "approved");
+    const old = await insertFeedback(t, { approvedAt: 3, sourceId });
+    const drew = await insertDigest(t, { cutoff: 3, admitted: [old] });
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    // Six hundred later withdrawals, newer than the old one.
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 600; index += 1) {
+        await ctx.db.insert("brainFeedbackQueue", {
+          fromUserId: "writer-b", body: `Later feedback ${index}`, status: "approved", createdAt: 1,
+          withdrawnAt: Date.now() + 1_000 + index, withdrawnApprovedAt: 9,
+        });
+      }
+    });
+    const current = await latestSelection(t);
+    await expect(
+      admin.mutation(api.learning.selectDigest, {
+        kind: "draft_style", digestId: drew, expectedSelectionId: current?._id ?? null, privacyReviewed: true,
+      })
+    ).rejects.toThrow(/Brain source that was removed/);
+  });
+
+  test("revoking a source with more than 200 linked items withdraws every one (review)", async () => {
+    const { t, admin } = await setup();
+    const sourceId = await insertSource(t, "approved");
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 250; index += 1) {
+        await ctx.db.insert("brainFeedbackQueue", {
+          fromUserId: "writer-a", body: `Linked feedback ${index}`, status: "approved", createdAt: 1, brainSourceId: sourceId,
+        });
+      }
+    });
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    const rows = await t.run((ctx) => ctx.db.query("brainFeedbackQueue").collect());
+    expect(rows.filter((row) => row.withdrawnAt === undefined)).toHaveLength(0);
+    expect(rows.every((row) => row.withdrawnApprovedAt === 1)).toBe(true);
+  });
+
+  test("approving feedback that duplicates a revoked source withdraws it at once (review)", async () => {
+    const { t, admin } = await setup();
+    const body = "Lead each section with the result, then explain the method that produced it, in plain words.";
+    const first = await t.run((ctx) => ctx.db.insert("brainFeedbackQueue", { fromUserId: "writer-a", body, status: "pending", createdAt: 1 }));
+    await admin.mutation(api.brain.reviewFeedback, { feedbackId: first, decision: "approved" });
+    const sourceId = (await t.run((ctx) => ctx.db.get(first)))!.brainSourceId!;
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+
+    const again = await t.run((ctx) => ctx.db.insert("brainFeedbackQueue", { fromUserId: "writer-b", body, status: "pending", createdAt: 2 }));
+    await admin.mutation(api.brain.reviewFeedback, { feedbackId: again, decision: "approved" });
+    const row = await t.run((ctx) => ctx.db.get(again));
+    expect(row).toMatchObject({ brainSourceId: sourceId, withdrawnAt: expect.any(Number) });
+    const inputs = await t.query(internal.learning.getApprovedBrainFeedbackForDigest, { limit: 50 });
+    expect(inputs).toEqual([]);
+  });
+
+  test("two approvals of the same text link the one source, and an item linked twice is withdrawn once (review)", async () => {
+    const { t, admin } = await setup();
+    const body = "Name the uncertainty before the work that answered it, every time, in each Line.";
+    const ids: Id<"brainFeedbackQueue">[] = [];
+    for (const writer of ["writer-a", "writer-b"]) {
+      const id = await t.run((ctx) => ctx.db.insert("brainFeedbackQueue", { fromUserId: writer, body, status: "pending", createdAt: 1 }));
+      await admin.mutation(api.brain.reviewFeedback, { feedbackId: id, decision: "approved" });
+      ids.push(id);
+    }
+    const rows = await t.run(async (ctx) => Promise.all(ids.map((id) => ctx.db.get(id))));
+    expect(rows[0]!.brainSourceId).toBe(rows[1]!.brainSourceId);
+    // Linked directly and through each approval's audit row.
+    const withdrawn = await t.run(async (ctx) => {
+      const { withdrawSourceFeedback } = await import("./lib/learningWithdrawal");
+      return await withdrawSourceFeedback(ctx, rows[0]!.brainSourceId!);
+    });
+    expect(withdrawn).toBe(2);
+  });
+
+  test("revoking leaves a published QA calibration set alone, and a second revoke turns nothing off again (review)", async () => {
+    const { t, admin } = await setup();
+    const sourceId = await insertSource(t, "approved");
+    const feedbackId = await insertFeedback(t, { approvedAt: 3, sourceId });
+    const qa = await t.run((ctx) =>
+      ctx.db.insert("learningDigests", { kind: "qa_calibration", content: "QA rules", sourceCount: 5, feedbackCutoff: 9, model: "m", createdAt: 1 })
+    );
+    await t.run((ctx) =>
+      ctx.db.insert("learningDigestSelections", { kind: "qa_calibration", selectedDigestId: qa, actorKind: "system", action: "select", selectedAt: 1 })
+    );
+    const style = await insertDigest(t, { cutoff: 3, admitted: [feedbackId] });
+    await publish(t, style);
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    expect((await t.query(internal.learning.getActiveDigest, { kind: "qa_calibration" }))?._id).toBe(qa);
+    const styleSelections = await t.run((ctx) =>
+      ctx.db.query("learningDigestSelections").withIndex("by_kind", (q) => q.eq("kind", "draft_style")).collect()
+    );
+    expect(styleSelections.filter((row) => row.action === "source_withdrawn")).toHaveLength(1);
+  });
+
+  test("the one-off pass walks every page (review)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { t } = await setup();
+      const revoked = await insertSource(t, "revoked");
+      for (let index = 0; index < 150; index += 1) {
+        await insertFeedback(t, { approvedAt: 3, sourceId: revoked, linkThroughAuditOnly: true });
+      }
+      await t.mutation(internal.brain.linkBrainFeedbackSources, {});
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const rows = await t.run((ctx) => ctx.db.query("brainFeedbackQueue").collect());
+      expect(rows.filter((row) => row.brainSourceId === revoked && row.withdrawnAt !== undefined)).toHaveLength(150);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

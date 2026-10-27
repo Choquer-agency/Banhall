@@ -494,7 +494,7 @@ flowchart LR
   - an Admin approves a file imported from OneDrive on `/admin/ingestion` (this one goes straight in).
 
   Nominations wait as pending until an Admin approves them on `/admin/brain`. Approved material is embedded with Voyage and searched during drafting.
-- **Learning digests** are short lessons distilled from writer feedback, QA feedback and edits, refreshed nightly. A digest only reaches prompts after an Admin publishes it. Revoking or removing a Brain source withdraws the feedback it was made from (`brainFeedbackQueue.withdrawnAt`, `convex/lib/learningWithdrawal.ts`): new digests skip it, and a published digest that drew on it is turned off until an Admin publishes one built since (2026-10-26).
+- **Learning digests** are short lessons distilled from writer feedback, QA feedback and edits, refreshed nightly. A digest only reaches prompts after an Admin publishes it. Revoking or removing a Brain source withdraws the feedback it was made from (`brainFeedbackQueue.withdrawnAt`, `convex/lib/learningWithdrawal.ts`): new digests skip it, and a published digest that drew on it is turned off until an Admin publishes one that did not draw on it (2026-10-26).
 - **Provenance:** each run records which prompt version, digests and Brain sources it used (`generations.promptVersion`, `learningDigestIds`, `brainProvenance`).
 
 ---

@@ -21,7 +21,7 @@ import {
   drewOnWithdrawn,
   learningRevision,
   sameLearningInputs,
-  withdrawnFeedback,
+  withdrawnLookup,
 } from "./lib/learningWithdrawal";
 
 /**
@@ -180,8 +180,14 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
     const scrubProject = projectScrubber(ctx);
     const items = [];
     for (const row of rows) {
-      // Phase E (E2a): its Brain source was removed, so its lessons are too.
+      // Phase E (E2a): its Brain source was removed, so its lessons are too;
+      // a source revoked or removed before its items were all withdrawn
+      // counts already (review).
       if (row.withdrawnAt !== undefined) continue;
+      if (row.brainSourceId) {
+        const source = await ctx.db.get(row.brainSourceId);
+        if (!source || source.status === "revoked") continue;
+      }
       const rule = row.suggestedRule?.trim();
       const body = row.body.trim();
       if (!rule && body.length < MIN_PROMOTABLE_FEEDBACK_CHARS) continue;
@@ -302,10 +308,11 @@ export const saveDigest = internalMutation({
     if (
       args.kind === "draft_style" &&
       args.admission &&
-      drewOnWithdrawn(
-        { kind: args.kind, admission: args.admission, feedbackCutoff: args.feedbackCutoff },
-        await withdrawnFeedback(ctx),
-      )
+      (await drewOnWithdrawn(ctx, {
+        kind: args.kind,
+        admission: args.admission,
+        feedbackCutoff: args.feedbackCutoff,
+      }))
     ) {
       await saveAttempt(ctx, args.kind, "withdrawn_inputs", args.admission);
       return null;
@@ -388,8 +395,7 @@ export const getDigestHistory = query({
     const publishedDigest = publishedDigestId
       ? await ctx.db.get(publishedDigestId)
       : null;
-    const withdrawn =
-      args.kind === "draft_style" ? await withdrawnFeedback(ctx) : [];
+    const isWithdrawn = withdrawnLookup(ctx);
     const visibleDigests =
       publishedDigest &&
       !digests.some((digest) => digest._id === publishedDigest._id)
@@ -412,7 +418,7 @@ export const getDigestHistory = query({
       explicitlyDisabled: currentSelection?.selectedDigestId === null,
       // Phase E (E2a): turned off because a Brain source it drew on was removed.
       turnedOffForRemovedSource: currentSelection?.action === "source_withdrawn",
-      digests: visibleDigests.map((digest) => ({
+      digests: await Promise.all(visibleDigests.map(async (digest) => ({
         _id: digest._id,
         content: digest.content,
         sourceCount: digest.sourceCount,
@@ -421,8 +427,8 @@ export const getDigestHistory = query({
         model: digest.model,
         createdAt: digest.createdAt,
         isPersonal: Boolean(digest.userId),
-        drewOnRemovedSource: drewOnWithdrawn(digest, withdrawn),
-      })),
+        drewOnRemovedSource: await drewOnWithdrawn(ctx, digest, isWithdrawn),
+      }))),
       selections: selectionEvents.map((event) => ({
         _id: event._id,
         selectedDigestId: event.selectedDigestId,
@@ -470,9 +476,9 @@ export const selectDigest = mutation({
         throw new Error("Personal digests cannot be published globally");
       // Phase E (E2a): publishing, or rolling back to, a version that drew
       // on a removed Brain source's feedback is refused.
-      if (drewOnWithdrawn(digest, await withdrawnFeedback(ctx)))
+      if (await drewOnWithdrawn(ctx, digest))
         throw new Error(
-          "This version drew on feedback from a Brain source that was removed. Publish a version built since.",
+          "This version drew on feedback from a Brain source that was removed. Publish a version that did not use it.",
         );
     }
 

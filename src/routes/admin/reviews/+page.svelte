@@ -35,7 +35,7 @@
       case "unsupported_rules": return "No candidate: no supported rules were produced.";
       case "failed": return "Generation failed. No candidate was saved; published guidance is unchanged.";
       case "saved": return "Candidate saved for administrator review.";
-      case "deduplicated": return "No new candidate: this input cutoff was already saved.";
+      case "deduplicated": return "No new candidate: these inputs were already saved.";
       case "withdrawn_inputs": return "No candidate: feedback it read was withdrawn when its Brain source was removed.";
       default: {
         const exhaustive: never = outcome;
@@ -405,7 +405,7 @@
                   {:else}
                     <p class="mt-1 text-sm text-gray-500" data-style-off-reason>
                       {style.turnedOffForRemovedSource
-                        ? "Turned off because a Brain source it drew on was removed. Publish a version built since to turn it back on."
+                        ? "Turned off because a Brain source it drew on was removed. Publish a version that did not use it to turn guidance back on."
                         : style.explicitlyDisabled
                           ? "Disabled by an administrator."
                           : "No version has been published yet."}

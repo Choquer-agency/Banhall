@@ -651,6 +651,7 @@ What changes:
 ### Automated, live on localhost
 
 - [x] A Word file uploaded as an older browser tab would send it (plain text) was read again on the server as Markdown (heading, bold, italics, a table), and its plain text was kept as version 1. The check found the version naming the wrong reader; fixed (`textReader`).
+- [x] After the review fixes (69f67364): a Word file whose plain text is its own words became Markdown with the plain text kept as a version; a previous-year upload kept its header and the writer's note (escaped) before the Markdown; text that is not the file's words was kept, with no version.
 
 ### Owner, once, dev first
 
@@ -667,12 +668,16 @@ Decision record: `docs/product-domain.md`, entry "2026-10-26 (twelfth)". Plan: `
 What changes:
 
 - **Revoking or removing a Brain source withdraws the writer feedback it was made from**, so new style lessons no longer learn from it.
-- **Published style guidance that drew on that feedback is turned off** until an Admin publishes a version built since. The Admin reviews page says why, and offers no Publish button on a version that drew on it.
+- **Published style guidance that drew on that feedback is turned off** until an Admin publishes a version that did not use it. The Admin reviews page says why, and offers no Publish button on a version that drew on it.
 
 ### Automated, offline
 
-- [ ] Code review by two reviewers.
+- [x] Code review by two reviewers (gpt-6-astra, medium; Claude Opus 5.5, low as it reported), both "ship after fixes". Fixes in the twelfth decision entry.
 - [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Automated, live on localhost
+
+- [x] Feedback approved, a style set that admitted it published, its Brain source revoked: guidance turned off with the reason, that version marked, and publishing it again refused. The one-off pass ran (nothing older to link on this copy).
 
 ### Owner, once, dev first
 

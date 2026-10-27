@@ -303,7 +303,7 @@ describe("/admin/reviews learning admission", () => {
     render(ReviewsPage);
     await expect
       .poll(() => document.querySelector("[data-style-off-reason]")?.textContent?.trim())
-      .toBe("Turned off because a Brain source it drew on was removed. Publish a version built since to turn it back on.");
+      .toBe("Turned off because a Brain source it drew on was removed. Publish a version that did not use it to turn guidance back on.");
     await expect.poll(() => buttonsByText("Show previous versions (2)").length).toBe(2);
     buttonsByText("Show previous versions (2)")[1]!.click();
     await expect
@@ -318,7 +318,7 @@ describe("/admin/reviews learning admission", () => {
     { outcome: "unchanged_inputs", explanation: "Skipped: no admitted feedback is newer than the last candidate cutoff, and no Brain source was removed since." },
     { outcome: "unsupported_rules", explanation: "No candidate: no supported rules were produced." },
     { outcome: "saved", explanation: "Candidate saved for administrator review." },
-    { outcome: "deduplicated", explanation: "No new candidate: this input cutoff was already saved." },
+    { outcome: "deduplicated", explanation: "No new candidate: these inputs were already saved." },
     { outcome: "failed", explanation: "Generation failed. No candidate was saved; published guidance is unchanged." },
     { outcome: "withdrawn_inputs", explanation: "No candidate: feedback it read was withdrawn when its Brain source was removed." },
   ]) {

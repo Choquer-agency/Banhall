@@ -22,7 +22,7 @@ import {
   requireRole,
 } from "./lib/auth";
 import { domainError } from "./lib/contracts";
-import { turnOffWithdrawnPublishedSet, withdrawSourceFeedback } from "./lib/learningWithdrawal";
+import { turnOffWithdrawnPublishedSet, withdrawFeedback, withdrawSourceFeedback } from "./lib/learningWithdrawal";
 
 // Serial embed queue with backoff — Voyage 429s on parallel bursts (the 10-PD
 // seed lost 7/10 jobs at maxParallelism ∞). Bulk imports (BNH-17's ~500) drain
@@ -273,11 +273,15 @@ export const removeSourcePermanently = internalMutation({
     // Phase E (E2a): removing a source withdraws the lessons drawn from it,
     // as revoking does, before its feedback loses the link.
     await withdrawSourceFeedback(ctx, args.sourceId);
-    const linked = await ctx.db
-      .query("brainFeedbackQueue")
-      .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", args.sourceId))
-      .take(200);
-    for (const row of linked) await ctx.db.patch(row._id, { brainSourceId: undefined });
+    // Every link, page by page (review: not only the first 200).
+    for (;;) {
+      const linked = await ctx.db
+        .query("brainFeedbackQueue")
+        .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", args.sourceId))
+        .take(200);
+      for (const row of linked) await ctx.db.patch(row._id, { brainSourceId: undefined });
+      if (linked.length < 200) break;
+    }
     if (s.ragEntryId) {
       await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
         ragEntryId: s.ragEntryId,
@@ -734,6 +738,13 @@ export const reviewFeedback = mutation({
         // Phase E (E2a): the source this item's lessons come from, so
         // removing it withdraws them (a duplicate links the existing one).
         await ctx.db.patch(args.feedbackId, { brainSourceId: sourceId });
+        // A duplicate of a source already revoked is withdrawn at once
+        // (review): its lessons were removed with that source.
+        const linked = await ctx.db.get(sourceId);
+        if (linked?.status === "revoked") {
+          const row = await ctx.db.get(args.feedbackId);
+          if (row) await withdrawFeedback(ctx, row, sourceId, Date.now());
+        }
         // Learning loop: approved feedback is also distillation signal for the
         // draft-style digest (immutable candidates, admin publication ledger)
         // — the governed channel through which feedback reaches prompts. The
@@ -791,10 +802,7 @@ export const linkBrainFeedbackSources = internalMutation({
       }
       if (!sourceId || row.withdrawnAt !== undefined) continue;
       const source = await ctx.db.get(sourceId);
-      if (!source || source.status === "revoked") {
-        await ctx.db.patch(row._id, { withdrawnAt: now });
-        withdrawn += 1;
-      }
+      if ((!source || source.status === "revoked") && (await withdrawFeedback(ctx, row, sourceId, now))) withdrawn += 1;
     }
     if (withdrawn > 0) await turnOffWithdrawnPublishedSet(ctx, now);
     if (!page.isDone) {

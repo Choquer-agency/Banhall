@@ -3471,12 +3471,16 @@ export default defineSchema({
     // that source withdrew the item from the lesson sets.
     brainSourceId: v.optional(v.id("brainSources")),
     withdrawnAt: v.optional(v.number()),
+    // The approval time builds used for it (review): a set with no admission
+    // record is matched by its cutoff with one indexed read.
+    withdrawnApprovedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
     // Story 0 (AD-19): project deletion detaches the optional project link.
     .index("by_projectId", ["projectId"])
     .index("by_brainSourceId", ["brainSourceId"])
-    .index("by_withdrawnAt", ["withdrawnAt"]),
+    .index("by_withdrawnAt", ["withdrawnAt"])
+    .index("by_withdrawnApprovedAt", ["withdrawnApprovedAt"]),
 
   // BNH-39: full audit trail + revert log. Every approve/revoke/reweight/unlearn
   // is recorded so the admin can see (and undo) what changed the Brain.

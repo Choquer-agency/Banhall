@@ -7,18 +7,17 @@
  */
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import type { AdmissionSnapshot } from "./learningAdmission";
 
 type Ctx = QueryCtx | MutationCtx;
 
 /** The stream name lesson-set builds give approved Brain feedback. */
 export const BRAIN_FEEDBACK_STREAM = "brainFeedbackQueue";
 
-/** At most this many withdrawn items are weighed against a set. */
-const MAX_WITHDRAWN_READ = 500;
-/** At most this many feedback items one source is linked to. */
-const MAX_LINKED_FEEDBACK = 200;
+/** Rows read per page while walking a source's links. */
+const LINK_PAGE = 200;
 
-export type WithdrawnFeedback = { id: string; approvedAt: number };
+type SetLike = { kind: Doc<"learningDigests">["kind"]; admission?: AdmissionSnapshot; feedbackCutoff: number };
 
 /**
  * When a build counts a feedback item as approved: its latest decision's
@@ -44,37 +43,47 @@ export async function learningRevision(ctx: Ctx): Promise<number> {
   return latest?.withdrawnAt ?? 0;
 }
 
-/** Withdrawn feedback, newest first, each with the approval time builds used. */
-export async function withdrawnFeedback(ctx: Ctx): Promise<WithdrawnFeedback[]> {
-  const rows = await ctx.db
-    .query("brainFeedbackQueue")
-    .withIndex("by_withdrawnAt", (q) => q.gt("withdrawnAt", 0))
-    .order("desc")
-    .take(MAX_WITHDRAWN_READ);
-  const items: WithdrawnFeedback[] = [];
-  for (const row of rows) items.push({ id: row._id, approvedAt: await feedbackApprovedAt(ctx, row) });
-  return items;
+/**
+ * A memo of which feedback items are withdrawn, so one request that weighs
+ * several sets reads each item once.
+ */
+export function withdrawnLookup(ctx: Ctx): (id: string) => Promise<boolean> {
+  const seen = new Map<string, boolean>();
+  return async (id) => {
+    const known = seen.get(id);
+    if (known !== undefined) return known;
+    const normalized = ctx.db.normalizeId("brainFeedbackQueue", id);
+    const row = normalized ? await ctx.db.get(normalized) : null;
+    const withdrawn = row?.withdrawnAt !== undefined && row !== null;
+    seen.set(id, withdrawn);
+    return withdrawn;
+  };
 }
 
 /**
- * Whether a lesson set drew on withdrawn feedback: exactly, by the feedback
- * its admission record names; a set with no record (an older or the frozen
- * legacy set) counts as drawn from every approved item up to its cutoff.
+ * Whether a lesson set drew on withdrawn feedback: exactly, by reading each
+ * item its admission record names (review: no cap on how many were
+ * withdrawn); a set with no record (an older or the frozen legacy set)
+ * counts as drawn from every item approved up to its cutoff.
  */
-export function drewOnWithdrawn(
-  digest: Pick<Doc<"learningDigests">, "kind" | "admission" | "feedbackCutoff">,
-  withdrawn: ReadonlyArray<WithdrawnFeedback>
-): boolean {
-  if (digest.kind !== "draft_style" || withdrawn.length === 0) return false;
-  if (digest.admission) {
-    const admitted = new Set(
-      digest.admission.streams
-        .filter((stream) => stream.stream === BRAIN_FEEDBACK_STREAM)
-        .flatMap((stream) => stream.signalIds)
-    );
-    return withdrawn.some((item) => admitted.has(item.id));
+export async function drewOnWithdrawn(
+  ctx: Ctx,
+  set: SetLike,
+  isWithdrawn: (id: string) => Promise<boolean> = withdrawnLookup(ctx)
+): Promise<boolean> {
+  if (set.kind !== "draft_style") return false;
+  if (set.admission) {
+    for (const stream of set.admission.streams) {
+      if (stream.stream !== BRAIN_FEEDBACK_STREAM) continue;
+      for (const id of stream.signalIds) if (await isWithdrawn(id)) return true;
+    }
+    return false;
   }
-  return withdrawn.some((item) => item.approvedAt <= digest.feedbackCutoff);
+  const approvedByCutoff = await ctx.db
+    .query("brainFeedbackQueue")
+    .withIndex("by_withdrawnApprovedAt", (q) => q.gt("withdrawnApprovedAt", 0).lte("withdrawnApprovedAt", set.feedbackCutoff))
+    .first();
+  return approvedByCutoff !== null;
 }
 
 /**
@@ -115,7 +124,7 @@ async function publishedStyleSet(ctx: Ctx): Promise<{
 /** Turns off the published `draft_style` set when it drew on withdrawn feedback. */
 export async function turnOffWithdrawnPublishedSet(ctx: MutationCtx, now = Date.now()): Promise<boolean> {
   const { selection, digest } = await publishedStyleSet(ctx);
-  if (!digest || !drewOnWithdrawn(digest, await withdrawnFeedback(ctx))) return false;
+  if (!digest || !(await drewOnWithdrawn(ctx, digest))) return false;
   await ctx.db.insert("learningDigestSelections", {
     kind: "draft_style",
     selectedDigestId: null,
@@ -129,34 +138,59 @@ export async function turnOffWithdrawnPublishedSet(ctx: MutationCtx, now = Date.
 }
 
 /**
- * Withdraws the feedback a removed Brain source was made from (linked
- * directly, or, for older items, through their approval's audit row), then
- * turns off a published set that drew on it. Returns how many were withdrawn.
+ * Withdraws one feedback item, recording the approval time builds used for
+ * it. Returns false when it was already withdrawn.
+ */
+export async function withdrawFeedback(
+  ctx: MutationCtx,
+  row: Doc<"brainFeedbackQueue">,
+  sourceId: Id<"brainSources">,
+  now: number
+): Promise<boolean> {
+  if (row.withdrawnAt !== undefined) return false;
+  await ctx.db.patch(row._id, {
+    withdrawnAt: now,
+    withdrawnApprovedAt: await feedbackApprovedAt(ctx, row),
+    ...(row.brainSourceId ? {} : { brainSourceId: sourceId }),
+  });
+  return true;
+}
+
+/**
+ * Withdraws every feedback item a removed Brain source was made from (linked
+ * directly, or, for older items, through their approval's audit row), page
+ * by page with no cap (review), then turns off a published set that drew on
+ * them. Returns how many were withdrawn.
  */
 export async function withdrawSourceFeedback(
   ctx: MutationCtx,
   sourceId: Id<"brainSources">,
   now = Date.now()
 ): Promise<number> {
-  const ids = new Set<Id<"brainFeedbackQueue">>();
-  const linked = await ctx.db
-    .query("brainFeedbackQueue")
-    .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", sourceId))
-    .take(MAX_LINKED_FEEDBACK);
-  for (const row of linked) ids.add(row._id);
-  const audits = await ctx.db
-    .query("brainAuditLog")
-    .withIndex("by_source", (q) => q.eq("sourceId", sourceId))
-    .take(MAX_LINKED_FEEDBACK);
-  for (const audit of audits) {
-    if (audit.action === "approve" && audit.feedbackId) ids.add(audit.feedbackId);
-  }
   let withdrawn = 0;
-  for (const id of ids) {
-    const row = await ctx.db.get(id);
-    if (!row || row.withdrawnAt !== undefined) continue;
-    await ctx.db.patch(id, { withdrawnAt: now, ...(row.brainSourceId ? {} : { brainSourceId: sourceId }) });
-    withdrawn += 1;
+  let after = -1;
+  for (;;) {
+    const page = await ctx.db
+      .query("brainFeedbackQueue")
+      .withIndex("by_brainSourceId", (q) => q.eq("brainSourceId", sourceId).gt("_creationTime", after))
+      .take(LINK_PAGE);
+    for (const row of page) if (await withdrawFeedback(ctx, row, sourceId, now)) withdrawn += 1;
+    if (page.length < LINK_PAGE) break;
+    after = page[page.length - 1]!._creationTime;
+  }
+  after = -1;
+  for (;;) {
+    const audits = await ctx.db
+      .query("brainAuditLog")
+      .withIndex("by_source", (q) => q.eq("sourceId", sourceId).gt("_creationTime", after))
+      .take(LINK_PAGE);
+    for (const audit of audits) {
+      if (audit.action !== "approve" || !audit.feedbackId) continue;
+      const row = await ctx.db.get(audit.feedbackId);
+      if (row && (await withdrawFeedback(ctx, row, sourceId, now))) withdrawn += 1;
+    }
+    if (audits.length < LINK_PAGE) break;
+    after = audits[audits.length - 1]!._creationTime;
   }
   if (withdrawn > 0) await turnOffWithdrawnPublishedSet(ctx, now);
   return withdrawn;
