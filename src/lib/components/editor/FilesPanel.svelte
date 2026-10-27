@@ -998,7 +998,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                  tables, shown formatted with chat's Markdown, so no image
                  loads and links need a click. -->
             <div class="px-6 py-6" data-testid="file-preview-markdown">
-              <MessageContent markdown role="assistant" text={previewContentQ.data.content} />
+              <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
             </div>
           {:else}
             <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-relaxed text-gray-700">{previewContentQ.data?.content

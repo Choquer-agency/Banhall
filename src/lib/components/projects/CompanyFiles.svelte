@@ -422,7 +422,7 @@
           <p class="px-6 py-6 text-sm leading-[calc(10/7)] text-ink-muted">Loading...</p>
         {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
           <div class="px-6 py-6" data-testid="company-file-preview-markdown">
-            <MessageContent markdown role="assistant" text={previewContentQ.data.content} />
+            <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
           </div>
         {:else}
           <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-[1.6] text-ink-secondary">{previewContentQ.data?.content

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { Streamdown } from "svelte-streamdown";
+  import { Streamdown, type Extension } from "svelte-streamdown";
   import { cn } from "$lib/utils";
   import { citationNumber, citationSources, markCitations, type WebSource } from "$lib/chat/webSources";
   import { faviconUrlFor } from "./sourceContext";
@@ -25,11 +25,17 @@
     citations?: readonly WebSource[];
     /** Override the role inherited from <Message>. */
     role?: MessageRole;
+    /**
+     * The text is whole, not a reply still streaming in (a stored file's
+     * preview): no closing marks are added for an unfinished bold or italic,
+     * so an escaped `\*` stays a literal asterisk.
+     */
+    complete?: boolean;
     class?: string;
     children?: Snippet;
   }
 
-  let { markdown = false, text = "", citations = [], role, class: className, children }: Props = $props();
+  let { markdown = false, text = "", citations = [], role, complete = false, class: className, children }: Props = $props();
 
   // Security (2026-10-06): model output never loads an image. A reply that
   // follows an instruction hidden in a transcript, document or web source
@@ -38,6 +44,25 @@
   // image as "[Image blocked: alt]". Links stay http and https only (the
   // wildcard's own rule) and need a click.
   const NO_IMAGES: string[] = [];
+
+  // Live check, 2026-10-26: Streamdown renders nothing for marked's escape
+  // tokens, so "5 \* 3" showed as "5  3" (stored Word Markdown escapes its
+  // literal marks). A backslash escape now renders as the character itself.
+  // Module-stable, so Streamdown caches its lexer options.
+  const ESCAPES_AS_TEXT: Extension[] = [
+    {
+      name: "escapedCharacter",
+      level: "inline",
+      start: (src: string) => {
+        const at = src.indexOf("\\");
+        return at >= 0 ? at : undefined;
+      },
+      tokenizer: (src: string) => {
+        const match = /^\\([!"#$%&'()*+,\-./:;<=>?@[\]\\^_`{|}~])/.exec(src);
+        return match ? { type: "text", raw: match[0], text: match[1] } : undefined;
+      },
+    },
+  ];
 
   // Phase B: citation pills and their popover in design tokens (Streamdown's
   // default theme names shadcn classes the app does not define).
@@ -127,6 +152,8 @@
       inlineCitationPreview={citationPreview}
       inlineCitationPopover={citationPopover}
       image={blockedImage}
+      static={complete}
+      extensions={ESCAPES_AS_TEXT}
     />
   {:else if children}
     {@render children()}

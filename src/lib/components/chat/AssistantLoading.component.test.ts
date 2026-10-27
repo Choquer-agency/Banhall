@@ -140,3 +140,20 @@ it("never loads an image from a path or a protocol-relative URL", async () => {
   await expect.element(page.getByText("[Image blocked: local]")).toBeVisible();
   expect(document.querySelector("img")).toBeNull();
 });
+
+// Live check, 2026-10-26: Streamdown rendered nothing for a backslash escape.
+it("shows an escaped character in a reply as itself, and keeps real emphasis", async () => {
+  const screen = await render(MessageContent, { markdown: true, text: "Use 5 \\* 3, a literal \\_name\\_, and **bold**." });
+  await expect.element(page.getByText("bold", { exact: true })).toBeVisible();
+  const shown = screen.container.textContent ?? "";
+  expect(shown).toContain("5 * 3");
+  expect(shown).toContain("_name_");
+  expect(screen.container.querySelector("strong")?.textContent).toBe("bold");
+  expect(screen.container.querySelector("em")).toBeNull();
+});
+
+it("a whole file's Markdown gets no closing marks added", async () => {
+  const screen = await render(MessageContent, { markdown: true, complete: true, text: "One * alone, then 5 \\* 3 = 15." });
+  await expect.element(page.getByText(/One/)).toBeVisible();
+  expect(screen.container.textContent?.trim().endsWith("= 15.")).toBe(true);
+});

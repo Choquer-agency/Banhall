@@ -54,6 +54,22 @@ it("shows a Word file's Markdown formatted", async () => {
   expect(preview.element().textContent).not.toContain("**");
 });
 
+it("keeps an escaped asterisk literal and adds no closing marks (live check, 2026-10-26)", async () => {
+  __setQueryData("documents:listDocuments", [listed("sums.docx", "docx")]);
+  __setQueryData("documents:getDocumentContent", {
+    fileName: "sums.docx",
+    fileType: "docx",
+    content: "The seal **held** in trial 3, and 5 \\* 3 = 15.",
+    textFormat: "markdown",
+  });
+  await render(FilesPanel, { projectId, initiallyOpen: true });
+  await page.getByTitle("Preview").click();
+  const preview = page.getByTestId("file-preview-markdown");
+  await expect.element(preview.getByText("held", { exact: true })).toBeVisible();
+  expect(preview.element().textContent).toContain("5 * 3 = 15.");
+  expect(preview.element().textContent).not.toContain("15.*");
+});
+
 it("never loads an image from a file's Markdown", async () => {
   __setQueryData("documents:listDocuments", [listed("probe.docx", "docx")]);
   __setQueryData("documents:getDocumentContent", {
