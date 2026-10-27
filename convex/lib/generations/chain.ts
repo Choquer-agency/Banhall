@@ -17,7 +17,6 @@ import {
 } from "../orderedChain";
 import { v, type Infer, type ObjectType } from "convex/values";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
-import { insertSourceUses } from "./sourceUse";
 import { appendGenerationProgress } from "../generationProgress";
 import {
   persistOrderedPayload,
@@ -323,21 +322,10 @@ export async function orderedSectionClaim(
     ? await loadFactsSourceDocuments(ctx, args.generation, factsUses)
     : undefined;
   // Phase D (step 2): what this Line's facts check reads of each frozen row,
-  // only for a Line whose plan runs it (the action sends the documents to
-  // a match_sources check alone). Telemetry: a failure never fails the claim.
-  if (factsSourceDocuments && plan.planChecks.some((check) => check.instruction === "match_sources")) {
-    try {
-      await insertSourceUses(
-        ctx,
-        args.generation,
-        "facts_check",
-        `line:${args.section}`,
-        factsUses.map((use) => ({ ...use, unit: "bytes" as const }))
-      );
-    } catch (error) {
-      console.warn("Facts check source use not recorded", String(error).slice(0, 200));
-    }
-  }
+  // only for a Line whose plan runs it (the action sends the documents to a
+  // match_sources check alone). The action records it once the Line has
+  // completed with its check answered (re-check: not at the claim).
+  const runsFactsCheck = factsSourceDocuments !== undefined && plan.planChecks.some((check) => check.instruction === "match_sources");
   return {
     projectId: args.generation.projectId,
     model: args.row.model,
@@ -351,6 +339,9 @@ export async function orderedSectionClaim(
     brief,
     ...plan,
     ...(factsSourceDocuments ? { factsSourceDocuments } : {}),
+    ...(runsFactsCheck && factsUses.length > 0
+      ? { factsCheckUse: { run: `line:${args.section}`, uses: factsUses.map((use) => ({ ...use, unit: "bytes" as const })) } }
+      : {}),
   };
 }
 

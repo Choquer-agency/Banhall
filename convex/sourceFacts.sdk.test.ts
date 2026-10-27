@@ -474,6 +474,23 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     });
   });
 
+  it("says the facts check read its sources only when its Self-check answered (Phase D, step 2, re-check)", async () => {
+    installFetch({
+      draft: FAITHFUL_244,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] }],
+    });
+    expect((await draft(claimFor(plan244(), withSources), SUMMARY_VERSION)).factsCheckRan).toBe(true);
+    // No answer: the Self-check fails, so nothing was read by the check.
+    installFetch({ draft: FAITHFUL_244, checks: [] });
+    expect((await draft(claimFor(plan244(), withSources), SUMMARY_VERSION)).factsCheckRan).toBe(false);
+    // A Line with no source documents to check against.
+    installFetch({
+      draft: FAITHFUL_244,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] }],
+    });
+    expect((await draft(claimFor(plan244()), SUMMARY_VERSION)).factsCheckRan).toBe(true);
+  });
+
   it("lets a figure for the same group and a rounded figure pass with no repair", async () => {
     const sent = installFetch({
       draft: FAITHFUL_244,

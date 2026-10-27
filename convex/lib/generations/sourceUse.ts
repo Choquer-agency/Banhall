@@ -9,7 +9,7 @@
  */
 import { v, type Infer, type ObjectType } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 
 export const sourceUseStepValidator = v.union(
   v.literal("analyzer"),
@@ -63,7 +63,15 @@ export async function recordSourceUseHandler(
   return null;
 }
 
-/** Inserts one step run's rows for rows the caller knows are this draft's. Empty rows are skipped. */
+const STATE_RANK = { left_out: 0, part: 1, whole: 2 } as const;
+
+/**
+ * Inserts one step run's rows for rows the caller knows are this draft's.
+ * Empty rows are skipped, and so is a row that reads no more of its source
+ * than this run's earlier record of it (re-check: a retried or repeated
+ * Batch of one step adds no rows, so a step's records stay within the
+ * band's read).
+ */
 export async function insertSourceUses(
   ctx: MutationCtx,
   generation: { _id: Id<"generations">; projectId: Id<"projects"> },
@@ -77,9 +85,20 @@ export async function insertSourceUses(
     unit: "chars" | "bytes";
   }>
 ): Promise<void> {
+  const earlier = await ctx.db
+    .query("generationSourceUse")
+    .withIndex("by_generationId_and_step_and_run", (q) =>
+      q.eq("generationId", generation._id).eq("step", step).eq("run", run)
+    )
+    .take(MAX_SOURCE_USE_ENTRIES * 4);
+  const best = new Map<Id<"generationSources">, number>();
+  for (const row of earlier) best.set(row.sourceId, Math.max(best.get(row.sourceId) ?? -1, STATE_RANK[row.state]));
   const at = Date.now();
   for (const use of uses.slice(0, MAX_SOURCE_USE_ENTRIES)) {
     if (use.total <= 0) continue;
+    const state = sourceUseState(use.sent, use.total);
+    if ((best.get(use.sourceId) ?? -1) >= STATE_RANK[state]) continue;
+    best.set(use.sourceId, STATE_RANK[state]);
     await ctx.db.insert("generationSourceUse", {
       generationId: generation._id,
       projectId: generation.projectId,
@@ -87,7 +106,7 @@ export async function insertSourceUses(
       ...(run ? { run } : {}),
       sourceId: use.sourceId,
       ...(use.contentHash ? { contentHash: use.contentHash } : {}),
-      state: sourceUseState(use.sent, use.total),
+      state,
       sent: Math.max(0, Math.round(use.sent)),
       total: Math.max(0, Math.round(use.total)),
       unit: use.unit,
@@ -120,7 +139,7 @@ export async function copyBriefSourceUseHandler(
   const byHash = new Map(args.sources.map((source) => [source.contentHash, source.sourceId] as const));
   const original = await ctx.db
     .query("generationSourceUse")
-    .withIndex("by_generationId_and_step", (q) => q.eq("generationId", brief.generationId).eq("step", "brief"))
+    .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", brief.generationId).eq("step", "brief"))
     .take(MAX_SOURCE_USE_ENTRIES);
   const copies = original.flatMap((use) => {
     const sourceId = use.contentHash ? byHash.get(use.contentHash) : undefined;
@@ -130,42 +149,57 @@ export async function copyBriefSourceUseHandler(
   return null;
 }
 
-/** At most this many rows a Summary recovery copies per step. */
+/** At most this many records a Summary recovery reads per step: the Inputs band's own read. */
 export const RECOVERY_SOURCE_USE_ROWS_PER_STEP = 2500;
+/** At most this many records one Summary recovery writes, within a mutation's write limit. */
+export const RECOVERY_SOURCE_USE_COPIES = 4000;
 
 /**
  * Summary recovery (review): the recovery drafts from the failed draft's
  * analysis, Brief and Seeds, so it copies what those steps recorded onto its
- * own copies of the rows. The facts check is not copied: the recovery runs
- * its own. A row with no copy keeps no record.
+ * own copies of the rows: one record per step, run and row, its best read
+ * (re-check: the band shows nothing more). The facts check is not copied:
+ * the recovery runs its own. A row with no copy keeps no record. Returns
+ * whether some records could not be read or copied, so the band can say so.
  */
 export async function copyRecoverySourceUses(
   ctx: MutationCtx,
   fromGenerationId: Id<"generations">,
   to: { _id: Id<"generations">; projectId: Id<"projects"> },
   copyOf: ReadonlyMap<Id<"generationSources">, Id<"generationSources">>
-): Promise<void> {
+): Promise<{ truncated: boolean }> {
+  let truncated = false;
+  const copies: Doc<"generationSourceUse">[] = [];
   for (const step of ["analyzer", "brief", "seeds"] as const) {
     const rows = await ctx.db
       .query("generationSourceUse")
-      .withIndex("by_generationId_and_step", (q) => q.eq("generationId", fromGenerationId).eq("step", step))
-      .take(RECOVERY_SOURCE_USE_ROWS_PER_STEP);
-    for (const row of rows) {
-      const sourceId = copyOf.get(row.sourceId);
-      if (!sourceId) continue;
-      await ctx.db.insert("generationSourceUse", {
-        generationId: to._id,
-        projectId: to.projectId,
-        step: row.step,
-        ...(row.run ? { run: row.run } : {}),
-        sourceId,
-        ...(row.contentHash ? { contentHash: row.contentHash } : {}),
-        state: row.state,
-        sent: row.sent,
-        total: row.total,
-        unit: row.unit,
-        at: row.at,
-      });
+      .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", fromGenerationId).eq("step", step))
+      .take(RECOVERY_SOURCE_USE_ROWS_PER_STEP + 1);
+    if (rows.length > RECOVERY_SOURCE_USE_ROWS_PER_STEP) truncated = true;
+    const best = new Map<string, Doc<"generationSourceUse">>();
+    for (const row of rows.slice(0, RECOVERY_SOURCE_USE_ROWS_PER_STEP)) {
+      if (!copyOf.has(row.sourceId)) continue;
+      const key = `${row.run ?? ""}\u0000${row.sourceId}`;
+      const before = best.get(key);
+      if (!before || STATE_RANK[row.state] > STATE_RANK[before.state]) best.set(key, row);
     }
+    copies.push(...best.values());
   }
+  if (copies.length > RECOVERY_SOURCE_USE_COPIES) truncated = true;
+  for (const row of copies.slice(0, RECOVERY_SOURCE_USE_COPIES)) {
+    await ctx.db.insert("generationSourceUse", {
+      generationId: to._id,
+      projectId: to.projectId,
+      step: row.step,
+      ...(row.run ? { run: row.run } : {}),
+      sourceId: copyOf.get(row.sourceId)!,
+      ...(row.contentHash ? { contentHash: row.contentHash } : {}),
+      state: row.state,
+      sent: row.sent,
+      total: row.total,
+      unit: row.unit,
+      at: row.at,
+    });
+  }
+  return { truncated };
 }

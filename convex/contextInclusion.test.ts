@@ -10,6 +10,7 @@ import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { buildTrustedContext, type ContextDoc } from "./ai/trustedContext";
 import { recordAnalyzerUse } from "./ai/pipeline";
+import { copyRecoverySourceUses } from "./lib/generations/sourceUse";
 import type { ActionCtx } from "./_generated/server";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -144,7 +145,7 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     warn.mockRestore();
   });
 
-  it("reads each step on its own, so one step's many rows never hide another's (review)", async () => {
+  it("reads each step on its own, so one step's many rows never hide another's (review, re-check)", async () => {
     const { t, authed, projectId } = await setup();
     await authed.mutation(api.documents.uploadDocument, {
       projectId, fileName: "notes.txt", fileType: "txt", content: "Readable internal notes.",
@@ -154,15 +155,18 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
       (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
         .find((row) => row.kind === "project_document")!
     );
-    // Many Seed rows written first, the facts check's last.
-    await t.run(async (ctx) => {
-      for (let index = 0; index < 60; index += 1) {
-        await ctx.db.insert("generationSourceUse", {
-          generationId, projectId, step: "seeds", run: `role-${index}`, sourceId: document._id,
-          state: "whole", sent: 10, total: 10, unit: "bytes", at: index,
-        });
-      }
-    });
+    // More Seed rows than the old shared read of 6,000, written first; the
+    // facts check's last.
+    for (let batch = 0; batch < 7; batch += 1) {
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 1_000; index += 1) {
+          await ctx.db.insert("generationSourceUse", {
+            generationId, projectId, step: "seeds", run: `role-${batch}-${index}`, sourceId: document._id,
+            state: "whole", sent: 10, total: 10, unit: "bytes", at: index,
+          });
+        }
+      });
+    }
     await t.mutation(internal.generations.recordSourceUse, {
       generationId, step: "facts_check", run: "line:242",
       uses: [{ sourceId: document._id, sent: 10, total: 10, unit: "bytes" }],
@@ -170,10 +174,72 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
     const row = inclusion!.rows.find((entry) => entry.key === `source:${document._id}`)!;
     expect(row.uses).toEqual([
-      { step: "seeds", runs: 60, read: 60, whole: true },
+      { step: "seeds", runs: 2_500, read: 2_500, whole: true },
       { step: "facts_check", runs: 1, read: 1, whole: true },
     ]);
-    expect(inclusion!.usesTruncated).toBeUndefined();
+    // The Seed records were cut short, and the band says so.
+    expect(inclusion!.usesTruncated).toBe(true);
+  });
+
+  it("a run that reads no more of a row than before adds no record (re-check)", async () => {
+    const { t, authed, projectId } = await setup();
+    await authed.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "Readable internal notes.",
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    const document = await t.run(async (ctx) =>
+      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+        .find((row) => row.kind === "project_document")!
+    );
+    const record = (sent: number) =>
+      t.mutation(internal.generations.recordSourceUse, {
+        generationId, step: "seeds", run: "company_context",
+        uses: [{ sourceId: document._id, sent, total: 10, unit: "bytes" }],
+      });
+    await record(4);
+    await record(4);
+    await record(0);
+    await record(10);
+    await record(10);
+    const rows = await t.run((ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    expect(rows.map((row) => row.state)).toEqual(["part", "whole"]);
+  });
+
+  it("a Summary recovery that cannot copy every record says so on its band (re-check)", async () => {
+    const { t, authed, projectId } = await setup();
+    await authed.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "Readable internal notes.",
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    const document = await t.run(async (ctx) =>
+      (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+        .find((row) => row.kind === "project_document")!
+    );
+    for (let batch = 0; batch < 3; batch += 1) {
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 1_000; index += 1) {
+          await ctx.db.insert("generationSourceUse", {
+            generationId, projectId, step: "seeds", run: `role-${batch}-${index}`, sourceId: document._id,
+            state: "whole", sent: 10, total: 10, unit: "bytes", at: index,
+          });
+        }
+      });
+    }
+    const copied = await t.run(async (ctx) => {
+      const recovery = await ctx.db.insert("generations", {
+        projectId, status: "reserved", requestedBy: (await ctx.db.get(generationId))!.requestedBy, startedAt: 1,
+      });
+      const copy = await ctx.db.insert("generationSources", {
+        generationId: recovery, projectId, kind: "project_document", label: document.label, content: document.content,
+        contentHash: document.contentHash, truncated: false, originalLength: document.originalLength, capturedAt: 1,
+      });
+      const result = await copyRecoverySourceUses(ctx, generationId, { _id: recovery, projectId }, new Map([[document._id, copy]]));
+      const rows = await ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", recovery)).collect();
+      return { result, rows: rows.length };
+    });
+    expect(copied).toEqual({ result: { truncated: true }, rows: 2_500 });
   });
 });
 

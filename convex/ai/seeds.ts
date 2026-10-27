@@ -788,7 +788,7 @@ export const generateBatch = internalAction({
           : {}),
       }));
 
-      await ctx.runMutation(completeAttemptRef, {
+      const completed = await ctx.runMutation(completeAttemptRef, {
         batchId: claim.batch.batchId,
         attemptId: claim.batch.attemptId,
         requestsMade,
@@ -796,9 +796,11 @@ export const generateBatch = internalAction({
         seedsDropped: output.dropped,
       });
       // Phase D (step 2): what this Batch's prompt carried of each frozen
-      // row, once it has answered, by its step (review: a retried, failed or
-      // prefetched Batch of the same step is one step). Telemetry only.
-      await ctx
+      // row, once its Seeds were saved, by its step (review: a retried,
+      // failed or prefetched Batch of the same step is one step; re-check:
+      // a completion refused as late, missing or invalid records nothing).
+      // Telemetry only.
+      if (completed?.kind === "completed") await ctx
         .runMutation(recordSourceUseRef, {
           generationId: claim.batch.generationId,
           step: "seeds",

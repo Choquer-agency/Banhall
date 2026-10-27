@@ -623,7 +623,7 @@ What changes:
 ### Automated, offline
 
 - [x] Code review by two reviewers (Claude Opus 5.5, low as it reported; gpt-6-astra, medium), both "ship after fixes". Fixes in the tenth decision entry.
-- [ ] A second look at the fixes by one reviewer.
+- [x] A second look at the fixes by one reviewer (gpt-6-astra, medium): "ship after fixes"; fixes in the tenth decision entry ("Re-check of 5bf930b9").
 - [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
 
 ### Automated, live on localhost

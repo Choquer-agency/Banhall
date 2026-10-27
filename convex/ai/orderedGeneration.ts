@@ -1189,7 +1189,7 @@ export async function draftCheckedSection(input: {
   payload: OrderedPayload;
   section: SectionNumber;
   clientFor: SectionClients;
-}): Promise<SectionCompletion> {
+}): Promise<SectionCompletion & { factsCheckRan: boolean }> {
   const { claim, payload, section, clientFor } = input;
   const analysis = parseTranscriptAnalysis(payload.analysis);
   const styleOverrides = normalizeStyleOverrides(payload.styleOverrides);
@@ -1409,8 +1409,12 @@ export async function draftCheckedSection(input: {
     ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
     ...(sourceFacts !== undefined ? { sourceFacts } : {}),
   };
+  // Phase D (step 2, re-check): whether the facts check read its sources,
+  // so the caller records them only for a check that answered.
+  let factsCheckRan = false;
   try {
     const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), selfCheckInput);
+    factsCheckRan = sourceFacts !== undefined;
     // Round 5 follow-up: the settings row never contradicts what code measured.
     verdicts = writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0
       ? settleWriterSettingsVerdicts(result.verdicts, before, payload.writerFlavor, settleContext)
@@ -2052,6 +2056,7 @@ export async function draftCheckedSection(input: {
       : {}),
   };
   return {
+    factsCheckRan,
     draftText: finalText,
     metrics: JSON.stringify(sectionMetrics(finalText, key)),
     selfCheck: JSON.stringify(summary),
@@ -2067,6 +2072,29 @@ export async function draftCheckedSection(input: {
         }
       : {}),
   };
+}
+
+/**
+ * Phase D (step 2, re-check): what a Line's facts check read of each frozen
+ * row, recorded once the Line has completed with its check answered.
+ * Telemetry: a record that cannot be written never fails the Line.
+ */
+async function recordFactsCheckUse(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  claim: SectionClaim
+): Promise<void> {
+  if (!claim.factsCheckUse) return;
+  try {
+    await ctx.runMutation(internal.generations.recordSourceUse, {
+      generationId,
+      step: "facts_check",
+      run: claim.factsCheckUse.run,
+      uses: claim.factsCheckUse.uses,
+    });
+  } catch (error) {
+    console.warn("Facts check source use not recorded", String(error).slice(0, 200));
+  }
 }
 
 /**
@@ -2147,7 +2175,7 @@ export const generateOrderedSection = internalAction({
         },
         slotCounts
       );
-      const completion = await draftCheckedSection({
+      const { factsCheckRan, ...completion } = await draftCheckedSection({
         claim,
         payload,
         section: args.section,
@@ -2161,6 +2189,7 @@ export const generateOrderedSection = internalAction({
         slotCounts: JSON.stringify(slotCounts),
         ...payloadRef,
       });
+      if (factsCheckRan) await recordFactsCheckUse(ctx, args.generationId, claim);
     } catch (error) {
       await ctx.runMutation(internal.generations.failOrderedSectionRun, {
         generationId: args.generationId,
@@ -2453,7 +2482,7 @@ export const redraftSeedSection = internalAction({
         },
         slotCounts
       );
-      const completion = await draftCheckedSection({
+      const { factsCheckRan, ...completion } = await draftCheckedSection({
         claim,
         payload,
         section: args.section,
@@ -2468,6 +2497,7 @@ export const redraftSeedSection = internalAction({
         slotCounts: JSON.stringify(slotCounts),
         ...payloadRef,
       });
+      if (factsCheckRan) await recordFactsCheckUse(ctx, args.generationId, claim);
     } catch (error) {
       await fail(error);
     }

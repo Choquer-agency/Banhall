@@ -811,8 +811,10 @@ export async function retryFromSummaryHandler(
     });
   }
   await ctx.db.patch(generationId, { sourceIdMap: nextMap });
-  // Phase D (step 2): the steps it reuses keep their record on its rows.
-  await copyRecoverySourceUses(ctx, failed._id, { _id: generationId, projectId: failed.projectId }, recoveryCopyOf);
+  // Phase D (step 2): the steps it reuses keep their record on its rows,
+  // and the band says so when some could not be copied (re-check).
+  const copied = await copyRecoverySourceUses(ctx, failed._id, { _id: generationId, projectId: failed.projectId }, recoveryCopyOf);
+  if (copied.truncated || failed.sourceUseTruncated) await ctx.db.patch(generationId, { sourceUseTruncated: true });
   await ctx.db.patch(project._id, {
     activeGenerationId: generationId,
     status: "generating",

@@ -955,7 +955,11 @@ export const searchForChat = internalQuery({
     // index's places, so a file waiting for pieces could be crowded out.
     let skippedCurrent = 0;
     for (const documentId of candidateIds) {
-      if (filesRead >= SEARCH_FILE_CANDIDATES) break;
+      if (filesRead >= SEARCH_FILE_CANDIDATES) {
+        // Re-check: this candidate, and any after it, were never read.
+        complete = false;
+        break;
+      }
       let doc = loadedRows.get(documentId) ?? null;
       if (!doc) {
         const loaded = await budget.read(() => ctx.db.get(documentId));

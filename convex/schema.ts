@@ -1163,6 +1163,10 @@ export default defineSchema({
     // draft froze, when it froze any. Lets a reader that cannot afford to
     // read every frozen row tell whether the project has left that company.
     companyFilesFrom: v.optional(v.id("clients")),
+    // 2026-10-26 (Phase D, step 2, re-check): a Summary recovery could not
+    // copy every record of what the draft it recovers read, so the Inputs
+    // band says its records were cut short. Carried to later recoveries.
+    sourceUseTruncated: v.optional(v.literal(true)),
     seededCandidates: v.optional(v.number()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
@@ -3059,7 +3063,7 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_generationId", ["generationId"])
-    .index("by_generationId_and_step", ["generationId", "step"])
+    .index("by_generationId_and_step_and_run", ["generationId", "step", "run"])
     .index("by_projectId_and_generationId", ["projectId", "generationId"]),
   // Immutable source text captured before candidate fan-out.
   generationSources: defineTable({

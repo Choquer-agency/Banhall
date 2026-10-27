@@ -538,6 +538,30 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
     expect(uses[0]!.sent).toBe(uses[0]!.total);
   });
 
+  it("a Batch whose completion is refused records nothing (Phase D, step 2, re-check)", async () => {
+    const s = await setup();
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    let release!: () => void;
+    const until = new Promise<void>((resolve) => (release = resolve));
+    configureProvider(false, { entered, until });
+    await initialize(s);
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    const running = runGenerateBatchJob(s);
+    await inside;
+    // Another attempt took the Batch while this one's request ran.
+    await s.t.run(async (ctx) => {
+      const [batch] = await ctx.db.query("seedBatches").collect();
+      await ctx.db.patch(batch!._id, { attemptId: "a-later-attempt" });
+    });
+    release();
+    await running;
+    const uses = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(uses).toEqual([]);
+  });
+
   it("a Batch that fails records nothing (Phase D, step 2, review)", async () => {
     const s = await setup();
     configureProvider(true);

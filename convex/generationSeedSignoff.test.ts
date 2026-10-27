@@ -3831,7 +3831,7 @@ describe("seed Summary sign-off and recovery", () => {
     }
   });
 
-  it("a Summary recovery keeps the reused steps' records on its own rows, and its Lines record their facts check (Phase D, step 2, review)", async () => {
+  it("a Summary recovery keeps the reused steps' records on its own rows, and a Line's claim hands its facts check's reads to the action (Phase D, step 2, review)", async () => {
     const s = await decisionFixture();
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -3879,19 +3879,25 @@ describe("seed Summary sign-off and recovery", () => {
     });
     if (!job) throw new Error("Missing first ordered action");
     const actionArgs = job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>;
-    await s.t.mutation(internal.generations.claimOrderedSectionRun, {
+    const claim = await s.t.mutation(internal.generations.claimOrderedSectionRun, {
       generationId: recoveryId,
       candidateRunId: actionArgs.candidateRunId,
       section: actionArgs.section,
       ...(actionArgs.payload !== undefined ? { payload: actionArgs.payload } : {}),
       ...(actionArgs.payloadId !== undefined ? { payloadId: actionArgs.payloadId } : {}),
     });
-    const facts = (await usesOf()).filter((use) => use.step === "facts_check");
-    expect(facts.map((use) => [use.run, use.unit, use.state])).toEqual(
-      recoverySources
-        .filter((row) => row.kind === "transcript" || row.kind === "project_document" || row.kind === "company_file")
-        .map(() => [`line:${actionArgs.section.replace(/^s/, "")}`, "bytes", "whole"])
+    // Re-check: the claim records nothing; the action records once the
+    // Line has completed with its facts check answered.
+    expect((await usesOf()).filter((use) => use.step === "facts_check")).toEqual([]);
+    const textRows = recoverySources.filter(
+      (row) => row.kind === "transcript" || row.kind === "project_document" || row.kind === "company_file"
     );
+    expect(textRows.length).toBeGreaterThan(0);
+    if (!claim || "stopped" in claim) throw new Error("The claim stopped");
+    expect(claim.factsCheckUse).toEqual({
+      run: `line:${actionArgs.section.replace(/^s/, "")}`,
+      uses: textRows.map((row) => ({ sourceId: row._id, sent: expect.any(Number), total: expect.any(Number), unit: "bytes" })),
+    });
   });
 
   it("rolls back an oversized recovery claim, then the owning action terminalizes the chain without a provider call", async () => {

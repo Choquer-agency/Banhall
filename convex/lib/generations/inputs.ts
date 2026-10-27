@@ -340,12 +340,14 @@ export async function getContextInclusionHandler(
     const read = await reads.list(
       ctx.db
         .query("generationSourceUse")
-        .withIndex("by_generationId_and_step", (q) => q.eq("generationId", generation._id).eq("step", step)),
+        .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", generation._id).eq("step", step)),
       INCLUSION_USE_ROWS_PER_STEP
     );
     useRows.push(...read.rows);
     if (!read.complete) usesTruncated = true;
   }
+  // A Summary recovery that could not copy every record says so (re-check).
+  if (generation.sourceUseTruncated) usesTruncated = true;
   return assembleContextInclusion({
     uses: useRows.map((use) => ({
       sourceId: use.sourceId,

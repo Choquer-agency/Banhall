@@ -4427,6 +4427,14 @@ Context pipeline plan, Phase D, step 2 (`docs/todos/phase-d-search-first.md`), P
   - `convex/projectErasure.test.ts`;
   - `src/lib/components/brief/BriefRailPanel.component.test.ts` (the line under a file, the cut-short note).
 - **Review of e4367f0e.** Claude Opus 5.5 (requested high; it reported low) and gpt-6-astra (medium), both "ship after fixes". Fixed: records written before a request answered (a failed or never-run step showed as read); the analyzer recorded with its budget, before it ran; a reused Brief's record recomputed from this draft's rows; the facts check recorded for a Line that does not run it; Seed runs counted per Batch instead of per step; one step's many records hiding another's; the cut-short flag never shown; transcripts read through a digest shown as "whole"; a Summary recovery's band empty.
+- **Re-check of 5bf930b9.** gpt-6-astra (medium), "ship after fixes". Fixed:
+  - the facts check was still recorded when its Line was claimed; the claim now hands its reads to the action, which records them once the Line has completed with its Self-check answered (`factsCheckRan`);
+  - a Seed Batch whose completion was refused (late, missing, invalid) still recorded; it now records only an accepted one;
+  - chat search said complete when its 16-file read stopped with candidates left; it now says not complete;
+  - a Summary recovery copied at most 2,500 records per step and hid the rest; it now copies one record per step, run and row (its best read), and a recovery that still cannot copy everything marks itself (`generations.sourceUseTruncated`, carried to later recoveries), so the band says its records were cut short;
+  - a run that reads no more of a row than its earlier record adds no record, so a step's records stay within the band's read (the index is now `by_generationId_and_step_and_run`).
+
+  Tests added: a refused Batch completion, the facts check's answer (`convex/sourceFacts.sdk.test.ts`), the claim's hand-off, two unfilled search lists, more than 6,000 Seed records, a repeated run, and a recovery that cannot copy everything.
 - **Approval:** Product owner, 2026-10-26 (chat): part 2 of the first 2026-10-26 entry, and "yes continue and finish all".
 
 ### 2026-10-26 (eleventh): Older Word files are read again as Markdown, and their earlier text is kept as a version (owner)

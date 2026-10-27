@@ -20,6 +20,7 @@ import {
   type SearchDocumentsResult,
 } from "./chatDocuments";
 import { CHAT_DOCUMENT_TOOLS_KEY } from "./appSettings";
+import { insertDocumentWithText } from "./lib/documentText";
 
 /**
  * Chat parity Phase B (2026-10-20): the reads behind the chat's reading
@@ -250,6 +251,46 @@ describe("searchForChat", () => {
       await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
       await f.t.finishAllScheduledFunctions(vi.runAllTimers);
       expect(ids).toHaveLength(17);
+      const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
+      if (result.status !== "ok") throw new Error(result.status);
+      expect(result.complete).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("says the search was not complete when more old-path files match than it reads (re-check)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => {
+        // Ten files moved to pieces, found through the pieces' index only;
+        // their pieces go stale below. Ten still on their rows, with no
+        // pieces, found through the old index only. Neither list fills its
+        // 16 places, but together they name 20 files.
+        for (let index = 0; index < 10; index += 1) {
+          const id = await insertDocumentWithText(ctx, {
+            projectId: f.projectId, fileName: `graphite-moved-${index}.txt`, fileType: "txt",
+            source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+          }, `Graphite packing note ${index}.`);
+          // convex-test's search index cannot skip a row with no `content`, as
+          // Convex does; an empty one matches nothing, as a missing one would.
+          await ctx.db.patch(id, { content: "" });
+        }
+        for (let index = 0; index < 10; index += 1) {
+          await ctx.db.insert("projectDocuments", {
+            projectId: f.projectId, fileName: `graphite-row-${index}.txt`, fileType: "txt", content: `Graphite packing note ${index + 10}.`,
+            source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+          });
+        }
+      });
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      await f.t.run(async (ctx) => {
+        for (const doc of await ctx.db.query("projectDocuments").collect()) {
+          if (doc.searchPiecesTextHash) await ctx.db.patch(doc._id, { searchPiecesTextHash: "an-older-text" });
+        }
+      });
       const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
       if (result.status !== "ok") throw new Error(result.status);
       expect(result.complete).toBe(false);
