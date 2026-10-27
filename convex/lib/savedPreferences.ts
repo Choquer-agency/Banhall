@@ -48,24 +48,35 @@ export const SAVED_PREFERENCE_NOTE = {
   reason: "Checked against one of the writer's saved preferences, which only that writer can see.",
 } as const;
 
+/** Every run of `size` words in order (the whole text when it is shorter). */
+function wordRuns(words: readonly string[], size: number): string[] {
+  if (words.length <= size) return [words.join(" ")];
+  const runs: string[] = [];
+  for (let start = 0; start + size <= words.length; start += 1) runs.push(words.slice(start, start + size).join(" "));
+  return runs;
+}
+
+/** Shortest run of a preference's words that counts as quoting it. */
+const QUOTED_RUN_WORDS = 3;
+
 /**
- * E1b review: a Compliance Note row that quotes a saved preference (its
- * whole text in the instruction or reason, or a quote of at least three of
- * its words as the instruction) names it only as a saved preference, since
- * people other than the writer can read the notes. Other rows are unchanged.
+ * E1b review and re-check: a Compliance Note row that quotes a saved
+ * preference, in its instruction or its reason, names it only as a saved
+ * preference, since people other than the writer can read the notes. Any
+ * three of its words in a row count as a quote ("sentences under 25 words"),
+ * so a row may be hidden that only shares three words with one; that errs on
+ * the private side. Other rows are unchanged.
  */
 export function withoutSavedPreferenceText<T extends { instruction: string; reason: string }>(
   note: T,
   saved: readonly string[]
 ): T {
   if (saved.length === 0) return note;
-  const instruction = folded(note.instruction);
-  const reason = folded(note.reason);
+  const fields = ` ${folded(note.instruction)} | ${folded(note.reason)} `;
   const quotes = saved.some((text) => {
-    const preference = folded(text);
-    if (!preference) return false;
-    if (instruction.includes(preference) || reason.includes(preference)) return true;
-    return instruction.split(" ").length >= 3 && preference.includes(instruction);
+    const words = folded(text).split(" ").filter(Boolean);
+    if (words.length === 0) return false;
+    return wordRuns(words, QUOTED_RUN_WORDS).some((run) => fields.includes(` ${run} `));
   });
   return quotes ? { ...note, ...SAVED_PREFERENCE_NOTE } : note;
 }

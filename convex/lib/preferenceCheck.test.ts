@@ -79,6 +79,11 @@ const FACT_PREFERENCES: Array<[string, PreferenceRefusal]> = [
   ["Says output was 40 percent higher.", "number"],
   ["Says the line made forty units per hour.", "number"],
   ["Says the press ran 300 cycles per shift.", "number"],
+  // Second re-check: passed the first fix.
+  ["Says output rose by half in a short sentence.", "number"],
+  ["Reports the yield as 40 in a short paragraph.", "number"],
+  ["Reports numbers rose by 40 percent.", "number"],
+  ["Reports the yield as 40 in a paragraph.", "number"],
 ];
 
 describe("checkPreferenceText (Phase E, E1a)", () => {

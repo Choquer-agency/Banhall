@@ -602,6 +602,53 @@ describe("writer memory (Phase E, E1a)", () => {
       await s.t.run((ctx) => ctx.db.patch(generationId, { writerSettings: undefined }));
       expect(await s.t.run(async (ctx) => savedPreferencesOfGeneration(ctx, (await ctx.db.get(generationId))!))).toEqual([]);
     });
+
+    test("stored Compliance Notes never carry a saved preference, in whole or in part, in either field (re-check)", async () => {
+      const s = await setup();
+      expect(
+        withoutSavedPreferenceText(
+          { section: "242" as const, source: "model" as const, instruction: "Writer Profile", outcome: "applied" as const, tier: "none" as const, reason: 'The preference "sentences under 25 words" was followed.', repaired: false },
+          ["Keeps sentences under 25 words."]
+        )
+      ).toMatchObject(SAVED_PREFERENCE_NOTE);
+      const { generationId, candidateRunId } = await s.t.run(async (ctx) => {
+        const generationId = await ctx.db.insert("generations", {
+          projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+          writerSettings: {
+            profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+            waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 1, textHash: "h" },
+          },
+        });
+        await ctx.db.insert("generationArtifacts", {
+          generationId, kind: "writer_style",
+          content: JSON.stringify({ styleGuidance: "", writerFlavor: "Use we.\n\nSaved preferences:\n- Keeps sentences under 25 words.", styleOverrides: {} }),
+        });
+        await ctx.db.patch(s.projectId, { activeGenerationId: generationId });
+        const candidateRunId = await ctx.db.insert("generationCandidateRuns", {
+          generationId, projectId: s.projectId, model: "m", label: "A", status: "running", queuedAt: 1,
+        });
+        return { generationId, candidateRunId };
+      });
+      const note = (instruction: string, reason: string) => ({
+        section: "244" as const, source: "model" as const, instruction, outcome: "applied" as const, tier: "none" as const, reason, repaired: false,
+      });
+      await s.t.mutation(internal.generations.insertConsistencyNotes, {
+        generationId,
+        candidateRunId,
+        notes: [
+          note("Keeps sentences under 25 words.", "Every sentence is short."),
+          note("Writer Profile", 'The preference "sentences under 25 words" was followed.'),
+          note("Use we.", "The Line uses we."),
+        ],
+      });
+      const stored = await s.t.run((ctx) => ctx.db.query("complianceNotes").collect());
+      expect(stored.map((row) => [row.instruction, row.reason])).toEqual([
+        [SAVED_PREFERENCE_NOTE.instruction, SAVED_PREFERENCE_NOTE.reason],
+        [SAVED_PREFERENCE_NOTE.instruction, SAVED_PREFERENCE_NOTE.reason],
+        ["Use we.", "The Line uses we."],
+      ]);
+      expect(JSON.stringify(stored)).not.toMatch(/under 25 words/);
+    });
   });
 });
 

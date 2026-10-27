@@ -72,13 +72,20 @@ const STYLE_UNITS = new Set([
 const PER_TARGETS = new Set([
   ...STYLE_UNITS, "section", "sections", "heading", "headings", "idea", "ideas", "list", "lists", "subsection", "subsections",
 ]);
-/** Words that may sit between a number and its unit: "20 to 25 words", "three short paragraphs", "half a page". */
+/**
+ * Words that may sit between a number and its unit: "20 to 25 words", "three
+ * short paragraphs", "half a page". At most two of them (second re-check:
+ * "rose by half in a short sentence" is a figure, not a length).
+ */
 const LENGTH_FILLERS = new Set([
-  "to", "or", "and", "a", "an", "in", "short", "shorter", "long", "longer", "full", "plain", "simple", "separate", "single",
+  "to", "or", "and", "a", "an", "short", "shorter", "long", "longer", "full", "plain", "simple", "separate", "single",
   "clear", "more", "fewer", "less",
 ]);
+const MAX_LENGTH_FILLERS = 2;
 /** Words that make a number a matter of how numbers are written: "Spells out numbers under ten." */
 const NUMBER_TOPIC = new Set(["number", "numbers", "digit", "digits", "numeral", "numerals"]);
+/** What must stand just before such a number: "numbers under ten", "from one to nine". */
+const NUMBER_BOUNDS = new Set(["under", "over", "below", "above", "from", "to", "than", "between", "and"]);
 /**
  * Spelled-out numbers, ordinals and fractions (review, re-check); "one" and
  * "first" are too common in plain prose to refuse.
@@ -97,21 +104,34 @@ const PERSON_ORDINALS = new Set(["second", "third"]);
  * only other numbers and plain fillers between ("20 to 25 words", "three or
  * four sentences"), and a "per" after the unit only by a part of the text.
  */
-function lengthFollows(after: string): boolean {
+function lengthFollows(after: string, number?: string): boolean {
   const words = after.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(0, 6) ?? [];
+  let fillers = 0;
   for (let index = 0; index < words.length; index += 1) {
     const word = words[index]!;
     if (STYLE_UNITS.has(word)) return words[index + 1] !== "per" || PER_TARGETS.has(words[index + 2] ?? "");
-    if (LENGTH_FILLERS.has(word) || /^\d{1,3}$/.test(word) || NUMBER_WORDS.has(word)) continue;
+    // "twice in a sentence": only a count of times may say where.
+    if (word === "in" && number === "twice" && index === 0) continue;
+    if (/^\d{1,3}$/.test(word) || NUMBER_WORDS.has(word)) continue;
+    if (LENGTH_FILLERS.has(word) && fillers < MAX_LENGTH_FILLERS) {
+      fillers += 1;
+      continue;
+    }
     return false;
   }
   return false;
 }
 
-/** Whether a number is about how numbers are written ("numbers under ten"). */
+/**
+ * Whether a number is about how numbers are written: a bound word right
+ * before it and a word for numbers just before that ("Spells out numbers
+ * under ten", "Writes numbers from one to nine as words"), never a figure
+ * the text reports ("numbers rose by 40 percent").
+ */
 function aboutNumbers(before: string): boolean {
   const words = before.toLowerCase().match(/[\p{L}\p{N}]+/gu)?.slice(-4) ?? [];
-  return words.some((word) => NUMBER_TOPIC.has(word));
+  if (!NUMBER_BOUNDS.has(words.at(-1) ?? "")) return false;
+  return words.slice(0, -1).some((word) => NUMBER_TOPIC.has(word));
 }
 /** Letters of scripts with no capitals, which the name rules cannot read. */
 const UNCASED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Thai}\p{Script=Devanagari}]/u;
@@ -210,7 +230,7 @@ export function checkPreferenceText(
     const before = plain.slice(0, match.index);
     const after = plain.slice(match.index + match[0].length);
     const person = PERSON_ORDINALS.has(word) && /^\s+person\b/i.test(after);
-    if (!person && !lengthFollows(after) && !aboutNumbers(before)) return { ok: false, reason: "number" };
+    if (!person && !lengthFollows(after, word) && !aboutNumbers(before)) return { ok: false, reason: "number" };
   }
   const vocabulary = appVocabulary();
   for (const quote of text.matchAll(/["\u201c]([^"\u201d]*)["\u201d]|(?<![\p{L}])['\u2018]([^'\u2019]*)['\u2019](?![\p{L}])/gu)) {
