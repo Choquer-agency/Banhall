@@ -689,6 +689,9 @@ export async function signOffSeedStageHandler(
   ]);
   // Phase E (E2b): the stage's choices as a learning signal, by its signer.
   await scheduleSignalCapture(ctx, { seedChoicesGenerationId: generation._id, producerId: user._id });
+  // Phase E (E1a): a writer-memory suggestion run once the signals are in,
+  // at most one a day per writer.
+  await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.writerMemory.suggestForWriter, { userId: user._id, reason: "sign_off" });
   // 2026-10-23 (owner, second): the picks above are kept, and the drafting
   // runs on the models its tiers use now when a tier was moved back from
   // one this plan froze.

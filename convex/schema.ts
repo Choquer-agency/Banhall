@@ -3550,7 +3550,57 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"])
+    // 2026-10-27 (Phase E, E1a): a writer's own section edits, newest first.
+    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+
+  // 2026-10-27 (Phase E, E1a; part 5 of the first 2026-10-26 entry): a
+  // writer's saved preferences, private to that writer (convex/writerMemory.ts).
+  // No project, company or draft id: the style-only check keeps project
+  // facts out (convex/lib/preferenceCheck.ts).
+  writerMemories: defineTable({
+    userId: v.id("users"),
+    /** At most 160 characters; "" once a dismissed text is cleared after 90 days. */
+    text: v.string(),
+    /** The folded text, so the same preference is never suggested twice. */
+    textKey: v.string(),
+    state: v.union(v.literal("suggested"), v.literal("on"), v.literal("off"), v.literal("dismissed")),
+    origin: v.union(v.literal("suggested"), v.literal("written")),
+    /** How many of the writer's own signals backed a suggestion. */
+    support: v.optional(v.number()),
+    /** How many request texts a suggestion keeps while it is open. */
+    sourceCount: v.optional(v.number()),
+    /** The text key the model's style-only check passed. */
+    checkedTextKey: v.optional(v.string()),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_and_state", ["userId", "state"])
+    .index("by_userId_and_textKey", ["userId", "textKey"])
+    .index("by_state_and_decidedAt", ["state", "decidedAt"]),
+
+  // An open suggestion's whole request, masked, so approval can check it
+  // again; deleted on the writer's decision and with each project.
+  writerMemorySources: defineTable({
+    memoryId: v.id("writerMemories"),
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    /** The signal: a learning signal, a chat card rewording, a section edit or a chat message. */
+    ref: v.string(),
+    text: v.string(),
+    /** The company the text came from (its client key), for the vocabulary rule. */
+    company: v.string(),
+  })
+    .index("by_memoryId", ["memoryId"])
     .index("by_projectId", ["projectId"]),
+
+  // One suggestion run per writer at a time, and when the last one ran.
+  writerMemoryRuns: defineTable({
+    userId: v.id("users"),
+    leaseUntil: v.number(),
+    lastRunAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
 
   // 2026-10-26 (Phase E, E2b): Step-by-step choices and reviewer outcomes
   // as learning signals, one masked copy per source row (convex/learningSignals.ts).

@@ -380,8 +380,9 @@ async function runNextSectionAction(
   generationId: Id<"generations">
 ) {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+  // Sign-off also schedules a learning signal and a writer-memory run (Phase E).
   const job = await s.t.run(async (ctx) =>
-    (await ctx.db.system.query("_scheduled_functions").take(30)).find(
+    (await ctx.db.system.query("_scheduled_functions").take(200)).find(
       (candidate) =>
         candidate.name === "ai/orderedGeneration:generateOrderedSection" &&
         candidate.args[0]?.generationId === generationId &&

@@ -78,6 +78,7 @@ import type * as ai_styleAnalysis from "../ai/styleAnalysis.js";
 import type * as ai_stylePreview from "../ai/stylePreview.js";
 import type * as ai_transcriptFactsAgent from "../ai/transcriptFactsAgent.js";
 import type * as ai_trustedContext from "../ai/trustedContext.js";
+import type * as ai_writerMemory from "../ai/writerMemory.js";
 import type * as ai_writerSettings from "../ai/writerSettings.js";
 import type * as ai_writerStyle from "../ai/writerStyle.js";
 import type * as aiUsage from "../aiUsage.js";
@@ -215,6 +216,7 @@ import type * as lib_ownerMatching from "../lib/ownerMatching.js";
 import type * as lib_partialJsonItems from "../lib/partialJsonItems.js";
 import type * as lib_passageEdits from "../lib/passageEdits.js";
 import type * as lib_placeholderValidators from "../lib/placeholderValidators.js";
+import type * as lib_preferenceCheck from "../lib/preferenceCheck.js";
 import type * as lib_projectDeletion from "../lib/projectDeletion.js";
 import type * as lib_projectScopedTables from "../lib/projectScopedTables.js";
 import type * as lib_providerConfig from "../lib/providerConfig.js";
@@ -304,6 +306,7 @@ import type * as uploadAttempts from "../uploadAttempts.js";
 import type * as users from "../users.js";
 import type * as workItems from "../workItems.js";
 import type * as workspaceRollout from "../workspaceRollout.js";
+import type * as writerMemory from "../writerMemory.js";
 import type * as writerProfiles from "../writerProfiles.js";
 
 import type {
@@ -383,6 +386,7 @@ declare const fullApi: ApiFromModules<{
   "ai/stylePreview": typeof ai_stylePreview;
   "ai/transcriptFactsAgent": typeof ai_transcriptFactsAgent;
   "ai/trustedContext": typeof ai_trustedContext;
+  "ai/writerMemory": typeof ai_writerMemory;
   "ai/writerSettings": typeof ai_writerSettings;
   "ai/writerStyle": typeof ai_writerStyle;
   aiUsage: typeof aiUsage;
@@ -520,6 +524,7 @@ declare const fullApi: ApiFromModules<{
   "lib/partialJsonItems": typeof lib_partialJsonItems;
   "lib/passageEdits": typeof lib_passageEdits;
   "lib/placeholderValidators": typeof lib_placeholderValidators;
+  "lib/preferenceCheck": typeof lib_preferenceCheck;
   "lib/projectDeletion": typeof lib_projectDeletion;
   "lib/projectScopedTables": typeof lib_projectScopedTables;
   "lib/providerConfig": typeof lib_providerConfig;
@@ -609,6 +614,7 @@ declare const fullApi: ApiFromModules<{
   users: typeof users;
   workItems: typeof workItems;
   workspaceRollout: typeof workspaceRollout;
+  writerMemory: typeof writerMemory;
   writerProfiles: typeof writerProfiles;
 }>;
 

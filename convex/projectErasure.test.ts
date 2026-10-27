@@ -420,6 +420,12 @@ async function seedProjectRows(
       kind: "review_decision", sourceKey: "reviewDecision:erasure", projectId, producerId: userId,
       payload: { decision: "return", note: "Tighten the openings." }, at: now,
     });
+    // Phase E (E1a): an open suggestion's request text from this project.
+    const memoryId = await ctx.db.insert("writerMemories", {
+      userId, text: "Keeps it short.", textKey: "keeps it short", state: "suggested", origin: "suggested",
+      sourceCount: 1, checkedTextKey: "keeps it short", createdAt: now, updatedAt: now,
+    });
+    await ctx.db.insert("writerMemorySources", { memoryId, userId, projectId, ref: "learningSignal:x", text: "t", company: "c" });
     const briefId = await ctx.db.insert("generationBriefs", { projectId, generationId, inputsHash: "h", version: 1, origin: "derived", storylineText: "s", createdAt: now });
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,

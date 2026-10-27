@@ -131,6 +131,9 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "generationSourceUse", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
   // 2026-10-26 (Phase E, E2b): learning signals made from the project's rows.
   { table: "learningSignals", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-10-27 (Phase E, E1a): an open suggestion's request texts. The
+  // suggestion itself has no project; it is withdrawn when its texts are gone.
+  { table: "writerMemorySources", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "candidateScores", field: "projectId", disposition: "delete", index: "by_projectId" },

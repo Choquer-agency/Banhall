@@ -93,6 +93,20 @@ crons.cron(
   "15 8 * * *",
   internal.ai.learning.generateDraftStyleDigest
 );
+// 2026-10-27 (Phase E, E1a): writer memory. Suggestions for writers with new
+// Step-by-step signals, and dismissed suggestions' text cleared after 90 days.
+crons.cron(
+  "suggest writer preferences",
+  "30 8 * * *",
+  internal.writerMemory.scheduleNightlyRuns,
+  {}
+);
+crons.cron(
+  "clear dismissed preference texts",
+  "45 8 * * *",
+  internal.writerMemory.clearDismissedTexts,
+  {}
+);
 crons.interval(
   "reconcile stalled oversight rebuilds",
   { minutes: 5 },

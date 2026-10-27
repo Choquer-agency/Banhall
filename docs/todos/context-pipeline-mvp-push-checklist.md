@@ -701,6 +701,10 @@ What changes:
 - [ ] Code review by two reviewers.
 - [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
 
+### Automated, live on localhost
+
+- [x] An internal comment on the Insporos report became a review-comment signal with the company's name hidden ("[CLIENT_1_FIRST]"). The one-off pass made signals for older Seed edits, Feedback and sign-offs (42 signals in all, none holding a client's name). With a style set published, a chat turn recorded the set it read.
+
 ### Owner, once, dev first
 
 - [ ] Run `learningSignals:backfillLearningSignals` once, to make signals for older Seed edits, Feedback, reviews and comments.
@@ -708,4 +712,23 @@ What changes:
 ### Manual on localhost
 
 - [ ] Leave an internal comment on a report, then check `/admin/reviews` after the next nightly build: the style lessons list "Review comments" among their inputs once enough writers and projects have them.
+
+## Phase E, third part: writer memory suggestions
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27". Plan: `docs/todos/phase-e-learning.md` (E1a). The page and the use in drafts, Seeds and chat come in the next part.
+
+What changes:
+
+- **The AI may suggest up to three short writing preferences** from a writer's own Seed edits, Feedback, choices, chat edits and chat messages, each backed by two or more of them.
+- **No suggestion can carry a name, a placeholder, a figure or a term from the work**: the server and the model both check every text.
+- **Only the writer sees their preferences**; nobody else, Admins included.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [x] Suggestion runs on the live copy for two writers with Seed signals (from the one-off pass). The first: three suggested, two refused by the check (a capitalized word; a term from the work), one kept, backed by 5 signals: "Writes long, dense sentences that chain several linked factors with commas instead of short separate statements." The second: two kept ("Keeps each idea to one sentence, dropping the second sentence that adds extra detail."; "Avoids bringing up topics that earlier sections did not cover, and judges conclusions only against the uncertainties already stated."), one refused (a term from the work). None holds a name or a fact.
 
