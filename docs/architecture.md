@@ -131,7 +131,7 @@ flowchart LR
 
 ## 3. The data: what is stored and how it connects
 
-There are 126 tables in `convex/schema.ts`. Most are supporting detail. These are the ones that carry the story:
+There are 136 tables in `convex/schema.ts`. Most are supporting detail. These are the ones that carry the story:
 
 Read each arrow as "has many". The second line in each box says what the rows are for.
 
@@ -202,22 +202,26 @@ Users also have `notifications` (their inbox) and the `workItems` assigned to th
 
 **A file's text lives apart from its row (2026-10-22).** A `projectDocuments` row keeps facts about its text (length, a fingerprint, word count, an opening preview). The text itself is stored in `projectDocumentTexts`, in pieces of at most 32,000 characters. Every read goes through `convex/lib/documentText.ts`, so lists, uploads and chat read only what they need. Older rows keep their text on the row until the one-off backfill in `convex/documentTextMigration.ts` moves it.
 
+**Earlier text is kept as a version (2026-10-26).** When a server reading replaces a file's text, the text it had is kept first as its next version in `projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`, and never changed (`keepDocumentTextVersion` in `convex/lib/documentText.ts`). Versions are deleted with their file and their project. No draft reads a version yet: a draft still freezes its own copy of each file in `generationSources`.
+
 **Clients are new (2026-10-14).** Projects now store both `clientName` and `clientId`, and every write keeps the two in step. Grouping on the Projects page still reads `clientName`; nothing groups by `clientId` yet.
+
+**Companies hold their own files (2026-10-26).** A `companyFiles` row belongs to a company (a `clients` row), with its text in `companyFileTexts` and every add, archive, restore, removal and merge move in `companyFileEvents`. Reading, adding and managing them are their own capabilities (`companyFiles.read`, `companyFiles.add`, `companyFiles.manage`), and a company's view of the Projects page has a Files tab. A draft freezes the project's company's files after the project's own, as `company_file` rows; chat finds them only through its search and read tools. Merging companies moves their files, and erasing a project never touches them.
 
 **Tables by area**
 
 | Area | Count | Examples |
 | --- | --- | --- |
 | People and access | 5 | `users`, `invites`, `userActivity` |
-| Clients and projects | 8 | `clients`, `projects`, `projectEvents`, `dashboardCompanies`, `tags` |
-| Evidence (inputs) | 20 | `transcripts` and their turns, speakers, facts and digests; `projectDocuments` and their text (`projectDocumentTexts`); `intakeDrafts`; financial uploads |
+| Clients and projects | 11 | `clients`, `projects`, `projectEvents`, `dashboardCompanies`, `tags`; company files (`companyFiles`, `companyFileTexts`, `companyFileEvents`) |
+| Evidence (inputs) | 24 | `transcripts` and their turns, speakers, facts and digests; `projectDocuments`, their text (`projectDocumentTexts`) and its earlier versions (`projectDocumentTextVersions`); search pieces (`documentSearchPieces`); `intakeDrafts`; financial uploads |
 | Report and editing | 9 | `reports`, `reportSnapshots`, `comments`, `reportExports`, `reportProvenance` |
-| Drafting engine | 32 | `generations`, `generationSources`, `generationSectionRuns`, `generationBriefs`, `briefPreparations`, `seeds`, `reportCandidates`, `complianceNotes` |
+| Drafting engine | 33 | `generations`, `generationSources`, `generationSourceUse`, `generationSectionRuns`, `generationBriefs`, `briefPreparations`, `seeds`, `reportCandidates`, `complianceNotes` |
 | Chat and research | 13 | `agentChatThreads`, `chatTurns`, `chatProposals`, `researchSessions` |
 | Review and QA | 7 | `qaFindings`, `reviewDecisions`, `writerReviews`, `pdReviews`, `comparisons` |
 | Brain and learning | 13 | `brainSources`, `learningDigests`, `writerProfiles`, `ingestionItems` |
 | Work and notifications | 8 | `workItems`, `workItemEvents`, `workItemOversight`, `notifications` |
-| AI usage and models | 8 | `aiUsage`, `modelCatalog`, `modelRoleAssignments` |
+| AI usage and models | 10 | `aiUsage`, `modelCatalog`, `modelRoleAssignments`, `modelTracks` |
 | Admin and misc | 4 | `appSettings`, `errorReports`, `changelogEntries` |
 
 Convex components keep their own tables outside this count: `betterAuth` (sign-in accounts), `agent` (chat messages), `rag` (Brain vectors), `rateLimiter`, `embedPool` (a work queue for Brain embedding) and `researchWorkflow`.
@@ -287,7 +291,7 @@ The page asks for data with `useQuery` and keeps listening. When anyone writes w
 
 Text is pulled out in the browser before anything is sent: PDFs with pdf.js, Word files with mammoth as Markdown (`src/lib/parseDocument.ts`, `shared/wordMarkdown.ts`; the row's `textFormat` says so), spreadsheets in a Web Worker (`src/lib/spreadsheet.worker.ts`), transcripts in `src/lib/transcriptUpload.ts`. The original file is uploaded separately: `documents.generateUploadUrl`, then a direct POST to Convex storage, then `claimUpload` (`src/lib/uploads/originalUpload.ts`). On the server, `documents.uploadDocument` stores the text as pieces and finds a duplicate (same name, same text) by its fingerprint, without reading other files' text.
 
-When nothing came out of a supported file in the browser (no text, or only a "stopped reading" line), the server reads the stored original once per reader version (`convex/lib/serverReading.ts` decides, `convex/ai/fileReading.ts` reads with `readFileOnServer` from `convex/ai/fileReader.ts`, `convex/documentReading.ts` claims and saves). A file with read text keeps it until text versions exist. A draft freezes Word Markdown without its bold and italic marks (`frozenFileText` in `convex/lib/briefEvidence.ts`), so quotes are matched exactly as for any other file; the file preview shows it formatted. The OneDrive import (`convex/ingestionSync.ts`) reads its files with the same reader, each PDF in its own action.
+When nothing came out of a supported file in the browser (no text, or only a "stopped reading" line), the server reads the stored original once per reader version (`convex/lib/serverReading.ts` decides, `convex/ai/fileReading.ts` reads with `readFileOnServer` from `convex/ai/fileReader.ts`, `convex/documentReading.ts` claims and saves). A file with read text keeps it, except a Word file whose text is not Markdown yet (read by an older browser tab): the server reads it again as Markdown, and its plain text is kept as a version first. The owner's one-off pass `documentReading.queueServerReadings` does the same for existing files. A draft freezes Word Markdown without its bold and italic marks (`frozenFileText` in `convex/lib/briefEvidence.ts`), so quotes are matched exactly as for any other file; the file preview shows it formatted. The OneDrive import (`convex/ingestionSync.ts`) reads its files with the same reader, each PDF in its own action.
 
 Every text write marks a file due for search pieces. A sweep every minute cuts them (`convex/searchPieces.ts`, `convex/ai/searchIndexing.ts`, the rules in `shared/searchPieces.ts`): about 600 tokens each, along pages, sheets, messages and headings, each with the fingerprint of the text its positions refer to. `searchProjectPieces` (`convex/lib/searchPieces.ts`) searches one project's pieces. Cutting a file's pieces marks its labels due; a second sweep asks the `file_labels` model role (Claude Haiku) for its kind, fiscal year, title and summary, with names hidden (`convex/fileLabels.ts`, `convex/ai/fileLabels.ts`). Labels describe files; they are never evidence. The reading helpers both sides use are in `shared/` (`spreadsheetText.ts`, `emailText.ts`, `documentContent.ts`).
 
@@ -381,6 +385,8 @@ flowchart TD
 
 **Answer limits** (2026-10-26): a request whose answer limit is over 16,384 tokens streams and is read to its end (`instrumentedAnthropic` in `convex/ai/instrument.ts`), so a long answer is not lost to a request timeout. A cut-off answer from a report-sized step is retried with the model's full output limit (`cutOffRetry` in `convex/ai/structured.ts`, limits from `modelOutputCap` in `shared/generationModels.ts`).
 
+**What each step read** (2026-10-26): the analyzer, the Brief, each Seed step and each Line's facts check record how much of each frozen row they sent, once their request has answered (`generationSourceUse`, `convex/lib/generations/sourceUse.ts`). The Brief's Inputs band shows it under each file, for example "Read by the analysis (whole), Seeds (in part, 3 of 13 steps)." A reused Brief and a Summary recovery copy the record of the draft they come from.
+
 **Run status** on the `generations` row (`shared/generationTransitions.ts`):
 
 ```mermaid
@@ -442,10 +448,12 @@ The chat agent has 12 tools. Only the first three can produce an edit, and each 
 | `highlightPassages` | Point at passages, no edit |
 | `deviationInventory` | List where paragraphs depart from the style rules |
 | `compareReferencePd` | Compare with last year's report |
-| `readDocument`, `searchDocuments`, `readTranscript` | Read the project's files and transcripts |
+| `readDocument`, `searchDocuments`, `readTranscript` | Read the project's files, its company's files and its transcripts |
 | `viewFile` | Look at PDF pages and images |
 | `searchWeb` | Web search through OpenRouter, with names removed from the query |
 | `searchBrain` | Search approved past reports, only when the writer turns it on |
+
+**Files in a chat turn** (2026-10-26): with the reading tools on, a turn carries the project's files' text only when every file fits whole (each within one file's allowance, at most 12, together at most 80,000 characters). Otherwise it carries none, and the assistant finds and opens them with `searchDocuments` and `readDocument` from the list of files. `searchDocuments` searches a file whose search pieces are current through its pieces and every other file the old way, cuts each excerpt around its match, and places it by the parts `readDocument` opens.
 
 Proposal card states: `pending`, then `applied`, `rejected` or `stale` (the target text was no longer in the report). Undo moves an applied card back to `pending`. A reply that crashes is failed by a cron that runs every 2 minutes.
 
