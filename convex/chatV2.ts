@@ -1956,10 +1956,6 @@ export const markTurnProgress = internalMutation({
   },
 });
 
-/**
- * Phase A (2026-10-19): the oldest message `order` the model reads for this
- * turn, recorded only when older turns were left out of its history.
- */
 /** Phase E (E2b): the published style lesson set the turn's system text carried. */
 export const setTurnLearningDigest = internalMutation({
   args: {
@@ -1976,6 +1972,10 @@ export const setTurnLearningDigest = internalMutation({
   },
 });
 
+/**
+ * Phase A (2026-10-19): the oldest message `order` the model reads for this
+ * turn, recorded only when older turns were left out of its history.
+ */
 export const setTurnHistoryStart = internalMutation({
   args: {
     agentThreadId: v.string(),

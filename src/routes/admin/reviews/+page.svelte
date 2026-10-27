@@ -41,7 +41,7 @@
       case "failed": return "Generation failed. No candidate was saved; published guidance is unchanged.";
       case "saved": return "Candidate saved for administrator review.";
       case "deduplicated": return "No new candidate: these inputs were already saved.";
-      case "withdrawn_inputs": return "No candidate: feedback it read was withdrawn when its Brain source was removed.";
+      case "withdrawn_inputs": return "No candidate: something it read was withdrawn or removed while it ran.";
       default: {
         const exhaustive: never = outcome;
         return exhaustive;

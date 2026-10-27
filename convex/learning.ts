@@ -23,6 +23,7 @@ import {
   sameLearningInputs,
   withdrawnLookup,
 } from "./lib/learningWithdrawal";
+import { signalStillValid, signalsChangedAt } from "./learningSignals";
 
 /**
  * Learning loop storage + governed publication.
@@ -274,7 +275,9 @@ export const getLearningFreshness = internalQuery({
   args: { kind: digestKind, feedbackCutoff: v.number() },
   returns: v.object({ revision: v.number(), unchanged: v.boolean() }),
   handler: async (ctx, args) => {
-    const revision = args.kind === "draft_style" ? await learningRevision(ctx) : 0;
+    // E2b review: a learning signal written with an old time or removed
+    // changes the inputs too.
+    const revision = args.kind === "draft_style" ? Math.max(await learningRevision(ctx), await signalsChangedAt(ctx)) : 0;
     const newest = await latestGlobalDigest(ctx, args.kind);
     return { revision, unchanged: sameLearningInputs(newest, args.feedbackCutoff, revision) };
   },
@@ -302,6 +305,21 @@ export const saveDigest = internalMutation({
       if (args.admission)
         await saveAttempt(ctx, args.kind, "deduplicated", args.admission);
       return null;
+    }
+    // Phase E (E2b review): a learning signal the build admitted may have
+    // been removed, or its project erased, while its model call ran.
+    if (args.kind === "draft_style" && args.admission) {
+      for (const stream of args.admission.streams) {
+        if (!stream.stream.startsWith("learningSignals:")) continue;
+        for (const signalId of stream.signalIds) {
+          const id = ctx.db.normalizeId("learningSignals", signalId);
+          const row = id ? await ctx.db.get(id) : null;
+          if (!row || !(await signalStillValid(ctx, row))) {
+            await saveAttempt(ctx, args.kind, "withdrawn_inputs", args.admission);
+            return null;
+          }
+        }
+      }
     }
     // Phase E (E2a): feedback the build admitted may have been withdrawn
     // while its model call ran; such a candidate is never saved.

@@ -4,16 +4,17 @@
  * a masked copy of the row it was made from (the names the app knows are
  * replaced by placeholders, then the project record's names are removed),
  * written by a scheduled capture so the writer's own action never pays for
- * it and never fails because of it. The rows themselves are never changed.
- * The style lesson set reads these copies; builds never build maps.
+ * it. The rows themselves are never changed. The style lesson set reads
+ * these copies; builds never build maps.
  */
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { deidentify, pseudonymize, type PlaceholderMap } from "./lib/deidentify";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { listProjectTranscripts } from "./lib/transcripts";
+import { companyIdentityNames } from "./lib/clients";
 
 export const learningSignalKindValidator = v.union(
   v.literal("seed_rewording"),
@@ -26,19 +27,52 @@ export type LearningSignalKind = "seed_rewording" | "seed_feedback" | "seed_choi
 
 /** At most this many characters of any one masked text. */
 const MAX_SIGNAL_TEXT = 2_000;
+/** A sign-off's counts read at most this many rows; past it, no signal is made rather than a wrong one. */
+const MAX_CHOICE_ROWS = 2_000;
+const MAX_CHOICE_EVENTS = 5_000;
 
-/** A masker for one project: the draft's frozen map when there is one, else the project's. */
+/**
+ * A masker for one project: the draft's frozen map when there is one, else
+ * the project's map with its company's names (review: a draft that read
+ * company files hid them too). Null when the company's names cannot all be
+ * read, so no signal is written with a name it could not hide.
+ */
 async function maskerFor(
   ctx: MutationCtx,
   project: Doc<"projects">,
   generation: Doc<"generations"> | null,
   texts: readonly string[]
-): Promise<(text: string) => string> {
-  const map: PlaceholderMap =
-    generation?.placeholders && generation.placeholders.length > 0
-      ? generation.placeholders
-      : await projectPlaceholderMap(ctx, project, await listProjectTranscripts(ctx, project._id), texts);
+): Promise<((text: string) => string) | null> {
+  let map: PlaceholderMap;
+  if (generation?.placeholders && generation.placeholders.length > 0) {
+    map = generation.placeholders;
+  } else {
+    const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+    let companyNames: { organizations: string[]; people: string[] } = { organizations: [], people: [] };
+    if (client) {
+      try {
+        companyNames = await companyIdentityNames(ctx, client, project._id);
+      } catch {
+        return null;
+      }
+    }
+    map = await projectPlaceholderMap(ctx, project, await listProjectTranscripts(ctx, project._id), texts, companyNames);
+  }
   return (text) => deidentify(pseudonymize(text, map), project).trim().slice(0, MAX_SIGNAL_TEXT);
+}
+
+/** Moves the signals' revision, so the next style build sees the change (review). */
+async function markSignalsChanged(ctx: MutationCtx): Promise<void> {
+  const row = await ctx.db.query("learningSignalChanges").withIndex("by_key", (q) => q.eq("key", "signals")).unique();
+  const at = Date.now();
+  if (row) await ctx.db.patch(row._id, { at });
+  else await ctx.db.insert("learningSignalChanges", { key: "signals", at });
+}
+
+/** When the learning signals last changed, 0 before any. */
+export async function signalsChangedAt(ctx: QueryCtx | MutationCtx): Promise<number> {
+  const row = await ctx.db.query("learningSignalChanges").withIndex("by_key", (q) => q.eq("key", "signals")).unique();
+  return row?.at ?? 0;
 }
 
 async function signalBySource(ctx: MutationCtx, sourceKey: string) {
@@ -50,7 +84,9 @@ async function signalBySource(ctx: MutationCtx, sourceKey: string) {
 
 async function removeSignal(ctx: MutationCtx, sourceKey: string): Promise<void> {
   const existing = await signalBySource(ctx, sourceKey);
-  if (existing) await ctx.db.delete(existing._id);
+  if (!existing) return;
+  await ctx.db.delete(existing._id);
+  await markSignalsChanged(ctx);
 }
 
 /** Writes or replaces the one signal made from `sourceKey`. */
@@ -61,10 +97,11 @@ async function putSignal(
   const existing = await signalBySource(ctx, signal.sourceKey);
   if (existing) await ctx.db.replace(existing._id, signal);
   else await ctx.db.insert("learningSignals", signal);
+  await markSignalsChanged(ctx);
 }
 
 /** A live project that is not being erased, or null. */
-async function liveProject(ctx: MutationCtx, projectId: Id<"projects">) {
+async function liveProject(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
   const project = await ctx.db.get(projectId);
   return project && project.deletionStartedAt === undefined ? project : null;
 }
@@ -93,7 +130,7 @@ export const capture = internalMutation({
   handler: async (ctx, args) => {
     if (args.seedSelectionId) await captureSeedRewording(ctx, args.seedSelectionId);
     if (args.seedFeedbackRequestId) await captureSeedFeedback(ctx, args.seedFeedbackRequestId, args.producerId);
-    if (args.seedChoicesGenerationId && args.producerId) await captureSeedChoices(ctx, args.seedChoicesGenerationId, args.producerId);
+    if (args.seedChoicesGenerationId) await captureSeedChoices(ctx, args.seedChoicesGenerationId);
     if (args.reviewDecisionId) await captureReviewDecision(ctx, args.reviewDecisionId);
     if (args.commentId) await captureReviewComment(ctx, args.commentId);
     return null;
@@ -114,6 +151,7 @@ async function captureSeedRewording(ctx: MutationCtx, selectionId: Id<"seedSelec
   const before = seed.bullets.join("\n");
   const after = selection.editedBullets.join("\n");
   const mask = await maskerFor(ctx, project, generation, [before, after]);
+  if (!mask) return await removeSignal(ctx, sourceKey);
   await putSignal(ctx, {
     kind: "seed_rewording",
     sourceKey,
@@ -135,11 +173,12 @@ async function captureSeedFeedback(
   const request = await ctx.db.get(requestId);
   if (!request || request.status === "withdrawn") return await removeSignal(ctx, sourceKey);
   const existing = await signalBySource(ctx, sourceKey);
-  const producer = producerId ?? existing?.producerId ?? (await feedbackRequester(ctx, request));
+  const producer = producerId ?? existing?.producerId ?? (await feedbackRequester(ctx, request._id));
   const [generation, project] = await Promise.all([ctx.db.get(request.generationId), liveProject(ctx, request.projectId)]);
   if (!producer || !project) return await removeSignal(ctx, sourceKey);
   const about = request.targetWording.join("\n");
   const mask = await maskerFor(ctx, project, generation, [request.instruction, about]);
+  if (!mask) return await removeSignal(ctx, sourceKey);
   await putSignal(ctx, {
     kind: "seed_feedback",
     sourceKey,
@@ -154,41 +193,52 @@ async function captureSeedFeedback(
 /** Who asked for a Seed's Feedback, from the event that recorded it (older rows). */
 async function feedbackRequester(
   ctx: MutationCtx,
-  request: Doc<"seedFeedbackRequests">
+  requestId: Id<"seedFeedbackRequests">
 ): Promise<Id<"users"> | null> {
   const events = await ctx.db
     .query("seedDecisionEvents")
-    .withIndex("by_generationId_and_at", (q) => q.eq("generationId", request.generationId))
-    .take(5_000);
+    .withIndex("by_feedbackRequestId", (q) => q.eq("feedbackRequestId", requestId))
+    .take(10);
   for (const event of events) {
-    if (event.kind === "feedbackRequested" && event.feedbackRequestId === request._id && "actorUserId" in event) {
-      return event.actorUserId;
-    }
+    if (event.kind === "feedbackRequested" && "actorUserId" in event) return event.actorUserId;
   }
   return null;
 }
 
-/** At a Seed sign-off: per tag, how many ideas were offered and chosen, and how often new ideas were asked for. */
-async function captureSeedChoices(
-  ctx: MutationCtx,
-  generationId: Id<"generations">,
-  producerId: Id<"users">
-): Promise<void> {
+/**
+ * At a Seed sign-off, from the signed-off plan: per idea style, how many
+ * ideas were offered and chosen in the parts that were not skipped, how
+ * many parts were skipped, and how often new ideas were asked for. Its time
+ * is the sign-off's. A read that hits its cap makes no signal rather than a
+ * wrong count.
+ */
+async function captureSeedChoices(ctx: MutationCtx, generationId: Id<"generations">): Promise<void> {
   const sourceKey = SEED_CHOICES_KEY(generationId);
   const generation = await ctx.db.get(generationId);
   const project = generation ? await liveProject(ctx, generation.projectId) : null;
-  if (!generation || !project) return await removeSignal(ctx, sourceKey);
+  const summary = generation?.summaryVersionId ? await ctx.db.get(generation.summaryVersionId) : null;
+  if (!generation || !project || !summary) return await removeSignal(ctx, sourceKey);
+  const skipped = new Set<string>(summary.skippedRoleIds);
   const seeds = await ctx.db
     .query("seeds")
     .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", generationId))
-    .take(2_000);
+    .take(MAX_CHOICE_ROWS + 1);
   const selections = await ctx.db
     .query("seedSelections")
     .withIndex("by_generationId_and_selected_and_roleId", (q) => q.eq("generationId", generationId).eq("selected", true))
-    .take(2_000);
-  const chosen = new Set(selections.map((selection) => selection.seedId));
+    .take(MAX_CHOICE_ROWS + 1);
+  const events = await ctx.db
+    .query("seedDecisionEvents")
+    .withIndex("by_generationId_and_at", (q) => q.eq("generationId", generationId))
+    .take(MAX_CHOICE_EVENTS + 1);
+  if (seeds.length > MAX_CHOICE_ROWS || selections.length > MAX_CHOICE_ROWS || events.length > MAX_CHOICE_EVENTS) {
+    console.info("seed choices signal skipped: too many rows to count");
+    return await removeSignal(ctx, sourceKey);
+  }
+  const chosen = new Set(selections.filter((selection) => !skipped.has(selection.roleId)).map((selection) => selection.seedId));
   const byTag = new Map<string, { offered: number; chosen: number }>();
   for (const seed of seeds) {
+    if (skipped.has(seed.roleId)) continue;
     for (const tag of seed.tags) {
       const counts = byTag.get(tag) ?? { offered: 0, chosen: 0 };
       counts.offered += 1;
@@ -196,25 +246,25 @@ async function captureSeedChoices(
       byTag.set(tag, counts);
     }
   }
-  const events = await ctx.db
-    .query("seedDecisionEvents")
-    .withIndex("by_generationId_and_at", (q) => q.eq("generationId", generationId))
-    .take(5_000);
-  const newIdeas = events.filter((event) => event.kind === "regenerate").length;
-  const skipped = events.filter((event) => event.kind === "skip").length;
   await putSignal(ctx, {
     kind: "seed_choices",
     sourceKey,
     projectId: project._id,
     generationId,
-    producerId,
+    producerId: summary.signedOffBy,
     payload: {
       tags: [...byTag].sort(([a], [b]) => a.localeCompare(b)).map(([tag, counts]) => ({ tag, ...counts })),
-      newIdeas,
-      skipped,
+      newIdeas: events.filter((event) => event.kind === "regenerate").length,
+      skipped: skipped.size,
     },
-    at: Date.now(),
+    at: summary.signedOffAt,
   });
+}
+
+/** The draft a report was made from, for its frozen map. */
+async function reportGeneration(ctx: MutationCtx, reportId: Id<"reports">): Promise<Doc<"generations"> | null> {
+  const report = await ctx.db.get(reportId);
+  return report?.generationId ? await ctx.db.get(report.generationId) : null;
 }
 
 /** A reviewer's approve or return, with the return note. */
@@ -224,13 +274,18 @@ async function captureReviewDecision(ctx: MutationCtx, decisionId: Id<"reviewDec
   const project = decision ? await liveProject(ctx, decision.projectId) : null;
   if (!decision || !project) return await removeSignal(ctx, sourceKey);
   const note = decision.note?.trim() ?? "";
-  const mask = note ? await maskerFor(ctx, project, null, [note]) : null;
+  let maskedNote: string | undefined;
+  if (note) {
+    const mask = await maskerFor(ctx, project, await reportGeneration(ctx, decision.reportId), [note]);
+    if (!mask) return await removeSignal(ctx, sourceKey);
+    maskedNote = mask(note);
+  }
   await putSignal(ctx, {
     kind: "review_decision",
     sourceKey,
     projectId: project._id,
     producerId: decision.reviewerId,
-    payload: { decision: decision.decision, ...(mask ? { note: mask(note) } : {}) },
+    payload: { decision: decision.decision, ...(maskedNote ? { note: maskedNote } : {}) },
     at: decision.createdAt,
   });
 }
@@ -243,7 +298,8 @@ async function captureReviewComment(ctx: MutationCtx, commentId: Id<"comments">)
   const commenterId = comment?.commenterType === "writer" ? ctx.db.normalizeId("users", comment.commenterId) : null;
   if (!comment || !project || !commenterId) return await removeSignal(ctx, sourceKey);
   const texts = [comment.body, comment.highlightText, ...(comment.suggestedEdit ? [comment.suggestedEdit] : [])];
-  const mask = await maskerFor(ctx, project, null, texts);
+  const mask = await maskerFor(ctx, project, await reportGeneration(ctx, comment.reportId), texts);
+  if (!mask) return await removeSignal(ctx, sourceKey);
   await putSignal(ctx, {
     kind: "review_comment",
     sourceKey,
@@ -263,7 +319,10 @@ export async function removeCommentSignal(ctx: MutationCtx, commentId: Id<"comme
   await removeSignal(ctx, REVIEW_COMMENT_KEY(commentId));
 }
 
-/** Schedules a capture; a capture that cannot be scheduled never fails the writer's action. */
+/**
+ * Schedules a capture. A capture that cannot be scheduled is logged and
+ * never fails the writer's action: a signal is guidance, not their work.
+ */
 export async function scheduleSignalCapture(
   ctx: MutationCtx,
   args: {
@@ -275,10 +334,50 @@ export async function scheduleSignalCapture(
     producerId?: Id<"users">;
   }
 ): Promise<void> {
-  await ctx.scheduler.runAfter(0, internal.learningSignals.capture, args);
+  try {
+    await ctx.scheduler.runAfter(0, internal.learningSignals.capture, args);
+  } catch (error) {
+    console.warn("learning signal capture not scheduled", String(error).slice(0, 200));
+  }
 }
 
-/** The style lesson set's reads: one kind's signals, newest first, in the shape `admitStream` takes. */
+/**
+ * Whether a signal's source row still stands and its project is not being
+ * erased (review: a build between a change and its capture, or during an
+ * erasure, must not read it).
+ */
+export async function signalStillValid(ctx: QueryCtx | MutationCtx, row: Doc<"learningSignals">): Promise<boolean> {
+  if (!(await liveProject(ctx, row.projectId))) return false;
+  const [prefix, rawId] = [row.sourceKey.slice(0, row.sourceKey.indexOf(":")), row.sourceKey.slice(row.sourceKey.indexOf(":") + 1)];
+  if (prefix === "seedSelection") {
+    const id = ctx.db.normalizeId("seedSelections", rawId);
+    const selection = id ? await ctx.db.get(id) : null;
+    return Boolean(selection?.editedBullets);
+  }
+  if (prefix === "seedFeedback") {
+    const id = ctx.db.normalizeId("seedFeedbackRequests", rawId);
+    const request = id ? await ctx.db.get(id) : null;
+    return request !== null && request.status !== "withdrawn";
+  }
+  if (prefix === "reviewDecision") {
+    const id = ctx.db.normalizeId("reviewDecisions", rawId);
+    return id !== null && (await ctx.db.get(id)) !== null;
+  }
+  if (prefix === "comment") {
+    const id = ctx.db.normalizeId("comments", rawId);
+    return id !== null && (await ctx.db.get(id)) !== null;
+  }
+  if (prefix === "seedChoices") {
+    const id = ctx.db.normalizeId("generations", rawId);
+    return id !== null && (await ctx.db.get(id)) !== null;
+  }
+  return false;
+}
+
+/**
+ * The style lesson set's reads: one kind's signals, newest first, in the
+ * shape `admitStream` takes, leaving out any whose source or project is gone.
+ */
 export const getSignalsForDigest = internalQuery({
   args: { kind: learningSignalKindValidator, limit: v.number() },
   handler: async (ctx, args) => {
@@ -287,13 +386,18 @@ export const getSignalsForDigest = internalQuery({
       .withIndex("by_kind_and_at", (q) => q.eq("kind", args.kind))
       .order("desc")
       .take(args.limit);
-    return rows.map((row) => ({
-      signalId: row._id as string,
-      producerId: row.producerId as string,
-      projectId: row.projectId as string,
-      updatedAt: row.at,
-      payload: row.payload,
-    }));
+    const results = [];
+    for (const row of rows) {
+      if (!(await signalStillValid(ctx, row))) continue;
+      results.push({
+        signalId: row._id as string,
+        producerId: row.producerId as string,
+        projectId: row.projectId as string,
+        updatedAt: row.at,
+        payload: row.payload,
+      });
+    }
+    return results;
   },
 });
 
@@ -360,7 +464,7 @@ export const backfillLearningSignals = internalMutation({
     } else {
       const result = await ctx.db.query("summaryVersions").paginate(page);
       for (const row of result.page) {
-        await scheduleSignalCapture(ctx, { seedChoicesGenerationId: row.originGenerationId, producerId: row.signedOffBy });
+        await scheduleSignalCapture(ctx, { seedChoicesGenerationId: row.originGenerationId });
         scheduled += 1;
       }
       next = result;

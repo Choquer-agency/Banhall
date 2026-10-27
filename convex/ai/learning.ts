@@ -295,38 +295,44 @@ Because an administrator already vetted every item, weight these items more heav
 // 2026-10-26 (Phase E, E2b): Step-by-step choices and reviewer outcomes.
 const STEP_BY_STEP_PROMPT_SUFFIX = `
 
-You may also receive Step-by-step and review signals. Each kind was admitted on its own, across two or more writers and two or more projects. Names the app knows are placeholders such as [CLIENT_1] or PERSON_2; never carry a placeholder into a rule.
+You may also receive Step-by-step and review signals. Each kind was admitted on its own, across two or more writers and two or more projects. Names the app knows are placeholders such as [CLIENT_1] or [PERSON_2]; never carry a placeholder into a rule.
 
 - Seed rewordings: the AI's idea for one part of the report (before) and the writer's own rewording of it (after). Treat recurring kinds of rewording as implicit critique, like edits.
 - Seed Feedback: a writer's instruction asking the AI to rework one idea (instruction), with the idea's wording (about).
 - Seed choices: for one draft, per idea style (tag), how many ideas the AI offered and how many the writer chose, how often the writer asked for new ideas, and how many parts were skipped. A strong, recurring preference for one style across drafts is a signal; a single draft is not.
-- Review decisions: a reviewer approving a report, or returning it with a note saying what was wrong. A return note is a written critique.
+- Review returns: a reviewer returning a report with a note saying what was wrong. A return note is a written critique. How many reports were approved without a note in the same period is given as a count.
 - Review comments: an internal reviewer's comment (note) on a passage (about), with a suggested rewording (after) when there is one.
 
 Ignore anything that only fixes a project-specific fact.`;
 
-/** At most this many characters of one stream's events in the lesson-set prompt. */
-const STREAM_PROMPT_CHARS = 12_000;
+/** At most this many characters of one stream's events, as sent, in the lesson-set prompt. */
+export const STREAM_PROMPT_CHARS = 12_000;
+/** At most this many of one kind of signal are read per build. */
+const SIGNAL_WINDOW = 200;
 
-/** One stream's payloads, newest first, as JSON within its character budget. */
-function budgetedBlock(title: string, payloads: readonly unknown[]): string {
-  if (payloads.length === 0) return "";
-  const kept: unknown[] = [];
-  let size = 0;
-  for (const payload of payloads) {
-    const length = JSON.stringify(payload).length + 2;
-    if (kept.length > 0 && size + length > STREAM_PROMPT_CHARS) break;
-    kept.push(payload);
-    size += length;
+/**
+ * The newest rows of one stream that fit its budget as they will be sent
+ * (indented JSON), so admission and the record count exactly what the model
+ * reads (review).
+ */
+export function withinPromptBudget<Row extends { payload: unknown }>(rows: readonly Row[]): Row[] {
+  const kept: Row[] = [];
+  for (const row of rows) {
+    if (JSON.stringify([...kept, row].map((entry) => entry.payload), null, 2).length > STREAM_PROMPT_CHARS && kept.length > 0) break;
+    kept.push(row);
   }
-  return `\n\n${title}, newest first:\n\n${JSON.stringify(kept, null, 2)}`;
+  return kept;
+}
+
+function signalBlock(title: string, payloads: readonly unknown[]): string {
+  return payloads.length ? `\n\n${title}, newest first:\n\n${JSON.stringify(payloads, null, 2)}` : "";
 }
 
 const SIGNAL_STREAMS = [
   { kind: "seed_rewording", title: "Seed rewordings (AI idea vs writer rewording)" },
   { kind: "seed_feedback", title: "Seed Feedback (writer instructions)" },
   { kind: "seed_choices", title: "Seed choices (ideas offered and chosen, per style)" },
-  { kind: "review_decision", title: "Review decisions" },
+  { kind: "review_decision", title: "Review returns (with the reviewer's note)" },
   { kind: "review_comment", title: "Review comments (internal reviewers)" },
 ] as const;
 
@@ -337,13 +343,19 @@ export const generateDraftStyleDigest = internalAction({
     startActionDeadline(ctx);
     const signalRows = await Promise.all(
       SIGNAL_STREAMS.map((stream) =>
-        ctx.runQuery(internal.learningSignals.getSignalsForDigest, { kind: stream.kind, limit: FEEDBACK_WINDOW }),
+        ctx.runQuery(internal.learningSignals.getSignalsForDigest, { kind: stream.kind, limit: SIGNAL_WINDOW }),
       ),
     );
-    const signalStreams = SIGNAL_STREAMS.map((stream, index) => ({
-      ...stream,
-      admitted: admitStream(`learningSignals:${stream.kind}`, signalRows[index]!),
-    }));
+    // Review: an approval carries no critique, so only returns with a note
+    // are a stream (approvals never help another reviewer's notes in); the
+    // budget is applied before admission, so the record is what was sent.
+    const reviewApprovals = signalRows[SIGNAL_STREAMS.findIndex((stream) => stream.kind === "review_decision")]!.filter(
+      (row) => row.payload.decision === "approve",
+    ).length;
+    const signalStreams = SIGNAL_STREAMS.map((stream, index) => {
+      const rows = signalRows[index]!.filter((row) => stream.kind !== "review_decision" || (row.payload.decision === "return" && row.payload.note));
+      return { ...stream, admitted: admitStream(`learningSignals:${stream.kind}`, withinPromptBudget(rows)) };
+    });
     const [feedback, sectionEdits, proposalEdits, writerFeedback, chatFeedback] =
       await Promise.all([
         ctx.runQuery(internal.learning.getCandidateFeedbackForDigest, {
@@ -424,9 +436,10 @@ export const generateDraftStyleDigest = internalAction({
           2,
         )}`
       : "";
-    const signalBlocks = signalStreams
-      .map((stream) => budgetedBlock(stream.title, stream.admitted.admitted.map((row) => row.payload)))
-      .join("");
+    const reviewsAdmitted = signalStreams.some((stream) => stream.kind === "review_decision" && stream.admitted.admitted.length > 0);
+    const signalBlocks =
+      signalStreams.map((stream) => signalBlock(stream.title, stream.admitted.admitted.map((row) => row.payload))).join("") +
+      (reviewsAdmitted ? `\n\nReports approved without a note in the same period: ${reviewApprovals}` : "");
     const { rules, model } = await distillAdmittedRules(
       ctx,
       "draft_style",

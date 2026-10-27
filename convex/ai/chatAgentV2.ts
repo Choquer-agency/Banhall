@@ -2048,9 +2048,12 @@ export const streamChatReply = internalAction({
         customInstructions: writerStyle?.customInstructions ?? null,
         learnedStyle: lessons?.content ?? null,
       });
-      // The set this turn read, for edit size by version (Phase E, E3).
+      // The set this turn read, for edit size by version (Phase E, E3). A
+      // record that cannot be written never fails the turn (review).
       if (lessons) {
-        await ctx.runMutation(internal.chatV2.setTurnLearningDigest, { ...turnKey, learningDigestId: lessons._id });
+        await ctx
+          .runMutation(internal.chatV2.setTurnLearningDigest, { ...turnKey, learningDigestId: lessons._id })
+          .catch((err: unknown) => console.error("chat turn lesson set not recorded", safeErrorDetails(err)));
       }
       // Operator telemetry only: this story logs, it does not surface anything
       // in the UI. Without the line, material the budget dropped is invisible

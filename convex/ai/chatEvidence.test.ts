@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createHash } from "node:crypto";
 import { streamText, type ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
@@ -1358,9 +1359,20 @@ describe("files whole or not at all with the reading tools on (Phase D, step 1)"
 describe("the published style lesson set in chat (Phase E, E2b)", () => {
   const LESSONS = "Learned from 6 human feedback events:\n- Lead with the result.";
 
-  it("sends the same system text as before when no set is published", () => {
-    expect(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", null)).toBe(buildChatSystem(NO_STYLE_OVERRIDES, "Use we."));
-    expect(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", "   ")).toBe(buildChatSystem(NO_STYLE_OVERRIDES, "Use we."));
+  it("sends the same system text as before E2b when no set is published (pinned at a0e3c1d4)", () => {
+    const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+    for (const empty of [null, undefined, "   "]) {
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("57f39e44e3f29dd9450a3e38ef5ef600144d00dd16a440ae7e1386bd8e0894c2");
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("847d21760decc5eca154ff8f9c05f2ceb5d8258b4e0b59ecff33a7014717a580");
+      expect(hash(buildChatSystem({ ...NO_STYLE_OVERRIDES, bannedWords: true }, "Use we.", empty))).toBe(
+        "9a218a5b55756b6520d4155490778d7bd474e417ce03da35003582cd57418336"
+      );
+    }
+  });
+
+  it("adds the waiver clause when the writer waived house-style areas", () => {
+    const system = buildChatSystem({ ...NO_STYLE_OVERRIDES, bannedWords: true }, "Use we.", LESSONS);
+    expect(system).toContain("in their waived house-style areas below");
   });
 
   it("puts the set in drafting's wording before the writer's own preferences", () => {

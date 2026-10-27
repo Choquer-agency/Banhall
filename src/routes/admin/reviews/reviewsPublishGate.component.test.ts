@@ -320,7 +320,7 @@ describe("/admin/reviews learning admission", () => {
     { outcome: "saved", explanation: "Candidate saved for administrator review." },
     { outcome: "deduplicated", explanation: "No new candidate: these inputs were already saved." },
     { outcome: "failed", explanation: "Generation failed. No candidate was saved; published guidance is unchanged." },
-    { outcome: "withdrawn_inputs", explanation: "No candidate: feedback it read was withdrawn when its Brain source was removed." },
+    { outcome: "withdrawn_inputs", explanation: "No candidate: something it read was withdrawn or removed while it ran." },
   ]) {
     it(`renders ${outcome} attempts using each panel's own admission counts`, async () => {
       const isInsufficient = outcome === "insufficient_inputs";

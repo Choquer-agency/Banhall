@@ -1740,6 +1740,8 @@ export default defineSchema({
   )
     .index("by_generationId_and_at", ["generationId", "at"])
     .index("by_at", ["at"])
+    // 2026-10-27 (Phase E, E2b review): who asked for a Seed's Feedback.
+    .index("by_feedbackRequestId", ["feedbackRequestId"])
     .index("by_generationId_and_roleId_and_kind_and_at", ["generationId", "roleId", "kind", "at"])
     .index("by_batchId_and_actorUserId_and_kind", ["batchId", "actorUserId", "kind"])
     .index("by_projectId", ["projectId"]),
@@ -3638,6 +3640,14 @@ export default defineSchema({
     .index("by_kind_and_at", ["kind", "at"])
     .index("by_producerId_and_at", ["producerId", "at"])
     .index("by_projectId", ["projectId"]),
+
+  // When the learning signals last changed (one row). A signal written with
+  // an old time (the one-off pass) or removed moves it, so the next style
+  // build is not taken for unchanged inputs (E2b review).
+  learningSignalChanges: defineTable({
+    key: v.literal("signals"),
+    at: v.number(),
+  }).index("by_key", ["key"]),
 
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
