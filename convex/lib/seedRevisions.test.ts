@@ -2124,6 +2124,20 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
           for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
         }
       }
+      // The plan entries drafting reads are clipped the same way.
+      const entries = plan.block
+        .split("\n")
+        .filter((line) => line.startsWith("{"))
+        .map((line) => JSON.parse(line) as { kind: string; wording: string[]; relationshipReferences?: Array<{ wording: string[] }> })
+        .filter((entry) => entry.kind === "leave_out");
+      expect(entries).toHaveLength(3);
+      for (const entry of entries) {
+        expect(entry.wording).toEqual([long, long]);
+        for (const reference of entry.relationshipReferences ?? []) {
+          for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
+        }
+        expect(entry.relationshipReferences).toHaveLength(6);
+      }
       const batches = planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: plan.checks, includeStorylineQuestion: true });
       expectWellFormedBatches(batches, ordinary, plan.checks);
     }

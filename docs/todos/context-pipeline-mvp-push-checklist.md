@@ -979,7 +979,7 @@ What changes:
 - [x] Full gate: `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` (8,154 unit and 1,991 browser tests).
 - [x] Code review, round 1 (df6eb97b): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": long edits could block Summary sign-off (a check carrying other Lines' items grew past its 64,000 bytes), no server test of the Feedback limit, the entry missed the spec and PRD it amends, and a paste over the ceiling was cut without a word; fixed in the next commit.
 - [x] Round 2 (ee99a1bb): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the LEAVE OUT check's references were not clipped yet, the new test did not cover them, and some comments and the tenth entry needed fixing; it confirmed the Previous-year correction against the code and every pack. Fixed in the next commit.
-- [ ] Round 3 check.
+- [x] Round 3 (c22d2602): Claude Opus 5.5 (requested high; it reported low), "ship", with two optional nits (a version label in the tenth entry, and a test assertion on the plan entries), made in the next commit.
 
 ### Automated, live on localhost
 
