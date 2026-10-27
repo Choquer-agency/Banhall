@@ -2641,6 +2641,8 @@ export default defineSchema({
     transcriptOriginalsAttached: v.optional(v.number()),
     /** Originals whose bytes could not be read twice: the file or transcript came without one. */
     originalsNotCopied: v.optional(v.number()),
+    /** Copied transcripts whose original the job has dealt with, attached or not (round 2: one step each). */
+    transcriptOriginalsDone: v.optional(v.array(v.id("transcripts"))),
     reportId: v.optional(v.id("reports")),
     previousYearReportId: v.optional(v.id("projectDocuments")),
     /** Why a job stopped before its end (a code, never file text). */
@@ -2657,14 +2659,17 @@ export default defineSchema({
   // written before the copy action stores the clone and deleted in the step
   // that attaches or releases it. One left behind marks a runner that
   // stopped between the two; the cron then deletes the clone it may have
-  // stored, found by its fingerprint, size and time, once no save could
-  // still attach it (an hour, `FRESH_UPLOAD_MS`) and nothing holds it.
+  // stored, found by its fingerprint, size and time, once every file in the
+  // record's window is too old for any save to attach (an hour,
+  // `FRESH_UPLOAD_MS`) and nothing holds it.
   projectCopyClones: defineTable({
     jobId: v.id("projectCopyJobs"),
     /** The original's fingerprint and size, which its clone shares. */
     sha256: v.string(),
     size: v.number(),
     startedAt: v.number(),
+    /** The cleanup's place in the record's window: the last stored file it looked at. */
+    scannedThrough: v.optional(v.number()),
   })
     .index("by_startedAt", ["startedAt"])
     .index("by_jobId", ["jobId"]),

@@ -1862,6 +1862,9 @@
     const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
     let createdProjectId: Id<"projects"> | null = null;
     let copyFailed = false;
+    // F2 review: a copy too long for its action goes on after it; the
+    // project's files are still arriving, so nothing is started here.
+    let copyStillRunning = false;
     // The writer's own files saved so far, by ownUploadNames' names.
     const savedOwn: string[] = [];
     try {
@@ -1929,6 +1932,7 @@
               : {}),
             ...(sendPreviousYearReport ? { previousYearReport: true } : {}),
           });
+          if (copied?.stillCopying) copyStillRunning = true;
           if ([...leftOut].some((key) => key.startsWith("c:"))) {
             // The copy's exact receipt: each source file's new row, so two
             // files with the same name and category never swap.
@@ -2007,7 +2011,7 @@
           toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
         extractionLifetime.signal.throwIfAborted();
-        if (!copyFailed) {
+        if (!copyFailed && !copyStillRunning) {
           progress = "Starting PD review...";
           limited = await startUnlessLimited(() =>
             startPdReview({
@@ -2018,7 +2022,7 @@
             })
           );
         }
-      } else if (copyFailed || (fromProjectId && !generateAfterDuplicate)) {
+      } else if (copyFailed || copyStillRunning || (fromProjectId && !generateAfterDuplicate)) {
         progress = "Opening duplicate...";
       } else {
         extractionLifetime.signal.throwIfAborted();
@@ -2054,6 +2058,14 @@
       if (skippedFiles.length) {
         toast.error(
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
+        );
+      }
+      // F2 review: the run this duplicate was made for waits for its files.
+      if (copyStillRunning && ((mode === "review" && pdDoc) || generateAfterDuplicate)) {
+        toast.info(
+          mode === "review"
+            ? "The project is saved, but its files are still being copied. When they are, start the PD review from the project page."
+            : "The project is saved, but its files are still being copied. When they are, start the draft from the project page."
         );
       }
       if (limited) noteRefusedStart(limited);

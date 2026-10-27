@@ -317,9 +317,10 @@ export const getReviewInput = internalQuery({
     const review = await ctx.db.get(args.reviewId);
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
-    // F2 review: the written PD itself still being copied has no text yet
-    // (the review waits for the copy first: `reviewWaitsForCopy`).
-    if (doc && textCopyPending(doc)) {
+    // F2 review: no review reads a project while files are still being
+    // copied into it, the written PD or the support files (the review waits
+    // for the copy first: `reviewWaitsForCopy`).
+    if ((doc && textCopyPending(doc)) || (await projectCopyInProgress(ctx, review.projectId))) {
       domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
     }
     const project = await ctx.db.get(review.projectId);

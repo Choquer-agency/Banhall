@@ -42,6 +42,10 @@ const FAIL_PAGE = 100;
 export const PROJECT_STILL_COPYING_MESSAGE =
   "This project's files are still being copied. Try again in a minute.";
 
+/** A review that waited its longest for its project's files (F2 review, round 2). */
+export const REVIEW_STOPPED_WHILE_COPYING_MESSAGE =
+  "This project's files were still being copied, so the review stopped. Run it again in a minute.";
+
 /** A project still being copied into cannot be copied from (F2 review): its files have no text yet. */
 export const SOURCE_STILL_COPYING_MESSAGE =
   "The project you are copying is still having its own files copied. Try again in a minute.";
@@ -172,39 +176,58 @@ export async function noteFileCopyError(ctx: MutationCtx, doc: Doc<"projectDocum
 
 /** How long after its record a clone can have been stored: an action runs at most 10 minutes. */
 const CLONE_WINDOW_MS = 15 * 60 * 1000;
+/** Kept past FRESH_UPLOAD_MS before a stored file counts as one no save can attach. */
+const CLONE_SAFETY_MS = 5 * 60 * 1000;
 /** Clone records, and stored files per record, one cron run looks at. */
 const CLONE_RECORDS_PER_RUN = 10;
-const STORED_FILES_PER_RECORD = 500;
+const STORED_FILES_PER_RUN = 500;
 
 /**
  * F2 review: deletes the clones runners stored but never attached. A clone
- * record older than FRESH_UPLOAD_MS (no save can attach a file that old)
- * still here means its runner stopped between storing and attaching. Any
- * stored file made in the record's window with the original's fingerprint
- * and size that no row holds and no upload claims is such a clone, or
- * another orphan no one can attach, and is deleted; then the record goes.
+ * record still here means its runner stopped between storing a clone and
+ * attaching it. Its window (the 15 minutes after it, when that clone can
+ * have been stored) is looked at only once all of it is older than
+ * FRESH_UPLOAD_MS and a margin, so no save can attach any file in it any
+ * more. Any stored file there with the original's fingerprint and size that
+ * no row holds and no upload claims is such a clone, or another orphan no
+ * one can attach, and is deleted. The window is read a page at a time, the
+ * record keeping its place, and the record goes only once all of it is read.
  */
 export async function reconcileCopyClones(ctx: MutationCtx, now = Date.now()): Promise<number> {
+  const safeBefore = now - FRESH_UPLOAD_MS - CLONE_SAFETY_MS;
   const stale = await ctx.db
     .query("projectCopyClones")
-    .withIndex("by_startedAt", (q) => q.lt("startedAt", now - FRESH_UPLOAD_MS - 5 * 60 * 1000))
+    .withIndex("by_startedAt", (q) => q.lt("startedAt", safeBefore - CLONE_WINDOW_MS))
     .take(CLONE_RECORDS_PER_RUN);
   let deleted = 0;
+  let budget = STORED_FILES_PER_RUN;
   for (const record of stale) {
-    const stored = await ctx.db.system
+    if (budget <= 0) break;
+    const windowEnd = record.startedAt + CLONE_WINDOW_MS;
+    const page = await ctx.db.system
       .query("_storage")
       .withIndex("by_creation_time", (q) =>
-        q.gte("_creationTime", record.startedAt).lte("_creationTime", record.startedAt + CLONE_WINDOW_MS)
+        record.scannedThrough === undefined
+          ? q.gte("_creationTime", record.startedAt).lte("_creationTime", windowEnd)
+          : q.gt("_creationTime", record.scannedThrough).lte("_creationTime", windowEnd)
       )
-      .take(STORED_FILES_PER_RECORD);
-    for (const file of stored) {
+      .take(budget);
+    budget -= page.length;
+    for (const file of page) {
+      if (file._creationTime >= safeBefore) continue;
       if (file.sha256 !== record.sha256 || file.size !== record.size) continue;
       if (await isStorageReferenced(ctx, file._id)) continue;
       if (await uploadClaimFor(ctx, file._id)) continue;
       await ctx.storage.delete(file._id);
       deleted += 1;
     }
-    await ctx.db.delete(record._id);
+    const last = page[page.length - 1];
+    if (budget <= 0 && last) {
+      // The page may not have reached the window's end: keep the place.
+      await ctx.db.patch(record._id, { scannedThrough: last._creationTime });
+    } else {
+      await ctx.db.delete(record._id);
+    }
   }
   return deleted;
 }

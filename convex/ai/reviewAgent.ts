@@ -20,6 +20,7 @@ import {
   formatCount,
   truncationNotice,
 } from "./trustedContext";
+import { REVIEW_STOPPED_WHILE_COPYING_MESSAGE } from "../lib/projectCopy";
 
 /** BNH-39: structured feedback report for an externally written PD. */
 export interface PdReviewResult {
@@ -209,8 +210,17 @@ export const runPdReview = internalAction({
     const copyWaits = args.copyWaits ?? 0;
     const copy = await ctx.runQuery(internal.pdReviews.reviewWaitsForCopy, { reviewId: args.reviewId });
     if (copy === "gone") return;
-    if (copy === "wait" && copyWaits < MAX_COPY_WAITS) {
-      await ctx.scheduler.runAfter(COPY_WAIT_MS, internal.ai.reviewAgent.runPdReview, { ...args, copyWaits: copyWaits + 1 });
+    if (copy === "wait") {
+      if (copyWaits < MAX_COPY_WAITS) {
+        await ctx.scheduler.runAfter(COPY_WAIT_MS, internal.ai.reviewAgent.runPdReview, { ...args, copyWaits: copyWaits + 1 });
+        return;
+      }
+      // Round 2: never review without files still on their way; the
+      // writer runs it again once they are there.
+      await ctx.runMutation(internal.pdReviews.failPdReview, {
+        reviewId: args.reviewId,
+        error: REVIEW_STOPPED_WHILE_COPYING_MESSAGE,
+      });
       return;
     }
     // Every request ends inside the Convex action limit (actionDeadline.ts),

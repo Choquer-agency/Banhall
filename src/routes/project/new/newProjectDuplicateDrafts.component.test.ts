@@ -747,6 +747,42 @@ describe("/project/new Review PD duplicate", () => {
   });
 });
 
+describe("/project/new copy still running (F2 review)", () => {
+  it("starts nothing, opens the project and says to start the draft once its files are copied", async () => {
+    const info = vi.spyOn(toast, "info");
+    const error = vi.spyOn(toast, "error");
+    seedSource();
+    __setMutationResult("projectDuplication:copyProjectContent", {
+      documents: [],
+      documentsCopied: 2,
+      filesCopied: 0,
+      transcriptOriginalsCopied: 0,
+      evidenceCopied: 0,
+      pdReviewsCopied: 0,
+      reportCopied: false,
+      previousYearReportCopied: false,
+      originalsNotCopied: 0,
+      stillCopying: true,
+    });
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+    await commitFromReviewStep();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    expect(info.mock.calls.map((call) => call[0])).toContain(
+      "The project is saved, but its files are still being copied. When they are, start the draft from the project page."
+    );
+    expect(error).not.toHaveBeenCalled();
+    info.mockRestore();
+    error.mockRestore();
+  });
+});
+
 describe("/project/new failed copy", () => {
   it("says the files were not copied, starts nothing and opens the project", async () => {
     const error = vi.spyOn(toast, "error");

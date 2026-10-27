@@ -2025,13 +2025,52 @@ export const noteProjectCopyFileError = internalMutation({
 });
 
 // Which copied transcripts have an original file to clone (F2: by the
-// job's projects, so a resumed job can ask too).
+// job's projects, so a resumed job can ask too), less those it has dealt
+// with already.
 export const planTranscriptOriginalCopies = internalQuery({
   args: leaseArgs,
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
     if (!job || job.leaseToken !== args.leaseToken || !job.fromProjectId) return [];
-    return await transcriptOriginalCopies(ctx, job.fromProjectId, job.toProjectId);
+    const done = new Set<Id<"transcripts">>(job.transcriptOriginalsDone ?? []);
+    return (await transcriptOriginalCopies(ctx, job.fromProjectId, job.toProjectId)).filter(
+      (copy) => !done.has(copy.transcriptId)
+    );
+  },
+});
+
+// F2 review, round 2: one copied transcript's original, attached in its own
+// step (or released, when the row has gained one meanwhile), so a copy
+// with many transcripts keeps its place and its runner can stop between
+// them. Internal: it attaches a storage id the copy action just made.
+export const copyTranscriptOriginal = internalMutation({
+  args: { ...leaseArgs, transcriptId: v.id("transcripts"), ...cloneArgs },
+  returns: v.union(v.literal("attached"), v.literal("skipped"), v.literal("stopped"), v.literal("lease_lost")),
+  handler: async (ctx, args) => {
+    const step = await projectCopyStep(ctx, args.jobId, args.leaseToken);
+    await settleCloneRecord(ctx, args.cloneRecordId);
+    const release = async () => {
+      if (args.cloneStorageId) await ctx.storage.delete(args.cloneStorageId);
+    };
+    if (step.kind !== "ok") {
+      await release();
+      return step.kind === "lease_lost" ? "lease_lost" : "stopped";
+    }
+    const { job } = step;
+    const transcript = await ctx.db.get(args.transcriptId);
+    const attach =
+      args.cloneStorageId !== undefined &&
+      transcript !== null &&
+      transcript.projectId === job.toProjectId &&
+      transcript.originalStorageId === undefined;
+    if (attach) await ctx.db.patch(args.transcriptId, { originalStorageId: args.cloneStorageId });
+    else await release();
+    await ctx.db.patch(job._id, {
+      transcriptOriginalsDone: [...(job.transcriptOriginalsDone ?? []), args.transcriptId],
+      ...(attach ? { transcriptOriginalsAttached: (job.transcriptOriginalsAttached ?? 0) + 1 } : {}),
+      ...(args.originalNotCopied ? { originalsNotCopied: (job.originalsNotCopied ?? 0) + 1 } : {}),
+    });
+    return attach ? "attached" : "skipped";
   },
 });
 

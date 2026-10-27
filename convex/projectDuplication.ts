@@ -124,44 +124,35 @@ async function runProjectCopy(
     }
     if (outcome === "stopped" || outcome === "lease_lost") return outcome;
   }
-  // Transcript originals (.docx, .vtt, .srt) come along too.
+  // Transcript originals (.docx, .vtt, .srt) come along too, each attached
+  // in its own step, with the runner's time checked between them.
   const originals: Array<{ transcriptId: Id<"transcripts">; storageId: Id<"_storage"> }> = await ctx.runQuery(
     internal.projects.planTranscriptOriginalCopies,
     lease
   );
-  const transcriptCopies: Array<{
-    transcriptId: Id<"transcripts">;
-    storageId: Id<"_storage">;
-    cloneRecordId: Id<"projectCopyClones">;
-  }> = [];
-  const settledCloneRecordIds: Id<"projectCopyClones">[] = [];
-  let transcriptOriginalsNotCopied = 0;
-  let finished: "done" | "files_left" | "stopped" | "lease_lost";
-  try {
-    for (const original of originals) {
-      const cloneRecordId = await ctx.runMutation(internal.projects.beginProjectCopyClone, {
-        ...lease,
-        sourceStorageId: original.storageId,
-      });
-      if (!cloneRecordId) continue;
-      const cloned = await cloneStoredFile(ctx, original.storageId);
-      if (cloned.clone) {
-        transcriptCopies.push({ transcriptId: original.transcriptId, storageId: cloned.clone, cloneRecordId });
-      } else {
-        settledCloneRecordIds.push(cloneRecordId);
-        if (cloned.unreadable) transcriptOriginalsNotCopied += 1;
-      }
-    }
-    finished = await ctx.runMutation(internal.projects.finishProjectContentCopy, {
+  for (const original of originals) {
+    if (outOfTime()) return "out_of_time";
+    const cloneRecordId = await ctx.runMutation(internal.projects.beginProjectCopyClone, {
       ...lease,
-      transcriptCopies,
-      settledCloneRecordIds,
-      ...(transcriptOriginalsNotCopied ? { transcriptOriginalsNotCopied } : {}),
+      sourceStorageId: original.storageId,
     });
-  } catch (error) {
-    for (const copy of transcriptCopies) await ctx.storage.delete(copy.storageId).catch(() => undefined);
-    throw error;
+    const cloned = cloneRecordId ? await cloneStoredFile(ctx, original.storageId) : { unreadable: false };
+    let step: "attached" | "skipped" | "stopped" | "lease_lost";
+    try {
+      step = await ctx.runMutation(internal.projects.copyTranscriptOriginal, {
+        ...lease,
+        transcriptId: original.transcriptId,
+        ...(cloned.clone ? { cloneStorageId: cloned.clone } : {}),
+        ...(cloneRecordId ? { cloneRecordId } : {}),
+        ...(cloned.unreadable ? { originalNotCopied: true } : {}),
+      });
+    } catch (error) {
+      if (cloned.clone) await ctx.storage.delete(cloned.clone).catch(() => undefined);
+      throw error;
+    }
+    if (step === "stopped" || step === "lease_lost") return step;
   }
+  const finished = await ctx.runMutation(internal.projects.finishProjectContentCopy, { ...lease, transcriptCopies: [] });
   // Files still pending at the end (another step left one): a fresh runner takes it on.
   return finished === "files_left" ? "out_of_time" : finished;
 }

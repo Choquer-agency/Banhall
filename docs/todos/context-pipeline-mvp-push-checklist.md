@@ -877,7 +877,8 @@ What changes:
 ### Automated, offline
 
 - [x] Code review by two reviewers, round 1: gpt-6-astra (medium) and Claude Opus 5.5 (requested high; it reported low), each "ship after fixes"; fixes in the next commit.
-- [ ] Round 2 review of the fixes.
+- [x] Round 2 review of the fixes (bf610f75): gpt-6-astra (medium), "ship after fixes"; fixes in the next commit.
+- [ ] Round 3 check of the round 2 fixes.
 - [ ] `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost
