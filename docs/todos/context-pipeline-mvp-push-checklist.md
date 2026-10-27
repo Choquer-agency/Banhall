@@ -243,7 +243,7 @@ Each pass reads at most 4 MiB a page, skips projects being deleted and schedules
   - **Found:** the local backend refused some pages ("limited to 4 MiB bytes written per second"). They went through on retry, and pages are now 2 MiB, 1.5 seconds apart.
 - [x] **The same local copy, moved to commit 34cbb600 with its data already cleared:** the file list, texts, chat context and searches still match the snapshot from before the move.
 - [x] **writer-settings-document on commit 34cbb600:** 16 of 16 checks passed (15 of 16 on the earlier code), and 0 of the settings document's 20 rules were broken. The uploaded settings document is stored as pieces and read by the Brief and the drafting.
-- [ ] **exclusion-conflict, inconclusive again.** On both the earlier and the new code, the AI-written Brief derived no Claim Exclusion, so the fixture stops before sign-off. The text move doesn't cause it: the first run predates the move. It is likely the newer model (PR #29 moved Briefs to Sonnet 5.5). Listed as its own item.
+- [x] **exclusion-conflict, inconclusive again.** On both the earlier and the new code, the AI-written Brief derived no Claim Exclusion, so the fixture stops before sign-off. The text move doesn't cause it: the first run predates the move. It is likely the newer model (PR #29 moved Briefs to Sonnet 5.5). Listed as its own item. Closed 2026-10-27 (F4): rerun live after the Self-check fix, 15 of 15 checks passed.
 - Live cost so far: $1.61 (Emily's PD) + $5.84 (release suite) + $2.10 (two fixtures) = $9.55.
 
 ## Commit 8: fixes from the code review of the text move
@@ -911,7 +911,8 @@ What changes:
 
 - [x] Code review, round 1 (07268c58): Claude Opus 5.5 (requested high; it reported low), "rethink"; rewritten in e7eea501.
 - [x] Round 2 (e7eea501): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixes in the next commit.
-- [ ] Round 3 check of the round 2 fixes.
+- [x] Round 3 check of the round 2 fixes (fa1a56cb): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixes in the next commit.
+- [ ] Round 4 check of the round 3 fixes.
 - [x] `tests/stressData.test.ts`: the data's sizes, fingerprints, and the name and invented-word checks.
 
 ### Automated, live on localhost

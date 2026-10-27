@@ -50,6 +50,8 @@ describe("stress test data", () => {
     }
     expect(inventedWordsFound(["Zorvel Works", "Quinmor Raman"], ["Priya Raman", "Acme Seals"])).toEqual(["raman"]);
     expect(inventedWordsFound(["Zorvel Works"], ["Al Bo"])).toEqual([]);
+    // "Works" is the generator's own word, not an invented one.
+    expect(inventedWordsFound(["Zorvel Works"], ["How the coater works"])).toEqual([]);
   });
 });
 

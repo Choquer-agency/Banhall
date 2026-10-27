@@ -40,11 +40,11 @@ Waits for the owner (questions below). The comparison also needs a card on the V
 
 ## F4. The exclusion-conflict fixture
 
-Still open: it passed in release suite run 13 (pack `2026-09-30-run4`) but the work plan asks for a live rerun to close it; it runs with F6.
+Closed 2026-10-27: rerun live after the Self-check fix (decision entry "2026-10-27 (ninth)"), 15 of 15 checks passed.
 
 ## F5. Stress test, live
 
-On the live copy, with real models, a spend cap set first (owner question 4):
+On the live copy, with real models, a spend cap set first (owner question 8 in `docs/todos/context-pipeline-mvp-push.md`):
 - a project of 50 files of 400,000 characters each, one file at the 1M-character maximum and one over it (refused by name), a 3-hour transcript, 20 picks in one step, a 46-entry Brief, every check failing at once; then a step past it (100 files);
 - chat at scale: a long history and tool reads across the 50 files;
 - duplicating the stress project (F2's live proof);

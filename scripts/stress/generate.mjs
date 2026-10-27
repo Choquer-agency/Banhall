@@ -126,6 +126,9 @@ export function namesFound(text, names) {
  * (a surname alone, one word of a company's name): the whole-name scan of
  * the text would miss them.
  */
+/** Words the generator adds to every invented name, not invented themselves. */
+const FIXED_NAME_WORDS = new Set(["works"]);
+
 export function inventedWordsFound(invented, names) {
   const real = new Set();
   for (const name of names) {
@@ -133,7 +136,7 @@ export function inventedWordsFound(invented, names) {
   }
   const found = new Set();
   for (const name of invented) {
-    for (const word of String(name).toLowerCase().split(/[^\p{L}\p{N}]+/u)) if (real.has(word)) found.add(word);
+    for (const word of String(name).toLowerCase().split(/[^\p{L}\p{N}]+/u)) if (real.has(word) && !FIXED_NAME_WORDS.has(word)) found.add(word);
   }
   return [...found];
 }

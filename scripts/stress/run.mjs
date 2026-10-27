@@ -202,20 +202,40 @@ async function main(argv) {
   logs.stderr.pipe(logStream);
   results.logFile = logPath;
 
-  /** The project's spend; `since` limits the breakdown to rows made from then on. */
-  const spend = (since = 0) => {
-    if (!projectId) return { costUsd: 0, calls: 0, byCallSite: [] };
-    const rows = inline(
+  /** The project's usage rows, without any model text. */
+  const usageRows = () =>
+    inline(
       `const rows = await ctx.db.query('aiUsage').withIndex('by_projectId', q => q.eq('projectId', '${projectId}')).collect();` +
         " return rows.map(r => ({ createdAt: r.createdAt, callSite: r.callSite, model: r.model, costUsd: r.costUsd, inputTokens: r.inputTokens, outputTokens: r.outputTokens," +
         " cacheCreationInputTokens: r.cacheCreationInputTokens ?? 0, cacheReadInputTokens: r.cacheReadInputTokens ?? 0, requestChars: r.requestChars ?? null," +
         " evidenceChars: r.evidenceChars ?? null, stopReason: r.stopReason ?? null }));"
     );
+  /** The project's spend; `since` limits the breakdown to rows made from then on. */
+  const spend = (since = 0) => {
+    if (!projectId) return { costUsd: 0, calls: 0, byCallSite: [] };
+    const rows = usageRows();
     return {
       costUsd: rows.reduce((total, row) => total + row.costUsd, 0),
       calls: rows.length,
       byCallSite: spendByCallSite(rows.filter((row) => row.createdAt >= since)),
     };
+  };
+  // Ctrl-C or SIGTERM stops at the next check, so `finally` still cancels
+  // the draft and saves; a second one exits at once without either.
+  let stopSignal = null;
+  const onSignal = (signal) => {
+    if (stopSignal) {
+      console.error(`stress/run: ${signal} again; exiting without cancelling the draft or saving`);
+      process.exit(130);
+    }
+    stopSignal = signal;
+    console.error(`stress/run: ${signal}; stopping at the next check, then cancelling the draft and saving (again to exit at once)`);
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  class Stopped extends Error {}
+  const checkStop = () => {
+    if (stopSignal) throw new Stopped(`stopped by ${stopSignal}`);
   };
   class CapReached extends Error {}
   const checkCap = (current) => {
@@ -229,10 +249,12 @@ async function main(argv) {
     try {
       entry.result = await body();
     } catch (error) {
-      if (error instanceof CapReached) capReached = error;
+      if (error instanceof CapReached || error instanceof Stopped) capReached = error;
       entry.ok = false;
       entry.error = String(error?.data?.message ?? error?.message ?? error);
     }
+    // A signal during a CLI read fails that read; record the stop instead.
+    if (stopSignal && !capReached) capReached = new Stopped(`stopped by ${stopSignal}`);
     entry.ms = Date.now() - started;
     const current = spend(started);
     entry.stepCostUsd = current.costUsd - spentSoFar;
@@ -251,6 +273,7 @@ async function main(argv) {
   async function waitFor(label, check, timeoutMs, everyMs) {
     const until = Date.now() + timeoutMs;
     for (;;) {
+      checkStop();
       const value = await check();
       if (value) return value;
       checkCap(spend());
@@ -322,25 +345,37 @@ async function main(argv) {
         30_000
       ));
     // Ready as a writer sees it: every step's row, no Batch still being
-    // made, and the drafting inputs settled (seedPlanEval:progress).
+    // made, and the drafting inputs ready (seedPlanEval:progress). The first
+    // step's Batch starts when the stage opens and nothing retries it, so
+    // one that failed, or never started, ends the wait with the cause.
     await step("start a Step by step draft and wait for its Seeds", async () => {
       generationId = await client.mutation(ref("generations:requestGeneration"), { projectId, candidateMode: "iterative", confirmRegeneration: true });
+      let stageOpenSince = null;
       return await waitFor(
         "the Seeds",
         async () => {
           const progress = runInternal("seedPlanEval:progress", { generationId });
           if (progress.status === "failed") throw new Error(`the draft failed: ${progress.seedStageError ?? "no detail"}`);
+          if (progress.draftingInputs === "failed") throw new Error("the drafting inputs failed");
           const busy = inline(
             `const busy = []; for (const status of ['queued', 'running']) { busy.push(...await ctx.db.query('seedBatches').withIndex('by_generationId_and_status', q => q.eq('generationId', '${generationId}').eq('status', status)).take(50)); }` +
               " const shown = await ctx.db.query('seedBatches').withIndex('by_generationId_and_status', q => q.eq('generationId', '" + generationId + "').eq('status', 'shown')).take(1);" +
-              " return { busy: busy.length, shown: shown.length };"
+              " const first = await ctx.db.query('seedBatches').withIndex('by_generationId_and_roleId', q => q.eq('generationId', '" + generationId + "').eq('roleId', 'company_context')).take(20);" +
+              " const failed = first.find(b => b.status === 'failed');" +
+              " return { busy: busy.length, shown: shown.length, firstBatches: first.length, firstOpen: first.some(b => ['queued', 'running', 'shown'].includes(b.status))," +
+              " firstFailed: failed ? [failed.error ?? 'no detail', failed.errorDetail].filter(Boolean).join(', ') : null };"
           );
+          if (progress.status === "awaiting_input") {
+            stageOpenSince ??= Date.now();
+            if (busy.firstFailed && !busy.firstOpen) throw new Error(`the first step's Batch failed: ${busy.firstFailed}`);
+            if (busy.firstBatches === 0 && Date.now() - stageOpenSince > 5 * 60 * 1000) throw new Error("the first step's Batch never started");
+          }
           const ready =
             progress.status === "awaiting_input" &&
             progress.seedSubsections === 13 &&
             busy.busy === 0 &&
             busy.shown > 0 &&
-            progress.draftingInputs !== "preparing";
+            progress.draftingInputs === "ready";
           return ready ? { generationId, ...progress } : null;
         },
         40 * 60 * 1000,
@@ -357,15 +392,24 @@ async function main(argv) {
     return 1;
   } finally {
     // Each part on its own, so one failing never skips the others.
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     if (generationId && !finishedCleanly) {
+      // Tried even when the status cannot be read: the cancel itself
+      // refuses a draft that has finished.
+      let state = null;
       try {
-        const state = inline(`const g = await ctx.db.get('${generationId}'); return g?.status ?? null;`);
-        if (state && !["failed", "completed"].includes(state)) {
+        state = inline(`const g = await ctx.db.get('${generationId}'); return g?.status ?? null;`);
+      } catch (error) {
+        results.statusReadFailed = String(error?.message ?? error);
+      }
+      if (!["failed", "completed"].includes(state)) {
+        try {
           await client.mutation(ref("generations:cancelIterativeGeneration"), { generationId });
           results.cancelledDraft = generationId;
+        } catch (error) {
+          results.cancelFailed = String(error?.data?.message ?? error?.message ?? error);
         }
-      } catch (error) {
-        results.cancelFailed = String(error?.message ?? error);
       }
     }
     // Labels and the Brief prepared ahead may still spend: read until the
@@ -373,6 +417,7 @@ async function main(argv) {
     try {
       let last = -1;
       let steadySince = Date.now();
+      let settled = !projectId;
       const until = Date.now() + 15 * 60 * 1000;
       while (projectId && Date.now() < until) {
         const now = spend().costUsd;
@@ -380,13 +425,33 @@ async function main(argv) {
           last = now;
           steadySince = Date.now();
         } else if (Date.now() - steadySince >= 2 * 60 * 1000) {
+          settled = true;
           break;
         }
         await new Promise((resolve) => setTimeout(resolve, 20_000));
       }
       results.finalSpendUsd = Math.max(last, 0);
+      // False when the fifteen minutes ran out while the spend still rose.
+      results.finalSpendSettled = settled;
     } catch (error) {
       results.finalSpendError = String(error?.message ?? error);
+    }
+    // The whole run by feature, and when labels and search pieces were
+    // made: labels start during the uploads, so no one step holds them.
+    try {
+      if (projectId) {
+        const rows = usageRows();
+        results.byCallSite = spendByCallSite(rows);
+        const labels = rows.filter((row) => row.callSite === "file_labels").map((row) => row.createdAt);
+        results.labelsMade = labels.length ? { requests: labels.length, first: new Date(Math.min(...labels)).toISOString(), last: new Date(Math.max(...labels)).toISOString() } : null;
+        results.searchPiecesMade = inline(
+          `const first = await ctx.db.query('documentSearchPieces').withIndex('by_projectId', q => q.eq('projectId', '${projectId}')).order('asc').first();` +
+            ` const last = await ctx.db.query('documentSearchPieces').withIndex('by_projectId', q => q.eq('projectId', '${projectId}')).order('desc').first();` +
+            " return first ? { first: new Date(first._creationTime).toISOString(), last: new Date(last._creationTime).toISOString() } : null;"
+        );
+      }
+    } catch (error) {
+      results.wholeRunError = String(error?.message ?? error);
     }
     try {
       save();
