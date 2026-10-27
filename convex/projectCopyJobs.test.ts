@@ -519,22 +519,26 @@ describe("a project copy, file by file (F2)", () => {
       expect(job).toMatchObject({ status: "done", filesCopied: 3, originalsAttached: 1 });
     });
 
-    it("deletes a clone a runner stored but never attached, once no save could attach it, and the copy still finishes", async () => {
+    it("a runner that dies mid-clone: the cron takes the copy up under a new lease, the next runner copies the file, and the stray clone is tracked and later removed", async () => {
       const s = await setup([{ text: "One.", original: true }, { text: "Two.", original: true }]);
       const plan = await s.prepare();
       const lease = { jobId: plan.jobId, leaseToken: plan.leaseToken };
       const next = (await s.t.query(internal.projects.nextProjectCopyFile, lease))!;
       const record = await s.t.mutation(internal.projects.beginProjectCopyClone, { ...lease, sourceStorageId: next.sourceStorageId! });
       expect(record).not.toBeNull();
-      // The runner stores the clone, then stops before attaching it.
+      // The runner stores the clone, then its action ends before attaching it.
       const stray = await s.t.run(async (ctx) => ctx.storage.store((await ctx.storage.get(next.sourceStorageId!))!));
+      expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toHaveLength(1);
       // Not yet: a save could still attach a file made in the record's window.
       // Recovery takes the job up; the cleanup runs on its own.
       vi.setSystemTime(Date.now() + 30 * 60 * 1000);
       await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
       await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {});
       await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(await s.job(plan.jobId)).toMatchObject({ status: "done", resumes: 1, filesCopied: 2, originalsAttached: 2 });
+      // The stray clone is still tracked, and kept while a save could attach it.
       expect(await s.storedFiles()).toContain(stray);
+      expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toHaveLength(1);
       // Its whole window is past an hour old: the stray clone goes, the files each have their own.
       vi.setSystemTime(Date.now() + 55 * 60 * 1000);
       expect(await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {})).toBe(1);
@@ -602,6 +606,59 @@ describe("a project copy, file by file (F2)", () => {
       expect(strays.filter((id) => stored.includes(id))).toEqual([]);
       expect(stored).toContain(source.storageId);
       expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
+    });
+
+    it("reads two overlapping windows of 31,799 other files within Convex's limits, checking before every page", async () => {
+      const s = await setup([{ text: "notes", original: true }], { transactionLimits: true });
+      const plan = await s.prepare();
+      const source = (await s.t.run((ctx) => ctx.db.get(s.sourceIds[0]!)))!;
+      vi.setSystemTime(Date.now() + 1_000);
+      const start = Date.now();
+      for (let index = 0; index < 2; index += 1) {
+        await s.t.mutation(internal.projects.beginProjectCopyClone, {
+          jobId: plan.jobId, leaseToken: plan.leaseToken, sourceStorageId: source.storageId!,
+        });
+      }
+      for (let batch = 0; batch < 318; batch += 1) {
+        await s.t.run(async (ctx) => {
+          for (let index = 0; index < (batch === 317 ? 99 : 100); index += 1) await ctx.storage.store(new Blob(["other"]));
+        });
+      }
+      vi.setSystemTime(start + 81 * 60 * 1000);
+      // The first run reads all of one window, then stops before the
+      // second's first page would pass the 32,000 rows read: its progress
+      // (one record done) is kept, and a fresh run goes on.
+      expect(await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {})).toBe(0);
+      expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toHaveLength(1);
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
+    }, 120_000);
+
+    it("hands the copy on rather than try a failed clone again without time for it", async () => {
+      let reads = 0;
+      class FailsLateOnce extends Blob {
+        override async arrayBuffer() {
+          reads += 1;
+          // The first clone fails after 5 minutes: 2 of the 7 are left.
+          if (reads === 2) {
+            vi.setSystemTime(Date.now() + 5 * 60 * 1000);
+            throw new Error("storage read failed");
+          }
+          return await super.arrayBuffer();
+        }
+      }
+      const s = await setup([{ text: "Notes.", original: () => new FailsLateOnce(["bytes"]) }]);
+      const result = await s.writer.action(api.projectDuplication.copyProjectContent, {
+        fromProjectId: s.fromProjectId, toProjectId: s.toProjectId,
+      });
+      expect(result).toMatchObject({ stillCopying: true, originalsNotCopied: 0 });
+      expect((await s.copies())[0]?.textCopyState).toBe("pending");
+      // The next runner clones it.
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      expect((await s.copies())[0]?.storageId).toBeDefined();
+      const [job] = await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect());
+      expect(job).toMatchObject({ status: "done", originalsAttached: 1 });
+      expect(job?.originalsNotCopied ?? 0).toBe(0);
     });
 
     it("attaches transcript originals one at a time, handing the copy on when its time runs out between them", async () => {

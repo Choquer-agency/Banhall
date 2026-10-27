@@ -40,9 +40,12 @@ type RunEnd = "done" | "stopped" | "lease_lost" | "out_of_time";
 
 /**
  * Round 3: the time one clone of an original is allowed to take. A runner
- * starts a clone only while at least this much of its time is left, so,
- * with a first run of 7 minutes, a clone of up to 6 minutes still ends
- * inside an action's 10 and the runner hands the copy on.
+ * starts a clone, or a second attempt of one, only while at least this much
+ * of its time is left, so, with a run of 7 minutes, a clone of up to 6
+ * minutes still ends inside an action's 10 and the runner hands the copy
+ * on. Storage calls cannot be stopped: a clone that takes longer ends its
+ * action at the limit, and the cron takes the copy up again under a new
+ * lease (its stray clone is removed by `reconcileCopyClones`).
  */
 const MAX_CLONE_MS = 3 * 60 * 1000;
 
@@ -53,13 +56,17 @@ const MAX_CLONE_MS = 3 * 60 * 1000;
  */
 async function cloneStoredFile(
   ctx: ActionCtx,
-  storageId: Id<"_storage">
-): Promise<{ clone?: Id<"_storage">; unreadable: boolean }> {
+  storageId: Id<"_storage">,
+  /** Round 4: whether the runner still has time for a second attempt. */
+  mayRetry: () => boolean
+): Promise<{ clone?: Id<"_storage">; unreadable: boolean; retryLater?: true }> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       const blob = await ctx.storage.get(storageId);
       return blob ? { clone: await ctx.storage.store(blob), unreadable: false } : { unreadable: false };
     } catch (error) {
+      // No time for the second attempt: the next runner tries again.
+      if (attempt === 1 && !mayRetry()) return { unreadable: false, retryLater: true };
       if (attempt >= 2) {
         console.warn(`project copy: an original file could not be read (${error instanceof Error ? error.name : "error"}); copied without it`);
         return { unreadable: true };
@@ -106,7 +113,8 @@ async function runProjectCopy(
         sourceStorageId: next.sourceStorageId,
       });
       if (cloneRecordId) {
-        const cloned = await cloneStoredFile(ctx, next.sourceStorageId);
+        const cloned = await cloneStoredFile(ctx, next.sourceStorageId, roomForClone);
+        if (cloned.retryLater) return "out_of_time";
         clone = cloned.clone;
         originalNotCopied = cloned.unreadable;
       }
@@ -146,7 +154,10 @@ async function runProjectCopy(
       ...lease,
       sourceStorageId: original.storageId,
     });
-    const cloned = cloneRecordId ? await cloneStoredFile(ctx, original.storageId) : { unreadable: false };
+    const cloned = cloneRecordId
+      ? await cloneStoredFile(ctx, original.storageId, roomForClone)
+      : { unreadable: false };
+    if ("retryLater" in cloned && cloned.retryLater) return "out_of_time";
     let step: "attached" | "skipped" | "stopped" | "lease_lost";
     try {
       step = await ctx.runMutation(internal.projects.copyTranscriptOriginal, {

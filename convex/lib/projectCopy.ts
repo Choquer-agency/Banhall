@@ -189,11 +189,16 @@ const STORED_FILES_PER_PAGE = 200;
 const FILE_CHECK_QUERIES = 16;
 const FILE_CHECK_DOCUMENTS = 64;
 const FILE_CHECK_BYTES = 1024 * 1024;
-/** Files one run checks where the runtime cannot report its usage. */
+/** Files one run checks, and pages it reads, where the runtime cannot report its usage. */
 const FILES_CHECKED_WITHOUT_METRICS = 100;
+const PAGES_READ_WITHOUT_METRICS = 20;
 
 /** Room in this transaction to check one more stored file, or (`page`) to read one more page of them. */
-async function roomForFileCheck(ctx: MutationCtx, checked: number, page = false): Promise<boolean> {
+async function roomForFileCheck(
+  ctx: MutationCtx,
+  done: { checked: number; pages: number },
+  page = false
+): Promise<boolean> {
   try {
     const metrics = await ctx.meta.getTransactionMetrics();
     return (
@@ -204,7 +209,7 @@ async function roomForFileCheck(ctx: MutationCtx, checked: number, page = false)
       metrics.bytesWritten.remaining > FILE_CHECK_BYTES
     );
   } catch {
-    return checked < FILES_CHECKED_WITHOUT_METRICS;
+    return done.checked < FILES_CHECKED_WITHOUT_METRICS && done.pages < PAGES_READ_WITHOUT_METRICS;
   }
 }
 
@@ -234,11 +239,18 @@ export async function reconcileCopyClones(
     .withIndex("by_startedAt", (q) => q.lt("startedAt", safeBefore - CLONE_WINDOW_MS))
     .take(CLONE_RECORDS_PER_RUN);
   let deleted = 0;
-  let checked = 0;
+  const done = { checked: 0, pages: 0 };
   for (const record of stale) {
     const windowEnd = record.startedAt + CLONE_WINDOW_MS;
     let place = record.scannedThrough;
+    /** Saves this record's place and stops: a fresh transaction goes on. */
+    const pause = async () => {
+      if (place !== record.scannedThrough) await ctx.db.patch(record._id, { scannedThrough: place });
+      return { deleted, more: true };
+    };
     for (;;) {
+      // Round 4: before every page, each record's first included.
+      if (!(await roomForFileCheck(ctx, done, true))) return await pause();
       const page = await ctx.db.system
         .query("_storage")
         .withIndex("by_creation_time", (q) =>
@@ -247,14 +259,12 @@ export async function reconcileCopyClones(
             : q.gt("_creationTime", place).lte("_creationTime", windowEnd)
         )
         .take(STORED_FILES_PER_PAGE);
+      done.pages += 1;
       for (const file of page) {
         const matches = file._creationTime < safeBefore && file.sha256 === record.sha256 && file.size === record.size;
         if (matches) {
-          if (!(await roomForFileCheck(ctx, checked))) {
-            if (place !== record.scannedThrough) await ctx.db.patch(record._id, { scannedThrough: place });
-            return { deleted, more: true };
-          }
-          checked += 1;
+          if (!(await roomForFileCheck(ctx, done))) return await pause();
+          done.checked += 1;
           if (!(await isStorageReferenced(ctx, file._id)) && !(await uploadClaimFor(ctx, file._id))) {
             await ctx.storage.delete(file._id);
             deleted += 1;
@@ -263,11 +273,6 @@ export async function reconcileCopyClones(
         place = file._creationTime;
       }
       if (page.length < STORED_FILES_PER_PAGE) break;
-      // A full page: the window may go on. Keep the place before the next.
-      if (!(await roomForFileCheck(ctx, checked, true))) {
-        await ctx.db.patch(record._id, { scannedThrough: place });
-        return { deleted, more: true };
-      }
     }
     await ctx.db.delete(record._id);
   }
