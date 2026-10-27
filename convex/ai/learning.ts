@@ -43,7 +43,7 @@ const CHAT_FEEDBACK_WINDOW = 20;
 /** Hard cap on rules so a block stays a focused prompt, not a second rubric. */
 const MAX_RULES = 10;
 
-const rulesSchema = (description: string): Anthropic.Tool.InputSchema => ({
+export const rulesSchema = (description: string): Anthropic.Tool.InputSchema => ({
   type: "object",
   properties: {
     rules: {

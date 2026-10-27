@@ -573,11 +573,14 @@ Decision record: `docs/product-domain.md`, the Sonnet 5.5 entry, bullet "A Brief
 What changes:
 
 - **Found live:** on Sonnet 5.5 a Brief came back with a storyline and claims but no exclusions, confidence entries or glossary terms, and was saved as if complete.
-- **Now the Brief is asked again**, naming the fields it left out, and fails if the second answer leaves fields out too. Nothing else changes.
+- **Now the Brief is asked again**, naming the fields it left out, and fails if the second answer leaves fields out too.
+- **The root cause:** without a forced tool call, Sonnet 5.5 sometimes wrote lists as tool markup or broken JSON, so fields arrived as strings or the whole answer was lost (the analyzer failed the same way). Every request to a model that refuses a forced call now sends its tools strict, so answers always match their schema.
+- **A Brief saved with nothing in it is not reused.**
 
 ### Automated, offline
 
-- [x] `convex/ai/structured.test.ts` and `convex/ai/brief.test.ts`.
+- [x] `convex/ai/structured.test.ts`, `convex/ai/brief.test.ts`, `convex/ai/strictTools.test.ts` and the pinned request tests.
+- [x] Live: every strict schema compiles on Sonnet 5.5 and Opus 5.5, and through OpenRouter.
 - [ ] `bash scripts/loop-verify.sh` on the final code.
 
 ### Automated, live on localhost

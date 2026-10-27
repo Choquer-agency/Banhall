@@ -17,6 +17,7 @@ import {
   retryWaitFitsAnyAction,
 } from "./actionDeadline";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { strictTools } from "./strictTools";
 import { MAX_SUMMARY_SELF_CHECK_BATCHES } from "../lib/seedRevisions";
 import {
   RequestAbortedError,
@@ -469,7 +470,9 @@ function cacheGenerationPrefix(params: unknown): unknown {
  * gateway such a model is a Claude model whose thinking is always on (Opus
  * 5.5, Fable 5.1), the cause of both rejections:
  * - A forced `tool_choice` becomes `auto` plus one system line
- *   (toolRequestForModel, shared with the OpenRouter conversion).
+ *   (toolRequestForModel, shared with the OpenRouter conversion), and the
+ *   request's tools become strict (strictTools.ts), so the answer still
+ *   matches the tool's schema.
  * - `thinking: {type: "disabled"}` (the section drafts) is dropped and the
  *   effort set to "low", the closest the API allows to no thinking; an
  *   explicit budget (`{type: "enabled"}`) is dropped and adaptive runs.
@@ -511,6 +514,11 @@ export function adaptAnthropicRequest(params: unknown): unknown {
     );
     adapted.tool_choice = tools.toolChoice;
     adapted.system = tools.system;
+    // 2026-10-26 (live check): the tools a forced call would have used are
+    // strict, so the answer keeps a forced call's schema guarantee.
+    if (choice.type === "tool" && "name" in choice && typeof choice.name === "string" && Array.isArray(adapted.tools)) {
+      adapted.tools = strictTools(adapted.tools, choice.name);
+    }
   }
   return adapted;
 }

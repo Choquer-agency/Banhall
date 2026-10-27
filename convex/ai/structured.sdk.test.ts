@@ -262,7 +262,7 @@ test("every seed role and both modes share tools, system and the cached source b
 const TOOL_ONLY_LINE =
   "Reply only by calling the submit_assessment tool, exactly once. A tool call is the only valid reply.";
 
-test("Opus 5.5: the real SDK sends `auto` and one system line, never a forced tool; usage is priced at $4/$20", async () => {
+test("Opus 5.5: the real SDK sends `auto`, one system line and a strict tool, never a forced tool; usage is priced at $4/$20", async () => {
   const t = convexTest(schema, modules);
   const bodies: Record<string, unknown>[] = [];
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
@@ -295,7 +295,8 @@ test("Opus 5.5: the real SDK sends `auto` and one system line, never a forced to
     // REASONING_TOKEN_MULTIPLIER, since Opus 5.5 always thinks.
     max_tokens: 1024,
     system: `${options.system}\n\n${TOOL_ONLY_LINE}`,
-    tools: [{ name: options.toolName, description: options.description, input_schema: toolSchema }],
+    // 2026-10-26 (live check): strict, so the answer keeps the forced call's schema guarantee.
+    tools: [{ name: options.toolName, description: options.description, input_schema: toolSchema, strict: true }],
     tool_choice: { type: "auto", disable_parallel_tool_use: true },
     messages: [{ role: "user", content: options.user }],
   }]);

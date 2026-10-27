@@ -24,14 +24,20 @@ import type { ModelFreeze } from "./lib/modelCatalogValidators";
 import { alwaysThinkingMaxTokens } from "../shared/generationModels";
 import {
   CONSISTENCY_REQUEST,
+  CONSISTENCY_SCHEMA,
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
   SEED_FACT_QUOTE_RULES,
   SEED_PROMPT_PROGRAM,
   SEED_QUOTE_RULES,
   SELF_CHECK_REQUEST,
+  SELF_CHECK_SCHEMA,
 } from "./ai/promptDefinitions";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
+import { strictToolSchema } from "./ai/strictTools";
+import { seedTools } from "./ai/seeds";
+import { seedToolSchema } from "./lib/seedContract";
+import { seedToolSchemaForFacts } from "./lib/seedFacts";
 import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
@@ -291,6 +297,61 @@ const withoutBriefStream = (json: Record<string, unknown>) => {
   };
 };
 /**
+ * 2026-10-26 (live check): a model that refuses a forced tool call is sent
+ * its tools strict (convex/ai/strictTools.ts): each gains `strict: true` and
+ * each object in its schema `additionalProperties: false`. With those taken
+ * out, the body is the pinned one.
+ */
+const withoutStrictTools = (json: Record<string, unknown>) => {
+  if (!Array.isArray(json.tools) || !(json.tools as Array<{ strict?: unknown }>).some((tool) => tool.strict === true)) return json;
+  // A schema whose bounds strict refuses was changed more than that: it is
+  // put back from the app's own schema, once the sent one is shown to be
+  // exactly that schema's strict form.
+  const original = (name: unknown, sent: unknown): unknown => {
+    for (const candidate of STRICT_ORIGINALS.filter((item) => item.name === name)) {
+      if (JSON.stringify(strictToolSchema(candidate.schema)?.schema) === JSON.stringify(sent)) return candidate.schema;
+    }
+    return open(sent);
+  };
+  const open = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(open);
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(
+      Object.entries(node as Record<string, unknown>)
+        .filter(([key, value]) => !(key === "additionalProperties" && value === false))
+        .map(([key, value]) => [key, open(value)])
+    );
+  };
+  return {
+    ...json,
+    tools: (json.tools as Array<Record<string, unknown>>).map(({ strict, ...tool }) =>
+      strict === true ? { ...tool, input_schema: original(tool.name, tool.input_schema) } : tool
+    ),
+  };
+};
+/** The schemas, by tool name, whose strict form drops a bound (strictTools.ts). */
+const STRICT_ORIGINALS: Array<{ name: string; schema: unknown }> = [
+  { name: "submit_self_check", schema: SELF_CHECK_SCHEMA },
+  { name: "submit_consistency_findings", schema: CONSISTENCY_SCHEMA },
+  ...[seedToolSchema(), seedToolSchemaForFacts()].flatMap((base) =>
+    seedTools(base, "shared").tools.map((tool) => ({ name: tool.name, schema: tool.input_schema }))
+  ),
+];
+/**
+ * Every request to a model that refuses a forced tool call sends its tools
+ * strict, but for a schema strict cannot hold (QA's, with too many optional
+ * fields), which is sent as before.
+ */
+function expectStrictTools(sent: Sent[], models: readonly string[]) {
+  for (const request of sent.filter((item) => models.includes(String(item.json.model)) && Array.isArray(item.json.tools))) {
+    const tools = (request.json.tools as Array<{ strict?: boolean; input_schema?: unknown }>).filter((tool) => tool.input_schema);
+    expect(
+      tools.every((tool) => (tool.strict === true) === (strictToolSchema(tool.input_schema) !== null)),
+      stageOf(request.json)
+    ).toBe(true);
+  }
+}
+/**
  * 2026-10-26 (P0 item 4): the judges' first-attempt answer limit is 16,384,
  * up from 4,096 (65,536 with a model's thinking room, up from 16,384). It is
  * the only byte these requests gained; with it put back, the body is the
@@ -400,7 +461,7 @@ const withoutLine242Opening = (json: Record<string, unknown>) => {
 const asPinned = (json: Record<string, unknown>) =>
   withoutLine242Opening(
     withPinnedCompressionAnswer(
-      withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(json)))))
+      withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
     )
   );
 
@@ -416,7 +477,7 @@ const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_se
 const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
 async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
   // 2026-10-26: captured before the judges' larger limit and streaming.
-  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutJudgeAnswerRoom(withoutBriefStream(json))))
+  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json)))))
     .submit_self_check;
 }
 
@@ -912,6 +973,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     // those fields set aside, every request is byte for byte the pinned one.
     const replyLine = /\\n\\nReply only by calling (the \w+ tool|one of the provided tools), exactly once\. A tool call is the only valid reply\./g;
     const lineBlock = /,\{"type":"text","text":"Reply only by calling (the \w+ tool|one of the provided tools), exactly once\. A tool call is the only valid reply\."\}/g;
+    // 2026-10-26: and its tools strict (withoutStrictTools, in asPinned).
+    expectStrictTools(after, [SONNET_TODAY]);
     const sonnet = (sent: Sent[], from: string) =>
       bodies(stagesOf(
         sent.filter((request) => request.json.model === from),
@@ -981,6 +1044,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (scenario) => {
       const { wire } = await run(scenario, "beforeStepRouting");
       expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
+      expectStrictTools(wire.sent, [OPUS]);
       expect(await stagesOf(beforeFinalTextChecks(wire.sent), asPinned)).toEqual(PINNED_771AF202[scenario]);
       expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[scenario]);
     }
