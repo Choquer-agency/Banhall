@@ -69,6 +69,23 @@ describe("/settings/writing (I2)", () => {
     });
   });
 
+  it("shows the writer's saved preferences above the instructions (Phase E, E1b)", async () => {
+    seedProfile();
+    __setQueryData("writerMemory:listMine", {
+      suggestions: [{ _id: "s1", text: "Keeps each idea to one sentence.", support: 4 }],
+      saved: [{ _id: "p1", text: "Uses Canadian spelling.", on: true, origin: "written" }],
+      limit: 30,
+    });
+    await render(SettingsWritingPage, {});
+    await expect.poll(() => document.querySelector("[data-saved-preferences]")).not.toBeNull();
+    expect(document.querySelector("[data-suggestion]")?.textContent).toContain("Keeps each idea to one sentence.");
+    expect(document.querySelector("[data-preference]")?.textContent).toContain("Uses Canadian spelling.");
+    // Above the instructions card.
+    const card = document.querySelector("[data-saved-preferences]")!;
+    const side = document.querySelector("[data-writing-side]")!;
+    expect(card.compareDocumentPosition(side) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("sums up coverage with the ring and the heading", async () => {
     seedProfile();
     await render(SettingsWritingPage, {});

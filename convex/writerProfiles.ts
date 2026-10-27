@@ -66,6 +66,7 @@ import {
   type SettingsSupplyPath,
 } from "./lib/settingsDocument";
 import { extractSettingsRules } from "./lib/settingsExtraction";
+import { composeWithSavedPreferences, savedPreferencesLine } from "./lib/savedPreferences";
 import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 
 /**
@@ -516,6 +517,8 @@ export type EffectiveWriterStyle = {
   savedProfileSuperseded: boolean;
   /** A settings document equals the enabled saved profile, which applies. */
   matchesProfile: boolean;
+  /** Phase E (E1b): the writer's saved preferences joined to the instructions, when any. */
+  savedPreferences?: { count: number; textHash: string };
 } & OrderedProfileContext;
 
 const effectiveWriterStyleValidator = v.object({
@@ -524,6 +527,7 @@ const effectiveWriterStyleValidator = v.object({
   settingsSource: writerSettingsSourceValidator,
   savedProfileSuperseded: v.boolean(),
   matchesProfile: v.boolean(),
+  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string() })),
   ...orderedProfileContextValidator.fields,
 });
 
@@ -641,17 +645,37 @@ export async function getEffectiveWriterStyle(
     ? (storedSelfCheckRules ?? extracted?.selfCheckRules ?? [])
     : [];
 
+  // Phase E (E1b): the writer's saved preferences follow the saved profile:
+  // used when it applies or the writer has none (no row counts as on), not
+  // when it is switched off or a settings document replaces it.
+  const savedTexts =
+    userId !== undefined && document === undefined && (profile === null || profile.enabled)
+      ? (
+          await ctx.db
+            .query("writerMemories")
+            .withIndex("by_userId_and_state", (q) => q.eq("userId", userId).eq("state", "on"))
+            .take(50)
+        )
+          .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
+          .map((row) => row.text)
+          .filter((text) => text.trim().length > 0)
+      : [];
+  const effectiveInstructions = composeWithSavedPreferences(instructions, savedTexts);
+  const savedPreferences =
+    savedTexts.length > 0 ? { count: savedTexts.length, textHash: await sha256(savedTexts.join("\n")) } : undefined;
+
   const savedProfileSuperseded = document !== undefined && savedEnabled;
   const profileReason =
     document && savedProfileSuperseded
       ? `Writer Profile applied from the settings document${document.fileName ? ` ${document.fileName}` : ""} ${settingsSupplyLabel(document.supplyPath)}; the saved Writer Profile was superseded for this generation`
       : undefined;
   return {
-    customInstructions: instructions.length > 0 ? instructions : null,
+    customInstructions: effectiveInstructions.length > 0 ? effectiveInstructions : null,
     styleOverrides,
     settingsSource,
     savedProfileSuperseded,
     matchesProfile,
+    ...(savedPreferences ? { savedPreferences } : {}),
     profileState,
     categoryOutcomes,
     buildOrder: order.buildOrder,
@@ -860,6 +884,8 @@ export const getGenerationWriterSettings = query({
       savedProfileSuperseded: v.boolean(),
       waiverAnalysis: waiverAnalysisValidator,
       noProfileLine: v.union(v.string(), v.null()),
+      /** Phase E (E1b): "3 saved preferences used.", or null. */
+      savedPreferencesLine: v.union(v.string(), v.null()),
       offer: v.union(
         v.null(),
         v.object({
@@ -918,6 +944,7 @@ export const getGenerationWriterSettings = query({
       savedProfileSuperseded: record.savedProfileSuperseded,
       waiverAnalysis: record.waiverAnalysis,
       noProfileLine: record.profileState === "applied" ? null : NO_PROFILE_LINE,
+      savedPreferencesLine: savedPreferencesLine(record.savedPreferences?.count ?? 0),
       offer,
     };
   },

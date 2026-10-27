@@ -198,6 +198,75 @@ describe("writer memory (Phase E, E1a)", () => {
     });
     expect((await s.writer.query(api.writerMemory.listMine, {})).suggestions).toEqual([]);
   });
+
+  describe("use with the writer's style (E1b)", () => {
+    async function savePreferences(s: Setup, texts: Array<[string, "on" | "off"]>) {
+      await s.t.run(async (ctx) => {
+        for (const [index, [text, state]] of texts.entries()) {
+          await ctx.db.insert("writerMemories", {
+            userId: s.writerId, text, textKey: preferenceTextKey(text), state, origin: "written",
+            checkedTextKey: preferenceTextKey(text), createdAt: index, decidedAt: index, updatedAt: index,
+          });
+        }
+      });
+    }
+    async function profile(s: Setup, customInstructions: string, enabled = true) {
+      await s.t.run((ctx) =>
+        ctx.db.insert("writerProfiles", { userId: s.writerId, customInstructions, enabled, updatedBy: s.writerId, createdAt: 1, updatedAt: 1 })
+      );
+    }
+    const style = (s: Setup, settingsDocument?: { text: string }) =>
+      s.t.query(internal.writerProfiles.getGenerationWriterStyle, {
+        userId: s.writerId,
+        ...(settingsDocument ? { settingsDocument: { ...settingsDocument, supplyPath: "attachment" as const, addressedCategories: null } } : {}),
+      });
+
+    test("join the profile text in order, only the ones that are on, with a count and fingerprint", async () => {
+      const s = await setup();
+      await profile(s, "Use we.");
+      await savePreferences(s, [["Uses Canadian spelling.", "on"], ["Avoids jargon.", "off"], ["Keeps sentences short.", "on"]]);
+      const result = await style(s);
+      expect(result.customInstructions).toBe("Use we.\n\nSaved preferences:\n- Uses Canadian spelling.\n- Keeps sentences short.");
+      expect(result.savedPreferences).toMatchObject({ count: 2, textHash: expect.any(String) });
+    });
+
+    test("a writer with no profile row still gets them; a profile switched off or replaced by a settings document does not", async () => {
+      const s = await setup();
+      await savePreferences(s, [["Uses Canadian spelling.", "on"]]);
+      expect((await style(s)).customInstructions).toBe("Saved preferences:\n- Uses Canadian spelling.");
+      expect(await s.t.query(internal.writerProfiles.getProfileForGeneration, { userId: s.writerId })).toMatchObject({
+        customInstructions: "Saved preferences:\n- Uses Canadian spelling.",
+      });
+      // A settings document that replaces the profile replaces them too.
+      const replaced = await style(s, { text: "Write in the passive voice." });
+      expect(replaced.customInstructions).toBe("Write in the passive voice.");
+      expect(replaced.savedPreferences).toBeUndefined();
+      await profile(s, "Use we.", false);
+      expect((await style(s)).customInstructions).toBeNull();
+    });
+
+    test("with no saved preference the writer's style is unchanged, byte for byte", async () => {
+      const s = await setup();
+      await profile(s, "Use we.\nKeep it short.");
+      const result = await style(s);
+      expect(result.customInstructions).toBe("Use we.\nKeep it short.");
+      expect(result.savedPreferences).toBeUndefined();
+    });
+
+    test("the Brief says how many a draft used", async () => {
+      const s = await setup();
+      const generationId = await s.t.run((ctx) =>
+        ctx.db.insert("generations", {
+          projectId: s.projectId, status: "running", requestedBy: s.writerId, startedAt: 1,
+          writerSettings: {
+            profileState: "applied", source: "profile", matchesProfile: false, savedProfileSuperseded: false,
+            waiverAnalysis: "profile", truncated: false, savedPreferences: { count: 3, textHash: "h" },
+          },
+        })
+      );
+      const view = await s.writer.query(api.writerProfiles.getGenerationWriterSettings, { generationId });
+      expect(view?.savedPreferencesLine).toBe("3 saved preferences used.");
+    });
+  });
 });
 
-export type { T };

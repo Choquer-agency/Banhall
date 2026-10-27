@@ -910,6 +910,7 @@ describe("trust floor and the no-profile line", () => {
       savedProfileSuperseded: true,
       waiverAnalysis: "analyzed",
       noProfileLine: null,
+      savedPreferencesLine: null,
       offer: {
         supplyPath: "writer_notes",
         fileName: FILE,

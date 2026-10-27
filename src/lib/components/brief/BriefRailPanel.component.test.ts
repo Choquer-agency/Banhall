@@ -244,6 +244,18 @@ describe("BriefRailPanel", () => {
     expect(field?.value).toBe(`${STORYLINE} Lost to a newer version.`);
   });
 
+  it("says how many saved preferences the draft used (Phase E, E1b)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("generations:getContextInclusion", recordedInclusion);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", {
+      noProfileLine: null,
+      savedPreferencesLine: "3 saved preferences used.",
+      offer: null,
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect.poll(() => container.querySelector("[data-saved-preferences-line]")?.textContent).toBe("3 saved preferences used.");
+  });
+
   it("dismisses the settings offer for this project and remembers it", async () => {
     __setQueryData("briefs:getBrief", null);
     __setQueryData("generations:getContextInclusion", recordedInclusion);

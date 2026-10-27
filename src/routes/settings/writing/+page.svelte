@@ -11,6 +11,7 @@
   import CoverageList from "$lib/components/settings/writing/CoverageList.svelte";
   import PreferenceWinsGrid from "$lib/components/settings/writing/PreferenceWinsGrid.svelte";
   import InstructionsEditorDialog from "$lib/components/settings/writing/InstructionsEditorDialog.svelte";
+  import SavedPreferencesCard from "$lib/components/settings/writing/SavedPreferencesCard.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
@@ -36,6 +37,34 @@
     auth.isAuthenticated ? {} : "skip"
   );
   const saveMyProfile = useMutation(api.writerProfiles.saveMyProfile);
+
+  // Phase E (E1b): saved preferences, only ever the signed-in writer's own.
+  const memoryQ = useQuery(api.writerMemory.listMine, () => (auth.isAuthenticated ? {} : "skip"));
+  const approveMemory = useMutation(api.writerMemory.approve);
+  const dismissMemory = useMutation(api.writerMemory.dismiss);
+  const setMemoryOn = useMutation(api.writerMemory.setOn);
+  const removeMemory = useMutation(api.writerMemory.remove);
+  const removeAllMemory = useMutation(api.writerMemory.removeAll);
+  type MemoryId = Id<"writerMemories">;
+
+  /** Runs one change to a saved preference; resolves to an error message or null. */
+  async function memoryChange(change: () => Promise<unknown>, fallback: string): Promise<string | null> {
+    try {
+      await change();
+      return null;
+    } catch (cause) {
+      return userErrorMessage(cause, fallback);
+    }
+  }
+
+  async function approveSuggestion(id: string): Promise<string | null> {
+    try {
+      const outcome = await approveMemory({ memoryId: id as MemoryId });
+      return outcome === "withdrawn" ? "The work this suggestion came from was removed, so it was withdrawn." : null;
+    } catch (cause) {
+      return userErrorMessage(cause, "The suggestion could not be approved. Try again.");
+    }
+  }
 
   // The draft, re-seeded from the server while the writer has not edited it:
   // an admin editing this profile from /admin/users shows up live unless the
@@ -228,6 +257,24 @@
 {:else}
   <div data-writing-preferences class="flex flex-col gap-6">
     <CoverageSummaryCard {covered} checked={!unchecked} bind:enabled onEdit={() => (editorOpen = true)} />
+
+    {#if memoryQ.data}
+      <SavedPreferencesCard
+        suggestions={memoryQ.data.suggestions}
+        saved={memoryQ.data.saved}
+        limit={memoryQ.data.limit}
+        onApprove={approveSuggestion}
+        onDismiss={(id) => memoryChange(() => dismissMemory({ memoryId: id as MemoryId }), "The suggestion could not be dismissed. Try again.")}
+        onSave={(id, text) =>
+          memoryChange(
+            () => client.action(api.ai.writerMemory.saveText, { text, ...(id ? { memoryId: id as MemoryId } : {}) }),
+            "The preference could not be saved. Try again."
+          )}
+        onSetOn={(id, on) => memoryChange(() => setMemoryOn({ memoryId: id as MemoryId, on }), "The preference could not be changed. Try again.")}
+        onDelete={(id) => memoryChange(() => removeMemory({ memoryId: id as MemoryId }), "The preference could not be deleted. Try again.")}
+        onDeleteAll={() => memoryChange(() => removeAllMemory({}), "Your saved preferences could not be deleted. Try again.")}
+      />
+    {/if}
 
     <div class="flex flex-col items-start gap-6 lg:flex-row">
       <StylePreviewCard bind:variant {preview} onRetry={() => void loadPreview(variant)} />

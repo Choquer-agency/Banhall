@@ -58,6 +58,8 @@
   };
   type WriterSettingsView = {
     noProfileLine: string | null;
+    /** Phase E (E1b): "3 saved preferences used.", or absent. */
+    savedPreferencesLine?: string | null;
     offer: { supplyPath: "writer_notes" | "attachment"; fileName: string } | null;
   };
 
@@ -262,6 +264,9 @@
   {/if}
   {#if writerSettings?.noProfileLine}
     <p class="border-b border-line-soft px-4 py-2.5 text-body">{writerSettings.noProfileLine}</p>
+  {/if}
+  {#if writerSettings?.savedPreferencesLine}
+    <p data-saved-preferences-line class="border-b border-line-soft px-4 py-2.5 text-body">{writerSettings.savedPreferencesLine}</p>
   {/if}
   {#if writerSettings?.offer && !offerDismissed}
     <div class="mx-4 my-3 flex flex-wrap items-center gap-2 rounded-md bg-primary-wash px-3 py-2">

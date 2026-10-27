@@ -1042,6 +1042,7 @@ describe("settings-document candidate, analysis cache and the generation record"
       savedProfileSuperseded: true,
       waiverAnalysis: "analyzed",
       noProfileLine: null,
+      savedPreferencesLine: null,
       offer: { supplyPath: "writer_notes", fileName, text: "Findings first.", ...offer },
     });
     // No categories recorded: the offer carries none.
@@ -1102,6 +1103,7 @@ describe("settings-document candidate, analysis cache and the generation record"
         savedProfileSuperseded: false,
         waiverAnalysis: "none",
         noProfileLine: "No Writer Profile applied — House Rules in full.",
+        savedPreferencesLine: null,
         offer: null,
       });
     }

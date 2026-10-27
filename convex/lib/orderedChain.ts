@@ -175,6 +175,8 @@ export const writerSettingsValidator = v.object({
    * save offer's only source; at most one entry per category (six).
    */
   addressedCategories: v.optional(v.array(styleCategoryValidator)),
+  /** Phase E (E1b): how many saved preferences the draft froze, and their text's fingerprint. */
+  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string() })),
 });
 export type WriterSettingsRecord = Infer<typeof writerSettingsValidator>;
 

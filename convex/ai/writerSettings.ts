@@ -320,6 +320,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
         ? "profile"
         : "none",
     truncated: documentApplied && detected !== null && detected.truncated,
+    ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
     // The waivers the applied document legislates, as this generation
     // resolved them: the save offer's only source (never re-read from the
     // cache, so a failed cache write or a later classifier version cannot

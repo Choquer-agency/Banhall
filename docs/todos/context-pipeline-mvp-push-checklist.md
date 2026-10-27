@@ -732,3 +732,22 @@ What changes:
 
 - [x] Suggestion runs on the live copy for two writers with Seed signals (from the one-off pass). The first: three suggested, two refused by the check (a capitalized word; a term from the work), one kept, backed by 5 signals: "Writes long, dense sentences that chain several linked factors with commas instead of short separate statements." The second: two kept ("Keeps each idea to one sentence, dropping the second sentence that adds extra detail."; "Avoids bringing up topics that earlier sections did not cover, and judges conclusions only against the uncertainties already stated."), one refused (a term from the work). None holds a name or a fact.
 
+## Phase E, fourth part: saved preferences on the page, and in drafts, Seeds and chat
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (second)".
+
+What changes:
+
+- **Writing preferences has a "Saved preferences" card**: approve, edit or dismiss each suggestion; turn a preference on or off, edit or delete it; add your own; delete them all.
+- **Approved preferences are used in your own drafts, Seeds and chat**, after your Writer Profile text. The Brief says how many a draft used.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `bash scripts/loop-verify.sh` and `npm run test:component` on the final code.
+
+### Manual on localhost
+
+- [ ] On Writing preferences, approve a suggestion, add one of your own, and turn one off. Start a draft: the Brief says how many saved preferences it used.
+- [ ] Try to add "Mentions Acme by name": it is refused, with the reason.
+
