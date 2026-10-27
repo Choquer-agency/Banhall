@@ -31,6 +31,7 @@ import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { quotableFileText } from "../shared/wordMarkdown";
 import { placeholderMapValidator } from "./lib/placeholderValidators";
+import { textCopyPending } from "./lib/projectCopy";
 
 /** Clears a file from the label queue. */
 const OFF_THE_QUEUE = { labelsDue: undefined, labelsNextAt: undefined } as const;
@@ -128,7 +129,8 @@ export const labelInput = internalQuery({
   ),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc || doc.archived || !documentHasText(doc)) return null;
+    // F2: a file still being copied has no text to label yet.
+    if (!doc || doc.archived || textCopyPending(doc) || !documentHasText(doc)) return null;
     const project = await ctx.db.get(doc.projectId);
     if (!project || (await isProjectDeleting(ctx, doc.projectId))) return null;
     const textHash = await documentTextHash(doc);
@@ -242,7 +244,7 @@ export const markFileLabelsDue = internalMutation({
       .paginate({ numItems: 100, cursor: args.cursor ?? null, maximumBytesRead: 4 * 1024 * 1024 });
     let marked = args.markedSoFar ?? 0;
     for (const doc of page.page) {
-      if (doc.archived || !documentHasText(doc) || doc.labelsDue) continue;
+      if (doc.archived || textCopyPending(doc) || !documentHasText(doc) || doc.labelsDue) continue;
       if (labelsCurrent(doc, await documentTextHash(doc))) continue;
       if (!args.dryRun) await ctx.db.patch(doc._id, { labelsDue: true, labelsNextAt: 0, labelsAttempts: undefined });
       marked += 1;

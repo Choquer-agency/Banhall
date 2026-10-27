@@ -82,6 +82,7 @@ import {
   requestBriefPreparation,
 } from "./lib/briefPreparationTrigger";
 import { validatedExcludedSources } from "./lib/generations/reservation";
+import { projectCopyInProgress } from "./lib/projectCopy";
 
 /** How long one attempt may run: the action limit plus room to write. */
 export const PREPARATION_LEASE_MS = 11 * 60 * 1000;
@@ -461,6 +462,12 @@ async function readProjectEvidence(
     .order("desc")
     .take(50);
   if (uploads.some((row) => row.status === "in_progress" && row.updatedAt > now - UPLOAD_SETTLE_MS)) {
+    await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
+    return null;
+  }
+  // F2 (2026-10-27): files still being copied into the project are files
+  // still arriving; their text is not there yet.
+  if (await projectCopyInProgress(ctx, project._id)) {
     await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
     return null;
   }

@@ -35,6 +35,7 @@ import {
   requireNotClaimedByAnother,
   uploadClaimFor,
 } from "./lib/storage";
+import { textCopyPending } from "./lib/projectCopy";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -293,8 +294,11 @@ export const listDocuments = query({
         // Rows uploaded before PSOS-04 carry no stored status. Deriving it here
         // from the same function means every listed document reports a truthful
         // status on day one, and the backfill is only a persistence step.
-        const derived = d.processingStatus
-          ? { status: d.processingStatus, detail: d.processingDetail ?? null }
+        // F2: a file still being copied has no text to read yet; its row
+        // always carries a status.
+        const copying = textCopyPending(d);
+        const derived = d.processingStatus || copying
+          ? { status: d.processingStatus ?? "ready", detail: d.processingDetail ?? null }
           : deriveStoredProcessing({ ...d, content: await readDocumentText(ctx, d) });
         return {
           _id: d._id,
@@ -307,13 +311,17 @@ export const listDocuments = query({
           sizeChars: documentTextLength(d),
           // The project page's start dialog names each file's length
           // (2026-09-27, fourth): stored at upload, counted for older rows.
-          wordCount: d.wordCount ?? countTextWords(await readDocumentText(ctx, d)),
+          wordCount: d.wordCount ?? (copying ? 0 : countTextWords(await readDocumentText(ctx, d))),
           hasFile: !!d.storageId,
           mimeType: d.mimeType ?? null,
           url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,
           archived: d.archived ?? false,
           processingStatus: derived.status,
           processingDetail: derived.detail,
+          // F2: "copying" while the file's text is being copied from the
+          // original project; "could_not_copy" when it changed or was
+          // removed there meanwhile.
+          copyState: copying ? ("copying" as const) : d.textCopyState === "failed" ? ("could_not_copy" as const) : null,
         };
       })
     );
@@ -354,7 +362,8 @@ export const getDocumentContent = query({
     return {
       fileName: doc.fileName,
       fileType: doc.fileType,
-      content: await readDocumentText(ctx, doc),
+      // F2: nothing to show until a copied file's text arrives.
+      content: textCopyPending(doc) ? "" : await readDocumentText(ctx, doc),
       // 2026-10-26: Word Markdown is shown formatted.
       ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
     };

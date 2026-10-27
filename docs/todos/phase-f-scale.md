@@ -28,6 +28,8 @@ Steps 1 and 2 done 2026-10-27 (decision entry "2026-10-27 (seventh)"): `convex/a
 4. **The action waits for every file** in the normal case, as today, so the wizard and review-from-project see a finished copy. "Pending" covers only a crash: the job continues itself (`ctx.scheduler.runAfter(0, ...)`), and a cron resumes stalled jobs under their lease.
 5. **While any file is pending,** starting a draft is refused by name ("This project is still being copied"), and search pieces, server reading, file labels and the text move skip pending files; the file list shows them as being copied. This is a new rule on starting a draft, so it lands with a decision entry.
 
+Done 2026-10-27 (decision entry "2026-10-27 (eighth)"), with the refusal while copying pending the owner's answer to question 3.
+
 **Tests.** A copy of 60 files of 400,000 characters, with the bytes each mutation reads and writes asserted under the limits (convex-test does not enforce them); a copy stopped after file 10 and resumed by the job; a source file erased or changed mid-copy; the destination erased mid-copy (nothing written after, clones released); a draft refused while pending; both callers; the receipt unchanged.
 
 ## F3. Brain filters and the Voyage comparison

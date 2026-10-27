@@ -219,6 +219,7 @@ import type * as lib_partialJsonItems from "../lib/partialJsonItems.js";
 import type * as lib_passageEdits from "../lib/passageEdits.js";
 import type * as lib_placeholderValidators from "../lib/placeholderValidators.js";
 import type * as lib_preferenceCheck from "../lib/preferenceCheck.js";
+import type * as lib_projectCopy from "../lib/projectCopy.js";
 import type * as lib_projectDeletion from "../lib/projectDeletion.js";
 import type * as lib_projectScopedTables from "../lib/projectScopedTables.js";
 import type * as lib_providerConfig from "../lib/providerConfig.js";
@@ -534,6 +535,7 @@ declare const fullApi: ApiFromModules<{
   "lib/passageEdits": typeof lib_passageEdits;
   "lib/placeholderValidators": typeof lib_placeholderValidators;
   "lib/preferenceCheck": typeof lib_preferenceCheck;
+  "lib/projectCopy": typeof lib_projectCopy;
   "lib/projectDeletion": typeof lib_projectDeletion;
   "lib/projectScopedTables": typeof lib_projectScopedTables;
   "lib/providerConfig": typeof lib_providerConfig;

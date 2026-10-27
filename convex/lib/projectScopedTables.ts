@@ -215,6 +215,11 @@ export const PROJECT_SCOPED_TABLES = [
       },
     ],
   },
+  // 2026-10-27 (F2): a project copy goes with the new project. If the
+  // original project is erased first, its reference is cleared and the copy
+  // marks the files it had not copied yet "could not copy".
+  { table: "projectCopyJobs", field: "toProjectId", disposition: "delete", index: "by_toProjectId_and_status" },
+  { table: "projectCopyJobs", field: "fromProjectId", disposition: "detach", index: "by_fromProjectId" },
   // Documents (blob-owning) and their upload receipts.
   // 2026-10-22 (fourth): a file's text pieces, before the file row.
   { table: "projectDocumentTexts", field: "projectId", disposition: "delete", index: "by_projectId" },

@@ -929,10 +929,12 @@ describe("transcript originals follow the copied row (review D-12, D-5)", () => 
     expect(copiedRow?.copiedFromTranscriptId).toBe(f.sourceTranscriptId);
   });
 
-  it("releases the clones it made when the copy fails part way", async () => {
+  // F2 (2026-10-27): each file is finished in its own step, so an original
+  // that cannot be read no longer undoes the copy. The file or transcript is
+  // copied without it, and no clone is left behind.
+  it("copies a transcript without its original when the original cannot be read, leaving no stray clone", async () => {
     const f = await setup();
-    // The transcript original can be stored once but not read again, so
-    // the copy fails after it has already cloned the notes file.
+    // The transcript original can be stored once but not read again.
     let reads = 0;
     class OneReadBlob extends Blob {
       override async arrayBuffer() {
@@ -947,20 +949,21 @@ describe("transcript originals follow the copied row (review D-12, D-5)", () => 
     });
     const filesBefore = await storedFileIds(f);
     const { projectId, transcriptIds } = await newProject(f);
-    await expect(
-      f.writer.action(api.projectDuplication.copyProjectContent, {
-        fromProjectId: f.sourceProjectId,
-        toProjectId: projectId,
-        targetTranscriptId: transcriptIds[0],
-        ...INPUTS_ONLY,
-      })
-    ).rejects.toThrow("storage read failed");
-    // The notes clone was made, then released: no new file is left behind.
-    expect(await storedFileIds(f)).toEqual(filesBefore);
+    const copied = await f.writer.action(api.projectDuplication.copyProjectContent, {
+      fromProjectId: f.sourceProjectId,
+      toProjectId: projectId,
+      targetTranscriptId: transcriptIds[0],
+      ...INPUTS_ONLY,
+    });
+    expect(copied).toMatchObject({ transcriptOriginalsCopied: 0 });
+    const transcript = await f.t.run((ctx) => ctx.db.get(transcriptIds[0]));
+    expect(transcript?.originalStorageId).toBeUndefined();
+    // Only the copied notes file's clone is new.
     const rows = await projectRows(f, projectId);
     const notes = rows.documents.find((row) => row.fileName === "Writer notes.md");
-    expect(notes).toBeTruthy();
-    expect(notes?.storageId).toBeUndefined();
+    expect(notes?.textCopyState).toBeUndefined();
+    const added = (await storedFileIds(f)).filter((id) => !filesBefore.includes(id));
+    expect(added).toEqual(notes?.storageId ? [notes.storageId] : []);
   });
 
   it("releases a spare clone when the transcript already has a file", async () => {
@@ -972,9 +975,20 @@ describe("transcript originals follow the copied row (review D-12, D-5)", () => 
       await ctx.db.patch(transcriptIds[0], { originalStorageId: kept });
       return { kept, spare };
     });
-    await f.writer.mutation(internal.projects.finishProjectContentCopy, {
+    // A copy that leaves every file behind goes straight to its last step.
+    const sourceFiles = await f.t.run(async (ctx) =>
+      (await ctx.db.query("projectDocuments").withIndex("by_projectId", (q) => q.eq("projectId", f.sourceProjectId)).collect()).map((row) => row._id)
+    );
+    const plan = await f.writer.mutation(internal.projects.prepareProjectContentCopy, {
+      fromProjectId: f.sourceProjectId,
       toProjectId: projectId,
-      storageCopies: [],
+      ...INPUTS_ONLY,
+      excludeDocumentIds: sourceFiles,
+    });
+    expect(plan.prepared).toBe(true);
+    await f.t.mutation(internal.projects.finishProjectContentCopy, {
+      jobId: plan.jobId,
+      leaseToken: plan.leaseToken,
       transcriptCopies: [{ transcriptId: transcriptIds[0], storageId: spare }],
     });
     const row = await f.t.run((ctx) => ctx.db.get(transcriptIds[0]));

@@ -567,6 +567,17 @@ async function seedProjectRows(
       title: "Review of doomed", clientName: "Erasure Co", status: "draft", createdAt: now, updatedAt: now,
       createdBy: userId, shareToken: `review-${projectId}`, mode: "review", sourceProjectId: projectId,
     });
+    // F2: a copy out of the project into another one (kept, the reference
+    // cleared), and a copy into the project (deleted with it).
+    const copyJob = {
+      userId, status: "copying" as const, filesMade: 0, filesCopied: 0, filesFailed: 0, evidenceCopied: 0, pdReviewsCopied: 0,
+      scope: { includeReport: true, includeReviews: true, excludeDocumentIds: [], previousYearReport: false },
+      createdAt: now, updatedAt: now,
+    };
+    byRef["projectCopyJobs.fromProjectId"] = await ctx.db.insert("projectCopyJobs", {
+      ...copyJob, fromProjectId: projectId, toProjectId: byRef["projects.sourceProjectId"] as Id<"projects">,
+    });
+    await ctx.db.insert("projectCopyJobs", { ...copyJob, toProjectId: projectId });
     // Keep rows.
     byRef["writerReviews.projectId"] = await ctx.db.insert("writerReviews", { projectId, reportId, userId, score: 80, createdAt: now, updatedAt: now });
     byRef["comparisons.projectId"] = await ctx.db.insert("comparisons", {

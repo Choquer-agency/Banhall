@@ -19,6 +19,7 @@ import {
   wordWithoutMarkdown,
 } from "./lib/serverReading";
 import { isProjectDeleting } from "./lib/projectDeletion";
+import { textCopyPending } from "./lib/projectCopy";
 
 /**
  * Claims one file's reading for this reader version and says what to read,
@@ -33,7 +34,8 @@ export const startServerReading = internalMutation({
   ),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc?.storageId || (await isProjectDeleting(ctx, doc.projectId))) return null;
+    // F2: a file still being copied is read, if it needs it, once its copy is done.
+    if (!doc?.storageId || textCopyPending(doc) || (await isProjectDeleting(ctx, doc.projectId))) return null;
     if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) }, { wordMarkdownBackfill: true })) return null;
     const stored = await ctx.db.system.get(doc.storageId);
     if (!stored) return null;
@@ -131,7 +133,7 @@ export const queueServerReadings = internalMutation({
       .paginate({ numItems: 50, cursor: args.cursor ?? null, maximumBytesRead: PASS_PAGE_BYTES });
     let queued = args.queuedSoFar ?? 0;
     for (const doc of page.page) {
-      if (!doc.storageId) continue;
+      if (!doc.storageId || textCopyPending(doc)) continue;
       if (!needsServerReading({ ...doc, hasReadText: await documentHasReadText(ctx, doc) }, { wordMarkdownBackfill: true })) continue;
       if (!args.dryRun) {
         await ctx.scheduler.runAfter(queued * 2_000, internal.ai.fileReading.readStoredDocument, {

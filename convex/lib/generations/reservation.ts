@@ -9,6 +9,7 @@
  */
 import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
 import { TransactionGuard } from "../readMeter";
+import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "../projectCopy";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
@@ -390,6 +391,11 @@ export async function reserveGeneration(
       : (explicitSingleModelId ?? (await defaultModelId(ctx)));
   const retried = retryOfGenerationId ? await ctx.db.get(retryOfGenerationId) : null;
   const retriedFreeze = retried?.modelFreeze;
+  // F2 (2026-10-27, owner question 3 pending): a draft never reads a
+  // project whose files are still being copied into it.
+  if (await projectCopyInProgress(ctx, project._id)) {
+    domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+  }
   // The source rules below and the frozen sources run on what remains after
   // the leave-out list (decision 56). Shared with the Brief preparation
   // (decision 65), so both freeze the same bytes in the same order.

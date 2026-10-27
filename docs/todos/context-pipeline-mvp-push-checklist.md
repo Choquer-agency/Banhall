@@ -860,3 +860,29 @@ What changes:
 ### Manual on localhost
 
 - [ ] Admin, AI usage and cost: the "Characters per token" table reads clearly, and says when nothing is measured yet.
+
+## F2: project copies file by file
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (eighth)". Plan: `docs/todos/phase-f-scale.md`, F2.
+
+What changes:
+
+- **Duplicating a project with many large files works.** Each file's text is copied in its own step, so no copy hits the platform's limits, and nothing is cut off at 250 files.
+- **A file that changed or was removed in the original while it was being copied shows "Could not copy".** Add it again if it is needed.
+- **While files are still being copied, starting a draft says so and asks you to try again in a minute.** This normally lasts seconds, and only after a crash longer.
+
+### Automated, offline
+
+- [ ] Code review by two reviewers.
+- [ ] `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] Duplicate a project with files and a report on the live copy: the new project has every file with the same text and original, the receipt maps each, and no file is left pending.
+- [ ] Review from project on the live copy: the review project has every support file.
+- [ ] F5's stress project (50 files of 400,000 characters) duplicated on the live copy.
+
+### Manual on localhost
+
+- [ ] Duplicate a project in the wizard: the copy finishes before the new project opens, and its Files panel shows every file as ready.
+- [ ] A file shown as "Being copied" or "Could not copy" reads clearly, with no Replace button while it is being copied.

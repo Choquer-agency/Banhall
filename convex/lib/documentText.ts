@@ -276,7 +276,14 @@ export async function writeDocumentText(
    */
   options: { storedText?: boolean } = {}
 ): Promise<
-  DocumentTextFacts & { textMovedAt: number; searchPiecesDue: true; searchPiecesNextAt: number; searchPiecesAttempts: undefined }
+  DocumentTextFacts & {
+    textMovedAt: number;
+    searchPiecesDue: true;
+    searchPiecesNextAt: number;
+    searchPiecesAttempts: undefined;
+    textCopyState: undefined;
+    textCopyJobId: undefined;
+  }
 > {
   if (!options.storedText) assertDocumentTextFits(text);
   await deleteDocumentText(ctx, doc._id);
@@ -288,6 +295,10 @@ export async function writeDocumentText(
     searchPiecesDue: true,
     searchPiecesNextAt: 0,
     searchPiecesAttempts: undefined,
+    // F2: a file given text (a replacement, a reading) is no longer waiting
+    // for a project copy's text, nor marked as one that could not be copied.
+    textCopyState: undefined,
+    textCopyJobId: undefined,
   };
 }
 

@@ -27,6 +27,7 @@ import { liveFactPacksApply } from "./lib/transcriptFactRows";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 import { excludedIdsArgs, validatedExcludedSources } from "./lib/generations/reservation";
+import { textCopyPending } from "./lib/projectCopy";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -312,7 +313,8 @@ export const getReviewInput = internalQuery({
       .take(200);
     const contextDocs = [];
     for (const d of documents) {
-      if (d.archived || !d.category || !documentHasText(d) || excludedDocuments.has(d._id)) continue;
+      // F2: a file still being copied has no text yet.
+      if (d.archived || !d.category || textCopyPending(d) || !documentHasText(d) || excludedDocuments.has(d._id)) continue;
       contextDocs.push({
         category: d.category,
         fileName: d.fileName,

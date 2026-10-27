@@ -190,4 +190,13 @@ crons.cron(
   {}
 );
 
+// F2 (2026-10-27): a project copy whose runner stopped (its lease ran out)
+// is taken up again, so no copy is left half done and no draft waits on it.
+crons.interval(
+  "resume stalled project copies",
+  { minutes: 1 },
+  internal.projectDuplication.resumeStalledProjectCopies,
+  {}
+);
+
 export default crons;

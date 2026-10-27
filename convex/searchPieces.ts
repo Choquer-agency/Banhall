@@ -17,6 +17,7 @@ import { deleteSearchPiecesOf, documentHasText, documentTextHash, readDocumentTe
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { SEARCH_PIECES_VERSION, type PieceTextKind } from "../shared/searchPieces";
 import { MAX_UPLOAD_BYTES } from "./lib/storage";
+import { textCopyPending } from "./lib/projectCopy";
 
 /** A claim older than this was stopped; the sweep may claim the file again. */
 export const SEARCH_INDEX_CLAIM_MS = 10 * 60_000;
@@ -133,7 +134,7 @@ export const fileToIndex = internalQuery({
   ),
   handler: async (ctx, args) => {
     const doc = await ctx.db.get(args.documentId);
-    if (!doc || (await isProjectDeleting(ctx, doc.projectId))) return null;
+    if (!doc || textCopyPending(doc) || (await isProjectDeleting(ctx, doc.projectId))) return null;
     const kind = pieceTextKind(doc);
     let original: { storageId: Id<"_storage">; fileName: string } | undefined;
     if (kind === "pdf" && doc.storageId && documentHasText(doc)) {
@@ -239,7 +240,8 @@ export const markSearchPiecesDue = internalMutation({
       .paginate({ numItems: BACKFILL_PAGE, cursor: args.cursor ?? null, maximumBytesRead: BACKFILL_PAGE_BYTES });
     let marked = args.markedSoFar ?? 0;
     for (const doc of page.page) {
-      if (!documentHasText(doc) || doc.searchPiecesDue) continue;
+      // F2: a file still being copied has no text yet; its copy sets it due.
+      if (textCopyPending(doc) || !documentHasText(doc) || doc.searchPiecesDue) continue;
       if (doc.searchPiecesVersion === SEARCH_PIECES_VERSION && doc.searchPiecesTextHash === (await documentTextHash(doc))) continue;
       if (!args.dryRun) await ctx.db.patch(doc._id, { searchPiecesDue: true, searchPiecesNextAt: 0, searchPiecesAttempts: undefined });
       marked += 1;

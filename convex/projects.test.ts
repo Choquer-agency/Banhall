@@ -6,6 +6,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import { readDocumentText } from "./lib/documentText";
+import { completeProjectCopy } from "./projectCopy.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -595,6 +596,8 @@ describe("copied running PD reviews", () => {
         fromProjectId: projectId, toProjectId: otherProjectId,
       });
       expect(result.pdReviewsCopied).toBe(4);
+      // F2: the files' text follows, file by file, as the copy action runs it.
+      await completeProjectCopy(t, result);
     } finally {
       clock.mockRestore();
     }
@@ -671,7 +674,7 @@ describe("copied running PD reviews", () => {
       expect(source).not.toHaveProperty("error");
       expect(source).not.toHaveProperty("completedAt");
       const actor = asActor(t, "owner");
-      await actor.mutation(entry, { fromProjectId: projectId, toProjectId: otherProjectId });
+      await completeProjectCopy(t, await actor.mutation(entry, { fromProjectId: projectId, toProjectId: otherProjectId }));
       const copied = (await snapshot(t)).reviews.find((row) =>
         row.projectId === otherProjectId && row.createdBy === source.createdBy);
       if (!copied) throw new Error("Missing copied review matched to running source");

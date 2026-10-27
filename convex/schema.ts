@@ -2380,10 +2380,24 @@ export default defineSchema({
     uploaderRole: v.optional(
       v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
     ),
+    // 2026-10-27 widen (F2, project copies file by file): a copied file's
+    // row is made first with the facts about its text (length, fingerprint,
+    // preview) and no text; its copy job (`textCopyJobId`) then copies the
+    // text whole. "pending" until then; "failed" when the original file was
+    // removed or changed meanwhile (shown as "Could not copy"; the row then
+    // holds no text). Absent: an ordinary file. `copiedFromDocumentId` names
+    // the original project's file the copy came from, kept after the copy.
+    textCopyState: v.optional(v.union(v.literal("pending"), v.literal("failed"))),
+    textCopyJobId: v.optional(v.id("projectCopyJobs")),
+    copiedFromDocumentId: v.optional(v.id("projectDocuments")),
     createdAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
     .index("by_projectId", ["projectId"])
+    // 2026-10-27 (F2): a project's files still being copied, and a job's.
+    .index("by_projectId_and_textCopyState", ["projectId", "textCopyState"])
+    .index("by_textCopyJobId_and_textCopyState", ["textCopyJobId", "textCopyState"])
+    .index("by_projectId_and_copiedFromDocumentId", ["projectId", "copiedFromDocumentId"])
     // 2026-10-22 (fourth): duplicate uploads are found by fingerprint.
     .index("by_projectId_and_textHash", ["projectId", "textHash"])
     // 2026-10-26 (Phase B4): files waiting for their search pieces.
@@ -2580,6 +2594,58 @@ export default defineSchema({
   // DOCUMENT_TEXT_PIECE_CHARS characters that never split a character, each
   // with its exact starting position. Written and read only through
   // convex/lib/documentText.ts.
+  // 2026-10-27 (F2, `docs/todos/phase-f-scale.md`): one project copy (the
+  // duplicate wizard, review from project). It makes the new project's rows
+  // first, then copies each file's text whole in its own transaction. The
+  // action that started it waits for it; after a crash it continues itself
+  // under its lease, and a cron resumes a stalled one. Deleted with the new
+  // project; the original project's reference is cleared if that project is
+  // erased first, and its remaining files are then marked "could not copy".
+  projectCopyJobs: defineTable({
+    toProjectId: v.id("projects"),
+    fromProjectId: v.optional(v.id("projects")),
+    /** Who copies: their access is checked again on every step. */
+    userId: v.id("users"),
+    scope: v.object({
+      targetTranscriptId: v.optional(v.id("transcripts")),
+      includeReport: v.boolean(),
+      includeReviews: v.boolean(),
+      excludeDocumentIds: v.array(v.id("projectDocuments")),
+      previousYearReport: v.boolean(),
+    }),
+    status: v.union(v.literal("preparing"), v.literal("copying"), v.literal("done"), v.literal("failed")),
+    /** While preparing: the kind of row being made and the last source row made. */
+    phase: v.optional(
+      v.union(
+        v.literal("files"),
+        v.literal("previous_year_report"),
+        v.literal("evidence"),
+        v.literal("report"),
+        v.literal("reviews")
+      )
+    ),
+    cursorCreationTime: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    leaseUntil: v.optional(v.number()),
+    /** Times a stalled job was taken up again. */
+    resumes: v.optional(v.number()),
+    filesMade: v.number(),
+    filesCopied: v.number(),
+    filesFailed: v.number(),
+    evidenceCopied: v.number(),
+    pdReviewsCopied: v.number(),
+    reportId: v.optional(v.id("reports")),
+    previousYearReportId: v.optional(v.id("projectDocuments")),
+    /** Why a job stopped before its end (a code, never file text). */
+    stopReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_toProjectId_and_status", ["toProjectId", "status"])
+    .index("by_fromProjectId", ["fromProjectId"])
+    .index("by_status_and_leaseUntil", ["status", "leaseUntil"]),
+
   projectDocumentTexts: defineTable({
     documentId: v.id("projectDocuments"),
     projectId: v.id("projects"),
