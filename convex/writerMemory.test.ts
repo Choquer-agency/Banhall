@@ -913,7 +913,7 @@ describe("writer memory (Phase E, E1a)", () => {
       expect(await store(profile, repeated, false, veiled)).toEqual(veiled.map(shown));
     });
 
-    test("private words come from each saved text on its own, and public forms stay visible in quotes and runs (eleventh re-check)", async () => {
+    test("private words come from each saved text on its own, every entry of it, and public forms stay visible in quotes and runs (eleventh and twelfth re-checks)", async () => {
       const s = await setup();
       type Note = { instruction: string; reason: string };
       const store = async (profile: string, saved: string, notes: Note[]) => {
@@ -962,6 +962,26 @@ describe("writer memory (Phase E, E1a)", () => {
       ] as const) {
         expect([text, await store(profile, saved, both(text))]).toEqual([text, [hidden, hidden]]);
       }
+      // Twelfth re-check: an entry a saved text repeats keeps its own words.
+      for (const [profile, saved, text] of [
+        ["Never use these words:\n- glimmer", "Never use these words:\n- glimmer\n- glimmer (also glimmering, glimmered)", 'The writer bans "glimmered".'],
+        [
+          "Required terms:\n- amber lattice: A wording choice. Never write fog.",
+          "Required terms:\n- amber lattice: A wording choice. Never write fog.\n- amber lattice: A wording choice. Never write mist.",
+          'The writer bans "mist".',
+        ],
+      ] as const) {
+        expect([text, await store(profile, saved, both(text))]).toEqual([text, [hidden, hidden]]);
+      }
+      // The word the profile itself bans stays public.
+      const fog = { instruction: "Writer preference", reason: 'The profile bans "fog".' };
+      expect(
+        await store(
+          "Required terms:\n- amber lattice: A wording choice. Never write fog.",
+          "Required terms:\n- amber lattice: A wording choice. Never write fog.\n- amber lattice: A wording choice. Never write mist.",
+          [fog]
+        )
+      ).toEqual([[fog.instruction, fog.reason]]);
       // 2 and 3. A phrase the Writer Profile holds, in any form, quoted or as a run, stays visible.
       for (const [publicPhrase, savedPhrase] of [
         ["velvet fogs", "velvet fog"],

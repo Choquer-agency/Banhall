@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { extractWordingRulesBySource, extractWriterWordingRules, unreadWritingRules, writerWordingRulesFor } from "./settingsExtraction";
+import { everyWordingRuleEntry, extractWordingRulesBySource, extractWriterWordingRules, unreadWritingRules, writerWordingRulesFor } from "./settingsExtraction";
 import {
   assembleSectionNotes,
   repairIssues,
@@ -743,5 +743,19 @@ describe("an older draft reads no rule from its saved block (ninth re-check)", (
     expect(request).toContain('"synergy"');
     // Drafts frozen with the texts beside them measure the saved ban as well.
     expect(writerWordingRulesFor(composed, saved).banned.map((rule) => rule.phrase)).toEqual(["synergy", "ornate"]);
+  });
+});
+
+describe("every rule entry of a text is read for privacy, repeats included (twelfth re-check)", () => {
+  it("keeps a repeated ban's forms and a repeated term's banned words, while measured rules keep the first entry", () => {
+    const repeated = "Never use these words:\n- glimmer\n- glimmer (also glimmering, glimmered)";
+    expect(extractWriterWordingRules(repeated).banned).toEqual([{ phrase: "glimmer", forms: [], source: "glimmer" }]);
+    expect(everyWordingRuleEntry(repeated).banned.map((rule) => [rule.phrase, rule.forms])).toEqual([
+      ["glimmer", []],
+      ["glimmer", ["glimmering", "glimmered"]],
+    ]);
+    const terms = "Required terms:\n- amber lattice: A wording choice. Never write fog.\n- amber lattice: A wording choice. Never write mist.";
+    expect(extractWriterWordingRules(terms).terms.map((rule) => rule.banned)).toEqual([["fog"]]);
+    expect(everyWordingRuleEntry(terms).terms.map((rule) => rule.banned)).toEqual([["fog"], ["mist"]]);
   });
 });

@@ -2,7 +2,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import type { WriterWordingRules } from "./writerWording";
 import { holdsSavedBlock } from "./savedPreferences";
-import { extractWriterWordingRules, writerWordingRulesFor } from "./settingsExtraction";
+import { everyWordingRuleEntry, writerWordingRulesFor } from "./settingsExtraction";
 
 /** What a generation's Compliance Note rows are checked against before they are stored. */
 export type SavedPreferenceMatch = {
@@ -68,7 +68,8 @@ export async function savedPreferenceMatchOfGeneration(
       const rules = flavor ? writerWordingRulesFor(flavor, kept) : null;
       return {
         texts: kept,
-        wording: kept.flatMap((text) => ruleWords(extractWriterWordingRules(text), "all")),
+        // Twelfth re-check: every entry, a repeat within one text included.
+        wording: kept.flatMap((text) => ruleWords(everyWordingRuleEntry(text), "all")),
         publicWording: rules ? ruleWords(rules, false) : [],
       };
     } catch {

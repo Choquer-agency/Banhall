@@ -405,7 +405,14 @@ function termsLead(trimmed: string): boolean {
  * Round 5 (re-check P1-1 b): the lines that opened a list from which a rule
  * was read, so a ban-like sentence there is accounted for.
  */
-export function extractWriterWordingRulesWithLeads(text: string): { rules: WriterWordingRules; leads: string[] } {
+export function extractWriterWordingRulesWithLeads(
+  text: string,
+  /**
+   * Twelfth re-check: keep a rule's repeats within the text instead of the
+   * first entry only, for collecting a saved preference's private words.
+   */
+  options: { everyEntry?: boolean } = {}
+): { rules: WriterWordingRules; leads: string[] } {
   const terms: RequiredTermRule[] = [];
   const banned: BannedWordRule[] = [];
   const openings: RequiredOpeningRule[] = [];
@@ -434,13 +441,13 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
         const body = line.replace(LIST_MARKER, "").trim();
         if (state === "terms") {
           const term = termRule(body);
-          if (term && !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase())) {
+          if (term && (options.everyEntry || !terms.some((entry) => entry.term.toLowerCase() === term.term.toLowerCase()))) {
             terms.push(term);
             readFromList = true;
           }
         } else {
           const entry = bannedItem(body);
-          if (entry && !banned.some((other) => other.phrase.toLowerCase() === entry.phrase.toLowerCase())) {
+          if (entry && (options.everyEntry || !banned.some((other) => other.phrase.toLowerCase() === entry.phrase.toLowerCase()))) {
             banned.push(entry);
             readFromList = true;
           }
@@ -480,7 +487,7 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
     }
     const body = (item ? line.replace(LIST_MARKER, "") : line).trim();
     const opening = openingRule(body);
-    if (opening && !openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening)) {
+    if (opening && (options.everyEntry || !openings.some((entry) => entry.section === opening.section && entry.opening === opening.opening))) {
       openings.push(opening);
     }
   }
@@ -491,6 +498,16 @@ export function extractWriterWordingRulesWithLeads(text: string): { rules: Write
 /** Round 5: the writer's terms, banned words and required openings. */
 export function extractWriterWordingRules(text: string): WriterWordingRules {
   return extractWriterWordingRulesWithLeads(text).rules;
+}
+
+/**
+ * Twelfth re-check: every wording rule entry of a text, a repeated term or
+ * ban included ("glimmer" and then "glimmer (also glimmering, glimmered)"),
+ * so no entry's words are lost to the first. Never measured; read only to
+ * keep a saved preference's words out of Compliance Notes.
+ */
+export function everyWordingRuleEntry(text: string): WriterWordingRules {
+  return extractWriterWordingRulesWithLeads(text, { everyEntry: true }).rules;
 }
 
 /**
