@@ -10,7 +10,7 @@
 import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
 import { TransactionGuard, countedRows } from "../readMeter";
 import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "../projectCopy";
-import { v, type ObjectType } from "convex/values";
+import { getDocumentSize, v, type ObjectType, type Value } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
 import { type ModelEntry, MODEL } from "../../../shared/generationModels";
@@ -103,7 +103,7 @@ export const FROZEN_TEXT_TOO_LARGE_MESSAGE =
  * cannot make it smaller.
  */
 export const RECOVERY_TOO_LARGE_MESSAGE =
-  "This draft's frozen files are too large to recover at once. Start a new draft instead.";
+  "This draft's frozen files are too large to recover at once. Start a new draft instead; you will sign off its Summary again.";
 export async function activeRunSummary(
   ctx: QueryCtx,
   active: Doc<"generations">
@@ -806,39 +806,49 @@ export async function retryFromSummaryHandler(
     }
     return rows;
   };
-  const originSources = await frozenRowsOf(originGenerationId);
-  const currentSources = originGenerationId === failed._id ? originSources : await frozenRowsOf(failed._id);
-  const [analysisArtifacts, brainArtifacts] = await Promise.all([
-    // Only the two frozen drafting inputs are copied: the chain's stored
-    // payload (kind ordered_payload, 2026-09-25) belongs to the failed
-    // chain and is rebuilt for the recovery chain from these two.
-    ctx.db.query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", failed._id).eq("kind", "analysis"))
-      .take(2),
-    ctx.db.query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", failed._id).eq("kind", "brain_blocks"))
-      .take(2),
-  ]);
-  const artifacts = [...analysisArtifacts, ...brainArtifacts];
-  for (const artifact of artifacts) recoveryLimits.read(artifact);
+  const currentSources = await frozenRowsOf(failed._id);
+  // Round 4: a recovery of a recovery needs only the origin's row ids, which
+  // its stored map holds (written with the copies it maps), so the origin's
+  // rows are not read again.
+  const originIds: Id<"generationSources">[] =
+    originGenerationId === failed._id
+      ? currentSources.map((source) => source._id)
+      : (failed.sourceIdMap ?? []).map((entry) => entry.originSourceId);
+  // Only the two frozen drafting inputs are copied: the chain's stored
+  // payload (kind ordered_payload, 2026-09-25) belongs to the failed chain
+  // and is rebuilt for the recovery chain from these two.
+  const artifactsOf = async (kind: "analysis" | "brain_blocks") => {
+    const rows: Doc<"generationArtifacts">[] = [];
+    for await (const row of countedRows(
+      ctx.db.query("generationArtifacts").withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", failed._id).eq("kind", kind)),
+      recoveryLimits
+    )) {
+      rows.push(row);
+      if (rows.length >= 2) break;
+    }
+    return rows;
+  };
+  const artifacts = [...(await artifactsOf("analysis")), ...(await artifactsOf("brain_blocks"))];
+  if (originGenerationId !== failed._id && originIds.length === 0) {
+    domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+  }
   if (
-    originSources.length === 0 ||
+    originIds.length === 0 ||
     currentSources.length === 0 ||
-    originSources.length > maxFrozenSources ||
+    originIds.length > maxFrozenSources ||
     currentSources.length > maxFrozenSources ||
     artifacts.length !== 2
   ) {
     domainError("INVALID_STATE", "Frozen recovery inputs are incomplete");
   }
-  const priorMap = failed.sourceIdMap ?? originSources.map((source) => ({
-    originSourceId: source._id,
-    recoverySourceId: source._id,
+  const priorMap = failed.sourceIdMap ?? originIds.map((id) => ({
+    originSourceId: id,
+    recoverySourceId: id,
   }));
   try {
     assertFrozenSourceBijection({
-      originSourceIds: originSources.map((source) => source._id),
+      originSourceIds: originIds,
       recoverySourceIds: currentSources.map((source) => source._id),
       sourceIdMap: priorMap,
     });
@@ -915,14 +925,15 @@ export async function retryFromSummaryHandler(
   const recoveryCopyOf = new Map<Id<"generationSources">, Id<"generationSources">>();
   // Phase C: a draft that read another company's files is not recovered
   // once the project has left that company; a new draft reads its own.
-  await refuseWhenCompanyLeft(ctx, failed.projectId, originSources);
+  // The failed draft's rows carry the origin's kinds and companies.
+  await refuseWhenCompanyLeft(ctx, failed.projectId, currentSources);
   let recoveryWritten = 0;
-  for (const origin of originSources) {
-    const currentId = resolveFrozenSourceId(origin._id, priorMap);
+  for (const originId of originIds) {
+    const currentId = resolveFrozenSourceId(originId, priorMap);
     const current = currentById.get(currentId as Id<"generationSources">);
     if (!current) domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
-    // At most 3 UTF-8 bytes a UTF-16 unit, and the row's own fields.
-    const rowBytes = (current.content?.length ?? 0) * 3 + 64 * 1024;
+    // The copy is the same document under the new draft.
+    const rowBytes = getDocumentSize(current as unknown as Record<string, Value>);
     await recoveryLimits.beforeWrite(recoveryWritten, rowBytes);
     recoveryWritten += rowBytes;
     const recoverySourceId = await ctx.db.insert("generationSources", {
@@ -950,16 +961,16 @@ export async function retryFromSummaryHandler(
       uploaderRole: current.uploaderRole,
       contextBudget: current.contextBudget,
     });
-    nextMap.push({ originSourceId: origin._id, recoverySourceId });
+    nextMap.push({ originSourceId: originId, recoverySourceId });
     recoveryCopyOf.set(current._id, recoverySourceId);
   }
   assertFrozenSourceBijection({
-    originSourceIds: originSources.map((source) => source._id),
+    originSourceIds: originIds,
     recoverySourceIds: nextMap.map((entry) => entry.recoverySourceId),
     sourceIdMap: nextMap,
   });
   for (const artifact of artifacts) {
-    const artifactBytes = artifact.content.length * 3 + 64 * 1024;
+    const artifactBytes = getDocumentSize(artifact as unknown as Record<string, Value>);
     await recoveryLimits.beforeWrite(recoveryWritten, artifactBytes);
     recoveryWritten += artifactBytes;
     await ctx.db.insert("generationArtifacts", {

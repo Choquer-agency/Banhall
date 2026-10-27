@@ -324,9 +324,21 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
       (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", recoveryId)).collect()).length
     );
     expect(copies).toBe(46);
+    // Round 4: a recovery of that recovery reads only the failed draft's
+    // rows, so it fits too.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(recoveryId, { status: "failed" });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined, status: "draft" });
+    });
+    const secondId = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: recoveryId });
+    const second = await s.t.run(async (ctx) => ({
+      rows: (await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", secondId)).collect()).length,
+      map: (await ctx.db.get(secondId))?.sourceIdMap?.length,
+    }));
+    expect(second).toEqual({ rows: 46, map: 46 });
   });
 
-  it("refuses by name, before the limit, a recovery whose copies would pass it", async () => {
+  it("refuses by name a recovery whose rows are too large to read at once", async () => {
     // 45 files of 200,000 two-byte characters: 18 MB to read and write.
     const s = await failedSignedOffDraft(45, "\u00e9".repeat(200_000));
     await expect(s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId })).rejects.toThrow(
