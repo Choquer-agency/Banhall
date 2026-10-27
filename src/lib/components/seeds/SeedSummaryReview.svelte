@@ -1012,6 +1012,10 @@
                                 >Add a second bullet</button>
                               {/if}
                             </div>
+                            <!-- 2026-10-27 (eleventh): at the ceiling, say so rather than cut a paste without a word. -->
+                            {#if bulletOne.length >= MAX_EDITED_BULLET_CHARS || bulletTwo.length >= MAX_EDITED_BULLET_CHARS}
+                              <p class="text-[0.75rem] leading-[calc(4/3)] text-ink-muted" aria-live="polite" data-seed-at-ceiling>This box holds up to {MAX_EDITED_BULLET_CHARS.toLocaleString("en-US")} characters.</p>
+                            {/if}
                           </div>
                           <div class="flex w-7 shrink-0 flex-col items-end gap-1 pt-1">
                             <button

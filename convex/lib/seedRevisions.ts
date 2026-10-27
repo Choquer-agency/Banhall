@@ -190,8 +190,11 @@ export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "
  * `ruleId: "results_against_targets"`) in Lines 244 and 246.
  * v5 (2026-10-04, second): the facts check (`instruction: "match_sources"`,
  * `ruleId: "facts_match_sources"`) in every Line.
+ * v6 (2026-10-27, eleventh): another Line's items in Rule B and Rule C, and
+ * relationship references, carry each bullet up to
+ * MAX_REFERENCE_BULLET_CHARS, clipped with a mark.
  */
-export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v5";
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v6";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
   "summary-ordinary-labels-v2";
 
@@ -421,6 +424,23 @@ export function isClippedStorylineAlternative(value: string): boolean {
     endsWithClipMark(value) &&
     jsonEscapedUtf8Bytes(value) <= MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
   );
+}
+
+/**
+ * 2026-10-27 (eleventh): the characters of one bullet a check carries when
+ * the item is only data for it (another Line's items in Rule B and Rule C, a
+ * relationship reference): the most a writer's edit could hold before the
+ * owner lifted that limit, so these checks stay the size they were. A
+ * longer bullet is clipped with a mark; an item's own check and plan entry
+ * carry its wording whole.
+ */
+export const MAX_REFERENCE_BULLET_CHARS = 600;
+
+/** One bullet as reference data: unchanged up to MAX_REFERENCE_BULLET_CHARS characters. */
+export function clipReferenceBullet(text: string): string {
+  const codePoints = Array.from(text);
+  if (codePoints.length <= MAX_REFERENCE_BULLET_CHARS) return text;
+  return clipJsonEscapedUtf8(text, jsonEscapedUtf8Bytes(codePoints.slice(0, MAX_REFERENCE_BULLET_CHARS).join("")));
 }
 
 /**
@@ -965,14 +985,15 @@ function planItemsByStep(
   return [
     heading,
     ...(items.length > 0
-      ? items.map((item) => `- ${title(item.roleId)}: ${item.wording.join(" ")}`)
+      ? items.map((item) => `- ${title(item.roleId)}: ${item.wording.map(clipReferenceBullet).join(" ")}`)
       : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
   ].join("\n");
 }
 
 /**
  * 2026-09-30 (first, Greptile P1): the wording of Line 246's advancement
- * check. Line 242's signed-off plan items come first and are never clipped;
+ * check. Line 242's signed-off plan items come first, each bullet up to
+ * MAX_REFERENCE_BULLET_CHARS (2026-10-27, eleventh);
  * the drafted text follows under its own heading and is clipped alone to
  * MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES with a mark. Without drafted
  * text, the items stand alone.
@@ -992,9 +1013,10 @@ export function line242Reference(args: {
 
 /**
  * 2026-09-30 (second, Rule C): the wording of Line 244's work check. Line
- * 242 as in Rule B (its signed-off items whole, then its drafted text, the
- * only part clipped, to the same reservation), then Line 246's signed-off
- * items, whole: frozen at sign-off, so admission counts their exact bytes.
+ * 242 as in Rule B (its signed-off items, then its drafted text, clipped to
+ * the same reservation), then Line 246's signed-off items; each item's
+ * bullets up to MAX_REFERENCE_BULLET_CHARS (2026-10-27, eleventh). Frozen
+ * at sign-off, so admission counts their exact bytes.
  */
 export function line244Reference(args: {
   items242: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
@@ -1117,7 +1139,9 @@ export function buildFrozenSummaryPlan<
             `Signed-off content plan reference closure is incomplete for ${seedId}`
           );
         }
-        return { seedId, wording: [...wording] };
+        // 2026-10-27 (eleventh): reference data, each bullet up to
+        // MAX_REFERENCE_BULLET_CHARS.
+        return { seedId, wording: wording.map(clipReferenceBullet) };
       });
       const groupSourceReferences = group.flatMap((item) =>
         (args.sourceRefsByItemId?.get(item.itemId) ?? []).map((citation) => ({
@@ -1232,8 +1256,9 @@ export function buildFrozenSummaryPlan<
   }
   // 2026-09-30 (first): every Line 246 advancement answers an uncertainty
   // Line 242 states. The check carries Line 242 as data: its signed-off plan
-  // items, whole (frozen at sign-off, so admission counts their exact bytes),
-  // then its drafted text, the only part clipped (Greptile P1).
+  // items (frozen at sign-off, so admission counts their exact bytes; each
+  // bullet up to MAX_REFERENCE_BULLET_CHARS since 2026-10-27, eleventh), then
+  // its drafted text, clipped (Greptile P1).
   if (args.answers242 && args.section === "s246") {
     checks.push({
       ruleId: ADVANCEMENTS_ANSWER_242_RULE_ID,
@@ -1252,7 +1277,7 @@ export function buildFrozenSummaryPlan<
   // 2026-09-30 (second, Rule C): Line 244 describes work only for an
   // uncertainty Line 242 states, or work that is the evidence a signed-off
   // item needs. The check carries Line 242 as Rule B does, then Line 246's
-  // signed-off items, whole.
+  // signed-off items, each bullet up to MAX_REFERENCE_BULLET_CHARS.
   if (args.workAnswers242 && args.section === "s244") {
     checks.push({
       ruleId: WORK_ANSWERS_242_RULE_ID,

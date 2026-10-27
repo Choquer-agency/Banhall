@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { MAX_EDITED_BULLET_CHARS } from "./seedContract";
 import {
   ADVANCEMENTS_ANSWER_242_RULE_ID,
+  MAX_REFERENCE_BULLET_CHARS,
+  clipReferenceBullet,
   ANSWERS_242_WORST_CASE_REFERENCE,
   FROZEN_SUMMARY_PLAN_SCAFFOLD,
   MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES,
@@ -1636,7 +1639,7 @@ describe("results stated against their targets (2026-09-30, third)", () => {
 
   it("adds one targets check to Lines 244 and 246 only, when asked, before Rule B, with no plan entry", () => {
     // 2026-10-04 (second): v5 took the facts check; the targets check is unchanged.
-    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v5");
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v6");
     for (const section of ["s242", "s244", "s246"] as const) {
       const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const withTargets = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], resultsAgainstTargets: true });
@@ -1698,7 +1701,7 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
   });
 
   it("adds one facts check to every Line, when asked, with no plan entry, serialized exactly", () => {
-    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v5");
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v6");
     for (const section of ["s242", "s244", "s246"] as const) {
       const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const withFacts = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], factsMatchSources: true });
@@ -2056,6 +2059,45 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
       expectWellFormedBatches(batches, ordinary, line.checks);
       expect(planSummarySelfCheckBatches(args)).toEqual(batches);
     }
+  });
+
+  // 2026-10-27 (eleventh, owner): a writer's edit is no longer held to 600
+  // characters. A plan where every pick is two bullets at the 5,000 ceiling
+  // still signs off: Rule B, Rule C and relationship references carry other
+  // items' bullets clipped at MAX_REFERENCE_BULLET_CHARS, and each item's
+  // own check carries its wording whole.
+  it("signs off a plan where every pick is two bullets at the edit ceiling", () => {
+    const long = `${"word ".repeat(1_000).slice(0, MAX_EDITED_BULLET_CHARS - 1)}.`;
+    expect(long).toHaveLength(MAX_EDITED_BULLET_CHARS);
+    const items = planShape(picks, (index) => [0, 0, 1, 2][index]!).map((item) => ({ ...item, bullets: [long, long] }));
+    const lines = lineEnvelopes(items);
+    for (const line of lines) {
+      const batches = planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: line.checks, includeStorylineQuestion: true });
+      expectWellFormedBatches(batches, ordinary, line.checks);
+      for (const check of line.checks) {
+        if (check.itemId) expect(check.wording).toEqual([long, long]);
+        for (const reference of check.relationshipReferences) {
+          for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
+        }
+      }
+    }
+    const chainRules = lines
+      .flatMap((line) => line.checks)
+      .filter((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID || check.ruleId === WORK_ANSWERS_242_RULE_ID);
+    expect(chainRules).toHaveLength(2);
+    for (const rule of chainRules) {
+      expect(rule.wording[0]).toContain("…");
+      expect(rule.wording[0]).not.toContain(long);
+    }
+  });
+
+  it("clips a reference bullet past 600 characters with a mark, and leaves one within it alone", () => {
+    expect(MAX_REFERENCE_BULLET_CHARS).toBe(600);
+    for (const within of ["a".repeat(600), "é".repeat(600), "Short wording."]) expect(clipReferenceBullet(within)).toBe(within);
+    const clipped = clipReferenceBullet(`${"word ".repeat(200)}end.`);
+    expect(clipped.endsWith("…")).toBe(true);
+    expect(Array.from(clipped).length).toBeLessThanOrEqual(600);
+    expect(clipped.startsWith("word word")).toBe(true);
   });
 
   it("refuses a check that does not fit a request on its own, naming its limit", () => {

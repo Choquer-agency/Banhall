@@ -1457,15 +1457,20 @@ describe("Seed workspace", () => {
   });
 
   // 2026-10-27 (eleventh, owner): a writer's wording is as long as it needs
-  // to be, with no note and no word or 600-character limit.
+  // to be, with no note and no word or 600-character limit; only a box at
+  // the 5,000-character ceiling says so.
   it("saves a long card edit in full, with no note and no limit", async () => {
     await render(SeedSubsectionPane, paneProps(subsection()));
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const bullet = page.getByRole("textbox", { name: "Bullet 1" });
+    expect(bullet.element().getAttribute("maxlength")).toBe("5000");
+    expect(page.getByRole("textbox", { name: "Bullet 2, optional" }).element().getAttribute("maxlength")).toBe("5000");
+    await bullet.fill("x".repeat(5_000));
+    await expect.element(page.getByText("This box holds up to 5,000 characters.", { exact: true })).toBeVisible();
     const longWording = `${Array.from({ length: 160 }, () => "word").join(" ")}. A second sentence follows.`;
     expect(longWording.length).toBeGreaterThan(600);
     await bullet.fill(longWording);
-    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
+    expect(page.getByText("This box holds up to 5,000 characters.", { exact: true }).elements()).toHaveLength(0);
     const save = page.getByRole("button", { name: "Save wording", exact: true });
     await expect.element(save).toBeEnabled();
     await save.click();
@@ -1482,9 +1487,14 @@ describe("Seed workspace", () => {
     await render(SeedSubsectionPane, paneProps(subsection()));
     await page.getByRole("button", { name: "Give feedback", exact: true }).click();
     await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    const box = page.getByRole("textbox", { name: "Tell it what to change" });
+    expect(box.element().getAttribute("maxlength")).toBe("5000");
+    await box.fill("x".repeat(5_000));
+    await expect.element(page.getByText("This box holds up to 5,000 characters.", { exact: true })).toBeVisible();
     const instruction = `Keep the measured load bands, ${Array.from({ length: 120 }, () => "and name each one").join(", ")}.`;
     expect(instruction.length).toBeGreaterThan(300);
-    await page.getByRole("textbox", { name: "Tell it what to change" }).fill(instruction);
+    await box.fill(instruction);
+    expect(page.getByText("This box holds up to 5,000 characters.", { exact: true }).elements()).toHaveLength(0);
     await page.getByRole("button", { name: "Send feedback", exact: true }).click();
     expect(__mutationCalls("seeds:giveFeedback")[0]).toMatchObject({ seedId: "seed-1", instruction });
   });

@@ -931,7 +931,7 @@ Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_b
 
 - [x] All six fixtures on the live copy at `08a53a18` ($6.70): four passed every check; exclusion-conflict failed two (a Self-check answer with a stray top-level field, fixed in the next commit); withdrawn-feedback stopped at Hypothesis (Sonnet 5.5 wrote bullets over 25 words four times). Rerun of withdrawn-feedback: 12 of 13, the one miss a heuristic ($1.14).
 - [x] Exclusion-conflict rerun after the fix (8acd61e2): 15 of 15 checks passed, $1.23 (closes F4). The later 26eb717d adds the rule to the prompt program record only, no prompt text, so its prompt version differs from the rerun's.
-- [x] All six fixtures again after the Hypothesis change (afbfd302, pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27-hypothesis-fix`, $8.09): every fixture reached a report; five passed every check and withdrawn-feedback 12 of 13, its one miss the same wording heuristic. Previous-year status failed in 5 of 6 fixtures, which have no previous year (owner question 11).
+- [x] All six fixtures again after the Hypothesis change (afbfd302, pack `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27-hypothesis-fix`, $8.09): every fixture reached a report; five passed every check and withdrawn-feedback 12 of 13, its one miss the same wording heuristic. Previous-year status showed 5 of 6 Batches as failed only because the scripted writer skipped the step while they were being made (Skip stops a pending Batch); not a writer-facing failure.
 
 ### Manual on localhost
 
@@ -970,17 +970,19 @@ What changes:
 
 - **The AI's idea cards are no longer rejected for length.** It is still asked for one short, clear sentence per bullet, about 15 words.
 - **Feedback ("Tell it what to change") can be as long as the writer needs.** The 300-character limit is gone.
-- **A writer's edit to a bullet can be as long as needed, with no "Long for a seed" note.** The 600-character limit is gone. Both keep a 5,000-character ceiling only to stop a pasted document.
+- **A writer's edit to a bullet can be as long as needed, with no "Long for a seed" note.** The 600-character limit is gone. Both keep a 5,000-character ceiling, far above a real comment or edit; a box at the ceiling says so.
+- **Long edits never block sign-off.** Checks that only carry another item as data use the first 600 characters of each bullet.
 
 ### Automated, offline
 
 - [x] Unit and browser tests (see the decision entry).
 - [x] Full gate: `VERIFY_COMPONENT=1 bash scripts/loop-verify.sh` (8,154 unit and 1,991 browser tests).
-- [ ] Code review.
+- [x] Code review, round 1 (df6eb97b): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": long edits could block Summary sign-off (a check carrying other Lines' items grew past its 64,000 bytes), no server test of the Feedback limit, the entry missed the spec and PRD it amends, and a paste over the ceiling was cut without a word; fixed in the next commit.
+- [ ] Round 2 check.
 
 ### Automated, live on localhost
 
-- [ ] Release suite on the new version: bullets stay short without the limit, and nothing else changes.
+- [x] Release suite on the new version (df6eb97b, pack `2026-10-27-no-word-limit`, $7.68): every fixture reached a report, five passed every check and withdrawn-feedback 12 of 13 (the same wording heuristic); bullets came out shorter than with the limit (median 15 words against 17, longest 29 against 35), and fewer Batches needed a second request (15 of 83 against 23).
 
 ### Manual on localhost
 

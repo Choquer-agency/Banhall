@@ -100,7 +100,7 @@ Each has a recommended answer. Work goes on with it until the owner says otherwi
 8. **Stress test spend cap** (F5). Recommended: $40. Waits: the live stress test does not start without it.
 9. **Words for a step whose evidence is too large for the model** (F1, step 4): "This step's evidence is too large for the model. Leave some files out and start again." Recommended: yes.
 10. **Azure** (B3): the account and its key, entered privately when asked. Waits: scan reading's live test.
-11. **Previous-year status with no previous year.** Its Seed Batch failed in 5 of 6 release fixtures, which have no previous year: the model writes one or two Seeds when there is little to say, under the 3-Seed minimum, and the writer sees "Writing seeds for this step failed" with "Try again", which is likely to fail the same way. Recommended: allow 1 to 5 Seeds on this optional step, and when it still has nothing, say there may be no previous year to report and point to Skip.
+11. **Previous-year status on a first-year project.** The step does not fail, but with no previous year in the files it still writes 3 to 5 cards, so it fills them with this year's open items (on the first-year test draft: untested alloys, internal edges, GPU speed), and nothing tells the writer to skip the step. Recommended: let this optional step return no cards when the files show no previous year, saying "No previous-year work found; skip this step if this is the project's first year", and allow 1 to 5 cards otherwise. (Corrected 2026-10-27: this first said the step's Batch fails; those failures were the release tests pressing Skip while it was still being made.)
 
 ## Azure setup
 

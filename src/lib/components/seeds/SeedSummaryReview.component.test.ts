@@ -873,10 +873,14 @@ describe("Seed Summary Review", () => {
     ));
     await render(SeedSummaryReview, { generationId, userId: "writer-1" });
     await page.getByRole("button", { name: "Edit", exact: true }).first().click();
+    const box = page.getByRole("textbox", { name: "Bullet 1" });
+    expect(box.element().getAttribute("maxlength")).toBe("5000");
+    await box.fill("x".repeat(5_000));
+    await expect.element(page.getByText("This box holds up to 5,000 characters.", { exact: true })).toBeVisible();
     const longWording = `${Array.from({ length: 160 }, () => "word").join(" ")}. A second sentence follows.`;
     expect(longWording.length).toBeGreaterThan(600);
-    await page.getByRole("textbox", { name: "Bullet 1" }).fill(longWording);
-    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
+    await box.fill(longWording);
+    expect(page.getByText("This box holds up to 5,000 characters.", { exact: true }).elements()).toHaveLength(0);
     await expect.element(page.getByRole("button", { name: "Save wording", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Save wording", exact: true }).click();
     expect(__mutationCalls("seeds:edit")).toEqual([{

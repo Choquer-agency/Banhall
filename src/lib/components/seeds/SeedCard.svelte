@@ -126,6 +126,12 @@
   });
 
   const editStale = $derived(!!edit && edit.baseSeedStageVersion !== seedStageVersion);
+  // 2026-10-27 (eleventh): no limit a writer meets in practice; at the
+  // ceiling, say so rather than cut a paste without a word.
+  const editAtCeiling = $derived(
+    !!edit && (edit.bulletOne.length >= MAX_EDITED_BULLET_CHARS || edit.bulletTwo.length >= MAX_EDITED_BULLET_CHARS)
+  );
+  const feedbackAtCeiling = $derived(!!feedback && feedback.instruction.length >= MAX_SEED_FEEDBACK_CHARS);
   const feedbackStale = $derived(
     !!feedback && feedback.baseSeedStageVersion !== seedStageVersion
   );
@@ -762,6 +768,9 @@
           {#if discardArmed}
             <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text!" role="status" data-seed-discard-armed>Press Esc again to discard your changes.</p>
           {/if}
+          {#if editAtCeiling}
+            <p class="text-[0.75rem] leading-[calc(4/3)] text-ink-muted" aria-live="polite" data-seed-at-ceiling>This box holds up to {MAX_EDITED_BULLET_CHARS.toLocaleString("en-US")} characters.</p>
+          {/if}
           {#if editStale}
             <div class="rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
               <p>This wording began against an older decision version. Review the current wording before saving it.</p>
@@ -839,6 +848,9 @@
             maxlength={MAX_SEED_FEEDBACK_CHARS}
             class="field-control block min-h-11 w-full resize-none rounded-md px-2.5 py-1.5 text-body text-ink [field-sizing:content] placeholder:text-ink-faint"
           ></textarea>
+          {#if feedbackAtCeiling}
+            <p class="mt-1 text-[0.75rem] leading-[calc(4/3)] text-ink-muted" aria-live="polite" data-seed-at-ceiling>This box holds up to {MAX_SEED_FEEDBACK_CHARS.toLocaleString("en-US")} characters.</p>
+          {/if}
           {#if feedbackStale}
             <div class="mt-2 rounded-lg bg-gap-bg px-3 py-2 text-body text-gap-text!" role="status">
               <p>This instruction began against an older decision version. Review the current seed before sending it.</p>

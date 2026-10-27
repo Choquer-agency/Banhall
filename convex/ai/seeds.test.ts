@@ -2679,8 +2679,8 @@ describe("seed Node action request boundary", () => {
 
     const lastKept = seedRepairSummary(
       failed([
-        // "use only the allowed tags": 25 bytes, as the retired length hint
-        // was, so the boundary is where it was built.
+        // "use only the allowed tags": 25 bytes, as "a bullet is over 25
+        // words" was when this boundary was built.
         at("INVALID_TAG", 0),
         at("INVALID_TAG", 1),
         at("INVALID_TAG", 2),

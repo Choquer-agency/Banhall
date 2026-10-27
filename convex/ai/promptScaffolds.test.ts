@@ -699,7 +699,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v6",
+            serializerVersion: "summary-plan-jsonl-v7",
           },
         },
       },

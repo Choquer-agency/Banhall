@@ -226,9 +226,10 @@ export function isOneSeedSentence(text: string): boolean {
 
 /**
  * 2026-10-27 (eleventh, owner): a writer's own wording is as long as it
- * needs to be. These ceilings only stop a pasted document from outgrowing a
- * request; no real edit or Feedback comes near them. The one-sentence
- * contract applies to AI-proposed Seeds only.
+ * needs to be, up to ceilings far above any real edit or Feedback. A check
+ * that carries another item as data clips each bullet at
+ * MAX_REFERENCE_BULLET_CHARS (seedRevisions.ts), so long edits cannot block
+ * sign-off. The one-sentence contract applies to AI-proposed Seeds only.
  */
 export const MAX_EDITED_BULLET_CHARS = 5_000;
 export const MAX_SEED_FEEDBACK_CHARS = 5_000;

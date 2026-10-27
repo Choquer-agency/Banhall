@@ -1145,10 +1145,11 @@ describe("prompt versions", () => {
     // purpose (`.1`, then `.2` for its repair hint); before they were
     // sha256:6a92224a... and sha256:2a6958bb.... Re-read after 2026-10-27
     // (eleventh), which drops the bullet word limit from the Seed guidance
-    // and the quote rules (`.3`); before it they were sha256:9190ac69... and
-    // sha256:f82b7ed7....
-    expect(await hashPromptProgram()).toBe("sha256:2a208e10c2a0689e06156a5cf2a7dc61d37987fdf93a532765067c0645700bb5");
-    expect(await legacyPromptVersion()).toBe("sha256:d7d754b907ef4c43998b070629f5d2088176ddb4d58cbe540a32b57cfd01c9b8");
+    // and the quote rules (`.3`), and moves the Summary plan serializer to v6
+    // (reference bullets clipped at 600 characters); before it they were
+    // sha256:9190ac69... and sha256:f82b7ed7....
+    expect(await hashPromptProgram()).toBe("sha256:8a41a05eb759189a08d8e9899519e12dfbba61f59c68af26bfc88a3eead9585f");
+    expect(await legacyPromptVersion()).toBe("sha256:8de53993a9049f10adab59b544b2e7e9a801429fce7a0bc1aa97008506be0b8a");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });
