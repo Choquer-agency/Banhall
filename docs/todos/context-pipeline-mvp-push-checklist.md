@@ -564,3 +564,21 @@ What changes:
 
 - [ ] On a company's project, ask the assistant about something only a company file says: it searches, opens the company file and answers, naming it as a company file.
 
+
+## A Brief answer that leaves fields out
+
+Decision record: `docs/product-domain.md`, the Sonnet 5.5 entry, bullet "A Brief answer that leaves fields out (2026-10-26, live check)".
+
+What changes:
+
+- **Found live:** on Sonnet 5.5 a Brief came back with a storyline and claims but no exclusions, confidence entries or glossary terms, and was saved as if complete.
+- **Now the Brief is asked again**, naming the fields it left out, and fails if the second answer leaves fields out too. Nothing else changes.
+
+### Automated, offline
+
+- [x] `convex/ai/structured.test.ts` and `convex/ai/brief.test.ts`.
+- [ ] `bash scripts/loop-verify.sh` on the final code.
+
+### Automated, live on localhost
+
+- [ ] A Step-by-step draft on the InnovMine project: the Brief has confidence entries and glossary terms.

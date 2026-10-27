@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { MODEL } from "./model";
 import {
+  acceptsForcedToolChoice,
   alwaysThinkingMaxTokens,
   gatewayForModel,
   maxTokensWithReasoningHeadroom,
@@ -16,6 +17,20 @@ import {
   type GenerationMessageContent,
   type GenerationResponse,
 } from "./openrouterCore";
+
+/**
+ * The top-level fields a tool schema requires that an answer object left
+ * out. An answer that is not an object (a legacy JSON string, recovered
+ * later) is not checked here.
+ */
+export function missingRequiredFields(schema: unknown, input: unknown): string[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
+  const required =
+    schema && typeof schema === "object" && Array.isArray((schema as { required?: unknown }).required)
+      ? ((schema as { required: unknown[] }).required.filter((key): key is string => typeof key === "string"))
+      : [];
+  return required.filter((key) => !(key in input));
+}
 
 export const STRUCTURED_OUTPUT_PROGRAM = {
   attempts: 2,
@@ -433,6 +448,14 @@ export async function generateStructured<T>(
      */
     encodedFieldRecovery?: boolean;
     /**
+     * 2026-10-26: on a model that cannot be forced to call the tool, treat
+     * an answer that leaves out a field the tool schema requires as invalid,
+     * even when `validate` would default it. For an answer whose defaults
+     * would hide skipped work (the Brief); calls whose lists may be empty
+     * on purpose (the analyzer) leave it off.
+     */
+    requireEveryField?: boolean;
+    /**
      * Called each time an answer is cut off at the output token limit, on
      * either gateway, even when the repair then succeeds or fails another
      * way. Request bytes are unchanged.
@@ -721,6 +744,28 @@ async function structuredAttempts<T>(
         [{ path: "(root)", code: "wrong_tool", message: validationSummary }]
       );
     }
+    // 2026-10-26 (live check): a model that cannot be forced to call a tool
+    // (Sonnet 5.5, Opus 5.5, Fable 5.1) may call it with fields left out,
+    // and a schema that defaults missing lists reads that as a complete
+    // answer. For a call that sets `requireEveryField`, such an answer spends
+    // the repair, which names the fields, and fails if the repair leaves
+    // fields out too. Models that take a forced call keep their earlier
+    // handling.
+    if (opts.requireEveryField && !acceptsForcedToolChoice(model)) {
+      const schema = tools.find((tool) => tool.name === opts.toolName)?.input_schema;
+      const missing = missingRequiredFields(schema, block.input);
+      if (missing.length > 0) {
+        await settle({ ok: false, code: "invalid_output" });
+        validationSummary = `it left out required fields: ${missing.join(", ")}`;
+        console.error(`${opts.toolName}: the answer left out required fields (${missing.join(", ")})`);
+        if (!lastAttempt) continue;
+        throw new StructuredValidationError(
+          `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
+          missing.map((field) => ({ path: field, code: "missing_required" }))
+        );
+      }
+    }
+
     if (!opts.validate) {
       await settle({ ok: true });
       return block.input as T;

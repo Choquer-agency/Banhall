@@ -544,3 +544,60 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
     quiet.mockRestore();
   });
 });
+
+describe("answers that leave out required fields (live check, 2026-10-26)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: { storyline: { type: "string" }, claims: { type: "array", items: { type: "string" } } },
+    required: ["storyline", "claims"],
+  };
+  // Every list defaults, as the Brief's schema does: `{}` would pass.
+  const validate = z.object({ storyline: z.string().default(""), claims: z.array(z.string()).default([]) });
+
+  it("a call that needs every field, on a model that cannot be forced to call the tool, repairs an empty answer, naming the fields", async () => {
+    const client = clientWith([{}, { storyline: "The seal held.", claims: ["held at 4.2 bar"] }]);
+    const result = await generateStructured(client, {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      schema,
+      model: "claude-sonnet-5-5",
+      validate,
+      requireEveryField: true,
+    });
+    expect(result).toEqual({ storyline: "The seal held.", claims: ["held at 4.2 bar"] });
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+    const second = vi.mocked(client.messages.create).mock.calls[1][0];
+    expect(JSON.stringify(second.messages[0].content)).toContain("it left out required fields: storyline, claims");
+  });
+
+  it("fails rather than saving an empty answer when the repair leaves fields out too", async () => {
+    const client = clientWith([{}, { storyline: "Only this." }]);
+    await expect(
+      generateStructured(client, {
+        system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-opus-5-5", validate,
+        requireEveryField: true,
+      })
+    ).rejects.toThrow(/left out required fields: claims/);
+  });
+
+  it("a call that leaves the check off keeps its defaults, as the analyzer does", async () => {
+    const client = clientWith([{ storyline: "Only this." }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5-5", validate,
+    });
+    expect(result).toEqual({ storyline: "Only this.", claims: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a model that takes a forced call keeps its earlier handling", async () => {
+    const client = clientWith([{}]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
+      requireEveryField: true,
+    });
+    expect(result).toEqual({ storyline: "", claims: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+});

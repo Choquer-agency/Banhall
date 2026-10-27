@@ -50,9 +50,10 @@ import { allGenerationProgress } from "../lib/generationProgress";
 import {
   BRIEF_PUBLISH_ATTEMPTS,
   publishDerivedBrief,
+  runBriefAgent,
   type BriefPublishCtx,
 } from "./brief";
-import type { GenerationMessageParams } from "./openrouterCore";
+import type { GenerationClient, GenerationMessageParams } from "./openrouterCore";
 import { describeBriefOutcome } from "../lib/briefRender";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
@@ -3563,5 +3564,30 @@ describe("Generation Brief read completeness and diff baseline (DW-107/DW-118)",
       vi.clearAllTimers();
       vi.useRealTimers();
     }
+  });
+});
+
+describe("a Brief answer that leaves fields out (live check, 2026-10-26)", () => {
+  function briefClient(inputs: unknown[]) {
+    let index = 0;
+    const create = vi.fn(async () => ({
+      stop_reason: "tool_use",
+      content: [{ type: "tool_use" as const, id: `brief-${index}`, name: "submit_generation_brief", input: inputs[index++] }],
+    }));
+    return { client: { messages: { create } } as unknown as GenerationClient, create };
+  }
+  const complete = { storyline: "The seal held.", storylineClaims: [], claimExclusions: [], confidenceMap: [], glossaryTerms: [] };
+
+  it("Sonnet 5.5 is asked again, naming the fields it left out, instead of saving an incomplete Brief", async () => {
+    // What Sonnet 5.5 sent for the InnovMine draft: a storyline and claims, nothing else.
+    const { client, create } = briefClient([{ storyline: "The seal held.", storylineClaims: [] }, complete]);
+    expect(await runBriefAgent(client, "evidence", "claude-sonnet-5-5")).toEqual(complete);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(create.mock.calls[1])).toContain("it left out required fields: claimExclusions, confidenceMap, glossaryTerms");
+  });
+
+  it("fails when the repair still leaves fields out", async () => {
+    const { client } = briefClient([{}, { storyline: "The seal held." }]);
+    await expect(runBriefAgent(client, "evidence", "claude-sonnet-5-5")).rejects.toThrow(/left out required fields/);
   });
 });

@@ -176,6 +176,9 @@ export async function runBriefAgent(
     model,
     cutOffRetry: "more_room",
     validate: briefOutputSchema,
+    // Every Brief field defaults, so a Sonnet 5.5 answer that skips one
+    // would save an incomplete Brief without a word (live check, 2026-10-26).
+    requireEveryField: true,
   });
 }
 
