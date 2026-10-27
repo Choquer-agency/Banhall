@@ -1140,9 +1140,11 @@ describe("prompt versions", () => {
     // they were sha256:9e7bbee8... and sha256:b72505c9.... Re-read after
     // 2026-10-27 (ninth), which records the Self-check's rule for an unknown
     // top-level property in the program on purpose; before it they were
-    // sha256:ebd32cd8... and sha256:fd39c17f....
-    expect(await hashPromptProgram()).toBe("sha256:6a92224afb41979aff5d3ead299950cf2e6229dc2d10aed0605f907085aa68f5");
-    expect(await legacyPromptVersion()).toBe("sha256:2a6958bb98f2cf8260fb8688ae09e2f5cdbc27f424adeb2d7fa3020890f82664");
+    // sha256:ebd32cd8... and sha256:fd39c17f.... Re-read after 2026-10-27
+    // (tenth), which moves the Hypothesis objective and the Seed version on
+    // purpose; before they were sha256:6a92224a... and sha256:2a6958bb....
+    expect(await hashPromptProgram()).toBe("sha256:cceb9480979781a2447eca74eccc99c6d1928e5c97579b6a621110ba1b1bcbdb");
+    expect(await legacyPromptVersion()).toBe("sha256:65906ef65fa302d71b3a77ec498df9d29d3687ef0d6d4ce812e48f52a1ce2b81");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

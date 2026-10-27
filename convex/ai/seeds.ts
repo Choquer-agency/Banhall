@@ -44,7 +44,6 @@ import {
 } from "../lib/seedRevisions";
 import {
   MAX_BATCH_SEEDS,
-  MAX_BULLET_WORDS,
   MAX_FEEDBACK_SEEDS,
   MIN_BATCH_SEEDS,
   MIN_FEEDBACK_SEEDS,
@@ -257,7 +256,10 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
   return {
     INVALID_SHAPE: "wrong fields or tag",
     INVALID_BULLET_COUNT: "use one or two bullets",
-    BULLET_TOO_LONG: `a bullet is over ${MAX_BULLET_WORDS} words`,
+    // 2026-10-27 (tenth): a target under the limit (MAX_BULLET_WORDS), since
+    // a repair told only the limit came back over it again. The same bytes
+    // as the old hint, so the note's cap leaves out the same rules.
+    BULLET_TOO_LONG: "shorten to under 20 words",
     BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
     BULLET_TYPOGRAPHIC_DASH: "use a plain hyphen",
     INVALID_TAG_COUNT: "use one or two tags",

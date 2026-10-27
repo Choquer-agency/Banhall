@@ -101,7 +101,7 @@ export const PD_SUBSECTIONS = [
     kind: "standard",
     title: "Hypothesis",
     objective:
-      "State a specific, testable, and measurable hypothesis in if/then form.",
+      "State a specific, testable, and measurable hypothesis in if/then form, in under 20 words: the change and its measured outcome. Put any reason or test method in the Seed's second bullet.",
   },
   {
     roleId: "experimentation",
