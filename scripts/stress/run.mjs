@@ -288,7 +288,7 @@ async function main(argv) {
       entry.spendUnknown = String(error?.message ?? error);
       results.steps.push(entry);
       save();
-      console.log(`${entry.ok ? "ok  " : "FAIL"} ${name} (${(entry.ms / 1000).toFixed(1)} s, spend unknown)${entry.ok ? "" : `: ${entry.error}`}`);
+      console.log(`${entry.ok ? "ok  " : "FAIL"} ${name} (${(entry.ms / 1000).toFixed(1)} s, spend unknown: ${entry.spendUnknown})${entry.ok ? "" : `: ${entry.error}`}`);
       throw capReached ?? error;
     }
     entry.stepCostUsd = current.costUsd - spentSoFar;
@@ -457,8 +457,8 @@ async function main(argv) {
     // Labels and the Brief prepared ahead may still spend: read until the
     // spend holds for two minutes, at most fifteen. After a stop signal it
     // reads once and does not wait.
+    let last = -1;
     try {
-      let last = -1;
       let steadySince = Date.now();
       let settled = !projectId;
       const until = Date.now() + 15 * 60 * 1000;
@@ -487,6 +487,8 @@ async function main(argv) {
       results.finalSpendSettled = settled;
     } catch (error) {
       results.finalSpendError = String(error?.message ?? error);
+      // The last read that finished, if any.
+      results.finalSpendUsd = !projectId ? 0 : last >= 0 ? last : null;
     }
     // The whole run by feature, and when labels and search pieces were
     // made: labels start during the uploads, so no one step holds them.

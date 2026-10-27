@@ -915,7 +915,7 @@ What changes:
 - [x] Round 4 check of the round 3 fixes (76948d07): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": a failed Seeds step finished cleanly without cancelling, and a Ctrl-C that killed a CLI read was not taken as a stop; fixes in the next commit.
 - [x] Round 5 check of the round 4 fixes (591e8424): Claude Opus 5.5 (requested high; it reported low), "ship after fixes", every round 4 finding fixed and five small items left (a stop checked before a pending signal could register, a full read buffer taken as a stop, a final spend of $0 when none was read, a step lost when its spend read was stopped, a stale comment); fixed in the next commit.
 - [x] Round 6 check of the round 5 fixes (f89c74f6): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": one yield did not let a SIGTERM register right after a network reply (reproduced locally; two do), and two small record fixes; fixed in the next commit.
-- [ ] Round 7 check of the round 6 fixes.
+- [x] Round 7 check of the round 6 fixes (7156c270): Claude Opus 5.5 (requested high; it reported low), "ship", with two optional fixes (keep the last good spend when a later read fails, and say why a step's spend is unknown), made in the next commit.
 - [x] `tests/stressData.test.ts`: the data's sizes, fingerprints, and the name and invented-word checks.
 
 ### Automated, live on localhost
