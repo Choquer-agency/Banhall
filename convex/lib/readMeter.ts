@@ -61,6 +61,19 @@ export class TransactionGuard implements ReadCounter {
     if (doc) this.bytesRead += getDocumentSize(doc as Record<string, Value>);
   }
 
+  /**
+   * Whether `bytes` more can be read (or written, after `writtenBytes`) with
+   * the margin left, without refusing: for work that can be left out and
+   * said so (B1 review, round 5).
+   */
+  async hasRoom(kind: "read" | "write", bytes: number, writtenBytes = 0): Promise<boolean> {
+    const metrics = await this.metrics();
+    if (metrics) {
+      return (kind === "read" ? metrics.bytesRead : metrics.bytesWritten).remaining >= bytes + this.options.marginBytes;
+    }
+    return (kind === "read" ? this.bytesRead : writtenBytes) + bytes + this.options.marginBytes <= this.options.estimateLimitBytes;
+  }
+
   /** Before writing up to `nextBytes` more; `writtenBytes` is what the caller wrote so far. */
   async beforeWrite(writtenBytes: number, nextBytes: number): Promise<void> {
     const metrics = await this.metrics();

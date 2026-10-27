@@ -809,7 +809,8 @@ export async function retryFromSummaryHandler(
   const currentSources = await frozenRowsOf(failed._id);
   // Round 4: a recovery of a recovery needs only the origin's row ids, which
   // its stored map holds (written with the copies it maps), so the origin's
-  // rows are not read again.
+  // rows are not read again. Every map since recovery shipped (2026-09-22)
+  // holds the original draft's row ids, written only here.
   const originIds: Id<"generationSources">[] =
     originGenerationId === failed._id
       ? currentSources.map((source) => source._id)
@@ -982,7 +983,15 @@ export async function retryFromSummaryHandler(
   await ctx.db.patch(generationId, { sourceIdMap: nextMap });
   // Phase D (step 2): the steps it reuses keep their record on its rows,
   // and the band says so when some could not be copied (re-check).
-  const copied = await copyRecoverySourceUses(ctx, failed._id, { _id: generationId, projectId: failed.projectId }, recoveryCopyOf);
+  const copied = await copyRecoverySourceUses(
+    ctx,
+    failed._id,
+    { _id: generationId, projectId: failed.projectId },
+    recoveryCopyOf,
+    {
+      hasRoom: (kind, bytes) => recoveryLimits.hasRoom(kind, bytes, recoveryWritten),
+    }
+  );
   if (copied.truncated || failed.sourceUseTruncated) await ctx.db.patch(generationId, { sourceUseTruncated: true });
   await ctx.db.patch(project._id, {
     activeGenerationId: generationId,

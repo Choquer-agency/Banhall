@@ -338,6 +338,31 @@ describe("Summary recovery of a draft whose rows hold their own copies (B1 revie
     expect(second).toEqual({ rows: 46, map: 46 });
   });
 
+  it("leaves out step records that would not fit, and says so, instead of failing the recovery", async () => {
+    // 16 older rows of 900,000 characters, then 2,500 records per step.
+    const s = await failedSignedOffDraft(16, "a".repeat(900_000));
+    const first = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: s.generationId });
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(first, { status: "failed" });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined, status: "draft" });
+    });
+    const sourceId = await s.t.run(async (ctx) => (await ctx.db.get(first))!.sourceIdMap![0]!.recoverySourceId);
+    for (const step of ["analyzer", "brief", "seeds"] as const) {
+      for (let batch = 0; batch < 25; batch += 1) {
+        await s.t.run(async (ctx) => {
+          for (let index = 0; index < 100; index += 1) {
+            await ctx.db.insert("generationSourceUse", {
+              generationId: first, projectId: s.projectId, sourceId, step, run: `run-${batch * 100 + index}-${"0".repeat(32)}`,
+              contentHash: "sha256:" + "a".repeat(64), state: "whole", sent: 30, total: 30, unit: "chars", at: 1,
+            });
+          }
+        });
+      }
+    }
+    const second = await s.writer.mutation(api.generations.retryFromSummary, { failedGenerationId: first });
+    expect(await s.t.run(async (ctx) => (await ctx.db.get(second))?.sourceUseTruncated)).toBe(true);
+  });
+
   it("refuses by name a recovery whose rows are too large to read at once", async () => {
     // 45 files of 200,000 two-byte characters: 18 MB to read and write.
     const s = await failedSignedOffDraft(45, "\u00e9".repeat(200_000));

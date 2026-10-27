@@ -153,6 +153,8 @@ export async function copyBriefSourceUseHandler(
 export const RECOVERY_SOURCE_USE_ROWS_PER_STEP = 2500;
 /** At most this many records one Summary recovery writes, within a mutation's write limit. */
 export const RECOVERY_SOURCE_USE_COPIES = 4000;
+/** More than one source-use record takes, with its index entries. */
+const SOURCE_USE_ROW_BYTES = 1024;
 
 /**
  * Summary recovery (review): the recovery drafts from the failed draft's
@@ -166,11 +168,21 @@ export async function copyRecoverySourceUses(
   ctx: MutationCtx,
   fromGenerationId: Id<"generations">,
   to: { _id: Id<"generations">; projectId: Id<"projects"> },
-  copyOf: ReadonlyMap<Id<"generationSources">, Id<"generationSources">>
+  copyOf: ReadonlyMap<Id<"generationSources">, Id<"generationSources">>,
+  /**
+   * The recovery's transaction guard (B1 review, round 5): a step whose
+   * records would not fit what is left of the transaction is left out, and
+   * the copy says it is incomplete, instead of failing the recovery.
+   */
+  limits?: { hasRoom(kind: "read" | "write", bytes: number): Promise<boolean> }
 ): Promise<{ truncated: boolean }> {
   let truncated = false;
   const copies: Doc<"generationSourceUse">[] = [];
   for (const step of ["analyzer", "brief", "seeds"] as const) {
+    if (limits && !(await limits.hasRoom("read", (RECOVERY_SOURCE_USE_ROWS_PER_STEP + 1) * SOURCE_USE_ROW_BYTES))) {
+      truncated = true;
+      continue;
+    }
     const rows = await ctx.db
       .query("generationSourceUse")
       .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", fromGenerationId).eq("step", step))
@@ -186,7 +198,11 @@ export async function copyRecoverySourceUses(
     copies.push(...best.values());
   }
   if (copies.length > RECOVERY_SOURCE_USE_COPIES) truncated = true;
-  for (const row of copies.slice(0, RECOVERY_SOURCE_USE_COPIES)) {
+  const kept = copies.slice(0, RECOVERY_SOURCE_USE_COPIES);
+  if (limits && kept.length > 0 && !(await limits.hasRoom("write", kept.length * SOURCE_USE_ROW_BYTES))) {
+    return { truncated: true };
+  }
+  for (const row of kept) {
     await ctx.db.insert("generationSourceUse", {
       generationId: to._id,
       projectId: to.projectId,
