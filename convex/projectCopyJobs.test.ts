@@ -529,13 +529,15 @@ describe("a project copy, file by file (F2)", () => {
       // The runner stores the clone, then stops before attaching it.
       const stray = await s.t.run(async (ctx) => ctx.storage.store((await ctx.storage.get(next.sourceStorageId!))!));
       // Not yet: a save could still attach a file made in the record's window.
+      // Recovery takes the job up; the cleanup runs on its own.
       vi.setSystemTime(Date.now() + 30 * 60 * 1000);
       await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
+      await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {});
       await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
       expect(await s.storedFiles()).toContain(stray);
       // Its whole window is past an hour old: the stray clone goes, the files each have their own.
       vi.setSystemTime(Date.now() + 55 * 60 * 1000);
-      await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
+      expect(await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {})).toBe(1);
       expect(await s.storedFiles()).not.toContain(stray);
       expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
       const copies = await s.copies();
@@ -564,19 +566,42 @@ describe("a project copy, file by file (F2)", () => {
       const upload = await s.t.run(async (ctx) => ctx.storage.store((await ctx.storage.get(source.storageId!))!));
       // 66 minutes on, the upload is 52 minutes old: a save could still attach it.
       vi.setSystemTime(start + 66 * 60 * 1000);
-      expect(await s.t.run((ctx) => reconcileCopyClones(ctx))).toBe(0);
+      expect(await s.t.run((ctx) => reconcileCopyClones(ctx))).toEqual({ deleted: 0, more: false });
       expect(await s.storedFiles()).toContain(upload);
       expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toHaveLength(1);
-      // 81 minutes on, all of the window is past an hour old. The first run
-      // reads 500 files and keeps its place; the second reaches the match.
+      // 81 minutes on, all of the window is past an hour old: past the 500
+      // other files, a page at a time, the match goes.
       vi.setSystemTime(start + 81 * 60 * 1000);
-      expect(await s.t.run((ctx) => reconcileCopyClones(ctx))).toBe(0);
-      expect((await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect()))[0]?.scannedThrough).toBeTypeOf("number");
-      expect(await s.t.run((ctx) => reconcileCopyClones(ctx))).toBe(1);
+      expect(await s.t.run((ctx) => reconcileCopyClones(ctx))).toEqual({ deleted: 1, more: false });
       expect(await s.storedFiles()).not.toContain(upload);
       expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
       // The original itself is held by its file and stays.
       expect(await s.storedFiles()).toContain(source.storageId);
+    });
+
+    it("deletes 500 stray clones within Convex's limits: a run keeps its place before any limit and goes on in a fresh one", async () => {
+      const s = await setup([{ text: "notes", original: true }], { transactionLimits: true });
+      const plan = await s.prepare();
+      const source = (await s.t.run((ctx) => ctx.db.get(s.sourceIds[0]!)))!;
+      vi.setSystemTime(Date.now() + 1_000);
+      await s.t.mutation(internal.projects.beginProjectCopyClone, {
+        jobId: plan.jobId, leaseToken: plan.leaseToken, sourceStorageId: source.storageId!,
+      });
+      // Each match costs nine index reads: 500 of them pass one transaction's 4,096.
+      const strays: Id<"_storage">[] = [];
+      for (let index = 0; index < 500; index += 1) {
+        strays.push(await s.t.run(async (ctx) => ctx.storage.store((await ctx.storage.get(source.storageId!))!)));
+      }
+      vi.setSystemTime(Date.now() + 81 * 60 * 1000);
+      const first = await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {});
+      expect(first).toBeGreaterThan(0);
+      expect(first).toBeLessThan(500);
+      expect((await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect()))[0]?.scannedThrough).toBeTypeOf("number");
+      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      const stored = await s.storedFiles();
+      expect(strays.filter((id) => stored.includes(id))).toEqual([]);
+      expect(stored).toContain(source.storageId);
+      expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
     });
 
     it("attaches transcript originals one at a time, handing the copy on when its time runs out between them", async () => {
@@ -589,7 +614,7 @@ describe("a project copy, file by file (F2)", () => {
       }
       const s = await setup([]);
       const copied: Id<"transcripts">[] = [];
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < 2; index += 1) {
         copied.push(
           await s.t.run(async (ctx) => {
             const originalStorageId = await ctx.storage.store(new SlowTranscript([`transcript ${index}`]));
@@ -603,17 +628,20 @@ describe("a project copy, file by file (F2)", () => {
         );
       }
       slow = true;
+      const started = Date.now();
       const result = await s.writer.action(api.projectDuplication.copyProjectContent, {
         fromProjectId: s.fromProjectId, toProjectId: s.toProjectId,
       });
-      // Two clones took 12 minutes: the third waits for the next runner.
-      expect(result).toMatchObject({ stillCopying: true, transcriptOriginalsCopied: 2 });
+      // The first clone took 6 minutes; with 1 minute left of the 7, the
+      // second is not started: the action ends well inside its 10 minutes.
+      expect(result).toMatchObject({ stillCopying: true, transcriptOriginalsCopied: 1 });
+      expect(Date.now() - started).toBe(6 * 60 * 1000);
       slow = false;
       await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
       const rows = await s.t.run(async (ctx) => Promise.all(copied.map((id) => ctx.db.get(id))));
       expect(rows.every((row) => row?.originalStorageId !== undefined)).toBe(true);
       const [job] = await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect());
-      expect(job).toMatchObject({ status: "done", transcriptOriginalsAttached: 3 });
+      expect(job).toMatchObject({ status: "done", transcriptOriginalsAttached: 2 });
     });
 
     it("gives a job up after it stalled 20 times: its files could not be copied, and drafts may start", async () => {

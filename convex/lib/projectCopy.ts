@@ -178,9 +178,35 @@ export async function noteFileCopyError(ctx: MutationCtx, doc: Doc<"projectDocum
 const CLONE_WINDOW_MS = 15 * 60 * 1000;
 /** Kept past FRESH_UPLOAD_MS before a stored file counts as one no save can attach. */
 const CLONE_SAFETY_MS = 5 * 60 * 1000;
-/** Clone records, and stored files per record, one cron run looks at. */
+/** Clone records one run looks at, and stored files it reads a page at a time. */
 const CLONE_RECORDS_PER_RUN = 10;
-const STORED_FILES_PER_RUN = 500;
+const STORED_FILES_PER_PAGE = 200;
+/**
+ * What one stored file's checks may cost: nine index reads (every field
+ * that can hold a file, and upload claims), their rows, and a delete. Kept
+ * free before each, so a run stops and keeps its place before any limit.
+ */
+const FILE_CHECK_QUERIES = 16;
+const FILE_CHECK_DOCUMENTS = 64;
+const FILE_CHECK_BYTES = 1024 * 1024;
+/** Files one run checks where the runtime cannot report its usage. */
+const FILES_CHECKED_WITHOUT_METRICS = 100;
+
+/** Room in this transaction to check one more stored file, or (`page`) to read one more page of them. */
+async function roomForFileCheck(ctx: MutationCtx, checked: number, page = false): Promise<boolean> {
+  try {
+    const metrics = await ctx.meta.getTransactionMetrics();
+    return (
+      metrics.databaseQueries.remaining > FILE_CHECK_QUERIES &&
+      metrics.documentsRead.remaining > FILE_CHECK_DOCUMENTS + (page ? STORED_FILES_PER_PAGE : 0) &&
+      metrics.bytesRead.remaining > FILE_CHECK_BYTES &&
+      metrics.documentsWritten.remaining > FILE_CHECK_DOCUMENTS &&
+      metrics.bytesWritten.remaining > FILE_CHECK_BYTES
+    );
+  } catch {
+    return checked < FILES_CHECKED_WITHOUT_METRICS;
+  }
+}
 
 /**
  * F2 review: deletes the clones runners stored but never attached. A clone
@@ -190,46 +216,62 @@ const STORED_FILES_PER_RUN = 500;
  * FRESH_UPLOAD_MS and a margin, so no save can attach any file in it any
  * more. Any stored file there with the original's fingerprint and size that
  * no row holds and no upload claims is such a clone, or another orphan no
- * one can attach, and is deleted. The window is read a page at a time, the
- * record keeping its place, and the record goes only once all of it is read.
+ * one can attach, and is deleted.
+ *
+ * Round 3: each file's checks are budgeted against the transaction's real
+ * usage; before it would run out, the run saves its place in the record's
+ * window (`scannedThrough`, the last file it finished) and says there is
+ * more, for its own scheduled mutation to go on. A record goes only once
+ * all of its window is read.
  */
-export async function reconcileCopyClones(ctx: MutationCtx, now = Date.now()): Promise<number> {
+export async function reconcileCopyClones(
+  ctx: MutationCtx,
+  now = Date.now()
+): Promise<{ deleted: number; more: boolean }> {
   const safeBefore = now - FRESH_UPLOAD_MS - CLONE_SAFETY_MS;
   const stale = await ctx.db
     .query("projectCopyClones")
     .withIndex("by_startedAt", (q) => q.lt("startedAt", safeBefore - CLONE_WINDOW_MS))
     .take(CLONE_RECORDS_PER_RUN);
   let deleted = 0;
-  let budget = STORED_FILES_PER_RUN;
+  let checked = 0;
   for (const record of stale) {
-    if (budget <= 0) break;
     const windowEnd = record.startedAt + CLONE_WINDOW_MS;
-    const page = await ctx.db.system
-      .query("_storage")
-      .withIndex("by_creation_time", (q) =>
-        record.scannedThrough === undefined
-          ? q.gte("_creationTime", record.startedAt).lte("_creationTime", windowEnd)
-          : q.gt("_creationTime", record.scannedThrough).lte("_creationTime", windowEnd)
-      )
-      .take(budget);
-    budget -= page.length;
-    for (const file of page) {
-      if (file._creationTime >= safeBefore) continue;
-      if (file.sha256 !== record.sha256 || file.size !== record.size) continue;
-      if (await isStorageReferenced(ctx, file._id)) continue;
-      if (await uploadClaimFor(ctx, file._id)) continue;
-      await ctx.storage.delete(file._id);
-      deleted += 1;
+    let place = record.scannedThrough;
+    for (;;) {
+      const page = await ctx.db.system
+        .query("_storage")
+        .withIndex("by_creation_time", (q) =>
+          place === undefined
+            ? q.gte("_creationTime", record.startedAt).lte("_creationTime", windowEnd)
+            : q.gt("_creationTime", place).lte("_creationTime", windowEnd)
+        )
+        .take(STORED_FILES_PER_PAGE);
+      for (const file of page) {
+        const matches = file._creationTime < safeBefore && file.sha256 === record.sha256 && file.size === record.size;
+        if (matches) {
+          if (!(await roomForFileCheck(ctx, checked))) {
+            if (place !== record.scannedThrough) await ctx.db.patch(record._id, { scannedThrough: place });
+            return { deleted, more: true };
+          }
+          checked += 1;
+          if (!(await isStorageReferenced(ctx, file._id)) && !(await uploadClaimFor(ctx, file._id))) {
+            await ctx.storage.delete(file._id);
+            deleted += 1;
+          }
+        }
+        place = file._creationTime;
+      }
+      if (page.length < STORED_FILES_PER_PAGE) break;
+      // A full page: the window may go on. Keep the place before the next.
+      if (!(await roomForFileCheck(ctx, checked, true))) {
+        await ctx.db.patch(record._id, { scannedThrough: place });
+        return { deleted, more: true };
+      }
     }
-    const last = page[page.length - 1];
-    if (budget <= 0 && last) {
-      // The page may not have reached the window's end: keep the place.
-      await ctx.db.patch(record._id, { scannedThrough: last._creationTime });
-    } else {
-      await ctx.db.delete(record._id);
-    }
+    await ctx.db.delete(record._id);
   }
-  return deleted;
+  return { deleted, more: stale.length === CLONE_RECORDS_PER_RUN };
 }
 
 /**

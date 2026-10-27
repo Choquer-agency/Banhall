@@ -198,5 +198,13 @@ crons.interval(
   internal.projectDuplication.resumeStalledProjectCopies,
   {}
 );
+// F2 review, round 3: the clones a stopped copy runner stored but never
+// attached, in their own transactions (continuing while there is more).
+crons.interval(
+  "delete stray project copy clones",
+  { minutes: 10 },
+  internal.projectDuplication.reconcileProjectCopyClones,
+  {}
+);
 
 export default crons;

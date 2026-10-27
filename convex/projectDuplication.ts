@@ -39,6 +39,14 @@ type CopyResult = {
 type RunEnd = "done" | "stopped" | "lease_lost" | "out_of_time";
 
 /**
+ * Round 3: the time one clone of an original is allowed to take. A runner
+ * starts a clone only while at least this much of its time is left, so,
+ * with a first run of 7 minutes, a clone of up to 6 minutes still ends
+ * inside an action's 10 and the runner hands the copy on.
+ */
+const MAX_CLONE_MS = 3 * 60 * 1000;
+
+/**
  * The original's bytes cloned into new storage. Tried twice; `unreadable`
  * when both failed, so the file is copied without its original and the
  * copy says so. No clone and not unreadable: the original is gone.
@@ -76,6 +84,7 @@ async function runProjectCopy(
 ): Promise<RunEnd> {
   const lease = { jobId, leaseToken };
   const outOfTime = () => Date.now() > stopAt;
+  const roomForClone = () => stopAt - Date.now() >= MAX_CLONE_MS;
   for (;;) {
     const step = await ctx.runMutation(internal.projects.continueProjectContentCopy, lease);
     const result = step.result;
@@ -91,6 +100,7 @@ async function runProjectCopy(
     let cloneRecordId: Id<"projectCopyClones"> | null = null;
     let originalNotCopied = false;
     if (next.sourceStorageId) {
+      if (!roomForClone()) return "out_of_time";
       cloneRecordId = await ctx.runMutation(internal.projects.beginProjectCopyClone, {
         ...lease,
         sourceStorageId: next.sourceStorageId,
@@ -131,7 +141,7 @@ async function runProjectCopy(
     lease
   );
   for (const original of originals) {
-    if (outOfTime()) return "out_of_time";
+    if (!roomForClone()) return "out_of_time";
     const cloneRecordId = await ctx.runMutation(internal.projects.beginProjectCopyClone, {
       ...lease,
       sourceStorageId: original.storageId,
@@ -268,8 +278,7 @@ const STALLED_JOBS_PER_RUN = 10;
 
 /**
  * Cron (F2): takes up copy jobs whose lease ran out (their runner crashed
- * or was cut off), so none is left half done and no draft waits on one,
- * and deletes the clones such a runner stored but never attached.
+ * or was cut off), so none is left half done and no draft waits on one.
  */
 export const resumeStalledProjectCopies = internalMutation({
   args: {},
@@ -284,9 +293,22 @@ export const resumeStalledProjectCopies = internalMutation({
         .take(STALLED_JOBS_PER_RUN);
       for (const job of stalled) if (await takeStalledProjectCopy(ctx, job)) taken += 1;
     }
-    // F2 review: and the clones a stopped runner stored but never attached.
-    await reconcileCopyClones(ctx, now);
     return taken;
+  },
+});
+
+/**
+ * Cron (F2 review, round 3): deletes the clones stopped runners stored but
+ * never attached (`reconcileCopyClones`), in its own transaction, never in
+ * the recovery's. It goes on in a fresh one while there is more to read.
+ */
+export const reconcileProjectCopyClones = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    const { deleted, more } = await reconcileCopyClones(ctx);
+    if (more) await ctx.scheduler.runAfter(0, internal.projectDuplication.reconcileProjectCopyClones, {});
+    return deleted;
   },
 });
 
