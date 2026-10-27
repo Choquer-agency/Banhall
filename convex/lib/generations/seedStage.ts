@@ -8,6 +8,7 @@
  * this module holds their handlers and helpers.
  */
 import { COMPANY_FILE_LABEL_PREFIX } from "../companyEvidence";
+import { withCurrentCompanyFiles } from "../briefEvidence";
 import { makeFunctionReference } from "convex/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import { type SectionNumber, type OrderedPayload, sectionKeyOf } from "../orderedChain";
@@ -1419,6 +1420,8 @@ export async function loadFactsSourceDocuments(
     .query("generationSources")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
     if (row.kind !== "transcript" && row.kind !== "project_document" && row.kind !== "company_file") continue;
+    // Phase C: no company file of a company the project has left.
+    if (row.kind === "company_file" && (await withCurrentCompanyFiles(ctx, generation.projectId, [row])).length === 0) continue;
     const document = factsSourceDocumentOf(row);
     const bytes = new TextEncoder().encode(document.content).byteLength;
     if (used + bytes > budget) {

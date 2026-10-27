@@ -608,7 +608,8 @@ async function readDraftEvidence(
         ctx,
         draft,
         evidence.transcripts,
-        evidence.fields.map((field) => field.content)
+        evidence.fields.map((field) => field.content),
+        evidence.companyNames
       ),
   };
 }

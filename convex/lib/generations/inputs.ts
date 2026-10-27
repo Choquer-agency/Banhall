@@ -21,7 +21,7 @@ import { getInternalProjectAccessOrNull } from "../auth";
 import { createReadBudget } from "../readBudget";
 import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclusion";
 import { documentHasText } from "../documentText";
-import { MAX_FROZEN_SOURCE_ROWS } from "../briefEvidence";
+import { MAX_FROZEN_SOURCE_ROWS, withCurrentCompanyFiles } from "../briefEvidence";
 import { hasCapability } from "../../../shared/capabilities";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
@@ -64,14 +64,18 @@ export async function getGenerationInputHandler(
     }
     reportTitle = summary.reportTitle;
   }
-  const sources = await ctx.db
-    .query("generationSources")
-    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-    // One transcript row and one digest row per transcript, plus the 50
-    // context documents. A tighter bound would drop the digest rows of a
-    // many-transcript project — the case digest mode exists for — and hand
-    // the model the over-budget full text instead.
-    .take(MAX_FROZEN_SOURCE_ROWS);
+  const sources = await withCurrentCompanyFiles(
+    ctx,
+    generation.projectId,
+    await ctx.db
+      .query("generationSources")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      // One transcript row and one digest row per transcript, plus the 50
+      // context documents. A tighter bound would drop the digest rows of a
+      // many-transcript project — the case digest mode exists for — and hand
+      // the model the over-budget full text instead.
+      .take(MAX_FROZEN_SOURCE_ROWS)
+  );
   const transcriptIds = generationTranscriptIds(generation);
   const inputMode = generation.inputMode ?? "full";
   const toPart = (source: Doc<"generationSources">) => ({

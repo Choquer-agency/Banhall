@@ -206,8 +206,11 @@
   const anyTickedReading = $derived(
     sources.some((s) => s.reading && (s.locked || !unticked.has(s.id)))
   );
+  // Company files never stand in for the project's own sources (Phase C),
+  // so a run with only company files ticked is "nothing ticked".
+  const projectTickable = $derived(tickable.filter((s) => s.kind !== "companyFile"));
   const nothingTicked = $derived(
-    mode !== "review" && tickable.length > 0 && tickable.every((s) => unticked.has(s.id))
+    mode !== "review" && projectTickable.length > 0 && projectTickable.every((s) => unticked.has(s.id))
   );
   const problem = $derived(
     blockingMessage ?? (nothingTicked ? NOTHING_TICKED_MESSAGE : (validate?.(excluded) ?? null))

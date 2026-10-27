@@ -23,7 +23,7 @@ import type { PlaceholderEntry } from "./deidentify";
 import { dashboardFiscalYear } from "../../shared/dashboardProjection";
 import { documentHasText, documentTextLength, readDocumentText } from "./documentText";
 import { readCompanyFileTextOrNull } from "./companyFileText";
-import { companyOtherNames } from "./clients";
+import { companyIdentityNames } from "./clients";
 import { quotableFileText } from "../../shared/wordMarkdown";
 
 /**
@@ -43,11 +43,16 @@ export const FROZEN_DOCUMENT_ROWS = 50;
  * Company files (2026-10-26, Phase C): at most this many, newest first,
  * after the project's own files; their text together at most
  * FROZEN_COMPANY_CHARS; and none once every frozen row together would pass
- * FROZEN_TOTAL_BYTES (UTF-8), so a project's own evidence never loses room.
+ * FROZEN_TOTAL_BYTES (UTF-8), so a project's own evidence never loses room
+ * and the Seed reads stay within their budget.
  */
 export const FROZEN_COMPANY_FILES = 12;
 export const FROZEN_COMPANY_CHARS = 600_000;
-export const FROZEN_TOTAL_BYTES = 8 * 1024 * 1024;
+/**
+ * Below the Seed read budget (8 MiB with 1 MiB of headroom), which also
+ * holds the Brief, its entries, digests and fact packs (review, 2026-10-26).
+ */
+export const FROZEN_TOTAL_BYTES = 5 * 1024 * 1024;
 /** Company file rows a run looks at, newest first, before filtering. */
 const COMPANY_FILE_ROWS = 50;
 /**
@@ -72,8 +77,11 @@ export type FrozenEvidence = {
   frozenDocuments: Array<{ document: Doc<"projectDocuments">; content: string; truncated: boolean }>;
   /** The project's company's files (Phase C), after the project's own; empty without a company. */
   frozenCompanyFiles: Array<{ file: Doc<"companyFiles">; content: string; truncated: boolean }>;
-  /** The company's other names (earlier names, merged companies), hidden when its files are sent. */
-  companyNames: string[];
+  /**
+   * The names tied to the company (its other names, its projects' people),
+   * hidden when its files are sent, as company file labels hide them.
+   */
+  companyNames: { organizations: string[]; people: string[] };
 };
 
 /**
@@ -120,11 +128,44 @@ export async function selectFrozenEvidence(
 }
 
 /**
+ * The company files a draft can read, from its company's files newest first
+ * (Phase C): those with text, at most FROZEN_COMPANY_FILES, each read up to
+ * FROZEN_DOCUMENT_CHARS and the last cut so all together stay within
+ * FROZEN_COMPANY_CHARS. Decided before any is left out, so the start dialog
+ * lists exactly these, and leaving one out never brings in another.
+ */
+export function eligibleCompanyFiles<T extends Pick<Doc<"companyFiles">, "hasText" | "textLength">>(
+  newestFirst: readonly T[]
+): Array<{ file: T; limit: number }> {
+  const eligible: Array<{ file: T; limit: number }> = [];
+  let chars = 0;
+  for (const file of newestFirst) {
+    if (eligible.length >= FROZEN_COMPANY_FILES || chars >= FROZEN_COMPANY_CHARS) break;
+    if (!file.hasText) continue;
+    const limit = Math.min(FROZEN_DOCUMENT_CHARS, FROZEN_COMPANY_CHARS - chars, file.textLength);
+    eligible.push({ file, limit });
+    chars += limit;
+  }
+  return eligible;
+}
+
+/** A company's files that are not archived, newest first, as many as a draft looks at. */
+export async function companyFilesNewestFirst(ctx: Ctx, clientId: Id<"clients">): Promise<Doc<"companyFiles">[]> {
+  return await ctx.db
+    .query("companyFiles")
+    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId).eq("archived", undefined))
+    .order("desc")
+    .take(COMPANY_FILE_ROWS);
+}
+
+/**
  * The project's company's files a run reads (Phase C, decision "2026-10-26",
- * part 1): the company the project is linked to now, if it is active; its
- * files that are not archived, have text and are not left out, newest
- * first, within the caps above. A file whose stored text is damaged is left
- * out. Nothing at all for a project with no company.
+ * part 1): of the company the project is linked to now, if it is active,
+ * the eligible files (`eligibleCompanyFiles`) not left out, none once every
+ * frozen row together would pass FROZEN_TOTAL_BYTES. A file whose stored
+ * text is damaged is left out. Nothing at all for a project with no
+ * company, or when the company's names cannot all be read (nothing goes out
+ * with a name it could not hide).
  */
 async function selectCompanyFiles(
   ctx: Ctx,
@@ -132,35 +173,45 @@ async function selectCompanyFiles(
   excluded: ExcludedSourceIds | undefined,
   frozenSoFar: readonly string[]
 ): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
-  const none = { frozenCompanyFiles: [], companyNames: [] };
   const project = await ctx.db.get(projectId);
   const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
+  return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar);
+}
+
+/**
+ * The company files a draft reads from `client` (a project's company, or the
+ * company a New project draft names): see `selectCompanyFiles`. Shared, so a
+ * New project's head start freezes what its first run will (Phase C review).
+ */
+export async function selectCompanyFilesOf(
+  ctx: Ctx,
+  client: Doc<"clients"> | null,
+  excluded: ExcludedSourceIds | undefined,
+  frozenSoFar: readonly string[]
+): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
+  const none = { frozenCompanyFiles: [], companyNames: { organizations: [], people: [] } };
   if (!client || client.status !== "active") return none;
   const leftOut = new Set<Id<"companyFiles">>(excluded?.companyFileIds ?? []);
   const encoder = new TextEncoder();
   let bytes = frozenSoFar.reduce((total, text) => total + encoder.encode(text).length, 0);
-  let chars = 0;
-  const rows = await ctx.db
-    .query("companyFiles")
-    .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", client._id).eq("archived", undefined))
-    .order("desc")
-    .take(COMPANY_FILE_ROWS);
   const frozenCompanyFiles: FrozenEvidence["frozenCompanyFiles"] = [];
-  for (const file of rows) {
-    if (frozenCompanyFiles.length >= FROZEN_COMPANY_FILES || chars >= FROZEN_COMPANY_CHARS) break;
-    if (!file.hasText || leftOut.has(file._id)) continue;
-    const limit = Math.min(FROZEN_DOCUMENT_CHARS, FROZEN_COMPANY_CHARS - chars);
+  for (const { file, limit } of eligibleCompanyFiles(await companyFilesNewestFirst(ctx, client._id))) {
+    if (leftOut.has(file._id)) continue;
     const text = await readCompanyFileTextOrNull(ctx, file, 0, limit);
     if (text === null || !text.trim()) continue;
     const content = frozenFileText(text, file.textFormat);
     const size = encoder.encode(content).length;
     if (bytes + size > FROZEN_TOTAL_BYTES) break;
     bytes += size;
-    chars += text.length;
     frozenCompanyFiles.push({ file, content, truncated: text.length !== file.textLength });
   }
   if (frozenCompanyFiles.length === 0) return none;
-  return { frozenCompanyFiles, companyNames: await companyOtherNames(ctx, client) };
+  try {
+    return { frozenCompanyFiles, companyNames: await companyIdentityNames(ctx, client) };
+  } catch (error) {
+    console.warn(`company files left out of a draft: ${(error as Error).message}`);
+    return none;
+  }
 }
 
 /**
@@ -247,13 +298,25 @@ export async function frozenSourceFields(evidence: FrozenEvidence): Promise<Froz
       ...(document.uploaderRole ? { uploaderRole: document.uploaderRole } : {}),
     });
   }
-  // Phase C: company files last, with client trust always (no uploader role).
-  for (const { file, content, truncated } of evidence.frozenCompanyFiles) {
+  rows.push(...(await companyFileSourceFields(evidence.frozenCompanyFiles)));
+  return rows;
+}
+
+/**
+ * Frozen company file rows (Phase C), last, with client trust always (no
+ * uploader role), and a category that can never pass for this project's own
+ * prior work or scoping (`companyFileCategory`).
+ */
+export async function companyFileSourceFields(
+  files: FrozenEvidence["frozenCompanyFiles"]
+): Promise<FrozenSourceFields[]> {
+  const rows: FrozenSourceFields[] = [];
+  for (const { file, content, truncated } of files) {
     rows.push({
       kind: "company_file",
       companyFileId: file._id,
       clientId: file.clientId,
-      label: `${file.category ?? "other"}:${file.fileName}`,
+      label: `${companyFileCategory(file.category)}:${file.fileName}`,
       content,
       contentHash: await sha256(content),
       truncated,
@@ -261,6 +324,16 @@ export async function frozenSourceFields(evidence: FrozenEvidence): Promise<Froz
     });
   }
   return rows;
+}
+
+/**
+ * A company file's category in a draft: background, or other. A company
+ * file filed as a previous-year report, scoping notes or writer's notes is
+ * not this project's (the analyzer weighs those as the project's own), so
+ * it reads as background (Phase C review, 2026-10-26).
+ */
+export function companyFileCategory(category: Doc<"companyFiles">["category"]): "background" | "other" {
+  return category === "other" || category === undefined ? "other" : "background";
 }
 
 /**
@@ -294,4 +367,47 @@ export async function currentYearTranscripts(
     if (sourceYear === null || year <= sourceYear) current.push(transcript);
   }
   return current;
+}
+
+/** Merges followed from a frozen company to the project's company now. */
+const LINEAGE_HOPS = 10;
+
+/**
+ * A draft's frozen rows without company files of a company the project no
+ * longer belongs to (Phase C review, 2026-10-26): a company file row stays
+ * only while its company is the project's company now, or was merged into
+ * it. Every reader that sends frozen rows to the AI goes through this, so a
+ * project relinked to another company mid-draft never sends the earlier
+ * company's files. Other rows pass unchanged.
+ */
+export async function withCurrentCompanyFiles<T extends { kind: string; clientId?: Id<"clients"> }>(
+  ctx: { db: QueryCtx["db"] },
+  projectId: Id<"projects">,
+  rows: readonly T[]
+): Promise<T[]> {
+  if (!rows.some((row) => row.kind === "company_file")) return [...rows];
+  const project = await ctx.db.get(projectId);
+  const current = project?.clientId ?? null;
+  const verdicts = new Map<string, boolean>();
+  const belongs = async (clientId: Id<"clients"> | undefined): Promise<boolean> => {
+    if (!clientId || !current) return false;
+    const known = verdicts.get(clientId);
+    if (known !== undefined) return known;
+    let at: Id<"clients"> | undefined = clientId;
+    let verdict = false;
+    for (let hop = 0; at && hop <= LINEAGE_HOPS; hop++) {
+      if (at === current) {
+        verdict = true;
+        break;
+      }
+      at = (await ctx.db.get(at))?.mergedIntoClientId;
+    }
+    verdicts.set(clientId, verdict);
+    return verdict;
+  };
+  const kept: T[] = [];
+  for (const row of rows) {
+    if (row.kind !== "company_file" || (await belongs(row.clientId))) kept.push(row);
+  }
+  return kept;
 }

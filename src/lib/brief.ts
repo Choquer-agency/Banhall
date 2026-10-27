@@ -176,7 +176,9 @@ export function entryOrigin(entry: Pick<BriefEntryLike, "edited">): EntryOrigin 
 export function sourceChipLabel(entry: Pick<BriefEntryLike, "source">): string {
   const source = entry.source;
   if (!source) return "source";
-  if (source.kind === "project_document" || source.kind === "company_file") return parseSourceLabel(source.label).fileName;
+  if (source.kind === "project_document") return parseSourceLabel(source.label).fileName;
+  // Phase C: a company file says so, as the Inputs band does.
+  if (source.kind === "company_file") return `${parseSourceLabel(source.label).fileName} (company file)`;
   if (source.kind === "transcript_digest") return `${source.label} (digest)`;
   return source.label;
 }

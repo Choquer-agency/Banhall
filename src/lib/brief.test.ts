@@ -130,6 +130,10 @@ describe("Brief rail helpers (story 4)", () => {
       sourceChipLabel(entry({ source: { label: "background:specs.pdf", kind: "project_document" } }))
     ).toBe("specs.pdf");
     expect(sourceChipLabel(entry({ source: null }))).toBe("source");
+    // Phase C: a company file says so.
+    expect(
+      sourceChipLabel(entry({ source: { label: "background:history.docx", kind: "company_file" } }))
+    ).toBe("history.docx (company file)");
   });
 
   it("offerSentence and offerHref build the save-settings banner", () => {

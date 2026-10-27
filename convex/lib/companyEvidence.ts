@@ -13,3 +13,14 @@ export const COMPANY_FILES_NOTE =
 
 /** The analyzer's block label prefix for a company file. */
 export const COMPANY_FILE_LABEL_PREFIX = "COMPANY FILE, ";
+
+/** What a viewer who may not read company files sees for one's name. */
+export const COMPANY_FILE_HIDDEN_LABEL = "company file";
+
+/**
+ * A frozen row's label as a viewer sees it: a company file's name only for
+ * one who may read company files (Phase C review, 2026-10-26).
+ */
+export function visibleSourceLabel(kind: string, label: string, mayReadCompanyFiles: boolean): string {
+  return kind === "company_file" && !mayReadCompanyFiles ? COMPANY_FILE_HIDDEN_LABEL : label;
+}

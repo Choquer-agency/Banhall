@@ -6,6 +6,7 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { withCurrentCompanyFiles } from "../briefEvidence";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import { domainError } from "../contracts";
@@ -109,7 +110,9 @@ export async function readBriefSourceRows(
       `This generation has more than ${MAX_BRIEF_SOURCE_ROWS} frozen sources and cannot be read completely for a Generation Brief`
     );
   }
-  return rows;
+  // Phase C: no company file of a company the project has left.
+  const projectId = rows[0]?.projectId;
+  return projectId ? await withCurrentCompanyFiles(ctx, projectId, rows) : rows;
 }
 
 /**

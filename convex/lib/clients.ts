@@ -105,3 +105,45 @@ export async function companyOtherNames(ctx: Ctx, client: Doc<"clients">): Promi
   names.delete(client.name);
   return [...names];
 }
+
+/** Live projects whose people a company's names include, newest first, and the rows read to find them. */
+const IDENTITY_PROJECTS = 50;
+const IDENTITY_PROJECT_READ = 1_000;
+
+/**
+ * Every name tied to a company that its files may carry (2026-10-26, Phase
+ * C): its other names (`companyOtherNames`), the names its projects carry
+ * for it, and the people on its 50 newest live projects (interviewer,
+ * writer, interviewees). Company file labels and drafts that send company
+ * files hide them all. Throws when it cannot read them all (more than
+ * 1,000 projects hold fewer than 50 live ones, or too many merges), so no
+ * caller sends a name it could not hide.
+ */
+export async function companyIdentityNames(
+  ctx: Ctx,
+  client: Doc<"clients">
+): Promise<{ organizations: string[]; people: string[] }> {
+  const organizations = new Set<string>(await companyOtherNames(ctx, client));
+  const people: string[] = [];
+  let live = 0;
+  let read = 0;
+  for await (const project of ctx.db.query("projects").withIndex("by_clientId", (q) => q.eq("clientId", client._id)).order("desc")) {
+    read += 1;
+    if (read > IDENTITY_PROJECT_READ) {
+      throw new Error(
+        `Read ${IDENTITY_PROJECT_READ} projects without finding ${IDENTITY_PROJECTS} live ones; nothing goes out with a name it could not hide`
+      );
+    }
+    if (project.deletionStartedAt !== undefined) continue;
+    live += 1;
+    for (const name of [project.interviewer, project.writer, ...(project.interviewees ?? [])]) {
+      if (name?.trim()) people.push(name.trim());
+    }
+    if (project.clientName !== client.name) organizations.add(project.clientName);
+    if (live >= IDENTITY_PROJECTS) break;
+  }
+  // The company's own name too: a project may write it with other case or
+  // accents (review, 2026-10-26); a map that already hides it adds nothing.
+  organizations.add(client.name);
+  return { organizations: [...organizations], people };
+}

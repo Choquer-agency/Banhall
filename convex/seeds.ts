@@ -1,4 +1,6 @@
 import { v, ConvexError, getConvexSize } from "convex/values";
+import { visibleSourceLabel } from "./lib/companyEvidence";
+import { hasCapability } from "../shared/capabilities";
 import {
   query,
   mutation,
@@ -13,7 +15,7 @@ import {
   stepNeedsWriter,
   type PdSubsectionRoleId,
 } from "../shared/pdSubsections";
-import { requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
+import { getCurrentUserOrNull, requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
 import {
   getReportEditAccessOrNull,
   requireReportEditAccess,
@@ -1207,6 +1209,12 @@ export const markBatchViewed = mutation({
   },
 });
 
+/** Whether the viewer may read company files' names (Phase C). */
+async function viewerMayReadCompanyFiles(ctx: QueryCtx): Promise<boolean> {
+  const user = await getCurrentUserOrNull(ctx);
+  return hasCapability(user?.role ?? null, "companyFiles.read");
+}
+
 export async function requireSeedRead(
   ctx: QueryCtx,
   generationId: Id<"generations">,
@@ -1320,6 +1328,7 @@ export const getSourceAttribution = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await requireSeedRead(ctx, args.generationId);
+    const mayReadCompanyFiles = await viewerMayReadCompanyFiles(ctx);
     const budget = createReadBudget({
       maxBytes: SEED_DECISION_READ_BYTES,
       maxRanges: 1,
@@ -1338,7 +1347,7 @@ export const getSourceAttribution = query({
         .filter((source) => source.projectId === generation.projectId)
         .map((source) => ({
           sourceId: source._id,
-          label: source.label,
+          label: visibleSourceLabel(source.kind, source.label, mayReadCompanyFiles),
           kind: source.kind,
         })),
       complete: read.complete,
@@ -1357,6 +1366,7 @@ export const getSourceAttributionByIds = query({
   },
   handler: async (ctx, args) => {
     const generation = await requireSeedRead(ctx, args.generationId);
+    const mayReadCompanyFiles = await viewerMayReadCompanyFiles(ctx);
     const requested = [...new Set(args.sourceIds)];
     if (requested.length > MAX_SEED_SOURCE_ROWS)
       domainError(
@@ -1387,7 +1397,11 @@ export const getSourceAttributionByIds = query({
         source.projectId !== generation.projectId
       )
         continue;
-      sources.push({ sourceId: source._id, label: source.label, kind: source.kind });
+      sources.push({
+        sourceId: source._id,
+        label: visibleSourceLabel(source.kind, source.label, mayReadCompanyFiles),
+        kind: source.kind,
+      });
     }
     return { generationId: generation._id, sources, complete };
   },

@@ -15,13 +15,16 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { companyFileTextFacts, insertCompanyFileTextPieces } from "./lib/companyFileText";
 import {
   FROZEN_COMPANY_FILES,
+  FROZEN_TOTAL_BYTES,
   frozenPlaceholders,
   frozenSourceFields,
+  selectCompanyFilesOf,
   selectFrozenEvidence,
 } from "./lib/briefEvidence";
+import { selectDraftEvidence } from "./lib/intakeDrafts";
 import { buildBriefUserMessage } from "./lib/briefRequest";
 import { buildSeedTrustedContext, buildTrustedContext } from "./ai/trustedContext";
-import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE } from "./lib/companyEvidence";
+import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE, visibleSourceLabel } from "./lib/companyEvidence";
 import { assembleContextInclusion } from "./lib/contextInclusion";
 import { verifiedSourceMapping } from "./lib/generations/briefAdoption";
 import { factsSourceDocumentOf } from "./lib/generations/seedStage";
@@ -328,5 +331,114 @@ describe("the start dialog's company files (Phase C)", () => {
       ctx.db.query("briefPreparations").withIndex("by_projectId", (q) => q.eq("projectId", s.projectId)).collect()
     );
     expect(preparations.at(-1)?.excludedCompanyFileIds).toEqual([leftOut]);
+  });
+});
+
+describe("review fixes, 2026-10-26", () => {
+  it("cuts the last file to fit the 600,000 character total", async () => {
+    const s = await setup();
+    for (let i = 0; i < 4; i++) await addCompanyFile(s, `mid-${i}.txt`, "y".repeat(180_000));
+    const rows = (await sourcesOf(s, await start(s))).filter((row) => row.kind === "company_file");
+    expect(rows.map((row) => row.content.length)).toEqual([180_000, 180_000, 180_000, 60_000]);
+    expect(rows.map((row) => row.truncated)).toEqual([false, false, false, true]);
+  });
+
+  it("reads no company file once the draft's own rows fill the byte ceiling", async () => {
+    const s = await setup();
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    const picked = await s.t.run(async (ctx) =>
+      selectCompanyFilesOf(ctx, await ctx.db.get(s.clientId), undefined, ["z".repeat(FROZEN_TOTAL_BYTES)])
+    );
+    expect(picked.frozenCompanyFiles).toEqual([]);
+  });
+
+  it("a company file never stands in for this year's source next to last year's report (decision 42)", async () => {
+    const s = await setup({ transcript: null });
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("projectDocuments", {
+        projectId: s.projectId, fileName: "fy2024-report.pdf", fileType: "txt", content: "Last year's report.", category: "previous_pd",
+        source: "upload", uploadedBy: s.userId, uploaderRole: "writer", createdAt: Date.now(),
+      })
+    );
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    let reason: unknown = null;
+    try {
+      await start(s);
+    } catch (error) {
+      reason = (error as { data?: { reason?: string } }).data?.reason;
+    }
+    expect(reason).toBe("PREVIOUS_YEAR_ONLY_SOURCES");
+  });
+
+  it("a company whose names cannot all be read lends no files to a draft", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.clientId, { nameHistoryComplete: undefined });
+      for (let i = 0; i < 101; i++) {
+        await ctx.db.insert("clients", {
+          name: `Merged ${i}`, nameKey: `merged ${i}`, status: "merged", mergedIntoClientId: s.clientId,
+          createdBy: s.userId, createdAt: 1, updatedAt: 1,
+        });
+      }
+    });
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    expect((await sourcesOf(s, await start(s))).map((row) => row.kind)).toEqual(["transcript"]);
+  });
+
+  it("a company file filed as last year's report or scoping notes reads as background", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      const id = await ctx.db.insert("companyFiles", {
+        clientId: s.clientId, fileName: "old-pd.txt", fileType: "txt", category: "previous_pd",
+        ...(await companyFileTextFacts("Another project's report.")), processingStatus: "ready", uploadedBy: s.userId, createdAt: 1,
+      });
+      await insertCompanyFileTextPieces(ctx, id, "Another project's report.");
+    });
+    const row = (await sourcesOf(s, await start(s))).find((source) => source.kind === "company_file");
+    expect(row?.label).toBe("background:old-pd.txt");
+  });
+
+  it("a New project head start freezes the files of the company the draft names, as its first run will", async () => {
+    const s = await setup();
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    const fields = await s.t.run(async (ctx) => {
+      const draftId = await ctx.db.insert("intakeDrafts", {
+        ownerId: s.userId, status: "open", createdAt: Date.now(), lastEditedAt: Date.now(),
+        expiresAt: Date.now() + 60 * 60 * 1000, transcriptCount: 0, clientName: "ACME SEALS",
+      });
+      return (await selectDraftEvidence(ctx, (await ctx.db.get(draftId))!)).fields;
+    });
+    expect(fields.map((field) => [field.kind, field.label])).toEqual([["company_file", "other:history.txt"]]);
+    const run = (await sourcesOf(s, await start(s))).find((row) => row.kind === "company_file")!;
+    expect({ content: run.content, contentHash: run.contentHash, label: run.label }).toEqual({
+      content: fields[0]!.content,
+      contentHash: fields[0]!.contentHash,
+      label: fields[0]!.label,
+    });
+  });
+
+  it("a project relinked to another company stops sending the first company's files; a merge into the new one keeps them", async () => {
+    const s = await setup();
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    const generationId = await start(s);
+    const contextDocs = async () =>
+      (await s.t.query(internal.generations.getGenerationInput, { generationId }))?.contextDocs.map((doc) => doc.fileName);
+    expect(await contextDocs()).toEqual(["history.txt"]);
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: s.otherClientId }));
+    expect(await contextDocs()).toEqual([]);
+    // Acme merged into Borealis: its files belong to the project's company again.
+    await s.t.run(async (ctx) => ctx.db.patch(s.clientId, { status: "merged", mergedIntoClientId: s.otherClientId }));
+    expect(await contextDocs()).toEqual(["history.txt"]);
+  });
+
+  it("the start dialog lists nothing for a viewer with no role, and the chips and labels hide nothing from one who may read", async () => {
+    const s = await setup();
+    await addCompanyFile(s, "history.txt", "Acme history.");
+    await s.t.run(async (ctx) => ctx.db.insert("users", { authId: "company-drafts-roleless" }));
+    const roleless = s.t.withIdentity({ subject: "company-drafts-roleless" });
+    expect((await roleless.query(api.companyFiles.listForProject, { projectId: s.projectId })).files).toEqual([]);
+    expect(visibleSourceLabel("company_file", "other:history.txt", false)).toBe("company file");
+    expect(visibleSourceLabel("company_file", "other:history.txt", true)).toBe("other:history.txt");
+    expect(visibleSourceLabel("project_document", "other:notes.txt", false)).toBe("other:notes.txt");
   });
 });

@@ -1,4 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
+import { withCurrentCompanyFiles } from "./briefEvidence";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   PD_SUBSECTIONS,
@@ -353,7 +354,8 @@ export async function loadFrozenSeedActionInput(
       "Frozen seed inputs exceed the processing budget",
     );
   const briefEntries = entryRead.rows,
-    sources = sourceRead.rows,
+    // Phase C: no company file of a company the project has left.
+    sources = await withCurrentCompanyFiles(ctx, args.generation.projectId, sourceRead.rows),
     settingsArtifact = settingsRead.value;
   if (briefEntries.length > MAX_SEED_BRIEF_ENTRY_ROWS) {
     throw new SeedContextLimitError(

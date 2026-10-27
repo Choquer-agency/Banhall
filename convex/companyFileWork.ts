@@ -30,12 +30,9 @@ import { placeholderMapFrom } from "./lib/transcriptPlaceholders";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { placeholderMapValidator } from "./lib/placeholderValidators";
 import { MAX_UPLOAD_BYTES } from "./lib/storage";
-import { companyOtherNames } from "./lib/clients";
+import { companyIdentityNames } from "./lib/clients";
 
 const OFF_THE_LABEL_QUEUE = { labelsDue: undefined, labelsNextAt: undefined } as const;
-/** Live projects whose people a company file's labels hide, newest first, and the rows read to find them. */
-const NAME_PROJECTS = 50;
-const NAME_PROJECT_READ = 1_000;
 
 /** Whether a company file holds read text, reading at most a short text whole. */
 async function companyFileHasReadText(ctx: QueryCtx, file: Doc<"companyFiles">): Promise<boolean> {
@@ -215,36 +212,13 @@ export const failCompanyFileSearchPieces = internalMutation({
 // ─── Labels ─────────────────────────────────────────────────────────────────
 
 /**
- * The names a company file's labels hide: the company's name and its other
- * names, the firm's names, and the people on its newest projects
- * (interviewer, writer, interviewees). Transcripts are not read.
+ * The names a company file's labels hide: the company's name and every name
+ * tied to it (`companyIdentityNames`), and the firm's names. Transcripts are
+ * not read.
  */
 async function companyPlaceholderMap(ctx: QueryCtx, client: Doc<"clients">, texts: readonly string[]) {
-  const people: string[] = [];
-  const organizations = new Set<string>(await companyOtherNames(ctx, client));
-  let live = 0;
-  let read = 0;
-  // Newest first, until 50 live projects or the last one; a company whose
-  // newest projects are mostly being erased is read further, never cut short.
-  for await (const project of ctx.db.query("projects").withIndex("by_clientId", (q) => q.eq("clientId", client._id)).order("desc")) {
-    read += 1;
-    if (read > NAME_PROJECT_READ) {
-      throw new Error(`Read ${NAME_PROJECT_READ} projects without finding ${NAME_PROJECTS} live ones; labels wait so no name goes out unhidden`);
-    }
-    if (project.deletionStartedAt !== undefined) continue;
-    live += 1;
-    for (const name of [project.interviewer, project.writer, ...(project.interviewees ?? [])]) {
-      if (name?.trim()) people.push(name.trim());
-    }
-    if (project.clientName !== client.name) organizations.add(project.clientName);
-    if (live >= NAME_PROJECTS) break;
-  }
-  return await placeholderMapFrom(
-    ctx,
-    { clientName: client.name },
-    [{ people, organizations: [...organizations], phrases: [] }],
-    texts
-  );
+  const { organizations, people } = await companyIdentityNames(ctx, client);
+  return await placeholderMapFrom(ctx, { clientName: client.name }, [{ people, organizations, phrases: [] }], texts);
 }
 
 /** What one label call for a company file reads, or null when it needs none. */

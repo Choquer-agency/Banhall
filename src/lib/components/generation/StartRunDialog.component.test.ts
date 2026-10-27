@@ -355,6 +355,14 @@ describe("activeRunFromError", () => {
   });
 });
 
+describe("StartRunDialog with company files (Phase C)", () => {
+  it("a run with only company files ticked counts as nothing ticked", async () => {
+    const company: StartRunSource = { id: "c1", kind: "companyFile", name: "acme-history.docx", typeLabel: "Company file", meta: "900 words" };
+    await render(StartRunDialog, props({ sources: [SOURCES[0], company], initialExcluded: ["t1"] }));
+    await expect.element(page.getByText("Tick at least one transcript or current file.")).toBeVisible();
+  });
+});
+
 describe("StartRunDialog selection while open (decision 65, stage 2)", () => {
   it("reports the leave-out list as it changes, without confirming", async () => {
     const onSelectionChange = vi.fn();
