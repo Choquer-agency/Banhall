@@ -4861,6 +4861,34 @@ This changes how a draft's start handles one failure, not a workflow stage, tran
 - **Component suite.** `npm run test:component`: 2 of 1,993 tests timed out while the gate and the live copy ran beside it (chat chip hit area, the Seed workspace's thirteen roles); both files pass alone (164 tests).
 - **Approval:** Product owner, 2026-10-28 (chat): "Sure" (answer to question 14).
 
+### 2026-10-28 (third): The Inputs band names the company files a draft could not fit, and the start dialog says they come last (owner)
+
+Found by the F5 stress run (entry "2026-10-27 (thirteenth)"). A draft reads the project's company's files after the project's own, only while all frozen text stays within the frozen total, about 3 MiB. Before this change, a company file that did not fit was not named anywhere, and the start dialog showed it ticked like any other. On a large project the company's files, last year's report among them, could be left out without a word.
+
+The owner's answer to question 15: "Sure but needs to work for any project size". This changes what the writer is shown, not what a draft reads, nor a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - A draft records, at its start, the company files it could read and the writer left ticked, but that did not fit: the first one that would pass the total and every eligible one after it, newest first (`companyFilesLeftOut` on the generation). The ones after the first are not read to find out.
+  - The Inputs band lists them after the company files the draft used, as "not included (not captured)", counted with the documents. A viewer who may not read company files sees none of them, as before. A file removed since is left off.
+  - The start dialog says on every company file "Used if this project's own files leave room", after its word count. It cannot say which ones will fit without reading every file, which is what fails on a large project.
+- **Any project size.** A draft can read at most 12 company files and 600,000 characters of them (`eligibleCompanyFiles`, unchanged), so the record and the band's list stay that small however large the project or the company. The project's own files left out were already listed; when the band cannot read them all it says "Not every document could be listed. The total is a lower bound."
+- **Where.**
+  - `selectCompanyFilesOf` in `convex/lib/briefEvidence.ts`; the reservation and a Summary recovery in `convex/lib/generations/reservation.ts`; `companyFilesLeftOut` in `convex/schema.ts`.
+  - The band: `getContextInclusionHandler` in `convex/lib/generations/inputs.ts` and `assembleContextInclusion` in `convex/lib/contextInclusion.ts`.
+  - The dialog: `COMPANY_FILE_ROOM_NOTE` in `src/lib/components/generation/startRunSources.ts`.
+- **Known limits.**
+  - A draft started before this change records nothing, so its band lists no company files that did not fit.
+  - The New project head start and the Brief prepared ahead freeze the same way but record nothing; the run they hand over to records its own list at its start.
+  - Which company files a draft reads still depends on upload order and room, not on what matters most. Choosing by relevance is question 2 and Phase D.
+- **Migration:** none. One optional field, widened.
+- **Tests:**
+  - `convex/frozenTotal.test.ts`: company files that do not fit are named, newest first; a draft whose own files fill the total records its company files, and the band lists them as not captured.
+  - `convex/companyFileDrafts.test.ts`: the band rows come after the used company files, counted, and hidden from viewers who may not read company files; a draft whose own rows fill the total names the company file it could not read.
+  - `src/lib/components/brief/BriefRailPanel.component.test.ts`: the band says "Company file" and "not included (not captured)".
+  - `src/lib/components/project/ProjectStartDialog.component.test.ts`: the dialog's company file reads "900 words · Used if this project's own files leave room".
+- **Live check (2026-10-28, the F5 live copy).** Pack `_bmad-output/test-artifacts/stress/2026-10-28-company-files`. The 101-file stress project's company was given two company files of 120,000 characters, last year's report and, newer, a background file. A Step by step draft kept the interview and 14 of the project's files; the background file fit, last year's report did not. The draft recorded last year's report as left out, and the band, read through the page's own query, lists it as not captured. The page was not screenshotted: the 101-file page was too slow to drive while the gate ran. $2.04 of AI; $27.41 of the owner's $40 in all.
+- **Approval:** Product owner, 2026-10-28 (chat): "Sure but needs to work for any project size" (answer to question 15).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

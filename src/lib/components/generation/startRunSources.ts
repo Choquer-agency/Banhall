@@ -76,6 +76,13 @@ export type ProjectDocumentRow = {
 export type CompanyFileRow = { _id: string; fileName: string; wordCount: number };
 
 /**
+ * 2026-10-28 (third, owner): a draft reads company files after the
+ * project's own, only while they fit, so a ticked company file may still be
+ * left out. The Inputs band names the ones that were.
+ */
+export const COMPANY_FILE_ROOM_NOTE = "Used if this project's own files leave room";
+
+/**
  * A project's start dialog rows: its transcripts in list order, then its
  * files that are not archived, in SR&ED weight order (oldest first within
  * a category), then its company's files, newest first (Phase C). Archived
@@ -113,7 +120,7 @@ export function projectStartSources(
       kind: "companyFile" as const,
       name: file.fileName,
       typeLabel: "Company file",
-      meta: words(file.wordCount),
+      meta: `${words(file.wordCount)} · ${COMPANY_FILE_ROOM_NOTE}`,
     })),
   ];
 }

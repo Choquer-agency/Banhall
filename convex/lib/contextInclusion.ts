@@ -22,6 +22,8 @@
  * - Company files the draft used (Phase C, 2026-10-26) get rows of their own,
  *   after the documents (`kind: "company"`), counted with the documents;
  *   a viewer who may not read company files gets none of them.
+ * - Company files the draft could read but that did not fit in the frozen
+ *   total (2026-10-28, third) follow them as `not_included`, not captured.
  */
 
 import { sourceInclusion, type SourceInclusion } from "../ai/trustedContext";
@@ -186,6 +188,8 @@ export function recordedInclusion(row: InclusionSourceRow): Inclusion | null {
 export function assembleContextInclusion(input: {
   sources: InclusionSourceRow[];
   unfrozenDocuments: UnfrozenDocument[];
+  /** 2026-10-28 (third): company files the draft could read but did not fit. */
+  unfrozenCompanyFiles?: UnfrozenDocument[];
   fallbackCap: number;
   /** Whether the project-document read behind `unfrozenDocuments` was cut short. */
   documentsTruncated?: boolean;
@@ -272,6 +276,17 @@ export function assembleContextInclusion(input: {
       inclusion: "not_included",
       reason: document.reason,
     });
+  }
+  if (input.showCompanyFiles !== false) {
+    for (const file of input.unfrozenCompanyFiles ?? []) {
+      companyRows.push({
+        key: `company:${file._id}`,
+        kind: "company",
+        label: file.fileName,
+        inclusion: "not_included",
+        reason: file.reason,
+      });
+    }
   }
 
   return {

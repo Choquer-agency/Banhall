@@ -336,6 +336,20 @@ export async function getContextInclusionHandler(
       return [{ _id: document._id, fileName: document.fileName, reason }];
     });
   }
+  // 2026-10-28 (third, owner): the company files the draft could read but
+  // did not fit, as it recorded them at its start (at most
+  // FROZEN_COMPANY_FILES), for a viewer who may read company files. A file
+  // removed since is left off.
+  const showCompanyFiles = hasCapability(access.user.role ?? null, "companyFiles.read");
+  const unfrozenCompanyFiles: UnfrozenDocument[] = [];
+  if (showCompanyFiles) {
+    for (const companyFileId of generation.companyFilesLeftOut ?? []) {
+      const file = await ctx.db.get(companyFileId);
+      if (!file) continue;
+      reads.account(file);
+      unfrozenCompanyFiles.push({ _id: file._id, fileName: file.fileName, reason: "not_captured" });
+    }
+  }
   // Phase D (step 2): what each step sent of each frozen row, after the
   // documents so they keep the budget first; each step read on its own, so
   // one busy step never crowds another out (review).
@@ -370,10 +384,11 @@ export async function getContextInclusionHandler(
       ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
     })),
     unfrozenDocuments,
+    unfrozenCompanyFiles,
     fallbackCap: budget.maxDocuments,
     documentsTruncated,
     sourcesTruncated,
     // Phase C: company file names only for viewers who may read them.
-    showCompanyFiles: hasCapability(access.user.role ?? null, "companyFiles.read"),
+    showCompanyFiles,
   });
 }
