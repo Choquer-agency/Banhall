@@ -8,7 +8,7 @@ The plan is item F5 in `docs/todos/phase-f-scale.md`, and the decision is entry 
 
 ## What passed
 
-Every case passed except two: two drafts started in the same second (3 below), and every check failing at once, which could not be produced live.
+Every case passed except three: two drafts started in the same second (3 below); every check failing at once, which could not be produced live; and a 46-entry Brief, which was not tested (the model's Brief had 10 entries).
 
 | Case | Result |
 |---|---|
@@ -40,7 +40,7 @@ Every case passed except two: two drafts started in the same second (3 below), a
 
    The label call read a refusal as a schema error. It now records "refusal" (9826fea0). Sentences drew no label refusals, so that fix was not seen live.
 
-   On sentences, Haiku 5.5 still refused the Brain search query (`generation:retrieval_brief`) 3 times in 6 (`refusals.json`). A refused query falls back to one built from the project's title and transcript, and logs an error. The Brain is not set up on this copy, so nothing used it here. These refusals count toward the hourly tier check too (5 below).
+   On sentences, Haiku 5.5 still refused the Brain search query (`generation:retrieval_brief`) 3 times in 6 (`refusals.json`). A refused query falls back to one built from the project's title and transcript, and logs an error. The Brain is not set up on this copy, so nothing used it here. These refusals count toward the Haiku tier's own hourly check, which saw 22 failures in 392 calls (about 6 percent, under its 20 percent) and did not move (`tier-check.json`).
 
    On the release fixtures, these features never refused: 0 of 277 labels, 0 of 32 retrieval briefs, 0 of 22 speaker checks.
 2. **No step's first Batch could start on a large project.** The writer saw "Seed context for company_context exceeds the prompt limit", and Retry failed the same way. The draft froze 50 files of 200,000 characters (about 10 MB), past the Seed read budget. The frozen total now comes from that budget (about 3 MiB) and holds a project's own files too (39d3a6b6). After the fix, the same project froze 14 files and went to a report.
@@ -50,7 +50,7 @@ Every case passed except two: two drafts started in the same second (3 below), a
    - The error says the limit depends on the deployment's size, so cloud deployments likely have one too. That was not checked.
    - **Proposed:** retry a start's writes briefly when the rate limit refuses them.
 4. **The Brief prepared ahead could not be taken up.** On the 10 MB draft, `adoptPreparedBrief` read past a transaction's 16 MiB, and the draft made its own Brief ($0.55 more). This was not seen after fix 2.
-5. **The Sonnet tier moved back on its own.** The hourly production error check moved Sonnet 5.5 back to Sonnet 5 at 04:15 UTC: 12 of 55 calls had failed in the last day (22 percent; the limit is 20 percent with at least 20 calls). The failures were mostly the refused Briefs from 1 and two Seed answers that failed validation. The two drafts started at 04:19 ran on Sonnet 5.
+5. **The Sonnet tier moved back on its own.** The hourly production error check moved Sonnet 5.5 back to Sonnet 5 at 04:15 UTC. Sonnet 5.5's hourly counts hold 12 failures in 55 calls (`tier-check.json`, read at 04:50; the one Sonnet 5.5 call after 04:15 was the readiness check at 04:23), so the check saw 12 in 54 or 55, about 22 percent; the limit is 20 percent with at least 20 calls. The failures were mostly the refused Briefs from 1 and two Seed answers that failed validation. The two drafts started at 04:19 ran on Sonnet 5.
    - So one project's content can move every writer's tier back for 7 days on a quiet deployment.
    - The copy was put back on Sonnet 5.5 with `allowTrackModelAgain` and the weekly check.
    - **Question for the owner:** which failures should count.

@@ -1,0 +1,73 @@
+{
+  "buckets": [
+    {
+      "failures": 2,
+      "hour": "2026-10-28T04:00:00.000Z",
+      "lastFailureCallSite": "generation:seeds:specific_advancements",
+      "lastFailureCode": "invalid_output",
+      "model": "claude-sonnet-5-5",
+      "successes": 30
+    },
+    {
+      "failures": 0,
+      "hour": "2026-10-28T04:00:00.000Z",
+      "lastFailureCallSite": null,
+      "lastFailureCode": null,
+      "model": "claude-haiku-5-5",
+      "successes": 156
+    },
+    {
+      "failures": 8,
+      "hour": "2026-10-28T03:00:00.000Z",
+      "lastFailureCallSite": "generation:seeds:company_context",
+      "lastFailureCode": "invalid_output",
+      "model": "claude-sonnet-5-5",
+      "successes": 13
+    },
+    {
+      "failures": 17,
+      "hour": "2026-10-28T03:00:00.000Z",
+      "lastFailureCallSite": "file_labels",
+      "lastFailureCode": "invalid_output",
+      "model": "claude-haiku-5-5",
+      "successes": 163
+    },
+    {
+      "failures": 2,
+      "hour": "2026-10-28T02:00:00.000Z",
+      "lastFailureCallSite": "preparation:brief",
+      "lastFailureCode": "no_tool_output",
+      "model": "claude-sonnet-5-5",
+      "successes": 0
+    },
+    {
+      "failures": 5,
+      "hour": "2026-10-28T02:00:00.000Z",
+      "lastFailureCallSite": "file_labels",
+      "lastFailureCode": "invalid_output",
+      "model": "claude-haiku-5-5",
+      "successes": 51
+    }
+  ],
+  "readAt": "2026-10-28T04:50:47.496Z",
+  "tracks": [
+    {
+      "lastCheckNote": "Moved to Sonnet 5.5.",
+      "lastCheckedAt": "2026-10-28T04:23:25.099Z",
+      "modelId": "claude-sonnet-5-5",
+      "previousModelId": "claude-sonnet-5",
+      "rolledBackFrom": [],
+      "switchedAt": "2026-10-28T04:23:25.099Z",
+      "track": "claude-sonnet"
+    },
+    {
+      "lastCheckNote": "Up to date on Haiku 5.5.",
+      "lastCheckedAt": "2026-10-28T04:23:23.950Z",
+      "modelId": "claude-haiku-5-5",
+      "previousModelId": "claude-haiku-4-5-20251001",
+      "rolledBackFrom": [],
+      "switchedAt": "2026-10-22T10:14:21.562Z",
+      "track": "claude-haiku"
+    }
+  ]
+}

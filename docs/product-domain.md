@@ -4776,7 +4776,8 @@ This changes a documented limit, not a workflow stage, transition or permission;
     - the rule names how company files fill what is left;
     - the 12 MB Inputs band test is kept for older drafts;
     - the generator's header comment is corrected.
-  - **Round 2.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; the code and tests held. The run's record claimed more than its files showed: the Brain search query still refused on sentences, the pass rule was not met for two drafts in the same second, and some figures had no file behind them. Corrected in the next commit.
+  - **Round 2.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; the code and tests held. The run's record claimed more than its files showed: the Brain search query still refused on sentences, the pass rule was not met for two drafts in the same second, and some figures had no file behind them. Corrected in c62d138d.
+  - **Round 3.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points, made in the commit that records this round. The Brain search query's refusals count toward the Haiku tier, whose check saw about 6 percent and did not move.
   - **Left:** the extra read of the one file that does not fit (at most 200,000 characters) is kept. A Word file's frozen text is shorter than its stored text, so its length cannot be checked first.
 - **Approval:** lead, under the owner's direction for the stress run; listed for the owner's confirmation.
 

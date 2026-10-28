@@ -929,7 +929,7 @@ What changes:
   - two drafts at once (side by side when started 20 s apart; both failed on the write rate when started in the same second, question 14);
   - 100 files (101 uploads in 10.8 s, search pieces and labels in 534 s, the Inputs band listing all 101).
 
-  Every check failing at once could not be produced live, since the facts check counts the writer's own wording as supported, and the model's Brief had 10 entries, not 46.
+  Every check failing at once could not be produced live, since the facts check counts the writer's own wording as supported. A 46-entry Brief was not tested: the model's Brief had 10 entries.
 
 ## F5 findings: what a draft freezes, and refused file labels
 
@@ -947,7 +947,9 @@ What changes:
 - [x] Full gate (8,173 unit tests) on 39d3a6b6.
 - [x] Code review, round 1 (9826fea0, 6673a1ce, 39d3a6b6): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in 42de4b30.
 - [x] Full gate (8,176 unit tests) on the round 1 fixes (42de4b30).
-- [x] Round 2 (42de4b30, 1163f9a1): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the code and tests held; the run's record claimed more than its files showed, corrected in the next commit.
+- [x] Round 2 (42de4b30, 1163f9a1): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the code and tests held; the run's record claimed more than its files showed, corrected in c62d138d.
+- [x] Full gate (8,176 unit tests) on c62d138d.
+- [x] Round 3 (c62d138d): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points (the Brain search query's refusals count toward the Haiku tier, which did not move; "except three"; the 12 of 55 now in `tier-check.json`; one sentence split), made in the commit that records this round.
 
 ### Automated, live on localhost
 
