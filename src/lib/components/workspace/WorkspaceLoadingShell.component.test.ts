@@ -10,6 +10,7 @@ import MyWorkPage from "../../../routes/my-work/+page.svelte";
 import ProjectsPage from "../../../routes/projects/+page.svelte";
 import SettingsLayout from "../../../routes/settings/+layout.svelte";
 import AccountPage from "../../../routes/settings/account/+page.svelte";
+import LoadingShell from "./WorkspaceLoadingShell.svelte";
 
 vi.mock("$lib/authClient", () => ({
   authClient: {
@@ -20,13 +21,15 @@ vi.mock("$lib/authClient", () => ({
 }));
 
 /**
- * Lead direction 2026-09-28: while a round 2 page loads (the session check,
- * the rollout decision, the page's own first data), the rail and a top bar
- * render at once and the panel shows a quiet skeleton of the page's layout.
- * Never a lone centred spinner or "Loading" text.
+ * Lead direction 2026-09-28, in the page frame of 2026-10-28: while a page
+ * loads (the session check, the rollout decision, the page's own first data),
+ * the global bar, the rail, the card with the page's section sidebar and its
+ * top bar render at once, and the rest shows a quiet skeleton of the page's
+ * layout. Never a lone centred spinner or "Loading" text.
  */
 const spinner = () => document.querySelector(".animate-spin");
-const rail = () => document.querySelector<HTMLElement>('#workspace-rail nav[aria-label="Workspace"]');
+const rail = () => document.querySelector<HTMLElement>('[data-frame-rail]');
+const sidebar = (section: string) => document.querySelector<HTMLElement>(`[data-section-sidebar="${section}"]`);
 const topBarTitle = () => document.querySelector<HTMLElement>("[data-workspace-page-header] h1")?.textContent?.trim();
 const skeleton = (layout: string) => document.querySelector<HTMLElement>(`[data-panel-skeleton="${layout}"]`);
 const child = createRawSnippet(() => ({ render: () => "<p data-settings-child>Section</p>" }));
@@ -52,21 +55,24 @@ describe("round 2 loading shell", () => {
     await browserPage.viewport(1440, 900);
   });
 
-  it("Home: the rail and the Home top bar at once, table rows in the panel, during the session check and the decision", async () => {
+  it("Home: the rail, the Projects sidebar with Home marked and the Home top bar at once, table rows in the card, during the session check and the decision", async () => {
     __setPageUrl("/my-work");
     __setAuthState({ isLoading: true, isAuthenticated: false });
     await render(MyWorkPage, {});
 
     await expect.poll(() => document.querySelector('[data-workspace-gate-pending="auth"]')).not.toBeNull();
     expect(rail()).not.toBeNull();
-    expect(rail()!.querySelector('[data-rail-item="home"]')?.getAttribute("aria-current")).toBe("page");
+    expect(document.querySelector("[data-global-bar]")).not.toBeNull();
+    // Home sits under Projects on the rail, and is the sidebar's marked row.
+    expect(rail()!.querySelector('[data-rail-item="projects"]')?.getAttribute("aria-current")).toBe("page");
+    expect(sidebar("projects")!.querySelector("[data-projects-sidebar-home]")?.getAttribute("aria-current")).toBe("page");
     expect(topBarTitle()).toBe("Home");
     // The standard top bar (2026-10-19) draws no page tile.
     expect(document.querySelector("[data-workspace-page-header] [data-page-icon-tile]")).toBeNull();
     expectQuietSkeleton("home", 5);
     expect(skeleton("home")!.getAttribute("aria-label")).toBe("Checking your session");
-    // Rail v3: the collapse control already sits in the rail.
-    expect(rail()!.querySelector("[data-rail-toggle]")).not.toBeNull();
+    // The sidebar's collapse button is there from the first frame.
+    expect(sidebar("projects")!.querySelector("[data-section-sidebar-toggle]")).not.toBeNull();
 
     __setAuthState({ isLoading: false, isAuthenticated: true });
     await expect.poll(() => document.querySelector('[data-workspace-gate-pending="decision"]')).not.toBeNull();
@@ -81,12 +87,13 @@ describe("round 2 loading shell", () => {
 
     await expect.poll(() => document.querySelector('[data-workspace-gate-pending="decision"]')).not.toBeNull();
     expect(rail()!.querySelector('[data-rail-item="projects"]')?.getAttribute("aria-current")).toBe("page");
+    expect(sidebar("projects")!.querySelector('[data-client-row="all"]')?.getAttribute("aria-current")).toBe("page");
     expect(topBarTitle()).toBe("Projects");
     expect(getComputedStyle(document.querySelector("[data-workspace-page-header] h1")!).fontWeight).toBe("500");
     expectQuietSkeleton("projects", 6);
   });
 
-  it("Settings: the Settings bar and form blocks capped at 40rem while the session loads", async () => {
+  it("Settings: the Settings sidebar, the Settings bar and form blocks capped at 40rem while the session loads", async () => {
     __setPageUrl("/settings/account");
     __setAuthState({ isLoading: true, isAuthenticated: false });
     await browserPage.viewport(2560, 1440);
@@ -95,6 +102,7 @@ describe("round 2 loading shell", () => {
     await expect.poll(() => skeleton("form")).not.toBeNull();
     expect(rail()).not.toBeNull();
     expect(topBarTitle()).toBe("Settings");
+    expect(sidebar("settings")!.querySelector('[data-settings-sidebar="account"]')?.getAttribute("aria-current")).toBe("page");
     expectQuietSkeleton("form", 4);
     // 40rem: 640px at a 16px root, 800px at 2560 where the root is 20px.
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
@@ -108,6 +116,18 @@ describe("round 2 loading shell", () => {
     await expect.poll(() => skeleton("fields")).not.toBeNull();
     expectQuietSkeleton("fields", 4);
     expect(skeleton("fields")!.getAttribute("aria-label")).toBe("Loading your account");
+  });
+
+  it("a project page loads in the card with no sidebar and the project bar's back button", async () => {
+    __setPageUrl("/project/p1");
+    __setAuthState({ isLoading: true, isAuthenticated: false });
+    await render(LoadingShell, { layout: "project", title: "Adaptive cold storage controls", label: "Loading report workspace" });
+    await expect.poll(() => skeleton("project")).not.toBeNull();
+    expect(document.querySelector("[data-section-sidebar]")).toBeNull();
+    const bar = document.querySelector<HTMLElement>("[data-project-top-bar]")!;
+    expect(bar.closest("[data-frame-card]")).not.toBeNull();
+    expect(bar.querySelector("[data-top-bar-back]")?.getAttribute("href")).toBe("/projects");
+    expect(bar.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
   });
 
   it("a signed-out visitor on the way to sign in gets the plain canvas, no workspace", async () => {

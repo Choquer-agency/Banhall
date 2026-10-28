@@ -12,19 +12,19 @@ import {
   __setQueryData,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { RECENT_PROJECTS_KEY } from "$lib/workspace/recentProjects";
-import { RAIL_PREFERENCES_KEY } from "$lib/workspace/railPreferences";
+import { SECTION_SIDEBAR_KEY, reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 import { board } from "$lib/test/boardScale";
 
 /**
  * Home inside the workspace shell (ui-design-final.md section 9, boards 1.1
  * and 1.2; replaces the 2026-08-13 composer layout):
- * - Home owns one top bar ("Home", greeting, bell, New project)
- *   and one bordered panel that scrolls on its own; the shell never grows.
+ * - Home sits in the page frame's white card (owner, 2026-10-28) with the
+ *   Projects sidebar (Home marked, New project) and one top bar ("Home",
+ *   greeting); its content scrolls on its own and the shell never grows.
  * - "Recently opened" is fed by the browser-local recents list, read live
  *   through myWork.listRecentProjects.
- * - Collapsed, the rail keeps its icons and its own expand control
- *   (Rail v3, board Z11d).
- * - The workspace rail's Home row is exactly ONE focus stop (the link).
+ * - Mod \ collapses the sidebar; the bar's expand button brings it back.
+ * - The drawer's Home row is exactly ONE focus stop (the link).
  */
 function itemRow(id: string) {
   return {
@@ -64,13 +64,11 @@ function seedHome() {
 }
 
 const railProps = (overrides: Record<string, unknown> = {}) => ({
-  variant: "rail" as const,
+  variant: "drawer" as const,
   displayedView: "my_work" as const,
   myWorkAvailable: true,
   myWorkHref: "/my-work",
   projectsHref: "/projects",
-  currentDashboardHref: "/dashboard?workspace=current",
-  recentProjects: [],
   onFocusSearch: () => {},
   ...overrides,
 });
@@ -78,13 +76,14 @@ const railProps = (overrides: Record<string, unknown> = {}) => ({
 describe("Home in the workspace shell", () => {
   beforeEach(() => {
     localStorage.clear();
+    reloadSectionSidebar();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
     document.body.innerHTML = "";
   });
 
-  it("gives Home one top bar and one panel that owns the scroll inside the viewport-bound shell", async () => {
+  it("gives Home one top bar in the card and content that owns the scroll inside the viewport-bound shell", async () => {
     __setPageUrl("/my-work");
     seedHome();
     await browserPage.viewport(1440, 900);
@@ -96,6 +95,10 @@ describe("Home in the workspace shell", () => {
     const headers = document.querySelectorAll("[data-workspace-page-header]");
     expect(headers).toHaveLength(1);
     expect(headers[0].querySelector("h1")?.textContent).toBe("Home");
+    // The page frame: the card holds the Projects sidebar and the page.
+    const card = document.querySelector<HTMLElement>("[data-home][data-frame-card]")!;
+    expect(card.contains(headers[0])).toBe(true);
+    expect(card.querySelector('[data-section-sidebar="projects"]')).not.toBeNull();
     const panel = document.querySelector<HTMLElement>("[data-home-panel]")!;
     expect(getComputedStyle(panel).overflowY).toBe("auto");
     expect(panel.querySelector('[data-home-table="home-with-you"]')).not.toBeNull();
@@ -139,114 +142,71 @@ describe("Home in the workspace shell", () => {
     expect(document.querySelector('[data-home-table="home-recent"]')?.textContent).toContain("Recently opened");
   });
 
-  it("keeps New project on Home's top bar and off the rail", async () => {
+  it("puts New project in Home's sidebar, off the rail, and the bar's copy below 768px only", async () => {
     __setPageUrl("/my-work");
     seedHome();
+    await browserPage.viewport(1440, 900);
     await render(WorkspaceDashboard, { view: "my_work" });
 
-    await expect.poll(() => document.querySelector("[data-home-new-project]")).not.toBeNull();
-    expect(document.querySelector('[data-home-top-bar] a[href="/project/new"]')).not.toBeNull();
-    expect(document.querySelectorAll('nav a[href="/project/new"]').length).toBe(0);
+    await expect.poll(() => document.querySelector('[data-section-sidebar="projects"] [data-section-sidebar-action]')).not.toBeNull();
+    expect(document.querySelector('[data-section-sidebar="projects"] a[href="/project/new"]')?.textContent?.trim()).toBe("New project");
+    expect(document.querySelectorAll('[data-frame-rail] a[href="/project/new"]').length).toBe(0);
+    expect(document.querySelector<HTMLElement>("[data-home] [data-top-bar-primary]")!.getBoundingClientRect().width).toBe(0);
     expect(document.querySelector("[data-workspace-toolbar]")).toBeNull();
   });
 
-  it("keeps mobile navigation reachable from Home's top bar", async () => {
+  it("keeps mobile navigation reachable from Home's top bar, with New project there", async () => {
     __setPageUrl("/my-work");
     seedHome();
     await browserPage.viewport(390, 844);
     await render(WorkspaceDashboard, { view: "my_work" });
 
     await expect
-      .poll(() => document.querySelector('[data-home-top-bar] button[aria-label="Open workspace navigation"]'))
+      .poll(() => document.querySelector('[data-home] [data-page-top-bar] button[aria-label="Open workspace navigation"]'))
       .not.toBeNull();
+    expect(document.querySelector<HTMLElement>("[data-home] [data-top-bar-primary]")!.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(document.querySelector<HTMLElement>('[data-section-sidebar-slot="projects"]')!.getBoundingClientRect().width).toBe(0);
   });
 
-  it.each([
-    ["expanded", false, "collapse"],
-    ["collapsed", true, "expand"],
-  ])("Rail v3: the collapse control lives in the rail, not Home's top bar, while %s (owner, 2026-10-19)", async (_state, hidden, direction) => {
-    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden }));
+  it("Mod \\ collapses Home's sidebar, the bar leads with the expand button, and the choice is saved (owner answer 4)", async () => {
     __setPageUrl("/my-work");
     seedHome();
     await browserPage.viewport(1440, 900);
     await render(WorkspaceDashboard, { view: "my_work" });
-
-    await expect.poll(() => document.querySelector("[data-home-top-bar]")).not.toBeNull();
-    expect(document.querySelector("nav[data-rail-collapsed]") !== null).toBe(hidden);
-    expect(document.querySelector("[data-home-top-bar] [data-rail-toggle]")).toBeNull();
-    const toggles = document.querySelectorAll<HTMLButtonElement>("#workspace-rail [data-rail-toggle]");
-    expect(toggles).toHaveLength(1);
-    const toggle = toggles[0];
-    expect(toggle.dataset.railDirection).toBe(direction);
-    expect(toggle.getAttribute("aria-expanded")).toBe(String(!hidden));
-    if (!hidden) expect(toggle.closest("[data-rail-header]")).not.toBeNull();
-    // The bar leads with the title: no page tile.
-    const bar = document.querySelector<HTMLElement>("[data-home-top-bar]")!;
+    await expect.poll(() => document.querySelector("[data-section-sidebar-toggle]")).not.toBeNull();
+    const bar = document.querySelector<HTMLElement>("[data-home] [data-page-top-bar]")!;
+    const visible = () =>
+      [...bar.querySelectorAll<HTMLElement>("button, a, h1")].filter((element) => element.getClientRects().length > 0 && element.getBoundingClientRect().width > 0);
+    // Expanded: the bar leads with the title, no page tile.
+    expect(visible()[0]).toBe(bar.querySelector("h1"));
     expect(bar.querySelector("[data-home-page-icon]")).toBeNull();
-    const visible = [...bar.querySelectorAll<HTMLElement>("button, a, h1")].filter(
-      (element) => element.getClientRects().length > 0
-    );
-    expect(visible[0]).toBe(bar.querySelector("h1"));
-    // Clicking it flips the rail and the control, and the choice is saved.
-    toggle.click();
-    await expect.poll(() => document.querySelector<HTMLElement>("#workspace-rail [data-rail-toggle]")?.dataset.railDirection)
-      .toBe(direction === "collapse" ? "expand" : "collapse");
-    expect(JSON.parse(localStorage.getItem(RAIL_PREFERENCES_KEY)!).hidden).toBe(!hidden);
-  });
-
-  it("toggles the rail with the existing shortcut and shows the hint in the rail control's tooltip", async () => {
-    __setPageUrl("/my-work");
-    seedHome();
-    await browserPage.viewport(1440, 900);
-    await render(WorkspaceDashboard, { view: "my_work" });
-    await expect.poll(() => document.querySelector("[data-rail-toggle]")).not.toBeNull();
 
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "\\", metaKey: true, ctrlKey: true, bubbles: true }));
-    await expect.poll(() => document.querySelector<HTMLElement>("[data-rail-toggle]")?.dataset.railDirection).toBe("expand");
-    expect(document.querySelector("nav[data-rail-collapsed]")).not.toBeNull();
-
-    const toggle = document.querySelector<HTMLButtonElement>("[data-rail-toggle]")!;
-    toggle.focus();
+    await expect.poll(() => document.querySelector("[data-section-sidebar-slot]")?.hasAttribute("data-collapsed")).toBe(true);
+    expect(JSON.parse(localStorage.getItem(SECTION_SIDEBAR_KEY)!)).toEqual({ collapsed: true });
+    await expect.poll(() => visible()[0]?.hasAttribute("data-section-sidebar-expand")).toBe(true);
+    const expand = bar.querySelector<HTMLButtonElement>("[data-section-sidebar-expand]")!;
+    expand.focus();
     await expect.poll(() => document.querySelector("[data-tooltip-hint]")?.textContent).toBeTruthy();
-    expect(document.body.textContent).toContain("Expand the rail");
+    expect(document.body.textContent).toContain("Show the sidebar");
+    expand.click();
+    await expect.poll(() => document.querySelector("[data-section-sidebar-slot]")?.hasAttribute("data-collapsed")).toBe(false);
   });
 
-  it("Z11d: the collapsed rail shows only the B tile as its mark and Home has no checkboxes", async () => {
-    localStorage.setItem(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
-    __setPageUrl("/my-work");
-    seedHome();
-    __setPaginatedRows("myWork:listAssignedToMe", [
-      { ...itemRow("a1"), projectTitle: "Low-temperature composite bonding", clientName: "Meridian Materials", workflowStage: "internal_review" },
-      { ...itemRow("a2"), projectTitle: "Adaptive cold storage controls", clientName: "Cedarline Systems" },
-      { ...itemRow("a3"), projectTitle: "Adaptive irrigation sensors", clientName: "Alder Research", workflowStage: "revisions" },
-    ]);
-    await browserPage.viewport(1440, 900);
-    const screen = await render(WorkspaceDashboard, { view: "my_work" });
-    screen.container.style.cssText = "display:flex;flex-direction:column;min-height:100vh;";
-
-    await expect.poll(() => document.querySelectorAll('[data-home-table="home-with-you"] tbody tr').length).toBe(3);
-    const rail = document.querySelector<HTMLElement>("nav[data-rail-collapsed]")!;
-    expect(rail.querySelector("svg[data-logo-mark], img")).toBeNull();
-    expect(rail.querySelector('[data-banhall-rail-mark="collapsed"] [data-rail-brand-tile]')?.textContent).toBe("B");
-    const home = document.querySelector<HTMLElement>("[data-home-panel]")!;
-    expect(home.querySelector('input[type="checkbox"], [role="checkbox"]')).toBeNull();
-    expect(home.querySelector('[data-home-table="home-with-you"] [data-home-column-header]')!.children).toHaveLength(4);
-    await browserPage.screenshot({ path: "../../../../.vitest-attachments/decisions-home-logo/a4-collapsed-rail-home.png" });
-  });
-
-  it("shows the Rail v3 identity: name, role and the account menu, no sign-out icon or Flag issue row", async () => {
+  it("the frame's rail and global bar replace the old rail identity: the account menu sits behind the name in the global bar", async () => {
     __setPageUrl("/my-work");
     seedHome();
     __setQueryData("users:getCurrentUser", { _id: "u-1", firstName: "Olivia", lastName: "Owner", role: "writer" });
     await browserPage.viewport(1440, 900);
     await render(WorkspaceDashboard, { view: "my_work" });
-    await expect.poll(() => document.querySelector("nav [data-rail-identity] [data-rail-identity-role]")?.textContent).toBe("Consultant");
-    const identity = document.querySelector<HTMLElement>("nav [data-rail-identity]")!;
-    expect(identity.tagName).toBe("BUTTON");
-    expect(identity.getAttribute("aria-haspopup")).toBe("menu");
-    expect(document.querySelector('nav button[aria-label="Sign out"]')).toBeNull();
-    expect(document.querySelector("nav [data-rail-flag-issue]")).toBeNull();
-    expect(document.querySelector("nav [data-workspace-escape]")).toBeNull();
+    await expect.poll(() => document.querySelector("[data-global-bar-account-name]")?.textContent).toBe("Olivia Owner");
+    const account = document.querySelector<HTMLElement>("[data-global-bar-account]")!;
+    expect(account.tagName).toBe("BUTTON");
+    expect(account.getAttribute("aria-haspopup")).toBe("menu");
+    expect(document.querySelector("[data-frame-rail] [data-rail-identity]")).toBeNull();
+    expect(document.querySelector('[data-frame-rail] button[aria-label="Sign out"]')).toBeNull();
+    // Home has no checkboxes.
+    expect(document.querySelector('[data-home-panel] input[type="checkbox"], [data-home-panel] [role="checkbox"]')).toBeNull();
   });
 
   it("keeps the rail's Home row a single focus stop - the link itself, no focusable wrapper", async () => {
