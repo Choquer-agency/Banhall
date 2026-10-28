@@ -346,6 +346,22 @@ async function ensureModelRegistered(
 }
 
 /**
+ * A decline that arrives as an error instead of a stop reason (review,
+ * 2026-10-28): a moderation flag (the words normalizeProviderError reads as
+ * content moderation), or Anthropic's "Output blocked by content filtering
+ * policy". It comes from the content, like a refusal, so it is not counted.
+ */
+function isContentDeclineError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("moderation") ||
+    message.includes("flagged") ||
+    message.includes("content filtering policy")
+  );
+}
+
+/**
  * The failure codes the production error-rate rollback counts: the model
  * returned something unusable or failed in a way nobody has classified.
  * Billing, auth, rate limits and network faults say nothing about the model
@@ -368,7 +384,7 @@ export function modelFaultCode(error: unknown): string | null {
   // unknown value, a missing OpenRouter key, a model without an OpenRouter
   // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
   if (isTransportConfigurationError(error)) return null;
-  if (error instanceof RefusalOutputError) return null;
+  if (error instanceof RefusalOutputError || isContentDeclineError(error)) return null;
   // A cut-off is `output_limit` on both gateways: OpenRouter throws it
   // inside the request (cutoff review P3-1).
   if (error instanceof OutputLimitError) return "output_limit";

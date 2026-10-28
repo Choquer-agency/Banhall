@@ -16,7 +16,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { clientForRole, normalizeProviderError } from "./providers";
 import { startActionDeadline } from "./actionDeadline";
-import { isCutOffStopReason } from "./openrouterCore";
+import { RefusalOutputError, isCutOffStopReason, isRefusalStopReason } from "./openrouterCore";
 import { dropPlaceholderTokens, pseudonymize, restorePlaceholders } from "../lib/deidentify";
 import {
   FILE_DOCUMENT_TYPES,
@@ -162,7 +162,8 @@ async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"
   // tries on generated text and most second tries went through, so a
   // refusal is named and tried again later like any failed try. It records
   // no model outcome (owner, 2026-10-28; providers.ts recordedRequest).
-  if (response.stop_reason === "refusal") {
+  // Either gateway: Anthropic's "refusal", OpenRouter's "content_filter".
+  if (isRefusalStopReason(response.stop_reason)) {
     throw new LabelAnswerError("refusal", "The model declined to label this file");
   }
   const call = response.content.find((block) => block.type === "tool_use" && "name" in block && block.name === TOOL_NAME);
@@ -191,6 +192,8 @@ async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"
 /** A failure as the queue records it. */
 function failureReason(error: unknown): string {
   if (error instanceof LabelAnswerError) return `${error.code}: ${error.message}`.slice(0, 300);
+  // An empty refused OpenRouter answer is thrown before it reaches the check above.
+  if (error instanceof RefusalOutputError) return "refusal: The model declined to label this file";
   const normalized = normalizeProviderError(error);
   return `${normalized.code}: ${normalized.message}`.slice(0, 300);
 }

@@ -609,7 +609,8 @@ export function fromChatCompletions(
   }
   if (content.length === 0) {
     if (isRefusalStopReason(choice.finish_reason)) {
-      throw new RefusalOutputError("OpenRouter returned an empty completion: the model declined to answer");
+      // The same words as any empty answer: the repair prompt quotes them.
+      throw new RefusalOutputError("OpenRouter returned an empty completion");
     }
     throw new MalformedOutputError("OpenRouter returned an empty completion");
   }

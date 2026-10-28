@@ -4795,24 +4795,28 @@ Found by the F5 stress run (entry above). The hourly production error check move
 
 This changes how the 2026-10-22 (second) and 2026-10-23 entries count calls, not a workflow stage, transition or permission. No AI tool writes report prose.
 
-- **Rule.** An answer the model declines records no outcome on any path. That covers Anthropic's stop reason "refusal" and OpenRouter's finish reason "content_filter". A refused answer is neither a failure nor a success, so it is left out of both numbers. Everything else counts as before, including:
+- **Rule.** An answer the model declines records no outcome on any path. That covers Anthropic's stop reason "refusal", OpenRouter's finish reason "content_filter", and a decline that comes back as an error instead: a moderation flag, or Anthropic's "Output blocked by content filtering policy". A refused answer is neither a failure nor a success, so it is left out of both numbers. Everything else counts as before, including:
   - answers that cannot be used, or fail our own answer checks;
   - failures nobody has classified;
   - overloaded answers after every retry.
 
   The rule itself is unchanged: more than 20 percent of at least 20 calls, over the last day or since the move, within 7 days of the move.
 - **Where.**
-  - `recordedRequest` and `modelFaultCode` in `convex/ai/providers.ts`.
-  - `isRefusalStopReason` and `RefusalOutputError` in `convex/ai/openrouterCore.ts`. An empty refused OpenRouter answer still spends the structured repair, as an empty answer does, but records nothing.
-- **What stays visible.** Each AI call's usage row keeps its stop reason, and a refused file label still says "refusal" on the file.
+  - `recordedRequest`, `modelFaultCode` and `isContentDeclineError` in `convex/ai/providers.ts`.
+  - `isRefusalStopReason` and `RefusalOutputError` in `convex/ai/openrouterCore.ts`. An empty refused OpenRouter answer still spends the structured repair, with the same words as an empty answer, but records nothing.
+- **What stays visible.** Each AI call's usage row keeps its stop reason, and a refused file label says "refusal" on the file, on either gateway.
 - **Known limits.**
   - A refused answer still spends its step's repair attempt and its cost.
   - A step whose every try is refused still fails for the writer, as before.
   - Our own answer checks still count. The owner's answer covered refusals only.
+  - A model version that refuses most requests is never moved back on its own, and past its 7 days no admin notice says so either. Its refusals show only on the usage rows.
+  - Found in review, as before this change: a refusal partway through an answer is still taken as a finished answer when what came back passes its checks. Treating it like a cut-off answer (spend the repair, then fail) is a follow-up.
 - **Migration:** none. No schema change; past hourly counts stay as they are.
 - **Tests:**
-  - `convex/ai/modelRouting.test.ts`: 5 refused answers in 20 record nothing and the tier stays, where 5 malformed ones move it back. A refusal with words but no tool call records nothing. An Anthropic refusal records nothing on a plain or a deferred request.
+  - `convex/ai/modelRouting.test.ts`: 5 refused answers in 20 record nothing and the tier stays, where 5 malformed ones move it back. A refusal with words but no tool call records nothing, and neither does a decline that comes back as an error. An Anthropic refusal records nothing on a plain or a deferred request.
+  - `convex/ai/openrouterCore.test.ts`: an empty refused OpenRouter answer is a refusal, with the same words as an empty answer.
   - `convex/ai/fileLabels.sdk.test.ts`: a refused label leaves the model's count empty.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes", every finding P3. Done: declines that come back as errors, the label on the OpenRouter gateway, the repair's words, and the two known limits above.
 - **Approval:** Product owner, 2026-10-28 (chat): "No refusals" (answer to question 13).
 
 ## Amendment process

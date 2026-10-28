@@ -585,6 +585,24 @@ describe("owner, 2026-10-28: a refusal never counts against the model", () => {
     vi.useRealTimers();
   });
 
+  it("a decline that arrives as an error records nothing either (review, 2026-10-28)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    for (const message of ["Your input was flagged by moderation", "Output blocked by content filtering policy"]) {
+      reply = () => Response.json({ error: { message } }, { status: 400 });
+      await t.action(async (ctx) => {
+        await expect(
+          clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "routing-test" }).messages.create(
+            toolParams("openai/gpt-5.6-sol")
+          )
+        ).rejects.toThrow();
+      });
+    }
+    await drain(t);
+    expect(await buckets(t)).toEqual([]);
+    vi.useRealTimers();
+  });
+
   it("an Anthropic refusal records nothing on a plain or a deferred request; any other answer still does", async () => {
     const recorded: unknown[] = [];
     const ctx = {
