@@ -61,6 +61,14 @@ describe("FrameRail", () => {
     expect(item("companies")!.getAttribute("href")).toBe("/projects");
   });
 
+  it("Companies keeps the page's own query but drops a selected company (review round 1, finding 9)", async () => {
+    seed("consultant");
+    await render(FrameRail, { projectsHref: "/projects?layout=list&client=acme" });
+    await expect.poll(() => item("companies")).not.toBeNull();
+    expect(item("projects")!.getAttribute("href")).toBe("/projects?layout=list&client=acme");
+    expect(item("companies")!.getAttribute("href")).toBe("/projects?layout=list");
+  });
+
   it("a developer Consultant gets no Admin and no developer rows (they sit in the Admin sidebar)", async () => {
     seed("developerConsultant");
     await render(FrameRail, { projectsHref: "/projects" });

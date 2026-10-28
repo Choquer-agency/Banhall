@@ -33,8 +33,9 @@
       viewer,
       {
         projectsHref,
-        // No Companies page yet: the company list on the Projects page.
-        companiesHref: resolve("/projects"),
+        // No Companies page yet: the company list on the Projects page, with
+        // the page's own query kept (no company selected).
+        companiesHref: companiesHref(projectsHref),
         teamHref: `${resolve("/")}team`,
         adminHref: resolve(ADMIN_LANDING_PATH as "/"),
         settingsHref: resolve("/settings"),
@@ -43,6 +44,15 @@
     )
   );
   const selected = $derived(selectedFrameRailItem(page.url.pathname));
+
+  /** Projects' link with any selected company dropped, so Companies opens the list. */
+  function companiesHref(href: string): string {
+    const [path, query = ""] = href.split("?");
+    const params = new URLSearchParams(query);
+    params.delete("client");
+    const search = params.toString();
+    return search ? `${path}?${search}` : path;
+  }
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";

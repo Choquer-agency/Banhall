@@ -52,14 +52,18 @@ export function setSectionSidebarCollapsed(collapsed: boolean): void {
   }
 }
 
+/** Section sidebars show from 768px (`md`); below that none is on screen. */
+export const SECTION_SIDEBAR_MEDIA = "(min-width: 48rem)";
+
 /**
- * Collapse or expand the section sidebar. Returns false when the page has
- * none (the project page, New project), so the choice never changes out of
- * sight. When focus was in the sidebar or on the expand button, it moves to
+ * Collapse or expand the section sidebar. Returns false when none is on
+ * screen (the project page, New project, or any page below 768px, where the
+ * sidebars are hidden), so the choice never changes out of sight. When focus was in the sidebar or on the expand button, it moves to
  * the control in its new place, since the old one goes away.
  */
 export function toggleSectionSidebar(): boolean {
   if (sectionSidebar.mounted === 0) return false;
+  if (typeof window !== "undefined" && !window.matchMedia(SECTION_SIDEBAR_MEDIA).matches) return false;
   const active = typeof document === "undefined" ? null : document.activeElement;
   const fromControl =
     active instanceof HTMLElement &&

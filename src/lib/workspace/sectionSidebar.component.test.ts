@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 import {
   SECTION_SIDEBAR_KEY,
   parseSectionSidebar,
@@ -26,7 +27,17 @@ describe("sectionSidebar", () => {
     expect(parseSectionSidebar('{"collapsed":true}')).toBe(true);
   });
 
-  it("toggles only while a sidebar is on screen, and remembers the choice", () => {
+  it("does nothing below 768px, where no sidebar shows (review round 1, finding 5)", async () => {
+    await page.viewport(700, 900);
+    const unregister = registerSectionSidebar();
+    expect(toggleSectionSidebar()).toBe(false);
+    expect(sectionSidebar.collapsed).toBe(false);
+    expect(localStorage.getItem(SECTION_SIDEBAR_KEY)).toBeNull();
+    unregister();
+  });
+
+  it("toggles only while a sidebar is on screen, and remembers the choice", async () => {
+    await page.viewport(1440, 900);
     expect(toggleSectionSidebar()).toBe(false);
     expect(sectionSidebar.collapsed).toBe(false);
     const unregister = registerSectionSidebar();
