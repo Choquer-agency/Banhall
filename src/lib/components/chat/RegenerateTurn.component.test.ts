@@ -181,7 +181,7 @@ it("returns to the original thread and waits for loaded idle timing before retry
   __setMutationError("chatV2:sendAlternative", new Error("Please retry resend"));
   await regenerate().click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Please retry resend");
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   await page.getByRole("textbox").fill("Second thread draft");
   expect(page.getByRole("button", { name: "Retry", exact: true }).elements()).toHaveLength(0);
@@ -372,14 +372,14 @@ it("reconciles a pending send outside the loaded messages after in-flight naviga
   ]);
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   await page.getByRole("textbox").fill("Second thread draft");
   settle({ threadId: "thread-1", messageId: "offscreen-prompt" });
   await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-2" }]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
   await expect.element(regenerate()).toBeEnabled();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Original conversation", exact: false }).click();
   // The pending prompt has fallen outside the newest message page.
   __setPaginatedRows("chatV2:listMessages", [row("user", { order: 5 }), row("assistant", { order: 5 })]);
@@ -412,7 +412,7 @@ it("preserves the visible conversation and draft when an offscreen regeneration 
   ]);
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   await page.getByRole("textbox").fill("Second thread draft");
   rejectSend(new Error("Delayed resend failure"));

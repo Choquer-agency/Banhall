@@ -26,6 +26,7 @@ import ProposedEditCard from "./ProposedEditCard.svelte";
 import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
 import { VET_LABEL, VET_NOTE_MAX_CHARS } from "../../../../shared/researchPresets";
 import { clipboardFragment, safeHref } from "$lib/chat/richCopy";
+import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
 
 const sonner = vi.hoisted(() => ({
   error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn(),
@@ -36,7 +37,7 @@ const CAPTURES = "../../../../.vitest-attachments/chat-parity-phase-c";
 const reportId = "report-1" as Id<"reports">;
 const projectId = "project-1" as Id<"projects">;
 const composer = () => page.getByRole("textbox", { name: "Message the report assistant" });
-const menu = () => page.getByRole("button", { name: "Conversation menu", exact: true });
+const menu = () => page.getByRole("button", { name: "Chat history", exact: true });
 
 function row(id: string, text: string, order: number, role: UIMessage["role"], extra: Partial<UIMessage> = {}): UIMessage {
   return {
@@ -162,8 +163,12 @@ describe("conversation menu", () => {
       await page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first().click();
       await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
       await expect.element(name).toHaveFocus();
-      await menu().click();
-      await page.getByRole("menuitem", { name: destination }).first().click();
+      if (destination === "New conversation") {
+        await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      } else {
+        await menu().click();
+        await page.getByRole("menuitem", { name: destination }).first().click();
+      }
       await expect.poll(() => document.querySelector("[data-rename-conversation]"), { timeout: 5000 }).toBeNull();
     }
     expect(__mutationCalls("chatV2:renameThread")).toEqual([]);
@@ -405,22 +410,68 @@ describe("rich copy keeps only text, structure and safe links (review R2 P3-6)",
   });
 });
 
-describe("starters", () => {
-  it("fill the empty composer and focus it without sending", async () => {
-    await render(AgentChatPanel, { reportId, projectId });
-    const starter = page.getByRole("button", { name: "Tighten the uncertainty framing in Line 242", exact: true });
-    await expect.element(starter).toBeVisible();
-    for (const text of ["Find every mention of the prototype", "Check this report for banned words", "Make Line 244 (work performed) more chronological"]) {
-      await expect.element(page.getByRole("button", { name: text, exact: true })).toBeVisible();
-    }
+// Owner 2026-10-28 (row 37): options take the message box's place. A new
+// conversation offers one "Shorten Line N" option for each Line over its CRA
+// limit; the AI's question offers its own. A pick is sent at once.
+describe("options above the message box", () => {
+  const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
+  const overLimit = JSON.stringify(buildTiptapDocument("Report", words(385), words(20), words(30)));
+  const withinLimits = JSON.stringify(buildTiptapDocument("Report", words(30), words(20), words(30)));
+
+  it("offers a new conversation one Shorten option per Line over its limit, and sends a pick at once", async () => {
+    __setMutationResult("chatV2:sendMessage", { threadId: "thread-new", messageId: "q-new" });
     await page.viewport(480, 760);
-    await page.screenshot({ path: `${CAPTURES}/starters.png` });
-    await starter.click();
-    await expect.element(composer()).toHaveValue("Tighten the uncertainty framing in Line 242");
-    await expect.element(composer()).toHaveFocus();
+    await render(AgentChatPanel, { reportId, projectId, reportContent: overLimit });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("What should we work on?", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /Shorten Line 242 to 350 words/ })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /Something else/ })).toBeVisible();
+    expect(page.getByText("New conversation", { exact: true }).elements().length).toBeGreaterThan(0);
+    await page.screenshot({ path: `${CAPTURES}/get-started.png` });
+    await page.getByRole("option", { name: /Shorten Line 242 to 350 words/ }).click();
+    await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Shorten Line 242 to 350 words");
+  });
+
+  it("shows the message box when every Line fits, or after Skip", async () => {
+    const first = await render(AgentChatPanel, { reportId, projectId, reportContent: withinLimits });
+    await expect.element(composer()).toBeVisible();
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    first.unmount();
+
+    await render(AgentChatPanel, { reportId, projectId, reportContent: overLimit });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /Skip/ }).click();
+    await expect.element(composer()).toBeVisible();
     expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
-    // With text in the composer the starters step aside.
-    await expect.poll(() => document.querySelector("[data-starters]")).toBeNull();
+  });
+
+  it("shows the AI's question with its options, and sends the writer's own answer", async () => {
+    __setQueryData("chatV2:listThreads", THREADS);
+    __setPaginatedRows("chatV2:listMessages", [
+      row("q1", "Shorten Line 242.", 1, "user"),
+      row("a1", "Line 242 is 35 words over. I can cut from a few places.", 1, "assistant", {
+        parts: [
+          { type: "text", text: "Line 242 is 35 words over. I can cut from a few places." },
+          { type: "tool-askWriter", toolCallId: "ask-1", state: "output-available",
+            input: { question: "What should I cut first?", options: ["The company background", "The repeated door detail"] }, output: "Shown." },
+        ],
+      } as Partial<UIMessage>),
+    ]);
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q1", order: 1, status: "completed", startedAt: 1, endedAt: 2, stepCount: 1 }]);
+    __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "q2" });
+    await page.viewport(480, 760);
+    await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(page.getByText("Assistant needs you", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("What should I cut first?", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /The repeated door detail/ })).toBeVisible();
+    await page.screenshot({ path: `${CAPTURES}/assistant-needs-you.png` });
+
+    await page.getByRole("option", { name: /Something else/ }).click();
+    const own = page.getByRole("textbox", { name: "Your own answer" });
+    await expect.element(own).toHaveFocus();
+    await own.fill("Cut the background");
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Cut the background");
   });
 });
 

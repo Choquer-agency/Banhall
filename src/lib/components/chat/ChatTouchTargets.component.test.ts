@@ -116,9 +116,8 @@ describe(`report chat touch targets (${pointer} pointer)`, () => {
   it("sizes the conversation menu's items", async () => {
     await page.viewport(480, 900);
     await render(AgentChatPanel, { reportId, projectId });
-    await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+    await page.getByRole("button", { name: "Chat history", exact: true }).click();
     const items = [
-      page.getByRole("menuitem", { name: "New conversation" }).element(),
       page.getByRole("menuitem", { name: "Kiln drying review" }).element(),
       page.getByRole("menuitem", { name: "Conversation actions", exact: true }).element(),
     ];

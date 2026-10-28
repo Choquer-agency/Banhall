@@ -31,7 +31,13 @@ function seedThreads() {
   ]);
 }
 async function navigate(name: string) {
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  // Owner 2026-10-28 (row 16 B): the pencil starts a new conversation; the
+  // clock opens Chat history.
+  if (name === "New conversation") {
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    return;
+  }
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: false }).click();
 }
 async function writeAndSend(text = prompt) { await composer().fill(text); await send().click(); }
@@ -503,7 +509,7 @@ it.each(["prompt", "highlight"])("bounds long multiline %s labels and distinguis
   await send().click();
   await expect.element(retry()).toBeEnabled();
   const secondKey = localRows()[0].dataset.localRequest;
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   const first = page.getByRole("menuitem", { name: /^Unsent conversation 1: Same preview x+…$/ });
   const second = page.getByRole("menuitem", { name: /^Unsent conversation 2: Same preview x+…$/ });
   await expect.element(first).toBeVisible();
@@ -514,7 +520,7 @@ it.each(["prompt", "highlight"])("bounds long multiline %s labels and distinguis
   expect(first.element().textContent?.trim().length).toBeLessThanOrEqual(96);
   await first.click();
   expect(localRows()[0].dataset.localRequest).toBe(firstKey);
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await second.click();
   expect(localRows()[0].dataset.localRequest).toBe(secondKey);
 });
@@ -557,7 +563,7 @@ it.each(["move-focus", "navigate"])("does not steal focus on retry completion af
   const pending = deferred();
   await userEvent.keyboard("{Enter}");
   if (movement === "navigate") await navigate("Second conversation");
-  const menuButton = page.getByRole("button", { name: "Conversation menu", exact: true }).element();
+  const menuButton = page.getByRole("button", { name: "Chat history", exact: true }).element();
   if (!(menuButton instanceof HTMLButtonElement)) throw new Error("Missing menu trigger");
   menuButton.focus();
   pending.resolve({ threadId: "thread-1", messageId: "retried" });

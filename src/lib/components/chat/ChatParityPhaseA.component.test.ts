@@ -758,7 +758,11 @@ describe("task 9: drafts", () => {
     { _id: "mapping-2", agentThreadId: "thread-2", title: "Second conversation" },
   ];
   async function navigate(name: string) {
-    await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+    if (name === "New conversation") {
+      await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      return;
+    }
+    await page.getByRole("button", { name: "Chat history", exact: true }).click();
     await page.getByRole("menuitem", { name, exact: false }).click();
   }
 

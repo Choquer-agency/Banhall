@@ -2832,6 +2832,7 @@
                         onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
                         {review}
                         onOpenVersionHistory={() => (showHistory = true)}
+                        reportContent={report.content}
                         onBeforeApply={flushEditor}
                         closeInset={false}
                         bind:composerHeight={assistantComposerHeight}

@@ -151,7 +151,7 @@ describe("authors", () => {
       { _id: "mapping-2", agentThreadId: "thread-2", title: "Line 246 review", createdAt: 1, startedByCurrentUser: false, createdByName: "Jordan Reyes" },
     ]);
     await render(AgentChatPanel, { reportId, projectId });
-    await page.getByRole("button", { name: "Conversation menu" }).click();
+    await page.getByRole("button", { name: "Chat history" }).click();
     await expect.element(page.getByText("Started by Jordan Reyes", { exact: true })).toBeVisible();
     expect(page.getByText("Started by Avery Lane").elements()).toHaveLength(0);
     await page.viewport(480, 760);
@@ -256,7 +256,7 @@ describe("notification opt-in", () => {
   it("asks the browser on opt-in and remembers a yes", async () => {
     const { FakeNotification } = fakeNotification("default", "granted");
     await render(AgentChatPanel, { reportId, projectId });
-    await page.getByRole("button", { name: "Conversation menu" }).click();
+    await page.getByRole("button", { name: "Chat history" }).click();
     const item = page.getByRole("menuitemcheckbox", { name: "Notify me when a reply is ready" });
     await expect.element(item).toHaveAttribute("aria-checked", "false");
     await item.click();
@@ -268,7 +268,7 @@ describe("notification opt-in", () => {
   it("stays off when the browser says no", async () => {
     fakeNotification("default", "denied");
     await render(AgentChatPanel, { reportId, projectId });
-    await page.getByRole("button", { name: "Conversation menu" }).click();
+    await page.getByRole("button", { name: "Chat history" }).click();
     const item = page.getByRole("menuitemcheckbox", { name: "Notify me when a reply is ready" });
     await item.click();
     await expect.element(item).toHaveAttribute("aria-checked", "false");

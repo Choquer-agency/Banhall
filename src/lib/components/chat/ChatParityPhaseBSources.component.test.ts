@@ -246,11 +246,11 @@ describe("the web search switch", () => {
     await expect.element(composer()).toBeVisible();
     await shownAs("false");
 
-    await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+    await page.getByRole("button", { name: "Chat history", exact: true }).click();
     await page.getByRole("menuitem", { name: "On conversation", exact: false }).click();
     await shownAs("true");
 
-    await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+    await page.getByRole("button", { name: "Chat history", exact: true }).click();
     await page.getByRole("menuitem", { name: "Off conversation", exact: false }).click();
     await shownAs("false");
     await options().click();

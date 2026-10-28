@@ -103,8 +103,7 @@ it("says the conversation list could not load, holds Send, and lets New conversa
   expect(watch.seen.welcome).toBe(false);
   watch.stop();
   // Choosing New conversation is an explicit choice to start one.
-  await page.getByRole("button", { name: "Conversation menu" }).click();
-  await page.getByRole("menuitem", { name: "New conversation" }).click();
+  await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await composer().fill("Start fresh");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
