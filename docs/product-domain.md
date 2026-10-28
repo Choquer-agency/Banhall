@@ -4958,6 +4958,7 @@ This changes what one AI check reads and one sentence of its note, not a workflo
   - Windows line endings;
   - each subject text once;
   - "best match" only when a part matched.
+- **Review round 3:** Claude Opus 5.5 (requested high; it reported running at low), with the Brief's review, "ship after fixes": a part starting right after a paragraph that ends in a period still lost its first sentence (P2), since the period took one line break and left the blank line unmatched. Fixed: a sentence end takes every line break after it.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ### 2026-10-28 (sixth): The Brief reads the parts of every frozen file that best match the interviews (owner, Phase D step 1)
@@ -4967,21 +4968,24 @@ Under the owner's decision "2026-10-28 (fourth)", the second step that chooses i
 This changes what one AI request reads and how its quotes are found, not a workflow stage, transition or permission. No AI tool writes report prose.
 
 - **Rule.**
-  - When every source fits (each within 400,000 characters, all within 600,000), the request is exactly as before.
+  - When the sources fit (each counted up to 400,000 characters, all within 600,000), the request is exactly as before.
   - When they do not:
-    - The interviews (or their digests or fact packs), the settings document and writer's notes go in whole, in order. They are cut only at the per-source limit or where the total runs out, as before.
+    - The interviews (or their digests or fact packs), the settings document and writer's notes an internal user uploaded go in whole, in order. They are cut only at the per-source limit or where the total runs out, as before. A client's copy of writer's notes is treated like any other file, as the analysis and the facts check treat it.
     - Every other source sends the parts that best match the interviews and the writer's Storyline (`shared/evidenceChoice.ts`).
-    - A source sent in parts gets the parts joined by a "[...]" line and a notice: "[EXCERPTS: only the parts of this source that best match the interviews were sent, N of M characters; the text between them was left out.]"
+    - A source sent in parts gets the parts joined by a "[...]" line and a notice: "[EXCERPTS: only the parts of this source that best match the interviews were sent, N of M characters; the text between them was left out.]" When no part matched the interviews, the notice says "only parts of this source were sent". A file whose one chosen part is its own start gets the "[TRUNCATED: ...]" notice instead, as before.
+    - Files are frozen at 200,000 characters at most, so no file passes the per-source limit. Notices and block frames are not counted against the total, as before.
     - A source with no part sent is counted in the omitted notice, as before.
   - Every quote of the Brief is then searched for only in what the request sent, in place, so its position in the file is exact. Transcripts read through their digest or fact pack are searched as before.
   - The settings document's wording rule is added only when that document was sent, as before.
 - **Where.**
   - `briefMessageWithReport` and `BRIEF_EXCERPTS` in `convex/lib/briefRequest.ts`.
   - `briefEvidence` in `convex/ai/brief.ts`, which blanks the text not sent (`maskOutside`).
-  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared and reusable Briefs are made again.
+  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared Briefs are made again. A Brief whose sources do not all fit also gets the version in its inputs hash (`convex/lib/briefInputsHash.ts`), so one made before is not reused; sources that fit keep their hash.
+  - `runPreparationStart` (`convex/briefPreparations.ts`) builds the message once, for the key; when the sources do not all fit, its spend reservation counts the whole budget.
 - **Known limits.**
   - The Brief still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - The Brief's subject is the interviews and the Storyline: a file that matters for reasons the interviews never mention scores low.
+  - The choice runs inside two mutations (a preparation's start and its adoption), where the key is computed. Measured locally in review: about 0.3 seconds for a 3.4 million character pool. Not yet measured on a deployment; the live check will.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
   - `convex/briefByRelevance.test.ts`:
@@ -4990,6 +4994,23 @@ This changes what one AI request reads and how its quotes are found, not a workf
     - a quote is cited at its place in the whole file;
     - a sentence never sent is not found.
   - Updated: `convex/ai/brief.sdk.test.ts` (the budget test) and `convex/briefWriterWording.test.ts` (the wording rule when the settings document has no room).
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - the paragraph-end edge (with entry "(fifth)");
+  - reusable Briefs, through the inputs hash;
+  - client writer's notes not trusted;
+  - one message per preparation;
+  - neutral notice wording;
+  - the wording of the fit rule;
+  - tests.
+
+  Left as written above: notices not counted, and no per-file limit beyond the 200,000 characters a file is frozen at.
+- **Tests (round 1):** `convex/briefByRelevance.test.ts` also:
+  - writer's notes whole only when internal;
+  - the fit boundary at the total and one character over;
+  - the neutral notice;
+  - the inputs hash.
+
+  `shared/evidenceChoice.test.ts` also: the paragraph-end edge, and `maskOutside`.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process

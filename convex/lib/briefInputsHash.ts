@@ -2,7 +2,8 @@ import type { SourceRowWithText } from "./sourceText";
 import { sha256 } from "./contracts";
 import { readsFactPacks } from "./seedFacts";
 import { FACTS_VERSION } from "./transcriptFacts";
-import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
+import { BRIEF_WRITER_WORDING, briefSettingsSource, briefSourcesFit } from "./briefRequest";
+import { BRIEF_DERIVATION_VERSION } from "./briefDerivationPolicy";
 
 /**
  * Compute the input hash for a Brief, using the contentHash of every frozen
@@ -51,7 +52,11 @@ export async function briefInputsHash(
     // rule is never reused for one that did not, nor the other way round,
     // even for the same content (a client's copy of the document has no
     // rule). Without such a document the hash is exactly what it was.
-    (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "");
+    (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "") +
+    // Phase D, step 1 (2026-10-28, sixth): a Brief whose sources do not all
+    // fit reads parts chosen by relevance, so it is never reused across
+    // derivation versions. Sources that fit keep the hash they had.
+    (briefSourcesFit(sources) ? "" : `|relevance:${BRIEF_DERIVATION_VERSION}`);
 
   // Return the hash of the concatenated hashes
   return await sha256(concatenated);

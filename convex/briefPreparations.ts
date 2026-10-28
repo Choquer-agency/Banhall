@@ -46,7 +46,11 @@ import { resolveGenerationStep } from "./lib/generationSteps";
 import { MODEL } from "../shared/generationModels";
 import { anthropicConfiguration, openRouterConfiguration } from "./lib/providerConfig";
 import { briefPreparationKey } from "./lib/briefPreparationKey";
-import { buildBriefUserMessage } from "./lib/briefRequest";
+import { BRIEF_INPUT_BUDGET, briefSourcesFit, buildBriefUserMessage } from "./lib/briefRequest";
+import { CHARS_PER_TOKEN } from "./ai/trustedContext";
+
+/** Room for the Brief request's guidance, labels and notices, beyond its sources (an over-estimate). */
+const BRIEF_REQUEST_FRAME_ALLOWANCE = 40_000;
 import {
   preparationDay,
   preparationLimitRefusal,
@@ -721,7 +725,14 @@ async function runPreparationStart(
   // the call against $0.50 per project (or draft) and $5 per user per
   // firm day.
   const firmDay = firmDayNumber(now);
-  const reservedUsd = reservePreparationUsd(pricing, route.model, buildBriefUserMessage(fields).length);
+  // Phase D, step 1: the message is built once, for the key. When the
+  // sources do not all fit, the reservation counts the whole budget (it can
+  // only reserve more), rather than choosing the parts a second time inside
+  // this transaction (review).
+  const requestChars = briefSourcesFit(fields)
+    ? buildBriefUserMessage(fields).length
+    : BRIEF_INPUT_BUDGET.totalTokens * CHARS_PER_TOKEN + BRIEF_REQUEST_FRAME_ALLOWANCE;
+  const reservedUsd = reservePreparationUsd(pricing, route.model, requestChars);
   const refusal = preparationLimitRefusal(
     await preparationDay(ctx, { userId: preparation.triggeredBy, scope, firmDay }),
     reservedUsd

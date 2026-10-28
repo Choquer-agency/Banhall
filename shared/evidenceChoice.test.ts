@@ -4,6 +4,7 @@ import {
   endAtWordBoundary,
   evidenceWords,
   foldForSearch,
+  maskOutside,
   nameSafeRange,
   partRange,
   scoreParts,
@@ -253,5 +254,24 @@ describe("review round 2 fixes (2026-10-28)", () => {
     const wrap = text.indexOf("\r\nRobotics");
     const range = partRange(text, 0, wrap);
     expect(text.slice(range.start, range.end)).not.toContain("Northern");
+  });
+});
+
+describe("Brief review fixes (2026-10-28)", () => {
+  it("keeps the first sentence of a part that starts after a paragraph ending in a period", () => {
+    for (const gap of ["\n\n", ". \n\n", "\r\n\r\n"]) {
+      const text = `${"The seal held at the plant. ".repeat(20)}End of that${gap.startsWith(".") ? "" : "."}${gap}Zorbatron calibration failed first. ${"The pump drifted. ".repeat(20)}`;
+      const at = text.indexOf("Zorbatron");
+      const range = partRange(text, at, at + 500);
+      expect(range.start).toBe(at);
+    }
+  });
+
+  it("blanks everything outside the ranges and keeps every position", () => {
+    expect(maskOutside("abcdefgh", [{ start: 2, end: 4 }])).toBe("\u0000\u0000cd\u0000\u0000\u0000\u0000");
+    expect(maskOutside("abcdefgh", [{ start: 5, end: 7 }, { start: 0, end: 2 }])).toBe("ab\u0000\u0000\u0000fg\u0000");
+    expect(maskOutside("abcdefgh", [{ start: 1, end: 5 }, { start: 3, end: 6 }])).toBe("\u0000bcdef\u0000\u0000");
+    expect(maskOutside("abcdefgh", [])).toBe("\u0000".repeat(8));
+    expect(maskOutside("abcdefgh", [{ start: 0, end: 8 }])).toBe("abcdefgh");
   });
 });

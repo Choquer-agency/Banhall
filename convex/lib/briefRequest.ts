@@ -12,6 +12,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { Doc, Id } from "../_generated/dataModel";
 import { chooseEvidence, subjectOf, utf16Size } from "../../shared/evidenceChoice";
 import {
+  documentTrust,
   CHARS_PER_TOKEN,
   cutToBudget,
   formatCount,
@@ -95,11 +96,29 @@ export function briefOmittedSourcesNotice(count: number): string {
 export const BRIEF_EXCERPTS = {
   separator: "\n[...]\n",
   noticePrefix: "[EXCERPTS: only the parts of this source that best match the interviews were sent, ",
+  // When no part matched the interviews, they came in order (review).
+  noticeUnmatchedPrefix: "[EXCERPTS: only parts of this source were sent, ",
   noticeSuffix: " characters; the text between them was left out.]",
 } as const;
 
-export function briefExcerptsNotice(sent: number, total: number): string {
-  return `${BRIEF_EXCERPTS.noticePrefix}${formatCount(sent)} of ${formatCount(total)}${BRIEF_EXCERPTS.noticeSuffix}`;
+export function briefExcerptsNotice(sent: number, total: number, matched = true): string {
+  return `${matched ? BRIEF_EXCERPTS.noticePrefix : BRIEF_EXCERPTS.noticeUnmatchedPrefix}${formatCount(sent)} of ${formatCount(total)}${BRIEF_EXCERPTS.noticeSuffix}`;
+}
+
+/**
+ * Whether the request sends every source as before (Phase D, step 1): the
+ * evidence it weighs, each counted up to the per-source limit, within the
+ * total. Shared with the inputs hash, so a Brief chosen by relevance is
+ * never reused for one that was not.
+ */
+export function briefSourcesFit(
+  sources: ReadonlyArray<Pick<BriefMessageSource, "kind" | "content" | "transcriptId">>,
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
+): boolean {
+  const evidence = preferFactSources(sources.filter((s) => s.kind !== "writer_storyline"));
+  const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
+  const total = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
+  return evidence.reduce((sum, s) => sum + Math.min(s.content.length, perSource), 0) <= total;
 }
 
 /** The kinds that always go in whole (cut only at the per-source limit): the interviews. */
@@ -228,14 +247,17 @@ type BriefMessageSource = Pick<SourceRowWithText, "label" | "content" | "kind"> 
  * transcript read through its digest or fact pack are not considered, so
  * they get no entry.
  *
- * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when every source
- * fits (each within the per-source limit, all within the total), the
- * message is exactly as before. When they do not, the interviews, the
- * settings document and writer's notes go in whole (cut only at the
- * per-source limit, or where the total runs out), and every other source
- * sends the parts that best match the interviews and the writer's
- * Storyline (`chooseEvidence`), joined by a separator and followed by a
- * notice; a source with no part sent is counted as omitted, as before.
+ * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when the sources
+ * fit (`briefSourcesFit`: each counted up to the per-source limit, all
+ * within the total), the message is exactly as before. When they do not,
+ * the interviews, the settings document and writer's notes an internal user
+ * uploaded go in whole (cut only at the per-source limit, or where the total
+ * runs out), and every other source sends the parts that best match the
+ * interviews and the writer's Storyline (`chooseEvidence`), joined by a
+ * separator and followed by a notice; a source with no part sent is counted
+ * as omitted, as before. Files are frozen at 200,000 characters at most, so
+ * none passes the per-source limit. Notices and block frames are not
+ * counted against the total, as before.
  */
 export function briefMessageWithReport<S extends BriefMessageSource>(
   sources: S[],
@@ -252,8 +274,7 @@ export function briefMessageWithReport<S extends BriefMessageSource>(
   );
   const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
   let remaining = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
-  const fits = evidence.reduce((sum, s) => sum + Math.min(s.content.length, perSource), 0) <= remaining;
-  if (!fits) return briefMessageByRelevance(sources, evidence, settings, perSource, remaining);
+  if (!briefSourcesFit(sources, budget)) return briefMessageByRelevance(sources, evidence, settings, perSource, remaining);
   let omitted = 0;
   const blocks: string[] = [];
   // Phase C: one note before the first company file the request carries.
@@ -307,7 +328,12 @@ function briefMessageByRelevance<S extends BriefMessageSource>(
   total: number
 ): { message: string; report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> } {
   const report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> = [];
-  const mustBeWhole = (s: S) => TRANSCRIPT_KINDS.has(s.kind) || s === settings || s.label.startsWith("writer_notes:");
+  // Writer's notes go in whole only when an internal user uploaded them; a
+  // client's copy is demoted, as the analyzer and the facts check do.
+  const mustBeWhole = (s: S) =>
+    TRANSCRIPT_KINDS.has(s.kind) ||
+    s === settings ||
+    (s.label.startsWith("writer_notes:") && documentTrust("writer_notes", s.uploaderRole) === "internal");
   // A source that goes in whole is first cut at the per-source limit, as before.
   const candidates = evidence.map((s) => (mustBeWhole(s) ? cutToBudget(s.content, perSource) : s.content));
   const subject = subjectOf([
@@ -356,7 +382,7 @@ function briefMessageByRelevance<S extends BriefMessageSource>(
       return;
     }
     const excerpts = ranges.map((range) => s.content.slice(range.start, range.end)).join(BRIEF_EXCERPTS.separator);
-    blocks.push(block(`${excerpts}\n${briefExcerptsNotice(sent, s.content.length)}`));
+    blocks.push(block(`${excerpts}\n${briefExcerptsNotice(sent, s.content.length, chosen[index]!.matched === true)}`));
   });
   if (omitted > 0) blocks.push(briefOmittedSourcesNotice(omitted));
   const wording = settings && settingsSent
