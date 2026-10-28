@@ -975,11 +975,15 @@
   let limitPopover = $state<{ line: string; top: number; right: number } | null>(null);
   let limitPopoverEl = $state<HTMLDivElement | null>(null);
   let limitPillEl: HTMLElement | null = null;
-  function closeLimitPopover(returnFocus = false) {
+  function closeLimitPopover(returnFocus = false, scrollToPill = true) {
     if (!limitPopover) return;
-    limitPillEl?.setAttribute("aria-expanded", "false");
-    // Focus inside the popover goes back to the pill rather than the page.
-    if (returnFocus || limitPopoverEl?.contains(document.activeElement)) limitPillEl?.focus();
+    // The report may have redrawn the pill since it opened: find it again.
+    const pill =
+      editor?.view.dom.querySelector<HTMLElement>(`[data-report-limit-pill="${limitPopover.line}"]`) ?? limitPillEl;
+    pill?.setAttribute("aria-expanded", "false");
+    // Focus inside the popover goes back to the pill rather than the page;
+    // a close by scrolling leaves the view where the writer put it.
+    if (returnFocus || limitPopoverEl?.contains(document.activeElement)) pill?.focus({ preventScroll: !scrollToPill });
     limitPopover = null;
   }
   $effect(() => {
@@ -1028,7 +1032,7 @@
       event.preventDefault();
       closeLimitPopover(true);
     };
-    const onScroll = () => closeLimitPopover();
+    const onScroll = () => closeLimitPopover(false, false);
     // Leaving the popover by keyboard closes it, as leaving by pointer does.
     const onFocusOut = (event: FocusEvent) => {
       const next = event.relatedTarget as Node | null;

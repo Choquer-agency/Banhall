@@ -4828,6 +4828,7 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
     - Accept all names the Line it stopped at when the save itself fails;
     - a review ends when its card is replaced by a later card or leaves the conversation's shown cards;
     - closing the limit popover from the pill gives focus back to the pill.
+  - **Round 3.** Claude Opus 5.5, requested at high; it reported running at low. "Ship": all six round 2 fixes traced correct. Done after it: the popover's scroll and resize close no longer scroll the pill back into view, and the popover finds the pill again after the report redraws it. Left as a known limit: the Shortening chip follows the open conversation, so switching conversation while the shorten reply runs clears it early.
 
 ## Amendment process
 
