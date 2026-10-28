@@ -147,3 +147,78 @@ export function findOccurrencesBatch(doc: PMNode, finds: string[]): Range[][] {
 export function findAllOccurrencesCI(doc: PMNode, find: string): Range[] {
   return findOccurrencesBatch(doc, [find])[0];
 }
+
+/** One mark of a change under review: old words cut, or new words added. */
+export type ReviewMark =
+  | { kind: "cut"; from: number; to: number }
+  | { kind: "new"; at: number; text: string };
+
+type ReviewPart = { type: "equal" | "removed" | "added"; text: string };
+
+/**
+ * Owner 2026-10-28 (rows 34 and 35): the marks for a change under review.
+ * Each pair's passage is found the way previews find it; inside it, the
+ * words the change removes are cut ranges and the words it adds are new text
+ * placed where they go. `diff` splits one passage into those parts (the
+ * card uses `diffWords`). `scope` keeps the search inside one Line.
+ */
+export function reviewMarks(
+  doc: PMNode,
+  pairs: ReadonlyArray<{ find: string; replaceWith: string }>,
+  diff: (before: string, after: string) => ReviewPart[],
+  scope?: { from: number; to: number }
+): ReviewMark[] {
+  const marks: ReviewMark[] = [];
+  if (doc.content.size < 2 || pairs.length === 0) return marks;
+  const index = buildSearchIndex(doc);
+  const { hay, starts, ends } = lowercaseIndex(index);
+  const inScope = (from: number, to: number) => !scope || (from >= scope.from && to <= scope.to);
+
+  for (const pair of pairs) {
+    const needle = (pair.find ?? "").trim();
+    const ned = normalizeForMatch(needle).toLowerCase();
+    if (!ned) continue;
+    // Offsets in the needle map to offsets in the normalized needle, which
+    // line up with the haystack and so with document positions.
+    const normalizedLength = (text: string) => normalizeForMatch(text).toLowerCase().length;
+    // Neighbouring removed (or added) words make one mark, so a struck
+    // phrase reads as one run, across a line break too.
+    const parts = diff(needle, (pair.replaceWith ?? "").trim()).reduce<ReviewPart[]>((merged, part) => {
+      const last = merged.at(-1);
+      if (last && last.type === part.type && part.type !== "equal") last.text += part.text;
+      else merged.push({ ...part });
+      return merged;
+    }, []);
+    let idx = hay.indexOf(ned);
+    let previousEnd = -1;
+    while (idx !== -1) {
+      const from = starts[idx];
+      const to = ends[idx + ned.length - 1];
+      if (from === undefined || to === undefined || from < previousEnd || !inScope(from, to)) {
+        idx = hay.indexOf(ned, idx + 1);
+        continue;
+      }
+      previousEnd = to;
+      let offset = 0;
+      for (const part of parts) {
+        if (part.type === "added") {
+          const at = normalizedLength(needle.slice(0, offset));
+          const position = at < ned.length ? starts[idx + at] : to;
+          if (part.text.trim()) marks.push({ kind: "new", at: position, text: part.text.trim() });
+          continue;
+        }
+        const startOffset = offset;
+        offset += part.text.length;
+        if (part.type === "equal") continue;
+        let start = normalizedLength(needle.slice(0, startOffset));
+        let end = normalizedLength(needle.slice(0, offset));
+        // A collapsed space maps to the next word's position: trim it off.
+        while (start < end && hay[idx + start] === " ") start++;
+        while (end > start && hay[idx + end - 1] === " ") end--;
+        if (end > start) marks.push({ kind: "cut", from: starts[idx + start], to: ends[idx + end - 1] });
+      }
+      idx = hay.indexOf(ned, idx + ned.length);
+    }
+  }
+  return marks;
+}

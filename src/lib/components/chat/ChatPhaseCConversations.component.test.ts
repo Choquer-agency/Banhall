@@ -336,8 +336,11 @@ describe("copy", () => {
 
   it("Copy wording copies a card's proposed text, on pending, applied and stale cards", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
-    const base = { targetText: "The kiln dried.", newText: "The kiln dried the birch to 8% moisture.", onReplace: vi.fn(), onReject: vi.fn() };
-    const mounted = await render(ProposedEditCard, { ...base, state: "pending" });
+    const props = (wording: string[], extra: { state: "pending" | "applied" | "stale" }) => ({
+      options: [wording], changesFor: () => [], onReview: vi.fn(), onStopReview: vi.fn(), onAccept: vi.fn(async () => {}), ...extra,
+    });
+    const mounted = await render(ProposedEditCard, props(["The kiln dried the birch to 8% moisture."], { state: "pending" }));
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
     await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
     await page.getByRole("menuitem", { name: "Copy wording", exact: true }).click();
     await expect.poll(() => writeText.mock.calls).toEqual([["The kiln dried the birch to 8% moisture."]]);
@@ -345,11 +348,8 @@ describe("copy", () => {
     await mounted.unmount();
 
     for (const state of ["applied", "stale"] as const) {
-      const card = await render(ProposedEditCard, {
-        ...base, state,
-        replacements: [{ find: "kiln", replaceWith: "drying kiln" }, { find: "birch", replaceWith: "white birch" }],
-        newText: undefined, targetText: undefined,
-      });
+      const card = await render(ProposedEditCard, props(["drying kiln", "white birch"], { state }));
+      if (state === "applied") await page.getByRole("button", { name: "Show what was accepted" }).click();
       await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
       await page.getByRole("menuitem", { name: "Copy wording", exact: true }).click();
       await expect.poll(() => writeText.mock.lastCall).toEqual(["drying kiln\n\nwhite birch"]);
@@ -358,22 +358,23 @@ describe("copy", () => {
   });
 });
 
-// Owner, 2026-10-21: a trim across several paragraphs is one edit, not a
-// find-and-replace that touches "every occurrence".
-describe("a passage set reads as one suggested edit", () => {
-  it("labels a paragraph set as one edit and a find set as replacements", async () => {
-    const replacements = [
-      { find: "The kiln dried the birch.", replaceWith: "The kiln dried birch." },
-      { find: "The press shaped the panels.", replaceWith: "The press shaped panels." },
-    ];
-    const base = { section: "Line 242", replacements, state: "pending" as const, onReplace: vi.fn(), onReject: vi.fn() };
-    const set = await render(ProposedEditCard, { ...base, passages: true });
-    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Suggested edit for Line 242");
-    expect(document.body.textContent).not.toContain("applied to every occurrence");
+// Owner 2026-10-28: every card names its Line; a find/replace card says it
+// replaces every match inside that Line.
+describe("a card names its Line", () => {
+  it("labels a passage set and a find set by their Line", async () => {
+    const props = (everyMatch: boolean) => ({
+      line: "242", options: [["The kiln dried birch.", "The press shaped panels."]], changesFor: () => [], everyMatch,
+      state: "pending" as const, onReview: vi.fn(), onStopReview: vi.fn(), onAccept: vi.fn(async () => {}),
+    });
+    const set = await render(ProposedEditCard, props(false));
+    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Line 242");
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
+    expect(document.body.textContent).not.toContain("Replaces every match");
     await set.unmount();
-    await render(ProposedEditCard, base);
-    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("2 suggested replacements in Line 242");
-    expect(document.body.textContent).toContain("2 replacements, applied to every occurrence");
+    await render(ProposedEditCard, props(true));
+    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Line 242");
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
+    expect(document.body.textContent).toContain("Replaces every match in Line 242.");
   });
 });
 

@@ -54,8 +54,10 @@
     findAllOccurrencesCI,
     findOccurrencesBatch,
     normalizeForMatch,
+    reviewMarks,
     type Range,
   } from "./docSearch";
+  import { diffWords } from "$lib/diff";
 
   const REPORT_SECTION_DEFINITIONS = [
     { key: "s242", line: "242" },
@@ -449,59 +451,69 @@
     return markers;
   }
 
+  /**
+   * The document range of one Line: its heading through the last block before
+   * the next Line's heading, found the way the Line meters find Sections.
+   */
+  function lineScope(doc: PMNode, line: string): { from: number; to: number } | undefined {
+    const wanted = `s${line}`;
+    let from: number | undefined;
+    let to: number | undefined;
+    doc.forEach((node, offset) => {
+      if (to !== undefined) return;
+      const key = reportSectionKeyForHeading(node.toJSON());
+      if (!key) return;
+      if (from === undefined) {
+        if (key === wanted) from = offset;
+      } else {
+        to = offset;
+      }
+    });
+    return from === undefined ? undefined : { from, to: to ?? doc.content.size };
+  }
+
   function buildDecorationSet(
     doc: PMNode,
     ranges: CommentRange[],
     aiRanges: Range[] = [],
     limitOptions?: LimitDecorationOptions,
-    diffs: DiffPreview[] = []
+    review: ReviewPreview | null = null
   ) {
     const decorations: Decoration[] = [];
     const docSize = doc.content.size;
 
-    // Live proposal preview: strike the text being replaced and show the
-    // proposed text inline after it (green), directly in the document.
-    const previewMatches = diffs.length
-      ? findOccurrencesBatch(doc, diffs.map((d) => d.find))
-      : [];
-    diffs.forEach((d, i) => {
-      for (const m of previewMatches[i]) {
-        decorations.push(
-          Decoration.inline(m.from, m.to, { class: "proposal-removed" })
-        );
-        if (d.replaceWith.trim()) {
-          const insert = d.replaceWith;
-          // Multi-paragraph replacements render as real paragraphs below the
-          // struck text (one <p> per blank-line-separated block, mirroring
-          // the editor's own paragraph rhythm); short swaps stay inline.
-          const block = /\n/.test(insert) || insert.length > 160;
+    // Owner 2026-10-28 (rows 34 and 35): a suggestion under review marks the
+    // words that change, inside its own Line.
+    if (review) {
+      const scope = review.line ? lineScope(doc, review.line) : undefined;
+      const marks = reviewMarks(doc, review.pairs, diffWords, scope);
+      const newAt = new Set(marks.flatMap((mark) => (mark.kind === "new" ? [mark.at] : [])));
+      for (const mark of marks) {
+        if (mark.kind === "cut") {
+          // Hidden old words take one following space with them, so the
+          // report reads without a double space, unless new words go there.
+          let to = mark.to;
+          if (!review.showChanges && !newAt.has(to) && to < docSize && /\s/.test(doc.textBetween(to, to + 1, " "))) to += 1;
           decorations.push(
-            Decoration.widget(
-              m.to,
-              () => {
-                if (!block) {
-                  const el = document.createElement("span");
-                  el.className = "proposal-added";
-                  el.textContent = insert;
-                  return el;
-                }
-                const wrap = document.createElement("div");
-                wrap.className = "proposal-added-paragraphs";
-                for (const para of insert.split(/\n{2,}/)) {
-                  if (!para.trim()) continue;
-                  const p = document.createElement("p");
-                  p.className = "proposal-added";
-                  p.textContent = para.trim();
-                  wrap.appendChild(p);
-                }
-                return wrap;
-              },
-              { side: 1 }
-            )
+            Decoration.inline(mark.from, to, { class: review.showChanges ? "review-cut" : "review-cut-hidden" })
           );
+          continue;
         }
+        const text = mark.text;
+        decorations.push(
+          Decoration.widget(
+            mark.at,
+            () => {
+              const el = document.createElement("span");
+              el.className = review.showChanges ? "review-new" : "review-new-quiet";
+              el.textContent = text;
+              return el;
+            },
+            { side: 1, key: `review-${mark.at}-${review.showChanges ? "on" : "off"}-${text}` }
+          )
+        );
       }
-    });
+    }
 
     // BNH-25: AI-referenced passages — re-resolve by text so they survive drift.
     for (const r of aiRanges) {
@@ -706,9 +718,13 @@
     position: { top: number; left: number };
   }>({ isOpen: false, position: { top: 0, left: 0 } });
   let aiHighlights = $state<Range[]>([]);
-  /** Live "Show changes" preview: find → strikethrough, replaceWith → inline green widget. */
-  type DiffPreview = { find: string; replaceWith: string };
-  let previewDiffs = $state<DiffPreview[]>([]);
+  /** Owner 2026-10-28: the suggestion under review, marked word by word. */
+  type ReviewPreview = {
+    pairs: { find: string; replaceWith: string }[];
+    showChanges: boolean;
+    line: string | null;
+  };
+  let reviewPreview = $state<ReviewPreview | null>(null);
 
   // BNH-37: canonical Schedule 60 metrics. Recompute only when the ProseMirror
   // document identity changes; selection-only transactions reuse the result.
@@ -915,14 +931,14 @@
       : limitOverlayVisible
         ? { metrics: sectionLimitMetrics, endMarkers: true, overflow: true, headingMeters: false }
         : undefined;
-    const diffs = previewDiffs;
+    const review = reviewPreview;
     let decoratedDoc: PMNode | null = null;
     let decorations: DecorationSet | null = null;
     ed.view.setProps({
       decorations: (state) => {
         if (state.doc !== decoratedDoc || !decorations) {
           decoratedDoc = state.doc;
-          decorations = buildDecorationSet(state.doc, ranges, ai, metrics, diffs);
+          decorations = buildDecorationSet(state.doc, ranges, ai, metrics, review);
         }
         return decorations;
       },
@@ -1210,23 +1226,36 @@
     scrollContainerToPos(from, 120);
   }
 
-  /** Live "Show changes": render a proposal as strikethrough + inline green
-   * insertions in the document itself; scrolls to the first affected match.
-   * Pass [] to clear. */
-  export function previewProposal(pairs: { find: string; replaceWith: string }[]) {
+  /**
+   * Owner 2026-10-28 (rows 34 and 35): show a suggestion under review in the
+   * report. Show changes on strikes the old words and adds the new ones; off
+   * shows the report as it would read, the new words lightly marked. `line`
+   * keeps the marks inside the card's Line. The first time a suggestion is
+   * shown the report scrolls to it. Pass [] to clear.
+   */
+  export function previewProposal(
+    pairs: { find: string; replaceWith: string }[],
+    options: { showChanges?: boolean; line?: string | null } = {}
+  ) {
     if (!editor) return;
-    previewDiffs = pairs.filter((p) => p.find.trim());
-    if (previewDiffs.length === 0) return;
-    const first = findAllOccurrencesCI(editor.state.doc, previewDiffs[0].find)[0];
+    const kept = pairs.filter((p) => p.find.trim());
+    if (kept.length === 0) {
+      clearProposalPreview();
+      return;
+    }
+    const firstShow = !reviewPreview || reviewPreview.pairs[0]?.find !== kept[0].find;
+    reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
+    if (!firstShow) return;
+    const first = findAllOccurrencesCI(editor.state.doc, kept[0].find)[0];
     if (first) scrollContainerToPos(first.from, 120);
   }
 
   export function clearProposalPreview() {
-    // Re-anchor on the change site before the widgets unmount, so untoggling
-    // returns the writer to the same passage instead of leaving the viewport
-    // wherever the (now shorter) document happens to land.
-    const anchor = previewDiffs[0]?.find;
-    previewDiffs = [];
+    // Re-anchor on the change site before the marks unmount, so leaving the
+    // review returns the writer to the same passage instead of leaving the
+    // viewport wherever the (now shorter) document happens to land.
+    const anchor = reviewPreview?.pairs[0]?.find;
+    reviewPreview = null;
     if (editor && anchor) {
       // Two frames: decorations unmount on the next render; measure after.
       requestAnimationFrame(() =>

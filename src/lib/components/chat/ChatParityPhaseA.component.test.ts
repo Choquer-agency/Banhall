@@ -209,43 +209,50 @@ const proposal = (extra: Partial<Doc<"chatProposals">> = {}): Doc<"chatProposals
   state: "pending", createdAt: 1000, ...extra,
 });
 
+// Owner 2026-10-28: a card is reviewed and accepted, so the gated actions are
+// Review, Accept, Dismiss and Edit wording.
 describe("task 4: Apply gating", () => {
-  it("hides Apply, Dismiss and Edit wording from someone who cannot edit the report", async () => {
+  const openCard = () => page.getByRole("button", { name: "Show the suggestion" }).click();
+
+  it("hides Review, Dismiss and Edit wording from someone who cannot edit the report", async () => {
     __setQueryData("projects:getProjectEditAccess", { canEditDetails: false });
     await page.viewport(480, 520);
     await render(ProposalCard, { proposal: proposal(), onRefine: vi.fn() });
-    await expect.element(page.getByText("Only people who can edit this report can apply or dismiss suggestions.")).toBeVisible();
-    for (const name of ["Apply", "Apply all", "Dismiss", "Review individually"]) {
+    await openCard();
+    await expect.element(page.getByText("Only people who can edit this report can accept suggestions.")).toBeVisible();
+    for (const name of ["Review", "Accept", "Accept all", "Review individually"]) {
       expect(page.getByRole("button", { name, exact: true }).elements(), name).toHaveLength(0);
     }
     await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
     await expect.element(page.getByRole("menuitem", { name: "Refine with AI", exact: true })).toBeVisible();
     expect(page.getByRole("menuitem", { name: "Edit wording", exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("menuitem", { name: "Dismiss", exact: true }).elements()).toHaveLength(0);
     await page.screenshot({ path: `${CAPTURES}/apply-hidden-for-viewer.png` });
   });
 
-  it("shows nothing to act on while access loads, then Apply for an editor", async () => {
+  it("shows nothing to act on while access loads, then Review for an editor", async () => {
     __resetConvexStub();
     const { unmount } = await render(ProposalCard, { proposal: proposal() });
+    await openCard();
     await expect.element(page.getByText("Clearer wording", { exact: true })).toBeVisible();
-    expect(page.getByRole("button", { name: "Apply", exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "Review", exact: true }).elements()).toHaveLength(0);
     expect(page.getByText("Only people who can edit", { exact: false }).elements()).toHaveLength(0);
     __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
-    await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Review", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Dismiss", exact: true })).toBeVisible();
     unmount();
   });
 
   it("treats a failed access read as unknown, never as a refusal", async () => {
     __setQueryError("projects:getProjectEditAccess", new Error("[CONVEX Q(projects:getProjectEditAccess)] Server Error"));
     await render(ProposalCard, { proposal: proposal(), onRefine: vi.fn() });
+    await openCard();
     await expect.element(page.getByText("Clearer wording", { exact: true })).toBeVisible();
-    for (const name of ["Apply", "Dismiss"]) {
-      expect(page.getByRole("button", { name, exact: true }).elements(), name).toHaveLength(0);
-    }
+    expect(page.getByRole("button", { name: "Review", exact: true }).elements()).toHaveLength(0);
     expect(page.getByText("Only people who can edit", { exact: false }).elements()).toHaveLength(0);
     __setQueryData("projects:getProjectEditAccess", { canEditDetails: true });
-    await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Review", exact: true })).toBeVisible();
   });
 });
 
@@ -594,6 +601,7 @@ describe("task 6: reasoning summaries and announcements", () => {
     __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q", order: 1, status: "completed", startedAt: 1, endedAt: 2, stepCount: 0 }]);
     __setQueryData("chatV2:listProposals", [proposal()]);
     await render(AgentChatPanel, { reportId, projectId });
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
     await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
     await page.getByRole("menuitem", { name: "Refine with AI", exact: true }).click();
     await expect.poll(() => scrollTo.mock.calls.length).toBeGreaterThan(0);
@@ -904,7 +912,7 @@ describe("task 12: bulk card Completion Report", () => {
       proposal: proposal({ _id: bulkId, kind: "replacements", targetText: undefined, newText: undefined,
         replacements: [{ find: "An old passage.", replaceWith: "A corrected passage." }], requireUniqueTargets: true }),
     });
-    await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Review", exact: true })).toBeVisible();
     const report = container.querySelector("[data-completion-report]") as HTMLDetailsElement;
     expect(report.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Completion Report 1 resolved, 1 blocked");
     expect(report.open).toBe(false);
@@ -927,7 +935,7 @@ describe("task 12: bulk card Completion Report", () => {
   it("leaves an ordinary suggestion without a report", async () => {
     __setQueryData("chatV2:listProposalItems", items);
     const { container } = await render(ProposalCard, { proposal: proposal() });
-    await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Review", exact: true })).toBeVisible();
     expect(container.querySelector("[data-completion-report]")).toBeNull();
   });
 });

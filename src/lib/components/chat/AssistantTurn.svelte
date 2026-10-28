@@ -9,6 +9,13 @@
   import WebSourcesRow from "./WebSourcesRow.svelte";
   import { turnWebSources, withWebSearchLabels, type TurnWebSearch } from "$lib/chat/webSources";
   import { CHAT_FEEDBACK_REASONS, MAX_CHAT_FEEDBACK_REASON_CHARS, type ChatFeedbackReasonCode } from "../../../../shared/chatFeedback";
+  import { useMutation, useQuery } from "convex-svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { api } from "../../../../convex/_generated/api";
+  import { isRecordOnlyProposal } from "../../../../shared/chatProposals";
+  import { useProposalSection } from "$lib/chat/proposalSection";
+  import { doneLine, undoneLine, useAssistantCards, type AcceptedCard } from "$lib/chat/assistantCards.svelte";
+  import { userErrorMessage } from "$lib/errors";
 
   type Proposal = Doc<"chatProposals">;
 
@@ -58,15 +65,6 @@
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
-    onReviewReplacements?: (
-      pairs: { find: string; replaceWith: string }[],
-      proposalId: string
-    ) => void;
-    onPreviewProposal?: (
-      pairs: { find: string; replaceWith: string }[],
-      on: boolean
-    ) => void;
-    reviewingId?: string | null;
   }
 
   let {
@@ -85,15 +83,75 @@
     onRefine,
     onBeforeApply,
     onReferenceText,
-    onReviewReplacements,
-    onPreviewProposal,
-    reviewingId,
   }: Props = $props();
 
   const componentId = $props.id();
   const answerElementId = `${componentId}-answer`;
   const regenerationDescriptionId = `${componentId}-regeneration-description`;
   const turn = $derived(normalizeTurnParts(message, proposals));
+
+  // Owner 2026-10-28 (rows 32 and 36): one card per Line. Two or more cards
+  // from this reply still waiting share a grey tray with Accept all, unless
+  // any of them offers options (the writer picks those one by one). Accepted
+  // cards are followed by a fixed "Done." line, undone ones by "Undone.".
+  const cards = useAssistantCards();
+  const sectionOf = useProposalSection();
+  const applyProposal = useMutation(api.chatV2.applyProposal);
+  const auth = useAuth();
+  const editNodes = $derived(
+    turn.proposalNodes.filter((node) => node.proposal.kind !== "references" && !isRecordOnlyProposal(node.proposal))
+  );
+  const accessProjectId = $derived(editNodes[0]?.proposal.projectId);
+  const editAccessQ = useQuery(api.projects.getProjectEditAccess, () =>
+    auth.isAuthenticated && accessProjectId ? { projectId: accessProjectId } : "skip"
+  );
+  const canEdit = $derived(editAccessQ.data?.canEditDetails === true);
+  const lineOf = (proposal: Proposal) =>
+    proposal.section ?? sectionOf(proposal.targetText ?? proposal.replacements?.[0]?.find);
+  const waiting = $derived(editNodes.filter((node) => node.proposal.state === "pending"));
+  const trayKeys = $derived(
+    canEdit && waiting.length >= 2 && waiting.every((node) => !node.proposal.alternatives?.length)
+      ? new Set(waiting.map((node) => node.key))
+      : new Set<string>()
+  );
+  const firstTrayKey = $derived(waiting.find((node) => trayKeys.has(node.key))?.key);
+  const acceptedCards = $derived<AcceptedCard[]>(
+    editNodes
+      .filter((node) => node.proposal.state === "applied")
+      .map((node) => ({
+        proposalId: node.proposal._id,
+        line: lineOf(node.proposal),
+        ...(node.proposal.alternatives?.length ? { option: node.proposal.appliedOption ?? 0 } : {}),
+      }))
+  );
+  const undoneLines = $derived(
+    editNodes
+      .filter((node) => node.proposal.state === "pending" && node.proposal.undoneAt !== undefined)
+      .map((node) => lineOf(node.proposal))
+  );
+
+  let acceptingAll = $state(false);
+  async function acceptAll() {
+    if (acceptingAll) return;
+    acceptingAll = true;
+    cards?.clearNotice();
+    const done: AcceptedCard[] = [];
+    try {
+      await onBeforeApply?.();
+      for (const node of waiting) {
+        const result = await applyProposal({ proposalId: node.proposal._id });
+        if (!result.applied) throw Object.assign(new Error(result.reason), { line: lineOf(node.proposal) });
+        done.push({ proposalId: node.proposal._id, line: lineOf(node.proposal) });
+      }
+    } catch (error) {
+      const failedLine = (error as { line?: string | null }).line;
+      const reason = userErrorMessage(error, "Try again.");
+      cards?.showNotice({ message: `Couldn't accept ${failedLine ? `Line ${failedLine}` : "every suggestion"}. ${reason}` });
+    } finally {
+      if (done.length) cards?.accepted(done);
+      acceptingAll = false;
+    }
+  }
   // Phase B: each search is named in the trace, and its numbered sources
   // back the reply's citations and the Sources row.
   // The thought block leaves out steps whose card is already under the
@@ -222,16 +280,28 @@
   {/if}
 
   {#each turn.proposalNodes as node (node.key)}
-    <ChatProposalArtifact
-      proposal={node.proposal}
-      {onRefine}
-      {onBeforeApply}
-      {onReferenceText}
-      {onReviewReplacements}
-      {onPreviewProposal}
-      reviewing={reviewingId === node.proposal._id}
-    />
+    {#if node.key === firstTrayKey}
+      <!-- Row 36 (A3): the waiting cards of one reply, with Accept all. -->
+      <div class="mt-2 flex flex-col gap-1.5 rounded-[0.875rem] border border-line-soft bg-gray-50 p-1.5 [&_[data-proposal-card]]:mt-0" data-accept-all-tray>
+        {#each waiting as trayNode (trayNode.key)}
+          <ChatProposalArtifact proposal={trayNode.proposal} {onRefine} {onBeforeApply} {onReferenceText} />
+        {/each}
+        <div class="flex justify-end">
+          <button type="button" class="inline-flex h-[1.875rem] items-center rounded-[0.4375rem] border border-line bg-white px-3 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-100 disabled:opacity-50 pointer-coarse:min-h-11"
+            onclick={acceptAll} disabled={acceptingAll} data-accept-all>{acceptingAll ? "Accepting…" : "Accept all"}</button>
+        </div>
+      </div>
+    {:else if !trayKeys.has(node.key)}
+      <ChatProposalArtifact proposal={node.proposal} {onRefine} {onBeforeApply} {onReferenceText} />
+    {/if}
   {/each}
+  {#if acceptedCards.length}
+    <p class="pt-2.5 text-[0.8125rem] leading-[calc(20/13)] text-ink" data-cards-done>{doneLine(acceptedCards)}</p>
+  {/if}
+  {#if undoneLines.length}
+    <p class="pt-2.5 text-[0.8125rem] leading-[calc(20/13)] text-ink" data-cards-undone>{undoneLine(undoneLines)}</p>
+  {/if}
+
 
   {#if continuation}
     <!-- Phase A: the server's structured offer to carry on (the next Line, or

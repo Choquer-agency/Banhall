@@ -166,6 +166,7 @@ it("captures refinement before edits and retries the original proposal id", asyn
   // A durable answer makes the proposal available in the transcript.
   __setPaginatedRows("chatV2:listMessages", [row("question", "Original question"), row("answer", "Original answer", 1, "assistant")]);
   // Refine lives in the suggested-edit card's More menu (board 2.1).
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
   await page.getByRole("menuitem", { name: "Refine with AI", exact: true }).click();
   await writeAndSend("Make it more specific");

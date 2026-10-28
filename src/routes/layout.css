@@ -54,6 +54,17 @@
   --color-action-primary-hover: var(--color-primary-dark);
   --color-action-primary-foreground: #FFFFFF;
 
+  /* Assistant cards and review (Paper rows 32 to 37, owner 2026-10-28). */
+  --color-primary-line: #C9E2DD;      /* teal hairline: accepted card, Recommended pill, options panel */
+  --color-primary-line-soft: #DCEDEA; /* the options panel's inner card */
+  --color-primary-ring: #9FDCD8;      /* the card under review */
+  --color-primary-highlight: #E3F5F3; /* new words with Show changes off */
+  --color-on-ink-accent: #7FE3DD;     /* Recommended on the dark review bar */
+  --color-on-ink-muted: #D6E2E0;      /* Stop review on the dark review bar */
+  --shadow-suggestion-card: 0 1px 2px #16211F0A;
+  --shadow-suggestion-review: 0 0 0 3px var(--color-primary-wash);
+  --shadow-review-bar: 0 10px 28px #10182838;
+
   /* Report gap highlight (BNH editor) */
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #A8500F;
@@ -1295,30 +1306,35 @@ textarea.input-chromeless:focus-visible {
   animation: ai-ref-pulse 1.1s ease-out 1;
 }
 
-/* Live proposal preview (AI assistant "Show changes" rendered in the doc). */
-.proposal-removed {
-  background-color: #FEF2F2;
-  color: #B91C1C;
-  text-decoration: line-through;
-  text-decoration-color: #FCA5A5;
+/* Owner 2026-10-28 (Paper rows 34 and 35): a suggestion under review marks
+   only the words that change. No border, tint or outline on the paragraph.
+   Show changes on: old words struck in red, new words in green. Off: the
+   report as it would read, new words lightly marked in teal. */
+.review-cut {
+  background-color: var(--color-danger-surface);
+  color: var(--color-danger-ink);
+  text-decoration: line-through 1px;
   border-radius: 0.1875rem;
+  padding-inline: 0.125rem;
 }
-.proposal-added {
-  background-color: #F0FDF4;
-  color: #15803D;
+.review-cut-hidden {
+  display: none;
+}
+.review-new,
+.review-new-quiet {
   border-radius: 0.1875rem;
+  padding-inline: 0.125rem;
 }
-/* Multi-paragraph proposal text: real <p> rhythm, styled like
-   .proposal-removed but green — no border, no extra padding. */
-.proposal-added-paragraphs {
-  display: block;
-  margin-top: 0.75em;
+.review-new {
+  background-color: var(--color-success-soft);
+  color: var(--color-success-ink);
 }
-.proposal-added-paragraphs p.proposal-added {
-  margin: 0 0 0.75em;
+.review-new-quiet {
+  background-color: var(--color-primary-highlight);
+  color: var(--color-ink);
 }
-.proposal-added-paragraphs p.proposal-added:last-child {
-  margin-bottom: 0;
+.review-cut + .review-new {
+  margin-inline-start: 0.25em;
 }
 
 /* A Section a stopped Step-by-step draft left empty (ui-design-final.md

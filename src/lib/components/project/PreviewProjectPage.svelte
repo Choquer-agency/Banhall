@@ -82,6 +82,8 @@
   import { readingColumn, reportColumn } from "$lib/components/ui/readingColumn";
   import { layoutMotion } from "$lib/motion/layoutMotion";
   import { loadAgentChatPanel, prewarmAssistant, releaseAssistantPrewarm } from "$lib/components/chat/chatModules";
+  import { ReviewSession } from "$lib/chat/assistantCards.svelte";
+  import ReviewBar from "$lib/components/chat/ReviewBar.svelte";
   import AssistantPanelSkeleton from "$lib/components/chat/AssistantPanelSkeleton.svelte";
   import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
@@ -250,7 +252,6 @@
   const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
-  const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const authorizeExport = useMutation(api.reports.authorizeExport);
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
@@ -494,201 +495,36 @@
   let candidateMaximized = $state(false);
   let generationError = $state("");
 
-  // BNH-30: one-by-one replace-and-scan-next session.
-  type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
-  type ReplaceSession = {
-    pairs: { find: string; replaceWith: string }[];
-    // chatMessages id (legacy chat) or chatProposals id (agent chat).
-    messageId: string;
-    cursor: number;
-    total: number;
-    position: number;
-    current: ReplaceMatch | null;
-    replaced: number;
-  };
-  let replaceSession = $state<ReplaceSession | null>(null);
-  let replaceNotice = $state<string | null>(null);
-  // Sprint 1 story 6 (CAP-2): while a replace session is active, autosave is
-  // held and the latest editor JSON parks here (see handleEditorUpdate). The
-  // session exit writes it through markProposalApplied, which snapshots the
-  // pre-session content, fences on the revision, writes content + status and
-  // bumps the revision in one transaction — no content for that proposal ever
-  // reaches the report without its snapshot.
-  let sessionDraftJson: string | null = null;
-  // The in-flight session exit: stepper handlers bail while it runs and
-  // flushEditor awaits it.
-  let finishingReplace: Promise<void> | null = null;
-  function notifyReplace(msg: string) {
-    replaceNotice = msg;
-    setTimeout(() => (replaceNotice = null), 4000);
-  }
-
-  function markApplied(id: string, content: string, expectedRevisionNumber: number) {
-    return markProposalApplied({
-      proposalId: id as Id<"chatProposals">,
-      content,
-      expectedRevisionNumber,
+  // Owner 2026-10-28 (Paper row 34): a suggestion card's Review marks the
+  // change in the report, word by word, and floats the review bar over it.
+  // The Assistant's cards start, steer and end the session; nothing shows in
+  // the report until then.
+  const review = new ReviewSession();
+  $effect(() => {
+    const target = review.target;
+    const pairs = review.pairs;
+    const showChanges = review.showChanges;
+    const ed = editorRef;
+    if (!ed) return;
+    // The editor reads its own review state while it updates it: untracked,
+    // so this effect follows the session only.
+    untrack(() => {
+      if (target) ed.previewProposal(pairs, { showChanges, line: target.line });
+      else ed.clearProposalPreview();
     });
-  }
-
-  async function startReplaceReview(
-    pairs: { find: string; replaceWith: string }[],
-    messageId: string
-  ) {
-    // Close any session still open and persist pending typing through the
-    // normal save path first, so the pre_chat_edit snapshot taken at this
-    // session's exit equals the document exactly as it stands now. A standing
-    // save error stays visible in the header; it does not block the review.
-    try {
-      await flushEditor();
-    } catch {
-      /* surfaced via saveError */
+  });
+  // Review shows the report: leave Sources, Assistant full screen, or the
+  // narrow-screen Assistant view.
+  let reviewedProposalId: string | null = null;
+  $effect(() => {
+    const id = review.target?.proposalId ?? null;
+    if (id === reviewedProposalId) return;
+    reviewedProposalId = id;
+    if (id && untrack(() => sourcesOpen || assistantFull || mobileWorkspaceView === "assistant")) {
+      untrack(() => selectTab("report"));
     }
-    const ed = editorRef;
-    if (!ed || !report || replaceSession || finishingReplace) return;
-    if (reportReadOnly) {
-      notifyReplace("Drafting the missing sections. Editing resumes when they are in.");
-      return;
-    }
-    const matches = ed.findReplaceMatches(pairs);
-    if (matches.length === 0) {
-      notifyReplace(
-        `No matching passage remains for “${pairs[0]?.find ?? "this suggestion"}”. The report may have changed; refine or ask again.`
-      );
-      return;
-    }
-    const first = matches[0];
-    ed.highlightRange(first.from, first.to, first.text);
-    sessionDraftJson = null;
-    replaceSession = {
-      pairs,
-      messageId,
-      cursor: 0,
-      total: matches.length,
-      position: 1,
-      current: first,
-      replaced: 0,
-    };
-  }
+  });
 
-  /**
-   * The single exit for every replace session. Order matters: the flush runs
-   * while autosave is still held, so the latest visible document lands in
-   * sessionDraftJson instead of a plain save; only then is the hold released.
-   * With at least one replacement the document is written through
-   * markProposalApplied (snapshot + revision fence + content + status, one
-   * transaction). With none, anything typed during the session takes the
-   * normal save path. Never rejects: failures surface via notifyReplace.
-   */
-  function finishReplaceSession(sess: ReplaceSession): Promise<void> {
-    if (finishingReplace) return finishingReplace;
-    const run = async () => {
-      try {
-        const ed = editorRef;
-        ed?.clearHighlight();
-        // Capture while replaceSession is still set (autosave held).
-        await ed?.flushPendingSave();
-        const draft = sessionDraftJson;
-        sessionDraftJson = null;
-        replaceSession = null;
-        if (sess.replaced > 0) {
-          if (draft === null) {
-            notifyReplace(
-              "The replaced text is still in the editor but could not be captured for saving. Make any edit to save it."
-            );
-            return;
-          }
-          pendingSaves += 1;
-          saving = true;
-          saveError = "";
-          const apply = async () => {
-            const result = await markApplied(sess.messageId, draft, localRevision);
-            localRevision = result.revisionNumber;
-          };
-          saveChain = saveChain.then(apply, apply);
-          try {
-            await saveChain;
-          } catch (error) {
-            // A stale revision or a rejected write must not crash the page:
-            // the header keeps the persistent save error, the stepper shows
-            // the notice, and the text stays in the editor.
-            const message = userErrorMessage(error, "The replacements could not be saved.");
-            saveError = message;
-            notifyReplace(message);
-          } finally {
-            pendingSaves -= 1;
-            saving = pendingSaves > 0;
-          }
-        } else if (draft !== null) {
-          await handleEditorUpdate(draft);
-        }
-      } catch (error) {
-        notifyReplace(userErrorMessage(error, "The replacements could not be saved."));
-      } finally {
-        finishingReplace = null;
-      }
-    };
-    finishingReplace = run();
-    return finishingReplace;
-  }
-
-  function advanceReplace(cursor: number, addedReplaced: number) {
-    const sess = replaceSession;
-    const ed = editorRef;
-    if (!sess || !ed || finishingReplace) return;
-    const next =
-      ed.findReplaceMatches(sess.pairs).find((m) => m.from >= cursor) ?? null;
-    const replaced = sess.replaced + addedReplaced;
-    if (next) {
-      ed.highlightRange(next.from, next.to, next.text);
-      replaceSession = { ...sess, cursor, position: sess.position + 1, current: next, replaced };
-    } else {
-      void finishReplaceSession({ ...sess, replaced });
-    }
-  }
-
-  function replaceAndNext() {
-    const sess = replaceSession;
-    const ed = editorRef;
-    if (!sess?.current || !ed || finishingReplace) return;
-    // Count only a replacement that changed the document; a refused one is
-    // stepped over like "Keep original" (review g1).
-    const changed = ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
-    if (changed) advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
-    else advanceReplace(sess.current.to, 0);
-  }
-
-  function keepOriginalAndNext() {
-    const sess = replaceSession;
-    if (!sess?.current || finishingReplace) return;
-    advanceReplace(sess.current.to, 0);
-  }
-
-  function replaceAllRemaining() {
-    const sess = replaceSession;
-    const ed = editorRef;
-    if (!sess || !ed || finishingReplace) return;
-    let cursor = sess.current ? sess.current.from : sess.cursor;
-    let replaced = sess.replaced;
-    for (let i = 0; i < 5000; i++) {
-      const m = ed.findReplaceMatches(sess.pairs).find((x) => x.from >= cursor);
-      if (!m) break;
-      if (ed.replaceRange(m.from, m.to, m.replaceWith)) {
-        cursor = m.from + m.replaceWith.length;
-        replaced++;
-      } else {
-        // Refused: step past it instead of finding it again.
-        cursor = m.to;
-      }
-    }
-    void finishReplaceSession({ ...sess, replaced });
-  }
-
-  function endReplaceReview() {
-    const sess = replaceSession;
-    if (!sess || finishingReplace) return;
-    void finishReplaceSession(sess);
-  }
 
   /** Jump to the exact paragraph identified by the QA agent's [P#] marker. */
   function locateGap(gap: { section: string; paragraph: number | null }) {
@@ -1003,12 +839,6 @@
 
 
   async function handleEditorUpdate(json: string) {
-    // CAP-2: a replace session holds autosave. Park the latest document here;
-    // finishReplaceSession writes it when the session ends.
-    if (replaceSession) {
-      sessionDraftJson = json;
-      return;
-    }
     if (!report) return;
     const reportId = report._id;
     pendingSaves += 1;
@@ -1039,10 +869,6 @@
     }
   }
   async function flushEditor(): Promise<number> {
-    // A replace session holds autosave, so "everything visible is persisted"
-    // starts with closing that session through its transactional write.
-    if (finishingReplace) await finishingReplace;
-    else if (replaceSession) await finishReplaceSession(replaceSession);
     await editorRef?.flushPendingSave();
     await saveChain;
     if (saveError) throw new Error(saveError);
@@ -2082,8 +1908,10 @@
     // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
     // and the Assistant stays open while its composer holds unsent text.
     if (e.key !== "Escape" || e.defaultPrevented) return;
-    if (assistantFull && !replaceSession) chatFocus = false;
-    else if (chatShown && !replaceSession && !document.querySelector("[data-assistant-draft]")) {
+    // Owner 2026-10-28: Esc ends a review before it closes anything.
+    if (review.target) review.stop();
+    else if (assistantFull) chatFocus = false;
+    else if (chatShown && !document.querySelector("[data-assistant-draft]")) {
       chatOpen = false;
       mobileWorkspaceView = "report";
     }
@@ -2326,6 +2154,14 @@
           inert={assistantFull}
           class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${assistantFull ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
         >
+          {#if review.target && !sourcesOpen}
+            <!-- Row 34 (V3): the review bar floats over the report. -->
+            <div class="pointer-events-none absolute inset-x-0 bottom-6 z-30 flex justify-center px-4" data-review-bar-host>
+              <div class="pointer-events-auto max-w-full overflow-x-auto">
+                <ReviewBar {review} />
+              </div>
+            </div>
+          {/if}
           <!-- Draft ready (board 4.4): where the writing pill was, top centre
                of the Report tab. Export and Send for review are back in the
                top bar. -->
@@ -2994,12 +2830,8 @@
                         {pendingResearch}
                         onClearResearch={() => (pendingResearch = null)}
                         onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                        onReviewReplacements={startReplaceReview}
-                        onPreviewProposal={(pairs, on) => {
-                          if (on && pairs.length) editorRef?.previewProposal(pairs);
-                          else editorRef?.clearProposalPreview();
-                        }}
-                        reviewingId={replaceSession?.messageId ?? null}
+                        {review}
+                        onOpenVersionHistory={() => (showHistory = true)}
                         onBeforeApply={flushEditor}
                         closeInset={false}
                         bind:composerHeight={assistantComposerHeight}
@@ -3027,64 +2859,6 @@
         onDeleted={leaveAfterDelete}
       />
     {/if}
-    <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
-    {#if replaceSession}
-      <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
-        <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">
-          <div class="flex flex-col">
-            <span class="text-xs font-medium text-gray-400">
-              Reviewing replacements
-            </span>
-            <span class="text-sm font-semibold text-navy">
-              {replaceSession.current
-                ? `Instance ${replaceSession.position} of ${replaceSession.total}`
-                : "Done"}
-              {#if replaceSession.current}
-                <span class="ml-2 font-normal text-gray-500">
-                  “{replaceSession.current.text}” →
-                  <span class="text-primary-dark">
-                    {replaceSession.current.replaceWith}
-                  </span>
-                </span>
-              {/if}
-            </span>
-          </div>
-          <div class="ml-2 flex items-center gap-1.5">
-            <button
-              onclick={replaceAndNext}
-              class="inline-flex items-center gap-1 rounded-lg bg-primary-selected px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              Replace and next
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </button>
-            <button
-              onclick={replaceAllRemaining}
-              class="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
-            >
-              Replace All
-            </button>
-            <button
-              onclick={keepOriginalAndNext}
-              class="rounded-lg px-3 py-2 text-xs font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy"
-            >
-              Keep original
-            </button>
-            <button
-              onclick={endReplaceReview}
-              title="Stop reviewing"
-              class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     {#snippet qaFinishedNotice()}
       {#if qaScores}
         <QaFinishedNotice
@@ -3110,13 +2884,6 @@
         data-qa-finished-host
       >
         {@render qaFinishedNotice()}
-      </div>
-    {/if}
-
-    <!-- BNH-30: transient notice (e.g. text not found to replace) -->
-    {#if replaceNotice}
-      <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2 rounded-lg bg-navy px-4 py-2 text-sm text-white shadow-xl">
-        {replaceNotice}
       </div>
     {/if}
 

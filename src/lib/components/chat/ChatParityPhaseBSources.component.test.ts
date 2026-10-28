@@ -323,23 +323,32 @@ describe("Undo on an applied card", () => {
     state: "applied" as const, createdAt: 0, undoable: true, ...extra,
   });
   const undo = () => page.getByRole("button", { name: "Undo", exact: true });
+  // Owner 2026-10-28: an accepted card folds to one line; opened, its footer
+  // offers Undo.
+  const openAccepted = () => page.getByRole("button", { name: "Show what was accepted" }).click();
 
   it("is offered on an undoable applied card to people who may apply", async () => {
     const card = await render(ProposalCard, { proposal: applied() });
+    await expect.element(page.getByText("Accepted", { exact: true })).toBeVisible();
+    await openAccepted();
     await expect.element(undo()).toBeVisible();
-    await expect.element(page.getByText("Replaced in report", { exact: true })).toBeVisible();
     card.unmount();
 
-    for (const proposal of [applied({ undoable: false }), applied({ state: "pending" })]) {
-      const other = await render(ProposalCard, { proposal });
-      await expect.element(page.getByText(proposal.state === "pending" ? "Suggested edit" : "Replaced in report", { exact: true })).toBeVisible();
-      expect(undo().elements()).toHaveLength(0);
-      other.unmount();
-    }
+    const notUndoable = await render(ProposalCard, { proposal: applied({ undoable: false }) });
+    await openAccepted();
+    await expect.element(page.getByText("The team cycled the coupon to failure.", { exact: true })).toBeVisible();
+    expect(undo().elements()).toHaveLength(0);
+    notUndoable.unmount();
+
+    const pending = await render(ProposalCard, { proposal: applied({ state: "pending" }) });
+    await expect.element(page.getByText("Suggested edit", { exact: true })).toBeVisible();
+    expect(undo().elements()).toHaveLength(0);
+    pending.unmount();
 
     __setQueryData("projects:getProjectEditAccess", { canEditDetails: false });
     await render(ProposalCard, { proposal: applied() });
-    await expect.element(page.getByText("Replaced in report", { exact: true })).toBeVisible();
+    await openAccepted();
+    await expect.element(page.getByText("The team cycled the coupon to failure.", { exact: true })).toBeVisible();
     expect(undo().elements()).toHaveLength(0);
   });
 
@@ -350,6 +359,7 @@ describe("Undo on an applied card", () => {
       undoCallsBeforeSave.push(__callOrder().filter((name) => name === "chatV2:undoProposal").length);
     });
     await render(ProposalCard, { proposal: applied(), onBeforeApply });
+    await openAccepted();
     await undo().click();
     await expect.poll(() => __mutationCalls("chatV2:undoProposal")).toEqual([{ proposalId: "proposal-1" }]);
     expect(onBeforeApply).toHaveBeenCalledTimes(1);
@@ -364,6 +374,7 @@ describe("Undo on an applied card", () => {
     __setMutationResult("chatV2:undoProposal", { then(_resolve: unknown, reject: (reason: unknown) => void) { console.error(error.message); reject(error); } });
     await page.viewport(480, 360);
     await render(ProposalCard, { proposal: applied() });
+    await openAccepted();
     await undo().click();
     await expect.element(page.getByRole("alert")).toHaveTextContent(
       "This passage changed after it was applied, so it can't be undone here. Use Version history to go back."
@@ -376,6 +387,7 @@ describe("Undo on an applied card", () => {
   it("says a failed Undo in plain words", async () => {
     __setMutationError("chatV2:undoProposal", new Error("[CONVEX M(chatV2:undoProposal)] [Request ID: 3] Server Error"));
     await render(ProposalCard, { proposal: applied() });
+    await openAccepted();
     await undo().click();
     await expect.element(page.getByRole("alert")).toHaveTextContent("This suggestion could not be undone. Try again.");
   });

@@ -1909,12 +1909,6 @@
                       {pendingResearch}
                       onClearResearch={() => (pendingResearch = null)}
                       onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                      onReviewReplacements={startReplaceReview}
-                      onPreviewProposal={(pairs, on) => {
-                        if (on && pairs.length) editorRef?.previewProposal(pairs);
-                        else editorRef?.clearProposalPreview();
-                      }}
-                      reviewingId={replaceSession?.messageId ?? null}
                       onBeforeApply={flushEditor}
                     />
                 {/snippet}

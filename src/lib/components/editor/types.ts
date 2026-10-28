@@ -56,8 +56,15 @@ export interface WriterEditorHandle extends EditorHandle {
   /** False when nothing changed (a refused edit): callers must not count it. */
   replaceRange: (from: number, to: number, newText: string) => boolean;
   highlightRange: (from: number, to: number, text: string) => void;
-  /** Live "Show changes": render a proposal as strikethrough + inline green
-   * insertions in the document; scrolls to the first match. [] clears. */
-  previewProposal: (pairs: { find: string; replaceWith: string }[]) => void;
+  /**
+   * Owner 2026-10-28: a suggestion under review, marked word by word in the
+   * report (Show changes on: struck old words and new words; off: new words
+   * lightly marked), inside `line` when given. Scrolls to it the first time.
+   * [] clears.
+   */
+  previewProposal: (
+    pairs: { find: string; replaceWith: string }[],
+    options?: { showChanges?: boolean; line?: string | null }
+  ) => void;
   clearProposalPreview: () => void;
 }

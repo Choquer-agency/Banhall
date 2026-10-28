@@ -57,6 +57,13 @@
   } from "$lib/components/chat/primitives";
   import { createRequestId } from "$lib/requestId";
   import { userErrorMessage } from "$lib/errors";
+  import {
+    AssistantCards,
+    provideAssistantCards,
+    updatedLabel,
+    type ReviewSession,
+  } from "$lib/chat/assistantCards.svelte";
+  import { PROPOSAL_UNDO_CONFLICT_TEXT, proposalUndoErrorMessage } from "$lib/chat/chatRefusals";
 
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
   // Messages come from the @convex-dev/agent component (token-streamed into
@@ -82,17 +89,14 @@
     /** Height of the pinned composer area, for hosts that float notices above it. */
     composerHeight?: number;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
-    onReviewReplacements?: (
-      pairs: { find: string; replaceWith: string }[],
-      proposalId: string
-    ) => void;
-    /** Live "Show changes" preview: render the proposal as strikethrough +
-     * inline insertions in the real editor (on), or clear the preview (off). */
-    onPreviewProposal?: (
-      pairs: { find: string; replaceWith: string }[],
-      on: boolean
-    ) => void;
-    reviewingId?: string | null;
+    /**
+     * Owner 2026-10-28 (row 34): the page's review session. Review marks a
+     * card's change in the report and floats the review bar over it. Without
+     * one (a host with no report beside the chat) the card shows the change.
+     */
+    review?: ReviewSession | null;
+    /** Opens the report's version history, offered when an Undo is refused. */
+    onOpenVersionHistory?: () => void;
     onBeforeApply?: () => Promise<unknown>;
   }
 
@@ -108,11 +112,49 @@
     closeInset = true,
     composerHeight = $bindable(0),
     onReferenceText,
-    onReviewReplacements,
-    onPreviewProposal,
-    reviewingId,
+    review = null,
+    onOpenVersionHistory,
     onBeforeApply,
   }: Props = $props();
+
+  // Owner 2026-10-28 (rows 32 to 36): the cards' shared state, the Undo bar
+  // and the inline notice. The page's review session is read once.
+  const cards = new AssistantCards(untrack(() => review));
+  provideAssistantCards(cards);
+
+  // The Undo bar keeps only cards that are still applied: one undone from its
+  // own card, or refused, leaves the bar.
+  const undoBarCards = $derived(
+    (cards.lastAccepted ?? []).filter((card) =>
+      (proposalsQ.data ?? []).some((proposal) => proposal._id === card.proposalId && proposal.state === "applied")
+    )
+  );
+  let undoingLatest = $state(false);
+  async function undoLatest() {
+    if (undoingLatest || undoBarCards.length === 0) return;
+    undoingLatest = true;
+    cards.clearNotice();
+    let current: (typeof undoBarCards)[number] | undefined;
+    try {
+      await onBeforeApply?.();
+      for (const card of [...undoBarCards].reverse()) {
+        current = card;
+        await undoProposal({ proposalId: card.proposalId as Id<"chatProposals"> });
+        cards.forget([card.proposalId]);
+      }
+    } catch (error) {
+      // Q5: the bar goes and the reason is the newest thing in the chat.
+      cards.lastAccepted = null;
+      const message = proposalUndoErrorMessage(error);
+      cards.showNotice(
+        message === PROPOSAL_UNDO_CONFLICT_TEXT
+          ? { message: `Couldn't undo. ${current?.line ? `Line ${current.line}` : "This passage"} was edited after you accepted it.`, action: "version_history" }
+          : { message }
+      );
+    } finally {
+      undoingLatest = false;
+    }
+  }
 
   /** The source passages a proposal references — for scroll-and-highlight. */
   function proposalRefs(p: Proposal): string[] {
@@ -422,6 +464,13 @@
     });
   });
 
+  const undoProposal = useMutation(api.chatV2.undoProposal);
+  // Owner 2026-10-28 (row 32): a new conversation starts without a bar or a
+  // notice from the last one.
+  $effect(() => {
+    void selectedThreadId;
+    untrack(() => cards.reset());
+  });
   const proposalsQ = useQuery(api.chatV2.listProposals, () =>
     selectedThreadId ? { threadId: selectedThreadId } : "skip"
   );
@@ -1259,6 +1308,7 @@
 
   async function transmitRequest(request: LocalSend, retryButton?: HTMLButtonElement) {
     sending = true;
+    cards.clearNotice();
     localSends = localSends.map(candidate => candidate.key === request.key
       ? { ...candidate, retried: candidate.retried || !!retryButton, state: { kind: "sending" } } : candidate);
     try {
@@ -1484,6 +1534,32 @@
         </div>
       </MessageContent>
     </Message>
+  </div>
+{/snippet}
+
+{#snippet chatNotice(notice: { message: string; action?: "version_history" })}
+  <!-- Row 32 (Q5): an error the writer can act on, Claude style: the newest
+       item in the chat, a light grey box with a small action under it. -->
+  <div class="mt-3 flex flex-col gap-2 rounded-[0.625rem] border border-line-soft bg-gray-50 px-3 py-2.5" role="alert" data-chat-notice>
+    <div class="flex items-start gap-2">
+      <span class="flex h-[1.1875rem] w-4 shrink-0 items-center" aria-hidden="true">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4M12 17h.01" />
+        </svg>
+      </span>
+      <p class="min-w-0 flex-1 text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{notice.message}</p>
+    </div>
+    {#if notice.action === "version_history" && onOpenVersionHistory}
+      <div class="flex gap-1 pl-5">
+        <button type="button" class="inline-flex h-[1.625rem] items-center gap-1.5 rounded-md border border-line bg-white px-2 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-100 pointer-coarse:min-h-11"
+          onclick={onOpenVersionHistory} data-chat-notice-action>
+          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-secondary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2" />
+          </svg>
+          Version history
+        </button>
+      </div>
+    {/if}
   </div>
 {/snippet}
 
@@ -2237,9 +2313,6 @@
             onRefine={refineProposal}
             {onBeforeApply}
             {onReferenceText}
-            {onReviewReplacements}
-            {onPreviewProposal}
-            {reviewingId}
           />
         {/if}
         {/if}
@@ -2252,19 +2325,19 @@
           onRefine={refineProposal}
           {onBeforeApply}
           {onReferenceText}
-          {onReviewReplacements}
-          {onPreviewProposal}
-          {reviewingId}
         />
       {/if}
 
       <ResearchFeed
         {reportId}
         {onReferenceText}
-        {onPreviewProposal}
         {onBeforeApply}
         onRefineProposal={refineProposal}
       />
+
+      {#if cards.notice}
+        {@render chatNotice(cards.notice)}
+      {/if}
 
       <!-- Only until the reply's own status line exists: once the assistant
            has started, its turn says what it is doing (owner, 2026-10-21). -->
@@ -2277,7 +2350,20 @@
 
   {/if}
   <!-- Preserve the composer and keyboard focus across the first local row. -->
-  <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
+  <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>
+    {#if undoBarCards.length}
+      <!-- Row 32: the latest accept only; older accepts undo from their card. -->
+      <div class="pb-2" data-undo-bar>
+        <div class="flex h-10 items-center gap-2 rounded-[0.625rem] border border-line-soft bg-gray-50 pl-3 pr-1.5">
+          <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary-selected)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+          <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] text-ink" role="status">{updatedLabel(undoBarCards)}</span>
+          <button type="button" class="inline-flex h-7 shrink-0 items-center rounded-[0.4375rem] border border-line bg-white px-3 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-100 disabled:opacity-50 pointer-coarse:min-h-11"
+            onclick={() => void undoLatest()} disabled={undoingLatest} data-undo-bar-undo>{undoingLatest ? "Undoing…" : "Undo"}</button>
+        </div>
+      </div>
+    {/if}
+    {@render composer()}
+  </div>
   <StopReplyDialog bind:open={stopConfirmOpen} name={stopConfirmName} onConfirm={() => void stopGeneration()} />
   <DeleteConversationDialog bind:open={deleteOpen} title={deleteTarget?.title} onConfirm={() => void confirmDelete()} onCloseFocus={focusConversationMenu} />
 </div>

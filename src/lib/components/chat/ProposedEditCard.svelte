@@ -1,152 +1,152 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
-  import { ActionButton } from "$lib/components/chat/primitives";
   import { DropdownMenu } from "bits-ui";
-  import { diffWords, proposedTextChanges } from "$lib/diff";
+  import { diffWords } from "$lib/diff";
   import { userErrorMessage } from "$lib/errors";
-  import { proposalUndoErrorMessage } from "$lib/chat/chatRefusals";
+
+  /**
+   * Owner 2026-10-28 (Paper rows 32 to 36): one suggestion card per Line.
+   *
+   * Folded it reads "Line 242", "3 options" and Review. Opened it shows one
+   * version at a time with a pager. Review marks the change in the report
+   * (or, where no report is beside the chat, in the card) and the footer
+   * becomes Stop review and Accept. Once accepted the card folds to one teal
+   * line; opened again it shows what went in and always offers Undo.
+   */
+  type Change = { before: string; after: string };
 
   interface Props {
-    /** Report Section the edit targets ("242"), for "Suggested edit for 242". */
-    section?: string | null;
-    newText?: string;
-    targetText?: string;
-    replacements?: { find: string; replaceWith: string }[];
-    /**
-     * The replacements are passages, each matching one place (a proposeEdit
-     * across several paragraphs, or a coordinated revision), not finds that
-     * replace every occurrence. The card then reads as one edit.
-     */
-    passages?: boolean;
+    /** The Line the card edits ("242"); older cards may not know it. */
+    line?: string | null;
+    /** Each version's new wording, one entry per passage. Option 1 first. */
+    options: string[][];
+    /** The passages of one version, before and after, for the in-card review. */
+    changesFor: (option: number) => Change[];
+    /** A find/replace card: it replaces every match inside its Line. */
+    everyMatch?: boolean;
     state: "pending" | "applied" | "rejected" | "stale";
+    /** 0-based version the writer accepted, when the card offered options. */
+    appliedOption?: number;
     /**
-     * Whether the viewer may apply, dismiss or reword (report edit access).
+     * Whether the viewer may accept, dismiss or reword (report edit access).
      * "loading" hides those actions without a note; "denied" says why.
      */
     applyAccess?: "allowed" | "loading" | "denied";
-    onReplace: () => Promise<void> | void;
-    onReject: () => Promise<void> | void;
-    /**
-     * Phase B: undo an applied card (its apply was recorded). Offered on the
-     * applied row to the same people as Apply.
-     */
-    onUndo?: () => Promise<void> | void;
-    /** Save writer-authored wording while preserving canonical report targets. */
-    onEditWording?: (wording: string[]) => Promise<void> | void;
+    /** This card is the one under review. */
+    reviewing?: boolean;
+    /** The report shows the marks and the review bar; else the card does. */
+    reviewInReport?: boolean;
+    /** The version on show, 0 for Option 1. */
+    option?: number;
+    onOptionChange?: (option: number) => void;
+    onReview: () => void;
+    onStopReview: () => void;
+    onAccept: () => Promise<void>;
+    onUndo?: () => Promise<void>;
+    onReject?: () => Promise<void>;
+    /** Save writer-authored wording for Option 1, then accept it. */
+    onEditWording?: (wording: string[]) => Promise<void>;
     /** Continue discussing this suggestion in the shared composer. */
     onRefine?: () => Promise<void> | void;
-    onShowInDoc?: () => void;
-    onReviewOneByOne?: () => void;
-    /** Live preview: called with `true` when "Show changes" toggles on so the
-     * page can highlight the affected passages in the real editor, `false`
-     * when toggled off (clear highlights). */
-    onPreviewInDoc?: (on: boolean) => void;
-    reviewing?: boolean;
+    /** The reason an accept or undo failed, when no chat notice shows it. */
+    error?: string | null;
+    accepting?: boolean;
   }
 
-  // Alias the prop so it does not shadow the `$state` rune.
   let {
-    section = null,
-    newText,
-    targetText,
-    replacements,
-    passages = false,
+    line = null,
+    options,
+    changesFor,
+    everyMatch = false,
     state: editState,
+    appliedOption,
     applyAccess = "allowed",
-    onReplace,
-    onReject,
+    reviewing = false,
+    reviewInReport = false,
+    option = 0,
+    onOptionChange,
+    onReview,
+    onStopReview,
+    onAccept,
     onUndo,
+    onReject,
     onEditWording: editWordingHandler,
     onRefine,
-    onShowInDoc,
-    onReviewOneByOne,
-    onPreviewInDoc,
-    reviewing,
+    error = null,
+    accepting = false,
   }: Props = $props();
 
-  // Only people the server lets apply see Apply, Dismiss and Edit wording.
+  const componentId = $props.id();
+  const bodyId = `${componentId}-body`;
   const canAct = $derived(applyAccess === "allowed");
-  const onEditWording = $derived(canAct ? editWordingHandler : undefined);
+  const onEditWording = $derived(canAct && option === 0 ? editWordingHandler : undefined);
+  const optionCount = $derived(Math.max(1, options.length));
+  const title = $derived(line ? `Line ${line}` : "Suggested edit");
+  const shownOption = $derived(editState === "applied" ? (appliedOption ?? 0) : option);
+  const shownWording = $derived((options[shownOption] ?? options[0] ?? []).filter((text) => text.trim() !== ""));
 
+  let open = $state(false);
   let busy = $state(false);
-  let error = $state<string | null>(null);
+  let localError = $state<string | null>(null);
   let editing = $state(false);
   let editedWording = $state<string[]>([]);
   let cardEl = $state<HTMLDivElement | null>(null);
-  // Set when a More menu item is chosen: that action places focus itself, so
-  // the menu must not hand it back to its trigger. Escape or a click outside
-  // still returns focus to the trigger (review g2 B3).
   let menuActionChosen = false;
 
-  // Session-local by design: remounting a proposal always returns to neutral.
-  let showChanges = $state(false);
-
-  // Preview is OPT-IN (Jul 20): the old auto-enable re-fired on every mount —
-  // reopening the project re-lit the diff and scrolled the editor to the
-  // section even after the writer toggled it off. Now only the toggle click
-  // starts a preview; unmounting still clears any active one.
-  onMount(() => {
-    return () => {
-      if (showChanges) onPreviewInDoc?.(false);
-    };
-  });
-  // Applied/rejected → the diff no longer reflects the document; drop it.
+  // Review opens the card; leaving review keeps it open where it was.
   $effect(() => {
-    if (editState !== "pending" && showChanges) {
-      showChanges = false;
-      onPreviewInDoc?.(false);
-    }
+    if (reviewing) open = true;
   });
-  const changes = $derived(
-    proposedTextChanges(targetText, newText, replacements)
-  );
-  // When the preview renders in the real document (onPreviewInDoc), the card
-  // never shows its own inline diff — the report is the diff view.
-  const diffInCard = $derived(showChanges && !onPreviewInDoc);
-  const diffGroups = $derived(
-    diffInCard
-      ? changes.map(({ before, after }) => diffWords(before, after))
-      : []
-  );
+  // A card that is no longer pending cannot stay under review.
+  $effect(() => {
+    if (editState !== "pending" && reviewing) onStopReview();
+  });
+  onMount(() => () => {
+    if (reviewing) onStopReview();
+  });
 
-  async function handle(action: () => Promise<void> | void) {
+  // In-card review, where the report is not beside the chat.
+  const inCardDiff = $derived(reviewing && !reviewInReport ? changesFor(shownOption).map(({ before, after }) => diffWords(before, after)) : []);
+
+  async function run(action: () => Promise<void> | void) {
     busy = true;
-    error = null;
+    localError = null;
     try {
       await action();
     } catch (e) {
-      error = userErrorMessage(e, "Something went wrong applying this edit.");
+      localError = userErrorMessage(e, "Something went wrong with this suggestion.");
     } finally {
       busy = false;
     }
   }
 
-  // Phase B: Undo has its own error slot, since the pending card's alert is
-  // not shown on the applied row. A conflict is a handled refusal.
-  let undoing = $state(false);
-  let undoError = $state<string | null>(null);
-  async function undo() {
-    if (!onUndo || undoing) return;
-    undoing = true;
-    undoError = null;
-    try {
-      await onUndo();
-      // The card is pending again: hand focus to its Apply button.
-      await tick();
-      cardEl?.querySelector<HTMLButtonElement>("[data-proposed-edit-apply]")?.focus();
-    } catch (e) {
-      undoError = proposalUndoErrorMessage(e);
-    } finally {
-      undoing = false;
-    }
+  function stepOption(delta: number) {
+    const next = Math.min(Math.max(0, option + delta), optionCount - 1);
+    if (next !== option) onOptionChange?.(next);
   }
 
-  // Phase C (W3): "Copy wording" copies the card's proposed text, on every
-  // card that has some (pending, applied or stale), and says "Copied".
-  const wordingText = $derived(
-    changes.map((change) => change.after.trim()).filter(Boolean).join("\n\n")
-  );
+  async function startEditing() {
+    editedWording = [...(options[0] ?? [])];
+    editing = true;
+    open = true;
+    localError = null;
+    await tick();
+    cardEl?.querySelector("textarea")?.focus();
+  }
+
+  async function saveWording() {
+    if (!onEditWording) return;
+    await run(async () => {
+      await onEditWording(editedWording);
+      editing = false;
+      editedWording = [];
+    });
+  }
+
+  const shownError = $derived(error ?? localError);
+
+  // Phase C (W3): "Copy wording" copies the version on show, and says "Copied".
+  const wordingText = $derived(shownWording.map((text) => text.trim()).filter(Boolean).join("\n\n"));
   let wordingCopied = $state(false);
   let copyWordingFailed = $state(false);
   let copyWordingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -166,350 +166,240 @@
     }, 2000);
   }
   onMount(() => () => clearTimeout(copyWordingTimer));
-
-  async function startEditing() {
-    editedWording = changes.map((change) => change.after);
-    editing = true;
-    error = null;
-    // The More menu that opened this is gone; hand focus to the first field.
-    await tick();
-    cardEl?.querySelector("textarea")?.focus();
-  }
-
-  function cancelEditing() {
-    editing = false;
-    editedWording = [];
-  }
-
-  async function saveWording() {
-    if (!onEditWording) return;
-    await handle(async () => {
-      await onEditWording(editedWording);
-      editing = false;
-      editedWording = [];
-    });
-  }
 </script>
 
-{#snippet changesToggle(label: string)}
-  <button
-    type="button"
-    role="switch"
-    aria-checked={showChanges}
-    onclick={() => {
-      showChanges = !showChanges;
-      onPreviewInDoc?.(showChanges);
-    }}
-    class={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors pointer-coarse:min-h-11 ${
-      showChanges ? "bg-primary-wash text-navy" : "text-gray-400 hover:text-gray-600"
-    }`}
-  >
-    <span
-      class={`relative inline-flex h-3.5 w-6 flex-none items-center rounded-full transition-colors ${
-        showChanges ? "bg-primary" : "bg-gray-300"
-      }`}
-    >
-      <span
-        class={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
-          showChanges ? "translate-x-3" : "translate-x-0.5"
-        }`}
-      ></span>
-    </span>
-    {label}
+{#snippet chevron(up: boolean, accepted = false)}
+  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+    stroke={accepted ? "var(--color-primary-selected)" : "var(--color-ink-muted)"}>
+    <path d={up ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"} />
+  </svg>
+{/snippet}
+
+{#snippet toggle(label: string, accepted = false)}
+  <button type="button" class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-gray-50 pointer-coarse:size-11"
+    aria-expanded={open} aria-controls={bodyId} aria-label={open ? `Hide ${label}` : `Show ${label}`}
+    onclick={() => (open = !open)} data-proposed-edit-toggle>
+    {@render chevron(open, accepted)}
   </button>
 {/snippet}
 
-{#snippet copyAnnouncement()}
+{#snippet wording(texts: string[])}
+  <div class="flex flex-col gap-2">
+    {#each texts as text, index (index)}
+      <p class="whitespace-pre-wrap text-sm font-light leading-[calc(11/7)] text-ink">{text}</p>
+    {/each}
+    {#if texts.length === 0}
+      <p class="text-sm font-light leading-[calc(11/7)] text-ink-muted">Removes the passage.</p>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet moreMenu()}
+  {#if editState !== "rejected" && (onEditWording || onRefine || (onReject && canAct) || wordingText)}
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger aria-label="More actions for this suggestion" title="More actions" disabled={busy || accepting}
+        class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-gray-50 hover:text-ink disabled:opacity-50 pointer-coarse:size-11">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
+        </svg>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content side="bottom" align="start" sideOffset={6} onCloseAutoFocus={(event) => {
+          if (menuActionChosen) event.preventDefault();
+          menuActionChosen = false;
+        }} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-menu">
+          {#if onEditWording && editState === "pending"}
+            <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
+              Edit wording
+            </DropdownMenu.Item>
+          {/if}
+          {#if onRefine && editState === "pending"}
+            {@const refine = onRefine}
+            <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void run(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
+              Refine with AI
+            </DropdownMenu.Item>
+          {/if}
+          {#if wordingText}
+            <DropdownMenu.Item onSelect={() => void copyWording()} data-copy-wording class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
+              Copy wording
+            </DropdownMenu.Item>
+          {/if}
+          {#if onReject && canAct && editState === "pending"}
+            {@const reject = onReject}
+            <DropdownMenu.Item onSelect={() => void run(reject)} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11" data-proposed-edit-dismiss>
+              Dismiss
+            </DropdownMenu.Item>
+          {/if}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  {/if}
   <span class="sr-only" aria-live="polite" aria-atomic="true" data-copy-wording-announcement>
     {wordingCopied ? "Copied" : copyWordingFailed ? "Couldn't copy. Try again." : ""}
   </span>
 {/snippet}
 
-{#snippet copyWordingItem()}
-  <DropdownMenu.Item onSelect={() => void copyWording()} data-copy-wording class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
-    Copy wording
-  </DropdownMenu.Item>
-{/snippet}
-
-{#snippet moreTrigger()}
-  <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
-  </svg>
-{/snippet}
-
-{#if editState !== "pending"}
-  <div class={`mt-2 flex items-center gap-1.5 py-1 text-xs ${editState === "stale" ? "text-amber-700" : editState === "applied" ? "text-green-600" : "text-ink-muted"}`}>
-    {#if editState === "stale"}
-      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.8 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.8a2 2 0 0 0-3.4 0Z" />
+{#if editState === "applied"}
+  <!-- Accepted: one teal line; opened, what went in and Undo. -->
+  <div bind:this={cardEl} class="overflow-hidden rounded-xl border border-primary-line {open ? 'bg-white' : 'bg-primary-wash'}" data-proposed-edit data-proposed-edit-state="applied">
+    <div class="flex h-11 items-center gap-2 bg-primary-wash pl-3 pr-2">
+      <svg class="size-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary-selected)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
       </svg>
-      <span>Suggestion no longer matches the report</span>
-      {#if onRefine}
-        <ActionButton
-          variant="ghost"
-          class="ml-1 min-h-7 px-2 py-0.5 pointer-coarse:min-h-11"
-          onclick={() => handle(onRefine)}
-          disabled={busy}
-        >
-          Refine
-        </ActionButton>
+      <span class="shrink-0 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">{title}</span>
+      <span class="min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-[calc(18/13)] text-primary-selected">
+        {optionCount > 1 ? `Option ${(appliedOption ?? 0) + 1} accepted` : "Accepted"}
+      </span>
+      {@render toggle("what was accepted", true)}
+    </div>
+    {#if open}
+      <div id={bodyId} class="border-t border-primary-line px-3.5 pb-3.5 pt-3">
+        {@render wording(shownWording)}
+      </div>
+      {#if (onUndo && canAct) || wordingText}
+        <div class="flex h-11 items-center gap-2 border-t border-line-soft pl-2 pr-2">
+          {@render moreMenu()}
+          <span class="flex-1"></span>
+          {#if onUndo && canAct}
+          {@const undo = onUndo}
+          <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] border border-line bg-white px-3 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-50 disabled:opacity-50 pointer-coarse:min-h-11"
+            onclick={() => run(undo)} disabled={busy} data-proposed-edit-undo>
+            {busy ? "Undoing…" : "Undo"}
+          </button>
+          {/if}
+        </div>
       {/if}
-    {:else if editState === "applied"}
-      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-      <span>Replaced in report</span>
-      {#if onUndo && canAct}
-        <ActionButton
-          variant="ghost"
-          class="ml-1 min-h-7 px-2 py-0.5 text-ink-secondary pointer-coarse:min-h-11"
-          onclick={undo}
-          disabled={undoing}
-          loading={undoing}
-          loadingLabel="Undoing…"
-          data-proposed-edit-undo
-        >
-          Undo
-        </ActionButton>
-      {/if}
-    {:else}
-      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path stroke-linecap="round" d="M6 18 18 6M6 6l12 12" />
-      </svg>
-      <span>Suggested edit rejected</span>
     {/if}
-    {#if (editState === "applied" || editState === "stale") && wordingText}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger
-          aria-label="More actions for this suggestion"
-          title="More actions"
-          class="ml-auto flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 motion-reduce:transition-none pointer-coarse:size-11"
-        >
-          {@render moreTrigger()}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
-            {@render copyWordingItem()}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-    {/if}
-    {@render copyAnnouncement()}
   </div>
-  {#if undoError && editState === "applied"}
-    <p class="mt-1 rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-600" role="alert" data-proposed-edit-undo-error>
-      {undoError}
-    </p>
-  {/if}
+{:else if editState !== "pending"}
+  <!-- Dismissed, or no longer matching the report: one quiet line. -->
+  <div class="flex h-11 items-center gap-2 rounded-xl border border-line bg-gray-50 pl-3 pr-2" data-proposed-edit data-proposed-edit-state={editState}>
+    {#if editState === "stale"}
+      <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4M12 17h.01" />
+      </svg>
+    {/if}
+    <span class="shrink-0 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">{title}</span>
+    <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
+      {editState === "stale" ? "No longer matches the report" : "Dismissed"}
+    </span>
+    {#if editState === "stale" && onRefine}
+      {@const refine = onRefine}
+      <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] border border-line bg-white px-3 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-50 disabled:opacity-50 pointer-coarse:min-h-11"
+        onclick={() => run(refine)} disabled={busy}>Refine</button>
+    {/if}
+    {#if editState === "stale"}
+      {@render moreMenu()}
+    {/if}
+  </div>
 {:else}
-<!-- Board 2.1 suggested-edit card: a quiet label, the serif wording, then
-     Apply (primary) and Dismiss (quiet). Edit wording and Refine live in the
-     card's More menu. -->
-<div bind:this={cardEl} class="mt-2 flex flex-col rounded-[0.625rem] bg-gray-50 px-4 py-3.5" data-proposed-edit>
-  <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" data-proposed-edit-label>
-    {editing
-      ? "Edit suggestion"
-      : replacements && replacements.length > 0 && !passages
-        ? `${changes.length} suggested replacement${changes.length === 1 ? "" : "s"}${section ? ` in ${section}` : ""}`
-        : section
-          ? `Suggested edit for ${section}`
-          : "Suggested edit"}
-  </p>
-
-  <div class="max-h-72 overflow-y-auto pt-1.5">
-    {#if editing}
-      <div class="flex flex-col gap-3">
-        {#each editedWording as wording, index (index)}
-          <label class="block">
-            {#if editedWording.length > 1}
-              <span class="text-label mb-1.5 block">{passages ? `Passage ${index + 1}` : `Replacement ${index + 1}`}</span>
-            {/if}
-            <textarea
-              value={wording}
-              oninput={(event) => {
-                editedWording[index] = event.currentTarget.value;
-              }}
-              aria-label={passages ? `Edit passage ${index + 1} wording` : `Edit replacement wording ${index + 1}`}
-              rows={Math.min(7, Math.max(3, wording.split("\n").length + 1))}
-              class="field-control w-full resize-y rounded-md px-2.5 py-2 font-serif text-sm leading-relaxed text-ink"
-            ></textarea>
-          </label>
-        {/each}
+  <div bind:this={cardEl}
+    class="flex flex-col rounded-xl border bg-white {reviewing ? 'border-primary-ring shadow-suggestion-review' : 'border-line shadow-suggestion-card'}"
+    data-proposed-edit data-proposed-edit-state="pending" data-reviewing={reviewing || undefined}>
+    {#if !open}
+      <!-- Folded (V1, A1): the Line, how many options, Review. -->
+      <div class="flex items-center gap-2.5 py-2 pl-3.5 pr-2">
+        <div class="flex min-w-0 flex-1 flex-col gap-px">
+          <span class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink" data-proposed-edit-label>{title}</span>
+          {#if optionCount > 1}
+            <span class="text-xs leading-[calc(4/3)] text-ink-muted" data-proposed-edit-options>{optionCount} options</span>
+          {/if}
+        </div>
+        {#if canAct}
+          <button type="button" class="inline-flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-xs font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark pointer-coarse:min-h-11"
+            onclick={onReview} data-proposed-edit-review>Review</button>
+        {/if}
+        {@render toggle("the suggestion")}
       </div>
     {:else}
-    <div>
-    {#if replacements && replacements.length > 0}
-      <div class="flex flex-col gap-2">
-        {#if !passages}
-          <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted">
-            {changes.length} replacement{changes.length === 1 ? "" : "s"}, applied to every occurrence
-          </p>
-        {/if}
-        {#each changes as change, changeIndex (changeIndex)}
-          <div class="border-l-2 border-primary/20 pl-2.5">
-            {#if diffInCard}
-              <p
-                aria-label={passages ? `Passage ${changeIndex + 1} changes` : `Replacement ${changeIndex + 1} changes`}
-                class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
-              >
-                {#each diffGroups[changeIndex] ?? [] as part, partIndex (partIndex)}
-                  {#if part.type === "removed"}
-                    <span class="rounded-sm bg-red-50 text-red-700 line-through decoration-red-300">{part.text}</span>
-                  {:else if part.type === "added"}
-                    <span class="rounded-sm bg-green-50 text-green-700">{part.text}</span>
-                  {:else}
-                    {part.text}
-                  {/if}
-                {/each}
-              </p>
-            {:else if change.after}
-              <p class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink">
-                {change.after}
-              </p>
-            {:else}
-              <p class="text-sm text-gray-500">Delete the matched text</p>
+      <!-- Opened (V2) and under review (V3). -->
+      <div class="flex items-center gap-2.5 p-3">
+        <div class="flex min-w-0 flex-1 items-center gap-2">
+          <span class="shrink-0 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink" data-proposed-edit-label>{title}</span>
+          {#if optionCount > 1 && option === 0}
+            <span class="inline-flex h-5 shrink-0 items-center rounded-full border border-primary-line bg-primary-wash px-[0.4375rem] text-xs font-medium leading-[calc(4/3)] text-primary-selected">Recommended</span>
+          {/if}
+        </div>
+        {@render toggle("the suggestion")}
+      </div>
+      <div id={bodyId} class="flex flex-col gap-2 border-t border-line-soft px-3.5 py-3">
+        {#if editing}
+          {#each editedWording as text, index (index)}
+            <label class="block">
+              {#if editedWording.length > 1}
+                <span class="mb-1.5 block text-xs leading-[calc(4/3)] text-ink-muted">Passage {index + 1}</span>
+              {/if}
+              <textarea value={text} oninput={(event) => { editedWording[index] = event.currentTarget.value; }}
+                aria-label={editedWording.length > 1 ? `Edit passage ${index + 1} wording` : "Edit the wording"}
+                rows={Math.min(7, Math.max(3, text.split("\n").length + 1))}
+                class="field-control w-full resize-y rounded-md px-2.5 py-2 text-sm font-light leading-[calc(11/7)] text-ink"></textarea>
+            </label>
+          {/each}
+        {:else}
+          <div class="flex items-center gap-2">
+            <span class="flex-1 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">Option {option + 1}</span>
+            {#if optionCount > 1}
+              <button type="button" class="flex size-6 items-center justify-center rounded-md disabled:opacity-40 pointer-coarse:size-11" aria-label="Previous option"
+                disabled={option === 0} onclick={() => stepOption(-1)}>
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-secondary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+              </button>
+              <span class="text-xs leading-[calc(4/3)] text-ink-muted" aria-live="polite">{option + 1} of {optionCount}</span>
+              <button type="button" class="flex size-6 items-center justify-center rounded-md disabled:opacity-40 pointer-coarse:size-11" aria-label="Next option"
+                disabled={option >= optionCount - 1} onclick={() => stepOption(1)}>
+                <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-secondary)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+              </button>
             {/if}
           </div>
-        {/each}
-      </div>
-    {:else if diffInCard && changes.length === 1}
-      <p
-        aria-label="Proposed changes"
-        class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink"
-      >
-        {#each diffGroups[0] ?? [] as part, i (i)}
-          {#if part.type === "removed"}
-            <span class="rounded-sm bg-red-50 text-red-700 line-through decoration-red-300">{part.text}</span>
-          {:else if part.type === "added"}
-            <span class="rounded-sm bg-green-50 text-green-700">{part.text}</span>
-          {:else}
-            {part.text}
+          {#if everyMatch}
+            <p class="text-xs leading-[calc(4/3)] text-ink-muted">Replaces every match in {line ? `Line ${line}` : "the report"}.</p>
           {/if}
-        {/each}
-      </p>
-    {:else if newText}
-      <p class="whitespace-pre-wrap font-serif text-sm leading-[calc(11/7)] text-ink">
-        {newText}
-      </p>
-    {:else}
-      <p class="text-sm text-gray-500">Delete the selected passage</p>
-    {/if}
-    </div>
+          {#if inCardDiff.length}
+            <div class="flex flex-col gap-2" aria-label="Proposed changes">
+              {#each inCardDiff as parts, index (index)}
+                <p class="whitespace-pre-wrap text-sm font-light leading-[calc(11/7)] text-ink">
+                  {#each parts as part, partIndex (partIndex)}
+                    {#if part.type === "removed"}
+                      <span class="rounded-[0.1875rem] bg-danger-surface px-0.5 text-danger-ink line-through">{part.text}</span>
+                    {:else if part.type === "added"}
+                      <span class="rounded-[0.1875rem] bg-success-soft px-0.5 text-success-ink">{part.text}</span>
+                    {:else}
+                      {part.text}
+                    {/if}
+                  {/each}
+                </p>
+              {/each}
+            </div>
+          {:else}
+            {@render wording(shownWording)}
+          {/if}
+        {/if}
+      </div>
+      <div class="flex h-11 items-center gap-2 border-t border-line-soft pl-2 pr-2">
+        {#if editing}
+          <span class="flex-1"></span>
+          <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] border border-line bg-white px-2.5 text-xs font-medium leading-[calc(4/3)] text-ink hover:bg-gray-50 disabled:opacity-50 pointer-coarse:min-h-11"
+            onclick={() => { editing = false; editedWording = []; }} disabled={busy}>Cancel</button>
+          <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-xs font-medium leading-[calc(4/3)] text-white hover:bg-primary-dark disabled:opacity-50 pointer-coarse:min-h-11"
+            onclick={saveWording} disabled={busy}>{busy ? "Accepting…" : "Save and accept"}</button>
+        {:else}
+          {@render moreMenu()}
+          <span class="flex-1"></span>
+          {#if applyAccess === "denied"}
+            <p class="pr-1.5 text-xs leading-[calc(4/3)] text-ink-muted" data-apply-unavailable>Only people who can edit this report can accept suggestions.</p>
+          {:else if canAct && reviewing}
+            <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] border border-line bg-white px-2.5 text-xs font-medium leading-[calc(4/3)] text-ink hover:bg-gray-50 disabled:opacity-50 pointer-coarse:min-h-11"
+              onclick={onStopReview} disabled={accepting} data-proposed-edit-stop-review>Stop review</button>
+            <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-xs font-medium leading-[calc(4/3)] text-white hover:bg-primary-dark disabled:opacity-50 pointer-coarse:min-h-11"
+              onclick={() => void onAccept()} disabled={accepting} data-proposed-edit-accept>{accepting ? "Accepting…" : "Accept"}</button>
+          {:else if canAct}
+            <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] bg-primary-selected px-2.5 text-xs font-medium leading-[calc(4/3)] text-white hover:bg-primary-dark pointer-coarse:min-h-11"
+              onclick={onReview} data-proposed-edit-review>Review</button>
+          {/if}
+        {/if}
+      </div>
     {/if}
   </div>
-
-  {#if editing}
-    <div class="flex items-center gap-3.5 pt-3">
-      <ActionButton
-        variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.5] pointer-coarse:min-h-11"
-        onclick={saveWording}
-        disabled={busy}
-        loading={busy}
-        loadingLabel="Applying…"
-      >
-        Save & apply
-      </ActionButton>
-      <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={cancelEditing} disabled={busy}>Cancel</button>
-    </div>
-  {:else if changes.length > 0 && !onPreviewInDoc}
-    <!-- Card-local diff toggle — only when there's no live report preview
-         (e.g. share-link chat); with a preview the toggle lives in the
-         actions row instead of "Show in document". -->
-    <div class="flex items-center justify-end pt-2">
-      {@render changesToggle("Show changes")}
-    </div>
-  {/if}
-
-  <!-- Actions -->
-  {#if !editing}
-  <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2 pt-3">
-    {#if editState === "pending" && reviewing}
-      <span class="inline-flex items-center gap-1.5 text-xs font-medium text-navy">
-        <Spinner size="sm" class="h-3 w-3 border-navy/30 border-t-navy" />
-        Stepping through in the document…
-      </span>
-    {:else if editState === "pending" && applyAccess === "denied"}
-      <p class="text-xs leading-[1.5] text-ink-muted" data-apply-unavailable>
-        Only people who can edit this report can apply or dismiss suggestions.
-      </p>
-    {:else if editState === "pending" && canAct}
-      <ActionButton
-        variant="primary"
-        class="min-h-0 rounded-md px-3 py-1.5 leading-[1.5] pointer-coarse:min-h-11"
-        onclick={() => handle(onReplace)}
-        disabled={busy}
-        loading={busy}
-        loadingLabel="Applying…"
-        data-proposed-edit-apply
-      >
-        {onReviewOneByOne ? "Apply all" : "Apply"}
-      </ActionButton>
-      {#if onReviewOneByOne}
-        <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={onReviewOneByOne} disabled={busy}>
-          Review individually
-        </button>
-      {/if}
-      <button type="button" class="text-xs leading-[1.5] text-ink-secondary transition-colors hover:text-ink disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-2" onclick={() => handle(onReject)} disabled={busy}>
-        Dismiss
-      </button>
-    {/if}
-
-    <span class="ml-auto flex items-center gap-1">
-      {#if onPreviewInDoc && changes.length > 0}
-        {@render changesToggle("Show changes")}
-      {:else if onShowInDoc}
-        <ActionButton variant="ghost" onclick={onShowInDoc} class="min-h-7 px-2 pointer-coarse:min-h-11">
-          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-          Show in document
-        </ActionButton>
-      {/if}
-      {#if editState === "pending" && !reviewing && (onEditWording || onRefine || wordingText)}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger
-            aria-label="More actions for this suggestion"
-            title="More actions"
-            disabled={busy}
-            class="flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-chrome/60 hover:text-ink data-[state=open]:bg-chrome/60 disabled:opacity-50 motion-reduce:transition-none pointer-coarse:size-11"
-          >
-            {@render moreTrigger()}
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <!-- A chosen action places focus (the composer or the wording
-                 field); only then is focus not handed back to this trigger. -->
-            <DropdownMenu.Content side="bottom" align="end" sideOffset={6} onCloseAutoFocus={(event) => {
-              if (menuActionChosen) event.preventDefault();
-              menuActionChosen = false;
-            }} class="z-[100] w-44 rounded-xl border border-line bg-white p-1 shadow-lg">
-              {#if onEditWording}
-                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void startEditing(); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
-                  Edit wording
-                </DropdownMenu.Item>
-              {/if}
-              {#if onRefine}
-                {@const refine = onRefine}
-                <DropdownMenu.Item onSelect={() => { menuActionChosen = true; void handle(refine); }} class="flex min-h-8 w-full items-center rounded-md px-2 text-[0.8125rem] text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
-                  Refine with AI
-                </DropdownMenu.Item>
-              {/if}
-              {#if wordingText}
-                {@render copyWordingItem()}
-              {/if}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-      {/if}
-    </span>
-  </div>
-  {/if}
-
-  {#if error}
-    <p class="mt-2.5 rounded-md bg-red-50 px-2.5 py-2 text-xs text-red-600" role="alert">
-      {error}
-    </p>
-  {/if}
-  {@render copyAnnouncement()}
-</div>
+{/if}
+{#if shownError}
+  <p class="mt-1.5 text-xs leading-[calc(4/3)] text-danger-ink" role="alert" data-proposed-edit-error>{shownError}</p>
 {/if}
