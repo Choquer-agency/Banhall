@@ -26,11 +26,8 @@
    * `onBack` is set) and the page title in 16px, no breadcrumb or bell.
    */
   import type { Snippet } from "svelte";
-  import { resolve } from "$app/paths";
-  import { IconArrowLeft, IconBell } from "$lib/components/icons";
-  import { useQuery } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { api } from "../../../../convex/_generated/api";
+  import { IconArrowLeft } from "$lib/components/icons";
+  import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
 
@@ -79,12 +76,8 @@
     class?: string;
   } = $props();
 
-  const plain = $derived(variant !== "default");
-
-  const auth = useAuth();
   // Only small screens draw the bell here; the plain variants never do.
-  const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated && !plain ? {} : "skip"));
-  const unseen = $derived(unseenQ.data ?? 0);
+  const plain = $derived(variant !== "default");
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
@@ -144,17 +137,7 @@
   {@render status?.()}
   {#if !plain}
     <!-- Below 1024px only: from there the global bar holds the bell. -->
-    <a
-      href={resolve("/changelog")}
-      data-top-bar-bell
-      aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
-      class={`relative flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink ${focusRing} motion-reduce:transition-none pointer-coarse:size-11 lg:hidden`}
-    >
-      <IconBell size={16} strokeWidth={1.5} />
-      {#if unseen > 0}
-        <span aria-hidden="true" class="absolute right-2.5 top-2 size-1.5 rounded-full bg-primary"></span>
-      {/if}
-    </a>
+    <TopBarBell />
   {/if}
   {@render actions?.()}
   {#if primaryAction}

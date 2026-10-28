@@ -31,6 +31,7 @@
   import { IconArrowLeft, IconSearch } from "$lib/components/icons";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
+  import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
   import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import { toProjectsTableRow, type DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
@@ -449,6 +450,10 @@
     <div class="flex-1"></div>
     {#if selecting}
       {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
+    {/if}
+    {#if onOpenNavigation}
+      <!-- 768 to 1024px: no global bar and no phone bar, so the bell is here. -->
+      <TopBarBell class="max-md:hidden" />
     {/if}
     <div role="search" class={`relative w-[18.75rem] max-w-full max-md:order-last max-md:w-full ${onFiles ? "hidden" : ""}`}>
       <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
