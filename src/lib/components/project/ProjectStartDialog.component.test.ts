@@ -134,6 +134,11 @@ for (const [name, Page] of [["preview", PreviewProjectPage], ["current", Current
         "Priya interview.docx", "cold-soak.txt", "later-notes.pdf", "acme-history.docx",
       ]);
       expect(rows.at(-1)?.querySelector("[data-start-run-chip]")?.textContent?.trim()).toBe("Company file");
+      // 2026-10-28 (third): a company file is read last, while there is room; the
+      // whole line is in the title when the row cuts it short.
+      const meta = rows.at(-1)?.querySelector("[data-start-run-meta]");
+      expect(meta?.textContent?.trim()).toBe("900 words · Read last, newest first, while there is room");
+      expect(meta?.getAttribute("title")).toBe("900 words · Read last, newest first, while there is room");
       await dialog().getByRole("checkbox", { name: "Use acme-history.docx", exact: true }).click();
       await expect.poll(selections).toEqual([
         {

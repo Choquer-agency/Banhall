@@ -11,7 +11,9 @@ import {
   isAbortLikeError,
   MalformedOutputError,
   OutputLimitError,
+  RefusalOutputError,
   isCutOffStopReason,
+  isRefusalStopReason,
   RETRY_MAX_DELAY_MS,
 } from "./openrouterCore";
 import {
@@ -308,6 +310,27 @@ describe("fromChatCompletions", () => {
     expect(() =>
       fromChatCompletions({ choices: [{ message: { content: "" } }] })
     ).toThrow(/empty completion/);
+  });
+
+  it("names an empty refused answer a refusal, with the same words for the repair (owner, 2026-10-28)", () => {
+    let thrown: unknown;
+    try {
+      fromChatCompletions({ choices: [{ message: { content: null }, finish_reason: "content_filter" }] });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(RefusalOutputError);
+    expect(thrown).toBeInstanceOf(MalformedOutputError);
+    expect((thrown as Error).message).toBe("OpenRouter returned an empty completion");
+    // An empty answer that was not refused is not one.
+    expect(() => fromChatCompletions({ choices: [{ message: { content: "" }, finish_reason: "stop" }] })).not.toThrow(
+      RefusalOutputError
+    );
+    expect(isRefusalStopReason("refusal")).toBe(true);
+    expect(isRefusalStopReason("content_filter")).toBe(true);
+    for (const reason of ["end_turn", "tool_use", "stop", "max_tokens", "length", null, undefined]) {
+      expect(isRefusalStopReason(reason)).toBe(false);
+    }
   });
 });
 

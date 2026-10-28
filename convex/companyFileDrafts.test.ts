@@ -292,6 +292,21 @@ describe("the Inputs band and adoption", () => {
     expect(hidden.rows.map((item) => item.kind)).toEqual(["transcript", "document"]);
   });
 
+  it("lists the company files that did not fit after the ones used, not captured, and hides them too (2026-10-28, third)", () => {
+    const sources = [row("t", "transcript", "Interview"), row("c", "company_file", "background:history.txt")];
+    const unfrozenCompanyFiles = [{ _id: "cf-2", fileName: "older.txt", reason: "not_captured" as const }];
+    const shown = assembleContextInclusion({ sources, unfrozenDocuments: [], unfrozenCompanyFiles, fallbackCap: 10 });
+    expect(shown.rows.map((item) => [item.kind, item.label, item.inclusion, item.reason])).toEqual([
+      ["transcript", "Interview", "included", undefined],
+      ["company", "history.txt", "included", undefined],
+      ["company", "older.txt", "not_included", "not_captured"],
+    ]);
+    expect(shown.documentsTotal).toBe(2);
+    expect(shown.documentsInContext).toBe(1);
+    const hidden = assembleContextInclusion({ sources, unfrozenDocuments: [], unfrozenCompanyFiles, fallbackCap: 10, showCompanyFiles: false });
+    expect(hidden.rows.map((item) => item.kind)).toEqual(["transcript"]);
+  });
+
   it("a prepared Brief maps onto a run only when every company file is the same file", () => {
     const base = {
       kind: "company_file", label: "other:a.txt", truncated: false, originalLength: 5, contentHash: "h", content: "Text.",
@@ -352,6 +367,9 @@ describe("review fixes, 2026-10-26", () => {
       selectCompanyFilesOf(ctx, await ctx.db.get(s.clientId), undefined, ["z".repeat(FROZEN_TOTAL_BYTES)])
     );
     expect(picked.frozenCompanyFiles).toEqual([]);
+    // 2026-10-28 (third): and says which it could not fit.
+    const [history] = await s.t.run(async (ctx) => ctx.db.query("companyFiles").collect());
+    expect(picked.companyFilesLeftOut).toEqual([history._id]);
   });
 
   it("a company file never stands in for this year's source next to last year's report (decision 42)", async () => {

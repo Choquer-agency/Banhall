@@ -102,6 +102,22 @@ describe("BriefRailPanel", () => {
     expect(container.textContent).toContain("acme-history.docx");
   });
 
+  it("names a company file that did not fit as not captured (2026-10-28, third)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 0,
+      documentsTotal: 1,
+      rows: [{ key: "company:c2", kind: "company", label: "last-year.docx", inclusion: "not_included", reason: "not_captured" }],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect.poll(() => container.querySelector("[data-inclusion-company]")?.textContent).toBe("Company file");
+    expect(container.textContent).toContain("last-year.docx");
+    expect(container.textContent).toContain("not included (not captured)");
+  });
+
   it("says under a file which steps read it and how much (Phase D, step 2)", async () => {
     __setQueryData("briefs:getBrief", null);
     __setQueryData("writerProfiles:getGenerationWriterSettings", null);

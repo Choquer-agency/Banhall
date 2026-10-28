@@ -120,6 +120,11 @@ export type FrozenEvidence = {
   /** The project's company's files (Phase C), after the project's own; empty without a company. */
   frozenCompanyFiles: Array<{ file: Doc<"companyFiles">; content: string; truncated: boolean }>;
   /**
+   * 2026-10-28 (third): the company files the run could read and the writer
+   * left in, but that did not fit in the frozen total, newest first.
+   */
+  companyFilesLeftOut?: Id<"companyFiles">[];
+  /**
    * The names tied to the company (its other names, its projects' people),
    * hidden when its files are sent, as company file labels hide them.
    */
@@ -246,7 +251,7 @@ async function selectCompanyFiles(
   excluded: ExcludedSourceIds | undefined,
   frozenSoFar: readonly string[],
   meter?: ReadCounter
-): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
+): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames" | "companyFilesLeftOut">> {
   const project = await ctx.db.get(projectId);
   const client = project?.clientId ? await ctx.db.get(project.clientId) : null;
   return await selectCompanyFilesOf(ctx, client, excluded, frozenSoFar, projectId, meter);
@@ -265,25 +270,39 @@ export async function selectCompanyFilesOf(
   /** The draft's own project, left out of the company's names (`companyIdentityNames`). */
   ownProjectId?: Id<"projects">,
   meter?: ReadCounter
-): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames">> {
+): Promise<Pick<FrozenEvidence, "frozenCompanyFiles" | "companyNames" | "companyFilesLeftOut">> {
   const none = { frozenCompanyFiles: [], companyNames: { organizations: [], people: [] } };
   if (!client || client.status !== "active") return none;
   const leftOut = new Set<Id<"companyFiles">>(excluded?.companyFileIds ?? []);
   const total = frozenTotal(frozenSoFar);
   const frozenCompanyFiles: FrozenEvidence["frozenCompanyFiles"] = [];
+  // 2026-10-28 (third, owner): the first file that does not fit and every
+  // eligible one after it, unread, so the Inputs band can list them.
+  const companyFilesLeftOut: Id<"companyFiles">[] = [];
   const newestFirst = await companyFilesNewestFirst(ctx, client._id);
   for (const file of newestFirst) meter?.read(file);
   for (const { file, limit } of eligibleCompanyFiles(newestFirst)) {
     if (leftOut.has(file._id)) continue;
+    if (companyFilesLeftOut.length > 0) {
+      companyFilesLeftOut.push(file._id);
+      continue;
+    }
     const text = await readCompanyFileTextOrNull(ctx, file, 0, limit, meter);
     if (text === null || !text.trim()) continue;
     const content = frozenFileText(text, file.textFormat);
-    if (!total.fits(content)) break;
+    if (!total.fits(content)) {
+      companyFilesLeftOut.push(file._id);
+      continue;
+    }
     frozenCompanyFiles.push({ file, content, truncated: text.length !== file.textLength });
   }
-  if (frozenCompanyFiles.length === 0) return none;
+  if (frozenCompanyFiles.length === 0) return { ...none, companyFilesLeftOut };
   try {
-    return { frozenCompanyFiles, companyNames: await companyIdentityNames(ctx, client, ownProjectId) };
+    return {
+      frozenCompanyFiles,
+      companyNames: await companyIdentityNames(ctx, client, ownProjectId),
+      companyFilesLeftOut,
+    };
   } catch (error) {
     console.warn(`company files left out of a draft: ${(error as Error).message}`);
     return none;

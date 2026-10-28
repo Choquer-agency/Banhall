@@ -1188,6 +1188,10 @@ export default defineSchema({
     // draft froze, when it froze any. Lets a reader that cannot afford to
     // read every frozen row tell whether the project has left that company.
     companyFilesFrom: v.optional(v.id("clients")),
+    // 2026-10-28 (third, owner): the company files this draft could read but
+    // did not fit in the frozen total (at most FROZEN_COMPANY_FILES), so the
+    // Inputs band lists them as not captured.
+    companyFilesLeftOut: v.optional(v.array(v.id("companyFiles"))),
     // 2026-10-27 (twelfth, owner): whether the draft froze anything from a
     // previous year (a file in the previous-year category, or a transcript a
     // duplicate copied from an earlier fiscal year). False: the Seed stage

@@ -27,6 +27,7 @@ import {
   registerGenerationModels,
 } from "./providers";
 import { resolveGenerationCall, stepRequestFields } from "../lib/generationSteps";
+import { withWriteRetries } from "../lib/writeRetry";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   buildSeedPrompt,
@@ -596,7 +597,11 @@ function failureCode(error: unknown):
  */
 export const generateBatch = internalAction({
   args: { batchId: v.id("seedBatches") },
-  handler: async (ctx, args) => {
+  handler: async (actionCtx, args) => {
+    // Owner, 2026-10-28 (question 14): a claim or settle the write rate
+    // refuses is sent again, so a busy deployment does not leave the Batch
+    // waiting for its lease to run out (seen live under a write flood).
+    const ctx = withWriteRetries(actionCtx);
     // Every request ends inside the Convex action limit (actionDeadline.ts).
     startActionDeadline(ctx);
     const claim = await ctx.runMutation(claimAttemptRef, {

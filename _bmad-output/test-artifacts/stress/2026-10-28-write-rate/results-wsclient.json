@@ -1,0 +1,50 @@
+{
+  "at": "2026-10-28T19:09:45.075Z",
+  "rounds": [
+    {
+      "round": 1,
+      "result": {
+        "ok": true,
+        "generationId": "k570rg5yq8x7gzdc2a6eyeg2hx8h4gcx",
+        "ms": 4551
+      },
+      "clientLogs": [],
+      "flood": {
+        "ok": 95,
+        "other": 0,
+        "refused": 73
+      },
+      "cancelled": true
+    },
+    {
+      "round": 2,
+      "result": {
+        "ok": true,
+        "generationId": "k576w6qsxvcjhnmdnv9752y9758h572k",
+        "ms": 1329
+      },
+      "clientLogs": [],
+      "flood": {
+        "ok": 107,
+        "other": 0,
+        "refused": 85
+      },
+      "cancelFailed": "This generation is no longer active"
+    },
+    {
+      "round": 3,
+      "result": {
+        "ok": true,
+        "generationId": "k577ra1zvf7vzzj3naprs59rqx8h4hpp",
+        "ms": 290
+      },
+      "clientLogs": [],
+      "flood": {
+        "ok": 138,
+        "other": 0,
+        "refused": 78
+      },
+      "cancelled": true
+    }
+  ]
+}

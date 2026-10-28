@@ -60,6 +60,7 @@ import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { sectionDeterministicFindings } from "./qaChecks";
 import { sectionMetrics, type LengthTarget, type SectionKey } from "../lib/lineLimits";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { withWriteRetries } from "../lib/writeRetry";
 import {
   NO_STYLE_OVERRIDES,
   normalizeStyleOverrides,
@@ -318,7 +319,10 @@ async function startSeedStage(
 export const resumeSeedInitialization = internalAction({
   args: { generationId: v.id("generations") },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  handler: async (actionCtx, args): Promise<null> => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
     const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
@@ -340,7 +344,10 @@ export const resumeSeedInitialization = internalAction({
 export const continueAfterBriefPreparation = internalAction({
   args: { generationId: v.id("generations") },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  handler: async (actionCtx, args): Promise<null> => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     startActionDeadline(ctx);
     try {
       const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
@@ -414,7 +421,10 @@ export const prepareSeedDraftingInputs = internalAction({
     shorterAnalysis: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  handler: async (actionCtx, args): Promise<null> => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
     const attemptArgs = { generationId: args.generationId, attempt: args.attempt };
@@ -523,7 +533,10 @@ export const prepareSeedDraftingInputs = internalAction({
  */
 export const startIterativeGeneration = internalAction({
   args: { generationId: v.id("generations") },
-  handler: async (ctx, args) => {
+  handler: async (actionCtx, args) => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     const actionStartedAt = Date.now();
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx, actionStartedAt);

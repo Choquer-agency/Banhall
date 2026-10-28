@@ -583,6 +583,7 @@ export async function reserveGeneration(
     seededCandidates: seededCandidates || undefined,
     ...(confirmedExcluded ? { excludedSources: confirmedExcluded } : {}),
     ...(evidence.frozenCompanyFiles[0] ? { companyFilesFrom: evidence.frozenCompanyFiles[0].file.clientId } : {}),
+    ...(evidence.companyFilesLeftOut?.length ? { companyFilesLeftOut: evidence.companyFilesLeftOut } : {}),
     previousYearMaterial,
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
@@ -899,6 +900,7 @@ export async function retryFromSummaryHandler(
     ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
     ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
     ...(failed.companyFilesFrom ? { companyFilesFrom: failed.companyFilesFrom } : {}),
+    ...(failed.companyFilesLeftOut ? { companyFilesLeftOut: failed.companyFilesLeftOut } : {}),
     status: "reserved",
     // 2026-09-25: this generation's outputs live in generationArtifacts rows.
     outputsInArtifactsAt: now,

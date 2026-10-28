@@ -118,6 +118,50 @@ describe("the frozen total holds a project's own files (F5 stress run, 2026-10-2
     expect(evidence.frozenDocuments).toHaveLength(FITTING);
     // The newest fits; the next would pass the total, so the older one never comes in.
     expect(evidence.frozenCompanyFiles.map((item) => item.file.fileName)).toEqual(["newest.txt"]);
+    // 2026-10-28 (third): both are named as left out, newest first.
+    const names = await s.t.run(async (ctx) =>
+      Promise.all((evidence.companyFilesLeftOut ?? []).map(async (id) => (await ctx.db.get(id))?.fileName))
+    );
+    expect(names).toEqual(["middle.txt", "older.txt"]);
+  });
+
+  it("a draft whose own files fill the total records its company files as left out, and the band lists them (2026-10-28, third)", async () => {
+    const s = await setup(30);
+    await s.t.run(async (ctx) => {
+      const now = Date.now() - 500;
+      const clientId = await ctx.db.insert("clients", {
+        name: "Acme Seals", nameKey: "acme seals", status: "active", nameHistoryComplete: true, createdBy: s.userId, createdAt: now, updatedAt: now,
+      });
+      await ctx.db.patch(s.projectId, { clientId });
+      for (const [fileName, chars, createdAt] of [["last-year.txt", 150_000, now], ["history.txt", 150_000, now + 1]] as const) {
+        const text = "c".repeat(chars);
+        const id = await ctx.db.insert("companyFiles", {
+          clientId, fileName, fileType: "txt", ...(await companyFileTextFacts(text)), processingStatus: "ready", uploadedBy: s.userId, createdAt,
+        });
+        await insertCompanyFileTextPieces(ctx, id, text);
+      }
+    });
+    const generationId = await s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId, candidateMode: "single" });
+    const generation = await s.t.run(async (ctx) => ctx.db.get(generationId));
+    expect(generation?.companyFilesLeftOut).toHaveLength(2);
+    const band = await s.authed.query(api.generations.getContextInclusion, { generationId });
+    const company = band!.rows.filter((row: { kind: string }) => row.kind === "company");
+    expect(company.map((row: { label: string; reason?: string }) => [row.label, row.reason])).toEqual([
+      ["history.txt", "not_captured"],
+      ["last-year.txt", "not_captured"],
+    ]);
+    // Archived since the draft: it says so, as a project file does (review round 1).
+    await s.t.run(async (ctx) => {
+      const [first] = generation!.companyFilesLeftOut!;
+      await ctx.db.patch(first, { archived: true });
+    });
+    const after = await s.authed.query(api.generations.getContextInclusion, { generationId });
+    expect(
+      after!.rows.filter((row: { kind: string }) => row.kind === "company").map((row: { label: string; reason?: string }) => [row.label, row.reason])
+    ).toEqual([
+      ["history.txt", "archived"],
+      ["last-year.txt", "not_captured"],
+    ]);
   });
 
   it("leaves a project within the total exactly as before", async () => {

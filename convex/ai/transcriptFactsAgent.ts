@@ -296,7 +296,9 @@ export type CitationsClient = {
 /**
  * The outcome one parsed citations answer records (review 2026-09-25,
  * P3-a): cut off (at max_tokens or, since 2026-10-26, the context window)
- * or refused is a failure of the model; anything else is a success.
+ * or refused is a failure; anything else is a success. Since 2026-10-28
+ * (owner) the recorder keeps a refusal out of the model's count
+ * (providers.ts recordedRequest), so its settle records nothing.
  */
 export function citationsOutcome(stopReason: string | null | undefined): { ok: true } | { ok: false; code: string } {
   if (isCutOffStopReason(stopReason)) return { ok: false, code: "output_limit" };
