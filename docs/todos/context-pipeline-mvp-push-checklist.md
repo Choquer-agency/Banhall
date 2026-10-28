@@ -951,7 +951,8 @@ What changes:
 - [x] Full gate (8,176 unit tests) on c62d138d.
 - [x] Round 3 (c62d138d): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points (the Haiku tier's counts; "except three"; the 12 of 55 now backed by a file; one sentence split), made in d0f621e2.
 - [x] Round 4 (d0f621e2): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku tier's check, but its counts hold 22 failures where 82 calls were refused. Corrected in dc92c3d8, and the move back's own counts (12 failures in 55 calls) saved in `tier-moves.json`.
-- [x] Round 5 (dc92c3d8): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record stated a cause it had not checked. Haiku's outcome rows and usage rows are the same 392 calls (`haiku-outcomes.json`), 82 refused and 22 recorded as failures, though the code settles a refusal as a failure; the record now says the counts and the code disagree.
+- [x] Round 5 (dc92c3d8): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record stated a cause it had not checked. Haiku's outcome rows and usage rows are very likely the same 392 calls (`haiku-outcomes.json`), 82 refused and 22 recorded as failures; corrected in 602f1e48.
+- [x] Round 6 (602f1e48): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the code counts a refusal as a failure only when it leaves no usable answer, and the label path had no refusal check until 9826fea0, so the gap most likely comes from refused answers that still held a usable answer (not shown call by call). Corrected in the next commit, with question 13.
 
 ### Automated, live on localhost
 
