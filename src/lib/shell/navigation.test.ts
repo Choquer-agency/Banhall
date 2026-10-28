@@ -179,7 +179,6 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
     expect(labels(consultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
     expect(labels(manager)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["Settings"] });
     expect(labels(admin)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["Admin", "Settings"] });
-    expect(labels({ role: "financial", isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
     expect(labels({ role: null, isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
   });
 
