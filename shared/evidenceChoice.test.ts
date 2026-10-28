@@ -259,8 +259,9 @@ describe("review round 2 fixes (2026-10-28)", () => {
 
 describe("Brief review fixes (2026-10-28)", () => {
   it("keeps the first sentence of a part that starts after a paragraph ending in a period", () => {
-    for (const gap of ["\n\n", ". \n\n", "\r\n\r\n"]) {
-      const text = `${"The seal held at the plant. ".repeat(20)}End of that${gap.startsWith(".") ? "" : "."}${gap}Zorbatron calibration failed first. ${"The pump drifted. ".repeat(20)}`;
+    for (const gap of ["\n\n", ". \n\n", "\r\n\r\n", "\n\n\n", "\r\n\r\n\r\n", "\n  \n  \n"]) {
+      // With and without a period before the blank lines (a heading has none).
+      const text = `${"The seal held at the plant. ".repeat(20)}Overview${gap.startsWith(".") ? "" : gap.length > 2 ? "" : "."}${gap}Zorbatron calibration failed first. ${"The pump drifted. ".repeat(20)}`;
       const at = text.indexOf("Zorbatron");
       const range = partRange(text, at, at + 500);
       expect(range.start).toBe(at);

@@ -4958,7 +4958,7 @@ This changes what one AI check reads and one sentence of its note, not a workflo
   - Windows line endings;
   - each subject text once;
   - "best match" only when a part matched.
-- **Review round 3:** Claude Opus 5.5 (requested high; it reported running at low), with the Brief's review, "ship after fixes": a part starting right after a paragraph that ends in a period still lost its first sentence (P2), since the period took one line break and left the blank line unmatched. Fixed: a sentence end takes every line break after it.
+- **Review round 3:** Claude Opus 5.5 (requested high; it reported running at low), with the Brief's review, "ship after fixes": a part starting right after a paragraph that ends in a period still lost its first sentence (P2), since the period took one line break and left the blank line unmatched. Fixed: a sentence end takes every line break after it, and a run of blank lines counts as one paragraph end (follow-up review: a heading followed by two or more blank lines lost the next paragraph's first sentence).
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ### 2026-10-28 (sixth): The Brief reads the parts of every frozen file that best match the interviews (owner, Phase D step 1)
@@ -4980,11 +4980,12 @@ This changes what one AI request reads and how its quotes are found, not a workf
 - **Where.**
   - `briefMessageWithReport` and `BRIEF_EXCERPTS` in `convex/lib/briefRequest.ts`.
   - `briefEvidence` in `convex/ai/brief.ts`, which blanks the text not sent (`maskOutside`).
-  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared Briefs are made again. A Brief whose sources do not all fit also gets the version in its inputs hash (`convex/lib/briefInputsHash.ts`), so one made before is not reused; sources that fit keep their hash.
-  - `runPreparationStart` (`convex/briefPreparations.ts`) builds the message once, for the key; when the sources do not all fit, its spend reservation counts the whole budget.
+  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared Briefs are made again. The inputs hash a reusable Brief is found by is unchanged (`convex/lib/briefInputsHash.ts`).
+  - `runPreparationStart` (`convex/briefPreparations.ts`) chooses the parts once, for the key. When the sources do not all fit, its spend reservation counts an upper bound on the request (`briefRequestCharsUpperBound`: the whole budget, every rule, and each source's frame and notice).
 - **Known limits.**
   - The Brief still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - The Brief's subject is the interviews and the Storyline: a file that matters for reasons the interviews never mention scores low.
+  - A Brief made before this change is still reused for a draft with the same sources, with the writer's edits, as Brief reuse works today. Its quotes are all in the sources, but it was chosen from the first files only. A new Brief reads by relevance when the sources change or the writer makes it again.
   - The choice runs inside two mutations (a preparation's start and its adoption), where the key is computed. Measured locally in review: about 0.3 seconds for a 3.4 million character pool. Not yet measured on a deployment; the live check will.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
@@ -5004,6 +5005,12 @@ This changes what one AI request reads and how its quotes are found, not a workf
   - tests.
 
   Left as written above: notices not counted, and no per-file limit beyond the 200,000 characters a file is frozen at.
+
+  Follow-up review, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - the reuse marker first added to the inputs hash is taken out, since it dropped writers' edited Briefs of large projects and could stop a Step by step draft caught at deploy; the limit is written above instead;
+  - the reservation is a real upper bound (200 files with long names passed the earlier allowance);
+  - runs of blank lines;
+  - wording and tests.
 - **Tests (round 1):** `convex/briefByRelevance.test.ts` also:
   - writer's notes whole only when internal;
   - the fit boundary at the total and one character over;

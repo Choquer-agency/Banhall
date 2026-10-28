@@ -101,15 +101,25 @@ describe("Brief review fixes (2026-10-28)", () => {
     expect(message).toContain(BRIEF_EXCERPTS.noticeUnmatchedPrefix);
   });
 
-  it("never reuses a Brief chosen by relevance across derivation versions, and keeps the hash of one that fits", async () => {
+  it("keeps the inputs hash as it was, so a Brief made before (writers' edits included) is still reused for the same sources", async () => {
     const rows = sources();
-    const fitting = rows.slice(0, 3);
-    const hashOf = (list: typeof rows) => briefInputsHash(list as never);
-    expect(await hashOf(fitting)).toBe(await hashOf(fitting));
-    // Not fitting: the relevance marker makes the hash differ from a plain concatenation.
     const { sha256 } = await import("./lib/contracts");
     const plain = async (list: typeof rows) =>
-      sha256(list.map((row) => row.contentHash).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1)).join("|"));
-    expect(await hashOf(rows)).not.toBe(await plain(rows));
+      sha256([...list].sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1)).map((row) => row.contentHash).join("|"));
+    expect(await briefInputsHash(rows.slice(0, 3) as never)).toBe(await plain(rows.slice(0, 3)));
+    expect(await briefInputsHash(rows as never)).toBe(await plain(rows));
+  });
+
+  it("reserves at least the request it will send when the sources do not fit", async () => {
+    const { briefRequestCharsUpperBound } = await import("./lib/briefRequest");
+    const many = Array.from({ length: 200 }, (_, index) => ({
+      _id: `f${index}`,
+      kind: "company_file",
+      label: `background:${"a-long-company-file-name-".repeat(5)}${index}.md`,
+      content: filler(index, 8_000),
+      contentHash: `h-f${index}`,
+    }));
+    const rows = [sources()[0]!, ...many];
+    expect(buildBriefUserMessage(rows as never).length).toBeLessThanOrEqual(briefRequestCharsUpperBound(rows as never));
   });
 });

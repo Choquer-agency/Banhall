@@ -121,6 +121,25 @@ export function briefSourcesFit(
   return evidence.reduce((sum, s) => sum + Math.min(s.content.length, perSource), 0) <= total;
 }
 
+/**
+ * An upper bound on the request's characters when the sources do not all
+ * fit, without choosing the parts (a preparation reserves its spend from
+ * it, review): the whole budget, the guidance and every rule or notice it
+ * may carry, and each source's two marker lines and a notice.
+ */
+export function briefRequestCharsUpperBound(
+  sources: ReadonlyArray<Pick<BriefMessageSource, "kind" | "label">>,
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
+): number {
+  const fixed =
+    BRIEF_TASK_GUIDANCE.length +
+    BRIEF_WRITER_WORDING.prefix.length + BRIEF_WRITER_WORDING.suffix.length + 200 +
+    COMPANY_FILES_NOTE.length +
+    briefOmittedSourcesNotice(sources.length).length;
+  const perSource = sources.reduce((sum, s) => sum + 2 * (s.label.length + s.kind.length + 40) + 200, 0);
+  return Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN + fixed + perSource;
+}
+
 /** The kinds that always go in whole (cut only at the per-source limit): the interviews. */
 const TRANSCRIPT_KINDS: ReadonlySet<string> = new Set(["transcript", "transcript_digest", "transcript_facts"]);
 

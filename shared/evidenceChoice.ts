@@ -155,10 +155,11 @@ export function nameSafeRange(text: string, start: number, end: number): { start
 /** How far into a part an edge may move to reach a sentence or paragraph end. */
 const SENTENCE_REACH = 300;
 /** A sentence end (its punctuation, closing quotes or brackets, then white space) or a blank line. */
-// The punctuation alternative takes every line break after it, so the end
-// of a paragraph ("end.\n\nNext") is one end at the next paragraph's start
-// (Brief review: a part after such a paragraph lost its first sentence).
-const SENTENCE_END = /([.!?\u2026])["'\u2019\u201D)\]]*[ \t]*(?:\r?\n[ \t]*)+|([.!?\u2026])["'\u2019\u201D)\]]*[ \t]+|\r?\n[ \t]*\r?\n[ \t]*/gu;
+// The punctuation alternative takes every line break after it, and the
+// blank-line one every blank line, so the end of a paragraph ("end.\n\nNext",
+// "Overview\n\n\nNext") is one end at the next paragraph's start (Brief
+// reviews: a part after such a paragraph lost its first sentence).
+const SENTENCE_END = /([.!?\u2026])["'\u2019\u201D)\]]*[ \t]*(?:\r?\n[ \t]*)+|([.!?\u2026])["'\u2019\u201D)\]]*[ \t]+|\r?\n[ \t]*(?:\r?\n[ \t]*)+/gu;
 /** A period after these, or after a single letter, ends no sentence ("St. Laurent", "J. Smith", "Acme Inc. Montreal"). */
 const ABBREVIATIONS: ReadonlySet<string> = new Set([
   "st", "mt", "dr", "mr", "mrs", "ms", "jr", "sr", "inc", "ltd", "co", "corp", "no", "fig", "vs", "etc", "dept",
