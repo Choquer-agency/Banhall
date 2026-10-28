@@ -554,29 +554,37 @@
   // conversation; the pill reads "Shortening" until the reply settles.
   let assistantPrompt = $state<{ id: string; text: string } | null>(null);
   let shorteningLine = $state<string | null>(null);
+  // The chip belongs to one request: another reply ending, or an older
+  // request's result, never clears or starts it.
+  let shorteningPromptId: string | null = null;
   let shorteningStarted = false;
   function askShorten(line: string, overBy: string) {
     assistantIntent();
     void leaveDetailsThen(() => openSidePanel("chat"));
-    assistantPrompt = { id: createRequestId(), text: `Shorten Line ${line} so it fits the CRA limit. It is ${overBy}.` };
+    const id = createRequestId();
+    assistantPrompt = { id, text: `Shorten Line ${line} so it fits the CRA limit. It is ${overBy}.` };
     shorteningLine = line;
+    shorteningPromptId = id;
     shorteningStarted = false;
   }
-  // The chip shows from the ask until the reply settles: it starts counting
+  function clearShortening() {
+    shorteningLine = null;
+    shorteningPromptId = null;
+    shorteningStarted = false;
+  }
+  // The chip shows from the ask until that reply settles: it starts counting
   // once the request is sent, and goes if it never was.
-  function assistantPromptDone(sent: boolean, working: boolean) {
-    if (!shorteningLine) return;
+  function assistantPromptDone(id: string, sent: boolean, working: boolean) {
+    if (id !== shorteningPromptId) return;
     if (!sent || !working) {
-      shorteningLine = null;
-      shorteningStarted = false;
+      clearShortening();
       return;
     }
     shorteningStarted = true;
   }
   function assistantWorkingChanged(working: boolean) {
-    if (!shorteningLine || !shorteningStarted || working) return;
-    shorteningLine = null;
-    shorteningStarted = false;
+    if (!shorteningPromptId || !shorteningStarted || working) return;
+    clearShortening();
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
@@ -2870,7 +2878,7 @@
                         onPromptTaken={(id) => {
                           if (assistantPrompt?.id === id) assistantPrompt = null;
                         }}
-                        onPromptDone={(_id, sent, working) => assistantPromptDone(sent, working)}
+                        onPromptDone={assistantPromptDone}
                         onWorkingChange={assistantWorkingChanged}
                         onBeforeApply={flushEditor}
                         closeInset={false}

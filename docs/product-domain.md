@@ -4821,6 +4821,13 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
     - a refused `askWriter` call no longer ends the reply;
     - Review scrolls to the first change in its own Line;
     - a review survives the Accept all tray changing around its card.
+  - **Round 2.** Claude Opus 5.5, requested at high (it reported reasoning closer to medium; effort unconfirmed), "ship after fixes"; the round 1 fixes held and the two known limits are fine to ship. Fixed:
+    - an added sentence or a word next to punctuation keeps the spaces the change gives it, and an insertion on a space goes before it;
+    - the shorten request no longer carries over or restores another conversation's pinned files and Brain choice;
+    - the Shortening chip follows its own request only;
+    - Accept all names the Line it stopped at when the save itself fails;
+    - a review ends when its card is replaced by a later card or leaves the conversation's shown cards;
+    - closing the limit popover from the pill gives focus back to the pill.
 
 ## Amendment process
 

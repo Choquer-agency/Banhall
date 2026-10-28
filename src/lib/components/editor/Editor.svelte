@@ -978,7 +978,8 @@
   function closeLimitPopover(returnFocus = false) {
     if (!limitPopover) return;
     limitPillEl?.setAttribute("aria-expanded", "false");
-    if (returnFocus) limitPillEl?.focus();
+    // Focus inside the popover goes back to the pill rather than the page.
+    if (returnFocus || limitPopoverEl?.contains(document.activeElement)) limitPillEl?.focus();
     limitPopover = null;
   }
   $effect(() => {

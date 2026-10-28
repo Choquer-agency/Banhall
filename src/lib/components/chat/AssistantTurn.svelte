@@ -137,15 +137,17 @@
     cards?.clearNotice();
     const done: AcceptedCard[] = [];
     let failure: string | null = null;
+    let current: Proposal | undefined;
     try {
       await onBeforeApply?.();
-      for (const node of waiting) {
+      for (const node of [...waiting]) {
+        current = node.proposal;
         const result = await applyProposal({ proposalId: node.proposal._id });
-        if (!result.applied) throw Object.assign(new Error(result.reason), { line: lineOf(node.proposal) });
+        if (!result.applied) throw new Error(result.reason);
         done.push({ proposalId: node.proposal._id, line: lineOf(node.proposal) });
       }
     } catch (error) {
-      const failedLine = (error as { line?: string | null }).line;
+      const failedLine = current ? lineOf(current) : null;
       const reason = userErrorMessage(error, "Try again.");
       failure = `Couldn't accept ${failedLine ? `Line ${failedLine}` : "every suggestion"}. ${reason}`;
     } finally {

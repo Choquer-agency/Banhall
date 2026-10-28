@@ -209,13 +209,16 @@ export function reviewMarks(
           if (cutEnd !== null) {
             marks.push({ kind: "new", at: cutEnd, text });
           } else {
-            // An insertion between words keeps a space on each side that
-            // the report does not already have.
+            // An insertion keeps the spaces the change gives it, unless the
+            // report already has one there (just outside the passage too).
             const at = normalizedLength(needle.slice(0, offset));
-            const position = at < ned.length ? starts[idx + at] : to;
-            const word = (ch: string | undefined) => !!ch && /[\p{L}\p{N}]/u.test(ch);
-            const before = at > 0 && word(hay[idx + at - 1]) ? " " : "";
-            const after = at < ned.length && word(hay[idx + at]) ? " " : "";
+            // A collapsed space maps to the next word: an insertion there
+            // goes before the space, right after the previous character.
+            const position =
+              at >= ned.length ? to : hay[idx + at] === " " && at > 0 ? ends[idx + at - 1] : starts[idx + at];
+            const spaced = (ch: string | undefined) => ch === undefined || ch === " ";
+            const before = /^\s/.test(part.text) && !spaced(hay[idx + at - 1]) ? " " : "";
+            const after = /\s$/.test(part.text) && !spaced(hay[idx + at]) ? " " : "";
             marks.push({ kind: "new", at: position, text: `${before}${text}${after}` });
           }
           cutEnd = null;

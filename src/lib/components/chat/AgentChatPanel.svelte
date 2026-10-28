@@ -470,14 +470,25 @@
   });
 
   const undoProposal = useMutation(api.chatV2.undoProposal);
-  // A card under review that is no longer waiting (accepted elsewhere,
-  // dismissed, or gone stale) ends its review.
+  // A card under review that is no longer waiting or no longer shown
+  // (accepted elsewhere, dismissed, stale, replaced by a later card for the
+  // same passage, or on another alternative) ends its review. A research
+  // card is never in this list, so only a card once listed can leave it.
+  let reviewedListed: string | null = null;
   $effect(() => {
     const target = review?.target;
     const rows = proposalsQ.data;
-    if (!target || !rows) return;
+    if (!target) {
+      reviewedListed = null;
+      return;
+    }
+    if (!rows) return;
     const card = rows.find((row) => row._id === target.proposalId);
-    if (card && card.state !== "pending") untrack(() => review?.stop());
+    if (card) reviewedListed = target.proposalId;
+    const gone = card
+      ? card.state !== "pending" || !shownProposalIds.has(card._id)
+      : reviewedListed === target.proposalId;
+    if (gone) untrack(() => review?.stop());
   });
   // Owner 2026-10-28 (row 32): a new conversation starts without a bar or a
   // notice from the last one.
@@ -810,6 +821,10 @@
   // toolCallId match and its legacy fallbacks stay unit-testable.
   const grouped = $derived(
     correlateProposals(messages ?? [], proposalsQ.data ?? [])
+  );
+  // The cards the transcript shows (superseded refinements are left out).
+  const shownProposalIds = $derived(
+    new Set<string>([...[...grouped.byMessageId.values()].flat(), ...grouped.orphans].map((proposal) => proposal._id))
   );
 
   // Durable turn timing ("Worked for 12s"). The agent component's UIMessage
@@ -1452,21 +1467,16 @@
     untrack(() => onPromptTaken?.(prompt.id));
     untrack(() => void sendPagePrompt(prompt));
   });
-  // The request goes out alone: the writer's pinned files, Brain choice and
-  // draft stay for their own next message.
+  // The request goes out alone in a new conversation: changing conversation
+  // already resets the per-message choices (pinned files, Brain), and the
+  // writer's draft stays with the conversation it was typed in.
   async function sendPagePrompt(prompt: { id: string; text: string }) {
-    const keptFiles = pinnedFiles;
-    const keptBrain = allowBrain;
     startNewThread();
-    pinnedFiles = [];
-    allowBrain = false;
     await tick();
     let sent = false;
     try {
       sent = await sendText(prompt.text);
     } finally {
-      if (pinnedFiles.length === 0) pinnedFiles = keptFiles;
-      if (!allowBrain) allowBrain = keptBrain;
       onPromptDone?.(prompt.id, sent, replyUnderWay());
     }
   }

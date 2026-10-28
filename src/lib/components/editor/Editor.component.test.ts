@@ -126,6 +126,14 @@ describe("Editor search surface", () => {
     await expect.poll(() => shown(container)).toBe("The red dog ran home.");
     component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big brown dog ran home." }], { showChanges: false });
     await expect.poll(() => shown(container)).toBe("The big brown dog ran home.");
+    // Round 2 (F1): an added sentence after a full stop, and words before a bracket.
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big dog ran home. It stopped." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The big dog ran home. It stopped.");
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big dog quickly ran home." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The big dog quickly ran home.");
+    const bracket = await mountEditor(doc("(n=5) shows the drift."));
+    bracket.component.previewProposal([{ find: "(n=5) shows the drift.", replaceWith: "Table 1 (n=5) shows the drift." }], { showChanges: false });
+    await expect.poll(() => shown(bracket.container)).toBe("Table 1 (n=5) shows the drift.");
   });
 
   it("marks only the changed words of each occurrence, and clears", async () => {
