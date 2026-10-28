@@ -2038,6 +2038,24 @@ export default defineSchema({
     requireUniqueTarget: v.optional(v.boolean()),
     // A coordinated revision: every passage must still match exactly once.
     requireUniqueTargets: v.optional(v.boolean()),
+    // Owner 2026-10-28: the Line this card edits. Every edit card covers one
+    // Line; a change across Lines is saved as one card per Line, and a
+    // report-wide find/replace card applies inside its own Line only. Absent
+    // on older rows, highlights and record-only revisions.
+    section: v.optional(sectionNumberValidator),
+    // Owner 2026-10-28: up to two more versions of the same edit, shown as
+    // Option 2 and Option 3. The card's own fields are Option 1, the one the
+    // AI recommends. Each version is a passage set: every target matches
+    // exactly once, inside this card's Line.
+    alternatives: v.optional(
+      v.array(
+        v.object({
+          replacements: v.array(v.object({ find: v.string(), replaceWith: v.string() })),
+        })
+      )
+    ),
+    // Which version the writer applied: 0 is Option 1. Cleared by Undo.
+    appliedOption: v.optional(v.number()),
     // Writer-authored wording revisions made directly in the proposal card.
     // The canonical target never changes; these fields make the learning event
     // auditable without conflating it with model-generated candidates.

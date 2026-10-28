@@ -1359,13 +1359,15 @@ describe("files whole or not at all with the reading tools on (Phase D, step 1)"
 describe("the published style lesson set in chat (Phase E, E2b)", () => {
   const LESSONS = "Learned from 6 human feedback events:\n- Lead with the result.";
 
+  // Re-pinned 2026-10-28: the edit rules now say one card per Line and
+  // allow up to three options. E2b itself still adds nothing without a set.
   it("sends the same system text as before E2b when no set is published (pinned at a0e3c1d4)", () => {
     const hash = (text: string) => createHash("sha256").update(text).digest("hex");
     for (const empty of [null, undefined, "   "]) {
-      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("57f39e44e3f29dd9450a3e38ef5ef600144d00dd16a440ae7e1386bd8e0894c2");
-      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("847d21760decc5eca154ff8f9c05f2ceb5d8258b4e0b59ecff33a7014717a580");
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("65f3c3639b18a17dc337612db146830e0ec6da4d9228ecb81815a52b6c4b1999");
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("88cb110e8686ddabd7ca922c92d284493db9cf5e266210f36a63ba75b30792cc");
       expect(hash(buildChatSystem({ ...NO_STYLE_OVERRIDES, bannedWords: true }, "Use we.", empty))).toBe(
-        "9a218a5b55756b6520d4155490778d7bd474e417ce03da35003582cd57418336"
+        "f781982e507ef5e40d8b53ba7cdae86dc4139695ad465ac4e0215f861132c3b9"
       );
     }
   });

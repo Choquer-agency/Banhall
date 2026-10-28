@@ -65,6 +65,7 @@ import {
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import { applyReplacementsInLine, groupPairsByLine, REPORT_LINES, type LineGroup } from "./lib/reportLines";
 import { lineLengthsAfterEdit } from "./ai/chatLineLengths";
 import {
   MAX_COMPLETION_REPORT_FINDINGS,
@@ -1174,7 +1175,8 @@ export const abortStreaming = mutation({
 async function markAppliedWithRecord(
   ctx: MutationCtx,
   proposal: Doc<"chatProposals">,
-  change: AppliedChange | undefined
+  change: AppliedChange | undefined,
+  appliedOption?: number
 ): Promise<void> {
   if (proposal.appliedChangeId !== undefined) {
     const leftover = await ctx.db.get(proposal.appliedChangeId);
@@ -1187,11 +1189,15 @@ async function markAppliedWithRecord(
         ...change,
       })
     : undefined;
-  await ctx.db.patch(proposal._id, { state: "applied", appliedChangeId });
+  await ctx.db.patch(proposal._id, { state: "applied", appliedChangeId, appliedOption });
 }
 
 export const applyProposal = mutation({
-  args: { proposalId: v.id("chatProposals") },
+  args: {
+    proposalId: v.id("chatProposals"),
+    // Owner 2026-10-28: which version to apply, 0 for Option 1 (the default).
+    option: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
@@ -1229,7 +1235,14 @@ export const applyProposal = mutation({
       domainError("NOT_FOUND", "Report not found");
     }
 
-    let pairs = proposalPairs(proposal);
+    const option = args.option ?? 0;
+    const alternatives = proposal.alternatives ?? [];
+    if (!Number.isInteger(option) || option < 0 || option > alternatives.length) {
+      domainError("INVALID_INPUT", "That option is not part of this suggestion.");
+    }
+    // Option 2 and Option 3 are passage sets: every target matches once.
+    const alternative = option > 0 ? alternatives[option - 1] : undefined;
+    let pairs = alternative ? alternative.replacements.filter((pair) => pair.find) : proposalPairs(proposal);
     if (pairs.length === 0) {
       domainError("INVALID_INPUT", "This edit has nothing to replace.");
     }
@@ -1265,14 +1278,20 @@ export const applyProposal = mutation({
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       domainError("INVALID_INPUT", "The report content is not a valid editor document");
     }
-    const bulkResult = proposal.requireUniqueTargets
+    const bulkResult = proposal.requireUniqueTargets || alternative
       ? applyPassageEdits(parsed as PMNode, pairs)
       : null;
     if (bulkResult && !bulkResult.ok) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return { applied: false as const, count: 0, reason: bulkResult.reason };
     }
-    const direct = bulkResult ? null : applyReplacements(parsed as PMNode, pairs);
+    // Owner 2026-10-28: a find/replace card belongs to one Line and replaces
+    // only inside it; the same text in another Line has its own card.
+    const direct = bulkResult
+      ? null
+      : proposal.section && proposal.kind === "replacements"
+        ? applyReplacementsInLine(parsed as PMNode, pairs, proposal.section)
+        : applyReplacements(parsed as PMNode, pairs);
     const { doc: updated, count } = bulkResult ?? direct!;
     // Producer-declared single-target proposals (older research proposals
     // predate the flag, hence the researchSessionId fallback).
@@ -1366,7 +1385,7 @@ export const applyProposal = mutation({
           appliedAt: now,
           appliedBy: applier._id,
         });
-    await markAppliedWithRecord(ctx, proposal, appliedChange);
+    await markAppliedWithRecord(ctx, proposal, appliedChange, alternatives.length ? option : undefined);
     await recordChatApplySize(ctx, proposal, report._id, applier._id);
     await pruneSnapshots(ctx, report._id);
 
@@ -1722,6 +1741,7 @@ export const undoProposal = mutation({
       state: "pending",
       appliedChangeId: undefined,
       appliedChange: undefined,
+      appliedOption: undefined,
       undoneAt: now,
       undoneBy: user._id,
     });
@@ -2509,6 +2529,15 @@ export const saveProposal = internalMutation({
     // One `chatProposalItems` child row per item, written in this transaction
     // and nowhere else. Absent for every other proposal producer.
     items: v.optional(v.array(completionReportItemValidator)),
+    // Owner 2026-10-28: Option 2 and Option 3 of the same edit, each a
+    // passage set inside the same Line as Option 1.
+    alternatives: v.optional(
+      v.array(
+        v.object({
+          replacements: v.array(v.object({ find: v.string(), replaceWith: v.string() })),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -2548,13 +2577,22 @@ export const saveProposal = internalMutation({
     }
 
     if (args.toolCallId) {
+      // One tool call saves one card per Line it touches, so a retried call
+      // finds them all.
       const existing = await ctx.db
         .query("chatProposals")
         .withIndex("by_agentThreadId_and_toolCallId", (q) =>
           q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", args.toolCallId)
         )
-        .unique();
-      if (existing) return { ok: true as const, proposalId: existing._id, lengths: null };
+        .take(REPORT_LINES.length + 1);
+      if (existing.length) {
+        return {
+          ok: true as const,
+          proposalId: existing[0]._id,
+          proposalIds: existing.map((row) => row._id),
+          lengths: null,
+        };
+      }
     }
 
     const report = await ctx.db.get(thread.reportId);
@@ -2669,36 +2707,88 @@ export const saveProposal = internalMutation({
       }
     }
 
-    const proposalId = await ctx.db.insert("chatProposals", {
-      agentThreadId: args.agentThreadId,
-      toolCallId: args.toolCallId,
-      promptMessageId: args.promptMessageId,
-      messageId: args.messageId,
-      projectId: thread.projectId,
-      reportId: thread.reportId,
-      kind: args.kind,
-      targetText: args.targetText,
-      newText: args.newText,
-      replacements: args.replacements,
-      references: args.references,
-      requireUniqueTarget: args.kind === "edit" ? true : undefined,
-      requireUniqueTargets: args.requireUniqueTargets,
-      // Highlights and record-only revisions have no state machine: nothing
-      // for a human to apply or reject, so they are terminal on creation.
-      state: args.kind === "references" || recordOnly ? "applied" : "pending",
-      createdAt: Date.now(),
-    });
+    // Owner 2026-10-28: one card per Line, each reviewed and accepted on its
+    // own. A change that touches several Lines becomes one card for each, in
+    // build order; a find/replace that recurs in several Lines applies inside
+    // each card's own Line.
+    const groups: LineGroup[] =
+      recordOnly || args.kind === "references"
+        ? [{ line: undefined, pairs }]
+        : groupPairsByLine(parsed as PMNode, pairs);
+    const split = groups.length > 1;
+
+    // Owner 2026-10-28: Option 2 and Option 3, only for an edit inside one
+    // Line, each checked the way a passage set is.
+    const alternatives = (args.alternatives ?? []).filter((option) => option.replacements.length > 0);
+    if (alternatives.length) {
+      if (args.kind === "references" || recordOnly) {
+        return { ok: false as const, reason: "Only an edit can offer other options." };
+      }
+      if (alternatives.length > 2) {
+        return { ok: false as const, reason: "Give at most three options in all." };
+      }
+      const line = groups[0]?.line;
+      if (split || !line) {
+        return {
+          ok: false as const,
+          reason:
+            "Options are only for an edit inside one Line. Propose this edit without other options, or edit one Line at a time.",
+        };
+      }
+      for (const [index, option] of alternatives.entries()) {
+        const checked = applyPassageEdits(parsed as PMNode, option.replacements);
+        if (!checked.ok) return { ok: false as const, reason: `Option ${index + 2}: ${checked.reason}` };
+        const optionLines = groupPairsByLine(parsed as PMNode, option.replacements);
+        if (optionLines.length !== 1 || optionLines[0].line !== line) {
+          return { ok: false as const, reason: `Option ${index + 2} must edit the same Line as Option 1.` };
+        }
+      }
+    }
+
+    const createdAt = Date.now();
+    const proposalIds: Id<"chatProposals">[] = [];
+    for (const group of groups) {
+      const proposalId = await ctx.db.insert("chatProposals", {
+        agentThreadId: args.agentThreadId,
+        toolCallId: args.toolCallId,
+        promptMessageId: args.promptMessageId,
+        messageId: args.messageId,
+        projectId: thread.projectId,
+        reportId: thread.reportId,
+        kind: args.kind,
+        // A split card keeps only its own Line's passages. An edit is one
+        // passage, so it never splits.
+        targetText: args.targetText,
+        newText: args.newText,
+        replacements: split ? group.pairs : args.replacements,
+        references: args.references,
+        requireUniqueTarget: args.kind === "edit" ? true : undefined,
+        requireUniqueTargets: args.requireUniqueTargets,
+        section: group.line,
+        alternatives: alternatives.length ? alternatives : undefined,
+        // Highlights and record-only revisions have no state machine: nothing
+        // for a human to apply or reject, so they are terminal on creation.
+        state: args.kind === "references" || recordOnly ? "applied" : "pending",
+        createdAt,
+      });
+      proposalIds.push(proposalId);
+    }
     // AD-28: the findings persist as child rows, one per item, in input order.
     // `saveProposal` is the only writer of this table, and the `toolCallId`
     // short-circuit above returns before here, so a retried tool call cannot
-    // double-write them.
-    for (const row of completionReportRows(items, {
-      proposalId,
-      projectId: thread.projectId,
-      createdAt: Date.now(),
-    })) {
-      await ctx.db.insert("chatProposalItems", row);
+    // double-write them. A split revision files each finding under its Line's
+    // card; a finding for a Line no card edits goes with the first card.
+    for (const item of items) {
+      const index = split ? groups.findIndex((group) => group.line === item.section) : 0;
+      for (const row of completionReportRows([item], {
+        proposalId: proposalIds[Math.max(0, index)],
+        projectId: thread.projectId,
+        createdAt,
+      })) {
+        await ctx.db.insert("chatProposalItems", row);
+      }
     }
+    const proposalId = proposalIds[0];
     // Owner 2026-10-21: the meters as they would read once the card is
     // applied, so the model checks a trim against them instead of counting.
     let lengths: string | null = null;
@@ -2708,7 +2798,7 @@ export const saveProposal = internalMutation({
         : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs) };
       if (after.ok) lengths = lineLengthsAfterEdit(report.content, JSON.stringify(after.doc));
     }
-    return { ok: true as const, proposalId, lengths };
+    return { ok: true as const, proposalId, proposalIds, lengths };
   },
 });
 
