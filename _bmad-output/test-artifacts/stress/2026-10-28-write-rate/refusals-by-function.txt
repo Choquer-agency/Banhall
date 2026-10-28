@@ -39,7 +39,7 @@ the fix (start actions wrapped), lines 3723 to 4769:
    5 M(seeds:copyBriefToReadingFacts)
  256 M(zzStressQ14:floodOnce)
 
-the fix with the Seed Batch wrapped too, from line 4769:
+the fix with the Seed Batch wrapped too, then the first WebSocket run (results-wsclient.json, first waits; its failed begin is the beginGeneration count below), from line 4769:
    5 M(aiUsage:logUsage)
    2 M(generations:appendProgress)
    5 M(generations:beginGeneration)

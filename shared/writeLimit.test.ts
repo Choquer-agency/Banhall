@@ -11,7 +11,7 @@ const REFUSED = new Error(
 );
 
 describe("isWriteRateLimitError", () => {
-  it("knows the write rate's refusal by its code or its words, and nothing else", () => {
+  it("knows the write rate's refusal by its words only", () => {
     expect(isWriteRateLimitError(REFUSED)).toBe(true);
     expect(isWriteRateLimitError(new Error("[CONVEX M(generations:requestGeneration)] Too many writes per second."))).toBe(true);
     // The code alone is not enough: it may also name one function's own write limit (review, 2026-10-28).

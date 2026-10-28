@@ -4795,7 +4795,7 @@ Found by the F5 stress run (entry above). The hourly production error check move
 
 This changes how the 2026-10-22 (second) and 2026-10-23 entries count calls, not a workflow stage, transition or permission. No AI tool writes report prose.
 
-- **Rule.** An answer the model declines records no outcome on any path. That covers Anthropic's stop reason "refusal", OpenRouter's finish reason "content_filter", and a decline that comes back as an error instead: a moderation flag, or Anthropic's "Output blocked by content filtering policy". A refused answer is neither a failure nor a success, so it is left out of both numbers. Everything else counts as before, including:
+- **Rule.** An answer the model declines records no outcome on any path. That covers Anthropic's stop reason "refusal", OpenRouter's finish reason "content_filter", and a decline that comes back as an error instead: a moderation flag (an error naming both moderation and a flag), or "Output blocked by content filtering policy". A refused answer is neither a failure nor a success, so it is left out of both numbers. Everything else counts as before, including:
   - answers that cannot be used, or fail our own answer checks;
   - failures nobody has classified;
   - overloaded answers after every retry.
@@ -4804,7 +4804,7 @@ This changes how the 2026-10-22 (second) and 2026-10-23 entries count calls, not
 - **Where.**
   - `recordedRequest`, `modelFaultCode` and `isContentDeclineError` in `convex/ai/providers.ts`.
   - `isRefusalStopReason` and `RefusalOutputError` in `convex/ai/openrouterCore.ts`. An empty refused OpenRouter answer still spends the structured repair, with the same words as an empty answer, but records nothing.
-- **What stays visible.** Each AI call's usage row keeps its stop reason, and a refused file label says "refusal" on the file, on either gateway.
+- **What stays visible.** Each AI call's usage row keeps its stop reason. A file label refused by its stop reason says "refusal" on the file, on either gateway; a decline that comes back as an error is stored in that error's own words.
 - **Known limits.**
   - A refused answer still spends its step's repair attempt and its cost.
   - A step whose every try is refused still fails for the writer, as before.
@@ -4817,6 +4817,7 @@ This changes how the 2026-10-22 (second) and 2026-10-23 entries count calls, not
   - `convex/ai/openrouterCore.test.ts`: an empty refused OpenRouter answer is a refusal, with the same words as an empty answer.
   - `convex/ai/fileLabels.sdk.test.ts`: a refused label leaves the model's count empty.
 - **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes", every finding P3. Done: declines that come back as errors, the label on the OpenRouter gateway, the repair's words, and the two known limits above.
+- **Review round 2:** Claude Opus 5.5 (requested high; it reported running at low), "ship". Done: a moderation flag needs both words, and the label wording above. Not done: tests for a refused label on the OpenRouter gateway (P3).
 - **Approval:** Product owner, 2026-10-28 (chat): "No refusals" (answer to question 13).
 
 ### 2026-10-28 (second): A draft's start tries again when the database refuses a write for its write rate (owner)
@@ -4832,7 +4833,7 @@ This changes how a draft's start handles one failure, not a workflow stage, tran
 - **Rule.** While the write rate refuses one of a draft's start writes, it is sent again after 250 ms, 500 ms, 1 s, 2 s, 4 s and 8 s, each wait stretched by up to half again so two starts refused together do not try again together: about 16 to 24 seconds in all. A wait that would come within 15 seconds of the Convex action limit is not taken. Any other error, or the last refusal, fails as before. It covers every write and every scheduled function of:
   - the actions that start a draft: a one-shot draft's whole run (`generateReport`), and Step by step's start, its Brief and seed-stage setup and its background drafting inputs (`startIterativeGeneration`, `continueAfterBriefPreparation`, `resumeSeedInitialization`, `prepareSeedDraftingInputs`);
   - a Seed Batch (`generateBatch`). The live check saw a refused claim end a Batch's action, which leaves the Batch waiting 10 minutes for its lease.
-- **The start itself, from the browser.** Nothing changes in the pages. On a refusal the deployment closes the browser's connection (code 1013, TooManyWrites) and the Convex client sends the start again once it reconnects; the page sees no error and no crash notice shows. Seen live: 3 of 3 starts went through this way under a write flood, one after 4.5 seconds and one after 14.6 seconds of being refused.
+- **The start itself, from the browser.** Nothing changes in the pages. On a refusal the deployment closes the browser's connection (code 1013, TooManyWrites) and the Convex client sends the start again once it reconnects; the page sees no error and no crash notice shows. Seen live in two runs under a write flood: 3 of 3 starts went through this way (the longest took 4.5 seconds), and later 3 more (two took 14.6 seconds). The close lines are in the pack (`websocket-close-lines.txt`).
 - **The stored error.** A write the rate refused is stored as the database's refusal, not the AI provider's, and it never counts against a model (entry "2026-10-28"). Only the words "Too many writes per second" count: the code TooManyWrites may also name one function's own write limit, which fails the same way every time.
 - **Where.**
   - `retryOnWriteLimit` and `isWriteRateLimitError` in `shared/writeLimit.ts`.
@@ -4859,6 +4860,7 @@ This changes how a draft's start handles one failure, not a workflow stage, tran
   In those runs the script sent the start again itself, through the HTTP client. After review round 1, starts went through the browser's WebSocket client, sent once: with the first waits, 3 of 3 starts went through and one draft failed to begin after 5 refusals; with the final code, 3 of 3 drafts reached their first step and held there 30 seconds, and 3 more starts were refused by the test account's limit of 40 runs a day. Without a flood, 6 of 6 drafts started in the same second began, and no write was refused. $8.38 of AI that day; $28.76 of the owner's $40 in all.
 - **Component suite.** `npm run test:component` on the first commit: 2 of 1,993 tests timed out while the gate and the live copy ran beside it (chat chip hit area, the Seed workspace's thirteen roles); both files pass alone (164 tests). The pages are back as they were after review round 1.
 - **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done: scheduled functions try again too (P2); only the words count as the refusal; the browser was checked live, and the page code it showed was not needed was taken out; waits stop short of the action limit; the record says what the evidence shows. The model outcome's late write is a known limit.
+- **Review round 2:** Claude Opus 5.5 (requested high; it reported running at low), "ship". Done: a second test of the action limit, a test title, and the pack's record (the runs named apart, the close lines kept). The 8 refused first-Batch starts in the last run were sent again by Convex's scheduler, since that write is scheduled from a mutation, not by this change.
 - **Approval:** Product owner, 2026-10-28 (chat): "Sure" (answer to question 14).
 
 ### 2026-10-28 (third): The Inputs band names the company files a draft could not fit, and the start dialog says they come last (owner)
@@ -4889,8 +4891,9 @@ The owner's answer to question 15: "Sure but needs to work for any project size"
   - `convex/companyFileDrafts.test.ts`: the band rows come after the used company files, counted, and hidden from viewers who may not read company files; a draft whose own rows fill the total names the company file it could not read.
   - `src/lib/components/brief/BriefRailPanel.component.test.ts`: the band says "Company file" and "not included (not captured)".
   - `src/lib/components/project/ProjectStartDialog.component.test.ts`: the dialog's company file reads "900 words · Read last, newest first, while there is room", and its title holds the whole line.
-- **Live check (2026-10-28, the F5 live copy).** Pack `_bmad-output/test-artifacts/stress/2026-10-28-company-files`. The 101-file stress project's company was given two company files of 120,000 characters, last year's report and, newer, a background file. A Step by step draft kept the interview and 14 of the project's files; the background file fit and was frozen (the analysis, which reads at most 12 files, then left it out, so the band shows it as not included with no reason), and last year's report did not fit. The draft recorded last year's report as left out, and the band, read through the page's own query, lists it as not captured. The page was not screenshotted: the 101-file page was too slow to drive while the gate ran. $2.04 of AI; $27.41 of the owner's $40 in all.
+- **Live check (2026-10-28, the F5 live copy).** Pack `_bmad-output/test-artifacts/stress/2026-10-28-company-files`. The 101-file stress project's company was given two company files of 120,000 characters, last year's report and, newer, a background file. A Step by step draft kept the interview and 14 of the project's files; the background file fit and was frozen (the analysis, which reads at most 12 files, then left it out, so the band shows it as not included with no reason), and last year's report did not fit. The draft recorded last year's report as left out, and the band, read through the page's own query, lists it as not captured. The page was not screenshotted: the 101-file page was too slow to drive while the gate ran. $2.04 of AI; $27.41 of the owner's $40 at that point.
 - **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship", every finding P3. Done: the dialog's words and title, a file archived since, the band's read budget, the record of what the band showed, and three known limits.
+- **Review round 2:** Claude Opus 5.5 (requested high; it reported running at low), "ship". Not done: a test of the band's read budget running out before the company files (P3).
 - **Approval:** Product owner, 2026-10-28 (chat): "Sure but needs to work for any project size" (answer to question 15).
 
 ## Amendment process

@@ -979,7 +979,9 @@ What changes:
 
 - [x] Question 13: f69d15b7 (gate 8,179 tests), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship after fixes", fixed in b62c6987 (gate 8,181).
 - [x] Question 14: 1242c83f (gate 8,195; browser component suite: 2 load timeouts, both files pass alone), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship after fixes", fixed in 4c82e7ab (gate 8,198).
-- [x] Question 15: 722fd242 (gate 8,197), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship", P3 fixes in the next commit.
+- [x] Question 15: 722fd242 (gate 8,197), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship", P3 fixes in e35a36c0 (gate 8,198, after one rerun: two intake tests timed out while other work loaded the machine, and pass alone).
+- [x] Review round 2 of all three (b62c6987, 4c82e7ab, e35a36c0): Claude Opus 5.5 (requested high; it reported low), "ship" for each; P3 fixes in the next commit. Left as P3: tests for a refused label on the OpenRouter gateway, and for the band's read budget running out before the company files.
+- [x] Browser component suite on 7fb934d9: 1,991 of 1,994 pass; the same two load timeouts as before (chat chip hit area, the Seed workspace's thirteen roles), both passing alone.
 
 ### Automated, live on localhost
 

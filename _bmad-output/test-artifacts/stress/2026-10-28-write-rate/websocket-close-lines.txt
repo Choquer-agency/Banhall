@@ -1,0 +1,11 @@
+Lines the Convex WebSocket client printed during the first WebSocket run
+(results-wsclient.json), copied from the script's output on 2026-10-28.
+The client printed them itself (not through console.error), so the
+script's clientLogs, which caught console.error only, stayed empty.
+
+WebSocket closed with code 1013: TooManyWrites
+Attempting reconnect in 644ms
+WebSocket reconnected at t=4.9s after disconnect due to TooManyWrites
+WebSocket closed with code 1013: TooManyWrites
+Attempting reconnect in 2351ms
+WebSocket reconnected at t=7.7s after disconnect due to TooManyWrites

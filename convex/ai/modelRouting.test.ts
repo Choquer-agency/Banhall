@@ -600,6 +600,17 @@ describe("owner, 2026-10-28: a refusal never counts against the model", () => {
     }
     await drain(t);
     expect(await buckets(t)).toEqual([]);
+    // One of the two words alone still counts (review round 2).
+    reply = () => Response.json({ error: { message: "The request was flagged as a duplicate" } }, { status: 400 });
+    await t.action(async (ctx) => {
+      await expect(
+        clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "routing-test" }).messages.create(
+          toolParams("openai/gpt-5.6-sol")
+        )
+      ).rejects.toThrow();
+    });
+    await drain(t);
+    expect(await buckets(t)).toMatchObject([{ failures: 1 }]);
     vi.useRealTimers();
   });
 

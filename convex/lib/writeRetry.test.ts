@@ -63,4 +63,20 @@ describe("withWriteRetries (owner, 2026-10-28, question 14)", () => {
     await expect(ctx.runMutation("generations:failGeneration" as never, {} as never)).rejects.toBe(REFUSED);
     expect(runMutation).toHaveBeenCalledTimes(1);
   });
+
+  it("still waits after the request window while enough time is left before the limit (review round 2)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const runMutation = vi.fn().mockRejectedValueOnce(REFUSED).mockResolvedValueOnce("written");
+      const ctx = withWriteRetries({ runMutation } as unknown as ActionCtx);
+      // The request window ended 20 seconds ago: 40 seconds are left before the Convex limit.
+      startActionDeadline(ctx, Date.now() - ACTION_REQUEST_WINDOW_MS - 20_000);
+      const pending = ctx.runMutation("generations:failGeneration" as never, {} as never);
+      await vi.runAllTimersAsync();
+      await expect(pending).resolves.toBe("written");
+      expect(runMutation).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

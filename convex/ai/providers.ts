@@ -348,16 +348,17 @@ async function ensureModelRegistered(
 
 /**
  * A decline that arrives as an error instead of a stop reason (review,
- * 2026-10-28): a moderation flag (the words normalizeProviderError reads as
- * content moderation), or Anthropic's "Output blocked by content filtering
- * policy". It comes from the content, like a refusal, so it is not counted.
+ * 2026-10-28): a moderation flag (OpenRouter's "requires moderation ... was
+ * flagged"), or Anthropic's "Output blocked by content filtering policy". It
+ * comes from the content, like a refusal, so it is not counted. Both words
+ * are needed for a moderation flag: either alone is too broad to decide
+ * whether a failure counts (review round 2).
  */
 function isContentDeclineError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
   return (
-    message.includes("moderation") ||
-    message.includes("flagged") ||
+    (message.includes("moderation") && message.includes("flagged")) ||
     message.includes("content filtering policy")
   );
 }
