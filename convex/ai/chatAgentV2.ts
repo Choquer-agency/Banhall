@@ -11,7 +11,7 @@ import {
   type ContextOptions,
 } from "@convex-dev/agent";
 import { onHistoryPath } from "../lib/chatPath";
-import type { ModelMessage } from "ai";
+import { hasToolCall, type ModelMessage } from "ai";
 // The report chat assistant calls Anthropic directly with ANTHROPIC_API_KEY,
 // whatever ANTHROPIC_TRANSPORT says (owner decision 30, 2026-09-25: chat
 // moves to OpenRouter in a later change). Its helper calls (clientForRole)
@@ -630,6 +630,30 @@ const highlightPassages = createTool({
       ? `Highlighted ${input.references.length} passage(s) in the document panel.`
       : `Highlights NOT created: ${result.reason}`;
   },
+});
+
+/**
+ * Owner 2026-10-28 ("Assistant needs you"): the AI asks the writer one short
+ * question with two or three options. It changes nothing and saves nothing:
+ * the call itself, kept in the thread, is what the panel above the message
+ * box shows, and the turn ends with it (`stopWhen`). The writer's pick, or
+ * their own words under "Something else…", is sent as their next message.
+ */
+export const ASK_WRITER_TOOL = "askWriter";
+
+const askWriter = createTool({
+  description:
+    "Ask the writer one short question when the request could mean clearly different edits and the answer changes what you would do. Give 2 or 3 concrete options, each a few words the writer can pick as their reply; the app adds \"Something else…\" for their own answer. It changes nothing in the report. Call it last: your reply ends with it.",
+  inputSchema: z.object({
+    question: z.string().min(1).max(200).describe("The question, one short sentence."),
+    options: z
+      .array(z.string().min(1).max(120))
+      .min(2)
+      .max(3)
+      .describe("2 or 3 answers the writer can pick, each a few words, best first."),
+  }),
+  execute: async (): Promise<string> =>
+    "The writer now sees your question and its options above the message box. End your reply here; their answer comes as their next message.",
 });
 
 /**
@@ -1278,6 +1302,7 @@ export const buildChatTools = (
   deviationInventory,
   compareReferencePd,
   highlightPassages,
+  askWriter,
   searchBrain: makeSearchBrain(allowBrain),
   searchWeb: makeSearchWebTool(webSearch ?? newWebSearchTurn({ allowed: false })),
   ...readingTools(documentReads ?? newDocumentReadTurn()),
@@ -2247,6 +2272,8 @@ export const streamChatReply = internalAction({
               // CHAT_MIN_STEP_REMAINING_MS left of the action window.
               stopWhen: [
                 stepCountIs(pass.maxSteps),
+                // Owner 2026-10-28: a question for the writer ends the reply.
+                hasToolCall(ASK_WRITER_TOOL),
                 stopAfterSecondCutOff,
                 stopBeforeWindowEnds(
                   startedAt,
@@ -2488,8 +2515,12 @@ export const streamChatReply = internalAction({
           agentThreadId: args.agentThreadId,
           toolCallIds: lastCalls.map((call) => call.toolCallId),
         }));
+      // Owner 2026-10-28: a question for the writer ends the reply on
+      // purpose, even on the last step it was allowed.
+      const endedOnQuestion = lastCalls.some((call) => call.toolName === ASK_WRITER_TOOL);
       const endedOnStepLimit =
         !endedOnOneCardEdit &&
+        !endedOnQuestion &&
         finishReason === "tool-calls" &&
         (finishedSteps.length >= passMaxSteps || passStoppedForTime);
       if (passStoppedForTime && finishReason === "tool-calls") {

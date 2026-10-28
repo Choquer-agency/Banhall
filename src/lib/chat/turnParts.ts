@@ -121,6 +121,12 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     done: "Found passages",
     error: "Couldn’t find those passages",
   },
+  // Owner 2026-10-28: the question shows in the panel above the message box.
+  askWriter: {
+    running: "Writing a question…",
+    done: "Asked you a question",
+    error: "Couldn’t ask that question",
+  },
   proposeBulkEdits: {
     running: "Writing a coordinated suggestion…",
     done: "Suggested a coordinated revision",
@@ -303,6 +309,8 @@ const ARTIFACT_TOOLS = new Set([
   // the other two edit tools.
   "proposeBulkEdits",
   "highlightPassages",
+  // Its question and options show in the panel above the message box.
+  "askWriter",
 ]);
 // `deviationInventory` and `compareReferencePd` are deliberately NOT artifact
 // tools: they produce no card. Their results are written for the model (they
@@ -823,6 +831,7 @@ const TOOL_WORDS: Record<string, [string, string]> = {
   proposeBulkEdits: ["coordinated edit", "coordinated edits"],
   proposeReplacements: ["replacement", "replacements"],
   highlightPassages: ["highlight", "highlights"],
+  askWriter: ["question", "questions"],
   deviationInventory: ["deviation list", "deviation lists"],
   compareReferencePd: ["comparison with the reference PD", "comparisons with the reference PD"],
   searchBrain: ["Brain search", "Brain searches"],

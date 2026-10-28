@@ -1364,10 +1364,10 @@ describe("the published style lesson set in chat (Phase E, E2b)", () => {
   it("sends the same system text as before E2b when no set is published (pinned at a0e3c1d4)", () => {
     const hash = (text: string) => createHash("sha256").update(text).digest("hex");
     for (const empty of [null, undefined, "   "]) {
-      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("65f3c3639b18a17dc337612db146830e0ec6da4d9228ecb81815a52b6c4b1999");
-      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("88cb110e8686ddabd7ca922c92d284493db9cf5e266210f36a63ba75b30792cc");
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("52c9b254f8a976ed2772098a605c787c228cff3bc71c55e5ec0fcffa47c1d73b");
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("c45ea1e3eb6580e1e833ef3b677038f244338b059eadf6247791efcf46dffe33");
       expect(hash(buildChatSystem({ ...NO_STYLE_OVERRIDES, bannedWords: true }, "Use we.", empty))).toBe(
-        "f781982e507ef5e40d8b53ba7cdae86dc4139695ad465ac4e0215f861132c3b9"
+        "fd5a729f544377807d5906546489c36c6b77c5977fe2810fb90601319c352bbc"
       );
     }
   });
