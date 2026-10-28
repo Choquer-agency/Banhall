@@ -4896,6 +4896,20 @@ The owner's answer to question 15: "Sure but needs to work for any project size"
 - **Review round 2:** Claude Opus 5.5 (requested high; it reported running at low), "ship". Not done: a test of the band's read budget running out before the company files (P3).
 - **Approval:** Product owner, 2026-10-28 (chat): "Sure but needs to work for any project size" (answer to question 15).
 
+### 2026-10-28 (fourth): Every step finds its evidence across every file by search, and every file's facts are read once (owner)
+
+The F5 stress run showed the limit large projects hit: a draft reads the interview, then the project's files in upload order, then the company's, until about 3 MiB. On a 100-file project 87 files were never used, and in the live check of 2026-10-28 (entry "(third)") last year's report did not fit. The owner asked for "a well-optimized and smooth running system ... that project of any size new or old can read, find and do anything needed for proper, concise and accurate information across every touch point".
+
+The options were set out in chat on 2026-10-28: raise the limits, shrink the files, pick the best parts by relevance (Phase D step 3), read every file once and keep its facts with exact quotes (Phase D step 4), or let the AI look things up while writing. The recommendation was to combine the middle two on one evidence layer, as products that need accurate answers from many documents do. The owner's answer: "can we not do what you said on combining option 3 and option 4?", taken as yes to both.
+
+This amends part 3 of the first 2026-10-26 entry ("Drafting and chat get a short list of every file ... plus tools to search the pieces and read exact ranges").
+
+- **Drafting picks by relevance, one request per step.** Each drafting step stays one request with the same time and price as today, and its file text is chosen by relevance from every file instead of in upload order. Tools for drafting are tried later, in a measured test, only if this misses evidence. Chat keeps its tools.
+- **Every file's facts are read once.** A background pass reads each file's text version once, in pieces, and keeps its facts with exact quotes, as interviews' fact packs already do. A file is read again only when its text changes or the facts version moves. Its cost per file is measured on the largest real project and brought to the owner before the pass is turned on for every file; old projects' files are read by a one-time owner pass.
+- **Unchanged:** no AI writes quotable text, every quote is checked against the stored text, every draft traces to the exact versions and ranges it used (rule 2), and vector search is added only if tests show keyword search missing evidence.
+- **How:** each draft keeps its pool of about 3 MiB, frozen at its start, but fills it with the parts of every file that best match the draft's subject instead of whole files in upload order, with a share kept for company files; each step then chooses within the pool, and every file's facts are frozen beside it. Plan: `docs/todos/phase-d-evidence-layer.md` (plan reviews: round 1 "go with changes", round 2 "go with changes"; step 1 cleared to build). Step 2 changes what entry "(third)" shows for company files, in its own entry.
+- **Approval:** Product owner, 2026-10-28 (chat), answering the recommendation to combine options 3 and 4.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
