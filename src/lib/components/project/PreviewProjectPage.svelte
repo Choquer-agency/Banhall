@@ -1998,7 +1998,7 @@
     <!-- The page frame (owner, 2026-10-28; Paper A1, S12): one white card
          with no section sidebar; the 52px project bar inside it, then the
          panel toolbar and the split. -->
-    <div
+    <main
       data-project-card
       data-frame-card
       data-work-panel
@@ -2540,7 +2540,7 @@
            places context on the LEFT visually, like the inspected Obvious
            project composition. -->
       <div bind:this={intakeEl} data-intake-workbench class="mx-auto flex min-h-0 w-full max-w-[var(--container-shell)] flex-1 overflow-hidden lg:flex-row-reverse">
-        <main
+        <section
           aria-label="Project intake and generation"
           data-intake-pane="work"
           class={`${mobileIntakeView === "work" ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto lg:flex`}
@@ -2627,7 +2627,7 @@
               </section>
             {/if}
           </div>
-        </main>
+        </section>
 
         <!-- Draggable separator between context and work (desktop only) -->
         {#if contextOpen}
@@ -2893,7 +2893,7 @@
         </aside>
       </div>
       {/if}
-    </div>
+    </main>
     {#if deleteTarget !== null}
       <DeleteProjectDialog
         bind:open={deleteDialogOpen}

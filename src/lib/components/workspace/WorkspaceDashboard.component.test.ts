@@ -3,6 +3,8 @@ import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import { board } from "$lib/test/boardScale";
+import { userEvent } from "vitest/browser";
+import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
@@ -83,6 +85,7 @@ const clientAreaScroll = () => document.querySelector<HTMLElement>("[data-client
 describe("WorkspaceDashboard viewport containment (real +layout flex context)", () => {
   beforeEach(() => {
     localStorage.clear();
+    reloadSectionSidebar();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
@@ -155,5 +158,28 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
     expect(projectsLink?.getAttribute("href")).toBe("/projects?layout=list&group=none");
     expect(myWorkLink?.getAttribute("href")).toBe("/my-work?layout=list&group=none");
     expect(projectsLink?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("at 1440 Projects has one banner, one main and one h1: the company header (review round 1, finding 4)", async () => {
+    await mountShell("/projects?client=client+03", { view: "all_projects" });
+    await expect.poll(() => document.querySelector("[data-client-title]")?.textContent).toBe("Client 03");
+    const visible = (element: Element) => element.getClientRects().length > 0;
+    const banners = [...document.querySelectorAll("header")].filter((header) => visible(header) && !header.closest("main, aside, nav, section, article"));
+    expect(banners.map((header) => header.hasAttribute("data-global-bar"))).toEqual([true]);
+    const mains = [...document.querySelectorAll("main")].filter(visible);
+    expect(mains).toHaveLength(1);
+    expect(mains[0].contains(document.querySelector("[data-client-header]"))).toBe(true);
+    expect([...document.querySelectorAll("h1")].filter(visible).map((h1) => h1.textContent)).toEqual(["Client 03"]);
+  });
+
+  it("collapsed (Mod \\), Projects shows New project in the company header (review round 1, finding 2)", async () => {
+    await mountShell("/projects", { view: "all_projects" });
+    await expect.poll(() => document.querySelector("[data-section-sidebar-toggle]")).not.toBeNull();
+    expect(document.querySelector("[data-client-header] [data-top-bar-primary]")).toBeNull();
+    await userEvent.keyboard("{Meta>}\\{/Meta}");
+    await expect.poll(() => document.querySelector("[data-client-header] [data-top-bar-primary]")).not.toBeNull();
+    const button = document.querySelector<HTMLAnchorElement>("[data-client-header] [data-top-bar-primary]")!;
+    expect([button.textContent?.trim(), button.getAttribute("href")]).toEqual(["New project", "/project/new"]);
+    expect(button.getBoundingClientRect().width).toBeGreaterThan(0);
   });
 });

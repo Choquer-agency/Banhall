@@ -141,6 +141,32 @@ describe("WorkspaceChrome (the page frame, 2026-10-28)", () => {
     await expect.poll(() => document.activeElement?.hasAttribute("data-section-sidebar-expand")).toBe(true);
   });
 
+  it("below 768px, where no sidebar shows, Mod \\ leaves the stored choice alone (review round 1, finding 5)", async () => {
+    await browserPage.viewport(700, 900);
+    __setPageUrl("/settings/notifications");
+    await render(SidebarHarness, { children: tallContent });
+    await expect.poll(() => document.querySelector("[data-section-sidebar='settings']")).not.toBeNull();
+    expect(document.querySelector<HTMLElement>("[data-section-sidebar-slot]")!.getBoundingClientRect().width).toBe(0);
+    await userEvent.keyboard("{Meta>}\\{/Meta}");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(localStorage.getItem(SECTION_SIDEBAR_KEY)).toBeNull();
+    expect(document.querySelector("[data-section-sidebar-slot]")!.hasAttribute("data-collapsed")).toBe(false);
+  });
+
+  it("one banner, one main and one h1: the global bar is the only top-level header, the page bar sits in the card's main", async () => {
+    await browserPage.viewport(1440, 900);
+    __setPageUrl("/settings/notifications");
+    await render(SidebarHarness, { children: tallContent });
+    await expect.poll(() => document.querySelector("[data-section-sidebar='settings']")).not.toBeNull();
+    const visible = (element: Element) => element.getClientRects().length > 0;
+    const banners = [...document.querySelectorAll("header")].filter((header) => visible(header) && !header.closest("main, aside, nav, section, article"));
+    expect(banners).toHaveLength(1);
+    expect(banners[0].hasAttribute("data-global-bar")).toBe(true);
+    expect([...document.querySelectorAll("main")].filter(visible)).toHaveLength(1);
+    expect(document.querySelector("main")!.contains(document.querySelector("[data-page-top-bar]"))).toBe(true);
+    expect([...document.querySelectorAll("h1")].filter(visible).map((h1) => h1.textContent)).toEqual(["Notifications"]);
+  });
+
   it("Mod \\ does nothing on a page without a section sidebar", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, { title: "What's new", children: tallContent });

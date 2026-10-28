@@ -32,6 +32,8 @@
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
   import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
+  import { topBarPrimary } from "$lib/components/shell/topBar";
+  import { sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
   import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import { toProjectsTableRow, type DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
@@ -443,7 +445,8 @@
       </div>
     {/if}
     <SectionSidebarExpand />
-    <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{displayName}</h2>
+    <!-- The page's one visible h1 from 768px (the phone bar names the section). -->
+    <h1 data-client-title tabindex="-1" class="min-w-0 truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{displayName}</h1>
     {#if countLabel !== null && !gone}
       <span class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
     {/if}
@@ -477,6 +480,11 @@
         class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
       />
     </div>
+    {#if onOpenNavigation && sectionSidebar.collapsed && sectionSidebar.mounted > 0}
+      <!-- The sidebar holds New project; while it is collapsed the bar
+           does, from 768px (a phone's own bar always has it). -->
+      <a href={resolve("/project/new")} data-top-bar-primary class={`${topBarPrimary} max-md:hidden`}>New project</a>
+    {/if}
   </div>
 
   <div class={`min-h-0 flex-1 overflow-y-auto px-4 pt-3 sm:px-6 lg:px-8 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>

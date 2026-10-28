@@ -5,6 +5,10 @@
 export const topBarSecondary =
   "inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] border border-line bg-surface px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:pointer-events-none disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11";
 
+/** The page bar's one filled main button (`primaryAction`): 38px, radius 9, 15/20 500. */
+export const topBarPrimary =
+  "inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11";
+
 /**
  * The content inset inside the white card on every screen (the page frame,
  * owner 2026-10-28; Paper S9 and S11): the page top bar and the content share

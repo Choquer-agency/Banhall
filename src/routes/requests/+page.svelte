@@ -37,7 +37,8 @@
 
 {#snippet requestsContent(showHeading: boolean)}
     <!-- In the workspace the work panel already pads its content (2026-10-19). -->
-    <main class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-10" : ""}`}>
+    <!-- In the page frame the card already holds the page's one <main>. -->
+    <svelte:element this={showHeading ? "main" : "div"} class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-10" : ""}`}>
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
         {#if showHeading}
           <h1 class="text-display">Feature requests</h1>
@@ -89,7 +90,7 @@
           </div>
         {/if}
       </div>
-    </main>
+    </svelte:element>
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}

@@ -170,7 +170,7 @@
       variant={frame === "inset" ? "default" : frame}
       {onBack}
     />
-    <main
+    <div
       data-chrome-main
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
       class={`min-h-0 min-w-0 flex-1 overflow-y-auto ${hiddenInView ? "flex flex-col" : ""} ${
@@ -182,6 +182,6 @@
       {:else}
         {@render children()}
       {/if}
-    </main>
+    </div>
   </FrameCard>
 </WorkspaceShell>

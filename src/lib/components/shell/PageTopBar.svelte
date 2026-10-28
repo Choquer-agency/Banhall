@@ -30,6 +30,8 @@
   import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
+  import { topBarPrimary } from "$lib/components/shell/topBar";
+  import { sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 
   let {
     title,
@@ -45,6 +47,7 @@
     sidebarToggle = false,
     variant = "default",
     onBack = null,
+    titleTag = "h1",
     class: className = "",
   }: {
     title: string;
@@ -65,7 +68,8 @@
     primaryAction?: TopBarPrimaryAction | null;
     /**
      * The section sidebar carries the same action from 768px ("New project",
-     * "Invite people"), so the bar shows it only below that.
+     * "Invite people"), so the bar shows it only below that, or while the
+     * sidebar is collapsed or not drawn.
      */
     primaryActionInSidebar?: boolean;
     /** The page has a section sidebar: lead with its expand button while it is collapsed. */
@@ -73,6 +77,8 @@
     variant?: "default" | "bleed" | "phone";
     /** Phone variant: the back arrow's action, in place of the shell controls. */
     onBack?: (() => void) | null;
+    /** `p` when the page's h1 is elsewhere (the phone bar over a company on Projects). */
+    titleTag?: "h1" | "p";
     class?: string;
   } = $props();
 
@@ -81,9 +87,10 @@
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
-  const primaryClass = $derived(
-    `inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11 ${primaryActionInSidebar ? "md:hidden" : ""}`
+  const sidebarHoldsAction = $derived(
+    primaryActionInSidebar && sectionSidebar.mounted > 0 && !sectionSidebar.collapsed
   );
+  const primaryClass = $derived(`${topBarPrimary} ${sidebarHoldsAction ? "md:hidden" : ""}`);
 </script>
 
 <header
@@ -125,7 +132,7 @@
       <h1 aria-current="page" class="min-w-0 truncate font-medium text-ink">{title}</h1>
     </nav>
   {:else}
-    <h1 class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink">{title}</h1>
+    <svelte:element this={titleTag} data-page-title class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink">{title}</svelte:element>
     {#if count !== null && count !== undefined && count !== ""}
       <span data-page-count class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted">{count}</span>
     {/if}

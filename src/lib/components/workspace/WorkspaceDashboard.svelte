@@ -44,10 +44,11 @@
   import { api } from "../../../../convex/_generated/api";
   import HomeView from "$lib/components/mywork/HomeView.svelte";
   import ProjectsPage from "$lib/components/projects/ProjectsPage.svelte";
-  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
   import FrameCard from "$lib/components/workspace/FrameCard.svelte";
   import ProjectsSectionSidebar from "$lib/components/projects/ProjectsSectionSidebar.svelte";
+  import ProjectsLoadingHeader from "$lib/components/projects/ProjectsLoadingHeader.svelte";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
   import { preloadOnProjectLinkIntent, preloadProjectPage } from "$lib/components/project/projectPageModules";
   import {
@@ -125,10 +126,6 @@
   const facetsQ = useQuery(api.dashboard.getFacets, () =>
     auth.isAuthenticated && displayedView === "all_projects" ? {} : "skip"
   );
-  // /my-work presents as Home (2026-08-08 amendment) — the canonical URL,
-  // WorkspaceGate, /dashboard compatibility, and query semantics are
-  // unchanged; only the presentation label moves.
-  const activeLabel = $derived(displayedView === "all_projects" ? "Projects" : "Home");
   // Truthful count in the heading: exact when facets are exhaustive, `N+`
   // when bounded. My work gets no number until its groups can report one.
   const headerCount = $derived.by(() => {
@@ -254,20 +251,6 @@
     />
   {:else}
     <div data-projects-frame class="flex min-h-0 min-w-0 flex-col overflow-hidden max-lg:bg-surface">
-      {#if displayedView === "all_projects"}
-        <!-- Below 768px, where the Projects sidebar is the page itself, the
-             phone keeps the standard bar: the hamburger, "Projects" with the
-             count, the bell and New project. From 768px the sidebar holds
-             the title and New project, and the company header is the bar. -->
-        <PageTopBar
-          class="md:hidden"
-          title={activeLabel}
-          count={headerCount}
-          primaryAction={{ label: "New project", href: resolve("/project/new") }}
-          onOpenNavigation={() => (navigationOpen = true)}
-        />
-      {/if}
-
       {#if configQ.error}
         <p class="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800" role="status">
           Home is temporarily unavailable. Projects remains available.
@@ -282,9 +265,11 @@
             <ProjectsSectionSidebar current={view === "my_work" ? "home" : "projects"} homeHref={viewHref("my_work")} />
           {/snippet}
           <div class="flex min-h-0 flex-1 flex-col" role="status" aria-label="Loading workspace">
-            <div class="flex h-16 shrink-0 items-center px-4 sm:px-6 lg:px-8">
-              <div class="h-6 w-40 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
-            </div>
+            {#if view === "my_work"}
+              <PageTopBar title="Home" sidebarToggle onOpenNavigation={() => (navigationOpen = true)} />
+            {:else}
+              <ProjectsLoadingHeader />
+            {/if}
             <div class="px-4 pt-3 sm:px-6 lg:px-8">
               <div class="h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>
             </div>

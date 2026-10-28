@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import { board, boardPx } from "$lib/test/boardScale";
+import { registerSectionSidebar, sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 import { createRawSnippet } from "svelte";
 import { IconGear } from "$lib/components/icons";
 import PageTopBar from "./PageTopBar.svelte";
@@ -87,13 +88,21 @@ describe("PageTopBar", () => {
     await render(PageTopBar, { title: "Team", primaryAction: { label: "Invite people", onclick }, primaryActionInSidebar: true, onOpenNavigation: vi.fn() });
     const button = document.querySelector<HTMLButtonElement>("[data-top-bar-primary]")!;
     expect(button.tagName).toBe("BUTTON");
-    // The section sidebar carries it from 768px; the bar shows it below that.
-    expect(button.getBoundingClientRect().width).toBe(0);
+    // With no section sidebar on screen the bar keeps it.
+    expect(button.getBoundingClientRect().width).toBeGreaterThan(0);
+    // A sidebar on screen carries it from 768px; collapsed, the bar has it again.
+    const unregister = registerSectionSidebar();
+    await expect.poll(() => button.getBoundingClientRect().width).toBe(0);
+    sectionSidebar.collapsed = true;
+    await expect.poll(() => button.getBoundingClientRect().width).toBeGreaterThan(0);
+    sectionSidebar.collapsed = false;
+    await expect.poll(() => button.getBoundingClientRect().width).toBe(0);
     await page.viewport(390, 844);
     await expect.poll(() => button.getBoundingClientRect().width).toBeGreaterThan(0);
     button.click();
     expect(onclick).toHaveBeenCalledOnce();
     expect(document.querySelector("[data-page-count]")).toBeNull();
+    unregister();
   });
 
   it("shows a breadcrumb instead of a subtitle, then status, bell and actions in that order", async () => {

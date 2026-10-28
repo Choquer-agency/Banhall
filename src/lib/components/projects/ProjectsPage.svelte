@@ -31,6 +31,7 @@
   import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
   import ProjectEditPanel from "./ProjectEditPanel.svelte";
   import FrameCard from "$lib/components/workspace/FrameCard.svelte";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import BulkEditPanel from "./BulkEditPanel.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
@@ -275,6 +276,21 @@
 <!-- Paper S9: the one white card, the Projects sidebar on its left. Below
      768px the sidebar fills the card until a company (or All projects) is
      chosen. -->
+<!-- Below 768px, where the Projects sidebar is the page itself, the phone
+     keeps the standard bar: the hamburger, "Projects" with the count, the
+     bell and New project. From 768px the sidebar holds the title and New
+     project, and the company header is the bar with the page's h1. -->
+{#if onOpenNavigation}
+  <PageTopBar
+    class="md:hidden"
+    title="Projects"
+    titleTag={areaOnMobile ? "p" : "h1"}
+    count={totalLabel}
+    primaryAction={{ label: "New project", href: resolve("/project/new") }}
+    {onOpenNavigation}
+  />
+{/if}
+
 <FrameCard data-projects-page class="flex-1" mainClass={areaOnMobile ? "" : "max-md:hidden"}>
   {#snippet sidebar()}
     {#key clientsAttempt}
