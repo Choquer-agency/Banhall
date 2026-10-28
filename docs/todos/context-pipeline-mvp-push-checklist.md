@@ -927,9 +927,9 @@ What changes:
   - chat at scale (three turns, every file searchable);
   - a duplicate (6.0 s);
   - two drafts at once (side by side when started 20 s apart; both failed on the write rate when started in the same second, question 14);
-  - 100 files (101 uploads in about 14 s, search pieces and labels in 534 s, the Inputs band listing all 101).
+  - 100 files (101 uploads in 10.8 s, search pieces and labels in 534 s, the Inputs band listing all 101).
 
-  Every check failing at once could not be produced live, since the facts check counts the writer's own wording as supported.
+  Every check failing at once could not be produced live, since the facts check counts the writer's own wording as supported, and the model's Brief had 10 entries, not 46.
 
 ## F5 findings: what a draft freezes, and refused file labels
 
@@ -939,13 +939,15 @@ What changes:
 
 - **A large project's Step by step draft starts.** Before, a project with about 40 or more large files froze more text than a Seed request can read, and the first step showed "Seed context for company_context exceeds the prompt limit", with a Retry that failed the same way. A draft now freezes about 3 MiB of file text (about 15 files of 200,000 characters); the rest show in the Inputs band as not captured.
 - **A file label the model declined says so** in the stored error ("refusal"), instead of naming a schema error.
-- **The stress data reads as sentences**, so the models no longer refuse it.
+- **The stress data reads as sentences**, so the models refuse it far less. Haiku 5.5 still refused the Brain search query 3 times in 6, which falls back to a query from the title and transcript.
 
 ### Automated, offline
 
 - [x] `convex/frozenTotal.test.ts`, `convex/ai/fileLabels.sdk.test.ts`, the updated largest-draft tests; each new test fails without its fix.
 - [x] Full gate (8,173 unit tests) on 39d3a6b6.
-- [x] Code review, round 1 (9826fea0, 6673a1ce, 39d3a6b6): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
+- [x] Code review, round 1 (9826fea0, 6673a1ce, 39d3a6b6): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in 42de4b30.
+- [x] Full gate (8,176 unit tests) on the round 1 fixes (42de4b30).
+- [x] Round 2 (42de4b30, 1163f9a1): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the code and tests held; the run's record claimed more than its files showed, corrected in the next commit.
 
 ### Automated, live on localhost
 

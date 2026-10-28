@@ -56,7 +56,7 @@ Record per step each answer's size, why it stopped, time and cost (with F1's mea
 **Ready 2026-10-27:** `scripts/stress/generate.mjs` (53 files, 22.2 million characters, company "Zorvelyar Works" for seed 7, scanned against the live copy's 111 client, company, project, speaker and user names with no match) and `scripts/stress/run.mjs` (the company, the evaluation project, the uploads, search pieces and labels, the first draft to its Seeds, stopping at the spend cap). The live run waits for the cap.
 
 **Run 2026-10-27** ($20.38 of the $40 cap). Pack `_bmad-output/test-artifacts/stress/2026-10-27` (`summary.md`).
-- **Passed:** every case above, the duplicate (51 files in 6.0 s), chat over every file, and two drafts started 20 seconds apart.
+- **Passed:** every case above except three. Two drafts started in the same second both failed on the backend's write rate, with only "The generation did not complete. Try again." for the writer, which breaks this plan's pass rule (question 14). Every check failing at once could not be produced live, and the model's Brief had 10 entries, not 46. Also passed: the duplicate (51 files in 6.0 s), chat over every file, and two drafts started 20 seconds apart.
 - **Fixed:**
   - the generated text was refused by the models (now sentences, 6673a1ce);
   - a refused file label was named a schema error (9826fea0);
@@ -64,7 +64,7 @@ Record per step each answer's size, why it stopped, time and cost (with F1's mea
 - **For the owner:** two drafts started in the same second fail on the backend's write rate; the Sonnet tier moved back on its own after the refusals; company files past the total are not listed (questions 12 to 15).
 - **For F1 step 3:** characters per whole-request token from the run (`spend-all.json`): Seeds 2.65, the Brief 2.71, the analyzer 2.70, Self-check 2.33, labels 2.58. That is below the 4 the budgets assume, as the first figures said.
 
-**Data.** A seeded generator in `scripts/stress/` that writes sentences from templates with invented names (no model writes the text, so no real company name can appear), its output scanned against every client and company name on the live copy before upload. A dedicated fictional company and test user, marked as evaluation projects, so nothing feeds writer memory, lessons or the Brain; erased afterwards through the normal erasure path.
+**Data.** A seeded generator in `scripts/stress/` that writes sentences from templates with invented names (no model writes the text, so no real company name can appear), its output scanned against every client and company name on the live copy before upload. A dedicated fictional company and test user, marked as evaluation projects, so nothing feeds writer memory, lessons or the Brain; the project is erased afterwards through the normal erasure path (the app cannot delete a company, so a rerun uses another seed).
 
 ## F6. Release suite, live
 

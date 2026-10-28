@@ -99,7 +99,7 @@ describe("the frozen total holds a project's own files (F5 stress run, 2026-10-2
 
   it("then lets company files fill what is left, newest first, up to the first that does not fit (review round 1)", async () => {
     const s = await setup(30);
-    // After the transcript and 15 files, 129,297 bytes are left.
+    // After the transcript and 15 files, 129,298 bytes are left.
     await s.t.run(async (ctx) => {
       const now = Date.now() - 500;
       const clientId = await ctx.db.insert("clients", {

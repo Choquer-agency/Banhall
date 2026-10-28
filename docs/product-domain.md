@@ -4754,7 +4754,7 @@ This changes a documented limit, not a workflow stage, transition or permission;
 
 - **Rule.** A draft freezes the transcripts, then the project's files in upload order (at most 50, each cut at 200,000 characters), up to the first file that would take all frozen text past the total; no later project file comes in, however short. The company's files then fill what is left, newest first, up to the first that does not fit, as they did before against 5 MiB. Transcripts count first and are never left out by it. The total is the Seed read budget's own sum: 8 MiB less the 3 MiB it sets aside, the 1 MiB it keeps free before a read, and 1 MiB for the draft's decisions, Brief, digests and fact packs, which come to 3,129,344 bytes, about 15 files of 200,000 one-byte characters. No step reads more today: a Seed request holds 600,000 bytes of sources, and drafting reads at most 12 files.
 - **Where.** `frozenTotal` and `FROZEN_TOTAL_BYTES` in `convex/lib/briefEvidence.ts`, used by a draft's start and the Brief prepared ahead (`selectFrozenEvidence`), company files (`selectCompanyFilesOf`) and a New project head start (`selectDraftEvidence`, `convex/lib/intakeDrafts.ts`), so a prepared Brief still matches its draft. `SEED_DECISION_RESERVED_BYTES` in `convex/lib/seedDecisionState.ts`.
-- **The writer.** The project's files past the total are listed in the Inputs band as "not included · not captured", as files past the first 50 always were. Company files past it are not listed there, and the start dialog still shows every eligible company file ticked; a project whose own files fill the total (about 15 large files) reads no company files. That was already so at 5 MiB, and is now more likely. Listing them in the band and marking them in the dialog is a follow-up.
+- **The writer.** The project's files past the total are listed in the Inputs band as "not included · not captured", as files past the first 50 always were. Company files past it are not listed there, and the start dialog still shows every eligible company file ticked; a project whose own files take nearly all the total reads few or no company files (15 files of 200,000 characters leave about 129 KB). That was already so at 5 MiB, and is now more likely. Listing them in the band and marking them in the dialog is a follow-up.
 - **Live check (2026-10-27, the live copy at 6673a1ce with this change, Sonnet 5.5).** The same 50-file project froze 14 files and the interview, its first Batch started, and every step was approved with 46 picks, 20 of them in Uncertainties (6 Batches). A temporary log on the live copy read the budget before the frozen text on every Seed call: the most was 3,386,873 bytes, on an approval's prefetch at a late step with 46 picks and 46 edits, so the draft's decisions and Brief took about 224 KB of the 1 MiB allowance. Feedback was not measured live.
 - **Known limits.**
   - Transcripts are not held to the total. Four 500,000-character transcripts of two-byte characters alone pass it, and that draft's Seeds still cannot start.
@@ -4766,7 +4766,7 @@ This changes a documented limit, not a workflow stage, transition or permission;
   - a draft and the Inputs band;
   - the New project head start;
   - a first Batch dispatched at the total, and refused at the old 5 MiB;
-  - at the total, a late step's Regenerate and a 5,000-character Feedback dispatched with a heavy decision state (13 steps of 24 Seeds, a 200-entry Brief, 46 picks). It fails with an allowance of 256 KB.
+  - at the total, a late step's Regenerate and a 5,000-character Feedback dispatched with a heavy decision state (13 steps of 24 Seeds, a 200-entry Brief, 46 picks). Its Feedback fails with an allowance of 256 KB.
 
   The largest-draft tests in `convex/sourceTextWriters.test.ts` and `convex/contextInclusion.test.ts` now freeze 5 files beside four long transcripts. An older draft's 12 MB of rows holding their own text is still checked in the Inputs band (`convex/contextInclusion.test.ts`).
 - **Review:**
@@ -4776,6 +4776,7 @@ This changes a documented limit, not a workflow stage, transition or permission;
     - the rule names how company files fill what is left;
     - the 12 MB Inputs band test is kept for older drafts;
     - the generator's header comment is corrected.
+  - **Round 2.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; the code and tests held. The run's record claimed more than its files showed: the Brain search query still refused on sentences, the pass rule was not met for two drafts in the same second, and some figures had no file behind them. Corrected in the next commit.
   - **Left:** the extra read of the one file that does not fit (at most 200,000 characters) is kept. A Word file's frozen text is shorter than its stored text, so its length cannot be checked first.
 - **Approval:** lead, under the owner's direction for the stress run; listed for the owner's confirmation.
 
