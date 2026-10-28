@@ -183,12 +183,38 @@ describe("a file's labels (2026-10-26)", () => {
     await t.action(internal.ai.fileLabels.labelFile, { documentId });
     let doc = await t.run(async (ctx) => ctx.db.get(documentId));
     expect(doc).toMatchObject({ labelsDue: true, labelsAttempts: 1, labelsNextAt: NOW + LABEL_RETRY_DELAYS_MS[0] });
-    expect(doc?.labelsLastError).toMatch(/schema \(title:too_small\)/);
+    expect(doc?.labelsLastError).toBe("invalid_output: The label answer did not match its schema (title:too_small)");
     expect(doc?.labels).toBeUndefined();
     for (let i = 0; i < 3; i++) await t.action(internal.ai.fileLabels.labelFile, { documentId });
     doc = await t.run(async (ctx) => ctx.db.get(documentId));
     expect(doc).toMatchObject({ labelsAttempts: 4 });
     expect(doc?.labelsDue).toBeUndefined();
+  });
+
+  it("a refused answer is named as a refusal and tried again later (F5 stress run, 2026-10-27)", async () => {
+    answer = () =>
+      Response.json(
+        {
+          id: "msg_labels",
+          type: "message",
+          role: "assistant",
+          model: "claude-haiku-5-5",
+          content: [],
+          stop_reason: "refusal",
+          stop_sequence: null,
+          usage: { input_tokens: 400, output_tokens: 0 },
+        },
+        { headers: { "request-id": "req_labels" } }
+      );
+    const { t, documentId } = await setup();
+    await t.action(internal.ai.fileLabels.labelFile, { documentId });
+    const doc = await t.run(async (ctx) => ctx.db.get(documentId));
+    expect(doc).toMatchObject({ labelsDue: true, labelsAttempts: 1, labelsNextAt: NOW + LABEL_RETRY_DELAYS_MS[0] });
+    expect(doc?.labelsLastError).toBe("refusal: The model declined to label this file");
+    expect(doc?.labels).toBeUndefined();
+    answer = () => toolAnswer({ documentType: "technical report", fiscalYear: 2025, title: "Seal log", summary: "The seal held." });
+    await t.action(internal.ai.fileLabels.labelFile, { documentId });
+    expect((await t.run(async (ctx) => ctx.db.get(documentId)))?.labels).toMatchObject({ title: "Seal log" });
   });
 });
 

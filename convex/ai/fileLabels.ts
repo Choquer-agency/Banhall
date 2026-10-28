@@ -113,8 +113,21 @@ type LabelInput = Parameters<typeof labelUserMessage>[0] & {
 };
 
 /**
+ * A try that failed on the model's answer, not on the request: the queue
+ * records it under its own code rather than as a provider error.
+ */
+class LabelAnswerError extends Error {
+  constructor(
+    readonly code: "output_limit" | "invalid_output" | "refusal",
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+/**
  * One label call: names hidden, the forced tool answer read forgivingly,
- * names put back. Throws on a cut-off or unreadable answer.
+ * names put back. Throws on a cut-off, refused or unreadable answer.
  */
 async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"projects">) {
   const map = input.placeholders;
@@ -143,7 +156,14 @@ async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"
   } as Parameters<typeof client.messages.create>[0]);
   if (isCutOffStopReason(response.stop_reason)) {
     await response.settleOutcome?.({ ok: false, code: "output_limit" });
-    throw new Error("The label answer was cut off");
+    throw new LabelAnswerError("output_limit", "The label answer was cut off");
+  }
+  // F5 stress run, 2026-10-27: Haiku 5.5 declined about half of the first
+  // tries on generated text and most second tries went through, so a
+  // refusal is named and tried again later like any failed try.
+  if (response.stop_reason === "refusal") {
+    await response.settleOutcome?.({ ok: false, code: "refusal" });
+    throw new LabelAnswerError("refusal", "The model declined to label this file");
   }
   const call = response.content.find((block) => block.type === "tool_use" && "name" in block && block.name === TOOL_NAME);
   const parsed = labelsSchema.safeParse(call && "input" in call ? call.input : undefined);
@@ -151,7 +171,7 @@ async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"
     await response.settleOutcome?.({ ok: false, code: "invalid_output" });
     // Field paths and issue codes only, never the answer's text.
     const where = parsed.error.issues.map((issue) => `${issue.path.join(".") || "answer"}:${issue.code}`).join(", ");
-    throw new Error(`The label answer did not match its schema (${where})`);
+    throw new LabelAnswerError("invalid_output", `The label answer did not match its schema (${where})`);
   }
   await response.settleOutcome?.({ ok: true });
   return {
@@ -170,6 +190,7 @@ async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"
 
 /** A failure as the queue records it. */
 function failureReason(error: unknown): string {
+  if (error instanceof LabelAnswerError) return `${error.code}: ${error.message}`.slice(0, 300);
   const normalized = normalizeProviderError(error);
   return `${normalized.code}: ${normalized.message}`.slice(0, 300);
 }
