@@ -891,7 +891,7 @@ What changes:
 
 - [x] Duplicate a project with files and a report on the live copy (2026-10-27, at 85f2f08a): InnovMine copied in 435 ms; all 5 files have the same text, none pending, the report came along, and the receipt maps each; originals were cloned where the source had one (the three older snapshot rows never had a stored original).
 - [x] Review from project on the live copy (2026-10-27, at 4ab7d2e1): the review project has the written PD and all 5 support files copied, none pending; the review completed in about a minute and sent 52,128 characters of evidence ($0.12). A second duplicate of InnovMine took 801 ms.
-- [ ] F5's stress project (50 files of 400,000 characters) duplicated on the live copy.
+- [x] F5's stress project (50 files of 400,000 characters) duplicated on the live copy (2026-10-27, at 6673a1ce with the frozen total): 51 files (21M characters) and the report in 6.0 s; the copy job finished, none pending.
 
 ### Manual on localhost
 
@@ -900,7 +900,7 @@ What changes:
 
 ## F5: stress test scripts
 
-Plan: `docs/todos/phase-f-scale.md`, F5. How to run: `scripts/stress/README.md`. The live run waits for the owner's spend cap (open question 8, recommended $40).
+Plan: `docs/todos/phase-f-scale.md`, F5. How to run: `scripts/stress/README.md`. Run 2026-10-27 under the owner's $40 cap ($20.38 spent); results in `_bmad-output/test-artifacts/stress/2026-10-27/summary.md`.
 
 What changes:
 
@@ -920,8 +920,41 @@ What changes:
 
 ### Automated, live on localhost
 
-- [ ] The stress run on the live copy, under the owner's cap.
-- [ ] The hand-run steps (20 picks in one step, a 46-entry Brief, every check failing, chat at scale, a duplicate, two drafts at once, 100 files) added to the results.
+- [x] The stress run on the live copy, under the owner's cap (2026-10-27): 52 uploads in 4.2 s, the file over the maximum refused by name, search pieces and labels for 51 files in 197 s. The first run's generated text was refused by the models; the generator now writes sentences (6673a1ce).
+- [x] The hand-run steps, through one-off drivers and the app (2026-10-27), each listed in the pack's `summary.md`:
+  - 20 picks in one step (6 Batches);
+  - a 46-pick plan signed off and drafted (report 1.1 min after sign-off);
+  - chat at scale (three turns, every file searchable);
+  - a duplicate (6.0 s);
+  - two drafts at once (side by side when started 20 s apart; both failed on the write rate when started in the same second, question 14);
+  - 100 files (101 uploads in about 14 s, search pieces and labels in 534 s, the Inputs band listing all 101).
+
+  Every check failing at once could not be produced live, since the facts check counts the writer's own wording as supported.
+
+## F5 findings: what a draft freezes, and refused file labels
+
+Decision record: `docs/product-domain.md`, entry "2026-10-27 (thirteenth)". Pack: `_bmad-output/test-artifacts/stress/2026-10-27`.
+
+What changes:
+
+- **A large project's Step by step draft starts.** Before, a project with about 40 or more large files froze more text than a Seed request can read, and the first step showed "Seed context for company_context exceeds the prompt limit", with a Retry that failed the same way. A draft now freezes about 3 MiB of file text (about 15 files of 200,000 characters); the rest show in the Inputs band as not captured.
+- **A file label the model declined says so** in the stored error ("refusal"), instead of naming a schema error.
+- **The stress data reads as sentences**, so the models no longer refuse it.
+
+### Automated, offline
+
+- [x] `convex/frozenTotal.test.ts`, `convex/ai/fileLabels.sdk.test.ts`, the updated largest-draft tests; each new test fails without its fix.
+- [x] Full gate (8,173 unit tests) on 39d3a6b6.
+- [x] Code review, round 1 (9826fea0, 6673a1ce, 39d3a6b6): Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; fixed in the next commit.
+
+### Automated, live on localhost
+
+- [x] The 50-file project after the fix: 14 files and the interview frozen, the first Batch started, 46 picks, sign-off and a report. The most the draft's decisions and Brief read before the frozen text was about 224 KB of the 1 MiB allowance.
+
+### Manual on localhost
+
+- [ ] Open a large project's draft: the Inputs band lists the files it did not capture.
+- [ ] Start Step by step on a project with many large files: the first step's cards appear.
 
 ## F6: release suite, live
 

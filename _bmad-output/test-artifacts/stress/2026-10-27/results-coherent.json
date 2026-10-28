@@ -1,0 +1,102 @@
+{
+  "startedAt": "2026-10-28T03:29:13.914Z",
+  "company": "Brankevdex Works",
+  "steps": [
+    {
+      "step": "create the company",
+      "ok": true,
+      "result": {
+        "clientId": "j97wc3nasjcqmkxc9k3nepd9zs8h41pk",
+        "key": "brankevdex works",
+        "name": "Brankevdex Works"
+      },
+      "ms": 68,
+      "projectSpend": 0
+    },
+    {
+      "step": "create the project",
+      "ok": true,
+      "result": {
+        "projectId": "k9703w3cy9ymd0zbsx24r19xgn8h5wfz"
+      },
+      "ms": 36,
+      "projectSpend": 0
+    },
+    {
+      "step": "mark it as an evaluation project",
+      "ok": true,
+      "result": null,
+      "ms": 17,
+      "projectSpend": 0
+    },
+    {
+      "step": "add the interview",
+      "ok": true,
+      "result": {
+        "transcriptId": "kh772ygz7kb9byxmv8czjwmmn58h4j1s"
+      },
+      "ms": 32,
+      "projectSpend": 0
+    },
+    {
+      "step": "upload 101 files and one over the maximum",
+      "ok": true,
+      "result": {
+        "ms": 88,
+        "slowUploads": []
+      },
+      "ms": 0,
+      "projectSpend": 0.00023370000000000002
+    },
+    {
+      "step": "search pieces and labels",
+      "ok": true,
+      "result": {
+        "files": 3,
+        "labelErrors": [],
+        "labelsDue": 0,
+        "piecesDue": 0
+      },
+      "ms": 94824,
+      "projectSpend": 0.15779939999999998
+    },
+    {
+      "step": "start a Step by step draft and wait for its first Batch",
+      "ok": true,
+      "result": {
+        "ms": 33732,
+        "candidateMode": "iterative",
+        "draftingInputs": "ready",
+        "gatedWorkflow": "seeds",
+        "reportGeneratedAt": null,
+        "reportId": null,
+        "requestedAt": 1793158265352,
+        "seedStageError": null,
+        "seedStageVersion": 3,
+        "seedSubsections": 13,
+        "singleModelId": "claude-sonnet-5-5",
+        "status": "awaiting_input",
+        "summaryVersionId": null
+      },
+      "ms": 33816,
+      "projectSpend": 0.581412375
+    }
+  ],
+  "namesChecked": 110,
+  "namesLeftOut": [
+    "Zorvelyar Works",
+    "Release eval - Stress test - Zorvelyar Works",
+    "Interviewer",
+    "Silbrankev Silves",
+    "Quinves Tashuldex",
+    "Silsiloth Works",
+    "Release eval - Stress test - Silsiloth Works",
+    "Drosilvel Othkevkev",
+    "Brannimnim Tashmor"
+  ],
+  "projectId": "k9703w3cy9ymd0zbsx24r19xgn8h5wfz",
+  "generationId": "k579rwaeqypp0jhyse6cektt9d8h42zj",
+  "finishedAt": "2026-10-28T03:31:41.880Z",
+  "projectSpend": 0.581412375,
+  "spendSinceT0": 6.552196580000004
+}

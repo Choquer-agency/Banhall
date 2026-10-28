@@ -1,0 +1,77 @@
+{
+  "startedAt": "2026-10-28T04:09:04.409Z",
+  "company": "Nimtashsil Works",
+  "steps": [
+    {
+      "step": "create the company",
+      "ok": true,
+      "result": {
+        "clientId": "j97k2wrfpy67svd1ph9e07z1858h4tzg",
+        "key": "nimtashsil works",
+        "name": "Nimtashsil Works"
+      },
+      "ms": 81,
+      "projectSpend": 0
+    },
+    {
+      "step": "create the project",
+      "ok": true,
+      "result": {
+        "projectId": "k97awqneym0wkgyzdrhrs4je5x8h54kx"
+      },
+      "ms": 33,
+      "projectSpend": 0
+    },
+    {
+      "step": "mark it as an evaluation project",
+      "ok": true,
+      "result": null,
+      "ms": 16,
+      "projectSpend": 0
+    },
+    {
+      "step": "add the interview",
+      "ok": true,
+      "result": {
+        "transcriptId": "kh7fbraxvgjd692gg613d6aq698h48jx"
+      },
+      "ms": 36,
+      "projectSpend": 0
+    },
+    {
+      "step": "upload 101 files and one over the maximum",
+      "ok": true,
+      "result": {
+        "ms": 10772,
+        "slowUploads": []
+      },
+      "ms": 0,
+      "projectSpend": 0.0002502
+    },
+    {
+      "step": "search pieces and labels",
+      "ok": true,
+      "result": {
+        "files": 101,
+        "labelErrors": [],
+        "labelsDue": 0,
+        "piecesDue": 0
+      },
+      "ms": 534409,
+      "projectSpend": 0.6709639999999994
+    }
+  ],
+  "namesChecked": 114,
+  "namesLeftOut": [
+    "Othulvel Works",
+    "Release eval - Stress test - Othulvel Works",
+    "Interviewer",
+    "Zorzor Uloth",
+    "Pravesdex Othul",
+    "Release eval - Stress test - Othulvel Works copy"
+  ],
+  "projectId": "k97awqneym0wkgyzdrhrs4je5x8h54kx",
+  "finishedAt": "2026-10-28T04:18:30.136Z",
+  "projectSpend": 0.6709639999999994,
+  "spendSinceT0": 16.333826734999995
+}

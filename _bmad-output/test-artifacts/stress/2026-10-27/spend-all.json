@@ -1,0 +1,133 @@
+{
+  "out": [
+    {
+      "calls": 23,
+      "cpt": 2.65,
+      "k": "generation:seeds claude-sonnet-5-5",
+      "maxOut": 1005,
+      "refusals": 0,
+      "usd": 4.65
+    },
+    {
+      "calls": 9,
+      "cpt": 2.71,
+      "k": "preparation:brief claude-sonnet-5-5",
+      "maxOut": 1090,
+      "refusals": 5,
+      "usd": 3.79
+    },
+    {
+      "calls": 7,
+      "cpt": 2.71,
+      "k": "generation:brief claude-sonnet-5-5",
+      "maxOut": 1150,
+      "refusals": 4,
+      "usd": 3.4
+    },
+    {
+      "calls": 7,
+      "cpt": 2.7,
+      "k": "generation:analyzer claude-sonnet-5-5",
+      "maxOut": 2544,
+      "refusals": 0,
+      "usd": 3.21
+    },
+    {
+      "calls": 3,
+      "cpt": 2.65,
+      "k": "generation:seeds claude-sonnet-5",
+      "maxOut": 678,
+      "refusals": 0,
+      "usd": 1.68
+    },
+    {
+      "calls": 2,
+      "cpt": 2.67,
+      "k": "generation:analyzer claude-sonnet-5",
+      "maxOut": 2250,
+      "refusals": 0,
+      "usd": 1.18
+    },
+    {
+      "calls": 2,
+      "cpt": 2.68,
+      "k": "generation:brief claude-sonnet-5",
+      "maxOut": 3056,
+      "refusals": 0,
+      "usd": 1.18
+    },
+    {
+      "calls": 6,
+      "cpt": null,
+      "k": "chat_v2 claude-sonnet-5-5",
+      "maxOut": 7417,
+      "refusals": 0,
+      "usd": 0.44
+    },
+    {
+      "calls": 377,
+      "cpt": 2.58,
+      "k": "file_labels claude-haiku-5-5",
+      "maxOut": 233,
+      "refusals": 73,
+      "usd": 0.34
+    },
+    {
+      "calls": 3,
+      "cpt": 2.33,
+      "k": "generation:selfCheck claude-sonnet-5-5",
+      "maxOut": 2293,
+      "refusals": 0,
+      "usd": 0.28
+    },
+    {
+      "calls": 3,
+      "cpt": 2.62,
+      "k": "generation:section claude-sonnet-5-5",
+      "maxOut": 1056,
+      "refusals": 0,
+      "usd": 0.1
+    },
+    {
+      "calls": 1,
+      "cpt": 2.71,
+      "k": "generation:post_qa claude-sonnet-5-5",
+      "maxOut": 1860,
+      "refusals": 0,
+      "usd": 0.05
+    },
+    {
+      "calls": 9,
+      "cpt": 2.59,
+      "k": "generation:retrieval_brief claude-haiku-5-5",
+      "maxOut": 650,
+      "refusals": 6,
+      "usd": 0.04
+    },
+    {
+      "calls": 1,
+      "cpt": 2.6,
+      "k": "generation:post_chronology claude-sonnet-5-5",
+      "maxOut": 766,
+      "refusals": 0,
+      "usd": 0.02
+    },
+    {
+      "calls": 1,
+      "cpt": 2.56,
+      "k": "generation:consistency claude-sonnet-5-5",
+      "maxOut": 590,
+      "refusals": 0,
+      "usd": 0.02
+    },
+    {
+      "calls": 6,
+      "cpt": 2.18,
+      "k": "transcript:speakers claude-haiku-5-5",
+      "maxOut": 130,
+      "refusals": 3,
+      "usd": 0
+    }
+  ],
+  "total": 20.38
+}

@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-10-28T04:18:37.132Z",
+  "drafts": {
+    "k974a47xj23fsb2w793750nbd98h4g06": {
+      "generationId": "k57ccxt59dytsskbp5qaz3gh658h4byj",
+      "requestedAt": 1793161117571,
+      "error": "the draft failed: no detail",
+      "cancelFailed": "This generation is no longer active",
+      "byCallSite": {}
+    },
+    "k97awqneym0wkgyzdrhrs4je5x8h54kx": {
+      "generationId": "k577sqds0529gqsw9aztp602798h5q65",
+      "requestedAt": 1793161117571,
+      "error": "the draft failed: no detail",
+      "cancelFailed": "This generation is no longer active",
+      "byCallSite": {}
+    }
+  },
+  "stoppedBecause": "a draft did not reach its Seeds",
+  "spendSinceT0": 16.333826734999995
+}

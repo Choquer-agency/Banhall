@@ -55,7 +55,16 @@ Record per step each answer's size, why it stopped, time and cost (with F1's mea
 
 **Ready 2026-10-27:** `scripts/stress/generate.mjs` (53 files, 22.2 million characters, company "Zorvelyar Works" for seed 7, scanned against the live copy's 111 client, company, project, speaker and user names with no match) and `scripts/stress/run.mjs` (the company, the evaluation project, the uploads, search pieces and labels, the first draft to its Seeds, stopping at the spend cap). The live run waits for the cap.
 
-**Data.** A seeded, template-based generator in `scripts/stress/` with a fictional word list (no model writes the text, so no real company name can appear), its output scanned against every client and company name on the live copy before upload. A dedicated fictional company and test user, marked as evaluation projects, so nothing feeds writer memory, lessons or the Brain; erased afterwards through the normal erasure path.
+**Run 2026-10-27** ($20.38 of the $40 cap). Pack `_bmad-output/test-artifacts/stress/2026-10-27` (`summary.md`).
+- **Passed:** every case above, the duplicate (51 files in 6.0 s), chat over every file, and two drafts started 20 seconds apart.
+- **Fixed:**
+  - the generated text was refused by the models (now sentences, 6673a1ce);
+  - a refused file label was named a schema error (9826fea0);
+  - no step's first Batch could start on a large project (the frozen total, 39d3a6b6, decision entry "2026-10-27 (thirteenth)").
+- **For the owner:** two drafts started in the same second fail on the backend's write rate; the Sonnet tier moved back on its own after the refusals; company files past the total are not listed (questions 12 to 15).
+- **For F1 step 3:** characters per whole-request token from the run (`spend-all.json`): Seeds 2.65, the Brief 2.71, the analyzer 2.70, Self-check 2.33, labels 2.58. That is below the 4 the budgets assume, as the first figures said.
+
+**Data.** A seeded generator in `scripts/stress/` that writes sentences from templates with invented names (no model writes the text, so no real company name can appear), its output scanned against every client and company name on the live copy before upload. A dedicated fictional company and test user, marked as evaluation projects, so nothing feeds writer memory, lessons or the Brain; erased afterwards through the normal erasure path.
 
 ## F6. Release suite, live
 

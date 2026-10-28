@@ -1,0 +1,794 @@
+{
+  "startedAt": "2026-10-28T03:35:37.229Z",
+  "url": "http://127.0.0.1:3212",
+  "cap": 10,
+  "stopsAt": 9,
+  "company": "Othulvel Works",
+  "namesChecked": 114,
+  "steps": [
+    {
+      "step": "create the company",
+      "ok": true,
+      "result": {
+        "clientId": "j97w8ssph44t3jrfex4w2qbqgn8h535e",
+        "key": "othulvel works",
+        "name": "Othulvel Works"
+      },
+      "ms": 75,
+      "stepCostUsd": 0,
+      "spentSoFar": 0,
+      "byCallSite": []
+    },
+    {
+      "step": "create the project",
+      "ok": true,
+      "result": {
+        "projectId": "k97az88avq96qen9j8er2f8c9x8h5thf"
+      },
+      "ms": 28,
+      "stepCostUsd": 0,
+      "spentSoFar": 0,
+      "byCallSite": []
+    },
+    {
+      "step": "mark it as an evaluation project",
+      "ok": true,
+      "result": null,
+      "ms": 17,
+      "stepCostUsd": 0,
+      "spentSoFar": 0,
+      "byCallSite": []
+    },
+    {
+      "step": "add the interview",
+      "ok": true,
+      "result": {
+        "transcriptId": "kh73bbz38ec46b68c5b408q5518h4k4n",
+        "chars": 161895
+      },
+      "ms": 34,
+      "stepCostUsd": 0,
+      "spentSoFar": 0,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-001.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh77437v0vt8pdnmc1x0grf0h98h5tn8"
+      },
+      "ms": 82,
+      "stepCostUsd": 0.0002319,
+      "spentSoFar": 0.0002319,
+      "byCallSite": [
+        {
+          "callSite": "transcript:speakers",
+          "model": "claude-haiku-5-5",
+          "calls": 1,
+          "costUsd": 0.0002319,
+          "outputTokens": 96,
+          "stops": {
+            "tool_use": 1
+          },
+          "requestChars": 3973,
+          "evidenceChars": 2794,
+          "inputSideTokens": 1839,
+          "charsPerToken": 2.16
+        }
+      ]
+    },
+    {
+      "step": "upload notes-002.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh733mp5shht0qx9j18ges1fm18h43w6"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-003.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh70tmnwjz99swgt0y8fhsm4sx8h4jer"
+      },
+      "ms": 77,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-004.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh76mv0d4jzq5638k7fzyc1yw98h4n63"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-005.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh713pn6hnzebk2hxbj64n2bb58h46y0"
+      },
+      "ms": 114,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-006.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh710j1fsmbsm7dh2qkyzqv1n18h5yrm"
+      },
+      "ms": 88,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-007.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7cxg8bw1ejs85bp3c1xr3sxs8h5420"
+      },
+      "ms": 90,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-008.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh72zkn3hwt6zfdvr5gcx8d5098h5nqy"
+      },
+      "ms": 84,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-009.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh74dbhfgtztp5x05z02qg28718h4ybh"
+      },
+      "ms": 74,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-010.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7f4gttew2agdmrb6vs10zsax8h4j7b"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-011.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7b71k7s0qbd12sn8d82p1cjn8h5q5m"
+      },
+      "ms": 72,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-012.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7ansnnka912nk6mzb635x4ch8h4468"
+      },
+      "ms": 75,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-013.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh745qsrcdsy5yajv2tnx6n7e18h4k9x"
+      },
+      "ms": 74,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-014.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh70dm7b8z10gesjs9vwk4f6k58h5bke"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-015.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7020xxedns8dg63ck9s2wr158h5ka2"
+      },
+      "ms": 81,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-016.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh764qbjrz0b7r011vjyx7a0sh8h4awa"
+      },
+      "ms": 83,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-017.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh79bx4amntc9ys5gsdefr72258h5zrn"
+      },
+      "ms": 76,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-018.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7cq946h63h8fhaz575qvngks8h5d31"
+      },
+      "ms": 80,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-019.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh73c458q1fk3gvqxas2bn3t058h5nds"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-020.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh72xr5mnrs9dxan91ynbex6bd8h5bba"
+      },
+      "ms": 73,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-021.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7e8yf4zpnwqyc955kjd37a498h5p91"
+      },
+      "ms": 92,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-022.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7c8fr48s4gvgm5rcrkddq7e98h4y4g"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-023.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh71yyw7hn21kwt1x12y6n5mrd8h4vtp"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-024.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7drpe0ktpb9rrpqc2nx5sak98h5eqf"
+      },
+      "ms": 75,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-025.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7bgjzm5785gaqv63hyntvn9s8h4va1"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-026.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7frkg1xe7484y5adh2ackr1n8h5hgx"
+      },
+      "ms": 75,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-027.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7006dmq09m3d3pc66rg1em798h5r8r"
+      },
+      "ms": 87,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-028.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh720wrd03mehy6tag2s30dard8h4vxe"
+      },
+      "ms": 83,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-029.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh73zt8x0q62e50h2fdxnfam2d8h58v1"
+      },
+      "ms": 82,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-030.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh725hkxff0kv9zxsmt2qy7xes8h4vjk"
+      },
+      "ms": 77,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-031.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh71h0p2xpx9n8v1a5h9avghx98h59s6"
+      },
+      "ms": 82,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-032.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh73nhwte9zczhjrxjhfsdkrmn8h4amx"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-033.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7czjk54cakpc9wczxx7wy4718h4nw6"
+      },
+      "ms": 82,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-034.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh77pb44sznrdmsjk3w6y7zfjd8h4sb1"
+      },
+      "ms": 80,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-035.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh78cx4sct1tg3a8cxy3scwvw58h470t"
+      },
+      "ms": 76,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-036.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7az45j9c0mr7kasz8jwyxfkd8h5ye2"
+      },
+      "ms": 80,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-037.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh78rnq0j1ewqyjq3jd9qpk1758h5sen"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-038.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7dshyh0x8t1xc7s62hy8qevh8h55hm"
+      },
+      "ms": 84,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-039.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7ba3v0nq9s779rxnt6dcr8k98h4zar"
+      },
+      "ms": 75,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-040.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh77mt29pc6df1ncxr1050wepn8h405w"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-041.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7b2spp1jxtx9ptfj38sxgv598h405j"
+      },
+      "ms": 74,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-042.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7fkc7ktnh1dj2gr48b6heaah8h4fdp"
+      },
+      "ms": 80,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-043.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh737mekkexrvvg6gygzf8yvjx8h4dv0"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-044.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7c4gpysdbtkxgfgbj77bpr518h53mh"
+      },
+      "ms": 85,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-045.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh750p53n3ps52c69psp06h6918h5fqn"
+      },
+      "ms": 80,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-046.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7fefrvasbkzrz4hzkv5fzf2d8h4gnk"
+      },
+      "ms": 79,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-047.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7caqmq51qytgsz44n29p172h8h55ym"
+      },
+      "ms": 81,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-048.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7fttj6exn42se3sfyrya7wt58h5657"
+      },
+      "ms": 75,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-049.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh7da7vqq3pygqm6h2vfmt0dhn8h4tym"
+      },
+      "ms": 80,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-050.md (400,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh753tmrs6y2hrv3wn4a4mfr2x8h4jhw"
+      },
+      "ms": 78,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-max.md (1,000,000 characters)",
+      "ok": true,
+      "result": {
+        "documentId": "mh76d69rfd3rphvqt2fm5q8a018h4bsg"
+      },
+      "ms": 166,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "upload notes-over-max.md (1,000,001 characters)",
+      "ok": true,
+      "result": {
+        "refused": "This file's text is too long to keep (1,000,001 characters; the most is 1,000,000). Split it into smaller files."
+      },
+      "ms": 33,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.0002319,
+      "byCallSite": []
+    },
+    {
+      "step": "search pieces and file labels for every file",
+      "ok": true,
+      "result": {
+        "files": 51,
+        "labelErrors": [],
+        "labelsDue": 0,
+        "piecesDue": 0,
+        "withoutPieces": []
+      },
+      "ms": 196811,
+      "stepCostUsd": 0.6234698000000002,
+      "spentSoFar": 0.6237017000000001,
+      "byCallSite": [
+        {
+          "callSite": "preparation:brief",
+          "model": "claude-sonnet-5-5",
+          "calls": 1,
+          "costUsd": 0.576893,
+          "outputTokens": 1090,
+          "stops": {
+            "tool_use": 1
+          },
+          "requestChars": 608771,
+          "evidenceChars": 598282,
+          "inputSideTokens": 226398,
+          "charsPerToken": 2.69
+        },
+        {
+          "callSite": "file_labels",
+          "model": "claude-haiku-5-5",
+          "calls": 51,
+          "costUsd": 0.0465768,
+          "outputTokens": 9922,
+          "stops": {
+            "tool_use": 51
+          },
+          "requestChars": 1072628,
+          "evidenceChars": 853379,
+          "inputSideTokens": 416158,
+          "charsPerToken": 2.58
+        }
+      ]
+    },
+    {
+      "step": "start a Step by step draft and wait for its Seeds",
+      "ok": false,
+      "error": "the draft failed: no detail",
+      "ms": 19949,
+      "stepCostUsd": 0,
+      "spentSoFar": 0.6237017000000001,
+      "byCallSite": []
+    }
+  ],
+  "logFile": "/tmp/claude-501/stress/results-part1b.json.log",
+  "stoppedBecause": "a required step failed: start a Step by step draft and wait for its Seeds",
+  "finalSpendUsd": 1.2729779750000003,
+  "finalSpendSettled": true,
+  "byCallSite": [
+    {
+      "callSite": "transcript:speakers",
+      "model": "claude-haiku-5-5",
+      "calls": 1,
+      "costUsd": 0.0002319,
+      "outputTokens": 96,
+      "stops": {
+        "tool_use": 1
+      },
+      "requestChars": 3973,
+      "evidenceChars": 2794,
+      "inputSideTokens": 1839,
+      "charsPerToken": 2.16
+    },
+    {
+      "callSite": "preparation:brief",
+      "model": "claude-sonnet-5-5",
+      "calls": 1,
+      "costUsd": 0.576893,
+      "outputTokens": 1090,
+      "stops": {
+        "tool_use": 1
+      },
+      "requestChars": 608771,
+      "evidenceChars": 598282,
+      "inputSideTokens": 226398,
+      "charsPerToken": 2.69
+    },
+    {
+      "callSite": "file_labels",
+      "model": "claude-haiku-5-5",
+      "calls": 51,
+      "costUsd": 0.0465768,
+      "outputTokens": 9922,
+      "stops": {
+        "tool_use": 51
+      },
+      "requestChars": 1072628,
+      "evidenceChars": 853379,
+      "inputSideTokens": 416158,
+      "charsPerToken": 2.58
+    },
+    {
+      "callSite": "generation:retrieval_brief",
+      "model": "claude-haiku-5-5",
+      "calls": 1,
+      "costUsd": 0.0061364750000000015,
+      "outputTokens": 638,
+      "stops": {
+        "tool_use": 1
+      },
+      "requestChars": 119686,
+      "evidenceChars": 118400,
+      "inputSideTokens": 46545,
+      "charsPerToken": 2.57
+    },
+    {
+      "callSite": "generation:brief",
+      "model": "claude-sonnet-5-5",
+      "calls": 1,
+      "costUsd": 0.055696800000000005,
+      "outputTokens": 1041,
+      "stops": {
+        "tool_use": 1
+      },
+      "requestChars": 608771,
+      "evidenceChars": 598282,
+      "inputSideTokens": 226398,
+      "charsPerToken": 2.69
+    },
+    {
+      "callSite": "generation:analyzer",
+      "model": "claude-sonnet-5-5",
+      "calls": 1,
+      "costUsd": 0.587443,
+      "outputTokens": 1951,
+      "stops": {
+        "tool_use": 1
+      },
+      "requestChars": 609142,
+      "evidenceChars": 601275,
+      "inputSideTokens": 227174,
+      "charsPerToken": 2.68
+    }
+  ],
+  "labelsMade": {
+    "requests": 51,
+    "first": "2026-10-28T03:37:33.752Z",
+    "last": "2026-10-28T03:39:53.770Z"
+  },
+  "searchPiecesMade": {
+    "first": "2026-10-28T03:36:31.855Z",
+    "last": "2026-10-28T03:37:46.807Z"
+  }
+}

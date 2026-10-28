@@ -1,0 +1,90 @@
+{
+  "startedAt": "2026-10-28T03:20:52.318Z",
+  "drafts": {
+    "k970r63hfffw8a7pwv0d946b1d8h5z76": {
+      "generationId": "k57323n78feybmnyjvhag4805x8h49em",
+      "requestedAt": 1793157653093,
+      "error": "stopped by SIGTERM",
+      "cancelFailed": "This generation is no longer active",
+      "byCallSite": {
+        "generation:analyzer claude-sonnet-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.73,
+          "inputSide": 222496,
+          "outputTokens": 1229,
+          "stops": {
+            "tool_use": 1
+          },
+          "usd": 0.568528
+        },
+        "generation:brief claude-sonnet-5-5": {
+          "calls": 2,
+          "charsPerToken": 2.74,
+          "inputSide": 443565,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 2
+          },
+          "usd": 1.1000535
+        },
+        "generation:retrieval_brief claude-haiku-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.64,
+          "inputSide": 45078,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 1
+          },
+          "usd": 0.0056341
+        }
+      }
+    },
+    "k976hvrv4qfrd8pqd4811d60558h5sp2": {
+      "refused": "{\"code\":\"TooManyWrites\",\"message\":\"Too many writes per second. Your deployment is limited to 4 MiB bytes written per second. Reduce your write rate or upgrade to a larger deployment.\"}",
+      "byCallSite": {
+        "file_labels claude-haiku-5-5": {
+          "calls": 5,
+          "charsPerToken": 2.6,
+          "inputSide": 40840,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 5
+          },
+          "usd": 0.004084
+        },
+        "generation:analyzer claude-sonnet-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.72,
+          "inputSide": 222981,
+          "outputTokens": 1160,
+          "stops": {
+            "tool_use": 1
+          },
+          "usd": 0.5623253
+        },
+        "generation:brief claude-sonnet-5-5": {
+          "calls": 2,
+          "charsPerToken": 2.72,
+          "inputSide": 444991,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 2
+          },
+          "usd": 1.0947635
+        },
+        "generation:retrieval_brief claude-haiku-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.64,
+          "inputSide": 44903,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 1
+          },
+          "usd": 0.005537705
+        }
+      }
+    }
+  },
+  "stoppedBecause": "a draft did not reach its Seeds",
+  "spendSinceT0": 5.690993404999997
+}
