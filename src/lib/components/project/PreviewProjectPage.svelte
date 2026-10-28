@@ -73,6 +73,7 @@
   import PdReviewStart from "$lib/components/review-pd/PdReviewStart.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import ProjectTopBar, { type TopBarMoreItem } from "$lib/components/project/shell/ProjectTopBar.svelte";
+  import FrameIcon from "$lib/components/workspace/FrameIcon.svelte";
   import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
   import QaToggle from "$lib/components/qa/QaToggle.svelte";
   import QaFinishedNotice from "$lib/components/qa/QaFinishedNotice.svelte";
@@ -138,7 +139,6 @@
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
   // rail visibility, drawer, and rail destinations for the report workspace.
   let navigationOpen = $state(false);
-  let railHidden = $state(false);
   const shellConfigQ = useQuery(api.myWork.getViewConfig, () => (auth.isAuthenticated ? {} : "skip"));
   const myWorkAvailable = $derived(Boolean(shellConfigQ.data?.ready && !shellConfigQ.data?.killSwitch));
   function workspaceHref(pathname: "/my-work" | "/projects") {
@@ -1986,7 +1986,6 @@
     kind="chrome"
     theme="light"
     bind:navigationOpen
-    bind:railHidden
     displayedView={null}
     {myWorkAvailable}
     myWorkHref={workspaceHref("/my-work")}
@@ -1995,140 +1994,137 @@
     onFocusSearch={() => void goto(workspaceHref("/projects"))}
     drawerDescription="Navigate between work, projects, and account pages."
   >
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell" data-report-cohort="preview">
-    <!-- Top bar (ui-design-final.md section 2): the route's single h1 lives
-         here; page actions sit at the right, the rest in the More menu. -->
-    <ProjectTopBar
-      title={project.title}
-      projectsHref={workspaceHref("/projects")}
-      {railHidden}
-      onToggleRail={() => (railHidden = !railHidden)}
-      onOpenNavigation={() => (navigationOpen = true)}
-      moreItems={topBarMoreItems}
-      flush={showReadingInterview}
-    >
-      {#snippet leading()}
-        {#if showIntakeWorkbench && !contextOpen}
-          <!-- The intake context pane reopens from the far left, desktop only;
-               narrow screens keep the Work/Context switch. -->
-          <button
-            type="button"
-            title="Show project context"
-            aria-label="Show project context"
-            onclick={() => (contextOpen = true)}
-            class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
-          >
-            <svg class="h-[1.125rem] w-[1.125rem]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
-            </svg>
-          </button>
-        {/if}
-      {/snippet}
-      {#snippet status()}
-        {#if !project.workflowStage}
-          <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
-        {/if}
-        {#if generation && generation.status !== "completed" && !isSeedWorkflow}
-          <!-- A Step-by-step run shows its state in the panel (the reading
-               pill, the step's writing line, the writing pill), so the top
-               bar carries no status pill (F2 to F5, H3; ui-design-final.md
-               section 2). -->
-          <span class="hidden lg:inline-flex">
-            <GenerationStatusChip
-              status={generation.status}
-              candidatesDone={generation.candidatesDone ?? 0}
-              candidatesFailed={generation.candidatesFailed ?? 0}
-              surface="light"
-            />
-          </span>
-        {/if}
-        {#if saving}
-          <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
-        {/if}
-        {#if saveError}
-          <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
-        {/if}
-        {#if shareError}
-          <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Share failed: {shareError}</span>
-        {/if}
-        {#if showIterativeStepper && generation?.iterativeModelLabel}
-          <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
-        {/if}
-      {/snippet}
-      {#snippet actions()}
-        {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
-          <!-- Seed stage and Reading the interview (round 2, F2 to F5): the
-               one top-bar cancel, the filled destructive button, 36px with
-               14px sides on F2 and 16px on F3 to F5, 32px on a tablet (H3).
-               While drafting after sign-off the writing pill's Stop is the
-               only cancel. On a phone the reading screen carries it at the
-               bottom (H4). -->
-          <Button
-            variant="destructive-soft"
-            size="sm"
-            class={`h-9 py-0! ${showReadingInterview ? "px-3.5! max-sm:hidden sm:max-xl:h-8" : "px-4!"}`}
-            data-top-bar-cancel-generation
-            onclick={() => (confirmCancelIterative = true)}
-          >
-            Cancel generation
-          </Button>
-        {/if}
-        {#if reportActionsVisible}
-          <!-- Board 2.1: 36px buttons, 13px labels, radius 7. -->
-          <Button
-            variant="secondary"
-            size="sm"
-            class="h-9 gap-1.5 rounded-[0.4375rem]! px-3! text-[0.8125rem]!"
-            aria-label={exporting ? "Exporting..." : "Export .docx"}
-            onclick={handleExport}
-            disabled={exporting}
-          >
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            <span class="max-sm:sr-only">Export</span>
-          </Button>
-          <Button
-            size="sm"
-            class="h-9 rounded-[0.4375rem]! px-3.5! text-[0.8125rem]! max-sm:hidden"
-            data-send-for-review
-            disabled={!details.data?.permissions.canHandOff}
-            title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
-            onclick={() => void leaveDetailsThen(() => openDetails("handoff", "internal_review"))}
-          >
-            Send for review
-          </Button>
-        {:else if awaitingSelection}
-          <button
-            type="button"
-            title={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
-            aria-label={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
-            onclick={() => (candidateMaximized = !candidateMaximized)}
-            class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
-          >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              {#if candidateMaximized}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H4.5M9 9V4.5M15 9h4.5M15 9V4.5M9 15H4.5M9 15v4.5M15 15h4.5M15 15v4.5" />
-              {:else}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3H3v4M3 3l6 6m8-6h4v4m0-4-6 6M7 21H3v-4m0 4 6-6m8 6h4v-4m0 4-6-6" />
-              {/if}
-            </svg>
-          </button>
-        {/if}
-      {/snippet}
-    </ProjectTopBar>
-
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-report-cohort="preview">
+    <!-- The page frame (owner, 2026-10-28; Paper A1, S12): one white card
+         with no section sidebar; the 52px project bar inside it, then the
+         panel toolbar and the split. -->
     <div
       data-project-card
+      data-frame-card
       data-work-panel
-      class={`mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border ${
-        showReadingInterview
-          ? "border-line-soft bg-reading-panel max-xl:mx-0 max-xl:mb-0 max-xl:rounded-none max-xl:border-0"
-          : "border-line-soft bg-surface"
-      }`}
+      class="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface lg:rounded-xl lg:border lg:border-line"
     >
+      <!-- Top bar: the route's single h1 lives here; page actions sit at the
+           right, the rest in the More menu. -->
+      <ProjectTopBar
+        title={project.title}
+        projectsHref={workspaceHref("/projects")}
+        onOpenNavigation={() => (navigationOpen = true)}
+        moreItems={topBarMoreItems}
+        flush={showReadingInterview}
+      >
+        {#snippet leading()}
+          {#if showIntakeWorkbench && !contextOpen}
+            <!-- The intake context pane reopens from the far left, desktop only;
+                 narrow screens keep the Work/Context switch. -->
+            <button
+              type="button"
+              title="Show project context"
+              aria-label="Show project context"
+              onclick={() => (contextOpen = true)}
+              class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
+            >
+              <svg class="h-[1.125rem] w-[1.125rem]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
+              </svg>
+            </button>
+          {/if}
+        {/snippet}
+        {#snippet status()}
+          {#if !project.workflowStage}
+            <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
+          {/if}
+          {#if generation && generation.status !== "completed" && !isSeedWorkflow}
+            <!-- A Step-by-step run shows its state in the panel (the reading
+                 pill, the step's writing line, the writing pill), so the top
+                 bar carries no status pill (F2 to F5, H3; ui-design-final.md
+                 section 2). -->
+            <span class="hidden lg:inline-flex">
+              <GenerationStatusChip
+                status={generation.status}
+                candidatesDone={generation.candidatesDone ?? 0}
+                candidatesFailed={generation.candidatesFailed ?? 0}
+                surface="light"
+              />
+            </span>
+          {/if}
+          {#if saving}
+            <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
+          {/if}
+          {#if saveError}
+            <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
+          {/if}
+          {#if shareError}
+            <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Share failed: {shareError}</span>
+          {/if}
+          {#if showIterativeStepper && generation?.iterativeModelLabel}
+            <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
+          {/if}
+        {/snippet}
+        {#snippet actions()}
+          {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
+            <!-- Seed stage and Reading the interview (round 2, F2 to F5): the
+                 one top-bar cancel, the filled destructive button, 36px with
+                 14px sides on F2 and 16px on F3 to F5, 32px on a tablet (H3).
+                 While drafting after sign-off the writing pill's Stop is the
+                 only cancel. On a phone the reading screen carries it at the
+                 bottom (H4). -->
+            <Button
+              variant="destructive-soft"
+              size="sm"
+              class={`h-9 py-0! ${showReadingInterview ? "px-3.5! max-sm:hidden sm:max-xl:h-8" : "px-4!"}`}
+              data-top-bar-cancel-generation
+              onclick={() => (confirmCancelIterative = true)}
+            >
+              Cancel generation
+            </Button>
+          {/if}
+          {#if reportActionsVisible}
+            <!-- Paper A1: 30px buttons, radius 7, 13/18 500. Export is
+                 outlined with the 14px download icon; Send for review is the
+                 primary-selected fill. -->
+            <button
+              type="button"
+              data-top-bar-export
+              class="inline-flex h-[1.875rem] shrink-0 items-center justify-center gap-1.5 rounded-[0.4375rem] border border-line bg-surface px-2.5 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none max-sm:size-11 max-sm:px-0 pointer-coarse:h-11"
+              aria-label={exporting ? "Exporting..." : "Export .docx"}
+              onclick={handleExport}
+              disabled={exporting}
+            >
+              <FrameIcon name="download" />
+              <span class="max-sm:sr-only">Export</span>
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-[0.8125rem] font-medium leading-[calc(18/13)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none max-sm:hidden pointer-coarse:h-11"
+              data-send-for-review
+              disabled={!details.data?.permissions.canHandOff}
+              title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
+              onclick={() => void leaveDetailsThen(() => openDetails("handoff", "internal_review"))}
+            >
+              Send for review
+            </button>
+          {:else if awaitingSelection}
+            <button
+              type="button"
+              title={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
+              aria-label={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
+              onclick={() => (candidateMaximized = !candidateMaximized)}
+              class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                {#if candidateMaximized}
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H4.5M9 9V4.5M15 9h4.5M15 9V4.5M9 15H4.5M9 15v4.5M15 15h4.5M15 15v4.5" />
+                {:else}
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 3H3v4M3 3l6 6m8-6h4v4m0-4-6 6M7 21H3v-4m0 4 6-6m8 6h4v-4m0 4-6-6" />
+                {/if}
+              </svg>
+            </button>
+          {/if}
+        {/snippet}
+      </ProjectTopBar>
       {#if showReadingInterview && generation}
-        <div class="min-h-0 flex-1 overflow-y-auto" data-reading-host>
+        <div class="min-h-0 flex-1 overflow-y-auto bg-reading-panel" data-reading-host>
           {#key generation._id}
             <ReadingInterview
               generationId={generation._id}
