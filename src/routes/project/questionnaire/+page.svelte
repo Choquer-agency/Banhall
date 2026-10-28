@@ -5,7 +5,6 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { withWriteRetry } from "../../../../shared/writeLimit";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import Button from "$lib/components/ui/Button.svelte";
   import Input from "$lib/components/ui/Input.svelte";
@@ -81,8 +80,7 @@
 
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
-  // Owner, 2026-10-28: a start the write rate refuses is sent again briefly.
-  const generateReport = withWriteRetry(useMutation(api.generations.requestGeneration));
+  const generateReport = useMutation(api.generations.requestGeneration);
 
   let step = $state(0);
   let title = $state("");

@@ -3,7 +3,6 @@ import {
   WRITE_RETRY_DELAYS_MS,
   isWriteRateLimitError,
   retryOnWriteLimit,
-  withWriteRetry,
 } from "./writeLimit";
 
 // As an action and the HTTP client saw it on the F5 stress run (2026-10-27).
@@ -15,7 +14,9 @@ describe("isWriteRateLimitError", () => {
   it("knows the write rate's refusal by its code or its words, and nothing else", () => {
     expect(isWriteRateLimitError(REFUSED)).toBe(true);
     expect(isWriteRateLimitError(new Error("[CONVEX M(generations:requestGeneration)] Too many writes per second."))).toBe(true);
-    expect(isWriteRateLimitError("TooManyWrites")).toBe(true);
+    // The code alone is not enough: it may also name one function's own write limit (review, 2026-10-28).
+    expect(isWriteRateLimitError("TooManyWrites")).toBe(false);
+    expect(isWriteRateLimitError(new Error('{"code":"TooManyWrites","message":"Too many writes in a single function execution"}'))).toBe(false);
     expect(isWriteRateLimitError(new Error("The AI provider is rate-limiting requests."))).toBe(false);
     expect(isWriteRateLimitError(new Error("Too many bytes read in a single function execution"))).toBe(false);
     expect(isWriteRateLimitError(undefined)).toBe(false);
@@ -45,6 +46,14 @@ describe("retryOnWriteLimit", () => {
     expect(waits).toHaveLength(WRITE_RETRY_DELAYS_MS.length);
   });
 
+  it("throws the refusal at once when a wait is not allowed (an action near its limit)", async () => {
+    const { waits, options } = instant();
+    const send = vi.fn().mockRejectedValue(REFUSED);
+    await expect(retryOnWriteLimit(send, { ...options, mayWait: () => false })).rejects.toBe(REFUSED);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(waits).toEqual([]);
+  });
+
   it("never sends again on any other error", async () => {
     const { waits, options } = instant();
     const other = new Error("Generation not found");
@@ -63,17 +72,5 @@ describe("retryOnWriteLimit", () => {
       random: () => 0.999,
     });
     expect(waits).toEqual([250, 374]);
-  });
-});
-
-describe("withWriteRetry", () => {
-  it("passes the arguments through on every try", async () => {
-    vi.useFakeTimers();
-    const send = vi.fn().mockRejectedValueOnce(REFUSED).mockResolvedValueOnce("ok");
-    const pending = withWriteRetry(send)({ projectId: "p1" });
-    await vi.runAllTimersAsync();
-    await expect(pending).resolves.toBe("ok");
-    expect(send.mock.calls).toEqual([[{ projectId: "p1" }], [{ projectId: "p1" }]]);
-    vi.useRealTimers();
   });
 });

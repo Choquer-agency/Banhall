@@ -52,3 +52,14 @@ the fix with the Seed Batch wrapped too, from line 4769:
    1 M(modelCatalog:recordCallOutcome)
    3 M(seedRuns:claimAttempt)
  171 M(zzStressQ14:floodOnce)
+
+review round 1 fixes (start actions, schedules and Batches wrapped; six waits; starts through the WebSocket client), from line 6404:
+   5 M(aiUsage:logUsage)
+   1 M(generations:pinSeedBrief)
+   1 M(generations:recordWriterSettings)
+   7 M(generations:requestGeneration)
+   1 M(learningHealth:recordRerankOutcome)
+   1 M(modelCatalog:recordCallOutcome)
+   8 M(seedRuns:startFirstBatch)
+   1 M(seeds:copyBriefToReadingFacts)
+ 282 M(zzStressQ14:floodOnce)

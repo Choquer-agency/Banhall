@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import schema from "./schema";
 import { beginTrackedGeneration } from "./ai/pipeline";
 import { withWriteRetries } from "./lib/writeRetry";
+import { WRITE_RETRY_DELAYS_MS } from "../shared/writeLimit";
 import type { ActionCtx } from "./_generated/server";
 
 // The entry actions must never strand a reserved row: both the prompt-program
@@ -208,8 +209,8 @@ describe("generation entry failure paths", () => {
       await vi.runAllTimersAsync();
       const { began, refusals } = await pending;
       expect(began).toBe(false);
-      // The first try and one after each of the four waits.
-      expect(refusals).toBe(5);
+      // The first try and one after each wait.
+      expect(refusals).toBe(WRITE_RETRY_DELAYS_MS.length + 1);
       const state = await t.run(async (ctx) => ({
         generation: await ctx.db.get(generationId),
         project: await ctx.db.get(projectId),

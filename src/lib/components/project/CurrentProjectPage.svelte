@@ -82,7 +82,6 @@
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
-  import { withWriteRetry } from "../../../../shared/writeLimit";
   import {
     GENERATION_MODES,
     RERUN_CONFIRM,
@@ -193,8 +192,7 @@
     editAccessQ.error ? false : (editAccessQ.data?.canEditDetails ?? true)
   );
 
-  // Owner, 2026-10-28: a start the write rate refuses is sent again briefly.
-  const generateReport = withWriteRetry(useMutation(api.generations.requestGeneration));
+  const generateReport = useMutation(api.generations.requestGeneration);
   // 2026-09-27 (fourth): the start dialog's leave-out list asks for a head
   // start of exactly the ticked files, as on New project.
   const setProjectStartSelection = useMutation(api.briefPreparations.setProjectStartSelection);
