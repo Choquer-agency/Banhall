@@ -4960,6 +4960,38 @@ This changes what one AI check reads and one sentence of its note, not a workflo
   - "best match" only when a part matched.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
+### 2026-10-28 (sixth): The Brief reads the parts of every frozen file that best match the interviews (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the second step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, step 1). Before, the Brief read the frozen sources in frozen order, each cut at 400,000 characters, until 600,000 characters in all. On a large draft it read the interviews and the first files, and nothing of the rest. Its quote check also searched every frozen row whole, including text it never sent.
+
+This changes what one AI request reads and how its quotes are found, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - When every source fits (each within 400,000 characters, all within 600,000), the request is exactly as before.
+  - When they do not:
+    - The interviews (or their digests or fact packs), the settings document and writer's notes go in whole, in order. They are cut only at the per-source limit or where the total runs out, as before.
+    - Every other source sends the parts that best match the interviews and the writer's Storyline (`shared/evidenceChoice.ts`).
+    - A source sent in parts gets the parts joined by a "[...]" line and a notice: "[EXCERPTS: only the parts of this source that best match the interviews were sent, N of M characters; the text between them was left out.]"
+    - A source with no part sent is counted in the omitted notice, as before.
+  - Every quote of the Brief is then searched for only in what the request sent, in place, so its position in the file is exact. Transcripts read through their digest or fact pack are searched as before.
+  - The settings document's wording rule is added only when that document was sent, as before.
+- **Where.**
+  - `briefMessageWithReport` and `BRIEF_EXCERPTS` in `convex/lib/briefRequest.ts`.
+  - `briefEvidence` in `convex/ai/brief.ts`, which blanks the text not sent (`maskOutside`).
+  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared and reusable Briefs are made again.
+- **Known limits.**
+  - The Brief still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - The Brief's subject is the interviews and the Storyline: a file that matters for reasons the interviews never mention scores low.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:**
+  - `convex/briefByRelevance.test.ts`:
+    - over the budget, a fact in file 25 of 30 is sent, with the excerpts notice;
+    - the same request every time;
+    - a quote is cited at its place in the whole file;
+    - a sentence never sent is not found.
+  - Updated: `convex/ai/brief.sdk.test.ts` (the budget test) and `convex/briefWriterWording.test.ts` (the wording rule when the settings document has no room).
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

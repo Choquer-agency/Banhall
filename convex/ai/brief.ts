@@ -123,6 +123,7 @@ export {
   buildBriefUserMessage,
 } from "../lib/briefRequest";
 import { briefMessageWithReport } from "../lib/briefRequest";
+import { maskOutside } from "../../shared/evidenceChoice";
 
 const briefOutputSchema: z.ZodType<BriefAgentOutput> = z.object({
   storyline: z.string().default(""),
@@ -462,21 +463,37 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
   // text; a pack or digest row is never cited. Otherwise, as before, a
   // quote cites the first frozen source that holds it.
   const factMode = readsFactPacks(sources);
-  const evidenceSources: FrozenSource<I>[] = sources.filter(
-    (s) =>
-      s.kind !== "writer_storyline" &&
-      s.kind !== "transcript_facts" &&
-      !(factMode && s.kind === "transcript_digest")
+  // Phase D, step 1 (2026-10-28, fourth): a quote is searched for only in
+  // what the request sent of each source it weighed: the rest of the text
+  // is blanked (positions kept), so a quote cannot bind to text the model
+  // never read. A source the request did not weigh (a transcript read
+  // through its digest or fact pack) is searched as before.
+  const sentRanges = new Map<object, ReadonlyArray<{ start: number; end: number }>>(
+    briefMessageWithReport(sources).report.map((entry) => [entry.source, entry.ranges])
   );
-  const documentSources: FrozenSource<I>[] = sources.filter(
-    (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
-  );
+  const sentView = (s: FrozenSource<I>): FrozenSource<I> => {
+    const ranges = sentRanges.get(s);
+    return ranges ? { ...s, content: maskOutside(s.content, ranges) } : s;
+  };
+  const evidenceSources: FrozenSource<I>[] = sources
+    .filter(
+      (s) =>
+        s.kind !== "writer_storyline" &&
+        s.kind !== "transcript_facts" &&
+        !(factMode && s.kind === "transcript_digest")
+    )
+    .map(sentView);
+  const documentSources: FrozenSource<I>[] = sources
+    .filter(
+      (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
+    )
+    .map(sentView);
   const citeInFactMode = (quote: string): Citation<I> | null => {
     const fact = citeFactQuote(
       sources.map((s) => ({
         sourceId: s._id,
         kind: s.kind,
-        content: s.content,
+        content: s.kind === "project_document" || s.kind === "company_file" ? sentView(s).content : s.content,
         contentHash: s.contentHash,
         transcriptId: s.transcriptId,
         factSpans: s.factSpans,

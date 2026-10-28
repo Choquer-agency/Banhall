@@ -23,9 +23,11 @@ import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
  * 2026-10-26, P0 item 3). 10: on a model that refuses a forced tool call,
  * an answer that leaves out a field the Brief tool requires is repaired, and
  * fails if the repair leaves fields out too (`requireEveryField`, 2026-10-26,
- * live check).
+ * live check). 11: when the frozen sources do not all fit, the request
+ * sends the parts of each file that best match the interviews, and a quote
+ * is found only in what was sent (Phase D, step 1, 2026-10-28).
  */
-export const BRIEF_DERIVATION_VERSION = 10;
+export const BRIEF_DERIVATION_VERSION = 11;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

@@ -10,6 +10,7 @@
 import type { SourceRowWithText } from "./sourceText";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Doc, Id } from "../_generated/dataModel";
+import { chooseEvidence, subjectOf, utf16Size } from "../../shared/evidenceChoice";
 import {
   CHARS_PER_TOKEN,
   cutToBudget,
@@ -85,6 +86,24 @@ export const BRIEF_OMITTED_SOURCES_NOTICE = {
 export function briefOmittedSourcesNotice(count: number): string {
   return `${BRIEF_OMITTED_SOURCES_NOTICE.prefix}${formatCount(count)}${BRIEF_OMITTED_SOURCES_NOTICE.suffix}`;
 }
+
+/**
+ * Phase D, step 1 (2026-10-28, fourth): a source sent in excerpts, the
+ * parts that best match the interviews, when the frozen sources do not all
+ * fit. Between two excerpts the separator; after them the notice.
+ */
+export const BRIEF_EXCERPTS = {
+  separator: "\n[...]\n",
+  noticePrefix: "[EXCERPTS: only the parts of this source that best match the interviews were sent, ",
+  noticeSuffix: " characters; the text between them was left out.]",
+} as const;
+
+export function briefExcerptsNotice(sent: number, total: number): string {
+  return `${BRIEF_EXCERPTS.noticePrefix}${formatCount(sent)} of ${formatCount(total)}${BRIEF_EXCERPTS.noticeSuffix}`;
+}
+
+/** The kinds that always go in whole (cut only at the per-source limit): the interviews. */
+const TRANSCRIPT_KINDS: ReadonlySet<string> = new Set(["transcript", "transcript_digest", "transcript_facts"]);
 
 const strArray = { type: "array", items: { type: "string" } } as const;
 
@@ -205,14 +224,24 @@ type BriefMessageSource = Pick<SourceRowWithText, "label" | "content" | "kind"> 
 /**
  * `buildBriefUserMessage`, with what it sent of each source it considered
  * (Phase D, step 2): characters kept of the source's characters, 0 for one
- * left out. A Storyline and a transcript read through its digest or fact
- * pack are not considered, so they get no entry.
+ * left out, and the ranges sent (Phase D, step 1). A Storyline and a
+ * transcript read through its digest or fact pack are not considered, so
+ * they get no entry.
+ *
+ * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when every source
+ * fits (each within the per-source limit, all within the total), the
+ * message is exactly as before. When they do not, the interviews, the
+ * settings document and writer's notes go in whole (cut only at the
+ * per-source limit, or where the total runs out), and every other source
+ * sends the parts that best match the interviews and the writer's
+ * Storyline (`chooseEvidence`), joined by a separator and followed by a
+ * notice; a source with no part sent is counted as omitted, as before.
  */
 export function briefMessageWithReport<S extends BriefMessageSource>(
   sources: S[],
   budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
-): { message: string; report: Array<{ source: S; sent: number; total: number }> } {
-  const report: Array<{ source: S; sent: number; total: number }> = [];
+): { message: string; report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> } {
+  const report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> = [];
   const settings = briefSettingsSource(sources);
   let settingsSent = false;
   // Digest mode means digests: a transcript with a frozen digest is read
@@ -223,6 +252,8 @@ export function briefMessageWithReport<S extends BriefMessageSource>(
   );
   const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
   let remaining = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
+  const fits = evidence.reduce((sum, s) => sum + Math.min(s.content.length, perSource), 0) <= remaining;
+  if (!fits) return briefMessageByRelevance(sources, evidence, settings, perSource, remaining);
   let omitted = 0;
   const blocks: string[] = [];
   // Phase C: one note before the first company file the request carries.
@@ -238,13 +269,13 @@ export function briefMessageWithReport<S extends BriefMessageSource>(
     if (!s.content.length) {
       noteCompany(s.kind);
       blocks.push(block(s.content));
-      report.push({ source: s, sent: 0, total: 0 });
+      report.push({ source: s, sent: 0, total: 0, ranges: [] });
       continue;
     }
     // A cut keeps a prefix of the frozen text, so every quote the model
     // takes from it is still a verbatim substring of the source.
     const kept = cutToBudget(s.content, Math.min(perSource, remaining));
-    report.push({ source: s, sent: kept.length, total: s.content.length });
+    report.push({ source: s, sent: kept.length, total: s.content.length, ranges: kept.length ? [{ start: 0, end: kept.length }] : [] });
     if (!kept.length) {
       omitted += 1;
       continue;
@@ -260,6 +291,73 @@ export function briefMessageWithReport<S extends BriefMessageSource>(
       )
     );
   }
+  if (omitted > 0) blocks.push(briefOmittedSourcesNotice(omitted));
+  const wording = settings && settingsSent
+    ? `${BRIEF_WRITER_WORDING.prefix}${settings.label.toUpperCase()}${BRIEF_WRITER_WORDING.suffix}`
+    : "";
+  return { message: `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`, report };
+}
+
+/** `briefMessageWithReport` when the sources do not all fit: see there. */
+function briefMessageByRelevance<S extends BriefMessageSource>(
+  sources: S[],
+  evidence: S[],
+  settings: S | null,
+  perSource: number,
+  total: number
+): { message: string; report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> } {
+  const report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> = [];
+  const mustBeWhole = (s: S) => TRANSCRIPT_KINDS.has(s.kind) || s === settings || s.label.startsWith("writer_notes:");
+  // A source that goes in whole is first cut at the per-source limit, as before.
+  const candidates = evidence.map((s) => (mustBeWhole(s) ? cutToBudget(s.content, perSource) : s.content));
+  const subject = subjectOf([
+    ...evidence.filter((s) => TRANSCRIPT_KINDS.has(s.kind)).map((s) => s.content),
+    ...sources.filter((s) => s.kind === "writer_storyline").map((s) => s.content),
+  ]);
+  const chosen = chooseEvidence({
+    rows: candidates.map((text, index) => ({ text, ...(mustBeWhole(evidence[index]!) ? { whole: true } : {}) })),
+    subject,
+    budget: total,
+    size: utf16Size,
+    excerptCost: BRIEF_EXCERPTS.separator.length,
+  });
+  let omitted = 0;
+  let settingsSent = false;
+  const blocks: string[] = [];
+  let companyNoted = false;
+  evidence.forEach((s, index) => {
+    const block = (body: string) =>
+      `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${body}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`;
+    const noteCompany = () => {
+      if (s.kind !== "company_file" || companyNoted) return;
+      blocks.push(COMPANY_FILES_NOTE);
+      companyNoted = true;
+    };
+    if (!s.content.length) {
+      noteCompany();
+      blocks.push(block(s.content));
+      report.push({ source: s, sent: 0, total: 0, ranges: [] });
+      return;
+    }
+    const { ranges } = chosen[index]!;
+    const sent = ranges.reduce((sum, range) => sum + range.end - range.start, 0);
+    report.push({ source: s, sent, total: s.content.length, ranges });
+    if (sent === 0) {
+      omitted += 1;
+      return;
+    }
+    if (s === settings) settingsSent = true;
+    noteCompany();
+    const prefix = ranges.length === 1 && ranges[0]!.start === 0;
+    if (mustBeWhole(s) || prefix) {
+      // Whole, or a prefix cut at a word: as before.
+      const kept = s.content.slice(0, ranges[0]!.end);
+      blocks.push(block(kept.length < s.content.length ? `${kept}\n${truncationNotice(s.content.length - kept.length, s.content.length)}` : kept));
+      return;
+    }
+    const excerpts = ranges.map((range) => s.content.slice(range.start, range.end)).join(BRIEF_EXCERPTS.separator);
+    blocks.push(block(`${excerpts}\n${briefExcerptsNotice(sent, s.content.length)}`));
+  });
   if (omitted > 0) blocks.push(briefOmittedSourcesNotice(omitted));
   const wording = settings && settingsSent
     ? `${BRIEF_WRITER_WORDING.prefix}${settings.label.toUpperCase()}${BRIEF_WRITER_WORDING.suffix}`
