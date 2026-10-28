@@ -23,7 +23,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { ADMIN_ROUTES } from "$lib/dashboard/adminRoutes";
-  import { canSeeAdmin, canViewTeam } from "$lib/shell/navigation";
+  import { canSeeAdmin, canSeeAlerts, canViewTeam } from "$lib/shell/navigation";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
   import { popIn, popOut } from "$lib/motion/panelMotion";
@@ -91,6 +91,10 @@
     if (canSeeAdmin(viewer)) {
       list.push(...ADMIN_ROUTES.map((r) => ({ href: resolve(r.href as "/"), label: r.label, keywords: "admin" })));
     }
+    // The developer pages left the rail for the Admin sidebar (the page
+    // frame, 2026-10-28); a developer who is not an Admin reaches them here.
+    if (canSeeAlerts(viewer)) list.push({ href: resolve("/alerts"), label: "Alerts", keywords: "developer errors alerts" });
+    if (viewer.isDeveloper) list.push({ href: resolve("/requests"), label: "Feature requests", keywords: "developer requests ideas" });
     if (viewer.isDeveloper && currentDashboardHref) {
       list.push({ href: currentDashboardHref, label: currentExperienceLabel, keywords: "developer current dashboard classic" });
     }

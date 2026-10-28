@@ -69,12 +69,27 @@ describe("CommandPalette (round 2 additions)", () => {
     await expect.poll(() => __navigationCalls.map((call) => call.url)).toEqual(["/dashboard?workspace=current"]);
   });
 
+  it("developers reach Alerts (with ops.viewAlerts) and Feature requests from the palette, since the rail no longer lists them", async () => {
+    await open({ _id: "dc", role: "writer", isDeveloper: true });
+    expect(labels()).toContain("Feature requests");
+    expect(labels()).not.toContain("Alerts");
+    expect(labels()).not.toContain("House rules");
+  });
+
+  it("a developer Admin gets both developer pages", async () => {
+    await open({ _id: "d", role: "admin", isDeveloper: true });
+    expect(labels()).toContain("Alerts");
+    expect(labels()).toContain("Feature requests");
+  });
+
   it("while viewing as a Consultant, the palette follows that view", async () => {
     viewAs.enter("consultant");
     await open({ _id: "d", role: "admin", isDeveloper: true });
     expect(labels()).not.toContain("House rules");
     expect(labels()).not.toContain("Team");
     expect(labels()).not.toContain("Current dashboard");
+    expect(labels()).not.toContain("Alerts");
+    expect(labels()).not.toContain("Feature requests");
   });
 
   it("Flag an issue dispatches the flag event", async () => {
