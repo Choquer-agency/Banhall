@@ -241,7 +241,7 @@ flowchart TD
   root["+layout.svelte<br/>Convex client, sign-in, error boundary, toasts"]:::web
   open["No login needed<br/><br/>/login<br/>/signup/[token]: accept an invite<br/>/review/[shareToken]: client reads and comments"]:::person
   gate["WorkspaceGate<br/>signed out goes to /login"]:::web
-  shell["WorkspaceShell<br/>left rail, command palette, shortcuts"]:::web
+  shell["WorkspaceShell<br/>global bar, fixed rail, one white card,<br/>section sidebars, command palette, shortcuts"]:::web
   daily["Daily work<br/><br/>/my-work: Home, what is with you<br/>/projects: clients and their projects<br/>/project/new: create and upload evidence<br/>/project/[id]: the report page<br/>/project/[id]/financial"]:::web
   other["Everything else<br/><br/>/settings: account, writing, notifications, shortcuts<br/>/team: members and invites, Managers and Admins<br/>/changelog"]:::web
   restricted["Restricted<br/><br/>/admin/*: house rules, Brain, models, usage...<br/>/alerts, /requests: developers only"]:::admin
@@ -256,7 +256,8 @@ flowchart TD
 - `/` sends you to `/my-work` when signed in, otherwise to `/login`.
 - `/dashboard` is the old entry. It redirects to the new pages, or shows the old interface when the URL has `?workspace=current`. The old interface stays in the repo as a rollback.
 - There is no `/clients` page. Clients live on `/projects`; `?client=<key>` selects one, and the rail's Companies link points there.
-- Admin pages: house-rules, tags, brain, ingestion, models, reviews, learning and usage are on the rail; comparisons, backfill and users open from the command palette.
+- The page frame (owner, 2026-10-28; `docs/design-system.md` "the page frame"). From 1024px every signed-in page has the same three parts: a 52px global bar (logo, What's new bell, account menu, `GlobalBar`), a fixed 80px labelled rail (Projects, Companies, Team, Admin, Settings; `FrameRail`, items from `frameRailItems` in `src/lib/shell/navigation.ts`) and one white card (`FrameCard`). The card holds the page and, for four sections, a section sidebar (`SectionSidebar`): Projects and Home share one (Home, All projects, every company; `ClientList`), Team, Admin and Settings have their own (`src/lib/components/workspace/sidebars/`). `frameSectionForPath` says which a page draws; the loading frame reads it so nothing jumps. New project, What's new, Alerts, Feature requests and the project page have no sidebar. Mod \ collapses the sidebar (`sectionSidebar.svelte.ts`, kept in this browser). Below 1024px the bar and rail go away: the slide-out drawer (`WorkspaceRail`) and each page's own bar with its hamburger stay as before. The frame only shows and hides; who may open what is still decided by the capabilities and checked on the server.
+- Admin pages: house-rules, tags, brain, ingestion, models, reviews, learning and usage are in the Admin sidebar, with Alerts and Feature requests at its foot for developers; comparisons, backfill and users open from the command palette, which also lists the developer pages.
 
 ### How a page gets and changes data
 
