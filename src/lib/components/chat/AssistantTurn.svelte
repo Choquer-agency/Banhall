@@ -136,6 +136,7 @@
     acceptingAll = true;
     cards?.clearNotice();
     const done: AcceptedCard[] = [];
+    let failure: string | null = null;
     try {
       await onBeforeApply?.();
       for (const node of waiting) {
@@ -146,9 +147,12 @@
     } catch (error) {
       const failedLine = (error as { line?: string | null }).line;
       const reason = userErrorMessage(error, "Try again.");
-      cards?.showNotice({ message: `Couldn't accept ${failedLine ? `Line ${failedLine}` : "every suggestion"}. ${reason}` });
+      failure = `Couldn't accept ${failedLine ? `Line ${failedLine}` : "every suggestion"}. ${reason}`;
     } finally {
+      // The accepted cards go to the Undo bar first; the reason the rest
+      // waits then stays the newest thing in the chat.
       if (done.length) cards?.accepted(done);
+      if (failure) cards?.showNotice({ message: failure });
       acceptingAll = false;
     }
   }

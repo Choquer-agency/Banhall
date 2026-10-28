@@ -200,22 +200,45 @@ export function reviewMarks(
       }
       previousEnd = to;
       let offset = 0;
+      // Where the words struck just before end, so their replacement follows them.
+      let cutEnd: number | null = null;
       for (const part of parts) {
         if (part.type === "added") {
-          const at = normalizedLength(needle.slice(0, offset));
-          const position = at < ned.length ? starts[idx + at] : to;
-          if (part.text.trim()) marks.push({ kind: "new", at: position, text: part.text.trim() });
+          const text = part.text.trim();
+          if (!text) continue;
+          if (cutEnd !== null) {
+            marks.push({ kind: "new", at: cutEnd, text });
+          } else {
+            // An insertion between words keeps a space on each side that
+            // the report does not already have.
+            const at = normalizedLength(needle.slice(0, offset));
+            const position = at < ned.length ? starts[idx + at] : to;
+            const word = (ch: string | undefined) => !!ch && /[\p{L}\p{N}]/u.test(ch);
+            const before = at > 0 && word(hay[idx + at - 1]) ? " " : "";
+            const after = at < ned.length && word(hay[idx + at]) ? " " : "";
+            marks.push({ kind: "new", at: position, text: `${before}${text}${after}` });
+          }
+          cutEnd = null;
           continue;
         }
         const startOffset = offset;
         offset += part.text.length;
-        if (part.type === "equal") continue;
+        if (part.type === "equal") {
+          cutEnd = null;
+          continue;
+        }
         let start = normalizedLength(needle.slice(0, startOffset));
         let end = normalizedLength(needle.slice(0, offset));
         // A collapsed space maps to the next word's position: trim it off.
         while (start < end && hay[idx + start] === " ") start++;
         while (end > start && hay[idx + end - 1] === " ") end--;
-        if (end > start) marks.push({ kind: "cut", from: starts[idx + start], to: ends[idx + end - 1] });
+        if (end > start) {
+          const cutTo = ends[idx + end - 1];
+          marks.push({ kind: "cut", from: starts[idx + start], to: cutTo });
+          cutEnd = cutTo;
+        } else {
+          cutEnd = null;
+        }
       }
       idx = hay.indexOf(ned, idx + ned.length);
     }

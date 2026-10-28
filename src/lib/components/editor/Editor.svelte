@@ -667,7 +667,7 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
   import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
@@ -1005,6 +1005,8 @@
       limitPillEl = pill;
       pill.setAttribute("aria-expanded", "true");
       limitPopover = { line, top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) };
+      // Keyboard users land in the popover, on its first action.
+      void tick().then(() => limitPopoverEl?.querySelector<HTMLButtonElement>("button")?.focus());
     };
     dom.addEventListener("mousedown", onDown);
     dom.addEventListener("click", onClick);
@@ -1026,6 +1028,13 @@
       closeLimitPopover(true);
     };
     const onScroll = () => closeLimitPopover();
+    // Leaving the popover by keyboard closes it, as leaving by pointer does.
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget as Node | null;
+      if (next && (limitPopoverEl?.contains(next) || limitPillEl?.contains(next))) return;
+      if (next) closeLimitPopover();
+    };
+    limitPopoverEl?.addEventListener("focusout", onFocusOut);
     document.addEventListener("pointerdown", onPointer, true);
     document.addEventListener("keydown", onKey, true);
     window.addEventListener("scroll", onScroll, true);
@@ -1035,6 +1044,7 @@
       document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onScroll);
+      limitPopoverEl?.removeEventListener("focusout", onFocusOut);
     };
   });
   const popoverMetric = $derived(
@@ -1369,8 +1379,12 @@
     const firstShow = !reviewPreview || reviewPreview.pairs[0]?.find !== kept[0].find;
     reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
     if (!firstShow) return;
-    const first = findAllOccurrencesCI(editor.state.doc, kept[0].find)[0];
-    if (first) scrollContainerToPos(first.from, 120);
+    // The first change inside the card's Line, not the same words elsewhere.
+    const doc = editor.state.doc;
+    const scope = options.line ? lineScope(doc, options.line) : undefined;
+    const first = reviewMarks(doc, kept, diffWords, scope)[0];
+    const at = first ? (first.kind === "cut" ? first.from : first.at) : findAllOccurrencesCI(doc, kept[0].find)[0]?.from;
+    if (at !== undefined) scrollContainerToPos(at, 120);
   }
 
   export function clearProposalPreview() {

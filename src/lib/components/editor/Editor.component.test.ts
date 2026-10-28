@@ -109,6 +109,25 @@ describe("Editor search surface", () => {
 
   // Owner 2026-10-28: a suggestion under review marks only the words that
   // change, in every occurrence it would change.
+  // Review 2026-10-28 (finding 4): a word changed or added inside a passage
+  // keeps the spaces around it, with Show changes on and off.
+  it("places changed and added words inside a passage with their spaces", async () => {
+    const doc = (text: string) => JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const shown = (container: HTMLElement) => {
+      const clone = container.querySelector(".ProseMirror")!.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll(".review-cut-hidden").forEach((el) => el.remove());
+      return (clone.textContent ?? "").replace(/\s+/g, " ").trim();
+    };
+    const { component, container } = await mountEditor(doc("The big dog ran home."));
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }]);
+    await expect.poll(() => [...container.querySelectorAll(".review-cut")].map((el) => el.textContent)).toEqual(["big"]);
+    expect([...container.querySelectorAll(".review-new")].map((el) => el.textContent)).toEqual(["red"]);
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The red dog ran home.");
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big brown dog ran home." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The big brown dog ran home.");
+  });
+
   it("marks only the changed words of each occurrence, and clears", async () => {
     const { component, container } = await mountEditor();
 

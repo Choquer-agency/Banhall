@@ -32,8 +32,12 @@
   let listEl = $state<HTMLDivElement | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
 
+  // Take the keyboard only from the message box this panel replaces, or from
+  // nowhere: never from the report or anything else the writer is using.
   onMount(() => {
-    listEl?.focus({ preventScroll: true });
+    const active = document.activeElement;
+    const free = !active || active === document.body || !!active.closest?.("[data-assistant-panel]");
+    if (free) listEl?.focus({ preventScroll: true });
   });
 
   async function choose(index: number) {
@@ -55,7 +59,8 @@
   }
 
   function onListKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented) return;
+    // Keys typed into the "Something else…" field are the writer's words.
+    if (event.defaultPrevented || event.target === inputEl) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;

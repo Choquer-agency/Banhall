@@ -101,9 +101,8 @@
   $effect(() => {
     if (editState !== "pending" && reviewing) onStopReview();
   });
-  onMount(() => () => {
-    if (reviewing) onStopReview();
-  });
+  // A review outlives this card's mount: the tray around the card can come
+  // and go. The panel ends a review whose card is no longer waiting.
 
   // In-card review, where the report is not beside the chat.
   const inCardDiff = $derived(reviewing && !reviewInReport ? changesFor(shownOption).map(({ before, after }) => diffWords(before, after)) : []);

@@ -562,13 +562,21 @@
     shorteningLine = line;
     shorteningStarted = false;
   }
-  function assistantWorkingChanged(working: boolean) {
+  // The chip shows from the ask until the reply settles: it starts counting
+  // once the request is sent, and goes if it never was.
+  function assistantPromptDone(sent: boolean, working: boolean) {
     if (!shorteningLine) return;
-    if (working) shorteningStarted = true;
-    else if (shorteningStarted && !assistantPrompt) {
+    if (!sent || !working) {
       shorteningLine = null;
       shorteningStarted = false;
+      return;
     }
+    shorteningStarted = true;
+  }
+  function assistantWorkingChanged(working: boolean) {
+    if (!shorteningLine || !shorteningStarted || working) return;
+    shorteningLine = null;
+    shorteningStarted = false;
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
@@ -2859,9 +2867,10 @@
                         onOpenVersionHistory={() => (showHistory = true)}
                         reportContent={report.content}
                         pendingPrompt={assistantPrompt}
-                        onPromptSent={(id) => {
+                        onPromptTaken={(id) => {
                           if (assistantPrompt?.id === id) assistantPrompt = null;
                         }}
+                        onPromptDone={(_id, sent, working) => assistantPromptDone(sent, working)}
                         onWorkingChange={assistantWorkingChanged}
                         onBeforeApply={flushEditor}
                         closeInset={false}

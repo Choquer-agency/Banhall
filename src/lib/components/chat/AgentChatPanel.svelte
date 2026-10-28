@@ -111,7 +111,10 @@
      * request. Sent once per id; `onPromptSent` then clears it.
      */
     pendingPrompt?: { id: string; text: string } | null;
-    onPromptSent?: (id: string) => void;
+    /** Called as the panel takes the prompt, before it sends it. */
+    onPromptTaken?: (id: string) => void;
+    /** Whether it was sent, and whether a reply is under way at that moment. */
+    onPromptDone?: (id: string, sent: boolean, working: boolean) => void;
     /** Whether a reply is being sent or written, for the report's "Shortening" chip. */
     onWorkingChange?: (working: boolean) => void;
     onBeforeApply?: () => Promise<unknown>;
@@ -133,7 +136,8 @@
     onOpenVersionHistory,
     reportContent = null,
     pendingPrompt = null,
-    onPromptSent,
+    onPromptTaken,
+    onPromptDone,
     onWorkingChange,
     onBeforeApply,
   }: Props = $props();
@@ -466,6 +470,15 @@
   });
 
   const undoProposal = useMutation(api.chatV2.undoProposal);
+  // A card under review that is no longer waiting (accepted elsewhere,
+  // dismissed, or gone stale) ends its review.
+  $effect(() => {
+    const target = review?.target;
+    const rows = proposalsQ.data;
+    if (!target || !rows) return;
+    const card = rows.find((row) => row._id === target.proposalId);
+    if (card && card.state !== "pending") untrack(() => review?.stop());
+  });
   // Owner 2026-10-28 (row 32): a new conversation starts without a bar or a
   // notice from the last one.
   $effect(() => {
@@ -932,8 +945,8 @@
     return {
       disabled: regenerationBusy,
       description: `Regenerate response to: ${excerpt.length > 160 ? `${excerpt.slice(0, 159)}…` : excerpt}`,
-      onRegenerate: () => sendText(text, { kind: "regenerate", threadId },
-        turn?.promptMessageId ? { kind: "regenerate", ofPromptMessageId: turn.promptMessageId } : undefined),
+      onRegenerate: async () => void (await sendText(text, { kind: "regenerate", threadId },
+        turn?.promptMessageId ? { kind: "regenerate", ofPromptMessageId: turn.promptMessageId } : undefined)),
     };
   }
 
@@ -956,7 +969,7 @@
     return {
       label,
       disabled: regenerationBusy,
-      onContinue: () => sendText(text, { kind: "continue", threadId }),
+      onContinue: async () => void (await sendText(text, { kind: "continue", threadId })),
       ...(skipNote ? { skipNote } : {}),
     };
   }
@@ -1206,7 +1219,7 @@
     if (composerSelection) textareaEl?.focus();
   });
 
-  async function sendText(text: string, intent: SendIntent = { kind: "composer" }, alternative?: AlternativeSend) {
+  async function sendText(text: string, intent: SendIntent = { kind: "composer" }, alternative?: AlternativeSend): Promise<boolean> {
     const historical = intent.kind !== "composer";
     const trimmed = historical ? text : text.trim();
     if (
@@ -1220,7 +1233,7 @@
       (!historical && composerChatBlocked) ||
       (!historical && (threadsLoading || threadsUnreadable || conversationUnreadable)) ||
       isStreaming
-    ) return;
+    ) return false;
 
     if (!historical && pendingResearch) {
       researchStarting = true;
@@ -1249,7 +1262,7 @@
       } finally {
         researchStarting = false;
       }
-      return;
+      return researchError === null;
     }
 
     const args: Parameters<typeof sendMessage>[0] = {
@@ -1297,6 +1310,8 @@
     const transmission = transmitRequest(request);
     void revealRequest(request);
     await transmission;
+    // Whether it reached the server; a refused send stays as a failed row.
+    return localSends.find((candidate) => candidate.key === request.key)?.state.kind !== "failed";
   }
 
   function retryRequest(key: string, button: HTMLButtonElement) {
@@ -1431,17 +1446,37 @@
   $effect(() => {
     const prompt = pendingPrompt;
     if (!prompt || prompt.id === sentPromptId) return;
-    if (threadsLoading || sending || isStreaming || awaitingReply) return;
+    if (threadsLoading || sending || isStreaming || awaitingReply || researchStarting || publicationPending) return;
     sentPromptId = prompt.id;
-    untrack(() => {
-      startNewThread();
-      void tick()
-        .then(() => sendText(prompt.text))
-        .finally(() => onPromptSent?.(prompt.id));
-    });
+    // Taken at once, so a remount cannot send it again.
+    untrack(() => onPromptTaken?.(prompt.id));
+    untrack(() => void sendPagePrompt(prompt));
   });
+  // The request goes out alone: the writer's pinned files, Brain choice and
+  // draft stay for their own next message.
+  async function sendPagePrompt(prompt: { id: string; text: string }) {
+    const keptFiles = pinnedFiles;
+    const keptBrain = allowBrain;
+    startNewThread();
+    pinnedFiles = [];
+    allowBrain = false;
+    await tick();
+    let sent = false;
+    try {
+      sent = await sendText(prompt.text);
+    } finally {
+      if (pinnedFiles.length === 0) pinnedFiles = keptFiles;
+      if (!allowBrain) allowBrain = keptBrain;
+      onPromptDone?.(prompt.id, sent, replyUnderWay());
+    }
+  }
+  // A message on its way counts until the server's copy and its reply take
+  // over, so a new conversation still loading never reads as idle.
+  function replyUnderWay() {
+    return sending || isStreaming || awaitingReply || visibleLocalSends.some((request) => request.state.kind !== "failed");
+  }
   $effect(() => {
-    const working = sending || isStreaming || awaitingReply;
+    const working = replyUnderWay();
     untrack(() => onWorkingChange?.(working));
   });
 

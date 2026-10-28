@@ -4807,7 +4807,20 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
 - **Authorization.** Unchanged: Review, Accept, Accept all, Dismiss and Edit wording are offered to report editors only, as Apply and Dismiss were.
 - **My calls, for the owner to confirm:** Option 1 is always the recommended one; Review replaces the one-by-one stepper; a report-wide find/replace splits per Line; the More menu keeps Dismiss, Edit wording, Refine with AI and Copy wording; the "Done.", "Undone." and notice wording; the Shortening chip while a pill's request runs.
 - **Tests:** `convex/chatProposalLines.test.ts` (per-Line cards, retries, Line-scoped find/replace, options and their refusals); `src/lib/components/chat/SuggestionCards.component.test.ts`; `src/lib/components/project/ReportReview.component.test.ts`; `src/lib/components/project/ShortenFlow.component.test.ts`; `src/lib/chat/writerQuestion.test.ts`, `startOptions.test.ts` and `chatHistory.test.ts`; the existing chat tests now pin the new cards.
-- **Review:** pending.
+- **Known limits.** A split revision's findings keep the reasons the AI wrote, which may name an edit number from the whole call ("proposed in edit 3"). A find/replace match outside every Line (text above Line 242) is not replaced when the same words also occur inside a Line.
+- **Review:**
+  - **Round 1.** Claude Opus 5.5, requested at high (it could not confirm its effort from inside the session), "ship after fixes", with no agents-propose or authorization finding. Fixed:
+    - split find/replace cards no longer hide each other in the chat;
+    - digits typed in "Something else…" stay in the field;
+    - the options panel takes focus only from the message box or from nowhere, never from the report;
+    - a word changed or added inside a passage keeps its spaces;
+    - Accept all keeps the reason it stopped;
+    - the Shortening chip goes when the request was never sent, and counts a message still on its way;
+    - the shorten request goes out without the writer's pinned files or Brain choice, and cannot be sent twice;
+    - the pill opens its popover with Enter and moves focus into it;
+    - a refused `askWriter` call no longer ends the reply;
+    - Review scrolls to the first change in its own Line;
+    - a review survives the Accept all tray changing around its card.
 
 ## Amendment process
 

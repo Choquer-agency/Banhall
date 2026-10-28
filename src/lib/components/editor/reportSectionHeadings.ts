@@ -155,7 +155,9 @@ function sectionHeadingView(
     // changes still reach ProseMirror, so a click there moves the real caret
     // (which the plugin then places just after the heading).
     ignoreMutation: (mutation) => mutation.type !== "selection",
-    stopEvent: () => false,
+    // The limit pill is a real button: its clicks and keys are its own, so
+    // Enter opens its popover instead of editing the report.
+    stopEvent: (event) => !!(event.target as HTMLElement | null)?.closest?.("[data-report-limit-pill]"),
   };
 }
 

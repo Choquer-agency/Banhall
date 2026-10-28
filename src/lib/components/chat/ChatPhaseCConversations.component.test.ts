@@ -469,9 +469,11 @@ describe("options above the message box", () => {
     await page.getByRole("option", { name: /Something else/ }).click();
     const own = page.getByRole("textbox", { name: "Your own answer" });
     await expect.element(own).toHaveFocus();
-    await own.fill("Cut the background");
+    // Review 2026-10-28 (finding 2): digits typed here are the writer's words.
+    await userEvent.keyboard("Cut to 300 words");
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
     await userEvent.keyboard("{Enter}");
-    await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Cut the background");
+    await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Cut to 300 words");
   });
 });
 

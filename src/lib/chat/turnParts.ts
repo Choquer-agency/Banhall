@@ -585,7 +585,12 @@ function supersededProposals(proposals: readonly Doc<"chatProposals">[]): Set<nu
       .slice(index + 1)
       .filter(
         (other) =>
-          other.state === "pending" && other.promptMessageId === proposal.promptMessageId
+          other.state === "pending" &&
+          other.promptMessageId === proposal.promptMessageId &&
+          // Owner 2026-10-28: one tool call saves one card per Line, and a
+          // card for another Line never refines this one.
+          !(proposal.toolCallId && other.toolCallId === proposal.toolCallId) &&
+          (!proposal.section || !other.section || other.section === proposal.section)
       )
       .map((other) => ({ keys: passageKeys(other), unique: hasUniqueTargets(other) }));
     const covered = targets.filter((own) =>

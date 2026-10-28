@@ -48,7 +48,8 @@ it("opens the limit popover from the pill and asks the Assistant to shorten the 
   await page.screenshot({ path: `${CAPTURES}/f1-limit-popover.png` });
 
   await page.getByRole("button", { name: "Ask the Assistant to shorten it" }).click();
-  await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string; newThread?: boolean } | undefined))
+  // The Assistant loads its panel first, then sends.
+  await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string; newThread?: boolean } | undefined), { timeout: 10_000 })
     .toMatchObject({ content: "Shorten Line 242 so it fits the CRA limit. It is 35 words over.", newThread: true });
   expect(__mutationCalls("chatV2:sendMessage")).toHaveLength(1);
   await expect.element(page.getByText("Shortening", { exact: true })).toBeVisible();
@@ -64,4 +65,18 @@ it("closes the popover with Esc and gives focus back to the pill", async () => {
   await userEvent.keyboard("{Escape}");
   await expect.poll(() => document.querySelector("[data-limit-popover]")).toBeNull();
   await expect.poll(() => document.activeElement === pill.element()).toBe(true);
+});
+
+// Review 2026-10-28 (finding 8): the pill works from the keyboard.
+it("opens the popover with Enter on the pill, leaves the report as it was, and focuses its first action", async () => {
+  await page.viewport(1440, 900);
+  await render(PreviewProjectPage);
+  const pill = page.getByRole("button", { name: /35 words over/ });
+  await expect.element(pill).toBeVisible();
+  const before = document.querySelector(".ProseMirror")?.textContent;
+  (pill.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("dialog", { name: "Line 242 is over the CRA limit" })).toBeVisible();
+  await expect.poll(() => document.activeElement?.textContent?.trim()).toBe("Ask the Assistant to shorten it");
+  expect(document.querySelector(".ProseMirror")?.textContent).toBe(before);
 });

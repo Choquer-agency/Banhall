@@ -208,6 +208,21 @@ describe("Accept all", () => {
     ]);
   });
 
+  // Review 2026-10-28 (finding 5): a stop partway keeps its reason in view.
+  it("keeps the reason Accept all stopped, with the accepted card on the Undo bar", async () => {
+    let call = 0;
+    __setMutationResult("chatV2:applyProposal", {
+      then(resolve: (value: unknown) => void) {
+        call += 1;
+        resolve(call === 1 ? { applied: true, count: 1 } : { applied: false, count: 0, reason: "Couldn't find the original passage in the current report." });
+      },
+    });
+    const { cards } = await mount(two());
+    await page.getByRole("button", { name: "Accept all" }).click();
+    await expect.element(page.getByText("Couldn't accept Line 244. Couldn't find the original passage in the current report.")).toBeVisible();
+    expect(cards.lastAccepted).toEqual([{ proposalId: "card-242", line: "242" }]);
+  });
+
   it("is hidden when a waiting card offers options, and once one card is left", async () => {
     const first = await mount([withOptions(), two()[1]]);
     await expect.element(page.getByText("Line 244", { exact: true })).toBeVisible();

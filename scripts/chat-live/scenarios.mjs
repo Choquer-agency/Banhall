@@ -21,16 +21,29 @@ async function openPanel(page, ctx) {
   await page.locator("textarea").first().waitFor({ timeout: 30_000 });
 }
 
+// Owner 2026-10-28 (row 16 B): the pencil starts a new conversation.
 async function newConversation(page) {
-  await page.getByRole("button", { name: /Conversation menu/i }).first().click();
-  await page.getByRole("menuitem", { name: /New conversation/i }).first().click();
+  await page.getByRole("button", { name: "New conversation", exact: true }).first().click();
   await page.waitForTimeout(800);
 }
 
+// Row 37: options can stand in for the message box; Skip brings it back.
+async function skipOptions(page) {
+  const skip = page.locator("[data-composer-options-skip]");
+  if (await skip.count()) {
+    await skip.first().click();
+    await page.waitForTimeout(300);
+  }
+}
+
 async function send(page, text) {
+  await skipOptions(page);
   await page.locator("textarea").first().fill(text);
   await page.keyboard.press("Enter");
 }
+
+const proposalsOf = (ctx, threadId) =>
+  ctx.run("chatV2:listProposals", { threadId, startOrder: 0, endOrder: 9999 }, ctx.me.authId).filter((p) => p.kind !== "references");
 
 const busy = async (page) => (await page.getByRole("button", { name: /^Stop/ }).count()) > 0;
 
@@ -73,12 +86,16 @@ const SCENARIOS = [
     async run(page, ctx) {
       await openPanel(page, ctx);
       await newConversation(page);
-      const starter = page.getByRole("button", { name: "Tighten the uncertainty framing in Line 242" });
-      expect(await starter.count(), "no Line 242 starter");
-      await starter.click();
-      expect((await page.locator("textarea").first().inputValue()) === "Tighten the uncertainty framing in Line 242", "a starter did not fill the composer");
-      expect(!(await busy(page)), "a starter sent a message");
-      await page.locator("textarea").first().fill("");
+      // Owner 2026-10-28 (O4): "Get started" only when a Line is over its limit.
+      const overLines = await page.locator("[data-report-limit-pill]").count();
+      const panel = await page.getByText("Get started", { exact: true }).count();
+      expect((overLines > 0) === (panel > 0), `Get started shown ${panel ? "with" : "without"} a Line over its limit`);
+      if (panel) {
+        const options = await page.locator("[data-composer-option]").allInnerTexts();
+        expect(options.slice(0, -1).every((o) => /Shorten Line 24[246] to \d+/.test(o)), `unexpected options: ${options.join(" / ")}`);
+        expect(!(await busy(page)), "showing the options sent a message");
+      }
+      await skipOptions(page);
       await page.getByRole("button", { name: "Message options" }).click();
       const items = await page.locator("[role=menuitemcheckbox], [role=menuitem]").evaluateAll((els) =>
         els.map((e) => `${e.getAttribute("aria-checked")}|${e.innerText.trim()}`)
@@ -89,7 +106,7 @@ const SCENARIOS = [
       // Owner, 2026-10-21: no "Web search on" label in the chat.
       expect((await page.getByText("Web search on", { exact: true }).count()) === 0, "the chat shows a web search label");
       expect(items.some((i) => i.endsWith("|Read a file in full")), "no Read a file in full");
-      return "starters fill the composer; Brain off, web on with no label, Read a file in full";
+      return `Get started ${panel ? "shown" : "not shown"} with ${overLines} Line(s) over; Brain off, web on with no label, Read a file in full`;
     },
   },
   {
@@ -109,7 +126,7 @@ const SCENARIOS = [
       }
       expect(quiet >= 3, "the job was still running after 15 minutes");
       const text = await transcript(page);
-      const cards = await page.getByRole("button", { name: "Apply", exact: true }).count();
+      const cards = await page.locator("[data-proposed-edit]").count();
       const chips = await page.locator("[data-auto-continue-chip]").count();
       const turns = ctx.run("chatV2:listTurns", { threadId: currentThread(ctx).agentThreadId, startOrder: 0, endOrder: 9999 }, ctx.me.authId);
       const automatic = turns.filter((t) => t.origin === "auto_continue").length;
@@ -131,15 +148,20 @@ const SCENARIOS = [
   {
     name: "apply-undo",
     async run(page, ctx) {
+      // Owner 2026-10-28 (rows 32 and 34): Review, then Accept on the bar,
+      // then Undo on the bar above the message box.
       await openPanel(page, ctx);
       const before = await reportText(page);
-      await page.getByRole("button", { name: "Apply", exact: true }).last().click();
+      await page.getByRole("button", { name: "Review", exact: true }).last().click();
+      await page.getByRole("toolbar", { name: "Review suggestion" }).waitFor({ timeout: 10_000 });
+      expect((await reportText(page)).length > 0 && (await page.locator(".review-cut, .review-new").count()) > 0, "Review marked nothing in the report");
+      await page.getByRole("toolbar", { name: "Review suggestion" }).getByRole("button", { name: "Accept" }).click();
       await page.waitForTimeout(4000);
-      expect((await reportText(page)) !== before, "Apply did not change the report");
-      await page.getByRole("button", { name: "Undo", exact: true }).last().click();
+      expect((await reportText(page)) !== before, "Accept did not change the report");
+      await page.locator("[data-undo-bar-undo]").click();
       await page.waitForTimeout(4000);
       expect((await reportText(page)) === before, "Undo did not restore the report exactly");
-      return "applied, then undone to the exact text";
+      return "reviewed, accepted, then undone to the exact text";
     },
   },
   {
@@ -266,7 +288,7 @@ const SCENARIOS = [
     async run(page, ctx) {
       await openPanel(page, ctx);
       const thread = currentThread(ctx);
-      await page.getByRole("button", { name: /Conversation menu/i }).first().click();
+      await page.getByRole("button", { name: "Chat history" }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
       await expectClickable(page.getByRole("menuitem", { name: "Rename", exact: true }).first(), "Rename");
       await page.getByRole("menuitem", { name: "Rename", exact: true }).first().click();
@@ -275,7 +297,7 @@ const SCENARIOS = [
       await field.press("Enter");
       await page.waitForTimeout(1500);
       expect(currentThread(ctx).title === "Live test conversation", "rename did not save");
-      await page.getByRole("button", { name: /Conversation menu/i }).first().click();
+      await page.getByRole("button", { name: "Chat history" }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
       await expectClickable(page.getByRole("menuitem", { name: "Archive", exact: true }).first(), "Archive");
       await page.getByRole("menuitem", { name: "Archive", exact: true }).first().click();
@@ -390,6 +412,69 @@ const SCENARIOS = [
     },
   },
   {
+    // Owner 2026-10-28: one card per Line, up to three options in one Line.
+    name: "per-line-cards",
+    async run(page, ctx) {
+      await openPanel(page, ctx);
+      await newConversation(page);
+      await send(page, "Tighten one sentence in Line 242 and one sentence in Line 244. Keep every fact.");
+      await waitIdle(page);
+      const cards = proposalsOf(ctx, currentThread(ctx).agentThreadId);
+      const lines = cards.map((c) => c.section);
+      expect(cards.length >= 2, `expected a card for each Line, got ${cards.length}`);
+      expect(lines.includes("242") && lines.includes("244"), `cards for Lines ${lines.join(", ")}`);
+      expect(cards.every((c) => c.section), "a card has no Line");
+      const tray = await page.locator("[data-accept-all-tray]").count();
+      const withOptions = cards.some((c) => c.alternatives?.length);
+      expect(withOptions || tray > 0, "two waiting cards without options, but no Accept all");
+      return `${cards.length} cards for Lines ${lines.join(", ")}, ${tray ? "Accept all shown" : "no tray (a card has options)"}`;
+    },
+  },
+  {
+    name: "options",
+    async run(page, ctx) {
+      await openPanel(page, ctx);
+      await newConversation(page);
+      await send(page, "Shorten the first paragraph of Line 246 a little. Give me two or three options to choose from.");
+      await waitIdle(page);
+      const cards = proposalsOf(ctx, currentThread(ctx).agentThreadId);
+      const options = Math.max(0, ...cards.map((c) => 1 + (c.alternatives?.length ?? 0)));
+      expect(cards.length >= 1, "no card was proposed");
+      expect(options >= 2, "the card offers one version only");
+      expect(cards.every((c) => c.section === "246"), `cards for Lines ${cards.map((c) => c.section).join(", ")}`);
+      await page.getByRole("button", { name: "Review", exact: true }).last().click();
+      await page.getByRole("toolbar", { name: "Review suggestion" }).waitFor({ timeout: 10_000 });
+      const marks = await page.locator(".review-cut, .review-new").count();
+      await page.getByRole("button", { name: "Next option" }).last().click();
+      const bar = await page.getByRole("toolbar", { name: "Review suggestion" }).innerText();
+      await page.keyboard.press("Escape");
+      expect(marks > 0, "Review marked nothing in the report");
+      expect(/Option 2/.test(bar), "the review bar did not follow the option");
+      return `${options} options, ${marks} marks in the report`;
+    },
+  },
+  {
+    // Owner 2026-10-28 (row 37): the AI may ask with options. Not forced:
+    // the check reports whether it asked and that a pick is sent.
+    name: "ask-writer",
+    async run(page, ctx) {
+      await openPanel(page, ctx);
+      await newConversation(page);
+      await send(page, "This report is too long. What should we cut?");
+      await waitIdle(page);
+      const asked = await page.getByText("Assistant needs you", { exact: true }).count();
+      if (!asked) return "the AI answered without asking (allowed)";
+      const first = page.locator("[data-composer-option]").first();
+      const pick = (await first.innerText()).replace(/^\d+\s*/, "");
+      await first.click();
+      await page.waitForTimeout(3000);
+      const text = await transcript(page);
+      expect(text.includes(pick.slice(0, 20)), "the pick was not sent as the writer's message");
+      await waitIdle(page);
+      return `asked; picked "${pick}"`;
+    },
+  },
+  {
     name: "admin-delete",
     async run(page, ctx) {
       // A conversation whose reply has finished, past the 10 s wait after its action ended.
@@ -402,7 +487,7 @@ const SCENARIOS = [
       await new Promise((r) => setTimeout(r, 12_000));
       const title = ctx.run("chatV2:listThreads", { reportId: ctx.reportId }, ctx.me.authId).find((t) => t.agentThreadId === sent.threadId)?.title;
       await openPanel(page, ctx);
-      await page.getByRole("button", { name: /Conversation menu/i }).first().click();
+      await page.getByRole("button", { name: "Chat history" }).first().click();
       await page.getByRole("menuitem", { name: /Conversation actions/i }).first().hover();
       await expectClickable(page.getByRole("menuitem", { name: "Delete permanently" }).first(), "Delete permanently");
       await page.getByRole("menuitem", { name: "Delete permanently" }).first().click();

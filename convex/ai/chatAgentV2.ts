@@ -11,7 +11,7 @@ import {
   type ContextOptions,
 } from "@convex-dev/agent";
 import { onHistoryPath } from "../lib/chatPath";
-import { hasToolCall, type ModelMessage } from "ai";
+import type { ModelMessage } from "ai";
 // The report chat assistant calls Anthropic directly with ANTHROPIC_API_KEY,
 // whatever ANTHROPIC_TRANSPORT says (owner decision 30, 2026-09-25: chat
 // moves to OpenRouter in a later change). Its helper calls (clientForRole)
@@ -1045,6 +1045,27 @@ export function withCutOffInstruction(
  */
 export function stopAfterSecondCutOff({ steps }: { steps: ReadonlyArray<CutOffStep> }): boolean {
   return steps.filter((step) => cutOffToolCallIds(step).length > 0).length >= 2;
+}
+
+/**
+ * Owner 2026-10-28: a question for the writer ends the reply once it reached
+ * them. A call the tool refused (too many options, say) does not, so the
+ * model can ask again or carry on.
+ */
+export function askedWriter(step: CutOffStep | undefined): boolean {
+  return !!step?.content.some(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      "type" in part &&
+      part.type === "tool-result" &&
+      "toolName" in part &&
+      part.toolName === ASK_WRITER_TOOL
+  );
+}
+
+export function stopAfterQuestion({ steps }: { steps: ReadonlyArray<CutOffStep> }): boolean {
+  return askedWriter(steps.at(-1));
 }
 
 /** The turn's stop conditions: the step limit, and a second cut-off. */
@@ -2273,7 +2294,7 @@ export const streamChatReply = internalAction({
               stopWhen: [
                 stepCountIs(pass.maxSteps),
                 // Owner 2026-10-28: a question for the writer ends the reply.
-                hasToolCall(ASK_WRITER_TOOL),
+                stopAfterQuestion,
                 stopAfterSecondCutOff,
                 stopBeforeWindowEnds(
                   startedAt,
@@ -2517,7 +2538,7 @@ export const streamChatReply = internalAction({
         }));
       // Owner 2026-10-28: a question for the writer ends the reply on
       // purpose, even on the last step it was allowed.
-      const endedOnQuestion = lastCalls.some((call) => call.toolName === ASK_WRITER_TOOL);
+      const endedOnQuestion = askedWriter(finishedSteps.at(-1));
       const endedOnStepLimit =
         !endedOnOneCardEdit &&
         !endedOnQuestion &&
