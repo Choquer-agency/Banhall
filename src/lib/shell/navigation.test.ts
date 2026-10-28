@@ -3,7 +3,10 @@ import { hasCapability } from "../../../shared/capabilities";
 import {
   canViewTeam,
   companiesHrefFrom,
+  frameRailItems,
+  frameSectionForPath,
   railGroups,
+  selectedFrameRailItem,
   selectedRailItem,
   type RailViewer,
 } from "./navigation";
@@ -154,5 +157,87 @@ describe("canViewTeam", () => {
     expect(canViewTeam("writer")).toBe(false);
     expect(canViewTeam("manager")).toBe(true);
     expect(canViewTeam("admin")).toBe(true);
+  });
+});
+
+describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-28)", () => {
+  const frameHrefs = {
+    projectsHref: "/projects",
+    companiesHref: "/projects",
+    teamHref: "/team",
+    adminHref: "/admin/house-rules",
+    settingsHref: "/settings",
+  };
+  const labels = (viewer: RailViewer, adminAttention = 0) => {
+    const items = frameRailItems(viewer, frameHrefs, { adminAttention });
+    return { top: items.top.map((item) => item.label), bottom: items.bottom.map((item) => item.label) };
+  };
+  const developerConsultant = { role: "writer", isOwner: false, isDeveloper: true } as const;
+  const developerAdmin = { role: "admin", isOwner: false, isDeveloper: true } as const;
+
+  it("Projects, Companies and Team (team.view) at the top; Admin (settings.configure) and Settings at the foot", () => {
+    expect(labels(consultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
+    expect(labels(manager)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["Settings"] });
+    expect(labels(admin)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["Admin", "Settings"] });
+    expect(labels({ role: "financial", isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
+    expect(labels({ role: null, isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
+  });
+
+  it("has no Home, search, What's new, Assistant or developer rows, whatever the flags", () => {
+    for (const viewer of [developerConsultant, developerAdmin]) {
+      const all = Object.values(labels(viewer)).flat();
+      expect(all).not.toContain("Home");
+      expect(all).not.toContain("What's new");
+      expect(all).not.toContain("Assistant");
+      expect(all).not.toContain("Alerts");
+      expect(all).not.toContain("Feature requests");
+    }
+    expect(labels(developerConsultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
+  });
+
+  it("puts the attention dot on Admin only when something needs a look", () => {
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0 }).bottom[0].attention).toBe(false);
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 2 }).bottom[0]).toEqual({
+      id: "admin",
+      label: "Admin",
+      href: "/admin/house-rules",
+      attention: true,
+    });
+  });
+
+  it("marks Projects for Home and every project page, Admin for its pages, Alerts and Feature requests", () => {
+    const cases: [string, string | null][] = [
+      ["/", "projects"],
+      ["/my-work", "projects"],
+      ["/projects", "projects"],
+      ["/project/abc", "projects"],
+      ["/project/new", "projects"],
+      ["/team", "team"],
+      ["/admin/brain", "admin"],
+      ["/alerts", "admin"],
+      ["/requests", "admin"],
+      ["/settings/writing", "settings"],
+      ["/changelog", null],
+      ["/projects-archive", null],
+      ["/teams", null],
+    ];
+    for (const [path, expected] of cases) expect(selectedFrameRailItem(path)).toBe(expected);
+  });
+
+  it("names the section sidebar each page draws (owner answers 1 and 5)", () => {
+    const cases: [string, string | null][] = [
+      ["/", "projects"],
+      ["/my-work", "projects"],
+      ["/projects", "projects"],
+      ["/team", "team"],
+      ["/admin/house-rules", "admin"],
+      ["/settings/account", "settings"],
+      ["/project/abc", null],
+      ["/project/new", null],
+      ["/changelog", null],
+      ["/alerts", null],
+      ["/requests", null],
+    ];
+    for (const [path, expected] of cases) expect(frameSectionForPath(path)).toBe(expected);
   });
 });
