@@ -79,3 +79,27 @@ My own calls to flag: Option 1 is always the recommended one; Review replaces th
 - Review: three rounds on Claude Opus 5.5, requested at high (round 3 reported low). Round 1 and 2 "ship after fixes" (0ecaa722, 30085825), round 3 "ship" (82c704f4 for its two small points).
 - Gate at 30085825: all 9 steps, 8,198 unit tests, production build. Full component suite: 195 files, 2,013 tests.
 - Waiting on the owner: approval to copy the dev data for the live AI check and the manual browser checks (`scripts/chat-live/run.mjs`, scenarios panel-basics, apply-undo, per-line-cards, options, ask-writer, within $10), and the six frame answers before step 7.
+
+## Step 7: the page frame (rows 9 and 10)
+
+Owner answers 2026-10-28 ("build for now, we can always change"):
+1. Admin and Settings get their own inner sidebar listing their pages (Admin: House rules, Tags, Brain and the rest of `ADMIN_RAIL_ROUTES`; Settings: Account, Notifications, Shortcuts, Writing).
+2. The developer pages (Alerts, Feature requests) sit at the bottom of the Admin sidebar, for developers only.
+3. The bell keeps opening What's new (`/changelog`), with its unseen dot.
+4. The main rail is fixed (no resize, no collapse); Cmd+\ collapses the inner sidebar instead (remembered in this browser).
+5. Pages with no inner sidebar in the boards (New project, What's new, Alerts, Feature requests, the project page) sit in the white card without one.
+6. Below 1024px the slide-out drawer stays as today (`WorkspaceRail variant="drawer"`), with each page's own bar and hamburger.
+
+Spec (desktop, 1024px and up):
+- Page background `#F2F2F2` (new token, `--color-frame`); the Plane frame boards.
+- Global bar across the full width, height 52 (S9 board draws 56; use 52 as on the later boards): logo (`BanhallLogo`, 76x34) at left with 14px inset; right side, gap 6, padding-right 20: the bell (30x30 button, 17px icon ink-secondary, unseen dot; links to What's new) and the account button (name 13/18 weight 500 ink, 12px chevron ink-muted, radius 8, height 30, padding-left 8) that opens `IdentityMenu` below it.
+- Body under the bar: rail column 80px, then the card; body padding right 8, bottom 8.
+- Rail: column, width 80, padding 10 8 14, gap 6. Item 64 wide, column, gap 4: tile 40x36 radius 10 (active tile fill `#E4E4E4`, new token `--color-frame-tile`), the item's 20px duotone icon; label 12/16 (active ink weight 500, others ink-secondary). Items: Projects, Companies, Team (team.view), spacer, Admin (settings.configure), Settings. No Home, no recent companies, no search, no resize, no collapse. Icons: the Paper boards' SVGs (Projects document with teal fold, Companies buildings, Team people, Admin shield with check, Settings gear).
+- Card: white, radius 12, 1px line border, clip; holds an optional inner sidebar and the page.
+- Inner sidebar (S9, S11): width 228, right border line-soft, padding 0 10 12. Header 64 high (padding 0 2 0 8): section title 16/20 weight 500 ink, collapse button 30x30 radius 8 (16px sidebar icon, ink-secondary). Primary action under it: full-width outlined button (white, line border, radius 8, height 32, 14px plus icon + label 13/18 weight 500 ink), e.g. "New project", "Invite people". Nav (padding-top 12, gap 2): rows height 32, radius 8, padding-inline 10, gap 10: 16px outline icon ink-secondary, label 13/18 ink-secondary, count 13 ink-muted at right; active row primary-wash fill, primary-selected label weight 500. A labelled group (padding-top 20): header row 28 (label 13/16 ink-muted, optional 14px search icon button) and rows height 30 (label 13/18 ink-secondary, count 12/16 ink-muted; active primary-wash, primary-selected weight 500).
+  - Projects: New project, Home (`/my-work`), All projects (count), Companies (search, every company with its project count; selected company active).
+  - Team: Invite people, People (count), Pending invites (count).
+  - Admin: the admin pages; developers also get Alerts and Feature requests at the bottom.
+  - Settings: Account, Notifications, Shortcuts, Writing.
+- Page top bar inside the card, height 64, padding-inline 8 from the sidebar edge (S9 main: title 22/28 weight 500, count 15/20 muted, search field 300x36 radius 8 at right). The bell is no longer in page bars.
+- Project page (S12, S13, P0): no inner sidebar. Top bar 52 high, padding-inline 12, gap 8, bottom border line-soft: back button 30x30 outlined (radius 7, line border, 15px arrow ink) on every width, "Projects /" 14/20 ink-muted, title 14/20 weight 500 ink, spacer, then gap 6: Export (outlined, 30 high, radius 7, padding 10, 14px download icon, 13/18 weight 500), Send for review (primary-selected, 30 high, radius 7, padding 12, 13/18 weight 500 white), "…" (30x30) last. Then the toolbar (40 high, padding-inline 20, gap 18, align end, bottom border line-soft) and the split, as today.
