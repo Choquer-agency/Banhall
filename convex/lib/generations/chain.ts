@@ -325,13 +325,15 @@ export async function orderedSectionClaim(
   // The subject is what the Line must cover: each cover item's wording, the
   // wording it relates to and its quotes, never a Skip or a LEAVE OUT entry
   // nor the plan's own scaffold (Phase D review).
-  const factsSubject = plan.planChecks
+  // Each text once: the items of a merged group share their relationship
+  // wording, which would otherwise outweigh the Line's own (review round 2).
+  const factsSubject = [...new Set(plan.planChecks
     .filter((check) => check.instruction === "cover")
     .flatMap((check) => [
       ...check.wording,
       ...check.relationshipReferences.flatMap((reference) => reference.wording),
       ...check.sourceReferences.map((reference) => reference.exactExcerpt),
-    ]);
+    ]))];
   const factsSourceDocuments = args.generation.summaryVersionId
     ? await loadFactsSourceDocuments(ctx, args.generation, factsUses, factsSubject)
     : undefined;

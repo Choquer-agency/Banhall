@@ -141,7 +141,7 @@ describe("a document read in part (2026-10-28, fourth)", () => {
       ],
       leftOut: [{ label: "OTHER SUPPORTING MATERIAL: log.md", bytes: 90_000 }],
       readInPart: [
-        { label: "SCOPING NOTES: summary.md", bytes: 61_000, sent: 52 },
+        { label: "SCOPING NOTES: summary.md", bytes: 61_000, sent: 52, matched: true as const },
         { label: "WRITER'S NOTES: notes.md", bytes: 70_000, sent: 14, start: true as const },
       ],
       budget: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
@@ -156,6 +156,11 @@ describe("a document read in part (2026-10-28, fourth)", () => {
     expect(facts.evidence).toContain("The Viton membrane cracked.");
     expect(factsDocumentsLeftOutNote(documents)).toBe(
       `(Over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget it read only the parts of SCOPING NOTES: summary.md (61000 bytes) that best match this Line and read only the start of WRITER'S NOTES: notes.md (70000 bytes) and did not read OTHER SUPPORTING MATERIAL: log.md (90000 bytes), so it let the signed-off items, their quotes and the analysis stand for the rest.)`
+    );
+    // Parts that matched nothing are not called the best match (review round 2).
+    const unmatched = { ...documents, readInPart: [{ label: "SCOPING NOTES: summary.md", bytes: 61_000, sent: 52 }], leftOut: [] };
+    expect(factsDocumentsLeftOutNote(unmatched)).toBe(
+      `(Over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget it read only parts of SCOPING NOTES: summary.md (61000 bytes), so it let the signed-off items, their quotes and the analysis stand for the rest.)`
     );
   });
 });

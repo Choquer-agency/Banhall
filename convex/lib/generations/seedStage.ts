@@ -1479,7 +1479,7 @@ export async function loadFactsSourceDocuments(
   const leftOut: FactsSourceDocuments["leftOut"] = [];
   const readInPart: NonNullable<FactsSourceDocuments["readInPart"]> = [];
   weighed.forEach(({ sourceId, document, bytes }, index) => {
-    const { ranges, whole, cut } = chosen[index]!;
+    const { ranges, whole, cut, matched } = chosen[index]!;
     if (whole) {
       documents.push(document);
       uses?.push({ sourceId, sent: bytes, total: bytes });
@@ -1500,7 +1500,13 @@ export async function loadFactsSourceDocuments(
         content,
       });
     });
-    readInPart.push({ label: document.label, bytes, sent, ...(cut ? { start: true as const } : {}) });
+    readInPart.push({
+      label: document.label,
+      bytes,
+      sent,
+      ...(cut ? { start: true as const } : {}),
+      ...(matched ? { matched: true as const } : {}),
+    });
     uses?.push({ sourceId, sent, total: bytes });
   });
   return { documents, leftOut, budget, ...(readInPart.length > 0 ? { readInPart } : {}) };

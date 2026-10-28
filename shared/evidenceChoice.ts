@@ -154,35 +154,65 @@ export function nameSafeRange(text: string, start: number, end: number): { start
 
 /** How far into a part an edge may move to reach a sentence or paragraph end. */
 const SENTENCE_REACH = 300;
-const SENTENCE_END = /[.!?\u2026]["'\u2019\u201D)\]]*[ \t]*\n|[.!?\u2026]["'\u2019\u201D)\]]*[ \t]+|\n[ \t]*\n/gu;
+/** A sentence end (its punctuation, closing quotes or brackets, then white space) or a blank line. */
+const SENTENCE_END = /([.!?\u2026])["'\u2019\u201D)\]]*[ \t]*\r?\n|([.!?\u2026])["'\u2019\u201D)\]]*[ \t]+|\r?\n[ \t]*\r?\n/gu;
+/** A period after these, or after a single letter, ends no sentence ("St. Laurent", "J. Smith", "Acme Inc. Montreal"). */
+const ABBREVIATIONS: ReadonlySet<string> = new Set([
+  "st", "mt", "dr", "mr", "mrs", "ms", "jr", "sr", "inc", "ltd", "co", "corp", "no", "fig", "vs", "etc", "dept",
+  "ave", "rd", "blvd", "approx", "est", "e.g", "i.e", "u.s", "u.k", "ste",
+]);
+
+/** Where each real sentence or paragraph end in `window` ends, in order. */
+function sentenceEnds(window: string): number[] {
+  const ends: number[] = [];
+  SENTENCE_END.lastIndex = 0;
+  for (let match = SENTENCE_END.exec(window); match; match = SENTENCE_END.exec(window)) {
+    if ((match[1] ?? match[2]) === ".") {
+      const word = /([\p{L}.]+)$/u.exec(window.slice(0, match.index))?.[1] ?? "";
+      const bare = word.toLowerCase();
+      if ([...bare.replace(/\./g, "")].length === 1 || ABBREVIATIONS.has(bare)) continue;
+    }
+    ends.push(match.index + match[0].length);
+  }
+  return ends;
+}
+
+/** Whether a range starting at `at` already starts a sentence or a paragraph. */
+function startsAtSentence(text: string, at: number): boolean {
+  if (at <= 0) return true;
+  const before = text.slice(Math.max(0, at - 40), at);
+  const ends = sentenceEnds(before);
+  return ends.length > 0 && ends[ends.length - 1] === before.length;
+}
 
 /**
- * A part's range with name-safe edges that also land on a sentence or
- * paragraph end when one is within 300 units (Phase D review): a cut at a
- * plain line break or between two words can still split a name of several
- * words ("Northern" / "Robotics Inc."), which is masked only whole. With
- * no sentence end in reach, the word-safe edges stand.
+ * Moves a range's edges inward to a sentence or paragraph end within 300
+ * units, when one is in reach and the edge is not already at one (Phase D
+ * review): a cut at a plain line break or between two words can still
+ * split a name of several words ("Northern" / "Robotics Inc."), which is
+ * masked only whole. Only ever narrows; with no end in reach, the edge
+ * stands.
  */
+function sentenceTrim(text: string, range: { start: number; end: number }): { start: number; end: number } {
+  let from = range.start;
+  let to = range.end;
+  if (!startsAtSentence(text, from)) {
+    const first = sentenceEnds(text.slice(from, Math.min(to, from + SENTENCE_REACH)))[0];
+    if (first !== undefined) from += first;
+  }
+  if (to < text.length && !startsAtSentence(text, to)) {
+    const windowStart = Math.max(from, to - SENTENCE_REACH);
+    const ends = sentenceEnds(text.slice(windowStart, to));
+    if (ends.length > 0) to = windowStart + ends[ends.length - 1]!;
+  }
+  return to > from ? { start: from, end: to } : range;
+}
+
+/** A range with name-safe edges moved to a sentence or paragraph end within reach (see `sentenceTrim`). */
 export function partRange(text: string, start: number, end: number): { start: number; end: number } {
   const safe = nameSafeRange(text, start, end);
   if (safe.end <= safe.start) return safe;
-  let from = safe.start;
-  let to = safe.end;
-  if (from > 0 && !/\n[ \t]*\n$/u.test(text.slice(Math.max(0, from - 4), from))) {
-    const window = text.slice(from, Math.min(to, from + SENTENCE_REACH));
-    SENTENCE_END.lastIndex = 0;
-    const first = SENTENCE_END.exec(window);
-    if (first) from += first.index + first[0].length;
-  }
-  if (to < text.length) {
-    const windowStart = Math.max(from, to - SENTENCE_REACH);
-    const window = text.slice(windowStart, to);
-    let last: RegExpExecArray | null = null;
-    SENTENCE_END.lastIndex = 0;
-    for (let match = SENTENCE_END.exec(window); match; match = SENTENCE_END.exec(window)) last = match;
-    if (last) to = windowStart + last.index + last[0].length;
-  }
-  return to > from ? { start: from, end: to } : safe;
+  return sentenceTrim(text, safe);
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
@@ -220,17 +250,37 @@ export function scoreParts(parts: readonly string[], subject: Subject): number[]
   }
   const total = parts.length;
   const averageLength = counted.reduce((sum, part) => sum + part.length, 0) / total || 1;
+  // Over each part's own words, not the subject's: a subject can be a whole
+  // interview (the Brief's), thousands of words.
   return counted.map(({ counts, length }) => {
     let score = 0;
-    for (const [word, weight] of subject) {
-      const frequency = counts.get(word);
-      if (!frequency) continue;
+    for (const [word, frequency] of counts) {
+      const weight = subject.get(word);
+      if (weight === undefined) continue;
       const containing = documents.get(word) ?? 0;
       const rarity = Math.log(1 + (total - containing + 0.5) / (containing + 0.5));
       score += weight * rarity * ((frequency * (K1 + 1)) / (frequency + K1 * (1 - B + (B * length) / averageLength)));
     }
     return score;
   });
+}
+
+/**
+ * `content` with every character outside `ranges` replaced by U+0000, so it
+ * keeps every position: a quote search over it finds only text that was
+ * sent, and a quote found has the offsets it has in the real text.
+ */
+export function maskOutside(content: string, ranges: ReadonlyArray<{ start: number; end: number }>): string {
+  if (ranges.length === 1 && ranges[0]!.start === 0 && ranges[0]!.end >= content.length) return content;
+  const parts: string[] = [];
+  let at = 0;
+  for (const range of [...ranges].sort((a, b) => a.start - b.start)) {
+    if (range.start > at) parts.push("\u0000".repeat(range.start - at));
+    parts.push(content.slice(Math.max(at, range.start), range.end));
+    at = Math.max(at, range.end);
+  }
+  if (at < content.length) parts.push("\u0000".repeat(content.length - at));
+  return parts.join("");
 }
 
 // ─── Choosing ────────────────────────────────────────────────────────────────
@@ -250,6 +300,8 @@ export type ChosenRow = {
   whole: boolean;
   /** A row that was to go in whole but did not fit: its start only. */
   cut?: true;
+  /** Some part chosen from this row matched the subject (else the parts came in row order). */
+  matched?: true;
 };
 
 export type ChoiceInput = {
@@ -325,25 +377,34 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
   candidates.sort((a, b) => b.score - a.score || a.row - b.row || a.start - b.start);
 
   const chosen = new Map<number, Array<{ start: number; end: number }>>();
+  const matched = new Set<number>();
   const smallestCost = Math.min(...rows.map((row) => row.excerptCost ?? excerptCost));
   for (const candidate of candidates) {
     if (remaining <= smallestCost) break;
     const text = rows[candidate.row]!.text;
     const partCost = rows[candidate.row]!.excerptCost ?? excerptCost;
-    const safe = partRange(text, candidate.start, candidate.end);
+    // Chosen and charged with word-safe edges; neighbours still touch, so
+    // they join below before any edge moves to a sentence end.
+    const safe = nameSafeRange(text, candidate.start, candidate.end);
     if (safe.end <= safe.start) continue;
     const cost = size(text.slice(safe.start, safe.end)) + partCost;
     if (cost > remaining) continue;
     const list = chosen.get(candidate.row) ?? [];
     list.push(safe);
     chosen.set(candidate.row, list);
+    if (candidate.score > 0) matched.add(candidate.row);
     remaining -= cost;
   }
   for (const [row, ranges] of chosen) {
-    const joined = joinRanges(ranges);
     const text = rows[row]!.text;
+    // Only the outer edges of each joined run move to a sentence end.
+    const joined = joinRanges(ranges).map((range) => sentenceTrim(text, range));
     // A row whose parts were all chosen went in whole after all.
-    result[row] = { ranges: joined, whole: joined.length === 1 && joined[0]!.start === 0 && joined[0]!.end === text.length };
+    result[row] = {
+      ranges: joined,
+      whole: joined.length === 1 && joined[0]!.start === 0 && joined[0]!.end === text.length,
+      ...(matched.has(row) ? { matched: true as const } : {}),
+    };
   }
   return result;
 }

@@ -218,3 +218,40 @@ describe("review fixes (2026-10-28)", () => {
     expect(chosen[0]).toEqual({ ranges: [], whole: true });
   });
 });
+
+describe("review round 2 fixes (2026-10-28)", () => {
+  const sentences = (count: number, from = 1) =>
+    Array.from({ length: count }, (_, index) => `Sentence number ${from + index} says the seal held out. `).join("");
+
+  it("joins neighbouring chosen parts before moving edges, so no sentence between them is lost", () => {
+    const text = sentences(400);
+    const chosen = chooseEvidence({ rows: [{ text }, { text: filler(7, 40_000) }], subject: subjectOf(["sentence number seal"]), budget: 30_000, size: utf16Size, excerptCost: 10 });
+    const ranges = chosen[0]!.ranges;
+    expect(ranges.length).toBeGreaterThan(0);
+    // One run, or several far apart: never two runs only a sentence apart.
+    for (let i = 1; i < ranges.length; i++) expect(ranges[i]!.start - ranges[i - 1]!.end).toBeGreaterThan(200);
+  });
+
+  it("keeps a part's first sentence when the part already starts at a sentence", () => {
+    const text = `${sentences(10)}${sentences(10, 11)}`;
+    const at = text.indexOf("Sentence number 11");
+    const range = partRange(text, at, at + 400);
+    expect(range.start).toBe(at);
+  });
+
+  it("does not take an abbreviation or an initial for a sentence end", () => {
+    const text = `${"The seal held at the plant. ".repeat(3)}Work with St. Laurent Robotics continued for J. Smith and Acme Inc. Montreal. ${"The pump drifted. ".repeat(10)}`;
+    const mid = text.indexOf("Laurent") + 2;
+    const sent = text.slice(...Object.values(partRange(text, mid, text.length)) as [number, number]);
+    expect(sent.startsWith("Laurent")).toBe(false);
+    expect(sent.startsWith("Smith")).toBe(false);
+    expect(sent.startsWith("Montreal")).toBe(false);
+  });
+
+  it("treats a Windows line ending like any other", () => {
+    const text = `${"The seal held.\r\n".repeat(30)}\r\nNorthern\r\nRobotics Inc. joined.\r\n${"The pump drifted.\r\n".repeat(30)}`;
+    const wrap = text.indexOf("\r\nRobotics");
+    const range = partRange(text, 0, wrap);
+    expect(text.slice(range.start, range.end)).not.toContain("Northern");
+  });
+});

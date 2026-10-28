@@ -123,7 +123,7 @@ export type FactsSourceDocuments = {
    * Line, each excerpt its own entry in `documents`, or, for writer's notes
    * too long to go in whole, their start (`start`).
    */
-  readInPart?: Array<{ label: string; bytes: number; sent: number; start?: true }>;
+  readInPart?: Array<{ label: string; bytes: number; sent: number; start?: true; matched?: true }>;
 };
 
 /** What an excerpt's label line adds beyond the label itself: its frame and " (excerpt N of M)". */

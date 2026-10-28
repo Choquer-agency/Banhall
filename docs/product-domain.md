@@ -4920,19 +4920,23 @@ This changes what one AI check reads and one sentence of its note, not a workflo
   - When every frozen interview and file fits the check's 48,000 bytes, each is read whole, as before.
   - When they do not, the writer's notes go in whole first, or their start when they alone pass the budget.
   - The rest of the budget then takes the parts of every interview and file that best match what the Line must cover, then unmatched parts in order:
-    - "What the Line must cover" is each cover item's wording, the wording it relates to and its quotes. Never a Skip, a LEAVE OUT entry or the plan's own scaffold.
+    - "What the Line must cover" is each cover item's wording, the wording it relates to and its quotes, each text once. Never a Skip, a LEAVE OUT entry or the plan's own scaffold.
     - The parts are cut from the frozen text the way search pieces are, as plain text, without page, heading or sheet breaks (`shared/evidenceChoice.ts`).
     - They are scored with rare words counting more and long parts not winning by length (BM25).
-    - Each excerpt is its own entry; touching parts join.
-  - No excerpt starts or ends inside a word (a run of over 64 letters aside). Where a sentence or paragraph end is within 300 characters, the edge moves to it, so a name wrapped over two lines is not split.
+    - Parts are chosen with word-safe edges and neighbours join into one excerpt; each excerpt is its own entry.
+  - No excerpt starts or ends inside a word (a run of over 64 letters aside).
+  - Each excerpt's outer edges then move to a sentence or paragraph end within 300 characters, unless already at one, so a name wrapped over two lines is not split. A period after a single letter or a common abbreviation (St., Inc., Co. and the like) is not taken for a sentence end. Windows line endings count as line ends.
   - A quote the check gives is found only in what it read.
-- **What the writer sees.** The facts row's note names each file read only in part and each left out: "(Over this check's 48000-byte budget it read only the parts of ... that best match this Line and did not read ..., so it let the signed-off items, their quotes and the analysis stand for the rest.)" Writer's notes cut to fit read "only the start of". When only files were left out, the note is word for word as before.
+- **What the writer sees.** The facts row's note names each file read only in part and each left out: "(Over this check's 48000-byte budget it read only the parts of ... that best match this Line and did not read ..., so it let the signed-off items, their quotes and the analysis stand for the rest.)"
+  - When no part of a file matched the Line (it came in row order), the note says "read only parts of".
+  - Writer's notes cut to fit say "only the start of".
+  - When only files were left out, the note is word for word as before.
 - **Where.** `loadFactsSourceDocuments` in `convex/lib/generations/seedStage.ts`, given the Line's cover items by `orderedSectionClaim` (`convex/lib/generations/chain.ts`); `sourceFactsFor` in `convex/ai/selfCheck.ts`; `factsDocumentsLeftOutNote` in `convex/ai/orderedGeneration.ts`; the check's prompt words in `convex/ai/promptDefinitions.ts` (the prompt version moves).
 - **Known limits.**
   - The check still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - The record of what the check read says "in part" but not which ranges yet (later in step 1).
   - The choice runs in the claim's transaction. Measured: 3.2 million characters of unbroken script chosen in about 0.3 seconds on the development machine under load. The first version took seconds on such text, found in review.
-  - A name of several words cut at an edge with no sentence end within 300 characters can still go out in two halves, as with the budget cut the other steps already use.
+  - A name of several words cut at an edge with no sentence end within 300 characters can still go out in two halves, as with the budget cut the other steps already use. So can a name right after an abbreviation the list does not know.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
   - `convex/factsSourceDocuments.test.ts`: whole when all fit; over the budget, the part holding the Line's fact is read, the file is named as read in part, the budget holds, and the record says "in part"; the prompt and the note name it.
@@ -4948,6 +4952,12 @@ This changes what one AI check reads and one sentence of its note, not a workflo
   - empty files;
   - the tests;
   - this entry.
+- **Review round 2:** Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". The bounded edge checks were confirmed exactly equivalent by fuzzing, and the whole chooser ran in 0.05 to 0.2 seconds on its worst 3 MiB inputs. Done:
+  - sentence-end edges now move after neighbouring parts join, so no sentence between two chosen parts is lost, and a part that already starts a sentence keeps it (P2);
+  - abbreviations and initials;
+  - Windows line endings;
+  - each subject text once;
+  - "best match" only when a part matched.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process
