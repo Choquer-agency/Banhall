@@ -142,31 +142,64 @@ describe("PreviewProjectPage final shell", () => {
     expect(tabs()).toEqual(["report", "sources"]);
     expect(document.querySelector('[data-panel-tab="report"]')?.getAttribute("aria-current")).toBe("page");
     expect(document.querySelector('[data-panel-tab="sources"]')?.textContent).toContain("1");
-    // Top bar: breadcrumb and title, bell, More, Export, Send for review.
+    // Top bar (the page frame, Paper A1): back, "Projects /" and the title,
+    // then Export, Send for review and "..." last, inside the white card.
     const header = document.querySelector<HTMLElement>("[data-workspace-page-header]")!;
     expect(header.querySelector("h1")?.textContent).toBe("Adaptive cold storage controls");
-    expect(header.textContent).toContain("Projects");
-    expect(header.querySelector("[data-top-bar-bell]")).not.toBeNull();
-    // Round 2 top bar (F2): 10px apart, "Projects /" in muted ink, and the
-    // 36px bell (radius 7) with the board's bell. Owner, 2026-10-21: project
-    // pages have no page icon tile.
-    expect(getComputedStyle(header).columnGap).toBe(boardPx(10));
+    const card = document.querySelector<HTMLElement>("[data-project-card]")!;
+    expect(card.contains(header)).toBe(true);
+    expect(card.hasAttribute("data-work-panel")).toBe(true);
+    expect([getComputedStyle(card).borderRadius, getComputedStyle(card).borderTopColor]).toEqual([boardPx(12), "rgb(218, 229, 227)"]);
+    expect(card.querySelector("[data-section-sidebar]")).toBeNull();
+    const bar = getComputedStyle(header);
+    expect([header.getBoundingClientRect().height, bar.paddingLeft, bar.columnGap, bar.borderBottomColor]).toEqual([
+      board(52),
+      boardPx(12),
+      boardPx(8),
+      "rgb(233, 240, 239)",
+    ]);
     expect(header.querySelector("[data-page-icon-tile]")).toBeNull();
+    // Back on every width: 30px, outlined, radius 7, the 15px arrow in ink.
+    const back = header.querySelector<HTMLAnchorElement>("[data-top-bar-back]")!;
+    expect([back.getBoundingClientRect().width, getComputedStyle(back).borderRadius, getComputedStyle(back).borderTopColor, getComputedStyle(back).color]).toEqual([
+      board(30),
+      boardPx(7),
+      "rgb(218, 229, 227)",
+      "rgb(22, 33, 31)",
+    ]);
+    expect(back.querySelector('[data-frame-icon="back"]')!.getBoundingClientRect().width).toBeCloseTo(board(15), 1);
     const crumb = header.querySelector<HTMLElement>("[data-top-bar-breadcrumb]")!;
     expect(crumb.textContent?.replace(/\s+/g, " ").trim()).toBe("Projects /");
-    expect(getComputedStyle(crumb).color).toBe("rgb(107, 127, 123)");
-    const bell = header.querySelector<HTMLElement>("[data-top-bar-bell]")!;
-    expect(bell.getBoundingClientRect().width).toBe(board(36));
-    expect(getComputedStyle(bell).borderRadius).toBe(boardPx(7));
-    expect(bell.querySelector("svg path")!.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
+    expect([getComputedStyle(crumb).color, getComputedStyle(crumb).fontSize]).toEqual(["rgb(107, 127, 123)", boardPx(14)]);
+    const title = header.querySelector<HTMLElement>("h1")!;
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(title).color]).toEqual([boardPx(14), "500", "rgb(22, 33, 31)"]);
+    // The bell is in the global bar on a desktop.
+    expect(header.querySelector<HTMLElement>("[data-top-bar-bell]")!.getBoundingClientRect().width).toBe(0);
+    expect(document.querySelector("[data-global-bar-bell]")).not.toBeNull();
     const exportButton = page.getByRole("button", { name: "Export .docx", exact: true }).element() as HTMLElement;
-    expect(exportButton.className).toContain("bg-chrome");
-    expect(page.getByRole("button", { name: "Send for review", exact: true }).elements()).toHaveLength(1);
-    // Desktop (board 2.1): Send for review keeps the right edge, the kebab sits
-    // before Export in the markup too, so tab order follows the eye.
+    const exportLook = getComputedStyle(exportButton);
+    expect([exportButton.getBoundingClientRect().height, exportLook.borderRadius, exportLook.backgroundColor, exportLook.borderTopColor, exportLook.fontSize, exportLook.fontWeight]).toEqual([
+      board(30),
+      boardPx(7),
+      "rgb(255, 255, 255)",
+      "rgb(218, 229, 227)",
+      boardPx(13),
+      "500",
+    ]);
+    expect(exportButton.querySelector('[data-frame-icon="download"]')).not.toBeNull();
+    const send = page.getByRole("button", { name: "Send for review", exact: true }).element() as HTMLElement;
+    expect([send.getBoundingClientRect().height, getComputedStyle(send).backgroundColor, getComputedStyle(send).color]).toEqual([
+      board(30),
+      "rgb(8, 122, 117)",
+      "rgb(255, 255, 255)",
+    ]);
+    expect(Math.round(send.getBoundingClientRect().left - exportButton.getBoundingClientRect().right)).toBe(Math.round(board(6)));
+    // "..." comes last, in the markup too, so tab order follows the eye.
     const more = page.getByRole("button", { name: "More actions", exact: true }).element() as HTMLElement;
-    expect(more.getAttribute("data-top-bar-more")).toBe("desktop");
-    expect(more.compareDocumentPosition(exportButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(more.hasAttribute("data-top-bar-more")).toBe(true);
+    expect(more.getBoundingClientRect().width).toBe(board(30));
+    expect(send.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Math.round(header.getBoundingClientRect().right - more.getBoundingClientRect().right)).toBe(Math.round(board(12)));
     await page.getByRole("button", { name: "More actions", exact: true }).click();
     const items = Array.from(document.querySelectorAll("[data-top-bar-more-item]")).map((item) => item.getAttribute("data-top-bar-more-item"));
     // The seeded viewer created this project, so Delete project ends the menu.
@@ -187,7 +220,7 @@ describe("PreviewProjectPage final shell", () => {
     expect(tab("report").getAttribute("aria-current")).toBe("page");
   });
 
-  it("uses the back chevron top bar on a phone", async () => {
+  it("uses the back button bar on a phone", async () => {
     seed();
     await page.viewport(390, 844);
     await render(PreviewProjectPage);
@@ -200,14 +233,12 @@ describe("PreviewProjectPage final shell", () => {
     const breadcrumb = Array.from(header.querySelectorAll("a")).find((link) => link.textContent?.trim() === "Projects")!;
     expect(back.element().getAttribute("href")).toBe(breadcrumb.getAttribute("href"));
     expect(getComputedStyle(header.querySelector("[data-top-bar-breadcrumb]")!).display).toBe("none");
-    // H4: a 52px bar, the board's 20px back arrow in ink and the More dots.
+    // H4: a 52px bar, the back button in ink with a 44px target, and the More dots.
     expect(getComputedStyle(header).height).toBe("52px");
-    const arrow = back.element().querySelector("svg")!;
-    expect(arrow.getAttribute("width")).toBe("20");
-    expect(arrow.querySelector("path")!.getAttribute("d")).toBe("M19 12H5 M11 6l-6 6 6 6");
+    expect(back.element().querySelector('[data-frame-icon="back"]')).not.toBeNull();
     expect(getComputedStyle(back.element()).color).toBe("rgb(22, 33, 31)");
-    const phoneMore = header.querySelector<HTMLElement>('[data-top-bar-more="phone"]')!;
-    expect(phoneMore.querySelector("svg path")!.getAttribute("d")).toBe("M6 12h.01 M12 12h.01 M18 12h.01");
+    const phoneMore = header.querySelector<HTMLElement>("[data-top-bar-more]")!;
+    expect(phoneMore.querySelector('[data-frame-icon="more"]')).not.toBeNull();
     expect(phoneMore.getBoundingClientRect().width).toBe(44);
     // Board 3.6: back chevron, title, More. The menu button, breadcrumb and bell step aside.
     const hidden = (element: Element | null) => element === null || getComputedStyle(element).display === "none";
@@ -219,9 +250,12 @@ describe("PreviewProjectPage final shell", () => {
     expect(backRect.width).toBeGreaterThanOrEqual(44);
     expect(backRect.height).toBeGreaterThanOrEqual(44);
 
+    // From 1024px the back button stays (every width, the page frame) and
+    // the bell moves to the global bar.
     await page.viewport(1440, 900);
-    await expect.poll(() => getComputedStyle(back.element()).display).toBe("none");
-    expect(hidden(header.querySelector("[data-top-bar-bell]"))).toBe(false);
+    await expect.poll(() => getComputedStyle(header.querySelector("[data-top-bar-breadcrumb]")!).display).not.toBe("none");
+    expect(getComputedStyle(back.element()).display).not.toBe("none");
+    expect(hidden(header.querySelector("[data-top-bar-bell]"))).toBe(true);
   });
 
   it("opens the Sources view without unmounting the report", async () => {

@@ -284,7 +284,7 @@ describe("H1 tablet (1024)", () => {
     expect([cancel.height, cancel.fontSize]).toEqual(["32px", "14px"]);
   });
 
-  it("runs full bleed under a plain bar, with Details after How should we write it? (H1)", async () => {
+  it("sits in the white card under a plain bar, with Details after How should we write it? (H1)", async () => {
     await render(NewProjectPage, {});
     await expect.poll(() => document.querySelector("[data-section-chips]")).not.toBeNull();
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
@@ -294,12 +294,14 @@ describe("H1 tablet (1024)", () => {
     // The title only, as on every screen (2026-10-19).
     expect(bar.querySelector("nav[aria-label=Breadcrumb]")).toBeNull();
     expect(text(bar.querySelector("h1"))).toBe("New project");
-    // No inset panel: the page is white from the top bar down, edge to edge.
+    // From 1024px the page frame holds it (owner, 2026-10-28): the plain bar
+    // runs across the white card, which sits beside the rail, 8px from the edge.
     const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).borderTopWidth).toBe("0px");
-    expect(getComputedStyle(panel).borderTopLeftRadius).toBe("0px");
-    expect(Math.round(panel.getBoundingClientRect().right)).toBe(1024);
-    expect(Math.round(panel.getBoundingClientRect().left)).toBe(Math.round(bar.getBoundingClientRect().left));
+    expect(getComputedStyle(panel).borderTopWidth).toBe("1px");
+    expect(getComputedStyle(panel).borderTopLeftRadius).toBe("12px");
+    expect(Math.round(panel.getBoundingClientRect().right)).toBe(1024 - 8);
+    expect(Math.round(panel.getBoundingClientRect().left + 1)).toBe(Math.round(bar.getBoundingClientRect().left));
+    expect(panel.querySelector("[data-section-sidebar]")).toBeNull();
     // How should we write it? comes fourth, then Details.
     const sections = [...document.querySelectorAll<HTMLElement>("[data-form-column] section[data-new-project-section]")];
     expect(sections.map((section) => section.id)).toEqual([

@@ -200,17 +200,33 @@ describe("TeamPage", () => {
       await render(TeamPage, { origin: "https://banhall.app" });
       await expect.poll(() => document.querySelectorAll("[data-member-row]").length).toBe(4);
 
-      // Owner, 2026-10-19: the header's one plain main button, as on Projects, with no icon.
-      const invite = document.querySelector<HTMLElement>("[data-top-bar-primary]")!;
-      expect(invite.textContent?.trim()).toBe("Invite");
-      expect(invite.getBoundingClientRect().height).toBe(board(38));
-      expect(getComputedStyle(invite).borderRadius).toBe(boardPx(9));
-      expect(getComputedStyle(invite).backgroundColor).toBe("rgb(8, 122, 117)");
-      expect(invite.querySelector("svg")).toBeNull();
+      // The page frame (Paper S11): the Team sidebar holds Invite people (a
+      // 32px outlined button with a 14px plus), People and Pending invites with
+      // their counts; the bar names the page with the people count.
+      const sidebar = document.querySelector<HTMLElement>('[data-section-sidebar="team"]')!;
+      const invite = sidebar.querySelector<HTMLElement>("[data-section-sidebar-action]")!;
+      expect(invite.textContent?.trim()).toBe("Invite people");
+      expect(invite.getBoundingClientRect().height).toBe(board(32));
+      expect([getComputedStyle(invite).borderRadius, getComputedStyle(invite).backgroundColor, getComputedStyle(invite).borderTopColor]).toEqual([
+        boardPx(8),
+        "rgb(255, 255, 255)",
+        "rgb(218, 229, 227)",
+      ]);
+      expect(invite.querySelector('[data-frame-icon="plus"]')).not.toBeNull();
+      const people = sidebar.querySelector<HTMLElement>('[data-team-sidebar="people"]')!;
+      expect([people.getAttribute("aria-current"), people.querySelector("[data-section-sidebar-count]")?.textContent]).toEqual(["page", "4"]);
+      expect(people.getBoundingClientRect().height).toBe(board(32));
+      expect(getComputedStyle(people).backgroundColor).toBe("rgb(241, 250, 249)");
+      const invitesRow = sidebar.querySelector<HTMLElement>('[data-team-sidebar="invites"]')!;
+      expect(invitesRow.querySelector("[data-section-sidebar-count]")?.textContent).toBe("3");
+      expect(invitesRow.getAttribute("href")).toBe("/team#team-pending-invites");
+      expect(document.querySelector("[data-page-top-bar] [data-page-count]")?.textContent).toBe("4 people");
+      // The bar's copy of Invite people is for phones only.
+      expect(document.querySelector<HTMLElement>("[data-top-bar-primary]")!.getBoundingClientRect().width).toBe(0);
 
-      // The shared panel inset (20px top, 32px foot, 24px sides) and no second title.
+      // The shared content inset (4px under the bar, 32px foot, 32px sides) and no second title.
       const body = getComputedStyle(document.querySelector<HTMLElement>("[data-team-page]")!);
-      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual([boardPx(20), boardPx(32), boardPx(24), boardPx(24)]);
+      expect([body.paddingTop, body.paddingBottom, body.paddingLeft, body.paddingRight]).toEqual([boardPx(4), boardPx(32), boardPx(32), boardPx(32)]);
       expect(document.querySelector("[data-team-page] h1")).toBeNull();
       const subtitle = getComputedStyle(document.querySelector<HTMLElement>("[data-team-subtitle]")!);
       expect([subtitle.fontSize, subtitle.lineHeight, subtitle.color]).toEqual([boardPx(14), boardPx(20), "rgb(107, 127, 123)"]);

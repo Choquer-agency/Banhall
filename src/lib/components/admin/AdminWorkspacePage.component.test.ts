@@ -54,14 +54,17 @@ describe("AdminWorkspacePage", () => {
     expect(getComputedStyle(description).fontSize).toBe("14px");
     expect(getComputedStyle(description).lineHeight).toBe("20px");
     expect(getComputedStyle(description).color).toBe("rgb(107, 127, 123)");
-    // The shared panel inset: 20px top, 32px bottom (sides are 16px on this
-    // narrow test frame, 24px from 640px up); radius 12.
-    const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).paddingTop).toBe("20px");
-    expect(getComputedStyle(panel).paddingBottom).toBe("32px");
-    expect(["16px", "24px"]).toContain(getComputedStyle(panel).paddingLeft);
-    expect(getComputedStyle(panel).borderRadius).toBe("12px");
+    // The shared content inset: 4px under the bar, 32px foot (sides are 16px
+    // on this narrow test frame, 24px from 640px up, 32px from 1024px).
+    const main = root.querySelector<HTMLElement>("[data-chrome-main]")!;
+    expect(getComputedStyle(main).paddingTop).toBe("4px");
+    expect(getComputedStyle(main).paddingBottom).toBe("32px");
+    expect(["16px", "24px"]).toContain(getComputedStyle(main).paddingLeft);
     expect(root.querySelector("[data-work-panel] [data-testid=route-content]")).not.toBeNull();
+    // The Admin sidebar lists the admin pages with this one marked.
+    const sidebar = root.querySelector<HTMLElement>('[data-section-sidebar="admin"]')!;
+    expect(sidebar.querySelector("[data-section-sidebar-title]")?.textContent).toBe("Admin");
+    expect(sidebar.querySelector('[data-admin-link="/admin/models"]')?.getAttribute("aria-current")).toBe("page");
     expect(root.querySelector('a[href="/my-work"]')).not.toBeNull();
     // Full width: the width prop remains data for the ?workspace=current branch.
     const adminContent = root.querySelector("[data-admin-content-width=compact]");
