@@ -4786,6 +4786,35 @@ This changes a documented limit, not a workflow stage, transition or permission;
   - **Left:** the extra read of the one file that does not fit (at most 200,000 characters) is kept. A Word file's frozen text is shorter than its stored text, so its length cannot be checked first.
 - **Approval:** lead, under the owner's direction for the stress run; listed for the owner's confirmation.
 
+### 2026-10-28: A refused AI answer never counts toward moving a tier back (owner)
+
+Found by the F5 stress run (entry above). The hourly production error check moved Sonnet 5.5 back to Sonnet 5 for every writer: 12 failures in 55 calls, most of them Briefs the model refused on the stress text. One project's content could move every writer's tier back for 7 days. Refusals were also counted unevenly:
+- on the structured call path (Briefs, Seeds), only when no usable tool call was left;
+- file labels (since 9826fea0) and fact extraction, always;
+- a plain-text answer, as a success.
+
+This changes how the 2026-10-22 (second) and 2026-10-23 entries count calls, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.** An answer the model declines records no outcome on any path. That covers Anthropic's stop reason "refusal" and OpenRouter's finish reason "content_filter". A refused answer is neither a failure nor a success, so it is left out of both numbers. Everything else counts as before, including:
+  - answers that cannot be used, or fail our own answer checks;
+  - failures nobody has classified;
+  - overloaded answers after every retry.
+
+  The rule itself is unchanged: more than 20 percent of at least 20 calls, over the last day or since the move, within 7 days of the move.
+- **Where.**
+  - `recordedRequest` and `modelFaultCode` in `convex/ai/providers.ts`.
+  - `isRefusalStopReason` and `RefusalOutputError` in `convex/ai/openrouterCore.ts`. An empty refused OpenRouter answer still spends the structured repair, as an empty answer does, but records nothing.
+- **What stays visible.** Each AI call's usage row keeps its stop reason, and a refused file label still says "refusal" on the file.
+- **Known limits.**
+  - A refused answer still spends its step's repair attempt and its cost.
+  - A step whose every try is refused still fails for the writer, as before.
+  - Our own answer checks still count. The owner's answer covered refusals only.
+- **Migration:** none. No schema change; past hourly counts stay as they are.
+- **Tests:**
+  - `convex/ai/modelRouting.test.ts`: 5 refused answers in 20 record nothing and the tier stays, where 5 malformed ones move it back. A refusal with words but no tool call records nothing. An Anthropic refusal records nothing on a plain or a deferred request.
+  - `convex/ai/fileLabels.sdk.test.ts`: a refused label leaves the model's count empty.
+- **Approval:** Product owner, 2026-10-28 (chat): "No refusals" (answer to question 13).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

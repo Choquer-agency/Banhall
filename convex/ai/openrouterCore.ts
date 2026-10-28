@@ -520,6 +520,29 @@ export function isCutOffStopReason(reason: string | null | undefined): boolean {
 /** Anthropic's stop reason for an answer that filled the model's context window. */
 export const CONTEXT_WINDOW_STOP_REASON = "model_context_window_exceeded";
 
+/**
+ * Whether a response's stop reason says the model declined to answer, on
+ * either gateway (Anthropic `stop_reason: "refusal"`, OpenRouter
+ * `finish_reason: "content_filter"`). Owner, 2026-10-28: a refusal comes
+ * from the content sent, not from the model being down, so it never counts
+ * toward a tier's production error check (providers.ts recordedRequest).
+ */
+export function isRefusalStopReason(reason: string | null | undefined): boolean {
+  return reason === "refusal" || reason === "content_filter";
+}
+
+/**
+ * An OpenRouter answer the model declined with nothing in it. A malformed
+ * output like an empty completion, so it spends the same repair attempt,
+ * but it records no outcome (isRefusalStopReason).
+ */
+export class RefusalOutputError extends MalformedOutputError {
+  constructor(message: string) {
+    super(message);
+    this.name = "RefusalOutputError";
+  }
+}
+
 export type ChatCompletionsResponse = {
   /** The model that actually answered (differs only after a fallback). */
   model?: string;
@@ -585,6 +608,9 @@ export function fromChatCompletions(
     content.push({ type: "text", text: choice.message.content });
   }
   if (content.length === 0) {
+    if (isRefusalStopReason(choice.finish_reason)) {
+      throw new RefusalOutputError("OpenRouter returned an empty completion: the model declined to answer");
+    }
     throw new MalformedOutputError("OpenRouter returned an empty completion");
   }
   return { content, stop_reason: choice.finish_reason ?? null };

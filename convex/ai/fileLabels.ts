@@ -160,9 +160,9 @@ async function callForLabels(ctx: ActionCtx, input: LabelInput, projectId?: Id<"
   }
   // F5 stress run, 2026-10-27: Haiku 5.5 declined about half of the first
   // tries on generated text and most second tries went through, so a
-  // refusal is named and tried again later like any failed try.
+  // refusal is named and tried again later like any failed try. It records
+  // no model outcome (owner, 2026-10-28; providers.ts recordedRequest).
   if (response.stop_reason === "refusal") {
-    await response.settleOutcome?.({ ok: false, code: "refusal" });
     throw new LabelAnswerError("refusal", "The model declined to label this file");
   }
   const call = response.content.find((block) => block.type === "tool_use" && "name" in block && block.name === TOOL_NAME);

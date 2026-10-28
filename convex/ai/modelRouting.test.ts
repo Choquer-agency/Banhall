@@ -532,6 +532,80 @@ describe("second review: outcome attribution and recording", () => {
   });
 });
 
+describe("owner, 2026-10-28: a refusal never counts against the model", () => {
+  const drain = async (t: Awaited<ReturnType<typeof setup>>) =>
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const buckets = (t: Awaited<ReturnType<typeof setup>>) =>
+    t.run((ctx) => ctx.db.query("modelCallBuckets").collect());
+  // OpenRouter's finish reason for an answer the model declined.
+  const refusedReply = (text: string | null = null) =>
+    Response.json({
+      choices: [{ message: { content: text }, finish_reason: "content_filter" }],
+      usage: { prompt_tokens: 10, completion_tokens: 0, cost: 0.001 },
+    });
+
+  it("5 refused answers in 20 record nothing, so the tier stays (finding 6 moves it back for malformed ones)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    await roleOnTrack(t, "writing", {
+      modelId: "openai/gpt-5.6-sol",
+      previousModelId: "openai/gpt-6-sol",
+      switchedAt: Date.now() - 60 * 60 * 1000,
+    });
+    let call = 0;
+    reply = () => {
+      call += 1;
+      return call % 4 === 0 ? refusedReply() : toolReply();
+    };
+    await t.action(async (ctx) => {
+      const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "generation:analyzer" });
+      for (let i = 0; i < 20; i += 1) {
+        await generateStructured(client, structuredArgs("openai/gpt-5.6-sol")).catch(() => null);
+      }
+    });
+    await drain(t);
+    expect(await t.run((ctx) => ctx.db.query("aiUsage").collect())).toHaveLength(20);
+    expect(await buckets(t)).toMatchObject([{ successes: 15, failures: 0 }]);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it("a refusal with words but no tool call records nothing either", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const t = await setup();
+    reply = () => refusedReply("I can't help with that.");
+    await t.action(async (ctx) => {
+      const client = clientForModel(ctx, "openai/gpt-5.6-sol", { callSite: "routing-test" });
+      await expect(generateStructured(client, structuredArgs("openai/gpt-5.6-sol"))).rejects.toThrow(
+        /did not return structured output/
+      );
+    });
+    await drain(t);
+    expect(await buckets(t)).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it("an Anthropic refusal records nothing on a plain or a deferred request; any other answer still does", async () => {
+    const recorded: unknown[] = [];
+    const ctx = {
+      runMutation: async (_ref: unknown, args: unknown) => {
+        recorded.push(args);
+      },
+    } as never;
+    const answering = (stop_reason: string) =>
+      withOutcomeRecording(ctx, "m", "routing-test", {
+        messages: { create: async () => ({ content: [], stop_reason }) },
+      });
+    const plain = { model: "m", max_tokens: 10, messages: [{ role: "user" as const, content: "hi" }] };
+    await answering("refusal").messages.create(plain);
+    const deferred = await answering("refusal").messages.create(toolParams("m"));
+    await deferred.settleOutcome?.({ ok: false, code: "no_tool_output" });
+    expect(recorded).toEqual([]);
+    await answering("end_turn").messages.create(plain);
+    expect(recorded).toEqual([{ model: "m", callSite: "routing-test", outcome: "success" }]);
+  });
+});
+
 describe("round 3: financial extraction settles after its own validation", () => {
   it("6: an unparseable timesheet reply is a failure and a valid one a success, end to end", async () => {
     const t = await setup();

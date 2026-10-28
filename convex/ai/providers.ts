@@ -44,7 +44,9 @@ import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
   OutputLimitError,
+  RefusalOutputError,
   isCutOffStopReason,
+  isRefusalStopReason,
   type GenerationClient,
   type GenerationMessageParams,
   type GenerationResponse,
@@ -345,9 +347,10 @@ async function ensureModelRegistered(
 
 /**
  * The failure codes the production error-rate rollback counts: the model
- * returned something unusable, refused, or failed in a way nobody has
- * classified. Billing, auth, rate limits and network faults say nothing
- * about the model and are not recorded. Neither is an action running out of
+ * returned something unusable or failed in a way nobody has classified.
+ * Billing, auth, rate limits and network faults say nothing about the model
+ * and are not recorded. Neither is a refusal (owner, 2026-10-28): it comes
+ * from the content sent, not from the model being down. Neither is an action running out of
  * time (ActionTimeBudgetError, 2026-09-25): that is our own arithmetic.
  * The same goes for any failure the action's time limit caused: a timeout
  * the deadline cut short (thrown as ActionTimeBudgetError), or a retryable
@@ -365,6 +368,7 @@ export function modelFaultCode(error: unknown): string | null {
   // unknown value, a missing OpenRouter key, a model without an OpenRouter
   // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
   if (isTransportConfigurationError(error)) return null;
+  if (error instanceof RefusalOutputError) return null;
   // A cut-off is `output_limit` on both gateways: OpenRouter throws it
   // inside the request (cutoff review P3-1).
   if (error instanceof OutputLimitError) return "output_limit";
@@ -382,8 +386,9 @@ export function modelFaultCode(error: unknown): string | null {
  * and never also a success, which a usage-row count would have made it.
  * Some requests record no outcome at all: errors that say nothing about the
  * model (billing, auth, rate limits, network, the action's own time limit,
- * a request the caller aborted) and an answer cut off at the output limit
- * whose step still succeeds (see cutOffCounts). A recording failure is
+ * a request the caller aborted), an answer cut off at the output limit
+ * whose step still succeeds (see cutOffCounts), and a refused answer
+ * (owner, 2026-10-28). A recording failure is
  * logged and never fails the call; one small mutation per request is
  * negligible next to the request.
  */
@@ -478,7 +483,8 @@ export type SettleOutcome = (result: { ok: true } | { ok: false; code: string })
 /**
  * The one place a provider request's terminal outcome is recorded: at most
  * one per request (phase 2 rule), for the model that served it, and none
- * for a cut-off whose step succeeds (see cutOffCounts). A deferred
+ * for a cut-off whose step succeeds (see cutOffCounts) or for a refusal
+ * (isRefusalStopReason, owner 2026-10-28). A deferred
  * request hands the response a `settleOutcome` for the caller to call after
  * its own validation. A request whose own `signal` was aborted records
  * nothing (review 2026-09-25, P3-b): the caller gave up, which says nothing
@@ -506,6 +512,14 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
     throw error;
   }
   const model = response.servedModel ?? requested;
+  const stopReason = (response as { stop_reason?: string | null }).stop_reason;
+  // Owner, 2026-10-28 (F5 stress run): a refused answer records nothing on
+  // any path, so one project's content cannot move a tier back for every
+  // writer. A deferred caller still settles; its settle records nothing.
+  if (isRefusalStopReason(stopReason)) {
+    if (request.defer) response.settleOutcome = async () => {};
+    return response;
+  }
   if (request.defer) {
     let settled = false;
     response.settleOutcome = async (result) => {
@@ -524,7 +538,6 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
   // review P3-1). It is a failure only where the cut fails its step, as a
   // section draft's reader (requireTextResponse) refuses it; anywhere else
   // it records nothing (see cutOffCounts).
-  const stopReason = (response as { stop_reason?: string | null }).stop_reason;
   if (isCutOffStopReason(stopReason)) {
     if (cutOffCounts(callSite, false)) {
       await recordOutcome(ctx, { model, callSite, outcome: "failure", code: "output_limit" });
