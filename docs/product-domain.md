@@ -4869,8 +4869,8 @@ The owner's answer to question 15: "Sure but needs to work for any project size"
 
 - **Rule.**
   - A draft records, at its start, the company files it could read and the writer left ticked, but that did not fit: the first one that would pass the total and every eligible one after it, newest first (`companyFilesLeftOut` on the generation). The ones after the first are not read to find out.
-  - The Inputs band lists them after the company files the draft used, as "not included (not captured)", counted with the documents. A viewer who may not read company files sees none of them, as before. A file removed since is left off.
-  - The start dialog says on every company file "Used if this project's own files leave room", after its word count. It cannot say which ones will fit without reading every file, which is what fails on a large project.
+  - The Inputs band lists them after the company files the draft froze, as "not included (not captured)", counted with the documents. A viewer who may not read company files sees none of them, as before. A file deleted since is left off; one archived since reads "not included (archived)", as a project file does.
+  - The start dialog says on every company file "Read last, newest first, while there is room", after its word count, with the whole line in its title when the row cuts it short. It cannot say which ones will fit without reading every file, which is what fails on a large project.
 - **Any project size.** A draft can read at most 12 company files and 600,000 characters of them (`eligibleCompanyFiles`, unchanged), so the record and the band's list stay that small however large the project or the company. The project's own files left out were already listed; when the band cannot read them all it says "Not every document could be listed. The total is a lower bound."
 - **Where.**
   - `selectCompanyFilesOf` in `convex/lib/briefEvidence.ts`; the reservation and a Summary recovery in `convex/lib/generations/reservation.ts`; `companyFilesLeftOut` in `convex/schema.ts`.
@@ -4880,13 +4880,17 @@ The owner's answer to question 15: "Sure but needs to work for any project size"
   - A draft started before this change records nothing, so its band lists no company files that did not fit.
   - The New project head start and the Brief prepared ahead freeze the same way but record nothing; the run they hand over to records its own list at its start.
   - Which company files a draft reads still depends on upload order and room, not on what matters most. Choosing by relevance is question 2 and Phase D.
+  - Freezing stops at the first company file that does not fit, so a shorter, older one after it is left out too, though it might have fit.
+  - Files after the first that does not fit are listed unread: one whose stored text turns out blank or damaged is listed as not captured, where before that point it would be passed over without a word.
+  - When the company's names cannot all be read, the draft sends no company file and records none as left out, so the band names none (as before this change; rare).
 - **Migration:** none. One optional field, widened.
 - **Tests:**
-  - `convex/frozenTotal.test.ts`: company files that do not fit are named, newest first; a draft whose own files fill the total records its company files, and the band lists them as not captured.
+  - `convex/frozenTotal.test.ts`: company files that do not fit are named, newest first; a draft whose own files fill the total records its company files, and the band lists them as not captured, or archived once archived.
   - `convex/companyFileDrafts.test.ts`: the band rows come after the used company files, counted, and hidden from viewers who may not read company files; a draft whose own rows fill the total names the company file it could not read.
   - `src/lib/components/brief/BriefRailPanel.component.test.ts`: the band says "Company file" and "not included (not captured)".
-  - `src/lib/components/project/ProjectStartDialog.component.test.ts`: the dialog's company file reads "900 words · Used if this project's own files leave room".
-- **Live check (2026-10-28, the F5 live copy).** Pack `_bmad-output/test-artifacts/stress/2026-10-28-company-files`. The 101-file stress project's company was given two company files of 120,000 characters, last year's report and, newer, a background file. A Step by step draft kept the interview and 14 of the project's files; the background file fit, last year's report did not. The draft recorded last year's report as left out, and the band, read through the page's own query, lists it as not captured. The page was not screenshotted: the 101-file page was too slow to drive while the gate ran. $2.04 of AI; $27.41 of the owner's $40 in all.
+  - `src/lib/components/project/ProjectStartDialog.component.test.ts`: the dialog's company file reads "900 words · Read last, newest first, while there is room", and its title holds the whole line.
+- **Live check (2026-10-28, the F5 live copy).** Pack `_bmad-output/test-artifacts/stress/2026-10-28-company-files`. The 101-file stress project's company was given two company files of 120,000 characters, last year's report and, newer, a background file. A Step by step draft kept the interview and 14 of the project's files; the background file fit and was frozen (the analysis, which reads at most 12 files, then left it out, so the band shows it as not included with no reason), and last year's report did not fit. The draft recorded last year's report as left out, and the band, read through the page's own query, lists it as not captured. The page was not screenshotted: the 101-file page was too slow to drive while the gate ran. $2.04 of AI; $27.41 of the owner's $40 in all.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship", every finding P3. Done: the dialog's words and title, a file archived since, the band's read budget, the record of what the band showed, and three known limits.
 - **Approval:** Product owner, 2026-10-28 (chat): "Sure but needs to work for any project size" (answer to question 15).
 
 ## Amendment process

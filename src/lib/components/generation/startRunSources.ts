@@ -76,11 +76,12 @@ export type ProjectDocumentRow = {
 export type CompanyFileRow = { _id: string; fileName: string; wordCount: number };
 
 /**
- * 2026-10-28 (third, owner): a draft reads company files after the
- * project's own, only while they fit, so a ticked company file may still be
- * left out. The Inputs band names the ones that were.
+ * 2026-10-28 (third, owner): a draft reads company files after everything
+ * else, newest first, and stops at the first that does not fit, so a ticked
+ * company file may still be left out (even a short one after a long one that
+ * did not fit). The Inputs band names the ones that were.
  */
-export const COMPANY_FILE_ROOM_NOTE = "Used if this project's own files leave room";
+export const COMPANY_FILE_ROOM_NOTE = "Read last, newest first, while there is room";
 
 /**
  * A project's start dialog rows: its transcripts in list order, then its

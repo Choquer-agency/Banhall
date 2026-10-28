@@ -150,6 +150,18 @@ describe("the frozen total holds a project's own files (F5 stress run, 2026-10-2
       ["history.txt", "not_captured"],
       ["last-year.txt", "not_captured"],
     ]);
+    // Archived since the draft: it says so, as a project file does (review round 1).
+    await s.t.run(async (ctx) => {
+      const [first] = generation!.companyFilesLeftOut!;
+      await ctx.db.patch(first, { archived: true });
+    });
+    const after = await s.authed.query(api.generations.getContextInclusion, { generationId });
+    expect(
+      after!.rows.filter((row: { kind: string }) => row.kind === "company").map((row: { label: string; reason?: string }) => [row.label, row.reason])
+    ).toEqual([
+      ["history.txt", "archived"],
+      ["last-year.txt", "not_captured"],
+    ]);
   });
 
   it("leaves a project within the total exactly as before", async () => {

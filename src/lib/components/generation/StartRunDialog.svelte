@@ -358,7 +358,7 @@
                       <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={source.name} size={28} /></span>
                       <div class="flex min-w-0 flex-col">
                         <span class="truncate text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink" data-start-run-name>{source.name}</span>
-                        <span data-start-run-meta class="truncate text-xs leading-[calc(4/3)] text-ink-muted">
+                        <span data-start-run-meta class="truncate text-xs leading-[calc(4/3)] text-ink-muted" title={source.reading ? undefined : source.meta}>
                           {source.reading ? readingMeta(source.readingEtaSeconds) : source.meta}
                         </span>
                       </div>
