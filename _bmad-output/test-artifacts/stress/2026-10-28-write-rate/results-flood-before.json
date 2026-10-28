@@ -1,0 +1,85 @@
+{
+  "startedAt": "2026-10-28T18:22:01.185Z",
+  "retry": false,
+  "rounds": [
+    {
+      "round": 1,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k5711jrtw54g689p6dqfybpqnd8h44zp",
+          "requestMs": 326,
+          "outcome": {
+            "failed": "no detail",
+            "afterMs": 1395
+          },
+          "cancelFailed": "This generation is no longer active"
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k57aaqdphfb2ms9qd0dr4ktged8h4g2e",
+          "requestMs": 326,
+          "outcome": {
+            "failed": "no detail",
+            "afterMs": 2922
+          },
+          "cancelFailed": "This generation is no longer active"
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 89,
+        "other": 0,
+        "refused": 67
+      },
+      "floodRowsCleared": 208
+    },
+    {
+      "round": 2,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "startRefused": "{\"code\":\"TooManyWrites\",\"message\":\"Too many writes per second. Your deployment is limited to 4 MiB bytes written per second. Reduce your write rate or upgrade to a larger deployment.\"}"
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k5776d8n49sc58r8kdpvvx4tes8h5mfj",
+          "requestMs": 811,
+          "outcome": {
+            "failed": "no detail",
+            "afterMs": 1846
+          },
+          "cancelFailed": "This generation is no longer active"
+        }
+      },
+      "startRefusals": 1,
+      "flood": {
+        "ok": 146,
+        "other": 0,
+        "refused": 106
+      },
+      "floodRowsCleared": 146
+    },
+    {
+      "round": 3,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "startRefused": "{\"code\":\"TooManyWrites\",\"message\":\"Too many writes per second. Your deployment is limited to 4 MiB bytes written per second. Reduce your write rate or upgrade to a larger deployment.\"}"
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k576jy2spjfdxqhfjq243vb5118h5dat",
+          "requestMs": 1120,
+          "outcome": {
+            "failed": "no detail",
+            "afterMs": 2169
+          },
+          "cancelFailed": "This generation is no longer active"
+        }
+      },
+      "startRefusals": 1,
+      "flood": {
+        "ok": 86,
+        "other": 0,
+        "refused": 70
+      },
+      "floodRowsCleared": 86
+    }
+  ],
+  "endedAt": "2026-10-28T18:24:13.295Z"
+}

@@ -40,6 +40,7 @@ import {
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { readGenerationFreeze, resetGenerationFreezeReads } from "./generationFreezeRead";
 import { ActionTimeBudgetError, wasStoppedByDeadline } from "./actionDeadline";
+import { isWriteRateLimitError } from "../../shared/writeLimit";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
@@ -385,6 +386,8 @@ export function modelFaultCode(error: unknown): string | null {
   // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
   if (isTransportConfigurationError(error)) return null;
   if (error instanceof RefusalOutputError || isContentDeclineError(error)) return null;
+  // The database refusing a write for its write rate (owner, 2026-10-28).
+  if (isWriteRateLimitError(error)) return null;
   // A cut-off is `output_limit` on both gateways: OpenRouter throws it
   // inside the request (cutoff review P3-1).
   if (error instanceof OutputLimitError) return "output_limit";
@@ -1075,6 +1078,16 @@ export function normalizeProviderError(error: unknown): {
   let status: number | undefined;
   let rawMessage = "";
   if (error instanceof Error) rawMessage = error.message;
+  // F5 stress run (2026-10-27): a write the database refused for its write
+  // rate was stored as "The AI provider rejected the request". It keeps the
+  // "unknown" code every stored failure accepts, with words that say whose
+  // refusal it was (owner, 2026-10-28, question 14).
+  if (isWriteRateLimitError(error)) {
+    return {
+      code: "unknown",
+      message: `The database refused a write for its write rate, not the AI provider: ${rawMessage.slice(0, 300)}`,
+    };
+  }
   if (error && typeof error === "object" && "status" in error) {
     status = typeof error.status === "number" ? error.status : undefined;
   }

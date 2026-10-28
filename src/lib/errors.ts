@@ -1,3 +1,5 @@
+import { isWriteRateLimitError } from "../../shared/writeLimit";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -82,10 +84,19 @@ export const HANDLED_REFUSAL_CODES: ReadonlySet<string> = new Set([
 export function isHandledRefusalLog(line: string): boolean {
   const call = /^\[CONVEX [QMA?]\(([^)]*)\)\]/.exec(line);
   if (!call) return false;
+  if (WRITE_RETRY_FUNCTIONS.has(call[1]) && isWriteRateLimitError(line)) return true;
   const code = userErrorCode(new Error(line));
   if (code === null) return false;
   return HANDLED_REFUSAL_CODES.has(code) || HANDLED_REFUSAL_FUNCTIONS.has(call[1]);
 }
+
+/**
+ * Functions the page sends again while the deployment's write rate refuses
+ * them (owner, 2026-10-28, question 14: `withWriteRetry`). The client logs
+ * each refused try before the retry runs, so that log is not a crash; a
+ * start still refused after every try reaches the caller's own catch.
+ */
+export const WRITE_RETRY_FUNCTIONS: ReadonlySet<string> = new Set(["generations:requestGeneration"]);
 
 /**
  * Functions whose every domain refusal (any `code`) the caller explains in

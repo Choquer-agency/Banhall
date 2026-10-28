@@ -72,6 +72,16 @@ describe("isHandledRefusalLog", () => {
     expect(isHandledRefusalLog(convexLog("intakeDrafts:saveIntakeSource", { code: "NOT_FOUND", message: "x" }))).toBe(false);
   });
 
+  it("treats a start the write rate refused as handled, since the page sends it again (owner, 2026-10-28)", () => {
+    const refused =
+      '[CONVEX M(generations:requestGeneration)] [Request ID: 7c1e] Server Error\n{"code":"TooManyWrites","message":"Too many writes per second. Your deployment is limited to 4 MiB bytes written per second."}';
+    expect(isHandledRefusalLog(refused)).toBe(true);
+    // Only the start is sent again; any other function's refusal still shows.
+    expect(isHandledRefusalLog(refused.replace("generations:requestGeneration", "seeds:decide"))).toBe(false);
+    // And the start's other unexpected failures still show.
+    expect(isHandledRefusalLog(convexLog("generations:requestGeneration", null))).toBe(false);
+  });
+
   it("leaves unexpected failures and other lines to the crash toast", () => {
     // A crash with no domain code.
     expect(isHandledRefusalLog(convexLog("generations:requestGeneration", null))).toBe(false);

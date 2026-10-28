@@ -1,0 +1,75 @@
+{
+  "startedAt": "2026-10-28T18:11:38.255Z",
+  "rounds": [
+    {
+      "round": 1,
+      "drafts": {
+        "k97awqneym0wkgyzdrhrs4je5x8h54kx": {
+          "generationId": "k57e45hcaw2cyd2mze7g4nexrd8h5895",
+          "requestMs": 511,
+          "outcome": {
+            "began": "running",
+            "afterMs": 537
+          },
+          "cancelled": true
+        },
+        "k974a47xj23fsb2w793750nbd98h4g06": {
+          "generationId": "k57d8n54pj2zxrd3ys3ptp4xs18h4e2a",
+          "requestMs": 511,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1101
+          },
+          "cancelled": true
+        }
+      }
+    },
+    {
+      "round": 2,
+      "drafts": {
+        "k97awqneym0wkgyzdrhrs4je5x8h54kx": {
+          "generationId": "k5772wq8x16499aqx07498c37s8h49fw",
+          "requestMs": 520,
+          "outcome": {
+            "began": "running",
+            "afterMs": 538
+          },
+          "cancelled": true
+        },
+        "k974a47xj23fsb2w793750nbd98h4g06": {
+          "generationId": "k578k3f1pm6jhfmscajyhscpt58h5fay",
+          "requestMs": 520,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1077
+          },
+          "cancelled": true
+        }
+      }
+    },
+    {
+      "round": 3,
+      "drafts": {
+        "k97awqneym0wkgyzdrhrs4je5x8h54kx": {
+          "generationId": "k57e386jxe313s8ar238vt7hrh8h4zjy",
+          "requestMs": 382,
+          "outcome": {
+            "began": "running",
+            "afterMs": 393
+          },
+          "cancelled": true
+        },
+        "k974a47xj23fsb2w793750nbd98h4g06": {
+          "generationId": "k575f3pdgr3tqtdk2172k90kmd8h5cbx",
+          "requestMs": 382,
+          "outcome": {
+            "began": "running",
+            "afterMs": 927
+          },
+          "cancelled": true
+        }
+      }
+    }
+  ],
+  "endedAt": "2026-10-28T18:12:44.177Z"
+}

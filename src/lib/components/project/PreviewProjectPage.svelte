@@ -52,6 +52,7 @@
   import { seedRedraftAttempt } from "$lib/components/generation/writing/draftProgress";
   import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
   import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
+  import { withWriteRetry } from "../../../../shared/writeLimit";
   import Editor from "$lib/components/editor/Editor.svelte";
   import type {
     CommentRange,
@@ -229,7 +230,8 @@
     editAccessQ.error ? false : (editAccessQ.data?.canEditDetails ?? true)
   );
 
-  const generateReport = useMutation(api.generations.requestGeneration);
+  // Owner, 2026-10-28: a start the write rate refuses is sent again briefly.
+  const generateReport = withWriteRetry(useMutation(api.generations.requestGeneration));
   // 2026-09-27 (fourth): the start dialog's leave-out list asks for a head
   // start of exactly the ticked files, as on New project.
   const setProjectStartSelection = useMutation(api.briefPreparations.setProjectStartSelection);

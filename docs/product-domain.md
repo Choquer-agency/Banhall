@@ -4819,6 +4819,48 @@ This changes how the 2026-10-22 (second) and 2026-10-23 entries count calls, not
 - **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes", every finding P3. Done: declines that come back as errors, the label on the OpenRouter gateway, the repair's words, and the two known limits above.
 - **Approval:** Product owner, 2026-10-28 (chat): "No refusals" (answer to question 13).
 
+### 2026-10-28 (second): A draft's start tries again when the database refuses a write for its write rate (owner)
+
+Found by the F5 stress run (entry "2026-10-27 (thirteenth)"). A Convex deployment refuses a write when everything together writes more than its limit per second ("Too many writes per second", code TooManyWrites; 4 MiB a second on the local backend). Two large drafts started in the same second both failed on it, while files were still being cut into search pieces and labelled:
+- the step that moves a draft from reserved to running (`beginGeneration`);
+- a progress line (`appendProgress`).
+
+The writer saw "The generation did not complete. Try again." One stored error read "The AI provider rejected the request", which was wrong: no AI call had failed. Earlier the same night a draft's start itself was refused once (`requestGeneration`). A refused write keeps nothing, so sending it again is safe.
+
+This changes how a draft's start handles one failure, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.** While the write rate refuses one of a draft's start writes, it is sent again after 250 ms, 500 ms, 1 s and 2 s, each wait stretched by up to half again so two starts refused together do not try again together: about 4 to 6 seconds in all. Any other error, or the fifth refusal, fails as before. It covers:
+  - the start itself, from every page that starts a draft (`requestGeneration`);
+  - every write of the actions that start a draft: a one-shot draft's whole run (`generateReport`), and Step by step's start, its Brief and seed-stage setup and its background drafting inputs (`startIterativeGeneration`, `continueAfterBriefPreparation`, `resumeSeedInitialization`, `prepareSeedDraftingInputs`);
+  - every write of a Seed Batch (`generateBatch`). The live check saw a refused claim end a Batch's action, which leaves the Batch waiting 10 minutes for its lease.
+- **The error notice.** The page's crash notice no longer shows for a start the write rate refused, since the page sends it again; a start still refused after every try reaches the page's own message, as before.
+- **The stored error.** A write the rate refused is stored as the database's refusal, not the AI provider's, and it never counts against a model (entry "2026-10-28").
+- **Where.**
+  - `retryOnWriteLimit`, `withWriteRetry` and `isWriteRateLimitError` in `shared/writeLimit.ts`.
+  - `withWriteRetries` in `convex/lib/writeRetry.ts`, which wraps an action's ctx once, at the top of each action named above (`convex/ai/pipeline.ts`, `convex/ai/iterative.ts`, `convex/ai/seeds.ts`). The action's deadline is keyed by its ctx, so the wrapped ctx is the one used throughout.
+  - The four pages that start a draft, and `WRITE_RETRY_FUNCTIONS` in `src/lib/errors.ts`.
+  - `normalizeProviderError` and `modelFaultCode` in `convex/ai/providers.ts`.
+- **Known limits.**
+  - Only the writes named above try again. Any other write the rate refuses fails as before, though the write rate is shared by everything on the deployment: under the live check's flood, a usage row's write and a model outcome's write were refused too, and whether the scheduler sent the usage rows again was not checked.
+  - A cloud deployment's limit depends on its size and was not checked; the retry does not depend on it.
+  - The browser sees the refusal's words only when the deployment sends them; if it sends a bare "Server Error", the page does not try again, as before. The server's own retries do not depend on it.
+- **Migration:** none.
+- **Tests:**
+  - `shared/writeLimit.test.ts`: the refusal is known by its code or its words and nothing else; a start is sent again after each refusal until it goes through, and the last refusal is thrown after every wait; any other error is never sent again; the waits spread out.
+  - `convex/lib/writeRetry.test.ts`: a refused mutation is sent again with the same arguments, the rest of ctx is untouched, and no other failure is sent again.
+  - `convex/generationEntryFailure.test.ts`: without the wrapper one refusal fails the draft, as on the F5 run; with it, a draft whose begin is refused twice begins, and one refused every time fails, naming the refusal, and leaves the project free.
+  - `convex/ai/writeLimitErrors.test.ts`: the stored words name the database, and the refusal never counts against a model.
+  - `src/lib/errors.test.ts`: a refused start is not a crash; any other function's refusal still is.
+- **Live check (2026-10-28, the F5 live copy).** Pack `_bmad-output/test-artifacts/stress/2026-10-28-write-rate`. A temporary helper on the copy wrote about 10 MB a second while two drafts started in the same second:
+  - before the fix, 0 of 6 drafts began (2 starts refused, 4 "Generation could not begin: TooManyWrites");
+  - with begin and progress lines only, 6 of 6 began, but later start writes were refused as well, so the change was widened to every write of the start actions;
+  - with the start actions wrapped, 6 of 6 reached their first step and held there 25 seconds; one Seed Batch's refused claim ended its action, so the Batch action was wrapped too;
+  - with the Batch wrapped, 4 of 4 reached their first step and held there 40 seconds; every refused write went through on a later try.
+
+  Without a flood, 6 of 6 drafts started in the same second began, and no write was refused. $5.00 of AI; $25.38 of the owner's $40 in all.
+- **Component suite.** `npm run test:component`: 2 of 1,993 tests timed out while the gate and the live copy ran beside it (chat chip hit area, the Seed workspace's thirteen roles); both files pass alone (164 tests).
+- **Approval:** Product owner, 2026-10-28 (chat): "Sure" (answer to question 14).
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

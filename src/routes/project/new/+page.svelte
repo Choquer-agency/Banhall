@@ -68,6 +68,7 @@
     type StartRunSource,
   } from "$lib/components/generation/StartRunDialog.svelte";
   import { parsePdFilename } from "../../../../shared/pdFilename";
+  import { withWriteRetry } from "../../../../shared/writeLimit";
   import { detectPdSections as detectSections } from "../../../../shared/pdSectionDetect";
   import {
     isTranscriptFileName,
@@ -136,7 +137,8 @@
 
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);
-  const generateReport = useMutation(api.generations.requestGeneration);
+  // Owner, 2026-10-28: a start the write rate refuses is sent again briefly.
+  const generateReport = withWriteRetry(useMutation(api.generations.requestGeneration));
   const startPdReview = useMutation(api.pdReviews.startPdReview);
   const uploadDocument = useMutation(api.documents.uploadDocument);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);

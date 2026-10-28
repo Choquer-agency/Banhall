@@ -73,6 +73,7 @@ import {
   ensureFactInputs,
 } from "./condense";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { withWriteRetries } from "../lib/writeRetry";
 import {
   scrubBannedWords,
   scrubBannedWordsUnlessWaived,
@@ -1322,7 +1323,10 @@ export async function beginTrackedGeneration(
  */
 export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
-  handler: async (ctx, args) => {
+  handler: async (actionCtx, args) => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     const actionStartedAt = Date.now();
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx, actionStartedAt);

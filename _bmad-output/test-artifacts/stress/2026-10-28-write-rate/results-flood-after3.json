@@ -1,0 +1,71 @@
+{
+  "startedAt": "2026-10-28T18:35:37.352Z",
+  "retry": true,
+  "rounds": [
+    {
+      "round": 1,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k57bvn99ax4qye2a6m09dfwte58h4ez5",
+          "requestMs": 365,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1447
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k570heg8v6qk6wnpfpe2wc3b8x8h483f",
+          "requestMs": 365,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1972
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 121,
+        "other": 0,
+        "refused": 95
+      },
+      "floodRowsCleared": 121
+    },
+    {
+      "round": 2,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k578je9wv3c6ej8jqh06c2jcp98h492g",
+          "requestMs": 3373,
+          "outcome": {
+            "began": "running",
+            "afterMs": 8485
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k576k9gn484yhhs952g5ky6fqs8h45vd",
+          "requestMs": 3373,
+          "outcome": {
+            "began": "running",
+            "afterMs": 3925
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        }
+      },
+      "startRefusals": 2,
+      "flood": {
+        "ok": 92,
+        "other": 0,
+        "refused": 76
+      },
+      "floodRowsCleared": 92
+    }
+  ],
+  "endedAt": "2026-10-28T18:37:43.870Z"
+}

@@ -1,0 +1,97 @@
+{
+  "startedAt": "2026-10-28T18:24:44.676Z",
+  "retry": true,
+  "rounds": [
+    {
+      "round": 1,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k576acr4mnmqakctk3cqkd9nts8h5yjd",
+          "requestMs": 1233,
+          "outcome": {
+            "began": "running",
+            "afterMs": 2869
+          },
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k5794eaacd88c8jqnhjj358p3n8h42wm",
+          "requestMs": 1233,
+          "outcome": {
+            "began": "running",
+            "afterMs": 2900
+          },
+          "cancelled": true
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 130,
+        "other": 0,
+        "refused": 74
+      },
+      "floodRowsCleared": 130
+    },
+    {
+      "round": 2,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k57empmrkqw0d8gezcyc0r87a98h48kt",
+          "requestMs": 2776,
+          "outcome": {
+            "began": "running",
+            "afterMs": 2812
+          },
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k57f1h41mjd7j0ck7nx8b37rx58h4wyn",
+          "requestMs": 2776,
+          "outcome": {
+            "began": "running",
+            "afterMs": 5375
+          },
+          "cancelled": true
+        }
+      },
+      "startRefusals": 1,
+      "flood": {
+        "ok": 121,
+        "other": 0,
+        "refused": 83
+      },
+      "floodRowsCleared": 121
+    },
+    {
+      "round": 3,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k573bxawr9g7cpfaf7z4dq01qs8h40tz",
+          "requestMs": 6616,
+          "outcome": {
+            "began": "running",
+            "afterMs": 6646
+          },
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k579t2bf1bchhcj7ypayvtakgx8h53fd",
+          "requestMs": 6616,
+          "outcome": {
+            "began": "running",
+            "afterMs": 8201
+          },
+          "cancelled": true
+        }
+      },
+      "startRefusals": 4,
+      "flood": {
+        "ok": 145,
+        "other": 0,
+        "refused": 95
+      },
+      "floodRowsCleared": 145
+    }
+  ],
+  "endedAt": "2026-10-28T18:26:44.009Z"
+}
