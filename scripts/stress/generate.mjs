@@ -43,16 +43,35 @@ export function seeded(seed) {
 
 const pick = (random, list) => list[Math.floor(random() * list.length)];
 
-// Ordinary English and lab words, so the text reads like project notes.
+// Ordinary lab words for headings.
 const WORDS = (
-  "the a an and but so then we they it this that our their its of in on at for with from by to into over under " +
   "seal valve pump pressure temperature flow sample batch trial run test result cycle load sensor reading " +
-  "prototype material coating weld joint bracket housing gasket membrane filter coil motor shaft bearing " +
-  "measured adjusted tuned failed held cracked leaked rose dropped stabilized repeated logged compared " +
-  "first second third next last new old higher lower longer shorter faster slower stable uneven early late " +
-  "team engineer operator lead technician week day hour shift morning evening line station rig bench"
+  "prototype material coating weld joint bracket housing gasket membrane filter coil motor shaft bearing"
 ).split(" ");
 const UNITS = ["bar", "kPa", "C", "mm", "hours", "cycles", "percent", "rpm", "kg", "minutes"];
+// F5 live run, 2026-10-27: words in random order read as nonsense, and the
+// models refused it (the Brief on every try, file labels on about half), so
+// the text is now plain sentences from templates, still with no model text.
+const PARTS = ["seal", "valve", "pump", "sensor", "housing", "gasket", "membrane", "filter", "coil", "motor", "shaft", "bearing", "bracket", "weld", "coating"];
+const QUANTITIES = ["pressure", "temperature", "flow", "drift", "wear", "noise"];
+const OUTCOMES = ["held", "leaked", "cracked", "drifted", "stabilized", "failed early"];
+const ACTIONS = ["adjusted", "replaced", "tuned", "measured", "cleaned", "rebuilt"];
+const PLACES = ["bench", "test rig", "line", "station"];
+const SHIFTS = ["morning", "evening", "night"];
+const SENTENCES = [
+  (r, who, n) => `${who} ran trial ${n()} on the ${pick(r, PARTS)} at ${n()} ${pick(r, UNITS)}, and it ${pick(r, OUTCOMES)}.`,
+  (r, who, n) => `The ${pick(r, PARTS)} ${pick(r, OUTCOMES)} after ${n()} ${pick(r, UNITS)} on the ${pick(r, PLACES)}.`,
+  (r, who, n) => `We ${pick(r, ACTIONS)} the ${pick(r, PARTS)} and logged ${n()} ${pick(r, UNITS)} on the ${pick(r, SHIFTS)} shift.`,
+  (r, who, n) => `Nobody knew whether the ${pick(r, PARTS)} would keep its ${pick(r, QUANTITIES)} steady above ${n()} ${pick(r, UNITS)}.`,
+  (r, who, n) => `${who} compared the new ${pick(r, PARTS)} with the old one and saw ${(n() % 60) + 5} percent less ${pick(r, QUANTITIES)}.`,
+  (r, who, n) => `The ${pick(r, QUANTITIES)} reading on the ${pick(r, PLACES)} rose to ${n()} ${pick(r, UNITS)} before the ${pick(r, PARTS)} ${pick(r, OUTCOMES)}.`,
+];
+const QUESTIONS = [
+  (r) => `What happened when you ${pick(r, ACTIONS)} the ${pick(r, PARTS)}?`,
+  (r) => `Why did the ${pick(r, PARTS)} keep losing ${pick(r, QUANTITIES)}?`,
+  (r) => `What did you try next on the ${pick(r, PLACES)}?`,
+  (r) => `How did you know the ${pick(r, PARTS)} would hold?`,
+];
 // Syllables for invented names. The scan below is what guarantees no real name.
 const SYLLABLES = ["zor", "vel", "quin", "tash", "mor", "dex", "ul", "bran", "kev", "sil", "oth", "pra", "nim", "ves", "cal", "dro", "fen", "yar"];
 
@@ -63,16 +82,13 @@ export function inventedName(random, syllables = 2 + Math.floor(random() * 2)) {
 }
 
 function sentence(random, names) {
-  const length = 8 + Math.floor(random() * 14);
-  const words = [];
-  for (let index = 0; index < length; index += 1) {
-    const roll = random();
-    if (roll < 0.06 && names.length) words.push(pick(random, names));
-    else if (roll < 0.12) words.push(`${Math.floor(random() * 900) + 1} ${pick(random, UNITS)}`);
-    else words.push(pick(random, WORDS));
-  }
-  const text = words.join(" ");
-  return text[0].toUpperCase() + text.slice(1) + ".";
+  const who = names.length ? pick(random, names) : "The team";
+  const n = () => Math.floor(random() * 900) + 1;
+  return pick(random, SENTENCES)(random, who, n);
+}
+
+function question(random) {
+  return pick(random, QUESTIONS)(random);
 }
 
 /** Exactly `chars` characters of notes: headings and paragraphs, cut at the end. */
@@ -97,8 +113,12 @@ export function transcriptText(random, chars, speakers, names) {
   let turn = 0;
   while (length < chars) {
     const speaker = speakers[turn % speakers.length];
-    const sentences = 1 + Math.floor(random() * (turn % speakers.length === 0 ? 2 : 6));
-    const line = `${speaker}: ${Array.from({ length: sentences }, () => sentence(random, names)).join(" ")}`;
+    // The first speaker is the interviewer, who asks.
+    const said =
+      turn % speakers.length === 0
+        ? question(random)
+        : Array.from({ length: 1 + Math.floor(random() * 6) }, () => sentence(random, names)).join(" ");
+    const line = `${speaker}: ${said}`;
     lines.push(line);
     length += line.length + 1;
     turn += 1;
