@@ -950,7 +950,8 @@ What changes:
 - [x] Round 2 (42de4b30, 1163f9a1): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the code and tests held; the run's record claimed more than its files showed, corrected in c62d138d.
 - [x] Full gate (8,176 unit tests) on c62d138d.
 - [x] Round 3 (c62d138d): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points (the Haiku tier's counts; "except three"; the 12 of 55 now backed by a file; one sentence split), made in d0f621e2.
-- [x] Round 4 (d0f621e2): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku tier's check, but its counts hold 22 failures where 82 calls were refused. Corrected, and the move back's own counts (12 failures in 55 calls) saved in `tier-moves.json`.
+- [x] Round 4 (d0f621e2): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku tier's check, but its counts hold 22 failures where 82 calls were refused. Corrected in dc92c3d8, and the move back's own counts (12 failures in 55 calls) saved in `tier-moves.json`.
+- [x] Round 5 (dc92c3d8): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record stated a cause it had not checked. Haiku's outcome rows and usage rows are the same 392 calls (`haiku-outcomes.json`), 82 refused and 22 recorded as failures, though the code settles a refusal as a failure; the record now says the counts and the code disagree.
 
 ### Automated, live on localhost
 

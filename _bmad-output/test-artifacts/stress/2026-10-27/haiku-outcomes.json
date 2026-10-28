@@ -1,0 +1,24 @@
+{
+  "byHour": {
+    "2026-10-28T02:00Z": {
+      "outcomeFailures": 5,
+      "outcomeRows": 56,
+      "usageRefusals": 26,
+      "usageRows": 56
+    },
+    "2026-10-28T03:00Z": {
+      "outcomeFailures": 17,
+      "outcomeRows": 180,
+      "usageRefusals": 54,
+      "usageRows": 180
+    },
+    "2026-10-28T04:00Z": {
+      "outcomeFailures": 0,
+      "outcomeRows": 156,
+      "usageRefusals": 2,
+      "usageRows": 156
+    }
+  },
+  "note": "Haiku 5.5 per-call outcome rows (modelCallOutcomes, what the tier check counts) beside its usage rows (aiUsage), by hour, from an hour before the run. The counts match hour by hour, so they are the same calls; refused calls outnumber recorded failures. The label and structured call paths settle a refusal as a failure, so the data and the code disagree; the cause was not found.",
+  "readAt": "2026-10-28T04:59:06.693Z"
+}

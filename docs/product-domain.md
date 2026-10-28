@@ -4777,8 +4777,9 @@ This changes a documented limit, not a workflow stage, transition or permission;
     - the 12 MB Inputs band test is kept for older drafts;
     - the generator's header comment is corrected.
   - **Round 2.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes"; the code and tests held. The run's record claimed more than its files showed: the Brain search query still refused on sentences, the pass rule was not met for two drafts in the same second, and some figures had no file behind them. Corrected in c62d138d.
-  - **Round 3.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points, made in the commit that records this round. Haiku 5.5's counts held 22 failures in 392 calls (about 6 percent) and its tier did not move, though 82 of those calls were refused: most refusals were counted as successes.
-  - **Round 4.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku check, which its own files contradict. Corrected, with the counts the move back recorded (`tier-moves.json`: 12 failures in 55 calls).
+  - **Round 3.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points, among them the Haiku tier's counts, made in d0f621e2.
+  - **Round 4.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku check, which its own files contradict. Corrected in dc92c3d8, with the counts the move back recorded (`tier-moves.json`: 12 failures in 55 calls).
+  - **Round 5.** Claude Opus 5.5 (requested high; it reported low), "ship after fixes": "most refusals were counted as successes" was stated as fact, though the code settles a refusal as a failure. Haiku's outcome rows and usage rows were then compared hour by hour (`haiku-outcomes.json`): they are the same 392 calls, 82 refused and 22 recorded as failures. The counts and the code disagree, and the cause was not found.
   - **Left:** the extra read of the one file that does not fit (at most 200,000 characters) is kept. A Word file's frozen text is shorter than its stored text, so its length cannot be checked first.
 - **Approval:** lead, under the owner's direction for the stress run; listed for the owner's confirmation.
 
