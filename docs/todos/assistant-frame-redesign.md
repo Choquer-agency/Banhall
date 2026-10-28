@@ -72,3 +72,10 @@ Steps, one commit each, gate before each code commit:
 8. Docs: product-domain amendment, architecture.md, system-map, changelog; full gate, component suite, Opus 5.5 high review, live AI checks within $10, manual browser checks at the end.
 
 My own calls to flag: Option 1 is always the recommended one; Review replaces the one-by-one replacement stepper; report-wide find/replace is split per Line.
+
+## Progress (2026-10-28)
+
+- Steps 1 to 6 and the docs are done: ebaf5311 (one card per Line, options), 586556da (askWriter), 017180dc (cards, Review, Undo bar, Accept all), 82e0a87d (options panel, Chat history), 70caf606 (shorten flow), d48d6cda (docs).
+- Review: three rounds on Claude Opus 5.5, requested at high (round 3 reported low). Round 1 and 2 "ship after fixes" (0ecaa722, 30085825), round 3 "ship" (82c704f4 for its two small points).
+- Gate at 30085825: all 9 steps, 8,198 unit tests, production build. Full component suite: 195 files, 2,013 tests.
+- Waiting on the owner: approval to copy the dev data for the live AI check and the manual browser checks (`scripts/chat-live/run.mjs`, scenarios panel-basics, apply-undo, per-line-cards, options, ask-writer, within $10), and the six frame answers before step 7.
