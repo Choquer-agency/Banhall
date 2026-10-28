@@ -123,7 +123,8 @@ describe("WorkspaceChrome (the page frame, 2026-10-28)", () => {
     await userEvent.keyboard("{Meta>}\\{/Meta}");
     await expect.poll(() => slot().hasAttribute("data-collapsed")).toBe(true);
     await expect.poll(() => slot().getBoundingClientRect().width).toBe(0);
-    expect(getComputedStyle(slot()).visibility).toBe("hidden");
+    // The rows hide once the width is gone (the same 350ms, so poll for it).
+    await expect.poll(() => getComputedStyle(slot()).visibility).toBe("hidden");
     expect(JSON.parse(localStorage.getItem(SECTION_SIDEBAR_KEY)!)).toEqual({ collapsed: true });
     const expand = document.querySelector<HTMLButtonElement>("[data-section-sidebar-expand]")!;
     expect(expand.closest("[data-page-top-bar]")).not.toBeNull();
