@@ -83,6 +83,7 @@
   import { layoutMotion } from "$lib/motion/layoutMotion";
   import { loadAgentChatPanel, prewarmAssistant, releaseAssistantPrewarm } from "$lib/components/chat/chatModules";
   import { ReviewSession } from "$lib/chat/assistantCards.svelte";
+  import { createRequestId } from "$lib/requestId";
   import ReviewBar from "$lib/components/chat/ReviewBar.svelte";
   import AssistantPanelSkeleton from "$lib/components/chat/AssistantPanelSkeleton.svelte";
   import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
@@ -546,6 +547,28 @@
     if (!project) return;
     deleteTarget = { id: projectId, title: project.title };
     deleteDialogOpen = true;
+  }
+
+  // Owner 2026-10-28 (Paper row 21): the over-limit pill's "Ask the Assistant
+  // to shorten it" opens the Assistant, which sends the request in a new
+  // conversation; the pill reads "Shortening" until the reply settles.
+  let assistantPrompt = $state<{ id: string; text: string } | null>(null);
+  let shorteningLine = $state<string | null>(null);
+  let shorteningStarted = false;
+  function askShorten(line: string, overBy: string) {
+    assistantIntent();
+    void leaveDetailsThen(() => openSidePanel("chat"));
+    assistantPrompt = { id: createRequestId(), text: `Shorten Line ${line} so it fits the CRA limit. It is ${overBy}.` };
+    shorteningLine = line;
+    shorteningStarted = false;
+  }
+  function assistantWorkingChanged(working: boolean) {
+    if (!shorteningLine) return;
+    if (working) shorteningStarted = true;
+    else if (shorteningStarted && !assistantPrompt) {
+      shorteningLine = null;
+      shorteningStarted = false;
+    }
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
@@ -2425,6 +2448,8 @@
                 onUpdate={handleEditorUpdate}
                 onComment={handleComment}
                 onAskAI={handleAskAI}
+                onAskShorten={askShorten}
+                {shorteningLine}
                 onResearch={handleResearch}
                 editable={true}
                 readOnly={reportReadOnly}
@@ -2833,6 +2858,11 @@
                         {review}
                         onOpenVersionHistory={() => (showHistory = true)}
                         reportContent={report.content}
+                        pendingPrompt={assistantPrompt}
+                        onPromptSent={(id) => {
+                          if (assistantPrompt?.id === id) assistantPrompt = null;
+                        }}
+                        onWorkingChange={assistantWorkingChanged}
                         onBeforeApply={flushEditor}
                         closeInset={false}
                         bind:composerHeight={assistantComposerHeight}

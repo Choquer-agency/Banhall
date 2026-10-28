@@ -40,6 +40,15 @@ export interface ReportLimitMeterSpec {
     description: string;
     /** Fill of the small band bar, 0 to 100. */
     percent: number;
+    /**
+     * Owner 2026-10-28 (Paper row 21, F1): the pill's words, "35 words
+     * over". Clicking it opens the limit popover.
+     */
+    pill: string;
+    /** "242": which Line's popover the pill opens. */
+    line: string;
+    /** F2: the Assistant is shortening this Line; the pill reads "Shortening". */
+    shortening: boolean;
   };
 }
 
@@ -67,22 +76,37 @@ function renderMeter(slot: HTMLElement, meter: ReportLimitMeterSpec["reportLimit
     return;
   }
   slot.hidden = false;
-  slot.dataset.limitState = meter.state;
-  slot.title = meter.description;
+  slot.dataset.limitState = meter.shortening ? "shortening" : meter.state;
+  slot.removeAttribute("title");
+  if (meter.shortening) {
+    // F2: while the Assistant works on this Line.
+    const chip = document.createElement("span");
+    chip.className = "report-limit-chip";
+    chip.setAttribute("role", "status");
+    const spinner = document.createElement("span");
+    spinner.className = "report-limit-chip__spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = "Shortening";
+    chip.append(spinner, label);
+    slot.append(chip);
+    return;
+  }
+  // F1: the pill opens the limit popover (the editor handles the click).
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "report-limit-pill";
+  pill.dataset.reportLimitPill = meter.line;
+  pill.setAttribute("aria-haspopup", "dialog");
+  pill.title = meter.description;
   const text = document.createElement("span");
   text.className = "report-limit-meter__text";
-  text.textContent = meter.text;
-  const bar = document.createElement("span");
-  bar.className = "report-limit-meter__bar";
-  bar.setAttribute("aria-hidden", "true");
-  const fill = document.createElement("span");
-  fill.className = "report-limit-meter__fill";
-  fill.style.width = `${Math.max(0, Math.min(100, meter.percent))}%`;
-  bar.append(fill);
+  text.textContent = meter.pill;
   const sr = document.createElement("span");
   sr.className = "sr-only";
   sr.textContent = `. ${meter.description}`;
-  slot.append(text, bar, sr);
+  pill.append(text, sr);
+  slot.append(pill);
 }
 
 function sectionHeadingView(

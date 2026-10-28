@@ -123,6 +123,7 @@
   --color-danger-ink-muted: #B91C1C;
   --color-danger-surface: #FEF2F2;
   --color-danger-line: #FCA5A5;
+  --color-danger-border: #FECACA;     /* the "words over" pill (Paper row 21) */
   --color-danger-action: #DC2626;
   --color-danger-action-hover: #B91C1C;
   --color-danger-body: #B91C1CCC;      /* E5 paragraph: #B91C1C at 80% */
@@ -1232,6 +1233,56 @@ textarea.input-chromeless:focus-visible {
    shows only over a CRA limit (owner, 2026-10-21). */
 .report-limit-meter[data-limit-state="over"] { color: #B91C1C; }
 .report-limit-meter[data-limit-state="over"] .report-limit-meter__fill { background-color: #DC2626; }
+/* Owner 2026-10-28 (Paper row 21): over a limit the Section label carries a
+   red "35 words over" pill that opens the limit popover; while the
+   Assistant shortens that Line it reads "Shortening". */
+.report-limit-pill,
+.report-limit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.375rem;
+  padding-inline: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: calc(4 / 3);
+  white-space: nowrap;
+}
+.report-limit-pill {
+  border-color: var(--color-danger-border);
+  background-color: var(--color-danger-surface);
+  color: var(--color-danger-ink);
+  cursor: pointer;
+}
+.report-limit-pill:hover,
+.report-limit-pill[aria-expanded="true"] {
+  border-color: var(--color-danger-ink);
+}
+.report-limit-pill:focus-visible {
+  outline: 2px solid var(--color-navy);
+  outline-offset: 2px;
+}
+.report-limit-chip {
+  border-color: var(--color-line);
+  background-color: var(--color-surface);
+  color: var(--color-ink-secondary);
+}
+.report-limit-chip__spinner {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 9999px;
+  border: 1.5px solid var(--color-primary-line);
+  border-top-color: var(--color-primary);
+  animation: report-limit-spin 0.9s linear infinite;
+}
+@keyframes report-limit-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .report-limit-chip__spinner { animation: none; }
+}
 .report-reading .tiptap-editor mark[data-color="#FEF3C7"] {
   font-family: inherit;
   font-size: inherit;

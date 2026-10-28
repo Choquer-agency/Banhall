@@ -108,10 +108,10 @@ describe("Report reading presentation", () => {
     expect(meters.map((m) => m.hidden)).toEqual([true, false, true]);
     const meter = meters[1];
     expect(meter.dataset.limitState).toBe("over");
-    expect(meter.querySelector(".report-limit-meter__text")?.textContent).toBe(
-      `${metrics.s244.lines} / 100 lines, ${metrics.s244.words} / 700 words`
-    );
-    expect(meter.querySelector(".report-limit-meter__bar")).not.toBeNull();
+    // Owner 2026-10-28 (row 21): a red pill says how far over, and opens the
+    // limit popover.
+    expect(meter.querySelector(".report-limit-meter__text")?.textContent).toBe(`${metrics.s244.words - 700} words over`);
+    expect(meter.querySelector<HTMLButtonElement>("button[data-report-limit-pill='244']")).not.toBeNull();
   });
 
   it("keeps the [GAP] highlight in the body", async () => {

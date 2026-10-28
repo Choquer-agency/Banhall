@@ -105,6 +105,15 @@
      * "Shorten Line N" option for each Line over its CRA limit.
      */
     reportContent?: string | null;
+    /**
+     * Owner 2026-10-28 (row 21): a message the page asks the Assistant to
+     * send in a new conversation, such as the over-limit pill's shorten
+     * request. Sent once per id; `onPromptSent` then clears it.
+     */
+    pendingPrompt?: { id: string; text: string } | null;
+    onPromptSent?: (id: string) => void;
+    /** Whether a reply is being sent or written, for the report's "Shortening" chip. */
+    onWorkingChange?: (working: boolean) => void;
     onBeforeApply?: () => Promise<unknown>;
   }
 
@@ -123,6 +132,9 @@
     review = null,
     onOpenVersionHistory,
     reportContent = null,
+    pendingPrompt = null,
+    onPromptSent,
+    onWorkingChange,
     onBeforeApply,
   }: Props = $props();
 
@@ -1413,6 +1425,26 @@
     }
     return null;
   });
+  // Row 21: the page's request, sent once in a new conversation as soon as
+  // the panel can send.
+  let sentPromptId: string | null = null;
+  $effect(() => {
+    const prompt = pendingPrompt;
+    if (!prompt || prompt.id === sentPromptId) return;
+    if (threadsLoading || sending || isStreaming || awaitingReply) return;
+    sentPromptId = prompt.id;
+    untrack(() => {
+      startNewThread();
+      void tick()
+        .then(() => sendText(prompt.text))
+        .finally(() => onPromptSent?.(prompt.id));
+    });
+  });
+  $effect(() => {
+    const working = sending || isStreaming || awaitingReply;
+    untrack(() => onWorkingChange?.(working));
+  });
+
   // Row 16 B: the header names the open conversation.
   const conversationTitle = $derived(
     selectedThreadId

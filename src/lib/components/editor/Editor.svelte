@@ -275,7 +275,17 @@
     endMarkers: boolean;
     overflow: boolean;
     headingMeters: boolean;
+    /** F2: the Line the Assistant is shortening, whose pill reads "Shortening". */
+    shortening?: string | null;
   };
+
+  /** Owner 2026-10-28 (row 21): "35 words over", or the form lines over. */
+  function limitPill(metric: ReportSectionMetricMap[ReportSectionKey]): string {
+    const wordsOver = metric.words - metric.wordCap;
+    if (wordsOver > 0) return `${wordsOver} word${wordsOver === 1 ? "" : "s"} over`;
+    const linesOver = metric.lines - metric.limit;
+    return `${linesOver} form line${linesOver === 1 ? "" : "s"} over`;
+  }
 
   function limitMeterText(metric: ReportSectionMetricMap[ReportSectionKey]): string {
     const gapLineSuffix =
@@ -285,7 +295,7 @@
 
   function buildSectionLimitDecorations(
     doc: PMNode,
-    { metrics, endMarkers, overflow, headingMeters }: LimitDecorationOptions
+    { metrics, endMarkers, overflow, headingMeters, shortening = null }: LimitDecorationOptions
   ): Decoration[] {
     type OverflowSpan = { from: number; to: number; text: string; start: number };
     type SectionSource = { text: string; spans: OverflowSpan[] };
@@ -389,6 +399,9 @@
             text: limitMeterText(metric),
             description: limitWarning(line, metric),
             percent: Math.max(metric.lines / metric.limit, metric.words / metric.wordCap) * 100,
+            pill: limitPill(metric),
+            line,
+            shortening: shortening === line,
           },
         };
         markers.push(Decoration.node(headingRange.from, headingRange.to, {}, spec));
@@ -662,6 +675,7 @@
   import SlashCommandMenu from "$lib/components/editor/SlashCommandMenu.svelte";
   import BlockHandle from "$lib/components/editor/BlockHandle.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
 
   let {
     content,
@@ -674,6 +688,8 @@
     commentRanges = [],
     onHoverComment,
     presentation = "classic",
+    onAskShorten,
+    shorteningLine = null,
   }: {
     content: string;
     onUpdate?: (json: string) => void | Promise<void>;
@@ -697,6 +713,13 @@
      * keeps the earlier look for the rollback report page.
      */
     presentation?: "classic" | "reading";
+    /**
+     * Owner 2026-10-28 (Paper row 21, F1): the over-limit pill's popover
+     * offers "Ask the Assistant to shorten it". `overBy` is the pill's words.
+     */
+    onAskShorten?: (line: string, overBy: string) => void;
+    /** F2: the Line the Assistant is shortening; its pill reads "Shortening". */
+    shorteningLine?: string | null;
   } = $props();
   // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
   const reading = presentation === "reading";
@@ -927,6 +950,7 @@
           endMarkers: false,
           overflow: limitOverlayVisible,
           headingMeters: true,
+          shortening: shorteningLine,
         }
       : limitOverlayVisible
         ? { metrics: sectionLimitMetrics, endMarkers: true, overflow: true, headingMeters: false }
@@ -944,6 +968,105 @@
       },
     });
   });
+
+  // Owner 2026-10-28 (Paper row 21, F1): the over-limit pill opens a popover
+  // with the Line's word and line bars, "Ask the Assistant to shorten it" and
+  // "Show the words past the limit".
+  let limitPopover = $state<{ line: string; top: number; right: number } | null>(null);
+  let limitPopoverEl = $state<HTMLDivElement | null>(null);
+  let limitPillEl: HTMLElement | null = null;
+  function closeLimitPopover(returnFocus = false) {
+    if (!limitPopover) return;
+    limitPillEl?.setAttribute("aria-expanded", "false");
+    if (returnFocus) limitPillEl?.focus();
+    limitPopover = null;
+  }
+  $effect(() => {
+    const ed = editor;
+    if (!ed) return;
+    const dom = ed.view.dom;
+    const pillFrom = (event: Event) =>
+      (event.target as HTMLElement | null)?.closest?.("[data-report-limit-pill]") as HTMLElement | null;
+    // The pill sits in a heading the caret never enters: keep the caret put.
+    const onDown = (event: MouseEvent) => {
+      if (pillFrom(event)) event.preventDefault();
+    };
+    const onClick = (event: MouseEvent) => {
+      const pill = pillFrom(event);
+      if (!pill) return;
+      event.preventDefault();
+      const line = pill.dataset.reportLimitPill ?? "";
+      if (limitPopover?.line === line) {
+        closeLimitPopover();
+        return;
+      }
+      closeLimitPopover();
+      const rect = pill.getBoundingClientRect();
+      limitPillEl = pill;
+      pill.setAttribute("aria-expanded", "true");
+      limitPopover = { line, top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) };
+    };
+    dom.addEventListener("mousedown", onDown);
+    dom.addEventListener("click", onClick);
+    return () => {
+      dom.removeEventListener("mousedown", onDown);
+      dom.removeEventListener("click", onClick);
+    };
+  });
+  $effect(() => {
+    if (!limitPopover) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (limitPopoverEl?.contains(target) || limitPillEl?.contains(target))) return;
+      closeLimitPopover();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeLimitPopover(true);
+    };
+    const onScroll = () => closeLimitPopover();
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  });
+  const popoverMetric = $derived(
+    limitPopover ? sectionLimitMetrics[`s${limitPopover.line}` as ReportSectionKey] : null
+  );
+  function askShorten() {
+    if (!limitPopover || !popoverMetric) return;
+    const line = limitPopover.line;
+    const overBy = limitPill(popoverMetric);
+    closeLimitPopover();
+    onAskShorten?.(line, overBy);
+  }
+  function showWordsPastLimit() {
+    if (!limitPopover || !editor) return;
+    const line = limitPopover.line;
+    closeLimitPopover();
+    limitOverlayVisible = true;
+    requestAnimationFrame(() => {
+      const dom = editor?.view.dom;
+      const heading = dom?.querySelector(`[data-report-section-heading="${line}"]`);
+      if (!dom || !heading) return;
+      const headings = [...dom.querySelectorAll("[data-report-section-heading]")];
+      const next = headings[headings.indexOf(heading) + 1];
+      const first = [...dom.querySelectorAll(".cra-limit-overflow")].find(
+        (el) =>
+          heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
+          (!next || next.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
+      );
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      first?.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    });
+  }
 
   // BNH-25: clicking inside a highlighted passage clears the highlight, so it
   // gets out of the way the moment the writer goes to edit there.
@@ -1268,6 +1391,36 @@
     }
   }
 </script>
+
+{#if limitPopover && popoverMetric}
+  {@const wordsOver = popoverMetric.words > popoverMetric.wordCap}
+  {@const linesOver = popoverMetric.lines > popoverMetric.limit}
+  <div bind:this={limitPopoverEl} role="dialog" aria-label={`Line ${limitPopover.line} is over the CRA limit`}
+    class="fixed z-[90] flex w-[17.5rem] flex-col gap-3 rounded-xl border border-line bg-white p-3 shadow-popover"
+    style={`top: ${limitPopover.top}px; right: ${limitPopover.right}px`} data-limit-popover>
+    <p class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">Line {limitPopover.line} is over the CRA limit</p>
+    <div class="flex flex-col gap-2 text-xs leading-[calc(4/3)]">
+      {#each [{ label: "Words", value: popoverMetric.words, cap: popoverMetric.wordCap, over: wordsOver }, { label: "Lines", value: popoverMetric.lines, cap: popoverMetric.limit, over: linesOver }] as row (row.label)}
+        <div class="flex items-center gap-3">
+          <span class="w-10 shrink-0 text-ink-muted">{row.label}</span>
+          <span class="flex h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
+            <span class="h-full rounded-full {row.over ? 'bg-danger' : 'bg-primary'}" style={`width: ${Math.min(100, (row.value / row.cap) * 100)}%`}></span>
+          </span>
+          <span class="shrink-0 tabular-nums {row.over ? 'text-danger-ink' : 'text-ink'}">{row.value} of {row.cap}</span>
+        </div>
+      {/each}
+    </div>
+    {#if onAskShorten}
+      <button type="button" class="inline-flex h-8 w-full items-center justify-center gap-2 rounded-[0.4375rem] bg-primary-selected px-3 text-xs font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark pointer-coarse:min-h-11"
+        onclick={askShorten} data-ask-shorten>
+        <AuroraMark size={14} />
+        Ask the Assistant to shorten it
+      </button>
+    {/if}
+    <button type="button" class="self-center text-xs leading-[calc(4/3)] text-ink-secondary hover:text-ink pointer-coarse:min-h-11"
+      onclick={showWordsPastLimit} data-show-past-limit>Show the words past the limit</button>
+  </div>
+{/if}
 
 {#if editor}
   <div class={`group/editor relative ${reading ? "report-reading" : ""}`} data-editor-presentation={presentation}>
