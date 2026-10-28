@@ -1,8 +1,9 @@
 <!--
   The Projects page body (2026-10-14 amendment, "Saved clients, client
-  merge, and the Projects page redesign"; Paper W1, V1, V4, W5, W6). A
-  client list on the left with its own scroll and the selected client on the
-  right with its own scroll. `?client=<companyKey>` selects a client; no
+  merge, and the Projects page redesign"; Paper W1, V1, V4, W5, W6; the page
+  frame of 2026-10-28, Paper S9). The white card holds the Projects section
+  sidebar (Home, All projects and every company, `ClientList`) and the
+  selected company on the right, each with its own scroll. `?client=<companyKey>` selects a client; no
   param shows All clients. Choosing a client is a soft navigation that adds a
   history entry, so back and forward move between clients.
 
@@ -29,6 +30,7 @@
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
   import ProjectEditPanel from "./ProjectEditPanel.svelte";
+  import FrameCard from "$lib/components/workspace/FrameCard.svelte";
   import BulkEditPanel from "./BulkEditPanel.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
@@ -41,12 +43,21 @@
   let {
     initialSearch = "",
     totalLabel = null,
+    homeHref = "/my-work",
+    homeAvailable = true,
+    onOpenNavigation = undefined,
     onEditDetails = undefined,
     onBulkEdit = undefined,
   }: {
+    /** The sidebar's Home row. */
+    homeHref?: string;
+    /** Home is switched off (the rollout kill switch): shown, not followed. */
+    homeAvailable?: boolean;
+    /** The hamburger in the company header between 768 and 1024px. */
+    onOpenNavigation?: () => void;
     /** A search handed over from Home; it seeds the first search field shown. */
     initialSearch?: string;
-    /** All clients count, from the top bar ("128", "1000+"). */
+    /** All projects count ("128", "1000+"). */
     totalLabel?: string | null;
     /** Edit details on a card. Default: the Edit details dialog. */
     onEditDetails?: (projectId: string) => void;
@@ -261,12 +272,11 @@
   }
 </script>
 
-<!-- Paper Z3d: the white panel under the top bar, the company list on its left. -->
-<div data-projects-page class="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface">
-  <aside
-    aria-label="Companies"
-    class={`flex min-h-0 w-60 shrink-0 flex-col border-r border-line-soft max-md:w-full max-md:border-r-0 ${areaOnMobile ? "max-md:hidden" : ""}`}
-  >
+<!-- Paper S9: the one white card, the Projects sidebar on its left. Below
+     768px the sidebar fills the card until a company (or All projects) is
+     chosen. -->
+<FrameCard data-projects-page class="flex-1">
+  {#snippet sidebar()}
     {#key clientsAttempt}
       <ClientList
         {clients}
@@ -275,6 +285,10 @@
         failed={Boolean(clientsQ.error)}
         {totalLabel}
         {selectedKey}
+        current="projects"
+        {homeHref}
+        {homeAvailable}
+        phone={areaOnMobile ? "hidden" : "full"}
         hrefFor={(key) => clientHref(page.url, key)}
         onSelect={selectClient}
         {canCreate}
@@ -289,7 +303,7 @@
         onRetry={() => { clientsAttempt += 1; void retryClients(); }}
       />
     {/key}
-  </aside>
+  {/snippet}
 
   <div class={`flex min-h-0 min-w-0 flex-1 flex-col ${areaOnMobile ? "" : "max-md:hidden"}`}>
     {#key areaAttempt}
@@ -312,7 +326,8 @@
         onBulkEdit={bulkEdit}
         onRetry={() => (areaAttempt += 1)}
         onBack={backToList}
-        backLabel={selectedKey === null ? "Companies" : "All companies"}
+        {onOpenNavigation}
+        backLabel="Projects"
         countLabel={selectedKey === null
           ? totalLabel
           : (() => {
@@ -322,7 +337,7 @@
       />
     {/key}
   </div>
-</div>
+</FrameCard>
 
 {#if canCreate}
   <NewClientDialog

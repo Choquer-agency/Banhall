@@ -1,10 +1,11 @@
 <!--
   The right side of the Projects page (Paper W1, V1 and V4; 2026-10-14
-  amendment). With a client selected: the client name as a serif title with
-  no subtext, a search scoped to that client, Select, and the client's
-  project cards grouped by fiscal year (groupProjectsByFiscalYear). With no
-  client: "All clients", a search across every project, and the recently
-  edited projects, each card naming its client.
+  amendment; the page frame, Paper S9, 2026-10-28). Its header is the page
+  top bar. With a client selected: the client name, a search scoped to that
+  client, Select, and the client's project cards grouped by fiscal year
+  (groupProjectsByFiscalYear). With no client: "All projects", a search
+  across every project, and the recently edited projects, each card naming
+  its client.
 
   Selecting (Paper Z7n, 2026-10-19): a checkbox shows on a card's hover
   (and on keyboard focus and touch). Once one card is ticked every card
@@ -28,6 +29,8 @@
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
   import CompanyFiles from "./CompanyFiles.svelte";
   import { IconArrowLeft, IconSearch } from "$lib/components/icons";
+  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
   import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import { toProjectsTableRow, type DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
@@ -54,7 +57,8 @@
     onBulkEdit,
     onRetry,
     onBack = undefined,
-    backLabel = "All companies",
+    onOpenNavigation = undefined,
+    backLabel = "Projects",
     allClientsHref = "/projects",
     onShowAll = undefined,
     countLabel = null,
@@ -81,6 +85,8 @@
     onRetry: () => void;
     /** Small screens: back to the client list. */
     onBack?: () => void;
+    /** Between 768 and 1024px the header leads with the drawer's hamburger. */
+    onOpenNavigation?: () => void;
     backLabel?: string;
     /** All clients, for a client that is no longer in the list. */
     allClientsHref?: string;
@@ -139,7 +145,7 @@
   const displayName = $derived(
     client
       ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? (client.missing ? "Company not found" : client.key))
-      : "All companies"
+      : "All projects"
   );
   const searchLabel = $derived("Search projects");
 
@@ -323,9 +329,11 @@
   const textButton =
     "shrink-0 rounded-md text-xs leading-[calc(4/3)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
   // Cards adjust to the space (owner, 2026-10-19): three a row on a 13 inch
-  // MacBook (1440 or 1280), four around 1680, five at 1920, two on a
-  // tablet, one on a phone. Each card stays at least 264px wide.
-  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16.5rem),1fr))] gap-3";
+  // MacBook (1440 or 1280), four around 1680 to 1920, two on a tablet, one
+  // on a phone. The page frame's narrower rail (2026-10-28) gives the cards
+  // more room, so each stays at least 288px wide to keep three at 1440, as
+  // Paper S9 draws it.
+  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3";
 </script>
 
 <svelte:window
@@ -409,54 +417,64 @@
 {/snippet}
 
 <section aria-label={displayName} class="relative flex min-h-0 min-w-0 flex-1 flex-col" data-client-area={client?.key ?? "all"}>
-  <div class={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>
+  <!-- The page top bar (Paper S9, 2026-10-28): 64px inside the card, the
+       company name at 22/28 500 with its muted 15/20 project count and the
+       300px search on the right, 32px in from the sidebar on a desktop. On
+       a phone the back link leads and the search drops to its own row. -->
+  <div
+    class="flex shrink-0 flex-wrap items-center gap-3 px-4 pb-3 sm:px-6 md:h-16 md:flex-nowrap md:pb-0 lg:px-8"
+    data-client-header
+  >
     {#if onBack}
       <button
         type="button"
         data-client-back
         onclick={onBack}
-        class="-ml-1 mt-3 flex h-11 items-center gap-1.5 rounded-md px-1 text-[0.8125rem] text-ink-secondary hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy md:hidden"
+        class="-ml-1 flex h-11 basis-full items-center gap-1.5 rounded-md px-1 text-[0.8125rem] text-ink-secondary hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy md:hidden"
       >
         <IconArrowLeft size={14} />
         {backLabel}
       </button>
     {/if}
-
-    <!-- Paper Z3d: the company name at 20/500 with its project count, the
-         search on the right, 28px above the first fiscal year. -->
-    <div class={`flex flex-wrap items-center gap-3 pt-5 max-md:pt-1 ${showTabs ? "pb-4" : "pb-7"}`} data-client-header>
-      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-lg leading-[calc(4/3)] font-medium text-ink outline-none">{displayName}</h2>
-      {#if countLabel !== null && !gone}
-        <span class="shrink-0 text-sm leading-[calc(10/7)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
-      {/if}
-      <div class="flex-1"></div>
-      {#if selecting}
-        {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
-      {/if}
-      <div role="search" class={`relative w-80 max-w-full max-md:order-last max-md:w-full ${onFiles ? "hidden" : ""}`}>
-        <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
-        <input
-          bind:this={searchEl}
-          bind:value={searchInput}
-          type="search"
-          data-client-search
-          aria-label={searchLabel}
-          placeholder={searchLabel}
-          autocomplete="off"
-          onkeydown={(event) => {
-            if (event.key !== "Escape") return;
-            if (searchInput) {
-              event.stopPropagation();
-              clearSearch();
-            } else {
-              event.currentTarget.blur();
-            }
-          }}
-          class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
-        />
+    {#if onOpenNavigation}
+      <div class="contents max-md:hidden">
+        <WorkspaceShellControls tone="light" {onOpenNavigation} />
       </div>
+    {/if}
+    <SectionSidebarExpand />
+    <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{displayName}</h2>
+    {#if countLabel !== null && !gone}
+      <span class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
+    {/if}
+    <div class="flex-1"></div>
+    {#if selecting}
+      {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
+    {/if}
+    <div role="search" class={`relative w-[18.75rem] max-w-full max-md:order-last max-md:w-full ${onFiles ? "hidden" : ""}`}>
+      <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
+      <input
+        bind:this={searchEl}
+        bind:value={searchInput}
+        type="search"
+        data-client-search
+        aria-label={searchLabel}
+        placeholder={searchLabel}
+        autocomplete="off"
+        onkeydown={(event) => {
+          if (event.key !== "Escape") return;
+          if (searchInput) {
+            event.stopPropagation();
+            clearSearch();
+          } else {
+            event.currentTarget.blur();
+          }
+        }}
+        class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
+      />
     </div>
+  </div>
 
+  <div class={`min-h-0 flex-1 overflow-y-auto px-4 pt-3 sm:px-6 lg:px-8 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>
     {#if showTabs}
       <div role="tablist" aria-label={`${displayName} views`} class="flex gap-1.5 pb-7" data-client-tabs>
         {#each [["projects", "Projects"], ["files", "Files"]] as const as [id, label] (id)}
@@ -555,7 +573,7 @@
             onShowAll();
           }}
           class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
-        >Go to All companies</a>
+        >Go to All projects</a>
       </div>
     {:else if client && raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
