@@ -1600,3 +1600,16 @@ Text wells keep the native caret — typeable combobox inputs are explicitly
 excluded. Do not add per-component `cursor-pointer` for these cases; component
 styles override the base layer only for genuinely different cursors (e.g. the
 rail resize handle's `col-resize`, editor drag handles).
+
+## Assistant suggestion cards and review (2026-10-28)
+
+Owner direction 2026-10-28 (Paper "Assistant + report, exploration", rows 16 B, 21 and 32 to 37). The full spec, with every size, is in `docs/todos/assistant-frame-redesign.md`.
+
+- **Tokens.** `--color-primary-line` (teal hairline: accepted card, Recommended pill, options panel), `--color-primary-line-soft` (the options panel's inner card), `--color-primary-ring` (the card under review), `--color-primary-highlight` (new words with Show changes off), `--color-on-ink-accent` and `--color-on-ink-muted` (Recommended and Stop review on the dark review bar), `--color-danger-border` (the "words over" pill), and the shadows `--shadow-suggestion-card`, `--shadow-suggestion-review` and `--shadow-review-bar`.
+- **Card** (`ProposedEditCard.svelte`). Folded: "Line 242", "3 options" and a primary Review. Opened: the option with a pager and, on Option 1, a Recommended pill; the footer's More menu holds Dismiss, Edit wording, Refine with AI and Copy wording. Under review: `primary-ring` border with the wash ring, Stop review and Accept. Accepted: one teal line; opened, the accepted text and Undo.
+- **Report marks** (`.review-cut`, `.review-new`, `.review-new-quiet`, `.review-cut-hidden` in `layout.css`). Only the words that change; never a border, tint or outline on the paragraph.
+- **Review bar** (`ReviewBar.svelte`): ink fill, floating at the bottom of the report.
+- **Under the cards.** A plain "Done." or "Undone." line; the Accept all tray (gray-50, `line-soft` border); the Undo bar above the message box (gray-50, `line-soft` border, latest accept only); a refused action as a grey notice with a small action button.
+- **Options panel** (`ComposerOptionsPanel.svelte`): primary-wash frame with the AI mark and its label ("Assistant needs you" or "Get started"), numbered rows, "Something else…" as a text field, Skip esc and Select return.
+- **Header.** Plain conversation title, a clock button for Chat history, a pencil for a new conversation.
+- **Limit pill** (`.report-limit-pill`, `.report-limit-chip`): a red "35 words over" pill at the right of a Section label, opening the limit popover; "Shortening" with a spinner while the Assistant works on that Line.

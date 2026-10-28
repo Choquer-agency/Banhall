@@ -427,20 +427,23 @@ sequenceDiagram
   S-->>A: start in background
   A->>A: read files, search
   A-->>W: reply streams in
-  A->>P: propose an edit
+  A->>P: propose an edit, one card per Line
   Note over W,P: The report has not changed yet
-  W->>P: click Apply
+  W->>P: click Review
+  P-->>W: the report marks the words that change
+  W->>P: click Accept
   P->>P: snapshot, apply, revision + 1
   W->>P: Undo, if needed
 ```
 
 1. `chatV2.sendMessage` saves the message and queues a chat turn.
 2. The chat agent (`convex/ai/chatAgentV2.ts`) runs in the background. It can read the project's files and search the web or the Brain, and its reply streams to the screen.
-3. When it wants to change the report, it saves a proposal card as `pending`. The report is untouched.
-4. The writer clicks Apply. `chatV2.applyProposal` checks access, snapshots the report, applies the change and bumps the revision.
-5. Undo reverses an applied card, after taking another snapshot.
+3. When it wants to change the report, it saves proposal cards as `pending`, one per CRA Line the change touches (`convex/lib/reportLines.ts`). An edit inside one Line may carry up to three options. The report is untouched.
+4. The writer clicks Review. The report page marks only the words that change, inside the card's Line, and shows a review bar (`ReviewSession` in `src/lib/chat/assistantCards.svelte.ts`, drawn by `Editor.previewProposal` and `ReviewBar.svelte`).
+5. The writer clicks Accept, or Accept all for two or more waiting cards from one reply. `chatV2.applyProposal` checks access, snapshots the report, applies the chosen option and bumps the revision. A find/replace card changes only its own Line.
+6. Undo reverses an applied card, after taking another snapshot. The Undo bar above the message box holds the latest accept; an opened accepted card always offers Undo.
 
-The chat agent has 12 tools. Only the first three can produce an edit, and each one only creates a card that waits for the writer:
+The chat agent has 13 tools. Only the first three can produce an edit, and each one only creates cards that wait for the writer:
 
 | Tool | What it does |
 | --- | --- |
@@ -448,6 +451,7 @@ The chat agent has 12 tools. Only the first three can produce an edit, and each 
 | `proposeReplacements` | Suggest a find-and-replace across the report |
 | `proposeBulkEdits` | Suggest a larger revision, with a report of what changed |
 | `highlightPassages` | Point at passages, no edit |
+| `askWriter` | Ask the writer one question with 2 or 3 options; it ends the reply, and the options show above the message box |
 | `deviationInventory` | List where paragraphs depart from the style rules |
 | `compareReferencePd` | Compare with last year's report |
 | `readDocument`, `searchDocuments`, `readTranscript` | Read the project's files, its company's files and its transcripts |
@@ -457,7 +461,7 @@ The chat agent has 12 tools. Only the first three can produce an edit, and each 
 
 **Files in a chat turn** (2026-10-26): with the reading tools on, a turn carries the project's files' text only when every file fits whole (each within one file's allowance, at most 12, together at most 80,000 characters). Otherwise it carries none, and the assistant finds and opens them with `searchDocuments` and `readDocument` from the list of files. `searchDocuments` searches a file whose search pieces are current through its pieces and every other file the old way, cuts each excerpt around its match, and places it by the parts `readDocument` opens.
 
-Proposal card states: `pending`, then `applied`, `rejected` or `stale` (the target text was no longer in the report). Undo moves an applied card back to `pending`. A reply that crashes is failed by a cron that runs every 2 minutes.
+Proposal card states: `pending`, then `applied`, `rejected` or `stale` (the target text was no longer in the report). Undo moves an applied card back to `pending`. A card stores its Line (`section`), its other options (`alternatives`) and, once applied, which option went in (`appliedOption`). A reply that crashes is failed by a cron that runs every 2 minutes.
 
 **Research** (`convex/research.ts`, `convex/ai/research/`) works on a selected passage: web research, deep research and Brain patterns run side by side, a reviewer model merges them, and the result arrives as a proposal card like any other.
 

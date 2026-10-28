@@ -285,10 +285,12 @@ sequenceDiagram
   C->>T: tool call proposeEdit(targetText,newText)
   T->>S: runMutation(saveProposal)
   S->>S: turn active? target in report? unique?
-  S-->>T: {ok, proposalId}
+  S->>S: one card per Line (groupPairsByLine), options checked
+  S-->>T: {ok, proposalId, proposalIds}
   A->>M: finishTurn(completed, stepCount)
-  W->>W: ProposalCard renders pending
-  W->>P: applyProposal(proposalId)
+  W->>W: ProposalCard renders pending (Line, options, Review)
+  W->>W: Review marks the report (ReviewSession, no write)
+  W->>P: applyProposal(proposalId, option)
   P->>P: requireReportEditAccess, re-scrub, applyReplacements
   P->>P: reportSnapshots(pre_chat_edit), report.revision+1, state=applied
   P-->>W: {applied:true,count}
@@ -299,10 +301,11 @@ stateDiagram-v2
   [*] --> pending: saveProposal (edit/replacements) / research.saveReviewResult
   [*] --> applied: saveProposal kind=references
   pending --> pending: updateProposalWording (writer)
-  pending --> applied: applyProposal (writer, editProse)
+  pending --> applied: applyProposal (writer, editProse, option recorded)
   pending --> applied: markProposalApplied (writer, editProse, revision fence)
   pending --> stale: applyProposal, target not found
   pending --> rejected: rejectProposal (writer)
+  applied --> pending: undoProposal (writer, editProse)
   stale --> rejected: rejectProposal
   applied --> [*]
   rejected --> [*]
