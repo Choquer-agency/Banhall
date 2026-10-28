@@ -17,18 +17,27 @@ vi.mock("$lib/uploads/attemptOutbox", async (importOriginal) => {
   return { ...actual, clearAllOutboxes: vi.fn() };
 });
 
-/** Rail v3 (Paper boards Z11a and Z11d, 2026-10-19 amendment). */
+/**
+ * The drawer below 1024px (Rail v3, Paper board Z11a), kept as it was by the
+ * owner's 2026-10-28 frame answer 6. The desktop rail is `FrameRail`.
+ */
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
-    variant: "rail" as const,
+    variant: "drawer" as const,
     displayedView: "all_projects" as const,
     myWorkAvailable: true,
     myWorkHref: "/my-work?layout=board",
     projectsHref: "/projects",
     onFocusSearch: () => {},
-    onToggleRail: () => {},
     ...overrides,
   };
+}
+
+/** Mount inside a drawer element, so a fine pointer gets the drawer's 36px rows. */
+async function mount(props: Record<string, unknown>) {
+  const view = await render(WorkspaceRail, props as ReturnType<typeof baseProps>);
+  view.container.setAttribute("data-workspace-drawer", "");
+  return view;
 }
 
 const USERS = {
@@ -64,7 +73,7 @@ const rows = (group: "top" | "bottom") =>
 const railRows = () => ({ top: rows("top"), bottom: rows("bottom") });
 const style = (element: Element) => getComputedStyle(element);
 
-describe("WorkspaceRail (Rail v3)", () => {
+describe("WorkspaceRail, the drawer (Rail v3)", () => {
   beforeEach(() => {
     __resetPage();
     __resetNavigation();
@@ -78,7 +87,7 @@ describe("WorkspaceRail (Rail v3)", () => {
 
   it("a Consultant gets Home, Projects and Companies, then Settings, with no group labels and no What's new", async () => {
     seed("consultant", { unseen: 2 });
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Settings"] });
     expect(nav().querySelector("[data-rail-group-label]")).toBeNull();
     expect(item("changelog")).toBeNull();
@@ -101,9 +110,9 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(identity.querySelector("[data-role-chip], [data-avatar]")).toBeNull();
   });
 
-  it("Z11a values: 36px rows with 15px labels, the selected wash, the 36px search field and the 28px collapse button with no fill", async () => {
+  it("Z11a values: 36px rows with 15px labels, the selected wash and the 36px search field", async () => {
     seed("admin");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(() => item("team")).not.toBeNull();
     const projects = item("projects")!;
     const homeRow = item("home")!;
@@ -136,18 +145,9 @@ describe("WorkspaceRail (Rail v3)", () => {
     ]);
     expect(search.textContent?.trim()).toBe("Search");
     expect([style(search).fontSize, style(search).color]).toEqual(["14px", "rgb(107, 127, 123)"]);
-    // Header: 38px, with the collapse control on the right and no fill.
+    // Header: 38px, with no collapse control (the drawer never had one).
     expect(nav().querySelector<HTMLElement>("[data-rail-header]")!.getBoundingClientRect().height).toBe(38);
-    const toggle = nav().querySelector<HTMLButtonElement>("[data-rail-toggle]")!;
-    expect(toggle.closest("[data-rail-header]")).not.toBeNull();
-    expect(toggle.getBoundingClientRect().width).toBe(28);
-    expect(toggle.dataset.railDirection).toBe("collapse");
-    expect(style(toggle).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-    await userEvent.hover(toggle);
-    expect(style(toggle).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-    const glyph = toggle.querySelector<SVGElement>('[data-rail-icon="collapse"]')!;
-    expect([glyph.getAttribute("width"), glyph.getAttribute("stroke-width")]).toEqual(["16", "1.8"]);
-    expect(glyph.querySelector("path")?.getAttribute("d")).toBe("M9 4v16M15 10l-2 2 2 2");
+    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
     // A hairline under Settings, above the person.
     const bottom = nav().querySelector<HTMLElement>('[data-rail-group="bottom"]')!;
     expect([style(bottom).borderBottomWidth, style(bottom).borderBottomColor]).toEqual(["1px", "rgb(233, 240, 239)"]);
@@ -160,7 +160,7 @@ describe("WorkspaceRail (Rail v3)", () => {
       clients: Array.from({ length: 5 }, (_, index) => ({ key: `c${index}`, clientId: null, name: `C${index}`, projectCount: 1 })),
       truncated: true,
     });
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(() => item("projects")?.querySelector("[data-rail-count]")?.textContent).toBe("42");
     const count = item("projects")!.querySelector<HTMLElement>("[data-rail-count]")!;
     expect([style(count).fontSize, style(count).color, style(count).fontWeight]).toEqual(["13px", "rgb(107, 127, 123)", "400"]);
@@ -170,15 +170,7 @@ describe("WorkspaceRail (Rail v3)", () => {
 
   it("reads no count outside the Projects page", async () => {
     seed("consultant");
-    await render(WorkspaceRail, baseProps({ displayedView: "my_work" }));
-    await expect.poll(() => item("projects")).not.toBeNull();
-    expect(__isQueryActive("dashboard:getFacets")).toBe(false);
-    expect(__isQueryActive("clients:listClients")).toBe(false);
-  });
-
-  it("reads neither count while collapsed", async () => {
-    seed("consultant");
-    await render(WorkspaceRail, baseProps({ collapsed: true }));
+    await mount(baseProps({ displayedView: "my_work" }));
     await expect.poll(() => item("projects")).not.toBeNull();
     expect(__isQueryActive("dashboard:getFacets")).toBe(false);
     expect(__isQueryActive("clients:listClients")).toBe(false);
@@ -196,7 +188,7 @@ describe("WorkspaceRail (Rail v3)", () => {
         { key: "alder research", name: "Alder Research" },
       ])
     );
-    const view = await render(WorkspaceRail, baseProps());
+    const view = await mount(baseProps());
     await expect.poll(() => nav().querySelectorAll("[data-rail-recent-company]").length).toBe(3);
     const label = nav().querySelector<HTMLElement>("[data-rail-recent-label]")!;
     expect([label.textContent, style(label).fontSize, style(label).color]).toEqual([
@@ -210,24 +202,21 @@ describe("WorkspaceRail (Rail v3)", () => {
       ["Delta Hydraulics", "/projects?client=delta+hydraulics"],
       ["Alder Research", "/projects?client=alder+research"],
     ]);
-    expect(companies[0].getBoundingClientRect().height).toBe(34);
+    // The drawer's rows are 36px with a fine pointer, 44px on touch.
+    expect(companies[0].getBoundingClientRect().height).toBe(36);
     expect([style(companies[0]).fontSize, style(companies[0]).color]).toEqual(["14px", "rgb(79, 97, 93)"]);
     view.unmount();
 
-    // Collapsed, and with no recent company, the section is not drawn.
-    const collapsed = await render(WorkspaceRail, baseProps({ collapsed: true }));
-    await expect.poll(() => item("home")).not.toBeNull();
-    expect(nav().querySelector("[data-rail-recent]")).toBeNull();
-    collapsed.unmount();
+    // With no recent company, the section is not drawn.
     localStorage.removeItem(RECENT_COMPANIES_KEY);
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(() => item("home")).not.toBeNull();
     expect(nav().querySelector("[data-rail-recent]")).toBeNull();
   });
 
   it("gives Home and Projects real links; Companies opens All companies on the Projects page", async () => {
     seed("consultant");
-    await render(WorkspaceRail, baseProps({ projectsHref: "/projects?layout=board" }));
+    await mount(baseProps({ projectsHref: "/projects?layout=board" }));
     await expect.poll(() => item("home")).not.toBeNull();
     expect(item("home")!.getAttribute("href")).toBe("/my-work?layout=board");
     expect(item("projects")!.getAttribute("href")).toBe("/projects?layout=board");
@@ -237,20 +226,20 @@ describe("WorkspaceRail (Rail v3)", () => {
 
   it("keeps Home disabled while My Work is not ready", async () => {
     seed("consultant");
-    await render(WorkspaceRail, baseProps({ myWorkAvailable: false }));
+    await mount(baseProps({ myWorkAvailable: false }));
     await expect.poll(() => item("home")?.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("a Manager gets Team above Settings", async () => {
     seed("manager");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Settings"] });
     expect(__isQueryActive("adminAttention:getAttention")).toBe(false);
   });
 
   it.each(["admin", "owner"] as const)("%s gets Team, Admin with the attention dot, and Settings", async (user) => {
     seed(user, { failed: 1 });
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "Settings"] });
     await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")!.className).toContain("bg-stale-dot");
@@ -260,7 +249,7 @@ describe("WorkspaceRail (Rail v3)", () => {
 
   it("a developer Admin gets Alerts with the red count and Feature requests above Settings", async () => {
     seed("developerAdmin", { openAlerts: 4 });
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({
       top: ["Home", "Projects", "Companies"],
       bottom: ["Team", "Admin", "Alerts 4", "Feature requests", "Settings"],
@@ -271,14 +260,14 @@ describe("WorkspaceRail (Rail v3)", () => {
 
   it("decision 49: a developer without ops.viewAlerts gets Feature requests only and no Alerts subscription", async () => {
     seed("developerConsultant", { openAlerts: 4 });
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Feature requests", "Settings"] });
     expect(__isQueryActive("errorReports:openCount")).toBe(false);
   });
 
   it("B1, B2: the Admin chevron sits on the right, down closed and up open, and the choice persists", async () => {
     seed("admin", { failed: 1 });
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(() => item("admin")).not.toBeNull();
     const toggle = item("admin") as HTMLButtonElement;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -304,7 +293,7 @@ describe("WorkspaceRail (Rail v3)", () => {
       ["Learning health", "/admin/learning"],
       ["AI usage and cost", "/admin/usage"],
     ]);
-    expect(links[0].getBoundingClientRect().height).toBe(32);
+    expect(links[0].getBoundingClientRect().height).toBe(36);
     expect(style(links[0]).fontSize).toBe("14px");
     expect(links[3].querySelector("[data-rail-attention]")).not.toBeNull();
     expect(JSON.parse(localStorage.getItem(RAIL_PREFERENCES_KEY)!).adminOpen).toBe(true);
@@ -313,7 +302,7 @@ describe("WorkspaceRail (Rail v3)", () => {
   it("B2: opens the Admin group on any admin page and marks the page", async () => {
     seed("admin");
     __setPageUrl("/admin/models");
-    await render(WorkspaceRail, baseProps({ displayedView: null }));
+    await mount(baseProps({ displayedView: null }));
     await expect.poll(() => item("admin")?.getAttribute("aria-expanded")).toBe("true");
     const models = nav().querySelector<HTMLAnchorElement>('[data-admin-link="/admin/models"]')!;
     expect(models.getAttribute("aria-current")).toBe("page");
@@ -321,67 +310,10 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(item("projects")!.getAttribute("aria-current")).toBeNull();
   });
 
-  it("Z11d: the collapsed rail is the B tile and the expand control under it, then search and icon tiles in board order, then the account menu", async () => {
-    seed("admin", { unseen: 3, failed: 1 });
-    const onToggleRail = vi.fn();
-    await render(WorkspaceRail, baseProps({ collapsed: true, onToggleRail }));
-    await expect.poll(() => item("admin")).not.toBeNull();
-    const order = Array.from(
-      nav().querySelectorAll<HTMLElement>("[data-rail-item], [data-rail-search], [data-rail-identity], [data-rail-toggle]")
-    ).map((element) =>
-      element.getAttribute("data-rail-item") ??
-      (element.hasAttribute("data-rail-search") ? "search" : element.hasAttribute("data-rail-identity") ? "identity" : "toggle")
-    );
-    // Owner, 2026-10-19: the expand control sits right under the B tile.
-    expect(order).toEqual(["toggle", "search", "home", "projects", "companies", "team", "admin", "settings", "identity"]);
-    for (const id of ["home", "projects", "companies", "team", "settings"]) {
-      expect(item(id)!.getAttribute("aria-label")).toBeTruthy();
-      expect(item(id)!.getBoundingClientRect().width).toBe(40);
-      expect(item(id)!.getBoundingClientRect().height).toBe(36);
-    }
-    // No labels: the B of the tile is the only text, and no avatar or chip.
-    expect(nav().textContent?.replace(/\s+/g, " ").trim()).toBe("B");
-    expect(nav().querySelector("[data-role-chip], [data-avatar]")).toBeNull();
-    expect(nav().querySelector('a[aria-label="Banhall home"] [data-rail-brand-tile]')).not.toBeNull();
-    expect(item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
-    expect(item("projects")!.getAttribute("aria-current")).toBe("page");
-    expect(style(item("projects")!).backgroundColor).toBe("rgb(241, 250, 249)");
-    const toggle = nav().querySelector<HTMLButtonElement>("[data-rail-toggle]")!;
-    expect([toggle.dataset.railDirection, toggle.getAttribute("aria-expanded"), toggle.getAttribute("aria-label")]).toEqual([
-      "expand",
-      "false",
-      "Expand navigation rail",
-    ]);
-    expect(style(toggle).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-    toggle.click();
-    expect(onToggleRail).toHaveBeenCalledOnce();
-  });
-
-  it("collapsed, the B tile lines up with the expanded header and the tiles keep the board's 6px rhythm", async () => {
-    seed("consultant");
-    await render(WorkspaceRail, baseProps({ collapsed: true }));
-    await expect.poll(() => item("settings")).not.toBeNull();
-    nav().parentElement!.style.height = "900px";
-    const top = nav().getBoundingClientRect().top;
-    const tile = nav().querySelector<HTMLElement>("[data-rail-brand-tile]")!.getBoundingClientRect();
-    const search = nav().querySelector<HTMLElement>("[data-rail-search]")!.getBoundingClientRect();
-    // The tile sits centered on the same 38px row as the expanded header
-    // (12px padding + 8px), so it lines up with the top bar title.
-    expect(tile.top - top).toBe(20);
-    const toggle = nav().querySelector<HTMLElement>("[data-rail-toggle]")!.getBoundingClientRect();
-    expect(toggle.top - (top + 12 + 38)).toBe(6);
-    expect(search.top - toggle.bottom).toBe(6);
-    expect(item("home")!.getBoundingClientRect().top - search.bottom).toBe(6);
-    expect(item("projects")!.getBoundingClientRect().top - item("home")!.getBoundingClientRect().bottom).toBe(6);
-    const bottom = nav().getBoundingClientRect().bottom;
-    const identity = nav().querySelector<HTMLElement>("[data-rail-identity]")!.getBoundingClientRect();
-    expect(bottom - identity.bottom).toBe(12);
-  });
-
   it("Projects stays selected inside a project and on New project", async () => {
     seed("consultant");
     __setPageUrl("/project/p1");
-    await render(WorkspaceRail, baseProps({ displayedView: null, collapsed: true }));
+    await mount(baseProps({ displayedView: null }));
     await expect.poll(() => item("projects")?.getAttribute("aria-current")).toBe("page");
     expect(item("home")!.getAttribute("aria-current")).toBeNull();
     __setPageUrl("/project/new");
@@ -390,49 +322,20 @@ describe("WorkspaceRail (Rail v3)", () => {
     await expect.poll(() => item("projects")?.getAttribute("aria-current")).toBeNull();
   });
 
-  it("A5: the collapsed developer rail puts Alerts with a count and Feature requests above Settings", async () => {
-    seed("developerAdmin", { openAlerts: 4 });
-    await render(WorkspaceRail, baseProps({ collapsed: true }));
-    await expect.poll(() => item("alerts")).not.toBeNull();
-    const ids = Array.from(nav().querySelectorAll<HTMLElement>("[data-rail-item]")).map((el) => el.dataset.railItem);
-    expect(ids).toEqual(["home", "projects", "companies", "team", "admin", "alerts", "requests", "settings"]);
-    expect(item("alerts")!.querySelector("[data-rail-badge]")?.textContent?.trim()).toBe("4");
-  });
-
-  it("the collapse control calls the shell, search opens the palette in both states, and no control shows without a handler", async () => {
+  it("search opens the palette, and the drawer draws no collapse control", async () => {
     seed("consultant");
     const onFocusSearch = vi.fn();
-    const onToggleRail = vi.fn();
-    const view = await render(WorkspaceRail, baseProps({ onFocusSearch, onToggleRail }));
+    await mount(baseProps({ onFocusSearch }));
     await expect.poll(() => item("home")).not.toBeNull();
-    nav().querySelector<HTMLButtonElement>("[data-rail-toggle]")!.click();
-    expect(onToggleRail).toHaveBeenCalledOnce();
     nav().querySelector<HTMLButtonElement>("[data-rail-search]")!.click();
     expect(onFocusSearch).toHaveBeenCalledOnce();
-    view.unmount();
-
-    const collapsed = await render(WorkspaceRail, baseProps({ collapsed: true, onFocusSearch }));
-    await expect.poll(() => item("home")).not.toBeNull();
-    nav().querySelector<HTMLButtonElement>("[data-rail-search]")!.click();
-    expect(onFocusSearch).toHaveBeenCalledTimes(2);
-    collapsed.unmount();
-
-    await render(WorkspaceRail, baseProps({ onToggleRail: null }));
-    await expect.poll(() => item("home")).not.toBeNull();
-    expect(nav().querySelector("[data-rail-toggle]")).toBeNull();
-  });
-
-  it("does not render the collapse control inside the mobile drawer and keeps 44px rows there", async () => {
-    seed("consultant");
-    await render(WorkspaceRail, baseProps({ variant: "drawer" }));
-    await expect.poll(() => item("home")).not.toBeNull();
     expect(document.querySelector("[data-rail-toggle]")).toBeNull();
     expect(item("home")!.className).toContain("min-h-11");
   });
 
   it("D1: the name opens the account menu; developers get View as, everyone gets Flag an issue", async () => {
     seed("developerAdmin");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(() => nav().querySelector("[data-rail-identity]")?.textContent).toContain("Johnny Nguyen");
     await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
     const menu = page.getByRole("menu");
@@ -458,16 +361,9 @@ describe("WorkspaceRail (Rail v3)", () => {
     expect(flagged).toHaveBeenCalledOnce();
   });
 
-  it("D1: the collapsed rail keeps the account menu behind a person icon", async () => {
-    seed("consultant");
-    await render(WorkspaceRail, baseProps({ collapsed: true }));
-    await page.getByRole("button", { name: "Jane Ellis, account menu" }).click();
-    await expect.element(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
-  });
-
   it("D1: a Consultant's menu has no View as", async () => {
     seed("consultant");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await page.getByRole("button", { name: "Jane Ellis, account menu" }).click();
     await expect.element(page.getByRole("menuitem", { name: "Account" })).toBeVisible();
     expect(page.getByRole("menuitem", { name: /View as/ }).elements()).toHaveLength(0);
@@ -476,7 +372,7 @@ describe("WorkspaceRail (Rail v3)", () => {
   it("D3: the account menu's avatar keeps the person's own role colour while viewing as another role", async () => {
     seed("developerAdmin");
     viewAs.enter("consultant");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
     await expect
       .poll(() => {
@@ -489,7 +385,7 @@ describe("WorkspaceRail (Rail v3)", () => {
   it("D1: Sign out needs no confirm; it signs out, clears outboxes and View as, then goes to login", async () => {
     seed("developerAdmin");
     viewAs.enter("consultant");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
     await page.getByRole("menuitem", { name: "Sign out" }).click();
     await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/login" }]);
@@ -501,7 +397,7 @@ describe("WorkspaceRail (Rail v3)", () => {
 
   it("D1: Account goes to /settings/account and View as opens the dialog state", async () => {
     seed("developerAdmin");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await page.getByRole("button", { name: "Johnny Nguyen, account menu" }).click();
     await page.getByRole("menuitem", { name: "Account" }).click();
     await expect.poll(() => __navigationCalls).toEqual([{ kind: "goto", url: "/settings/account" }]);
@@ -519,7 +415,7 @@ describe("WorkspaceRail (Rail v3)", () => {
   ] as const)("D3: viewing as %s shows that role's rail and names the role under the person", async (role, bottom, label) => {
     seed("developerAdmin", { openAlerts: 2 });
     viewAs.enter(role);
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: [...bottom] });
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe(label);
   });
@@ -528,18 +424,18 @@ describe("WorkspaceRail (Rail v3)", () => {
     seed("admin");
     sessionStorage.setItem("banhall.viewAs.v1", "consultant");
     viewAs.reload();
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "Settings"] });
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Admin");
   });
 
   it("the keyboard reaches each control once, in order", async () => {
     seed("admin");
-    await render(WorkspaceRail, baseProps());
+    await mount(baseProps());
     await expect.poll(() => item("admin")).not.toBeNull();
     (nav().querySelector('a[aria-label="Banhall home"]') as HTMLElement).focus();
     const reached: string[] = [];
-    for (let step = 0; step < 9; step += 1) {
+    for (let step = 0; step < 8; step += 1) {
       await userEvent.keyboard("{Tab}");
       const active = document.activeElement as HTMLElement;
       reached.push(
@@ -553,6 +449,6 @@ describe("WorkspaceRail (Rail v3)", () => {
                 : "?")
       );
     }
-    expect(reached).toEqual(["toggle", "search", "home", "projects", "companies", "team", "admin", "settings", "identity"]);
+    expect(reached).toEqual(["search", "home", "projects", "companies", "team", "admin", "settings", "identity"]);
   });
 });

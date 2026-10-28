@@ -10,6 +10,8 @@ import { __mutationCalls, __resetConvexStub, __setQueryData } from "$lib/test/co
 import { readLastAccount } from "$lib/auth/lastAccount";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { board, boardPx } from "$lib/test/boardScale";
+import { SECTION_SIDEBAR_KEY, reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
+import SidebarHarness from "$lib/test/SectionSidebarChromeHarness.svelte";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
 
@@ -22,11 +24,12 @@ const action = createRawSnippet(() => ({
 
 const developer = { _id: "dev-1", firstName: "Johnny", lastName: "Nguyen", role: "admin", isDeveloper: true, imageUrl: null };
 
-describe("WorkspaceChrome (round 2 frame)", () => {
+describe("WorkspaceChrome (the page frame, 2026-10-28)", () => {
   beforeEach(() => {
-    // A collapsed rail persisted by an earlier suite shows icons only; start
+    // A collapsed sidebar persisted by an earlier suite would hide it; start
     // from the expanded default.
     localStorage.clear();
+    reloadSectionSidebar();
     sessionStorage.clear();
     viewAs.clear();
     __resetPage();
@@ -37,40 +40,114 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     __setQueryData("changelog:unseenCount", 0);
   });
 
-  it("draws the 64px standard top bar on the shell background, 12px between the rail and the panel, and the panel owns the scroll", async () => {
+  it("S9 frame: the global bar, the 80px rail, one white card 4px from it and 8px from the edge and foot; the bar inside the card; the content owns the scroll", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, { title: "Settings", subtitle: "Account", icon: IconGear, children: tallContent });
 
     const root = document.querySelector<HTMLElement>("[data-workspace-chrome]")!;
     const header = root.querySelector<HTMLElement>("[data-page-top-bar]")!;
-    const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
-    const aside = root.querySelector<HTMLElement>("aside")!;
+    const card = root.querySelector<HTMLElement>("[data-frame-card]")!;
+    const main = root.querySelector<HTMLElement>("[data-chrome-main]")!;
+    const bar = root.querySelector<HTMLElement>("[data-global-bar]")!.getBoundingClientRect();
+    const rail = root.querySelector<HTMLElement>("[data-frame-rail]")!.getBoundingClientRect();
     expect(Math.round(root.getBoundingClientRect().height)).toBe(window.innerHeight);
+    expect(getComputedStyle(root).backgroundColor).toBe("rgb(242, 242, 242)");
+    expect(bar.height).toBe(board(52));
+    expect(rail.width).toBe(board(80));
+    expect(rail.top).toBe(bar.bottom);
+    expect(card.hasAttribute("data-work-panel")).toBe(true);
+    expect([getComputedStyle(card).borderRadius, getComputedStyle(card).borderTopColor, getComputedStyle(card).backgroundColor]).toEqual([
+      boardPx(12),
+      "rgb(218, 229, 227)",
+      "rgb(255, 255, 255)",
+    ]);
+    const cardBox = card.getBoundingClientRect();
+    expect(cardBox.top).toBe(bar.bottom);
+    expect(cardBox.left - rail.right).toBe(board(4));
+    expect(window.innerWidth - cardBox.right).toBe(board(8));
+    expect(window.innerHeight - cardBox.bottom).toBe(board(8));
+    // The page bar is inside the card: 64px, the 22/28 title 32px in.
+    expect(card.contains(header)).toBe(true);
     expect(header.getBoundingClientRect().height).toBe(board(64));
     expect(header.hasAttribute("data-workspace-page-header")).toBe(true);
-    expect(header.querySelector("[data-page-icon-tile]")).toBeNull();
-    expect(header.querySelector("h1")?.textContent).toBe("Settings");
-    // Owner, 2026-10-19: the title only, no muted line beside it.
+    const title = header.querySelector<HTMLElement>("h1")!;
+    expect(title.textContent).toBe("Settings");
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual([
+      boardPx(22),
+      boardPx(28),
+      "500",
+    ]);
+    expect(title.getBoundingClientRect().left - cardBox.left - 1).toBe(board(32));
+    // Owner, 2026-10-19: the title only, no muted line or page tile beside it.
     expect(header.querySelector("[data-page-subtitle]")).toBeNull();
-    // Round 2 shell: the lighter #FAFCFB rail and frame.
-    expect(getComputedStyle(aside).backgroundColor).toBe("rgb(250, 252, 251)");
-    expect(getComputedStyle(panel.parentElement!).backgroundColor).toBe("rgb(250, 252, 251)");
-    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(12));
-    expect(getComputedStyle(panel).backgroundColor).toBe("rgb(255, 255, 255)");
-    // Panel 12px from the rail, the right edge and the foot (Rail v3).
-    const panelBox = panel.getBoundingClientRect();
-    expect(Math.round(panelBox.left - aside.getBoundingClientRect().right)).toBe(Math.round(board(12)));
-    expect(Math.round(window.innerWidth - panelBox.right)).toBe(Math.round(board(12)));
-    // The title sits 8px inside the panel's left edge.
-    expect(Math.round(header.querySelector("h1")!.getBoundingClientRect().left - panelBox.left)).toBe(Math.round(board(8)));
-    expect(Math.round(window.innerHeight - panelBox.bottom)).toBe(Math.round(board(12)));
-    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
-    panel.scrollTop = 300;
-    expect(panel.scrollTop).toBeGreaterThan(0);
+    expect(header.querySelector("[data-page-icon-tile]")).toBeNull();
+    // The bell is in the global bar now, not the page bar.
+    expect(header.querySelector("[data-top-bar-bell]")!.getBoundingClientRect().width).toBe(0);
+    expect(root.querySelector("[data-global-bar-bell]")).not.toBeNull();
+    // A page with no section sidebar sits in the card alone.
+    expect(card.querySelector("[data-section-sidebar]")).toBeNull();
+    expect(main.scrollHeight).toBeGreaterThan(main.clientHeight);
+    main.scrollTop = 300;
+    expect(main.scrollTop).toBeGreaterThan(0);
     expect(window.scrollY).toBe(0);
-    // The shared panel inset on every screen (2026-10-19): 20px top, 24px sides.
-    expect(getComputedStyle(panel).paddingTop).toBe(boardPx(20));
-    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(24));
+    // The shared content inset: 32px sides on a desktop, 4px under the bar.
+    expect(getComputedStyle(main).paddingTop).toBe(boardPx(4));
+    expect(getComputedStyle(main).paddingLeft).toBe(boardPx(32));
+  });
+
+  it("a section sidebar: 228px with a soft line, the 64px header with the 30px collapse button; Mod \\ and the button collapse it, the bar's expand button brings it back, and the choice is kept", async () => {
+    await browserPage.viewport(1440, 900);
+    __setPageUrl("/settings/notifications");
+    await render(SidebarHarness, { children: tallContent });
+    await expect.poll(() => document.querySelector("[data-section-sidebar='settings']")).not.toBeNull();
+    const slot = () => document.querySelector<HTMLElement>("[data-section-sidebar-slot]")!;
+    const header = document.querySelector<HTMLElement>("[data-section-sidebar-header]")!;
+    expect(slot().getBoundingClientRect().width).toBe(board(228));
+    expect([getComputedStyle(slot()).borderRightWidth, getComputedStyle(slot()).borderRightColor]).toEqual(["1px", "rgb(233, 240, 239)"]);
+    expect(header.getBoundingClientRect().height).toBe(board(64));
+    const sidebarTitle = header.querySelector<HTMLElement>("[data-section-sidebar-title]")!;
+    expect([sidebarTitle.textContent, getComputedStyle(sidebarTitle).fontSize, getComputedStyle(sidebarTitle).fontWeight]).toEqual([
+      "Settings",
+      boardPx(16),
+      "500",
+    ]);
+    const toggle = header.querySelector<HTMLButtonElement>("[data-section-sidebar-toggle]")!;
+    expect(toggle.getBoundingClientRect().width).toBe(board(30));
+    expect(getComputedStyle(toggle).borderRadius).toBe(boardPx(8));
+    // The bar's title starts 32px from the sidebar's edge.
+    const title = document.querySelector<HTMLElement>("[data-page-top-bar] h1")!;
+    expect(title.getBoundingClientRect().left - slot().getBoundingClientRect().right).toBe(board(32));
+    expect(document.querySelector("[data-section-sidebar-expand]")).toBeNull();
+
+    // Mod \ collapses it (owner answer 4) and remembers the choice.
+    await userEvent.keyboard("{Meta>}\\{/Meta}");
+    await expect.poll(() => slot().hasAttribute("data-collapsed")).toBe(true);
+    await expect.poll(() => slot().getBoundingClientRect().width).toBe(0);
+    expect(getComputedStyle(slot()).visibility).toBe("hidden");
+    expect(JSON.parse(localStorage.getItem(SECTION_SIDEBAR_KEY)!)).toEqual({ collapsed: true });
+    const expand = document.querySelector<HTMLButtonElement>("[data-section-sidebar-expand]")!;
+    expect(expand.closest("[data-page-top-bar]")).not.toBeNull();
+    expect(expand.getAttribute("aria-label")).toBe("Show the sidebar");
+
+    // The expand button brings it back and focus moves to the collapse button.
+    expand.focus();
+    expand.click();
+    await expect.poll(() => slot().hasAttribute("data-collapsed")).toBe(false);
+    await expect.poll(() => document.activeElement?.hasAttribute("data-section-sidebar-toggle")).toBe(true);
+    expect(JSON.parse(localStorage.getItem(SECTION_SIDEBAR_KEY)!)).toEqual({ collapsed: false });
+
+    // The header button collapses it too, and focus lands on the expand button.
+    (document.activeElement as HTMLButtonElement).click();
+    await expect.poll(() => document.activeElement?.hasAttribute("data-section-sidebar-expand")).toBe(true);
+  });
+
+  it("Mod \\ does nothing on a page without a section sidebar", async () => {
+    await browserPage.viewport(1440, 900);
+    await render(WorkspaceChrome, { title: "What's new", children: tallContent });
+    await expect.poll(() => document.querySelector("[data-page-top-bar]")).not.toBeNull();
+    await userEvent.keyboard("{Meta>}\\{/Meta}");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(localStorage.getItem(SECTION_SIDEBAR_KEY)).toBeNull();
   });
 
   it("sends the Team activity heartbeat once on mount and remembers the signed-in account (J3)", async () => {
@@ -91,7 +168,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     expect(__mutationCalls("team:markActive")).toHaveLength(0);
   });
 
-  it("shows the title without a trail, puts page actions after the bell, and pads every panel alike", async () => {
+  it("shows the title without a trail, puts page actions at the right, and pads every panel alike", async () => {
     await browserPage.viewport(1440, 900);
     await render(WorkspaceChrome, {
       title: "House rules",
@@ -103,16 +180,21 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     const header = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
     expect(header.querySelector("[data-page-breadcrumb]")).toBeNull();
     expect(header.querySelector("h1")?.textContent).toBe("House rules");
-    const bell = header.querySelector("[data-top-bar-bell]")!;
-    const add = header.querySelector("[data-testid=page-action]")!;
-    expect(bell.compareDocumentPosition(add) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const panel = document.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).paddingLeft).toBe(boardPx(24));
+    const add = header.querySelector<HTMLElement>("[data-testid=page-action]")!;
+    expect(Math.round(header.getBoundingClientRect().right - add.getBoundingClientRect().right)).toBe(Math.round(board(32)));
+    const main = document.querySelector<HTMLElement>("[data-chrome-main]")!;
+    expect(getComputedStyle(main).paddingLeft).toBe(boardPx(32));
   });
 
-  it("keeps the drawer reachable below 1024px", async () => {
+  it("keeps the drawer reachable below 1024px, with no global bar or rail and the card full bleed (owner answer 6)", async () => {
     await browserPage.viewport(390, 844);
     await render(WorkspaceChrome, { title: "Settings", children: tallContent });
+    expect(document.querySelector<HTMLElement>("[data-global-bar]")!.getBoundingClientRect().height).toBe(0);
+    expect(document.querySelector<HTMLElement>("[data-frame-rail]")!.getBoundingClientRect().width).toBe(0);
+    const card = document.querySelector<HTMLElement>("[data-frame-card]")!.getBoundingClientRect();
+    expect([card.left, card.top, card.width]).toEqual([0, 0, 390]);
+    // Below 1024px the page bar keeps its bell.
+    expect(document.querySelector<HTMLElement>("[data-top-bar-bell]")!.getBoundingClientRect().width).toBeGreaterThan(0);
     await browserPage.getByRole("button", { name: "Open workspace navigation", exact: true }).click();
     await expect.element(browserPage.getByRole("button", { name: "Close workspace navigation", exact: true })).toBeVisible();
     const drawer = document.querySelector<HTMLElement>("[data-workspace-drawer]")!;
@@ -137,7 +219,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     await userEvent.keyboard("{Escape}");
   });
 
-  it("D3: while viewing as a role, the panel gets the amber frame and the pill sits over the top bar", async () => {
+  it("D3: while viewing as a role, the card gets the amber frame and the pill sits in the global bar", async () => {
     await browserPage.viewport(1440, 900);
     __setQueryData("users:getCurrentUser", developer);
     viewAs.enter("consultant");
@@ -149,7 +231,7 @@ describe("WorkspaceChrome (round 2 frame)", () => {
     expect(getComputedStyle(panel).borderTopWidth).toBe("2px");
     expect(getComputedStyle(panel).borderTopColor).toBe("rgb(245, 158, 11)");
     const pill = document.querySelector<HTMLElement>("[data-view-as-pill]")!.getBoundingClientRect();
-    const bar = root.querySelector<HTMLElement>("[data-page-top-bar]")!.getBoundingClientRect();
+    const bar = root.querySelector<HTMLElement>("[data-global-bar]")!.getBoundingClientRect();
     expect(pill.height).toBe(board(36));
     expect(Math.abs(pill.top + pill.height / 2 - (bar.top + bar.height / 2))).toBeLessThanOrEqual(1);
     // D3, D4: 560px from the window's left edge, as the boards draw it.

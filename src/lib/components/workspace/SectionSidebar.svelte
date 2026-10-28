@@ -111,16 +111,21 @@
 </div>
 
 <style>
-  /* The layout ease on the width; visibility flips at the end when it
-     collapses and at the start when it opens, so the rows never vanish
-     before the width does. */
+  /* The layout ease on the width. Opening shows the rows at once (so focus
+     can land in them); collapsing hides them only once the width is gone. */
   .section-sidebar-slot {
     transition:
       width var(--duration-layout) var(--ease-layout),
-      visibility var(--duration-layout) var(--ease-layout);
+      visibility 0s;
+  }
+  .section-sidebar-slot[data-collapsed] {
+    transition:
+      width var(--duration-layout) var(--ease-layout),
+      visibility 0s linear var(--duration-layout);
   }
   @media (prefers-reduced-motion: reduce) {
-    .section-sidebar-slot {
+    .section-sidebar-slot,
+    .section-sidebar-slot[data-collapsed] {
       transition: none;
     }
   }
