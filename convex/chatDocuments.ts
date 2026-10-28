@@ -15,6 +15,7 @@
 // internal mutation, storePdfPageCount, keeps a PDF's page count once the
 // server has counted it.
 
+import { foldForSearch } from "../shared/evidenceChoice";
 import { piecesCurrent, searchCompanyPieces, searchProjectPieces } from "./lib/searchPieces";
 import { readCompanyFileTextOrNull } from "./lib/companyFileText";
 import { companyFileCategory } from "./lib/briefEvidence";
@@ -637,13 +638,9 @@ export const readTranscriptForChat = internalQuery({
 
 // ─── searchDocuments ─────────────────────────────────────────────────────────
 
-/** Lower case, compatibility forms folded and accents removed, for matching. */
-export function foldForSearch(text: string): string {
-  // Greek final sigma folds to sigma (review): lowercasing a whole word
-  // gives "ς" at its end, one letter at a time gives "σ", and the excerpt
-  // window folds letter by letter.
-  return text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/ς/g, "σ");
-}
+// The fold moved to shared/evidenceChoice.ts (Phase D), which scores a
+// draft's evidence the same way; re-exported here for its callers.
+export { foldForSearch };
 
 /** Common French function words and short English ones, beside research's list. */
 const EXTRA_STOP_WORDS: ReadonlySet<string> = new Set([

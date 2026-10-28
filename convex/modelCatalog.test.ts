@@ -1147,9 +1147,12 @@ describe("prompt versions", () => {
     // (eleventh), which drops the bullet word limit from the Seed guidance
     // and the quote rules (`.3`), and moves the Summary plan serializer to v6
     // (reference bullets clipped at 600 characters); before it they were
-    // sha256:9190ac69... and sha256:f82b7ed7....
-    expect(await hashPromptProgram()).toBe("sha256:8a41a05eb759189a08d8e9899519e12dfbba61f59c68af26bfc88a3eead9585f");
-    expect(await legacyPromptVersion()).toBe("sha256:8de53993a9049f10adab59b544b2e7e9a801429fce7a0bc1aa97008506be0b8a");
+    // sha256:9190ac69... and sha256:f82b7ed7.... Re-read after 2026-10-28
+    // (fifth), which adds the facts check's words for a document read in
+    // part on purpose; before it they were sha256:8a41a05e... and
+    // sha256:8de53993....
+    expect(await hashPromptProgram()).toBe("sha256:a9410c25a2afbd328c25e49457e350ab59c33ed77a06716ba7b1916ad5da277e");
+    expect(await legacyPromptVersion()).toBe("sha256:f8e3a157f0ab6097e6eab609c59b2d7780d52c4e8b9d04af0f9b30bdba730c14");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

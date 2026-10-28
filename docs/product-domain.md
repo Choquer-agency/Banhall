@@ -4910,7 +4910,89 @@ This amends part 3 of the first 2026-10-26 entry ("Drafting and chat get a short
 - **How:** each draft keeps its pool of about 3 MiB, frozen at its start, but fills it with the parts of every file that best match the draft's subject instead of whole files in upload order, with a share kept for company files; each step then chooses within the pool, and every file's facts are frozen beside it. Plan: `docs/todos/phase-d-evidence-layer.md` (plan reviews: round 1 "go with changes", round 2 "go with changes"; step 1 cleared to build). Step 2 changes what entry "(third)" shows for company files, in its own entry.
 - **Approval:** Product owner, 2026-10-28 (chat), answering the recommendation to combine options 3 and 4.
 
-### 2026-10-28 (fifth): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)
+### 2026-10-28 (fifth): Each Line's facts check reads the parts of every file that best match the Line (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the first step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, step 1). Before, the facts check read the frozen files whole or not at all, in frozen order, within 48,000 bytes, so a file over that size was never read, a 3-hour interview included.
+
+This changes what one AI check reads and one sentence of its note, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - When every frozen interview and file fits the check's 48,000 bytes, each is read whole, as before.
+  - When they do not, the writer's notes go in whole first, or their start when they alone pass the budget.
+  - The rest of the budget then takes the parts of every interview and file that best match what the Line must cover, then unmatched parts in order:
+    - "What the Line must cover" is each cover item's wording, the wording it relates to and its quotes, each text once. Never a Skip, a LEAVE OUT entry or the plan's own scaffold.
+    - The parts are cut from the frozen text the way search pieces are, as plain text, without page, heading or sheet breaks (`shared/evidenceChoice.ts`).
+    - They are scored with rare words counting more and long parts not winning by length (BM25).
+    - Parts are chosen with word-safe edges and neighbours join into one excerpt; each excerpt is its own entry.
+  - No excerpt starts or ends inside a word (a run of over 64 letters aside).
+  - Each excerpt's outer edges then move to a sentence or paragraph end within 300 characters, unless already at one, so a name wrapped over two lines is not split. A period after a single letter or a common abbreviation (St., Inc., Co. and the like) is not taken for a sentence end. Windows line endings count as line ends.
+  - A quote the check gives is found only in what it read.
+- **What the writer sees.** The facts row's note names each file read only in part and each left out: "(Over this check's 48000-byte budget it read only the parts of ... that best match this Line and did not read ..., so it let the signed-off items, their quotes and the analysis stand for the rest.)"
+  - When no part of a file matched the Line (it came in row order), the note says "read only parts of".
+  - Writer's notes cut to fit say "only the start of".
+  - When only files were left out, the note is word for word as before.
+- **Where.** `loadFactsSourceDocuments` in `convex/lib/generations/seedStage.ts`, given the Line's cover items by `orderedSectionClaim` (`convex/lib/generations/chain.ts`); `sourceFactsFor` in `convex/ai/selfCheck.ts`; `factsDocumentsLeftOutNote` in `convex/ai/orderedGeneration.ts`; the check's prompt words in `convex/ai/promptDefinitions.ts` (the prompt version moves).
+- **Known limits.**
+  - The check still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - The record of what the check read says "in part" but not which ranges yet (later in step 1).
+  - The choice runs in the claim's transaction. Measured: 3.2 million characters of unbroken script chosen in about 0.3 seconds on the development machine under load. The first version took seconds on such text, found in review.
+  - A name of several words cut at an edge with no sentence end within 300 characters can still go out in two halves, as with the budget cut the other steps already use. So can a name right after an abbreviation the list does not know.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:**
+  - `convex/factsSourceDocuments.test.ts`: whole when all fit; over the budget, the part holding the Line's fact is read, the file is named as read in part, the budget holds, and the record says "in part"; the prompt and the note name it.
+  - `convex/companyFileDrafts.test.ts`: whole, in part or none per row.
+  - `shared/evidenceChoice.test.ts`: the chooser itself, its time on 3 MiB of unbroken script, sentence-end edges keeping a wrapped name whole, a must-have row cut to its start, per-file excerpt costs, and an empty file.
+  - `convex/factsSourceDocuments.test.ts` also: the same parts on every claim, and an empty file read as it is.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - the chooser's time (P1);
+  - the subject: cover items, not the whole plan block;
+  - sentence-end edges;
+  - each file's own label cost;
+  - the note's wording;
+  - empty files;
+  - the tests;
+  - this entry.
+- **Review round 2:** Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". The bounded edge checks were confirmed exactly equivalent by fuzzing, and the whole chooser ran in 0.05 to 0.2 seconds on its worst 3 MiB inputs. Done:
+  - sentence-end edges now move after neighbouring parts join, so no sentence between two chosen parts is lost, and a part that already starts a sentence keeps it (P2);
+  - abbreviations and initials;
+  - Windows line endings;
+  - each subject text once;
+  - "best match" only when a part matched.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
+### 2026-10-28 (sixth): The Brief reads the parts of every frozen file that best match the interviews (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the second step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, step 1). Before, the Brief read the frozen sources in frozen order, each cut at 400,000 characters, until 600,000 characters in all. On a large draft it read the interviews and the first files, and nothing of the rest. Its quote check also searched every frozen row whole, including text it never sent.
+
+This changes what one AI request reads and how its quotes are found, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - When every source fits (each within 400,000 characters, all within 600,000), the request is exactly as before.
+  - When they do not:
+    - The interviews (or their digests or fact packs), the settings document and writer's notes go in whole, in order. They are cut only at the per-source limit or where the total runs out, as before.
+    - Every other source sends the parts that best match the interviews and the writer's Storyline (`shared/evidenceChoice.ts`).
+    - A source sent in parts gets the parts joined by a "[...]" line and a notice: "[EXCERPTS: only the parts of this source that best match the interviews were sent, N of M characters; the text between them was left out.]"
+    - A source with no part sent is counted in the omitted notice, as before.
+  - Every quote of the Brief is then searched for only in what the request sent, in place, so its position in the file is exact. Transcripts read through their digest or fact pack are searched as before.
+  - The settings document's wording rule is added only when that document was sent, as before.
+- **Where.**
+  - `briefMessageWithReport` and `BRIEF_EXCERPTS` in `convex/lib/briefRequest.ts`.
+  - `briefEvidence` in `convex/ai/brief.ts`, which blanks the text not sent (`maskOutside`).
+  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared and reusable Briefs are made again.
+- **Known limits.**
+  - The Brief still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - The Brief's subject is the interviews and the Storyline: a file that matters for reasons the interviews never mention scores low.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:**
+  - `convex/briefByRelevance.test.ts`:
+    - over the budget, a fact in file 25 of 30 is sent, with the excerpts notice;
+    - the same request every time;
+    - a quote is cited at its place in the whole file;
+    - a sentence never sent is not found.
+  - Updated: `convex/ai/brief.sdk.test.ts` (the budget test) and `convex/briefWriterWording.test.ts` (the wording rule when the settings document has no room).
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
+### 2026-10-28 (seventh): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)
 
 Owner direction 2026-10-28, from the Paper page "Assistant + report, exploration" (rows 16 B, 21 and 32 to 37). The owner's answers in that conversation are this entry's approval.
 
@@ -4954,7 +5036,7 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
     - closing the limit popover from the pill gives focus back to the pill.
   - **Round 3.** Claude Opus 5.5, requested at high; it reported running at low. "Ship": all six round 2 fixes traced correct. Done after it: the popover's scroll and resize close no longer scroll the pill back into view, and the popover finds the pill again after the report redraws it. Left as a known limit: the Shortening chip follows the open conversation, so switching conversation while the shorten reply runs clears it early.
 
-### 2026-10-28 (sixth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
+### 2026-10-28 (eighth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
 
 Owner direction 2026-10-28, from the Paper page "Assistant + report, exploration" (rows 9 and 10: boards S9, S11, S12, S13 and the A1 project top bar). The owner's six answers in that conversation ("build for now, we can always change") are this entry's approval.
 

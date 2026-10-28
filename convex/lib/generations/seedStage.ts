@@ -37,6 +37,7 @@ import {
 } from "./brief";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../shared/pdSubsections";
 import {
+  FACTS_PART_FRAME_BYTES,
   emptyContextRevision,
   emptySelectionRevision,
   SeedContextLimitError,
@@ -77,6 +78,7 @@ import { appendGenerationProgress } from "../generationProgress";
 import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
+import { chooseEvidence, subjectOf, utf8Size } from "../../../shared/evidenceChoice";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
 import { unbackedBullets } from "../seedQuoteSupport";
 import {
@@ -1427,25 +1429,31 @@ function planItemSourcesOf(
 /**
  * 2026-10-04 (second, round 2, owner approved 2026-10-05): the frozen source
  * documents (transcripts and project documents, in the order frozen) the
- * facts check reads in full. Round 2 review: each document is marker-safe
- * before it is counted (P2-1: its text through neutralizeMarkers, its file
- * name through sanitizeFileName, and a writer_notes label an internal user
- * did not upload demoted, as the analyzer's context does), and each one that
- * still fits SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, in order, is included while
- * any that does not is left out and named with its size (P2-4). It reads
- * every row of the generation's sources once (other kinds are read, not
- * counted), as the generation input query does.
+ * facts check reads. Round 2 review: each document is marker-safe before it
+ * is counted (P2-1: its text through neutralizeMarkers, its file name
+ * through sanitizeFileName, and a writer_notes label an internal user did
+ * not upload demoted, as the analyzer's context does). It reads every row of
+ * the generation's sources once (other kinds are read, not counted), as the
+ * generation input query does.
+ *
+ * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when they all fit
+ * SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, every document is read whole, as
+ * before. When they do not, the writer's notes go in whole first, then the
+ * parts of every other document that best match `subjectTexts` (the Line's
+ * own plan), each part its own entry; a document read in part is named in
+ * `readInPart`, and one with no part read is left out and named with its
+ * size (P2-4), as before. A quote is then found only in what was read.
  */
 export async function loadFactsSourceDocuments(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">,
   /** Phase D (step 2): filled with what the check sends of each row it weighs, in UTF-8 bytes. */
-  uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }>
+  uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }>,
+  /** Phase D, step 1: what the Line is about, to choose the parts read. */
+  subjectTexts: readonly string[] = []
 ): Promise<FactsSourceDocuments> {
   const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
-  const documents: FactsSourceDocument[] = [];
-  const leftOut: FactsSourceDocuments["leftOut"] = [];
-  let used = 0;
+  const weighed: Array<{ sourceId: Id<"generationSources">; document: FactsSourceDocument; bytes: number }> = [];
   for await (const row of ctx.db
     .query("generationSources")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
@@ -1454,17 +1462,54 @@ export async function loadFactsSourceDocuments(
     if (row.kind === "company_file" && (await withCurrentCompanyFiles(ctx, generation.projectId, [row])).length === 0) continue;
     // B1, second part: the row's text, wherever it is kept.
     const document = factsSourceDocumentOf(await withSourceText(ctx, row));
-    const bytes = new TextEncoder().encode(document.content).byteLength;
-    if (used + bytes > budget) {
-      leftOut.push({ label: document.label, bytes });
-      uses?.push({ sourceId: row._id, sent: 0, total: bytes });
-      continue;
-    }
-    used += bytes;
-    documents.push(document);
-    uses?.push({ sourceId: row._id, sent: bytes, total: bytes });
+    weighed.push({ sourceId: row._id, document, bytes: utf8Size(document.content) });
   }
-  return { documents, leftOut, budget };
+  const chosen = chooseEvidence({
+    rows: weighed.map(({ document }) => ({
+      text: document.content,
+      ...(document.writer ? { whole: true } : {}),
+      // Each excerpt carries its own label line.
+      excerptCost: utf8Size(document.label) + FACTS_PART_FRAME_BYTES,
+    })),
+    subject: subjectOf(subjectTexts),
+    budget,
+    size: utf8Size,
+  });
+  const documents: FactsSourceDocument[] = [];
+  const leftOut: FactsSourceDocuments["leftOut"] = [];
+  const readInPart: NonNullable<FactsSourceDocuments["readInPart"]> = [];
+  weighed.forEach(({ sourceId, document, bytes }, index) => {
+    const { ranges, whole, cut, matched } = chosen[index]!;
+    if (whole) {
+      documents.push(document);
+      uses?.push({ sourceId, sent: bytes, total: bytes });
+      return;
+    }
+    if (ranges.length === 0) {
+      leftOut.push({ label: document.label, bytes });
+      uses?.push({ sourceId, sent: 0, total: bytes });
+      return;
+    }
+    let sent = 0;
+    ranges.forEach((range, part) => {
+      const content = document.content.slice(range.start, range.end);
+      sent += utf8Size(content);
+      documents.push({
+        ...document,
+        label: cut ? `${document.label} (its start)` : `${document.label} (excerpt ${part + 1} of ${ranges.length})`,
+        content,
+      });
+    });
+    readInPart.push({
+      label: document.label,
+      bytes,
+      sent,
+      ...(cut ? { start: true as const } : {}),
+      ...(matched ? { matched: true as const } : {}),
+    });
+    uses?.push({ sourceId, sent, total: bytes });
+  });
+  return { documents, leftOut, budget, ...(readInPart.length > 0 ? { readInPart } : {}) };
 }
 
 /** One frozen transcript, project document or company file (Phase C), marker-safe, as the facts check reads it. */

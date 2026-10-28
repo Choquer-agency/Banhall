@@ -12,6 +12,7 @@
 // directive, no Node built-ins — because `convex/generations.ts` (a query)
 // imports the budget shape while the generation actions import the builder.
 
+import { endAtWordBoundary } from "../../shared/evidenceChoice";
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
@@ -346,39 +347,9 @@ export function cutToBudget(text: string, limit: number): string {
   return endAtWordBoundary(text.slice(0, end), text.slice(end));
 }
 
-/**
- * Letters, digits and marks, and the joiners inside a name's word (final
- * privacy round P2): ASCII and Unicode hyphens (and the soft hyphen),
- * straight and curly apostrophes, the katakana middle dot and the middle
- * dot, so a cut backs off before the whole of "Whitfield-Smith",
- * "Jean-Philippe" or "O'Neil", never to "Whitfield-".
- */
-const WORD_CHARS = "[\\p{L}\\p{N}\\p{M}\\-\\u2010\\u2011\\u00AD'\\u2018\\u2019\\u30FB\\u00B7]";
-const LAST_WORD_RUN = new RegExp(`${WORD_CHARS}+$`, "u");
-const FIRST_WORD_RUN = new RegExp(`^${WORD_CHARS}+`, "u");
-/** The longest run of letters and digits a word of a name can be. */
-const MAX_NAME_WORD = 64;
-
-/**
- * 2026-09-29 (second, privacy): a budget cut never ends inside a word. Names
- * are masked at the provider boundary only where they stand whole, so a cut
- * through "Quillmere" sent the fragment "Quillm" unmasked. When the kept
- * text ends in a letter or digit and the text after the cut goes on with
- * one, the cut backs off to just after the last white space or punctuation
- * (a hyphen, an apostrophe or a middle dot joins a word, never ends one).
- * A word the cut falls in that runs longer than 64 letters and digits, both
- * sides together, is no word of a name (a hash, an encoded blob, a long run
- * of unbroken script) and is cut where the budget ends, as before. It only
- * ever shortens, so the cut stays within budget.
- */
-export function endAtWordBoundary(kept: string, rest: string): string {
-  const before = LAST_WORD_RUN.exec(kept);
-  const after = FIRST_WORD_RUN.exec(rest);
-  if (!before || !after) return kept;
-  // The word the cut falls in, both sides of it.
-  if (before[0].length + after[0].length > MAX_NAME_WORD) return kept;
-  return kept.slice(0, before.index);
-}
+// The name-safe end cut moved to shared/evidenceChoice.ts (Phase D), where
+// its start-side twin lives; it is re-exported here for its callers.
+export { endAtWordBoundary } from "../../shared/evidenceChoice";
 
 /**
  * Digest mode means digests (cost phase 1). A generation over the transcript

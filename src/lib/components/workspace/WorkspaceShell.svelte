@@ -22,7 +22,7 @@
 
   /**
    * The page frame (owner, 2026-10-28; Paper S9, S11, A1; the 2026-10-28
-   * (sixth) amendment in docs/product-domain.md). From 1024px: the 52px
+   * (eighth) amendment in docs/product-domain.md). From 1024px: the 52px
    * global bar across the top, then the fixed 80px labelled rail and the
    * page's one white card, 4px apart, with 8px to the window's right edge and
    * foot, all on the plain `frame` gray. The page draws the card
