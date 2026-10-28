@@ -125,7 +125,7 @@
   data-workspace-page-header
   data-project-top-bar
   data-top-bar-flush={flush || undefined}
-  class="flex h-[3.25rem] shrink-0 items-center gap-2 border-b border-line-soft px-3"
+  class="flex h-[3.25rem] shrink-0 items-center gap-2 border-b border-line-soft bg-surface px-3"
 >
   <!-- From 640px to 1024px the drawer's hamburger leads, as before. -->
   <div class="contents max-sm:hidden">

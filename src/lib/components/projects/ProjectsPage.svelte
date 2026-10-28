@@ -275,7 +275,7 @@
 <!-- Paper S9: the one white card, the Projects sidebar on its left. Below
      768px the sidebar fills the card until a company (or All projects) is
      chosen. -->
-<FrameCard data-projects-page class="flex-1">
+<FrameCard data-projects-page class="flex-1" mainClass={areaOnMobile ? "" : "max-md:hidden"}>
   {#snippet sidebar()}
     {#key clientsAttempt}
       <ClientList
@@ -305,7 +305,7 @@
     {/key}
   {/snippet}
 
-  <div class={`flex min-h-0 min-w-0 flex-1 flex-col ${areaOnMobile ? "" : "max-md:hidden"}`}>
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     {#key areaAttempt}
       <ClientArea
         bind:this={area}

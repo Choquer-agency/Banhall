@@ -12,11 +12,14 @@
     sidebar = undefined,
     children,
     class: className = "",
+    mainClass = "",
     ...rest
   }: {
     sidebar?: Snippet;
     children: Snippet;
     class?: string;
+    /** Extra classes on the page column (Projects hides it on a phone while the list fills the card). */
+    mainClass?: string;
     [key: `data-${string}`]: string | boolean | undefined;
   } = $props();
 </script>
@@ -28,7 +31,7 @@
   class={`relative flex min-h-0 min-w-0 overflow-hidden bg-surface lg:rounded-xl lg:border lg:border-line ${className}`}
 >
   {@render sidebar?.()}
-  <div data-frame-main class="flex min-h-0 min-w-0 flex-1 flex-col">
+  <div data-frame-main class={`flex min-h-0 min-w-0 flex-1 flex-col ${mainClass}`}>
     {@render children()}
   </div>
 </div>
