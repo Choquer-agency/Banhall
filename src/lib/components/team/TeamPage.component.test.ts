@@ -14,6 +14,7 @@ import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { board, boardPx } from "$lib/test/boardScale";
+import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 
 const enter = (role: Parameters<typeof viewAs.enter>[0]) => viewAs.enter(role);
 const exit = () => viewAs.exit();
@@ -51,6 +52,8 @@ describe("TeamPage", () => {
   let writeText: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    localStorage.clear();
+    reloadSectionSidebar();
     __resetConvexStub();
     __resetAuthState();
     __resetPage();
@@ -90,16 +93,16 @@ describe("TeamPage", () => {
     expect(document.querySelectorAll("[data-member-menu]")).toHaveLength(4);
   });
 
-  it("colours member avatars by role: Owner teal, Consultant and Manager fir, Developer purple (C1)", async () => {
+  it("shows plain names: no avatar beside a member and no circle beside an invite (owner rule, Paper S11)", async () => {
     seed(ADMIN);
     await render(TeamPage, { origin: "https://banhall.app" });
-    await expect.poll(() => document.querySelectorAll("[data-member-row] [data-avatar]").length).toBe(4);
-    const bg = (id: string) =>
-      getComputedStyle(document.querySelector<HTMLElement>(`[data-member-row="${id}"] [data-avatar]`)!).backgroundColor;
-    expect(bg("u-admin")).toBe("rgb(8, 122, 117)");
-    expect(bg("u-larry")).toBe("rgb(10, 58, 56)");
-    expect(bg("u-sam")).toBe("rgb(10, 58, 56)");
-    expect(bg("u-new")).toBe("rgb(126, 34, 206)");
+    await expect.poll(() => document.querySelectorAll("[data-member-row]").length).toBe(4);
+    expect(document.querySelectorAll('[data-member-row] [data-avatar], [data-member-row] [role="cell"]:first-child svg')).toHaveLength(0);
+    expect(document.querySelector('[data-member-row="u-admin"] [role="cell"]')?.children).toHaveLength(1);
+    expect(document.querySelector('[data-member-row="u-admin"] [data-member-name]')?.textContent).toBe("Bryce Choquer");
+    const invite = row("ana.ruiz@banhall.com")!;
+    expect(invite.querySelector(".border-dashed, [data-avatar]")).toBeNull();
+    expect(invite.querySelector('[role="cell"]')?.textContent?.trim()).toBe("ana.ruiz@banhall.com");
   });
 
   it("shows the Manager view without member actions and with read-only Admin invites", async () => {
@@ -127,11 +130,20 @@ describe("TeamPage", () => {
     expect(row("ana.ruiz@banhall.com")?.textContent).toContain("Bryce Choquer");
   });
 
-  it("hides the Pending invites section when there are none", async () => {
+  it("with no pending invites, keeps the section with one muted line, and the sidebar row reaches it", async () => {
     seed(ADMIN, []);
+    await page.viewport(1440, 900);
     await render(TeamPage, { origin: "https://banhall.app" });
     await expect.poll(() => document.querySelectorAll("[data-member-row]").length).toBe(4);
-    expect(document.querySelector("[data-pending-invites]")).toBeNull();
+    const section = document.querySelector<HTMLElement>("#team-pending-invites")!;
+    expect(section.hasAttribute("data-pending-invites")).toBe(true);
+    expect(section.querySelector("[data-pending-count]")?.textContent).toBe("0");
+    expect(section.querySelector("[data-pending-empty]")?.textContent).toBe("No pending invites.");
+    expect(section.querySelector('[role="table"]')).toBeNull();
+    const link = document.querySelector<HTMLAnchorElement>('[data-team-sidebar="invites"]')!;
+    expect(link.querySelector("[data-section-sidebar-count]")?.textContent).toBe("0");
+    const target = document.getElementById(new URL(link.href).hash.slice(1));
+    expect(target).toBe(section);
   });
 
   it("resends an expired invite, copies the new link and shows Link copied", async () => {
@@ -193,7 +205,7 @@ describe("TeamPage", () => {
     expect(document.querySelector("[data-member-row]")).toBeNull();
   });
 
-  it("draws C1 with the standard header button, the shared panel inset, tables, avatars and status dots", async () => {
+  it("draws C1 in the page frame: the Team sidebar, the shared content inset, tables with plain names and status dots", async () => {
     seed(ADMIN);
     await page.viewport(1440, 900);
     try {
@@ -249,10 +261,7 @@ describe("TeamPage", () => {
       expect(Math.round(menu.right)).toBe(Math.round(lastActive.right));
       const firstRow = members.querySelector<HTMLElement>("[data-member-row]")!;
       expect(firstRow.getBoundingClientRect().height).toBe(board(48));
-      const avatar = firstRow.querySelector<HTMLElement>("[data-avatar]")!;
-      expect(avatar.getBoundingClientRect().width).toBe(board(24));
-      expect(getComputedStyle(avatar).fontSize).toBe(boardPx(10));
-      expect(getComputedStyle(avatar).fontWeight).toBe("400");
+      expect(firstRow.querySelector("[data-avatar]")).toBeNull();
 
       const dot = (email: string) => row(email)!.querySelector<HTMLElement>("[data-invite-status] span")!;
       expect(getComputedStyle(dot("ana.ruiz@banhall.com")).backgroundColor).toBe("rgb(245, 158, 11)");
@@ -264,5 +273,32 @@ describe("TeamPage", () => {
     } finally {
       await page.viewport(1280, 800);
     }
+  });
+
+  it("shows the Team sidebar only once the viewer is known to be a Manager or Admin", async () => {
+    __setQueryData("users:getCurrentUser", undefined);
+    __setQueryData("team:listMembers", MEMBERS);
+    __setQueryData("invites:listTeamInvites", INVITES);
+    await page.viewport(1440, 900);
+    await render(TeamPage, { origin: "https://banhall.app" });
+    await expect.poll(() => document.querySelector("[data-team-loading]")).not.toBeNull();
+    expect(document.querySelector("[data-section-sidebar]")).toBeNull();
+    __setQueryData("users:getCurrentUser", { _id: "u-c", firstName: "Jane", lastName: "Ellis", role: "writer" });
+    await expect.poll(() => document.querySelector("[data-team-no-access]")).not.toBeNull();
+    expect(document.querySelector("[data-section-sidebar]")).toBeNull();
+  });
+
+  it("collapsed at 1440 (Mod \\), Team shows Invite people in its bar", async () => {
+    seed(ADMIN);
+    await page.viewport(1440, 900);
+    await render(TeamPage, { origin: "https://banhall.app" });
+    await expect.poll(() => document.querySelector("[data-section-sidebar-toggle]")).not.toBeNull();
+    const barInvite = () => document.querySelector<HTMLElement>("[data-page-top-bar] [data-top-bar-primary]")!;
+    expect(barInvite().getBoundingClientRect().width).toBe(0);
+    document.querySelector<HTMLButtonElement>("[data-section-sidebar-toggle]")!.click();
+    await expect.poll(() => barInvite().getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(barInvite().textContent?.trim()).toBe("Invite people");
+    document.querySelector<HTMLButtonElement>("[data-section-sidebar-expand]")!.click();
+    await expect.poll(() => barInvite().getBoundingClientRect().width).toBe(0);
   });
 });

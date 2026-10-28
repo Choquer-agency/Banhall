@@ -15,18 +15,25 @@
     peopleCount = null,
     invitesCount = null,
     onInvite = null,
+    inviteDisabled = false,
   }: {
     peopleCount?: number | null;
     invitesCount?: number | null;
     /** Null hides Invite people (no `invites.manage`). */
     onInvite?: (() => void) | null;
+    /** The loading frame draws Invite people in its place before it can open. */
+    inviteDisabled?: boolean;
   } = $props();
 
   const teamHref = `${resolve("/")}team`;
   const onInvites = $derived(page.url.hash === "#team-pending-invites");
 </script>
 
-<SectionSidebar section="team" title="Team" action={onInvite ? { label: "Invite people", onclick: onInvite } : null}>
+<SectionSidebar
+  section="team"
+  title="Team"
+  action={onInvite ? { label: "Invite people", onclick: onInvite, disabled: inviteDisabled } : null}
+>
   <nav aria-label="Team" class="flex shrink-0 flex-col gap-0.5 pt-3">
     <SectionSidebarLink href={`${teamHref}#team-people`} label="People" data-team-sidebar="people" active={!onInvites} count={peopleCount}>
       {#snippet icon()}<FrameIcon name="people" />{/snippet}

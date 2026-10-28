@@ -3,15 +3,11 @@
   // (110). The Admin viewers' 28px row menu (decision 54) sits over the right
   // end of Last active rather than in a column of its own, so the columns
   // keep the board's positions (Role at x 1108 on C1). 36px
-  // header (12/16 muted on canvas), 48px rows, 24px avatars with 10px
-  // initials in their role's tone (the same rule as the rail).
-  import Avatar from "$lib/components/ui/Avatar.svelte";
+  // header (12/16 muted on canvas), 48px rows, plain names with no avatar
+  // (owner rule, Paper S11).
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
-  import { roleAvatarTone } from "$lib/components/ui/avatarTone";
-  import { roleChipKind } from "$lib/roles/roleChip";
   import MemberRowMenu from "./MemberRowMenu.svelte";
   import { lastActiveLabel } from "$lib/team/teamFormat";
-  import { personInitials } from "../../../../shared/personInitials";
   import type { Role } from "../../../../shared/roles";
 
   export type TeamMember = {
@@ -53,9 +49,9 @@
     </div>
     {#each members as member (member._id)}
       <div role="row" data-member-row={member._id} class="relative flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
-        <span role="cell" class="flex w-[16.25rem] shrink-0 items-center gap-2.5">
-          <Avatar name={member.name} initials={personInitials(member)} tone={roleAvatarTone(roleChipKind(member))} size={24} />
-          <span class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{member.name}</span>
+        <!-- Plain names, no avatar (owner rule; Paper S11, 2026-10-28). -->
+        <span role="cell" class="flex w-[16.25rem] shrink-0 items-center">
+          <span data-member-name class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{member.name}</span>
         </span>
         <span role="cell" class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{member.email ?? ""}</span>
         <span role="cell" class="flex w-[7.5rem] shrink-0">

@@ -164,7 +164,7 @@
   viewAsGate="team"
   primaryAction={user && canView && canInvite ? { label: "Invite people", onclick: () => (inviteOpen = true) } : null}
   primaryActionInSidebar
-  sidebar={user === undefined || (realCanView && canView) ? teamSidebar : undefined}
+  sidebar={user && realCanView && canView ? teamSidebar : undefined}
 >
   <div data-team-page class={`flex flex-col gap-5 ${workPanelPadding}`}>
     {#if user === undefined}
@@ -199,7 +199,7 @@
           onSetPassword={askPassword}
         />
       {/if}
-      {#if invites.length > 0}
+      {#if invitesQ.data !== undefined}
         <PendingInvitesTable
           {invites}
           {now}
