@@ -4,6 +4,7 @@ import { render } from "vitest-browser-svelte";
 import StickyBarToasterHarness from "$lib/test/StickyBarToasterHarness.svelte";
 import NewProjectPage from "../../../routes/project/new/+page.svelte";
 import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
+import MidPaneStickyBar from "$lib/test/MidPaneStickyBar.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
@@ -109,6 +110,18 @@ describe("Notification card above sticky action bars", () => {
     await render(StickyBarToasterHarness, { content: NewProjectPage });
     await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
     expect(document.querySelector("[data-bottom-bar]")).toBeNull();
+    const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
+    expect(Math.round(window.innerHeight - section.bottom)).toBe(Math.round(board(16)));
+  });
+
+  it("stays 16px from the bottom over a sticky bar that ends mid-window (short content)", async () => {
+    await page.viewport(1440, 900);
+    __setPageUrl("/project/p-1");
+    await render(StickyBarToasterHarness, { content: MidPaneStickyBar });
+    await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
+    const bar = document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect();
+    expect(bar.height).toBeGreaterThan(0);
+    expect(window.innerHeight - bar.bottom).toBeGreaterThan(400);
     const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
     expect(Math.round(window.innerHeight - section.bottom)).toBe(Math.round(board(16)));
   });
