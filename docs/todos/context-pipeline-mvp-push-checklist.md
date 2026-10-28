@@ -953,7 +953,8 @@ What changes:
 - [x] Round 4 (d0f621e2): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku tier's check, but its counts hold 22 failures where 82 calls were refused. Corrected in dc92c3d8, and the move back's own counts (12 failures in 55 calls) saved in `tier-moves.json`.
 - [x] Round 5 (dc92c3d8): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record stated a cause it had not checked. Haiku's outcome rows and usage rows are very likely the same 392 calls (`haiku-outcomes.json`), 82 refused and 22 recorded as failures; corrected in 602f1e48.
 - [x] Round 6 (602f1e48): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the structured call path counts a refusal as a failure only when it leaves no usable answer, and the label path had no refusal check until 9826fea0, so the gap most likely comes from refused answers that still held a usable answer (not shown call by call). Corrected in 785d3a83, with question 13.
-- [x] Round 7 (785d3a83): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": question 13 described the structured path's rule as the whole code's; file labels (since 9826fea0) and fact extraction count every refusal. Scoped in the next commit.
+- [x] Round 7 (785d3a83): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": question 13 described the structured path's rule as the whole code's; file labels (since 9826fea0) and fact extraction count every refusal. Scoped in 5848dda7.
+- [x] Round 8 (5848dda7): Claude Opus 5.5 (requested high; it reported low), "ship", with one optional wording fix to question 13, made in the next commit.
 
 ### Automated, live on localhost
 
