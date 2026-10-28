@@ -42,7 +42,7 @@
   } = $props();
 </script>
 
-<div data-team-members class="flex shrink-0 flex-col overflow-x-auto rounded-[0.625rem] border border-line-soft">
+<div id="team-people" data-team-members class="flex shrink-0 scroll-mt-4 flex-col overflow-x-auto rounded-[0.625rem] border border-line-soft">
   <div class="min-w-[45rem]" role="table" aria-label="Team members">
     <div role="row" class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted">
       <span role="columnheader" class="w-[16.25rem] shrink-0">Name</span>

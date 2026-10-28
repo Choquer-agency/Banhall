@@ -43,7 +43,7 @@
   } = $props();
 </script>
 
-<section data-pending-invites class="flex shrink-0 flex-col gap-2.5 pt-2">
+<section id="team-pending-invites" data-pending-invites class="flex shrink-0 scroll-mt-4 flex-col gap-2.5 pt-2">
   <h2 class="flex items-center gap-2">
     <span class="text-[0.9375rem] leading-[calc(22/15)] font-medium text-ink">Pending invites</span>
     <span data-pending-count class="flex h-5 items-center rounded-full bg-chrome px-[0.4375rem] text-xs leading-[calc(4/3)] font-medium text-ink-secondary">{invites.length}</span>

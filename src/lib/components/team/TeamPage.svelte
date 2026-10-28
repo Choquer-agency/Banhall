@@ -13,6 +13,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import TeamSidebar from "$lib/components/workspace/sidebars/TeamSidebar.svelte";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { inviteLink } from "$lib/team/inviteEmails";
@@ -145,13 +146,25 @@
   }
 </script>
 
-<!-- Owner, 2026-10-19: the standard header (title and one plain main
-     button) and the shared panel inset, as on Projects. -->
+{#snippet teamSidebar()}
+  <TeamSidebar
+    peopleCount={membersQ.data ? members.length : null}
+    invitesCount={invitesQ.data ? invites.length : null}
+    onInvite={canInvite ? () => (inviteOpen = true) : null}
+  />
+{/snippet}
+
+<!-- The page frame (Paper S11, 2026-10-28): the Team sidebar with Invite
+     people, People and Pending invites; the top bar names the page with the
+     people count. A phone has no sidebar, so its bar keeps Invite people. -->
 <WorkspaceChrome
   title="Team"
+  count={canView && membersQ.data ? (members.length === 1 ? "1 person" : `${members.length} people`) : null}
   panel="flush"
   viewAsGate="team"
-  primaryAction={user && canView && canInvite ? { label: "Invite", onclick: () => (inviteOpen = true) } : null}
+  primaryAction={user && canView && canInvite ? { label: "Invite people", onclick: () => (inviteOpen = true) } : null}
+  primaryActionInSidebar
+  sidebar={user === undefined || (realCanView && canView) ? teamSidebar : undefined}
 >
   <div data-team-page class={`flex flex-col gap-5 ${workPanelPadding}`}>
     {#if user === undefined}

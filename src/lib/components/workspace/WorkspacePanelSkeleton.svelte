@@ -36,7 +36,7 @@
   class={`flex min-h-0 flex-1 flex-col animate-pulse motion-reduce:animate-none ${className}`}
 >
   {#if layout === "home"}
-    <div class="flex flex-1 flex-col gap-10 page-gutter pb-6 pt-5 xl:flex-row xl:gap-8">
+    <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-1 sm:px-6 lg:px-8 xl:flex-row xl:gap-8">
       <div data-skeleton-table class="min-w-0 flex-1">
         <span class={`${bar} h-7 w-28 rounded-md`}></span>
         <div class="mt-4 border-t border-line">
@@ -61,19 +61,18 @@
       </div>
     </div>
   {:else if layout === "projects"}
-    <div class="flex h-10 shrink-0 items-center gap-3 border-b border-workspace-rail-line px-4">
-      <span class={`${bar} h-4 w-24`}></span>
-      <span class="flex-1"></span>
-      <span class={`${bar} h-4 w-16`}></span>
-      <span class={`${bar} h-4 w-16`}></span>
-      <span class={`${bar} h-4 w-16`}></span>
-    </div>
-    <div data-skeleton-table class="flex flex-col gap-2 px-3 py-3">
-      {#each [0, 1, 2, 3, 4, 5, 6, 7] as row (row)}
-        <div data-skeleton-row class="flex h-11 items-center rounded-xl border border-line bg-surface px-3">
-          <span class={`${bar} h-3 w-44`}></span>
-        </div>
-      {/each}
+    <!-- The Projects page in the frame (Paper S9): a year heading over a
+         row of cards, 32px in from the sidebar. -->
+    <div data-skeleton-table class="flex flex-col gap-3.5 px-4 pt-3 sm:px-6 lg:px-8">
+      <span class={`${bar} h-4 w-40`}></span>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3">
+        {#each [0, 1, 2, 3, 4, 5] as row (row)}
+          <div data-skeleton-row class="flex h-40 flex-col gap-3 rounded-[0.625rem] border border-line bg-surface p-3.5">
+            <span class={`${bar} h-3 w-24`}></span>
+            <span class={`${bar} h-4 w-44 max-w-full`}></span>
+          </div>
+        {/each}
+      </div>
     </div>
   {:else if layout === "project"}
     <!-- The project workspace (2026-09-28 load pass): the panel toolbar's
@@ -117,10 +116,8 @@
       </div>
     </div>
   {:else if layout === "form"}
-    <div class="px-5 pb-12 pt-8 md:px-14">
-      <span class={`${bar} h-8 w-40`}></span>
-      <span class={`${bar} mt-5 h-8 w-80 max-w-full rounded-lg`}></span>
-      <div class="mt-6 divide-y divide-line-soft">
+    <div class="px-4 pb-12 pt-1 sm:px-6 lg:px-8">
+      <div class="divide-y divide-line-soft">
         {#each [0, 1, 2, 3] as row (row)}
           <div data-skeleton-row class="flex flex-col gap-5 py-8 first:pt-0 md:grid md:grid-cols-[17.5rem_minmax(0,40rem)]">
             <div class="flex flex-col gap-2">
@@ -155,10 +152,9 @@
       {/each}
     </div>
   {:else}
-    <div class="px-5 py-7 md:px-10">
-      <span class={`${bar} h-8 w-48`}></span>
-      <span class={`${bar} mt-3 h-3 w-96 max-w-full`}></span>
-      <div class="mt-8 flex flex-col gap-4">
+    <div class="px-4 pb-7 pt-1 sm:px-6 lg:px-8">
+      <span class={`${bar} h-3 w-96 max-w-full`}></span>
+      <div class="mt-6 flex flex-col gap-4">
         {#each [0, 1, 2] as card (card)}
           <div data-skeleton-row class="flex flex-col gap-2.5 rounded-xl border border-line p-5">
             <span class={`${bar} h-4 w-56 max-w-full`}></span>

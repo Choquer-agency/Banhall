@@ -15,6 +15,7 @@
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
   import WorkspaceGate from "$lib/workspace/WorkspaceGate.svelte";
   import SettingsTabs from "$lib/components/settings/SettingsTabs.svelte";
+  import SettingsSidebar from "$lib/components/workspace/sidebars/SettingsSidebar.svelte";
   import { IconGear } from "$lib/components/icons";
   import { SETTINGS_SECTIONS, settingsSectionForPath } from "$lib/settings/sections";
 
@@ -56,6 +57,8 @@
   </nav>
 {/snippet}
 
+{#snippet settingsSidebar()}<SettingsSidebar />{/snippet}
+
 {#if auth.isLoading || !auth.isAuthenticated}
   <WorkspaceLoadingShell layout="form" title="Settings" icon={IconGear} />
 {:else}
@@ -79,10 +82,13 @@
       </div>
     {/snippet}
     {#snippet preview()}
-      <WorkspaceChrome title="Settings" panel="padded">
+      <!-- The page frame (owner, 2026-10-28, answer 1): the Settings sidebar
+           replaces the tabs from 768px and the top bar names the section; a
+           phone has no sidebar, so it keeps the tabs. -->
+      <WorkspaceChrome title={active.label} panel="padded" sidebar={settingsSidebar}>
         {#snippet children()}
           <div data-settings-frame class="flex flex-col gap-6">
-            <SettingsTabs tabs={links} activeKey={active.key} />
+            <div class="md:hidden"><SettingsTabs tabs={links} activeKey={active.key} /></div>
             <!-- Settings use the full width of the work panel like the other
                  round 2 pages (owner, 2026-09-29); each field column still
                  stops at 40rem (SettingsRow). -->
