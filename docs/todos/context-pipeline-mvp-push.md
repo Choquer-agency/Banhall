@@ -197,7 +197,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 - [ ] F2. Project copies in scheduled batches (known limit of the text move). Done 2026-10-27: a copy job copies each file in its own step (decision entry "2026-10-27 (eighth)"), reviewed in five rounds (the last with only a wording fix) and checked live (two duplicates and a review from project); the refusal while copying waits for the owner (question 7).
 - [ ] F3. Brain company and fiscal-year filters; the Voyage model comparison (P2 item 13).
 - [x] F4. The exclusion-conflict fixture. Rerun live 2026-10-27 after the Self-check fix: 15 of 15 checks passed.
-- [ ] F5. Stress test at and past the largest real cases, live (P2 item 11). Run 2026-10-27 for $20.38 of the $40 cap (pack `_bmad-output/test-artifacts/stress/2026-10-27`). Left open: two drafts started in the same second fail on a limit the writer is not told about (question 14).
+- [x] F5. Stress test at and past the largest real cases, live (P2 item 11). Run 2026-10-27 for $20.38 of the $40 cap (pack `_bmad-output/test-artifacts/stress/2026-10-27`). Closed 2026-10-28: question 14 built and checked live under a write flood (decision entry "2026-10-28 (second)"); $28.76 of the $40 in all.
   - **Passed:** 50 files and 100 files uploaded, searched and labelled; the 1,000,001-character file refused by name; 20 picks in one step; a 46-pick plan signed off and drafted; chat over every file; a duplicate in 6 s; two drafts started 20 seconds apart.
   - **Not tested live:** every check failing at once (the facts check counts the writer's own wording as supported), and a 46-entry Brief (the model's Brief had 10 entries).
   - **Found and fixed:**
@@ -235,7 +235,7 @@ Each item here touches `docs/architecture.md` sections 4, 6, 7 or 8, or rule 2. 
 
 ### P2: prove it at scale
 
-- [ ] **11. Test at the largest real cases and beyond:** 50 documents of 400k characters each, a 3-hour transcript, 20 picks in one step, a 46-entry Brief, every check failing at once. Record each AI answer's size and why it stopped, per step. Run 2026-10-27 (F5, pack `_bmad-output/test-artifacts/stress/2026-10-27`). Open: two drafts started in the same second (question 14). Not tested live: every check failing at once and a 46-entry Brief.
+- [x] **11. Test at the largest real cases and beyond:** 50 documents of 400k characters each, a 3-hour transcript, 20 picks in one step, a 46-entry Brief, every check failing at once. Record each AI answer's size and why it stopped, per step. Run 2026-10-27 (F5, pack `_bmad-output/test-artifacts/stress/2026-10-27`). Two drafts started in the same second: fixed 2026-10-28 (question 14). Not tested live: every check failing at once and a 46-entry Brief.
 - [ ] **12. Measure request size with Anthropic's token count endpoint** instead of guessing 4 characters per token.
 - [ ] **13. Brain improvements:** add company and fiscal-year filters; compare `voyage-4-large` and `voyage-context-4` against `voyage-3-large` (now legacy) on our own searches before switching; run bulk enrichment through Anthropic's batch service if question 4 is approved.
 - [ ] **14. Don't use Anthropic's Files API for client files.** It isn't eligible for zero data retention, and it stores files rather than searching them.

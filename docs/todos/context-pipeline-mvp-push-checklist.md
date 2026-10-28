@@ -965,6 +965,32 @@ What changes:
 - [ ] Open a large project's draft: the Inputs band lists the files it did not capture.
 - [ ] Start Step by step on a project with many large files: the first step's cards appear.
 
+## Owner answers of 2026-10-28: refusals, the write rate, company files
+
+Decision records: `docs/product-domain.md`, entries "2026-10-28", "2026-10-28 (second)" and "2026-10-28 (third)". Packs: `_bmad-output/test-artifacts/stress/2026-10-28-write-rate` and `2026-10-28-company-files`.
+
+What changes:
+
+- **A refused AI answer no longer counts** toward moving a model tier back (question 13, "No refusals"). One project's content can no longer move every writer to the older model.
+- **A draft's start tries again** for about 16 to 24 seconds when the database refuses a write for its write rate (question 14). Before, two drafts started in the same second could both fail with "The generation did not complete. Try again."
+- **The Inputs band names the company files a draft could not fit**, as "not included (not captured)", and the start dialog says on each company file "Read last, newest first, while there is room" (question 15).
+
+### Automated, offline
+
+- [x] Question 13: f69d15b7 (gate 8,179 tests), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship after fixes", fixed in b62c6987 (gate 8,181).
+- [x] Question 14: 1242c83f (gate 8,195; browser component suite: 2 load timeouts, both files pass alone), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship after fixes", fixed in 4c82e7ab (gate 8,198).
+- [x] Question 15: 722fd242 (gate 8,197), review round 1 Claude Opus 5.5 (requested high; it reported low) "ship", P3 fixes in the next commit.
+
+### Automated, live on localhost
+
+- [x] Question 14 under a temporary write flood on the F5 copy: before the fix 0 of 6 drafts began; with the fix every draft checked reached its first step. The browser's WebSocket client sends a refused start again by itself.
+- [x] Question 15 on the 101-file project: last year's report did not fit, the draft recorded it, and the band lists it as not captured.
+
+### Manual on localhost
+
+- [ ] On a large project with company files, open the start dialog: each company file reads "Read last, newest first, while there is room" (hover shows the whole line).
+- [ ] Start a draft there and open its Inputs band: the company files that did not fit read "not included (not captured)".
+
 ## F6: release suite, live
 
 Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`.
