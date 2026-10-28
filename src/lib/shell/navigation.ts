@@ -161,6 +161,87 @@ export function selectedRailItem(url: { pathname: string; search: string }): Rai
   return null;
 }
 
+/**
+ * The page frame's fixed labelled rail (owner, 2026-10-28; Paper S9, S11):
+ * Projects, Companies and Team (team.view) at the top, then after the spacer
+ * Admin (settings.configure) and Settings. No Home, search, What's new or
+ * developer rows: Home sits in the Projects sidebar, What's new behind the
+ * global bar's bell, and Alerts and Feature requests at the foot of the
+ * Admin sidebar. The drawer below 1024px keeps `railGroups`.
+ */
+export type FrameRailItemId = "projects" | "companies" | "team" | "admin" | "settings";
+
+export type FrameRailItem = {
+  id: FrameRailItemId;
+  label: string;
+  href: string;
+  /** Amber attention dot (Admin). */
+  attention?: boolean;
+};
+
+export type FrameRailHrefs = {
+  projectsHref: string;
+  companiesHref: string;
+  teamHref: string;
+  adminHref: string;
+  settingsHref: string;
+};
+
+export function frameRailItems(
+  viewer: RailViewer,
+  hrefs: FrameRailHrefs,
+  badges: { adminAttention: number }
+): { top: FrameRailItem[]; bottom: FrameRailItem[] } {
+  const top: FrameRailItem[] = [
+    { id: "projects", label: "Projects", href: hrefs.projectsHref },
+    { id: "companies", label: "Companies", href: hrefs.companiesHref },
+  ];
+  if (canViewTeam(viewer.role)) top.push({ id: "team", label: "Team", href: hrefs.teamHref });
+  const bottom: FrameRailItem[] = [];
+  if (canSeeAdmin(viewer)) {
+    bottom.push({ id: "admin", label: "Admin", href: hrefs.adminHref, attention: badges.adminAttention > 0 });
+  }
+  bottom.push({ id: "settings", label: "Settings", href: hrefs.settingsHref });
+  return { top, bottom };
+}
+
+function under(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+/**
+ * The active rail item. Home, every project page and New project sit under
+ * Projects; Alerts and Feature requests under Admin, whose sidebar lists
+ * them. Companies opens the company list on Projects, so Projects stays the
+ * selected item there, as before.
+ */
+export function selectedFrameRailItem(pathname: string): FrameRailItemId | null {
+  if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects") || under(pathname, "/project")) {
+    return "projects";
+  }
+  if (under(pathname, "/team")) return "team";
+  if (under(pathname, "/admin") || under(pathname, "/alerts") || under(pathname, "/requests")) return "admin";
+  if (under(pathname, "/settings")) return "settings";
+  return null;
+}
+
+/** The sections that draw an inner sidebar in the white card. */
+export type FrameSection = "projects" | "team" | "admin" | "settings";
+
+/**
+ * Which section sidebar a page draws (owner answers 1 and 5, 2026-10-28):
+ * Home and Projects share the Projects sidebar; Team, Admin and Settings have
+ * their own. New project, What's new, Alerts, Feature requests and the
+ * project page draw none. The loading frame reads it so nothing jumps.
+ */
+export function frameSectionForPath(pathname: string): FrameSection | null {
+  if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects")) return "projects";
+  if (under(pathname, "/team")) return "team";
+  if (under(pathname, "/admin")) return "admin";
+  if (under(pathname, "/settings")) return "settings";
+  return null;
+}
+
 /** Companies: the Projects view grouped by client (no page of its own yet). */
 export function companiesHrefFrom(projectsHref: string): string {
   const [path, query = ""] = projectsHref.split("?");

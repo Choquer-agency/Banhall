@@ -3,19 +3,11 @@
   import { page } from "$app/state";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import {
-    IconChevronDown,
-    IconLightbulb,
-    IconShield,
-    IconUser,
-    IconWarning,
-  } from "$lib/components/icons";
+  import { IconChevronDown, IconLightbulb, IconShield, IconWarning } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
   import { displayName } from "$lib/displayName";
-  import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import { roleAvatarTone } from "$lib/components/ui/avatarTone";
   import IdentityMenu from "$lib/components/shell/IdentityMenu.svelte";
-  import AdminFlyout from "$lib/components/shell/AdminFlyout.svelte";
   import RailIcon, { type RailIconName } from "$lib/components/workspace/RailIcon.svelte";
   import { ADMIN_INGESTION_PATH, ADMIN_RAIL_ROUTES } from "$lib/dashboard/adminRoutes";
   import type { DashboardView } from "$lib/dashboard/viewMode";
@@ -29,42 +21,32 @@
     type RailItem,
     type RailItemId,
   } from "$lib/shell/navigation";
-  import { detectPlatform, shortcutHint } from "$lib/shell/shortcuts";
+  import { detectPlatform } from "$lib/shell/shortcuts";
   import { VIEW_AS_LABELS, effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { loadRailPreferences, persistRailPreferences } from "$lib/workspace/railPreferences";
   import { loadRecentCompanies, recentCompanyHref, type RecentCompany } from "$lib/workspace/recentCompanies";
 
   let {
-    variant = "rail",
-    collapsed: collapsedProp = false,
     displayedView,
     myWorkAvailable,
     myWorkHref,
     projectsHref,
     onFocusSearch,
-    onToggleRail = null,
     onNavigate,
   }: {
-    variant?: "rail" | "drawer";
-    /** Desktop collapsed rail: icons only (the drawer always renders expanded). */
-    collapsed?: boolean;
+    /**
+     * Only the slide-out drawer below 1024px draws this rail now (the page
+     * frame, owner 2026-10-28); the desktop shell has the fixed labelled
+     * rail (`FrameRail`).
+     */
+    variant?: "drawer";
     displayedView: DashboardView | null;
     myWorkAvailable: boolean;
     myWorkHref: string;
     projectsHref: string;
     onFocusSearch: () => void;
-    /**
-     * Collapse and expand (Rail v3, 2026-10-19): the control sits in the
-     * rail's own header when expanded and under the B tile of the collapsed rail.
-     * Null (and always in the drawer) draws no control.
-     */
-    onToggleRail?: (() => void) | null;
     onNavigate?: () => void;
   } = $props();
-
-  // Only the desktop rail collapses; the drawer always renders expanded.
-  const collapsed = $derived(variant === "rail" && collapsedProp);
-  const showToggle = $derived(variant === "rail" && onToggleRail !== null);
   const auth = useAuth();
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
   const user = $derived(userQ.data);
@@ -80,7 +62,7 @@
   // Rail v3 counts beside Projects and Companies, only on the Projects page,
   // where the page already holds these two reads (Convex shares one
   // subscription). Elsewhere the rail adds no reads (Home's cost rule).
-  const countsOn = $derived(auth.isAuthenticated && internal && !collapsed && displayedView === "all_projects");
+  const countsOn = $derived(auth.isAuthenticated && internal && displayedView === "all_projects");
   const facetsQ = useQuery(api.dashboard.getFacets, () => (countsOn ? {} : "skip"));
   const clientsQ = useQuery(api.clients.listClients, () => (countsOn ? {} : "skip"));
   const attention = $derived(attentionQ.data ?? { total: 0, ingestionFailed: 0 });
@@ -145,8 +127,6 @@
   });
 
   const platform = detectPlatform();
-  const searchHint = shortcutHint("search", platform);
-  const collapseHint = shortcutHint("collapseRail", platform);
 
   // B1, B2: the Admin group opens by itself on any admin page; elsewhere it
   // keeps the last choice (persisted, closed by default).
@@ -176,16 +156,11 @@
     return kind ? ROLE_CHIP_LABELS[kind] : null;
   });
 
-  // Rail v3: 36px rows (34px for recent companies), radius 8, 10px sides.
-  // The touch drawer keeps 44px rows.
-  const rowHeight = $derived(variant === "rail" ? "h-9" : "min-h-11");
+  // The touch drawer keeps 44px rows (36px with a fine pointer, below).
+  const rowHeight = "min-h-11";
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
-  const rowBase = $derived(
-    `${rowHeight} workspace-rail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[0.9375rem] leading-[calc(4/3)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none`
-  );
-  // Collapsed: 40 by 36 tiles, radius 8.
-  const iconRow = `workspace-rail-row relative flex h-9 w-10 shrink-0 items-center justify-center rounded-lg transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none`;
+  const rowBase = `${rowHeight} workspace-rail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[0.9375rem] leading-[calc(4/3)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none`;
   const idleRow = "text-ink-secondary hover:bg-workspace-rail-hover hover:text-ink";
   const selectedRow = "bg-primary-wash text-primary-selected font-medium";
 
@@ -201,15 +176,13 @@
 </script>
 
 <!--
-  Rail v3 (Paper board Z11a, 2026-10-19 amendment in docs/design-system.md):
-  the Banhall tile and name with the collapse control on the right, a search
-  field that opens the command palette, Home, Projects and Companies with
-  their counts, Recent companies, then the role's other rows (Team, Admin,
-  Alerts, Feature requests, Settings) above a hairline and the person's name
-  and role, which open the account menu (D1). Collapsed (board Z11d): the
-  tile, search, the same rows as icons, the account menu and the expand
-  control under the B tile. This replaces the owner's 2026-09-28 direction that
-  put the control in the top bar.
+  The slide-out drawer below 1024px (Rail v3, Paper board Z11a, kept as it
+  was by the owner's 2026-10-28 frame answer 6): the Banhall tile and name, a
+  search field that opens the command palette, Home, Projects and Companies
+  with their counts, Recent companies, then the role's other rows (Team,
+  Admin, Alerts, Feature requests, Settings) above a hairline and the
+  person's name and role, which open the account menu (D1). The desktop
+  rail, its collapse and the Admin flyout are gone (the page frame).
 -->
 {#snippet itemIcon(id: RailItemId)}
   {@const v3 = V3_ICONS[id]}
@@ -227,29 +200,6 @@
     data-rail-brand-tile
     class="flex size-[1.375rem] shrink-0 items-center justify-center rounded-md bg-fir text-[0.6875rem] font-medium leading-[calc(12/11)] text-white"
   >B</span>
-{/snippet}
-
-{#snippet toggleButton()}
-  <Tooltip text={collapsed ? "Expand the rail" : "Collapse the rail"} hint={collapseHint} side={collapsed ? "right" : "bottom"} delayDuration={300}>
-    {#snippet children({ props })}
-      <!-- Owner, 2026-10-19: no fill on this control, at rest or on hover. -->
-      <button
-        {...props}
-        type="button"
-        data-rail-toggle
-        data-rail-direction={collapsed ? "expand" : "collapse"}
-        aria-controls="workspace-rail"
-        aria-label={collapsed ? "Expand navigation rail" : "Collapse navigation rail"}
-        aria-expanded={!collapsed}
-        onclick={() => onToggleRail?.()}
-        class={`flex shrink-0 items-center justify-center text-ink-secondary transition-colors hover:text-ink ${focusRing} motion-reduce:transition-none ${collapsed ? "h-9 w-10 rounded-lg" : "size-7 rounded-md"}`}
-      >
-        <span class="flex size-7 items-center justify-center">
-          <RailIcon name={collapsed ? "expand" : "collapse"} />
-        </span>
-      </button>
-    {/snippet}
-  </Tooltip>
 {/snippet}
 
 {#snippet expandedRow(item: RailItem)}
@@ -319,7 +269,7 @@
           data-admin-link={route.href}
           aria-current={current ? "page" : undefined}
           onclick={() => onNavigate?.()}
-          class={`${variant === "rail" ? "h-8" : "min-h-11"} workspace-rail-row flex items-center gap-2 rounded-lg pl-9 pr-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
+          class={`min-h-11 workspace-rail-row flex items-center gap-2 rounded-lg pl-9 pr-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${current ? selectedRow : idleRow}`}
         >
           <span class="min-w-0 flex-1 truncate">{route.label}</span>
           {#if route.href === ADMIN_INGESTION_PATH && attention.ingestionFailed > 0}
@@ -331,60 +281,6 @@
   {/if}
 {/snippet}
 
-{#snippet collapsedRow(item: RailItem)}
-  {@const isSelected = selected === item.id}
-  {@const disabled = item.id === "home" && !myWorkAvailable}
-  <Tooltip text={item.label} side="right" delayDuration={300}>
-    {#snippet children({ props })}
-      <a
-        {...props}
-        data-rail-item={item.id}
-        href={item.href}
-        aria-label={item.badge && item.id === "alerts" ? `${item.label}, ${item.badge.count} open` : item.label}
-        aria-current={isSelected ? "page" : undefined}
-        aria-disabled={disabled ? "true" : undefined}
-        onclick={(event) => {
-          if (disabled) {
-            event.preventDefault();
-            return;
-          }
-          onNavigate?.();
-        }}
-        class={`${iconRow} ${isSelected ? selectedRow : idleRow}`}
-      >
-        {@render itemIcon(item.id)}
-        {#if item.badge}
-          <span
-            data-rail-badge={item.badge.tone}
-            aria-hidden="true"
-            class="absolute right-0.5 top-0 flex h-4 min-w-4 items-center justify-center rounded-full border-[1.5px] border-gray-50 bg-danger px-1 text-[0.625rem] font-medium leading-none text-white"
-          >{badgeLabel(item.badge.count)}</span>
-        {/if}
-      </a>
-    {/snippet}
-  </Tooltip>
-{/snippet}
-
-{#snippet collapsedAdmin(item: RailItem)}
-  <AdminFlyout attentionTotal={attention.total} ingestionFailed={attention.ingestionFailed} {onNavigate}>
-    {#snippet trigger({ props, open })}
-      <!-- A5: no hover tile behind the icon while its flyout is open. -->
-      <button
-        {...props}
-        type="button"
-        data-rail-item="admin"
-        aria-label={item.attention ? "Admin, needs a look" : "Admin"}
-        class={`${iconRow} ${onAdminPage ? selectedRow : open ? "text-ink-secondary" : idleRow}`}
-      >
-        {@render itemIcon("admin")}
-        {#if item.attention}
-          <span data-rail-attention aria-hidden="true" class="absolute right-2 top-1.5 size-[0.4375rem] rounded-full border-[1.5px] border-gray-50 bg-stale-dot"></span>
-        {/if}
-      </button>
-    {/snippet}
-  </AdminFlyout>
-{/snippet}
-
 {#snippet identity()}
   <IdentityMenu
     name={userName}
@@ -393,166 +289,94 @@
     seed={user?._id}
     tone={avatarTone}
     isDeveloper={user?.isDeveloper === true}
-    placement={collapsed ? "right" : "above"}
-    layer={variant === "drawer" ? "drawer" : "app"}
+    placement="above"
+    layer="drawer"
     {onNavigate}
   >
     {#snippet trigger({ props, open })}
-      {#if collapsed}
-        <!-- Board Z11d draws no account control; the menu (Account, Sign
-             out) stays one click away behind a plain person icon. -->
-        <button
-          {...props}
-          type="button"
-          data-rail-identity
-          aria-label={`${userName}, account menu`}
-          class={`${iconRow} ${open ? "bg-workspace-rail-selected text-ink" : idleRow}`}
-        >
-          <IconUser size={16} strokeWidth={1.7} class="shrink-0" />
-        </button>
-      {:else}
-        <button
-          {...props}
-          type="button"
-          data-rail-identity
-          aria-label={`${userName}, account menu`}
-          class={`flex w-full flex-col gap-0.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${focusRing} motion-reduce:transition-none ${variant === "drawer" ? "min-h-12 justify-center" : ""} ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
-        >
-          <span data-rail-identity-name class="truncate text-sm font-medium leading-[calc(9/7)] text-ink">{userName}</span>
-          {#if roleLabel}
-            <span data-rail-identity-role class="truncate text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">{roleLabel}</span>
-          {/if}
-        </button>
-      {/if}
+      <button
+        {...props}
+        type="button"
+        data-rail-identity
+        aria-label={`${userName}, account menu`}
+        class={`flex min-h-12 w-full flex-col justify-center gap-0.5 rounded-lg px-2.5 py-1.5 text-left transition-colors ${focusRing} motion-reduce:transition-none ${open ? "bg-workspace-rail-selected" : "hover:bg-workspace-rail-hover"}`}
+      >
+        <span data-rail-identity-name class="truncate text-sm font-medium leading-[calc(9/7)] text-ink">{userName}</span>
+        {#if roleLabel}
+          <span data-rail-identity-role class="truncate text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">{roleLabel}</span>
+        {/if}
+      </button>
     {/snippet}
   </IdentityMenu>
 {/snippet}
 
 <nav
   aria-label="Workspace"
-  data-rail-collapsed={collapsed ? "" : undefined}
-  class={`flex h-full min-h-0 flex-col bg-workspace-shell text-ink ${
-    collapsed
-      ? "items-center py-3"
-      : variant === "drawer"
-        ? "px-2.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]"
-        : "px-2.5 pb-1.5 pt-3"
-  }`}
+  class="flex h-full min-h-0 flex-col bg-workspace-shell px-2.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] text-ink"
 >
-  {#if collapsed}
-    <!-- Owner, 2026-10-19: the B tile sits on the same 38px row as the
-         expanded header, so it lines up with the top bar title, and the
-         expand control comes straight under it where it is easy to find. -->
-    <div data-rail-header class="flex h-[2.375rem] shrink-0 items-center">
-      <a
-        href={myWorkHref}
-        aria-label="Banhall home"
-        data-banhall-rail-mark="collapsed"
-        onclick={onNavigate}
-        class={`flex h-[1.375rem] shrink-0 items-center rounded-md ${focusRing}`}
-      >
-        {@render brandTile()}
-      </a>
-    </div>
-    {#if showToggle}<div class="mt-1.5 shrink-0">{@render toggleButton()}</div>{/if}
-    <div aria-hidden="true" class="h-1.5 shrink-0"></div>
-    <Tooltip text="Search" hint={searchHint} side="right" delayDuration={300}>
-      {#snippet children({ props })}
-        <button
-          {...props}
-          type="button"
-          data-rail-search
-          aria-label="Search"
-          onclick={onFocusSearch}
-          class={`${iconRow} text-ink-muted hover:bg-workspace-rail-hover hover:text-ink`}
-        >
-          <RailIcon name="search" />
-        </button>
-      {/snippet}
-    </Tooltip>
-    <div data-rail-scroll class="scrollbar-hidden mt-1.5 flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto overscroll-contain">
+  <div data-rail-header class="flex h-[2.375rem] shrink-0 items-center gap-2 pl-1.5 pr-12">
+    <a
+      href={myWorkHref}
+      aria-label="Banhall home"
+      data-banhall-rail-mark="expanded"
+      onclick={onNavigate}
+      class={`flex min-w-0 items-center gap-2 rounded-md ${focusRing}`}
+    >
+      {@render brandTile()}
+      <span aria-hidden="true" class="truncate text-base font-medium leading-[1.25] text-ink">Banhall</span>
+    </a>
+  </div>
+
+  <button
+    type="button"
+    data-rail-search
+    aria-keyshortcuts={platform === "mac" ? "Meta+K" : "Control+K"}
+    onclick={onFocusSearch}
+    class={`mt-1.5 flex h-9 w-full shrink-0 items-center gap-2 rounded-lg border border-line-soft bg-surface px-2.5 text-left text-sm leading-[calc(9/7)] text-ink-muted transition-colors hover:border-line hover:text-ink-secondary ${focusRing} motion-reduce:transition-none pointer-coarse:h-11`}
+  >
+    <RailIcon name="search" />
+    <span class="min-w-0 flex-1 truncate">Search</span>
+  </button>
+
+  <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+    <div data-rail-group="top" class="flex flex-col gap-0.5 pt-4">
       {#each topItems as item (item.id)}
-        {@render collapsedRow(item)}
+        {@render expandedRow(item)}
       {/each}
-      <div class="min-h-4 flex-1" aria-hidden="true"></div>
+    </div>
+
+    {#if recent.length > 0}
+      <div data-rail-recent class="flex flex-col gap-0.5 pt-5">
+        <p data-rail-recent-label class="px-2.5 pb-1 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">Recent companies</p>
+        {#each recent as company (company.key)}
+          <a
+            href={recentCompanyHref(projectsHref, company.key)}
+            data-rail-recent-company={company.key}
+            onclick={() => onNavigate?.()}
+            class={`min-h-11 workspace-rail-row flex items-center rounded-lg px-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${idleRow}`}
+          >
+            <span class="min-w-0 flex-1 truncate">{company.name}</span>
+          </a>
+        {/each}
+      </div>
+    {/if}
+
+    <div class="min-h-4 flex-1" aria-hidden="true"></div>
+
+    <div data-rail-group="bottom" class="flex flex-col gap-0.5 border-b border-line-soft pb-2.5">
       {#each bottomItems as item (item.id)}
         {#if item.id === "admin"}
-          {@render collapsedAdmin(item)}
+          {@render adminGroup(item)}
         {:else}
-          {@render collapsedRow(item)}
+          {@render expandedRow(item)}
         {/if}
       {/each}
     </div>
-    <div class="mt-1.5 flex shrink-0 flex-col items-center gap-1.5">
-      {@render identity()}
-    </div>
-  {:else}
-    <div data-rail-header class={`flex h-[2.375rem] shrink-0 items-center gap-2 pl-1.5 ${variant === "drawer" ? "pr-12" : "pr-1.5"}`}>
-      <a
-        href={myWorkHref}
-        aria-label="Banhall home"
-        data-banhall-rail-mark="expanded"
-        onclick={onNavigate}
-        class={`flex min-w-0 items-center gap-2 rounded-md ${focusRing}`}
-      >
-        {@render brandTile()}
-        <span aria-hidden="true" class="truncate text-base font-medium leading-[1.25] text-ink">Banhall</span>
-      </a>
-      <div class="flex-1"></div>
-      {#if showToggle}{@render toggleButton()}{/if}
-    </div>
+  </div>
 
-    <button
-      type="button"
-      data-rail-search
-      aria-keyshortcuts={platform === "mac" ? "Meta+K" : "Control+K"}
-      onclick={onFocusSearch}
-      class={`mt-1.5 flex h-9 w-full shrink-0 items-center gap-2 rounded-lg border border-line-soft bg-surface px-2.5 text-left text-sm leading-[calc(9/7)] text-ink-muted transition-colors hover:border-line hover:text-ink-secondary ${focusRing} motion-reduce:transition-none ${variant === "drawer" ? "pointer-coarse:h-11" : ""}`}
-    >
-      <RailIcon name="search" />
-      <span class="min-w-0 flex-1 truncate">Search</span>
-    </button>
-
-    <div data-rail-scroll class="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-      <div data-rail-group="top" class="flex flex-col gap-0.5 pt-4">
-        {#each topItems as item (item.id)}
-          {@render expandedRow(item)}
-        {/each}
-      </div>
-
-      {#if recent.length > 0}
-        <div data-rail-recent class="flex flex-col gap-0.5 pt-5">
-          <p data-rail-recent-label class="px-2.5 pb-1 text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">Recent companies</p>
-          {#each recent as company (company.key)}
-            <a
-              href={recentCompanyHref(projectsHref, company.key)}
-              data-rail-recent-company={company.key}
-              onclick={() => onNavigate?.()}
-              class={`${variant === "rail" ? "h-[2.125rem]" : "min-h-11"} workspace-rail-row flex items-center rounded-lg px-2.5 text-sm leading-[calc(9/7)] transition-colors duration-150 ease-out ${focusRing} motion-reduce:transition-none ${idleRow}`}
-            >
-              <span class="min-w-0 flex-1 truncate">{company.name}</span>
-            </a>
-          {/each}
-        </div>
-      {/if}
-
-      <div class="min-h-4 flex-1" aria-hidden="true"></div>
-
-      <div data-rail-group="bottom" class="flex flex-col gap-0.5 border-b border-line-soft pb-2.5">
-        {#each bottomItems as item (item.id)}
-          {#if item.id === "admin"}
-            {@render adminGroup(item)}
-          {:else}
-            {@render expandedRow(item)}
-          {/if}
-        {/each}
-      </div>
-    </div>
-
-    <div class="shrink-0 pt-1">
-      {@render identity()}
-    </div>
-  {/if}
+  <div class="shrink-0 pt-1">
+    {@render identity()}
+  </div>
 </nav>
 
 <style>

@@ -36,7 +36,7 @@ describe("Settings Keyboard shortcuts (I4, I5)", () => {
     await expect.poll(rows).toEqual([
       "Search ⌘ K",
       "New project C",
-      "Collapse the rail ⌘ \\",
+      "Collapse the sidebar ⌘ \\",
       "Go to Admin G then A",
       "Approve and continue ⌘ Enter",
       "View as (developers) ⇧ V",
@@ -45,7 +45,7 @@ describe("Settings Keyboard shortcuts (I4, I5)", () => {
     await expect.poll(rows).toEqual([
       "Search Ctrl K",
       "New project C",
-      "Collapse the rail Ctrl \\",
+      "Collapse the sidebar Ctrl \\",
       "Go to Admin G then A",
       "Approve and continue Ctrl Enter",
       "View as (developers) Shift V",
@@ -119,7 +119,7 @@ describe("Settings Keyboard shortcuts (I4, I5)", () => {
     await expect.poll(rows).toEqual([
       "Search Ctrl K",
       "New project C",
-      "Collapse the rail Ctrl \\",
+      "Collapse the sidebar Ctrl \\",
       "Approve and continue Ctrl Enter",
     ]);
   });

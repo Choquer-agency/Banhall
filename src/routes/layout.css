@@ -82,6 +82,13 @@
   --color-workspace-shell: #FAFCFB;
   --color-workspace-page-icon: #E3F4F1;
 
+  /* The page frame (owner, 2026-10-28; Paper S9, S11, S12, A1): the plain
+     gray page behind the global bar, the fixed labelled rail and the one
+     white card, and the active rail tile. Neutral grays from the boards,
+     outside the teal-cast ramp. */
+  --color-frame: #F2F2F2;
+  --color-frame-tile: #E4E4E4;
+
   /* Round 2 shell (WS1). Menus and flyouts (D1, A5), the View as dialog
      (D2), the amber View as frame on the work panel (D3, the stale-dot
      amber), and the purple avatar tone the boards use beside fir and teal. */

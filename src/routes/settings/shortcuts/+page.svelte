@@ -27,7 +27,7 @@
         : "We could not detect your computer, so these are the Windows keys.";
 
   const rows = $derived.by((): ShortcutId[] => {
-    const list: ShortcutId[] = ["search", "newProject", "collapseRail"];
+    const list: ShortcutId[] = ["search", "newProject", "collapseSidebar"];
     if (canSeeAdmin(viewer)) list.push("goAdmin");
     list.push("approveContinue");
     if (realDeveloper) list.push("viewAs");
