@@ -459,8 +459,10 @@ export const removeCompanyFile = mutation({
 
 /**
  * The company files a project's next draft can read (Phase C), for its start
- * dialog: exactly those a draft freezes when none is left out
- * (`eligibleCompanyFiles`), newest first. Empty for a project with no
+ * dialog: those a draft freezes when none is left out
+ * (`eligibleCompanyFiles`), newest first, unless the project's own frozen
+ * text leaves too little of the frozen total (`frozenTotal`, F5 stress run
+ * 2026-10-27), which this list does not show. Empty for a project with no
  * active company, and for a viewer who may not read company files.
  */
 export const listForProject = query({

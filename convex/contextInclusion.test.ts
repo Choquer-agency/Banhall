@@ -448,6 +448,47 @@ describe("getContextInclusion (story 4)", () => {
     expect(inclusion!.rows.filter((row) => row.reason === "not_captured")).toHaveLength(45);
   });
 
+  it("an older draft's 12 MB of frozen rows holding their own text: the transaction stays under the read limit, and a stopped walk says so (DW-133 review)", async () => {
+    // Drafts frozen before B1's second part (2026-10-27) carry each row's
+    // text on the row, and before the frozen total held a project's own
+    // files (F5 stress run, 2026-10-27) they could freeze about 12 MB:
+    // four 500,000-character transcripts and fifty 200,000-character files.
+    const { t, authed, projectId, userId } = await setup({ transcript: false });
+    // One row per transaction: the rows together pass a transaction's writes.
+    const now = Date.now() - 1_000;
+    const generationId = await t.run((ctx) => ctx.db.insert("generations", { projectId, status: "completed", startedAt: now + 100 }));
+    for (let index = 0; index < 4; index += 1) {
+      await t.run(async (ctx) => {
+        const content = "a".repeat(500_000);
+        await ctx.db.insert("generationSources", {
+          generationId, projectId, kind: "transcript", label: `Transcript ${index}`, content, contentHash: `t-${index}`,
+          truncated: false, originalLength: content.length, capturedAt: now, inclusion: "included",
+        });
+      });
+    }
+    for (let index = 0; index < 50; index += 1) {
+      await t.run(async (ctx) => {
+        const projectDocumentId = await ctx.db.insert("projectDocuments", {
+          projectId, fileName: `doc-${index}.txt`, fileType: "txt", content: "d".repeat(200_000), source: "upload",
+          uploadedBy: userId, createdAt: now + index,
+        });
+        await ctx.db.insert("generationSources", {
+          generationId, projectId, kind: "project_document", label: `other:doc-${index}.txt`, projectDocumentId,
+          content: "d".repeat(200_000), contentHash: `d-${index}`, truncated: false, originalLength: 200_000, capturedAt: now,
+          inclusion: "included",
+        });
+      });
+    }
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    expect(inclusion).not.toBeNull();
+    expect(inclusion!.sourcesTruncated).toBe(false);
+    expect(inclusion!.rows.filter((row) => row.kind === "transcript")).toHaveLength(4);
+    // Every frozen file is listed from its row; the walk over the project's
+    // files, whose rows hold their text too, stops at the budget and says so.
+    expect(inclusion!.rows.filter((row) => row.kind === "document" && row.reason === undefined)).toHaveLength(50);
+    expect(inclusion!.documentsTruncated).toBe(true);
+  });
+
   it("bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review)", async () => {
     const { t, authed, projectId } = await setup();
     const generationId = await t.run((ctx) =>

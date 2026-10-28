@@ -20,6 +20,10 @@ import {
 import { DOCUMENT_HEADROOM } from "./lib/readBudget";
 import { SEED_DECISION_READ_BYTES, SEED_DECISION_RESERVED_BYTES } from "./lib/seedDecisionState";
 import { storedSourceTextVersion } from "./lib/sourceText";
+import { companyFileTextFacts, insertCompanyFileTextPieces } from "./lib/companyFileText";
+import { emptyContextRevision } from "./lib/seedRevisions";
+import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
+import type { Id } from "./_generated/dataModel";
 import { selectDraftEvidence } from "./lib/intakeDrafts";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -91,6 +95,29 @@ describe("the frozen total holds a project's own files (F5 stress run, 2026-10-2
     const bytes = [TRANSCRIPT, ...evidence.frozenDocuments.map((item) => item.content)].reduce((sum, text) => sum + text.length, 0);
     expect(bytes).toBeLessThanOrEqual(FROZEN_TOTAL_BYTES);
     expect(evidence.frozenTranscripts).toHaveLength(1);
+  });
+
+  it("then lets company files fill what is left, newest first, up to the first that does not fit (review round 1)", async () => {
+    const s = await setup(30);
+    // After the transcript and 15 files, 129,297 bytes are left.
+    await s.t.run(async (ctx) => {
+      const now = Date.now() - 500;
+      const clientId = await ctx.db.insert("clients", {
+        name: "Acme Seals", nameKey: "acme seals", status: "active", nameHistoryComplete: true, createdBy: s.userId, createdAt: now, updatedAt: now,
+      });
+      await ctx.db.patch(s.projectId, { clientId });
+      for (const [fileName, chars, createdAt] of [["older.txt", 60_000, now], ["middle.txt", 100_000, now + 1], ["newest.txt", 50_000, now + 2]] as const) {
+        const text = "c".repeat(chars);
+        const id = await ctx.db.insert("companyFiles", {
+          clientId, fileName, fileType: "txt", ...(await companyFileTextFacts(text)), processingStatus: "ready", uploadedBy: s.userId, createdAt,
+        });
+        await insertCompanyFileTextPieces(ctx, id, text);
+      }
+    });
+    const evidence = await s.t.run(async (ctx) => selectFrozenEvidence(ctx, s.projectId));
+    expect(evidence.frozenDocuments).toHaveLength(FITTING);
+    // The newest fits; the next would pass the total, so the older one never comes in.
+    expect(evidence.frozenCompanyFiles.map((item) => item.file.fileName)).toEqual(["newest.txt"]);
   });
 
   it("leaves a project within the total exactly as before", async () => {
@@ -168,7 +195,7 @@ async function seedDraft(bytes: number) {
         orderedContext: { profileState: "missing", categoryOutcomes: [], buildOrder: ["242", "244", "246"], selfCheckRules: [] },
       }),
     });
-    await ctx.db.insert("generationSources", {
+    const transcriptSourceId = await ctx.db.insert("generationSources", {
       generationId, projectId, kind: "transcript", label: "Interview", content: TRANSCRIPT, contentHash: "transcript-hash",
       truncated: false, originalLength: TRANSCRIPT.length, capturedAt: 1,
     });
@@ -183,14 +210,72 @@ async function seedDraft(bytes: number) {
         textVersionId: stored.versionId, textLength: text.length, truncated: false, originalLength: text.length, capturedAt: 1,
       });
     }
-    await ctx.db.insert("generationBriefs", {
+    const briefId = await ctx.db.insert("generationBriefs", {
       generationId, projectId, inputsHash: "frozen", version: 1, origin: "derived", storylineText: "The team tested a seal.", createdAt: 1,
     });
-    return { generationId };
+    return { generationId, projectId, briefId, transcriptSourceId };
   });
   await t.mutation(internal.generations.pinSeedBrief, { generationId: ids.generationId, inputsHash: "frozen" });
   await t.mutation(internal.generations.initializeSeedStage, { generationId: ids.generationId });
-  return { t, ...ids };
+  return { t, ...ids, writer: t.withIdentity({ subject: authId }) };
+}
+
+/**
+ * A late step's decision state, heavier than the live run's (46 picks over
+ * 13 steps, 224 KB read before the frozen text): every step holds 24 Seeds
+ * of two 300-character bullets, the Brief 200 entries, and the writer
+ * picked 46 Seeds through `select`.
+ */
+async function heavyDecisionState(s: Awaited<ReturnType<typeof seedDraft>>) {
+  const bullet = (role: string, index: number, line: number) => `${role} idea ${index} line ${line}: ${"The seal held under load. ".repeat(11)}`.slice(0, 300);
+  const seedsByRole = await s.t.run(async (ctx) => {
+    for (let index = 0; index < 200; index++) {
+      await ctx.db.insert("generationBriefEntries", {
+        briefId: s.briefId, projectId: s.projectId, group: "storyline", text: `Brief entry ${index}: ${"The seal held under load. ".repeat(8)}`,
+        sourceId: s.transcriptSourceId, sourceContentHash: "transcript-hash", startOffset: 0, endOffset: TRANSCRIPT.length,
+        exactExcerpt: TRANSCRIPT, createdAt: 1,
+      });
+    }
+    const out: Record<string, Id<"seeds">[]> = {};
+    for (const role of PD_SUBSECTIONS) {
+      if (role.roleId === "prior_year_status") continue;
+      const batchId = await ctx.db.insert("seedBatches", {
+        projectId: s.projectId, generationId: s.generationId, roleId: role.roleId, operation: "open", dedupeKey: crypto.randomUUID(),
+        commandId: crypto.randomUUID(), attemptId: crypto.randomUUID(), consumedContextRevision: await emptyContextRevision(),
+        briefVersionId: s.briefId, settingsHash: "settings", status: "shown", queuedAt: 1, leaseExpiresAt: 2, completedAt: 2,
+        model: "model", slot: `generation:seeds:${role.roleId}`, promptVersion: "prompt", requestsReserved: 2, requestsMade: 1, settledAt: 2,
+      });
+      out[role.roleId] = [];
+      for (let order = 0; order < 24; order++) {
+        out[role.roleId].push(
+          await ctx.db.insert("seeds", {
+            projectId: s.projectId, generationId: s.generationId, batchId, roleId: role.roleId, order,
+            bullets: [bullet(role.roleId, order, 1), bullet(role.roleId, order, 2)], tags: ["technical", "detailed"],
+            support: "source_supported", originalSupport: "source_supported",
+          })
+        );
+      }
+      const row = await ctx.db
+        .query("seedSubsections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", role.roleId))
+        .unique();
+      await ctx.db.patch(row!._id, { state: "in_progress", shownBatchId: batchId });
+    }
+    return out;
+  });
+  const version = async () => (await s.writer.query(api.seeds.getOutline, { generationId: s.generationId })).seedStageVersion;
+  // 46 picks: 20 in one step and 26 across the rest, as the live run.
+  const picks: Array<[string, number]> = [["active_uncertainties", 20], ["company_context", 3], ["goal_problem", 2], ["passive_limitations", 3],
+    ["technological_objective", 2], ["workplan", 2], ["hypothesis", 2], ["experimentation", 5], ["overall_advancement", 2],
+    ["specific_advancements", 3], ["project_status", 1], ["goal_improvements", 1]];
+  for (const [roleId, count] of picks) {
+    for (const seedId of seedsByRole[roleId]!.slice(0, count)) {
+      await s.writer.mutation(api.seeds.select, {
+        generationId: s.generationId, roleId: roleId as PdSubsectionRoleId, expectedSeedStageVersion: await version(), seedId, selected: true,
+      });
+    }
+  }
+  return { seedsByRole, version };
 }
 
 describe("a draft at the frozen total starts its first Batch (F5 stress run, 2026-10-27)", () => {
@@ -202,6 +287,22 @@ describe("a draft at the frozen total starts its first Batch (F5 stress run, 202
   it("dispatches the first Batch of a draft frozen at the total", async () => {
     const s = await seedDraft(FROZEN_TOTAL_BYTES);
     expect(await s.t.mutation(internal.seedRuns.startFirstBatch, { generationId: s.generationId })).toMatchObject({ kind: "dispatched" });
+  });
+
+  it("dispatches a late step's Regenerate and Feedback at the total with a heavy decision state (review round 1)", async () => {
+    const s = await seedDraft(FROZEN_TOTAL_BYTES);
+    const { seedsByRole, version } = await heavyDecisionState(s);
+    const roleId = "goal_improvements" as const;
+    await expect(
+      s.writer.mutation(api.seeds.regenerate, { generationId: s.generationId, roleId, expectedSeedStageVersion: await version(), commandId: "heavy-regenerate" })
+    ).resolves.toMatchObject({ kind: "dispatched" });
+    // Feedback on another late step, which has no work pending.
+    await expect(
+      s.writer.mutation(api.seeds.giveFeedback, {
+        generationId: s.generationId, roleId: "project_status", expectedSeedStageVersion: await version(), seedId: seedsByRole.project_status![1]!,
+        instruction: "Name the test rig and the load. ".repeat(156).slice(0, 5_000), commandId: "heavy-feedback",
+      })
+    ).resolves.toMatchObject({ batchId: expect.any(String), feedbackRequestId: expect.any(String) });
   });
 
   it("refuses by name the first Batch of a draft frozen at the 5 MiB the total was before", async () => {

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // @ts-nocheck: plain Node script; tests/stressData.test.ts covers its logic.
 //
-// F5 stress test data (docs/todos/phase-f-scale.md): seeded, template-based
-// project files and an interview transcript in fictional words, so no model
-// writes the text and no real company or person can appear. The output is
+// F5 stress test data (docs/todos/phase-f-scale.md): seeded project files
+// and an interview transcript in plain sentences from templates, with
+// invented names, so no model writes the text and no real company or person
+// can appear. The output is
 // scanned for every name given in --names (the live copy's client, company,
 // project and speaker names) and the script fails on any match.
 //

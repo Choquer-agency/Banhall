@@ -33,8 +33,9 @@
 //
 // The later steps (picks, a long Brief, failing checks, chat at scale, a
 // duplicate, two drafts at once, 100 files) are run by hand with the app and
-// recorded in the same results file. Erase the project and the company
-// through the app afterwards.
+// recorded in the same results file. Erase the project through the app
+// afterwards; the app cannot delete a company, so a run again uses another
+// --seed for the data.
 import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node:fs";
