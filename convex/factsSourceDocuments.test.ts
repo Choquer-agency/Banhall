@@ -7,11 +7,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { decisionFixture } from "./seedDecision.fixture";
+import type { Id } from "./_generated/dataModel";
 import { factsSourceDocumentOf, loadFactsSourceDocuments } from "./lib/generations/seedStage";
 import { SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES } from "./lib/seedRevisions";
 import { factsRepairText, sourceFactsFor } from "./ai/selfCheck";
 import { loadBriefCheck } from "./lib/generations/brief";
-import { repairGuidanceBlock } from "./ai/orderedGeneration";
+import { factsDocumentsLeftOutNote, repairGuidanceBlock } from "./ai/orderedGeneration";
 import { ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 
 async function addSource(
@@ -73,23 +74,67 @@ describe("the facts check's source documents (round 2 and its review)", () => {
     expect(facts.body).not.toContain("[the writer's wording]");
   });
 
-  it("P2-4: includes each document that fits, in order, and names the ones left out with their size", async () => {
+  it("P2-4: reads every document whole when all fit, and names what it left out with its size", async () => {
     const s = await decisionFixture();
-    const first = "Evidence alpha supports the work.";
-    await addSource(s, "transcript", "Long interview", "x".repeat(SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES));
-    await addSource(s, "project_document", "scoping_notes:summary.md", "y".repeat(SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES - first.length - 10));
+    await addSource(s, "project_document", "other:short.md", "Short note on the seal.");
+    const loaded = await load(s);
+    expect(loaded.documents.map((document) => document.label)).toEqual([
+      "INTERVIEW TRANSCRIPT: Interview",
+      "OTHER SUPPORTING MATERIAL: short.md",
+    ]);
+    expect(loaded.leftOut).toEqual([]);
+    expect(loaded.readInPart).toBeUndefined();
+  });
+
+  it("over the budget, reads the parts of each document that best match the Line, names them, and never passes the budget (2026-10-28, fourth)", async () => {
+    const s = await decisionFixture();
+    const filler = (seed: number, chars: number) => {
+      let text = "";
+      for (let i = 0; text.length < chars; i++) text += `The gasket held after ${(seed * 31 + i * 7) % 900} cycles on the bench. `;
+      return text.slice(0, chars);
+    };
+    const fact = "The cryogenic soak at minus 60 cracked the Viton membrane on trial 418.";
+    await addSource(s, "transcript", "Long interview", filler(1, 40_000));
+    await addSource(s, "project_document", "scoping_notes:summary.md", `${filler(2, 30_000)} ${fact} ${filler(3, 20_000)}`);
     await addSource(s, "project_document", "other:short.md", "z".repeat(20));
-    expect(await load(s)).toEqual({
+    const uses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }> = [];
+    const loaded = await s.t.run(async (ctx) =>
+      loadFactsSourceDocuments(ctx, (await ctx.db.get(s.generationId))!, uses, ["Why did the Viton membrane crack in the cryogenic soak?"])
+    );
+    expect(loaded.documents.some((document) => document.content.includes("Viton membrane on trial 418"))).toBe(true);
+    expect(loaded.readInPart?.map((document) => document.label)).toContain("SCOPING NOTES: summary.md");
+    expect(loaded.documents.filter((document) => document.label.startsWith("SCOPING NOTES: summary.md (part ")).length).toBeGreaterThan(0);
+    const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+    const spent = loaded.documents.reduce((sum, document) => sum + bytes(document.content), 0);
+    expect(spent).toBeLessThanOrEqual(SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES);
+    // What each row sent is recorded, in part where it was cut.
+    expect(uses.some((use) => use.sent > 0 && use.sent < use.total)).toBe(true);
+  });
+});
+
+describe("a document read in part (2026-10-28, fourth)", () => {
+  it("is named in the SOURCE FACTS block and in the row's note, and the documents count as not complete", () => {
+    const documents = {
       documents: [
-        { label: "INTERVIEW TRANSCRIPT: Interview", content: first },
-        { label: "SCOPING NOTES: summary.md", content: "y".repeat(SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES - first.length - 10) },
+        { label: "INTERVIEW TRANSCRIPT: Interview", content: "Dana: the seal held." },
+        { label: "SCOPING NOTES: summary.md (part 1 of 2)", content: "The Viton membrane cracked." },
+        { label: "SCOPING NOTES: summary.md (part 2 of 2)", content: "Trial 418 ran at minus 60." },
       ],
-      leftOut: [
-        { label: "INTERVIEW TRANSCRIPT: Long interview", bytes: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES },
-        { label: "OTHER SUPPORTING MATERIAL: short.md", bytes: 20 },
-      ],
+      leftOut: [{ label: "OTHER SUPPORTING MATERIAL: log.md", bytes: 90_000 }],
+      readInPart: [{ label: "SCOPING NOTES: summary.md", bytes: 61_000, sent: 52 }],
       budget: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
-    });
+    };
+    const facts = sourceFactsFor({ analysis: {}, documents });
+    expect(facts.documentsComplete).toBe(false);
+    expect(facts.body).toContain(
+      `Source documents read only in the parts that best match this Line, over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget: SCOPING NOTES: summary.md (52 of 61000 bytes).`
+    );
+    expect(facts.body).toContain("[SCOPING NOTES: summary.md (part 2 of 2)]\nTrial 418 ran at minus 60.");
+    // A quote is found only in what was read.
+    expect(facts.evidence).toContain("The Viton membrane cracked.");
+    expect(factsDocumentsLeftOutNote(documents)).toBe(
+      `(Over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget it read only the parts that best match this Line of SCOPING NOTES: summary.md (61000 bytes) and did not read OTHER SUPPORTING MATERIAL: log.md (90000 bytes), so it let the signed-off items, their quotes and the analysis stand for the rest.)`
+    );
   });
 });
 

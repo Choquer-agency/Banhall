@@ -4910,6 +4910,29 @@ This amends part 3 of the first 2026-10-26 entry ("Drafting and chat get a short
 - **How:** each draft keeps its pool of about 3 MiB, frozen at its start, but fills it with the parts of every file that best match the draft's subject instead of whole files in upload order, with a share kept for company files; each step then chooses within the pool, and every file's facts are frozen beside it. Plan: `docs/todos/phase-d-evidence-layer.md` (plan reviews: round 1 "go with changes", round 2 "go with changes"; step 1 cleared to build). Step 2 changes what entry "(third)" shows for company files, in its own entry.
 - **Approval:** Product owner, 2026-10-28 (chat), answering the recommendation to combine options 3 and 4.
 
+### 2026-10-28 (fifth): Each Line's facts check reads the parts of every file that best match the Line (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the first step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, step 1). Before, the facts check read the frozen files whole or not at all, in frozen order, within 48,000 bytes, so a file over that size was never read, a 3-hour interview included.
+
+This changes what one AI check reads and one sentence of its note, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - When every frozen interview and file fits the check's 48,000 bytes, each is read whole, as before.
+  - When they do not, the writer's notes go in whole first. The rest of the budget then takes the parts of every interview and file that best match the Line's own signed-off plan (`shared/evidenceChoice.ts`: the same parts as search pieces, scored with rare words counting more), each part its own entry, then unmatched parts in order.
+  - No part starts or ends inside a word.
+  - A quote the check gives is found only in what it read.
+- **What the writer sees.** The facts row's note names each file read only in part and each left out: "(Over this check's 48000-byte budget it read only the parts that best match this Line of ... and did not read ..., so it let the signed-off items, their quotes and the analysis stand for the rest.)" When only files were left out, the note is word for word as before.
+- **Where.** `loadFactsSourceDocuments` in `convex/lib/generations/seedStage.ts`, given the Line's plan block by `orderedSectionClaim` (`convex/lib/generations/chain.ts`); `sourceFactsFor` in `convex/ai/selfCheck.ts`; `factsDocumentsLeftOutNote` in `convex/ai/orderedGeneration.ts`; the check's prompt words in `convex/ai/promptDefinitions.ts` (the prompt version moves).
+- **Known limits.**
+  - The check still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - The record of what the check read says "in part" but not which ranges yet (later in step 1).
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:**
+  - `convex/factsSourceDocuments.test.ts`: whole when all fit; over the budget, the part holding the Line's fact is read, the file is named as read in part, the budget holds, and the record says "in part"; the prompt and the note name it.
+  - `convex/companyFileDrafts.test.ts`: whole, in part or none per row.
+  - `shared/evidenceChoice.test.ts`: the chooser itself.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

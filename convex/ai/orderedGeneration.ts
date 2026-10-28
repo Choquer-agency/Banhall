@@ -553,13 +553,25 @@ export const TARGETS_INSTRUCTION =
  * were over the check's budget, so it read the quotes and the analysis.
  */
 export function factsDocumentsLeftOutNote(documents: FactsSourceDocuments): string {
-  if (documents.leftOut.length === 0) {
+  const readInPart = documents.readInPart ?? [];
+  if (documents.leftOut.length === 0 && readInPart.length === 0) {
     return "(No source document was frozen for this check, so it read the signed-off items' quotes and the analysis.)";
   }
   // Round 2 review, P2-4: each document left out is named.
-  return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
-    .map((document) => `${document.label} (${document.bytes} bytes)`)
-    .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
+  if (readInPart.length === 0) {
+    return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
+      .map((document) => `${document.label} (${document.bytes} bytes)`)
+      .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
+  }
+  // Phase D, step 1 (2026-10-28, fourth): so is each one read only in the
+  // parts that best match the Line.
+  const named = (list: ReadonlyArray<{ label: string; bytes: number }>) =>
+    list.map((document) => `${document.label} (${document.bytes} bytes)`).join(", ");
+  const parts = [
+    ...(readInPart.length > 0 ? [`read only the parts that best match this Line of ${named(readInPart)}`] : []),
+    ...(documents.leftOut.length > 0 ? [`did not read ${named(documents.leftOut)}`] : []),
+  ];
+  return `(Over this check's ${documents.budget}-byte budget it ${parts.join(" and ")}, so it let the signed-off items, their quotes and the analysis stand for the rest.)`;
 }
 
 /** 2026-10-04 (second): the Compliance Note instruction for the facts check. */

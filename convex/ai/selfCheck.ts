@@ -851,7 +851,9 @@ export function sourceFactsFor(args: {
   const instructions = (args.writerInstructions ?? []).map((text) => text.trim()).filter(Boolean);
   const included = args.documents?.documents ?? [];
   const leftOut = args.documents?.leftOut ?? [];
-  const documentsComplete = included.length > 0 && leftOut.length === 0;
+  // Phase D, step 1: a document read only in part is not complete either.
+  const readInPart = args.documents?.readInPart ?? [];
+  const documentsComplete = included.length > 0 && leftOut.length === 0 && readInPart.length === 0;
   const documentsPart = !args.documents
     ? []
     : [
@@ -859,6 +861,11 @@ export function sourceFactsFor(args: {
           ? [`${scaffold.documentsHeading}${included
               .map((document) => `${scaffold.documentPrefix}${document.label}${scaffold.documentSuffix}${document.content.trim()}`)
               .join("\n")}`]
+          : []),
+        ...(readInPart.length > 0
+          ? [`${scaffold.documentsInPartPrefix}${args.documents.budget}${scaffold.documentsLeftOutMiddle}${readInPart
+              .map((document) => `${document.label} (${document.sent} of ${document.bytes} bytes)`)
+              .join(scaffold.documentsLeftOutSeparator)}${scaffold.documentsLeftOutSuffix}`]
           : []),
         ...(leftOut.length > 0
           ? [`${scaffold.documentsLeftOutPrefix}${args.documents.budget}${scaffold.documentsLeftOutMiddle}${leftOut

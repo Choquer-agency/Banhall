@@ -293,7 +293,10 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
     remaining -= cost;
   }
   for (const [row, ranges] of chosen) {
-    result[row] = { ranges: joinRanges(ranges), whole: false };
+    const joined = joinRanges(ranges);
+    const text = rows[row]!.text;
+    // A row whose parts were all chosen went in whole after all.
+    result[row] = { ranges: joined, whole: joined.length === 1 && joined[0]!.start === 0 && joined[0]!.end === text.length };
   }
   return result;
 }

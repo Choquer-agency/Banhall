@@ -117,7 +117,16 @@ export type FactsSourceDocuments = {
   documents: FactsSourceDocument[];
   leftOut: Array<{ label: string; bytes: number }>;
   budget: number;
+  /**
+   * Phase D, step 1 (2026-10-28, fourth): the documents of which only the
+   * parts that best match the Line were read, named with their size and
+   * the bytes read. Each of their parts is its own entry in `documents`.
+   */
+  readInPart?: Array<{ label: string; bytes: number; sent: number }>;
 };
+
+/** What one more part of a document read in part costs beyond its text: its own label line. */
+export const FACTS_PART_LABEL_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES = 96;
 export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
 

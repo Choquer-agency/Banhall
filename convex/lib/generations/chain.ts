@@ -318,10 +318,12 @@ export async function orderedSectionClaim(
     },
   });
   // 2026-10-04 (second, round 2): a signed-off plan's facts check reads the
-  // source documents in full when they fit its budget.
+  // source documents in full when they fit its budget. Phase D, step 1
+  // (2026-10-28, fourth): when they do not, the parts that best match this
+  // Line's own plan.
   const factsUses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }> = [];
   const factsSourceDocuments = args.generation.summaryVersionId
-    ? await loadFactsSourceDocuments(ctx, args.generation, factsUses)
+    ? await loadFactsSourceDocuments(ctx, args.generation, factsUses, [plan.planBlock])
     : undefined;
   // Phase D (step 2): what this Line's facts check reads of each frozen row,
   // only for a Line whose plan runs it (the action sends the documents to a
