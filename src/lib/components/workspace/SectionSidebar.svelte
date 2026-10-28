@@ -5,6 +5,8 @@
     /** A link when set; otherwise a button that calls `onclick`. */
     href?: string;
     onclick?: () => void;
+    /** Drawn but not usable yet (the loading frame keeps its place). */
+    disabled?: boolean;
   };
 </script>
 
@@ -49,6 +51,15 @@
 
   $effect(() => registerSectionSidebar());
 
+  // The server draws the sidebar open; a collapsed choice applies once the
+  // page is live. No width easing until the first frame has painted, so a
+  // reload snaps to the stored choice instead of sliding shut.
+  let ready = $state(false);
+  $effect(() => {
+    const frame = requestAnimationFrame(() => (ready = true));
+    return () => cancelAnimationFrame(frame);
+  });
+
   const collapsed = $derived(sectionSidebar.collapsed);
   const hint = shortcutHint("collapseSidebar", detectPlatform());
   const focusRing =
@@ -59,6 +70,7 @@
 <div
   data-section-sidebar-slot={section}
   data-collapsed={collapsed ? "" : undefined}
+  data-ready={ready ? "" : undefined}
   class={`section-sidebar-slot relative flex min-h-0 shrink-0 overflow-hidden ${phone === "full" ? "max-md:flex-1" : "max-md:hidden"} ${
     collapsed ? "md:invisible md:w-0" : "md:w-[14.25rem] md:border-r md:border-line-soft"
   }`}
@@ -93,7 +105,7 @@
           {action.label}
         </a>
       {:else}
-        <button type="button" data-section-sidebar-action onclick={() => action?.onclick?.()} class={actionClass}>
+        <button type="button" data-section-sidebar-action disabled={action.disabled} onclick={() => action?.onclick?.()} class={actionClass}>
           <FrameIcon name="plus" />
           {action.label}
         </button>
@@ -107,21 +119,22 @@
 </div>
 
 <style>
-  /* The layout ease on the width. Opening shows the rows at once (so focus
-     can land in them); collapsing hides them only once the width is gone. */
-  .section-sidebar-slot {
+  /* The layout ease on the width, once the page is live. Opening shows the
+     rows at once (so focus can land in them); collapsing hides them only
+     once the width is gone. */
+  .section-sidebar-slot[data-ready] {
     transition:
       width var(--duration-layout) var(--ease-layout),
       visibility 0s;
   }
-  .section-sidebar-slot[data-collapsed] {
+  .section-sidebar-slot[data-ready][data-collapsed] {
     transition:
       width var(--duration-layout) var(--ease-layout),
       visibility 0s linear var(--duration-layout);
   }
   @media (prefers-reduced-motion: reduce) {
-    .section-sidebar-slot,
-    .section-sidebar-slot[data-collapsed] {
+    .section-sidebar-slot[data-ready],
+    .section-sidebar-slot[data-ready][data-collapsed] {
       transition: none;
     }
   }

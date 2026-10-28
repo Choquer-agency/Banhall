@@ -60,9 +60,9 @@
 {#snippet settingsSidebar()}<SettingsSidebar />{/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}
-  <WorkspaceLoadingShell layout="form" title="Settings" icon={IconGear} />
+  <WorkspaceLoadingShell layout="form" title={active.label} icon={IconGear} />
 {:else}
-  <WorkspaceGate currentWhileLoading={false} pendingLayout="form" pendingTitle="Settings" pendingIcon={IconGear}>
+  <WorkspaceGate currentWhileLoading={false} pendingLayout="form" pendingTitle={active.label} pendingIcon={IconGear}>
     {#snippet current()}
       <div class="flex flex-1 flex-col bg-canvas">
         <AppNav breadcrumbs={[{ label: "Settings" }, { label: active.label }]} />

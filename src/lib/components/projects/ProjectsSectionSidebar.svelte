@@ -20,10 +20,13 @@
     current,
     homeHref,
     homeAvailable = true,
+    phone = "hidden",
   }: {
     current: "home" | "projects";
     homeHref: string;
     homeAvailable?: boolean;
+    /** Below 768px: hidden, or filling the card (the Projects list on a phone). */
+    phone?: "hidden" | "full";
   } = $props();
 
   const auth = useAuth();
@@ -58,5 +61,6 @@
   {homeHref}
   {homeAvailable}
   {hrefFor}
+  {phone}
   onRetry={() => void retry()}
 />

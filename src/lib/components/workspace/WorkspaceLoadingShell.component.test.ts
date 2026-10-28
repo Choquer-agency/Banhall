@@ -5,7 +5,7 @@ import { render } from "vitest-browser-svelte";
 import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
-import { __resetConvexStub } from "$lib/test/convex-svelte-stub.svelte";
+import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import MyWorkPage from "../../../routes/my-work/+page.svelte";
 import ProjectsPage from "../../../routes/projects/+page.svelte";
 import SettingsLayout from "../../../routes/settings/+layout.svelte";
@@ -89,11 +89,17 @@ describe("round 2 loading shell", () => {
     expect(rail()!.querySelector('[data-rail-item="projects"]')?.getAttribute("aria-current")).toBe("page");
     expect(sidebar("projects")!.querySelector('[data-client-row="all"]')?.getAttribute("aria-current")).toBe("page");
     expect(topBarTitle()).toBe("Projects");
+    // From 768px the company header loads as the page draws it: "All projects"
+    // and the 300px search, so nothing is replaced when the page arrives.
+    const header = document.querySelector<HTMLElement>("[data-client-header][data-loading]")!;
+    expect(header.querySelector("h1")?.textContent).toBe("All projects");
+    expect(header.querySelector<HTMLInputElement>('input[type="search"]')!.disabled).toBe(true);
+    expect(header.getBoundingClientRect().height).toBeCloseTo(60, 0);
     expect(getComputedStyle(document.querySelector("[data-workspace-page-header] h1")!).fontWeight).toBe("500");
     expectQuietSkeleton("projects", 6);
   });
 
-  it("Settings: the Settings sidebar, the Settings bar and form blocks capped at 40rem while the session loads", async () => {
+  it("Settings: the Settings sidebar, the section's bar and form blocks capped at 40rem while the session loads", async () => {
     __setPageUrl("/settings/account");
     __setAuthState({ isLoading: true, isAuthenticated: false });
     await browserPage.viewport(2560, 1440);
@@ -101,7 +107,8 @@ describe("round 2 loading shell", () => {
 
     await expect.poll(() => skeleton("form")).not.toBeNull();
     expect(rail()).not.toBeNull();
-    expect(topBarTitle()).toBe("Settings");
+    // The bar names the section from the address, as the loaded page does.
+    expect(topBarTitle()).toBe("Account");
     expect(sidebar("settings")!.querySelector('[data-settings-sidebar="account"]')?.getAttribute("aria-current")).toBe("page");
     expectQuietSkeleton("form", 4);
     // 40rem: 640px at a 16px root, 800px at 2560 where the root is 20px.
@@ -116,6 +123,28 @@ describe("round 2 loading shell", () => {
     await expect.poll(() => skeleton("fields")).not.toBeNull();
     expectQuietSkeleton("fields", 4);
     expect(skeleton("fields")!.getAttribute("aria-label")).toBe("Loading your account");
+  });
+
+  it("Admin and Team load with no sidebar until the viewer is known to be allowed (review round 1, findings 1 and 6)", async () => {
+    __setAuthState({ isLoading: false, isAuthenticated: true });
+    __setPageUrl("/admin/house-rules");
+    const first = await render(LoadingShell, { layout: "page", title: "House rules" });
+    await expect.poll(() => skeleton("page")).not.toBeNull();
+    expect(document.querySelector("[data-section-sidebar]")).toBeNull();
+    first.unmount();
+    __setQueryData("users:getCurrentUser", { _id: "c", role: "writer", firstName: "Jane" });
+    const consultant = await render(LoadingShell, { layout: "page", title: "House rules" });
+    await expect.poll(() => skeleton("page")).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-section-sidebar]")).toBeNull();
+    consultant.unmount();
+    // A Manager on Team: the sidebar with Invite people in its place, not usable yet.
+    __setQueryData("users:getCurrentUser", { _id: "m", role: "manager", firstName: "Mo" });
+    __setPageUrl("/team");
+    await render(LoadingShell, { layout: "page", title: "Team" });
+    await expect.poll(() => sidebar("team")).not.toBeNull();
+    const invite = sidebar("team")!.querySelector<HTMLButtonElement>("[data-section-sidebar-action]")!;
+    expect([invite.textContent?.trim(), invite.disabled]).toEqual(["Invite people", true]);
   });
 
   it("a project page loads in the card with no sidebar and the project bar's back button", async () => {

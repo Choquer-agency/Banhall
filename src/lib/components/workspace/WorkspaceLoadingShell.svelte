@@ -15,6 +15,12 @@
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { useQuery } from "convex-svelte";
+  import { api } from "../../../../convex/_generated/api";
+  import { hasCapability } from "../../../../shared/capabilities";
+  import { effectiveViewer } from "$lib/shell/viewAs.svelte";
+  import { CLIENT_PARAM } from "$lib/projects/clientList";
+  import ProjectsLoadingHeader from "$lib/components/projects/ProjectsLoadingHeader.svelte";
   import type { PageIcon } from "$lib/components/shell/pageIcon";
   import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
@@ -24,7 +30,7 @@
   import TeamSidebar from "$lib/components/workspace/sidebars/TeamSidebar.svelte";
   import AdminSidebar from "$lib/components/workspace/sidebars/AdminSidebar.svelte";
   import SettingsSidebar from "$lib/components/workspace/sidebars/SettingsSidebar.svelte";
-  import { frameSectionForPath, type FrameSection } from "$lib/shell/navigation";
+  import { canViewTeam, frameSectionForPath, type FrameSection } from "$lib/shell/navigation";
   import WorkspacePanelSkeleton, {
     type PanelSkeletonLayout,
   } from "$lib/components/workspace/WorkspacePanelSkeleton.svelte";
@@ -51,6 +57,15 @@
 
   const auth = useAuth();
   let navigationOpen = $state(false);
+  // A gated section's sidebar draws only once the viewer is known to be
+  // allowed (the Admin sidebar checks itself); Team keeps Invite people's
+  // place, so its rows do not move when the page arrives.
+  const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
+  const viewer = $derived(effectiveViewer(userQ.data));
+  const teamAllowed = $derived(Boolean(userQ.data) && canViewTeam(viewer.role));
+  const teamCanInvite = $derived(hasCapability(viewer.role, "invites.manage"));
+  // Projects on a phone shows the company list itself until a company is chosen.
+  const phoneList = $derived(layout === "projects" && !page.url.searchParams.get(CLIENT_PARAM));
 
   const displayedView = $derived<DashboardView | null>(
     layout === "home" ? "my_work" : layout === "projects" ? "all_projects" : null
@@ -77,9 +92,15 @@
 
 {#snippet sectionSidebar()}
   {#if section === "projects"}
-    <ProjectsSectionSidebar current={layout === "home" ? "home" : "projects"} homeHref={destinationHref("my_work")} />
+    <ProjectsSectionSidebar
+      current={layout === "home" ? "home" : "projects"}
+      homeHref={destinationHref("my_work")}
+      phone={phoneList ? "full" : "hidden"}
+    />
   {:else if section === "team"}
-    <TeamSidebar />
+    {#if teamAllowed}
+      <TeamSidebar onInvite={teamCanInvite ? () => {} : null} inviteDisabled />
+    {/if}
   {:else if section === "admin"}
     <AdminSidebar />
   {:else if section === "settings"}
@@ -112,13 +133,25 @@
         />
         <WorkspacePanelSkeleton {layout} {label} {...rest} />
       </FrameCard>
+    {:else if layout === "projects"}
+      <!-- The Projects page: the phone bar below 768px, then the card with
+           the Projects sidebar and the company header, as the page draws it. -->
+      <div class="flex min-h-0 min-w-0 flex-col overflow-hidden max-lg:bg-surface">
+        <PageTopBar class="md:hidden" {title} titleTag={phoneList ? "h1" : "p"} onOpenNavigation={() => (navigationOpen = true)} />
+        <FrameCard data-workspace-loading={layout} class="flex-1" sidebar={sectionSidebar} mainClass={phoneList ? "max-md:hidden" : ""}>
+          <ProjectsLoadingHeader />
+          <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <WorkspacePanelSkeleton {layout} {label} {...rest} />
+          </div>
+        </FrameCard>
+      </div>
     {:else}
       <FrameCard data-workspace-loading={layout} sidebar={section ? sectionSidebar : undefined}>
         <!-- The same bar the loaded page draws: the title only (2026-10-19). -->
         <PageTopBar {title} sidebarToggle={section !== null} onOpenNavigation={() => (navigationOpen = true)} />
-        <main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
-        </main>
+        </div>
       </FrameCard>
     {/if}
   </WorkspaceShell>

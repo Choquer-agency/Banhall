@@ -4,8 +4,9 @@
    * and 2): the admin pages in board order (`ADMIN_RAIL_ROUTES`), the
    * OneDrive import row with its attention dot, and for developers Alerts
    * (with the open count) and Feature requests at the foot. Visibility reads
-   * the effective viewer, as the drawer does; the pages check access on the
-   * server.
+   * the effective viewer, as the drawer does: only someone who may open Admin
+   * (`settings.configure`, View as applied) sees it, and nothing shows until
+   * the viewer is known. The pages check access on the server.
    */
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
@@ -37,6 +38,7 @@
   const requestsHref = resolve("/requests");
 </script>
 
+{#if userQ.data && canSeeAdmin(viewer)}
 <SectionSidebar section="admin" title="Admin">
   <nav aria-label="Admin" class="flex min-h-full flex-col gap-0.5 pt-3">
     {#each ADMIN_RAIL_ROUTES as route (route.href)}
@@ -72,3 +74,4 @@
     {/if}
   </nav>
 </SectionSidebar>
+{/if}
