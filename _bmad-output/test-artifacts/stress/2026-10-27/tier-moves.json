@@ -1,0 +1,40 @@
+{
+  "moves": [
+    {
+      "actor": "system",
+      "at": "2026-10-28T04:23:25.099Z",
+      "costComparison": {
+        "fromInputUsdPerMTok": 2,
+        "fromOutputUsdPerMTok": 10,
+        "toInputUsdPerMTok": 2,
+        "toOutputUsdPerMTok": 10
+      },
+      "fromModelId": "claude-sonnet-5",
+      "kind": "upgrade",
+      "reason": "newer_version",
+      "toModelId": "claude-sonnet-5-5",
+      "track": "claude-sonnet"
+    },
+    {
+      "actor": "system",
+      "at": "2026-10-28T04:15:35.012Z",
+      "costComparison": {
+        "fromInputUsdPerMTok": 2,
+        "fromOutputUsdPerMTok": 10,
+        "toInputUsdPerMTok": 2,
+        "toOutputUsdPerMTok": 10
+      },
+      "errorRate": {
+        "calls": 55,
+        "errorRate": 0.21818181818181817,
+        "failures": 12
+      },
+      "fromModelId": "claude-sonnet-5-5",
+      "kind": "rollback",
+      "reason": "production_error_rate",
+      "toModelId": "claude-sonnet-5",
+      "track": "claude-sonnet"
+    }
+  ],
+  "note": "Tier moves recorded during the F5 run (modelSwitchEvents), read 2026-10-28T05:00Z. The rollback row holds the counts the hourly check saw."
+}

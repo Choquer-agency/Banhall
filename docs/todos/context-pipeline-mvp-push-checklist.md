@@ -949,7 +949,8 @@ What changes:
 - [x] Full gate (8,176 unit tests) on the round 1 fixes (42de4b30).
 - [x] Round 2 (42de4b30, 1163f9a1): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the code and tests held; the run's record claimed more than its files showed, corrected in c62d138d.
 - [x] Full gate (8,176 unit tests) on c62d138d.
-- [x] Round 3 (c62d138d): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points (the Brain search query's refusals count toward the Haiku tier, which did not move; "except three"; the 12 of 55 now in `tier-check.json`; one sentence split), made in the commit that records this round.
+- [x] Round 3 (c62d138d): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": four record points (the Haiku tier's counts; "except three"; the 12 of 55 now backed by a file; one sentence split), made in d0f621e2.
+- [x] Round 4 (d0f621e2): Claude Opus 5.5 (requested high; it reported low), "ship after fixes": the record said refusals count toward the Haiku tier's check, but its counts hold 22 failures where 82 calls were refused. Corrected, and the move back's own counts (12 failures in 55 calls) saved in `tier-moves.json`.
 
 ### Automated, live on localhost
 
