@@ -385,6 +385,8 @@ flowchart TD
 
 **Answer limits** (2026-10-26): a request whose answer limit is over 16,384 tokens streams and is read to its end (`instrumentedAnthropic` in `convex/ai/instrument.ts`), so a long answer is not lost to a request timeout. A cut-off answer from a report-sized step is retried with the model's full output limit (`cutOffRetry` in `convex/ai/structured.ts`, limits from `modelOutputCap` in `shared/generationModels.ts`).
 
+**What a draft freezes** (`selectFrozenEvidence` in `convex/lib/briefEvidence.ts`): the transcripts, then the project's files in upload order (at most 50, each cut at 200,000 characters), then the company's files, up to the first file that would take all frozen text past `FROZEN_TOTAL_BYTES` (about 3 MiB, 2026-10-27). That total is what a Seed attempt has room to read in its 8 MiB read budget after what the budget sets aside and the draft's decisions, so a draft whose first step cannot start is never frozen. Files past it are listed in the Inputs band as not captured.
+
 **What each step read** (2026-10-26): the analyzer, the Brief, each Seed step and each Line's facts check record how much of each frozen row they sent, once their request has answered (`generationSourceUse`, `convex/lib/generations/sourceUse.ts`). The Brief's Inputs band shows it under each file, for example "Read by the analysis (whole), Seeds (in part, 3 of 13 steps)." A reused Brief and a Summary recovery copy the record of the draft they come from.
 
 **Run status** on the `generations` row (`shared/generationTransitions.ts`):

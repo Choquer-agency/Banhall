@@ -6,6 +6,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
+import { FROZEN_TOTAL_BYTES } from "./lib/briefEvidence";
 import { FROZEN_TEXT_TOO_LARGE_MESSAGE, RECOVERY_TOO_LARGE_MESSAGE, reserveGeneration } from "./lib/generations/reservation";
 import { decisionFixture } from "./seedDecision.fixture";
 import { copyRecoverySourceUses, RECOVERY_SOURCE_USE_COPIES } from "./lib/generations/sourceUse";
@@ -156,6 +157,10 @@ describe("drafts refer to their text (B1, second part)", () => {
 
   // Convex's transaction limits on (B1 review, 2026-10-27): the reservation
   // counts what it reads as well as what it writes.
+  // F5 stress run, 2026-10-27: the files stop at the frozen total, so four
+  // transcripts of 500,000 characters (2,000,000 bytes) leave room for 5
+  // files of 200,000; the 50 this test froze before were past the Seed read
+  // budget.
   it("reserves the largest supported draft (files of one-byte characters) within a transaction's limits", async () => {
     const s = await setup(
       Array.from({ length: 50 }, (_, index) => `${index}`.padEnd(3, " ") + "a".repeat(199_997)),
@@ -163,9 +168,11 @@ describe("drafts refer to their text (B1, second part)", () => {
     );
     const generationId = await s.authed.mutation(api.generations.requestGeneration, { projectId: s.projectId });
     const rows = await s.rows(generationId);
-    expect(rows.filter((row) => row.kind === "project_document")).toHaveLength(50);
+    const fitting = Math.floor((FROZEN_TOTAL_BYTES - 4 * 500_000) / 200_000);
+    expect(fitting).toBe(5);
+    expect(rows.filter((row) => row.kind === "project_document")).toHaveLength(fitting);
     expect(rows.filter((row) => row.kind === "transcript").map((row) => row.textLength)).toEqual([500_000, 500_000, 500_000, 500_000]);
-    expect((await s.counts()).versions).toBe(50);
+    expect((await s.counts()).versions).toBe(fitting);
   });
 
   it("refuses by name a draft whose files would pass a transaction's reads, before the limit, and writes nothing", async () => {

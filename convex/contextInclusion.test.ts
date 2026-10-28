@@ -391,11 +391,12 @@ describe("getContextInclusion (story 4)", () => {
     );
   });
 
-  it("12 MB of frozen sources: the whole transaction stays under the read limit and the document walk says it stopped (DW-133 review)", async () => {
+  it("four long transcripts and fifty large files: the whole transaction stays under the read limit and every file is listed (DW-133 review)", async () => {
     // Four 500,000-character transcripts plus fifty 200,000-character
-    // documents freeze ~12 MB of generationSources. A document budget that
-    // ignored those bytes pushed the query past 16 MiB and it threw before
-    // it could report anything.
+    // documents froze ~12 MB of generationSources before the frozen total
+    // held a project's own files (F5 stress run, 2026-10-27). A document
+    // budget that ignored those bytes pushed the query past 16 MiB and it
+    // threw before it could report anything.
     const { t, authed, projectId, userId } = await setup({ transcript: false });
     await t.run(async (ctx) => {
       const now = Date.now() - 1_000;
@@ -425,7 +426,10 @@ describe("getContextInclusion (story 4)", () => {
         .collect()
         .then((rows) => rows.map((row) => row._id))
     );
-    expect(frozenIds).toHaveLength(54);
+    // F5 stress run, 2026-10-27: the files stop at the frozen total, so the
+    // four transcripts (2,000,000 bytes) leave room for 5 of the 50 files;
+    // the other 45 are listed as not captured.
+    expect(frozenIds).toHaveLength(4 + 5);
     for (const sourceId of frozenIds) {
       await t.run((ctx) => ctx.db.patch(sourceId, { inclusion: "included" }));
     }
@@ -441,6 +445,7 @@ describe("getContextInclusion (story 4)", () => {
     // inside the budget and the total is exact.
     expect(inclusion!.documentsTotal).toBe(50);
     expect(inclusion!.documentsTruncated).toBe(false);
+    expect(inclusion!.rows.filter((row) => row.reason === "not_captured")).toHaveLength(45);
   });
 
   it("bounds the frozen sources themselves when they alone would exceed the budget, and says so (DW-133 review)", async () => {

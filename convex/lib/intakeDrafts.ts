@@ -22,6 +22,7 @@ import {
   FROZEN_DOCUMENT_CHARS,
   FROZEN_DOCUMENT_ROWS,
   frozenFileText,
+  frozenTotal,
   selectCompanyFilesOf,
   type FrozenSourceFields,
 } from "./briefEvidence";
@@ -275,7 +276,9 @@ export type DraftEvidence = {
  * would read the promoted project: every readable transcript in list order
  * cut to FROZEN_TRANSCRIPT_CHARS, then the first FROZEN_DOCUMENT_ROWS
  * documents that are not empty and not left out, cut to
- * FROZEN_DOCUMENT_CHARS. Promotion installs the sources in this order.
+ * FROZEN_DOCUMENT_CHARS, up to the first that would take every frozen row
+ * together past FROZEN_TOTAL_BYTES (`frozenTotal`). Promotion installs the
+ * sources in this order.
  */
 export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">): Promise<DraftEvidence> {
   const excluded = new Set(draft.excludedSourceKeys ?? []);
@@ -304,11 +307,13 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
       originalLength: text.length,
     });
   }
+  const total = frozenTotal(fields.map((field) => field.content));
   for (const row of documents) {
     const text = await readSourceText(ctx, row._id);
     const cut = text.slice(0, FROZEN_DOCUMENT_CHARS);
     // 2026-10-26: Word Markdown is frozen without its marks, as a project's.
     const content = frozenFileText(cut, row.textFormat);
+    if (!total.fits(content)) break;
     fields.push({
       kind: "project_document",
       intakeSourceId: row._id,

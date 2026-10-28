@@ -27,6 +27,8 @@ import { readCompanyFileTextOrNull } from "./companyFileText";
 import { companyIdentityNames } from "./clients";
 import { quotableFileText } from "../../shared/wordMarkdown";
 import { countedRows, type ReadCounter } from "./readMeter";
+import { DOCUMENT_HEADROOM } from "./readBudget";
+import { SEED_DECISION_READ_BYTES, SEED_DECISION_RESERVED_BYTES } from "./seedDecisionState";
 
 /**
  * The text a draft freezes from a file's text: Word Markdown without its
@@ -46,17 +48,55 @@ export const FROZEN_DOCUMENT_ROWS = 50;
  * after the project's own files; their text together at most
  * FROZEN_COMPANY_CHARS; and none once every frozen row together would pass
  * FROZEN_TOTAL_BYTES (UTF-8), so a project's own evidence never loses room
- * and the Seed reads stay within their budget.
+ * and the Seed reads stay within their budget. Since the F5 stress run
+ * (2026-10-27) a project's own files stop at that total too (`frozenTotal`).
  */
 export const FROZEN_COMPANY_FILES = 12;
 export const FROZEN_COMPANY_CHARS = 600_000;
 /**
- * Below the Seed read budget (8 MiB with 1 MiB of headroom), which also
- * holds the Brief, its entries, digests and fact packs (review, 2026-10-26).
+ * What a Seed attempt reads besides the frozen text, within the same budget:
+ * the draft's decisions, its Brief and entries, digests and fact packs.
  */
-export const FROZEN_TOTAL_BYTES = 5 * 1024 * 1024;
+export const SEED_DECISION_STATE_ALLOWANCE_BYTES = 1024 * 1024;
+/**
+ * Every frozen row's text together, in UTF-8 bytes. A Seed attempt reads it
+ * all within the Seed read budget (SEED_DECISION_READ_BYTES), which counts
+ * SEED_DECISION_RESERVED_BYTES as read from the start and wants one
+ * document's headroom (DOCUMENT_HEADROOM) free before each read; the total
+ * is what is left after SEED_DECISION_STATE_ALLOWANCE_BYTES, about 3 MiB.
+ * F5 stress run, 2026-10-27: it was 5 MiB, "below the Seed read budget (8
+ * MiB with 1 MiB of headroom)", which left out the reservation; a draft
+ * frozen at 5.16 MB could not start its first Batch.
+ */
+export const FROZEN_TOTAL_BYTES =
+  SEED_DECISION_READ_BYTES - SEED_DECISION_RESERVED_BYTES - DOCUMENT_HEADROOM - SEED_DECISION_STATE_ALLOWANCE_BYTES;
 /** Company file rows a run looks at, newest first, before filtering. */
 const COMPANY_FILE_ROWS = 50;
+
+/**
+ * The frozen text so far against FROZEN_TOTAL_BYTES (UTF-8). `fits` adds a
+ * file's text when every frozen row together stays within the total, and
+ * otherwise adds nothing; the caller stops at the first file that does not
+ * fit, so a later file never comes in ahead of an earlier one.
+ *
+ * F5 stress run, 2026-10-27: only company files were held to the total, so
+ * a project's own 50 files of 200,000 characters froze about 10 MB, past
+ * the Seed read budget, and no step's first Batch could start. A project's
+ * own files now stop at the total as well; the transcripts count first and
+ * are never left out by it.
+ */
+export function frozenTotal(frozenSoFar: readonly string[]): { fits(content: string): boolean } {
+  const encoder = new TextEncoder();
+  let bytes = frozenSoFar.reduce((sum, text) => sum + encoder.encode(text).length, 0);
+  return {
+    fits(content: string) {
+      const size = encoder.encode(content).length;
+      if (bytes + size > FROZEN_TOTAL_BYTES) return false;
+      bytes += size;
+      return true;
+    },
+  };
+}
 /**
  * The most rows one generation freezes: a transcript, its digest and its
  * fact pack each, the files, the Storyline, and the company files.
@@ -96,8 +136,10 @@ export type FrozenEvidence = {
  * The evidence a run reads (decision 56 leave-out lists applied): every
  * current transcript cut to FROZEN_TRANSCRIPT_CHARS, then the first
  * FROZEN_DOCUMENT_ROWS document rows that are not archived, not empty and
- * not left out, each cut to FROZEN_DOCUMENT_CHARS. `meter` counts every
- * row and text piece it reads (a draft's reservation, B1 review 2026-10-27).
+ * not left out, each cut to FROZEN_DOCUMENT_CHARS, up to the first that
+ * would take every frozen row together past FROZEN_TOTAL_BYTES
+ * (`frozenTotal`). `meter` counts every row and text piece it reads (a
+ * draft's reservation, B1 review 2026-10-27).
  */
 export async function selectFrozenEvidence(
   ctx: Ctx,
@@ -128,12 +170,15 @@ export async function selectFrozenEvidence(
   // which returns exactly `content.slice(0, FROZEN_DOCUMENT_CHARS)` (rule 2).
   // 2026-10-26: Word Markdown is frozen without its bold and italic marks.
   const frozenDocuments: FrozenEvidence["frozenDocuments"] = [];
+  const total = frozenTotal(frozenTranscripts.map((item) => item.content));
   for (const document of documents) {
     if (document.archived || !documentHasText(document) || excludedDocuments.has(document._id)) continue;
     const text = await readDocumentText(ctx, document, 0, FROZEN_DOCUMENT_CHARS, meter);
+    const content = frozenFileText(text, document.textFormat);
+    if (!total.fits(content)) break;
     frozenDocuments.push({
       document,
-      content: frozenFileText(text, document.textFormat),
+      content,
       truncated: text.length !== documentTextLength(document),
     });
   }
@@ -224,8 +269,7 @@ export async function selectCompanyFilesOf(
   const none = { frozenCompanyFiles: [], companyNames: { organizations: [], people: [] } };
   if (!client || client.status !== "active") return none;
   const leftOut = new Set<Id<"companyFiles">>(excluded?.companyFileIds ?? []);
-  const encoder = new TextEncoder();
-  let bytes = frozenSoFar.reduce((total, text) => total + encoder.encode(text).length, 0);
+  const total = frozenTotal(frozenSoFar);
   const frozenCompanyFiles: FrozenEvidence["frozenCompanyFiles"] = [];
   const newestFirst = await companyFilesNewestFirst(ctx, client._id);
   for (const file of newestFirst) meter?.read(file);
@@ -234,9 +278,7 @@ export async function selectCompanyFilesOf(
     const text = await readCompanyFileTextOrNull(ctx, file, 0, limit, meter);
     if (text === null || !text.trim()) continue;
     const content = frozenFileText(text, file.textFormat);
-    const size = encoder.encode(content).length;
-    if (bytes + size > FROZEN_TOTAL_BYTES) break;
-    bytes += size;
+    if (!total.fits(content)) break;
     frozenCompanyFiles.push({ file, content, truncated: text.length !== file.textLength });
   }
   if (frozenCompanyFiles.length === 0) return none;
