@@ -1151,8 +1151,8 @@ describe("prompt versions", () => {
     // (fifth), which adds the facts check's words for a document read in
     // part on purpose; before it they were sha256:8a41a05e... and
     // sha256:8de53993....
-    expect(await hashPromptProgram()).toBe("sha256:2773a2a338f4d780e4ad888e04f705dc3db7b96c467699cfc460a52b933e699d");
-    expect(await legacyPromptVersion()).toBe("sha256:7900b690f10208e770288b454ea0ca9302352f994c97878748f2a03becd6ad12");
+    expect(await hashPromptProgram()).toBe("sha256:a9410c25a2afbd328c25e49457e350ab59c33ed77a06716ba7b1916ad5da277e");
+    expect(await legacyPromptVersion()).toBe("sha256:f8e3a157f0ab6097e6eab609c59b2d7780d52c4e8b9d04af0f9b30bdba730c14");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

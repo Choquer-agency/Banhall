@@ -101,12 +101,16 @@ const MAX_NAME_WORD = 64;
  * ever shortens, so the cut stays within budget.
  */
 export function endAtWordBoundary(kept: string, rest: string): string {
-  const before = LAST_WORD_RUN.exec(kept);
-  const after = FIRST_WORD_RUN.exec(rest);
+  // Only the last 65 units can matter: a longer run is no word of a name.
+  // Matching the whole of `kept` cost time in its length times its word
+  // runs (Phase D review: seconds over 3 MiB of unbroken script).
+  const tail = kept.slice(-(MAX_NAME_WORD + 1));
+  const before = LAST_WORD_RUN.exec(tail);
+  const after = FIRST_WORD_RUN.exec(rest.slice(0, MAX_NAME_WORD + 1));
   if (!before || !after) return kept;
   // The word the cut falls in, both sides of it.
   if (before[0].length + after[0].length > MAX_NAME_WORD) return kept;
-  return kept.slice(0, before.index);
+  return kept.slice(0, kept.length - tail.length + before.index);
 }
 
 /**
@@ -116,8 +120,8 @@ export function endAtWordBoundary(kept: string, rest: string): string {
  * rule applies, and it only ever shortens.
  */
 export function startAtWordBoundary(before: string, kept: string): number {
-  const prior = LAST_WORD_RUN.exec(before);
-  const first = FIRST_WORD_RUN.exec(kept);
+  const prior = LAST_WORD_RUN.exec(before.slice(-(MAX_NAME_WORD + 1)));
+  const first = FIRST_WORD_RUN.exec(kept.slice(0, MAX_NAME_WORD + 1));
   if (!prior || !first) return 0;
   if (prior[0].length + first[0].length > MAX_NAME_WORD) return 0;
   return first[0].length;
@@ -137,11 +141,48 @@ export function nameSafeRange(text: string, start: number, end: number): { start
   if (from > 0 && from < text.length && isLow(text.charCodeAt(from))) from += 1;
   if (to > 0 && to < text.length && isHigh(text.charCodeAt(to - 1))) to -= 1;
   if (to <= from) return { start: from, end: from };
-  if (from > 0) from += startAtWordBoundary(text.slice(Math.max(0, from - MAX_NAME_WORD), from), text.slice(from, to));
+  if (from > 0) {
+    from += startAtWordBoundary(text.slice(Math.max(0, from - MAX_NAME_WORD - 1), from), text.slice(from, Math.min(to, from + MAX_NAME_WORD + 1)));
+  }
   if (to < text.length && to > from) {
-    to = from + endAtWordBoundary(text.slice(from, to), text.slice(to, to + MAX_NAME_WORD)).length;
+    const tailStart = Math.max(from, to - MAX_NAME_WORD - 1);
+    const kept = endAtWordBoundary(text.slice(tailStart, to), text.slice(to, to + MAX_NAME_WORD + 1));
+    to = tailStart + kept.length;
   }
   return to > from ? { start: from, end: to } : { start: from, end: from };
+}
+
+/** How far into a part an edge may move to reach a sentence or paragraph end. */
+const SENTENCE_REACH = 300;
+const SENTENCE_END = /[.!?\u2026]["'\u2019\u201D)\]]*[ \t]*\n|[.!?\u2026]["'\u2019\u201D)\]]*[ \t]+|\n[ \t]*\n/gu;
+
+/**
+ * A part's range with name-safe edges that also land on a sentence or
+ * paragraph end when one is within 300 units (Phase D review): a cut at a
+ * plain line break or between two words can still split a name of several
+ * words ("Northern" / "Robotics Inc."), which is masked only whole. With
+ * no sentence end in reach, the word-safe edges stand.
+ */
+export function partRange(text: string, start: number, end: number): { start: number; end: number } {
+  const safe = nameSafeRange(text, start, end);
+  if (safe.end <= safe.start) return safe;
+  let from = safe.start;
+  let to = safe.end;
+  if (from > 0 && !/\n[ \t]*\n$/u.test(text.slice(Math.max(0, from - 4), from))) {
+    const window = text.slice(from, Math.min(to, from + SENTENCE_REACH));
+    SENTENCE_END.lastIndex = 0;
+    const first = SENTENCE_END.exec(window);
+    if (first) from += first.index + first[0].length;
+  }
+  if (to < text.length) {
+    const windowStart = Math.max(from, to - SENTENCE_REACH);
+    const window = text.slice(windowStart, to);
+    let last: RegExpExecArray | null = null;
+    SENTENCE_END.lastIndex = 0;
+    for (let match = SENTENCE_END.exec(window); match; match = SENTENCE_END.exec(window)) last = match;
+    if (last) to = windowStart + last.index + last[0].length;
+  }
+  return to > from ? { start: from, end: to } : safe;
 }
 
 // ─── Scoring ─────────────────────────────────────────────────────────────────
@@ -198,6 +239,8 @@ export type ChoiceRow = {
   text: string;
   /** Sent whole, ahead of every part (the settings document, writer's notes). */
   whole?: boolean;
+  /** What one more excerpt of this row costs beyond its text (its own label); else `excerptCost`. */
+  excerptCost?: number;
 };
 
 export type ChosenRow = {
@@ -205,6 +248,8 @@ export type ChosenRow = {
   ranges: Array<{ start: number; end: number }>;
   /** True when the row went in whole. */
   whole: boolean;
+  /** A row that was to go in whole but did not fit: its start only. */
+  cut?: true;
 };
 
 export type ChoiceInput = {
@@ -237,12 +282,12 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
   const excerptCost = input.excerptCost ?? 0;
   const result: ChosenRow[] = rows.map(() => ({ ranges: [], whole: false }));
   const totalWhole = rows.reduce((sum, row) => sum + size(row.text), 0);
-  if (totalWhole <= input.budget) {
-    rows.forEach((row, index) => {
-      result[index] = { ranges: row.text.length > 0 ? [{ start: 0, end: row.text.length }] : [], whole: true };
-    });
-    return result;
-  }
+  const wholeRow = (row: ChoiceRow): ChosenRow => ({ ranges: row.text.length > 0 ? [{ start: 0, end: row.text.length }] : [], whole: true });
+  if (totalWhole <= input.budget) return rows.map(wholeRow);
+  // An empty row costs nothing and goes in as it is.
+  rows.forEach((row, index) => {
+    if (row.text.length === 0) result[index] = wholeRow(row);
+  });
   let remaining = input.budget;
 
   // The rows that go in whole, in row order.
@@ -255,9 +300,9 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
       return;
     }
     const end = fittingEnd(row.text, 0, remaining, size);
-    const safe = nameSafeRange(row.text, 0, end);
+    const safe = partRange(row.text, 0, end);
     if (safe.end > safe.start) {
-      result[index] = { ranges: [safe], whole: false };
+      result[index] = { ranges: [safe], whole: false, cut: true };
       remaining -= size(row.text.slice(safe.start, safe.end));
     }
   });
@@ -280,12 +325,14 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
   candidates.sort((a, b) => b.score - a.score || a.row - b.row || a.start - b.start);
 
   const chosen = new Map<number, Array<{ start: number; end: number }>>();
+  const smallestCost = Math.min(...rows.map((row) => row.excerptCost ?? excerptCost));
   for (const candidate of candidates) {
-    if (remaining <= 0) break;
+    if (remaining <= smallestCost) break;
     const text = rows[candidate.row]!.text;
-    const safe = nameSafeRange(text, candidate.start, candidate.end);
+    const partCost = rows[candidate.row]!.excerptCost ?? excerptCost;
+    const safe = partRange(text, candidate.start, candidate.end);
     if (safe.end <= safe.start) continue;
-    const cost = size(text.slice(safe.start, safe.end)) + excerptCost;
+    const cost = size(text.slice(safe.start, safe.end)) + partCost;
     if (cost > remaining) continue;
     const list = chosen.get(candidate.row) ?? [];
     list.push(safe);

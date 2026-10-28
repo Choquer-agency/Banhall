@@ -1212,7 +1212,7 @@ export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
     documentSuffix: "]\n",
     // Phase D, step 1 (2026-10-28, fourth): a document over the budget is
     // read in the parts that best match this Line, each its own entry.
-    documentsInPartPrefix: "Source documents read only in the parts that best match this Line, over this check's ",
+    documentsInPartPrefix: "Source documents read only in part, over this check's ",
     documentsLeftOutPrefix: "Source documents left out, over this check's ",
     documentsLeftOutMiddle: "-byte budget: ",
     documentsLeftOutSeparator: "; ",

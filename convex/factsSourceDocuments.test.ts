@@ -103,12 +103,30 @@ describe("the facts check's source documents (round 2 and its review)", () => {
     );
     expect(loaded.documents.some((document) => document.content.includes("Viton membrane on trial 418"))).toBe(true);
     expect(loaded.readInPart?.map((document) => document.label)).toContain("SCOPING NOTES: summary.md");
-    expect(loaded.documents.filter((document) => document.label.startsWith("SCOPING NOTES: summary.md (part ")).length).toBeGreaterThan(0);
+    expect(loaded.documents.filter((document) => document.label.startsWith("SCOPING NOTES: summary.md (excerpt ")).length).toBeGreaterThan(0);
     const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
     const spent = loaded.documents.reduce((sum, document) => sum + bytes(document.content), 0);
     expect(spent).toBeLessThanOrEqual(SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES);
     // What each row sent is recorded, in part where it was cut.
     expect(uses.some((use) => use.sent > 0 && use.sent < use.total)).toBe(true);
+  });
+
+  it("reads the same parts on every claim of a Line, and an empty document as it is (review, 2026-10-28)", async () => {
+    const s = await decisionFixture();
+    const filler = (seed: number, chars: number) => {
+      let text = "";
+      for (let i = 0; text.length < chars; i++) text += `The gasket held after ${(seed * 31 + i * 7) % 900} cycles on the bench. `;
+      return text.slice(0, chars);
+    };
+    await addSource(s, "project_document", "other:empty.md", "");
+    await addSource(s, "project_document", "scoping_notes:a.md", filler(4, 40_000));
+    await addSource(s, "project_document", "other:b.md", filler(5, 30_000));
+    const loadOnce = () =>
+      s.t.run(async (ctx) => loadFactsSourceDocuments(ctx, (await ctx.db.get(s.generationId))!, undefined, ["gasket held 417 cycles"]));
+    const first = await loadOnce();
+    expect(await loadOnce()).toEqual(first);
+    expect(first.documents.some((document) => document.label === "OTHER SUPPORTING MATERIAL: empty.md" && document.content === "")).toBe(true);
+    expect(first.leftOut.map((document) => document.label)).not.toContain("OTHER SUPPORTING MATERIAL: empty.md");
   });
 });
 
@@ -117,23 +135,27 @@ describe("a document read in part (2026-10-28, fourth)", () => {
     const documents = {
       documents: [
         { label: "INTERVIEW TRANSCRIPT: Interview", content: "Dana: the seal held." },
-        { label: "SCOPING NOTES: summary.md (part 1 of 2)", content: "The Viton membrane cracked." },
-        { label: "SCOPING NOTES: summary.md (part 2 of 2)", content: "Trial 418 ran at minus 60." },
+        { label: "SCOPING NOTES: summary.md (excerpt 1 of 2)", content: "The Viton membrane cracked." },
+        { label: "SCOPING NOTES: summary.md (excerpt 2 of 2)", content: "Trial 418 ran at minus 60." },
+        { label: "WRITER'S NOTES: notes.md (its start)", content: "Say cold soak." },
       ],
       leftOut: [{ label: "OTHER SUPPORTING MATERIAL: log.md", bytes: 90_000 }],
-      readInPart: [{ label: "SCOPING NOTES: summary.md", bytes: 61_000, sent: 52 }],
+      readInPart: [
+        { label: "SCOPING NOTES: summary.md", bytes: 61_000, sent: 52 },
+        { label: "WRITER'S NOTES: notes.md", bytes: 70_000, sent: 14, start: true as const },
+      ],
       budget: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
     };
     const facts = sourceFactsFor({ analysis: {}, documents });
     expect(facts.documentsComplete).toBe(false);
     expect(facts.body).toContain(
-      `Source documents read only in the parts that best match this Line, over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget: SCOPING NOTES: summary.md (52 of 61000 bytes).`
+      `Source documents read only in part, over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget: SCOPING NOTES: summary.md (52 of 61000 bytes); WRITER'S NOTES: notes.md (14 of 70000 bytes).`
     );
-    expect(facts.body).toContain("[SCOPING NOTES: summary.md (part 2 of 2)]\nTrial 418 ran at minus 60.");
+    expect(facts.body).toContain("[SCOPING NOTES: summary.md (excerpt 2 of 2)]\nTrial 418 ran at minus 60.");
     // A quote is found only in what was read.
     expect(facts.evidence).toContain("The Viton membrane cracked.");
     expect(factsDocumentsLeftOutNote(documents)).toBe(
-      `(Over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget it read only the parts that best match this Line of SCOPING NOTES: summary.md (61000 bytes) and did not read OTHER SUPPORTING MATERIAL: log.md (90000 bytes), so it let the signed-off items, their quotes and the analysis stand for the rest.)`
+      `(Over this check's ${SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES}-byte budget it read only the parts of SCOPING NOTES: summary.md (61000 bytes) that best match this Line and read only the start of WRITER'S NOTES: notes.md (70000 bytes) and did not read OTHER SUPPORTING MATERIAL: log.md (90000 bytes), so it let the signed-off items, their quotes and the analysis stand for the rest.)`
     );
   });
 });

@@ -37,7 +37,7 @@ import {
 } from "./brief";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../shared/pdSubsections";
 import {
-  FACTS_PART_LABEL_BYTES,
+  FACTS_PART_FRAME_BYTES,
   emptyContextRevision,
   emptySelectionRevision,
   SeedContextLimitError,
@@ -1465,17 +1465,21 @@ export async function loadFactsSourceDocuments(
     weighed.push({ sourceId: row._id, document, bytes: utf8Size(document.content) });
   }
   const chosen = chooseEvidence({
-    rows: weighed.map(({ document }) => ({ text: document.content, ...(document.writer ? { whole: true } : {}) })),
+    rows: weighed.map(({ document }) => ({
+      text: document.content,
+      ...(document.writer ? { whole: true } : {}),
+      // Each excerpt carries its own label line.
+      excerptCost: utf8Size(document.label) + FACTS_PART_FRAME_BYTES,
+    })),
     subject: subjectOf(subjectTexts),
     budget,
     size: utf8Size,
-    excerptCost: FACTS_PART_LABEL_BYTES,
   });
   const documents: FactsSourceDocument[] = [];
   const leftOut: FactsSourceDocuments["leftOut"] = [];
   const readInPart: NonNullable<FactsSourceDocuments["readInPart"]> = [];
   weighed.forEach(({ sourceId, document, bytes }, index) => {
-    const { ranges, whole } = chosen[index]!;
+    const { ranges, whole, cut } = chosen[index]!;
     if (whole) {
       documents.push(document);
       uses?.push({ sourceId, sent: bytes, total: bytes });
@@ -1492,11 +1496,11 @@ export async function loadFactsSourceDocuments(
       sent += utf8Size(content);
       documents.push({
         ...document,
-        label: `${document.label} (part ${part + 1} of ${ranges.length})`,
+        label: cut ? `${document.label} (its start)` : `${document.label} (excerpt ${part + 1} of ${ranges.length})`,
         content,
       });
     });
-    readInPart.push({ label: document.label, bytes, sent });
+    readInPart.push({ label: document.label, bytes, sent, ...(cut ? { start: true as const } : {}) });
     uses?.push({ sourceId, sent, total: bytes });
   });
   return { documents, leftOut, budget, ...(readInPart.length > 0 ? { readInPart } : {}) };

@@ -5,6 +5,7 @@ import {
   evidenceWords,
   foldForSearch,
   nameSafeRange,
+  partRange,
   scoreParts,
   startAtWordBoundary,
   subjectOf,
@@ -172,5 +173,48 @@ describe("chooseEvidence", () => {
         if (i > 0) expect(range.start).toBeGreaterThan(row.ranges[i - 1]!.end);
       }
     });
+  });
+});
+
+describe("review fixes (2026-10-28)", () => {
+  it("chooses within 3 MiB of unbroken script well inside a mutation's time (it took seconds before)", () => {
+    // Long runs of letters with no space, the slow case of an unanchored match.
+    const run = (n: number) => "\u0E01\u0E02\u0E03\u0E04".repeat(Math.ceil(n / 4)).slice(0, n);
+    const rows = Array.from({ length: 16 }, (_, index) => ({
+      text: Array.from({ length: 1_000 }, (_, i) => run(40 + ((index + i) % 160))).join(". ").slice(0, 200_000),
+    }));
+    const started = performance.now();
+    chooseEvidence({ rows, subject: subjectOf(["\u0E01\u0E02\u0E03 seal"]), budget: 48_000, size: utf8Size, excerptCost: 60 });
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
+
+  it("moves a part's edges to a sentence end within reach, so a name wrapped over two lines stays whole", () => {
+    const text = `${"The seal held. ".repeat(20)}Dana visited Northern\nRobotics Inc. on Monday. ${"The pump drifted. ".repeat(20)}`;
+    const wrap = text.indexOf("\nRobotics");
+    const range = partRange(text, 0, wrap);
+    const sent = text.slice(range.start, range.end);
+    expect(sent).not.toContain("Northern");
+    expect(sent.endsWith("The seal held. ")).toBe(true);
+    // The other side never starts with the name's second half alone.
+    const later = partRange(text, wrap + 1, text.length);
+    expect(text.slice(later.start, later.end).startsWith("Robotics")).toBe(false);
+  });
+
+  it("marks a must-have row cut to fit as its start, and charges each row its own excerpt cost", () => {
+    const notes = "Write cold soak, never cold-soak. ".repeat(200);
+    const chosen = chooseEvidence({
+      rows: [{ text: notes, whole: true }, { text: "seal ".repeat(4_000), excerptCost: 500 }],
+      subject: subjectOf(["seal"]),
+      budget: 2_000,
+      size: utf16Size,
+    });
+    expect(chosen[0]).toMatchObject({ whole: false, cut: true });
+    const spent = chosen[0]!.ranges.reduce((sum, range) => sum + range.end - range.start, 0);
+    for (const range of chosen[1]!.ranges) expect(range.end - range.start + 500).toBeLessThanOrEqual(2_000 - spent);
+  });
+
+  it("sends an empty row as it is, even over the budget", () => {
+    const chosen = chooseEvidence({ rows: [{ text: "" }, { text: "seal held. ".repeat(500) }], subject: subjectOf([]), budget: 100, size: utf16Size });
+    expect(chosen[0]).toEqual({ ranges: [], whole: true });
   });
 });

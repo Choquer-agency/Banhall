@@ -4918,19 +4918,36 @@ This changes what one AI check reads and one sentence of its note, not a workflo
 
 - **Rule.**
   - When every frozen interview and file fits the check's 48,000 bytes, each is read whole, as before.
-  - When they do not, the writer's notes go in whole first. The rest of the budget then takes the parts of every interview and file that best match the Line's own signed-off plan (`shared/evidenceChoice.ts`: the same parts as search pieces, scored with rare words counting more), each part its own entry, then unmatched parts in order.
-  - No part starts or ends inside a word.
+  - When they do not, the writer's notes go in whole first, or their start when they alone pass the budget.
+  - The rest of the budget then takes the parts of every interview and file that best match what the Line must cover, then unmatched parts in order:
+    - "What the Line must cover" is each cover item's wording, the wording it relates to and its quotes. Never a Skip, a LEAVE OUT entry or the plan's own scaffold.
+    - The parts are cut from the frozen text the way search pieces are, as plain text, without page, heading or sheet breaks (`shared/evidenceChoice.ts`).
+    - They are scored with rare words counting more and long parts not winning by length (BM25).
+    - Each excerpt is its own entry; touching parts join.
+  - No excerpt starts or ends inside a word (a run of over 64 letters aside). Where a sentence or paragraph end is within 300 characters, the edge moves to it, so a name wrapped over two lines is not split.
   - A quote the check gives is found only in what it read.
-- **What the writer sees.** The facts row's note names each file read only in part and each left out: "(Over this check's 48000-byte budget it read only the parts that best match this Line of ... and did not read ..., so it let the signed-off items, their quotes and the analysis stand for the rest.)" When only files were left out, the note is word for word as before.
-- **Where.** `loadFactsSourceDocuments` in `convex/lib/generations/seedStage.ts`, given the Line's plan block by `orderedSectionClaim` (`convex/lib/generations/chain.ts`); `sourceFactsFor` in `convex/ai/selfCheck.ts`; `factsDocumentsLeftOutNote` in `convex/ai/orderedGeneration.ts`; the check's prompt words in `convex/ai/promptDefinitions.ts` (the prompt version moves).
+- **What the writer sees.** The facts row's note names each file read only in part and each left out: "(Over this check's 48000-byte budget it read only the parts of ... that best match this Line and did not read ..., so it let the signed-off items, their quotes and the analysis stand for the rest.)" Writer's notes cut to fit read "only the start of". When only files were left out, the note is word for word as before.
+- **Where.** `loadFactsSourceDocuments` in `convex/lib/generations/seedStage.ts`, given the Line's cover items by `orderedSectionClaim` (`convex/lib/generations/chain.ts`); `sourceFactsFor` in `convex/ai/selfCheck.ts`; `factsDocumentsLeftOutNote` in `convex/ai/orderedGeneration.ts`; the check's prompt words in `convex/ai/promptDefinitions.ts` (the prompt version moves).
 - **Known limits.**
   - The check still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - The record of what the check read says "in part" but not which ranges yet (later in step 1).
+  - The choice runs in the claim's transaction. Measured: 3.2 million characters of unbroken script chosen in about 0.3 seconds on the development machine under load. The first version took seconds on such text, found in review.
+  - A name of several words cut at an edge with no sentence end within 300 characters can still go out in two halves, as with the budget cut the other steps already use.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
   - `convex/factsSourceDocuments.test.ts`: whole when all fit; over the budget, the part holding the Line's fact is read, the file is named as read in part, the budget holds, and the record says "in part"; the prompt and the note name it.
   - `convex/companyFileDrafts.test.ts`: whole, in part or none per row.
-  - `shared/evidenceChoice.test.ts`: the chooser itself.
+  - `shared/evidenceChoice.test.ts`: the chooser itself, its time on 3 MiB of unbroken script, sentence-end edges keeping a wrapped name whole, a must-have row cut to its start, per-file excerpt costs, and an empty file.
+  - `convex/factsSourceDocuments.test.ts` also: the same parts on every claim, and an empty file read as it is.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - the chooser's time (P1);
+  - the subject: cover items, not the whole plan block;
+  - sentence-end edges;
+  - each file's own label cost;
+  - the note's wording;
+  - empty files;
+  - the tests;
+  - this entry.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process

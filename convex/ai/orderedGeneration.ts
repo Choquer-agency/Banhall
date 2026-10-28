@@ -567,8 +567,11 @@ export function factsDocumentsLeftOutNote(documents: FactsSourceDocuments): stri
   // parts that best match the Line.
   const named = (list: ReadonlyArray<{ label: string; bytes: number }>) =>
     list.map((document) => `${document.label} (${document.bytes} bytes)`).join(", ");
+  const matched = readInPart.filter((document) => !document.start);
+  const started = readInPart.filter((document) => document.start);
   const parts = [
-    ...(readInPart.length > 0 ? [`read only the parts that best match this Line of ${named(readInPart)}`] : []),
+    ...(matched.length > 0 ? [`read only the parts of ${named(matched)} that best match this Line`] : []),
+    ...(started.length > 0 ? [`read only the start of ${named(started)}`] : []),
     ...(documents.leftOut.length > 0 ? [`did not read ${named(documents.leftOut)}`] : []),
   ];
   return `(Over this check's ${documents.budget}-byte budget it ${parts.join(" and ")}, so it let the signed-off items, their quotes and the analysis stand for the rest.)`;
