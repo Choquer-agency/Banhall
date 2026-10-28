@@ -38,8 +38,14 @@ async function expectCardClearsBar(barSelector: string, actionSelector: string) 
   const bar = document.querySelector<HTMLElement>(barSelector)!;
   const action = bar.querySelector<HTMLElement>(actionSelector)!;
   const barRect = bar.getBoundingClientRect();
-  // The bar sits on the window's bottom edge, where the card used to be.
-  expect(Math.round(barRect.bottom)).toBe(window.innerHeight);
+  // The bar sits on the page's bottom edge, where the card used to be: the
+  // window's on a phone, the white card's from 1024px (the page frame,
+  // 8px above the window's foot inside its 1px border).
+  const frame = bar.closest<HTMLElement>("[data-frame-card]");
+  const pageBottom = frame
+    ? frame.getBoundingClientRect().bottom - parseFloat(getComputedStyle(frame).borderBottomWidth)
+    : window.innerHeight;
+  expect(Math.round(barRect.bottom)).toBe(Math.round(pageBottom));
   await expect
     .poll(() => document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect().bottom)
     .toBeLessThanOrEqual(barRect.top - 16 + 0.5);

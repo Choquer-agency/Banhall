@@ -8,19 +8,29 @@ import { SvelteMap } from "svelte/reactivity";
 
 const heights = new SvelteMap<HTMLElement, number>();
 
-/** Attachment: `<div {@attach stickyActionBar}>`. A hidden bar measures 0. */
+/**
+ * Attachment: `<div {@attach stickyActionBar}>`. A bar measures the space from
+ * its top to the window's foot, so a bar inside the page frame's white card
+ * (8px above the foot from 1024px, owner 2026-10-28) is cleared too. A hidden
+ * bar measures 0.
+ */
 export function stickyActionBar(element: HTMLElement) {
-  const measure = () => heights.set(element, element.getBoundingClientRect().height);
+  const measure = () => {
+    const rect = element.getBoundingClientRect();
+    heights.set(element, rect.height === 0 ? 0 : Math.max(rect.height, window.innerHeight - rect.top));
+  };
   measure();
   const observer = new ResizeObserver(measure);
   observer.observe(element);
+  window.addEventListener("resize", measure);
   return () => {
     observer.disconnect();
+    window.removeEventListener("resize", measure);
     heights.delete(element);
   };
 }
 
-/** Height in px of the tallest sticky action bar on the page, or 0. */
+/** Space in px the tallest sticky action bar takes above the window's foot, or 0. */
 export function stickyActionBarHeight() {
   let tallest = 0;
   for (const height of heights.values()) tallest = Math.max(tallest, height);

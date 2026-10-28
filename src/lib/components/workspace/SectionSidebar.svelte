@@ -34,7 +34,6 @@
     title,
     action = null,
     phone = "hidden",
-    header = undefined,
     children,
     footer = undefined,
   }: {
@@ -43,8 +42,6 @@
     title: string;
     action?: SectionSidebarAction | null;
     phone?: "hidden" | "full";
-    /** Extra controls before the title on a phone (the Projects list's own menu button). */
-    header?: Snippet;
     children: Snippet;
     /** Pinned under the rows (the Projects page's New company and Merge companies). */
     footer?: Snippet;
@@ -72,7 +69,6 @@
     class="flex min-h-0 w-full shrink-0 flex-col px-2.5 pb-3 md:w-[14.1875rem]"
   >
     <div data-section-sidebar-header class="flex h-16 shrink-0 items-center gap-2 pl-2 pr-0.5">
-      {@render header?.()}
       <p data-section-sidebar-title class="min-w-0 flex-1 truncate text-base font-medium leading-[1.25] text-ink">{title}</p>
       <Tooltip text="Collapse the sidebar" {hint} side="bottom" delayDuration={300}>
         {#snippet children({ props })}
