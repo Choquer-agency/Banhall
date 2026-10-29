@@ -169,6 +169,8 @@ import {
   getPostQaAttemptHandler,
   getPostQaInputArgs,
   getPostQaInputHandler,
+  getQaSourceEvidenceArgs,
+  getQaSourceEvidenceHandler,
   saveReportQaArgs,
   saveReportQaHandler,
   requestReportQaArgs,
@@ -751,6 +753,15 @@ export const getPostQaAttempt = internalQuery({
 export const getPostQaInput = internalQuery({
   args: getPostQaInputArgs,
   handler: getPostQaInputHandler,
+});
+
+/**
+ * 2026-10-29 (third): the source evidence QA checks claims against, chosen
+ * as the facts check chooses its own.
+ */
+export const getQaSourceEvidence = internalQuery({
+  args: getQaSourceEvidenceArgs,
+  handler: getQaSourceEvidenceHandler,
 });
 
 /** Merge the post-assembly QA scorecard + chronology into agentOutputs. */

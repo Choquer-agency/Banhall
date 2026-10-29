@@ -17,6 +17,7 @@ import { lengthBudgetBlock } from "./pipeline";
 import { draftWordTarget } from "../lib/lineLimits";
 import { withPinnedLine242Opening } from "../line242Opening.fixture";
 import { withoutInferenceMarker } from "../inferenceMarker.fixture";
+import { withoutHonestDrafting } from "../honestDrafting.fixture";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -206,7 +207,7 @@ function withoutDraftHeadroom(params: GenerationMessageParams): string {
 }
 
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
-  const bytes = new TextEncoder().encode(withoutInferenceMarker(withPinnedLine242Opening(withoutDraftHeadroom(params)), "draft"));
+  const bytes = new TextEncoder().encode(withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(withoutDraftHeadroom(params)), "draft"), "draft"));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

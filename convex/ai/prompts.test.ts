@@ -307,15 +307,17 @@ describe("section 244 prompt", () => {
       'This paragraph MUST open with: "It was hypothesized that if'
     );
     expect(prompt).toContain("if/then");
-    expect(prompt).toContain("The hypothesis MUST be falsifiable");
+    // 2026-10-29 (third): a prediction must be falsifiable; an exploratory
+    // hypothesis may stand where the evidence supports no prediction.
+    expect(prompt).toContain("A prediction must be falsifiable");
   });
 
   it("waiving repetitionCaps drops the per-section phrase cap only", () => {
     const prompt = buildSection244SystemPrompt(waive("repetitionCaps"));
     expect(prompt).not.toContain("NO MORE THAN TWICE");
     expect(prompt).toContain("Demonstrate the systematic approach through the content itself");
-    // Experimentation narrative arc is locked.
-    expect(prompt).toContain("PROBLEM STATEMENT");
+    // The experiment order is locked (2026-10-29, third: as far as the evidence goes).
+    expect(prompt).toContain("Tell each experiment in order, as far as the evidence goes:");
   });
 });
 
@@ -704,23 +706,25 @@ describe("2026-09-15 re-tiering: no paragraph counts, openers off by default", (
         "Line 244 must cover, in this order: prior-year status (only for a continuing project), workplan, hypothesis, experimentation/iterations."
       );
       expect(s244).toContain("**HYPOTHESIS:**");
-      expect(s244).toContain("strict if/then structure");
-      expect(s244).toContain("The THEN clause MUST contain at least one concrete, measurable outcome");
+      // 2026-10-29 (third): one hypothesis per uncertainty, a number only
+      // from the evidence, and each experiment as far as the evidence goes.
+      expect(s244).toContain("in if/then form, with technical specifics in both clauses");
+      expect(s244).toContain("A number, threshold, comparison baseline or target belongs in it only where the evidence gives one");
       expect(s244).toContain("**EXPERIMENTATION/ITERATIONS:**");
       expect(s244).toContain("Write one experimentation paragraph per distinct experiment or iteration the source material supports");
-      for (const element of ["PROBLEM STATEMENT", "INITIAL APPROACH", "WHAT WENT WRONG OR WAS LEARNED", "REVISED APPROACH", "CONCLUSION"]) {
+      for (const element of ["1. The uncertainty it addressed.", "2. What was tried.", "3. What happened", "4. What was changed next.", "5. What was learned, or what stayed unresolved."]) {
         expect(s244).toContain(element);
       }
       expect(s244).toContain("never pad to a count, and never invent experiments");
 
       const s246 = buildSection246SystemPrompt(overrides);
       expect(s246).toContain(
-        "Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per resolved uncertainty), project status and next steps, project goal and improvements."
+        "Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per uncertainty), project status and next steps, project goal and improvements."
       );
       expect(s246).toContain("KNOWLEDGE FIRST, CAPABILITIES SECOND");
       expect(s246).toContain("SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH");
-      expect(s246).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per resolved uncertainty):**");
-      expect(s246).toContain("one per advancement it supports, never padded to a count");
+      expect(s246).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242):**");
+      expect(s246).toContain("one per uncertainty it supports, never padded to a count");
       expect(s246).toContain("**PROJECT GOAL & IMPROVEMENTS:**");
     }
   });

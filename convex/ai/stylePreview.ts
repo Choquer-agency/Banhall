@@ -28,7 +28,8 @@ import type { StyleOverrides } from "../../shared/styleOverrides";
 
 // 2026-10-29: the shared writing rules gained the stated, inferred or
 // missing rule (RULES_EVIDENCE_KINDS), so the preview's system text moved.
-export const STYLE_PREVIEW_PROMPT_VERSION = "style-preview.2026-10-29.1";
+// 2026-10-29 (third): the general rule and the evidence rule moved again.
+export const STYLE_PREVIEW_PROMPT_VERSION = "style-preview.2026-10-29.2";
 export const STYLE_PREVIEW_MAX_WORDS = 180;
 export const STYLE_PREVIEW_LIMIT_MESSAGE = "You have used today's previews. Try again tomorrow.";
 

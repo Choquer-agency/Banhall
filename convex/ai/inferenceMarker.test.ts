@@ -49,7 +49,7 @@ describe("the three kinds rule", () => {
       "- Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed."
     );
     expect(RULES_EVIDENCE_KINDS).toContain(
-      "- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts. Write an inferred cause as likely, never as confirmed."
+      "- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, and for general practice as below. Write an inferred cause as likely, never as confirmed."
     );
     // The gap comes first wherever the instructions ask for what the evidence lacks.
     expect(RULES_EVIDENCE_KINDS).toContain(
@@ -77,8 +77,9 @@ describe("the three kinds rule", () => {
       'Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a first approach is an event'
     );
     // No Good example marks an event.
+    // 2026-10-29 (third): a third Good example names general practice, marked.
     const goods = RULES_EVIDENCE_KINDS.split("\n").filter((line) => line.startsWith("Good"));
-    expect(goods).toHaveLength(2);
+    expect(goods).toHaveLength(3);
     for (const good of goods) expect(good).not.toMatch(/\b(?:trials?|tests?|tested|found|showed|indicated)\b/i);
     // The marker may name the source; the sentence may not.
     expect(RULES_EVIDENCE_KINDS).toContain("A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on");
@@ -157,10 +158,17 @@ describe("the three kinds rule", () => {
   it("leaves the templates, the required story and the other drafting rules as they were", () => {
     // Only the shared rules and the check lines move: the Line instructions
     // hold none of the marker's text.
-    for (const instructions of [buildSection242Instructions(), buildSection244Instructions(), buildSection246Instructions()]) {
+    // 2026-10-29 (third): Line 242's limitations name the general practice
+    // marker, and nothing else in the Line instructions holds one.
+    for (const instructions of [buildSection244Instructions(), buildSection246Instructions()]) {
       expect(instructions).not.toContain("[INFERRED");
     }
-    expect(buildSection244Instructions()).toContain("3. WHAT WENT WRONG OR WAS LEARNED (1-2 sentences)");
+    expect(buildSection242Instructions().match(/\[INFERRED[^\]]*\]/g)).toEqual([
+      "[INFERRED: general practice, not in the source: what the writer should confirm with the client]",
+    ]);
+    // 2026-10-29 (third): the required story is now the order to follow as
+    // far as the evidence goes (convex/ai/honestDrafting.test.ts).
+    expect(buildSection244Instructions()).toContain("5. What was learned, or what stayed unresolved.");
   });
 
   it("says on the House Rules page that an inference is written with a note to check", () => {

@@ -45,6 +45,7 @@ import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { INFERENCE_MARKER_ADDITIONS, withoutInferenceMarker, type InferenceMarkerStage } from "./inferenceMarker.fixture";
+import { withoutHonestDrafting } from "./honestDrafting.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { streamWhenAsked } from "./anthropicSse.fixture";
 
@@ -308,11 +309,12 @@ async function hashesOf(asSent: Sent[], signedOff: boolean): Promise<{
   // checklist is unchanged).
   // 2026-10-29 (owner): the inference marker's rule and check lines are put
   // back to before (convex/inferenceMarker.fixture.ts), so every other byte
-  // is still pinned.
+  // is still pinned. 2026-10-29 (third): so are the honest drafting rules
+  // (convex/honestDrafting.fixture.ts).
   const sent = asSent.map((request) => {
     const stage: InferenceMarkerStage =
       request.stage === "selfCheck" ? (signedOff ? "summarySelfCheck" : "selfCheck") : "draft";
-    const body = withoutInferenceMarker(withPinnedLine242Opening(request.body), stage);
+    const body = withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(request.body), stage), stage);
     return {
       ...request,
       body:

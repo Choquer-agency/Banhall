@@ -29,7 +29,7 @@ import { parseTranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
-import { runQAAgent } from "./qaAgent";
+import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import {
   buildStyleGuidance,
@@ -59,6 +59,7 @@ import {
   summarizeSlotUsage,
 } from "./instrument";
 import {
+  gapsAlreadyAskedBlock,
   ORDERED_PROMPT_SCAFFOLDS,
   ORDERED_SECTION_TITLES,
 } from "./promptDefinitions";
@@ -175,7 +176,9 @@ export function draftedPriorSectionsBlock(
         `${scaffold.itemTitlePrefix}${ORDERED_SECTION_TITLES[prior.section]}${scaffold.itemTitleSuffix}${prior.text}`
     )
     .join(scaffold.separator);
-  return `${scaffold.prefix}${body}`;
+  return `${scaffold.prefix}${body}${gapsAlreadyAskedBlock(
+    priorSections.map((prior) => ({ title: ORDERED_SECTION_TITLES[prior.section], text: prior.text }))
+  )}`;
 }
 
 /**
@@ -2348,8 +2351,14 @@ export const finalizeOrderedCandidate = internalAction({
       const seedRun = payload.summaryVersionId !== undefined;
       // QA scores a complete draft; a stopped draft skips it rather than be
       // scored on empty sections. Both stay advisory, as in the one-shot path.
+      // 2026-10-29 (third): QA reads the source evidence too; a failed read
+      // leaves it to the analysis, as before.
+      const scoreQa = allDrafted && !seedRun;
+      const qaSourceEvidence = scoreQa
+        ? await qaSourceEvidenceFor(ctx, args.generationId, [s242 ?? "", s244 ?? "", s246 ?? ""])
+        : null;
       const [qaSettled, chronologySettled] = await Promise.allSettled([
-        allDrafted && !seedRun
+        scoreQa
           ? runQAAgent(
               clientFor("generation:qa", qaDigestIds),
               analysis,
@@ -2359,7 +2368,8 @@ export const finalizeOrderedCandidate = internalAction({
               clientFor.modelFor("generation:qa"),
               payload.qaCalibration,
               styleOverrides,
-              detectFirstPersonPreference(payload.writerFlavor)
+              detectFirstPersonPreference(payload.writerFlavor),
+              qaSourceEvidence
             )
           : Promise.resolve(null),
         seedRun

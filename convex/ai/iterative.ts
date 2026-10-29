@@ -75,6 +75,7 @@ import {
   type FrozenWriterStyle,
 } from "../lib/frozenWriterStyle";
 import {
+  gapsAlreadyAskedBlock,
   ITERATIVE_PROMPT_SCAFFOLDS,
   ITERATIVE_SECTION_TITLES,
 } from "./promptDefinitions";
@@ -796,7 +797,10 @@ export function priorSectionsBlock(
         `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.itemTitlePrefix}${SECTION_TITLES[p.section]}${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.itemTitleSuffix}${p.text}`
     )
     .join(ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.separator);
-  return `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.prefix}${body}`;
+  // 2026-10-29 (third, item 5): no question an approved Line already asks.
+  return `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.prefix}${body}${gapsAlreadyAskedBlock(
+    priorSections.map((p) => ({ title: SECTION_TITLES[p.section], text: p.text }))
+  )}`;
 }
 
 /** Draft (or redraft) one section, fenced by its durable section-run row. */

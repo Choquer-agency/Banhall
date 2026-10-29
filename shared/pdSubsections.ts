@@ -101,7 +101,7 @@ export const PD_SUBSECTIONS = [
     kind: "standard",
     title: "Hypothesis",
     objective:
-      "State a specific, testable, and measurable hypothesis in if/then form, in under 20 words: the change and its measured outcome. Put any reason or test method in the Seed's second bullet.",
+      "State a specific, testable hypothesis in if/then form, in under 20 words: the change and the outcome expected, or the knowledge sought, with a measure only where the sources give one. Put the reason or any test method in the Seed's second bullet.",
   },
   {
     roleId: "experimentation",
@@ -110,7 +110,7 @@ export const PD_SUBSECTIONS = [
     kind: "multiple",
     title: "Experimentation / Iterations",
     objective:
-      "Describe each supported experiment or iteration as a problem, attempt, finding, adaptation, and conclusion.",
+      "Describe each supported experiment or iteration in order: what was tried, what happened, what was changed, and what was learned or left unresolved, only as far as the sources show.",
   },
   {
     roleId: "overall_advancement",
@@ -128,7 +128,7 @@ export const PD_SUBSECTIONS = [
     kind: "multiple",
     title: "Specific technological advancements",
     objective:
-      "State the technological knowledge gained for each resolved uncertainty.",
+      "State the technological knowledge gained for each uncertainty, and how far the sources show it was resolved.",
   },
   {
     roleId: "project_status",
@@ -193,10 +193,10 @@ const PD_SUBSECTION_STEP_SUBTITLES: Record<PdSubsectionRoleId, string> = {
   active_uncertainties: "The open questions in the chosen approach, and why each outcome was uncertain.",
   prior_year_status: "For a continuing project: where it stood at last year's end, and what stayed uncertain.",
   workplan: "The planned approach and steps to resolve the uncertainties.",
-  hypothesis: "A testable, measurable hypothesis in if/then form.",
-  experimentation: "Each experiment: problem, attempt, finding, adaptation and conclusion.",
+  hypothesis: "A testable hypothesis in if/then form: the outcome expected, or the knowledge sought.",
+  experimentation: "Each experiment: what was tried, what happened, what changed, and what was learned or left open.",
   overall_advancement: "The overall advancement, and how far the objective and hypothesis were met.",
-  specific_advancements: "The knowledge gained for each resolved uncertainty.",
+  specific_advancements: "The knowledge gained for each uncertainty, and how far it was resolved.",
   project_status: "Where the project stands, what is still uncertain and what comes next.",
   goal_improvements: "How the knowledge gained met the original goal and improved the product or process.",
 };
@@ -297,9 +297,10 @@ const ROLE_LANGUAGE = {
     qaScan: "overall advancement",
   },
   specific_advancements: {
+    // 2026-10-29 (third): one per uncertainty, resolved or not.
     draft:
-      "the specific technological advancements (one per resolved uncertainty)",
-    qa: "the specific advancements (one per resolved uncertainty)",
+      "the specific technological advancements (one per uncertainty)",
+    qa: "the specific advancements (one per uncertainty)",
     chat: "specific advancements",
     qaScan: "specific advancements",
   },

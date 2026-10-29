@@ -42,9 +42,11 @@ import { seedToolSchemaForFacts } from "./lib/seedFacts";
 import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { withoutInferenceMarkerJson, type InferenceMarkerStage } from "./inferenceMarker.fixture";
+import { withoutHonestDraftingJson, type HonestDraftingStage } from "./honestDrafting.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
+import { CONTEXT_SCAFFOLDS } from "./ai/trustedContext";
 import { CHRONOLOGY_REQUEST, CHRONOLOGY_SCHEMA } from "./ai/chronologyAgent";
 import {
   ANTHROPIC_TIMEOUT_MS,
@@ -488,14 +490,28 @@ function markerStage(json: Record<string, unknown>, compressionPinned = true): I
   if (stage === "submit_qa_scorecard") return "qa";
   return "none";
 }
+/**
+ * Which of the honest drafting changes (convex/honestDrafting.fixture.ts) a
+ * request of this stage holds: the marker's stages, and the analysis.
+ */
+function honestStage(json: Record<string, unknown>, compressionPinned = true): HonestDraftingStage {
+  return stageOf(json) === "submit_transcript_analysis" ? "analysis" : markerStage(json, compressionPinned);
+}
+/**
+ * 2026-10-29 (third): the honest drafting rules are put back to before,
+ * last, after the marker's lines are taken out.
+ */
 const asPinned = (json: Record<string, unknown>) =>
-  withoutInferenceMarkerJson(
-    withoutLine242Opening(
-      withPinnedCompressionAnswer(
-        withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
-      )
+  withoutHonestDraftingJson(
+    withoutInferenceMarkerJson(
+      withoutLine242Opening(
+        withPinnedCompressionAnswer(
+          withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
+        )
+      ),
+      markerStage(json)
     ),
-    markerStage(json)
+    honestStage(json)
   );
 
 /**
@@ -510,7 +526,7 @@ const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_se
 const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
 async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
   // 2026-10-26: captured before the judges' larger limit and streaming.
-  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutInferenceMarkerJson(withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json))), "selfCheck")))
+  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json))), "selfCheck"), "selfCheck")))
     .submit_self_check;
 }
 
@@ -1060,6 +1076,17 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       if (mode === "single") {
         expect(now.section).toEqual(before.section);
         expect(now.repair).toEqual(before.repair);
+        // 2026-10-29 (third, item 4): QA reads the frozen source evidence
+        // before the analysis; the pins above compare the rest of it.
+        const qa = wire.sent.filter((item) => stageOf(item.json) === "submit_qa_scorecard");
+        expect(qa.length).toBeGreaterThan(0);
+        for (const request of qa) {
+          const body = request.body;
+          const heading = body.indexOf(JSON.stringify(QA_REQUEST.sourceScaffold.heading).slice(1, -1));
+          expect(heading).toBeGreaterThan(0);
+          expect(body.indexOf(JSON.stringify(QA_REQUEST.userScaffold.analysisHeading).slice(1, -1))).toBeGreaterThan(heading);
+          expect(body.slice(heading)).toContain(JSON.stringify(`${QA_REQUEST.sourceScaffold.documentPrefix}${CONTEXT_SCAFFOLDS.transcriptLabel}`).slice(1, -1));
+        }
         // Opus 5.5 always thinks: compression runs at low effort instead of its default.
         for (const request of wire.sent.filter((item) => stageOf(item.json) === "compression")) {
           expect(request.json.thinking).toBeUndefined();
@@ -1091,7 +1118,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent, (json) => withoutInferenceMarkerJson(withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))), markerStage(json, false)));
+    const now = await stagesOf(wire.sent, (json) => withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))), markerStage(json, false)), honestStage(json, false)));
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);

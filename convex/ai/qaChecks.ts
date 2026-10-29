@@ -110,7 +110,8 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
     if (isUncertainty) {
       uncertaintySentences.push({
         excerpt: sentence.slice(0, 100) + (sentence.length > 100 ? "..." : ""),
-        hasBecause: /because/i.test(sentence),
+        // 2026-10-29 (third): a cause given first with "given that" counts too.
+        hasBecause: /\bbecause\b|\bgiven\s+that\b/i.test(sentence),
       });
     }
   }

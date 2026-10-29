@@ -1170,8 +1170,14 @@ describe("prompt versions", () => {
     // after its review round 3, which adds "first approach" to the four
     // event lists and a marked first approach as a Bad example, on
     // purpose; before it they were sha256:c1e5249c... and sha256:8daa03ec....
-    expect(await hashPromptProgram()).toBe("sha256:06c66f894749d39ce5bd5e878eebe6590ce27d3b38fc879348814727ebb6e3e0");
-    expect(await legacyPromptVersion()).toBe("sha256:a18aa300b4e42f2413ee0eae52d0dccf14f6504846851d83ebc4a89997ddb55b");
+    // Re-read after 2026-10-29 (third, the honest drafting rules): the
+    // general rule, the analyzer, Line 242's limitations, Line 244's
+    // hypothesis and experiments, Line 246, QA's checks and its source
+    // evidence, the goal-as-result check lines, the gaps already asked,
+    // the Assistant's skeleton and three Seed objectives move on purpose;
+    // before it they were sha256:06c66f89... and sha256:a18aa300....
+    expect(await hashPromptProgram()).toBe("sha256:b501156ea8fb482917df750aa2840a938f4fed0c186b43c238ce3eacddb25bc3");
+    expect(await legacyPromptVersion()).toBe("sha256:e828e9f7cc0f2fe6494b800fdd2d36d96056333aa3ce06d313ca590244fc1a01");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

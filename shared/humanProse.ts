@@ -169,6 +169,15 @@ No talk about sources:
  * is a note to the writer, like a gap, so it may name the source; the
  * sentence never does.
  *
+ * 2026-10-29 (third, owner "Sure" to item 3, and item 1f): general practice
+ * is the one use of the model's own knowledge. Where the evidence names no
+ * standard approach, Line 242's limitations may name well-known standard
+ * practice, marked "[INFERRED: general practice, not in the source: ...]"
+ * for the writer to confirm with the client; never as something the company
+ * tried, and with no invented specifics. Events are still never inferred.
+ * An analysis entry the analyzer labelled "Implied, not stated:" is drafted
+ * as a marked inference or left out.
+ *
  * Locked, like the [GAP] rule beside it: sent in the shared writing rules of
  * every drafting request (Single draft, Compare, Step by step and a redraft,
  * with their repairs, which reuse those requests) and of the Assistant. It
@@ -183,9 +192,11 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 2. Inferred: a consequence, a cause or a comparison that the stated facts clearly imply, and that a careful reader of the evidence would agree with. Write the sentence, then put a marker straight after it: [INFERRED: the stated facts it rests on, in plain words]. The marker tells the writer which sentence to check and why you thought it.
 3. Missing: nothing in the evidence supports it. Do not write it. Where the Line needs it, put a [GAP: what is needed] marker in its place.
 - Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed.
-- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts. Write an inferred cause as likely, never as confirmed.
+- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, and for general practice as below. Write an inferred cause as likely, never as confirmed.
 - Never write an inference as if the evidence stated it: mark it.
 - An inference adds no specific detail of its own: no number, material, name, date, setting or test result. A detail you would have to invent is missing and gets a gap.
+- General practice is the one use of your own knowledge. In the limitations of standard practice, where the evidence names no standard approach, you may name a well-known standard approach and say what it is generally known to do, marked straight after the sentence with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Name it in general terms only, with no figure, product version or setting of your own, and never say or suggest that the company tried it unless the evidence says so.
+- An entry of the transcript analysis that begins "Implied, not stated:" is an inference, not a stated fact: write it as an inference and mark it, or leave it out.
 - When a Line's instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding or a result, leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it. Never make it up to fill the shape.
 - Most sentences should be stated. When in doubt, leave a gap.
 - One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
@@ -193,11 +204,14 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 - When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
 Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
 Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
+Good, where the evidence names no standard approach: "Cold-room controllers commonly hold temperature with setpoint tables and a feedback loop tuned for a closed room. [INFERRED: general practice, not in the source: confirm with the client which control methods the team knew of] Those tables assume the doors stay closed, and the warehouse's dock doors stay open for most of a shift." (general practice, marked, then the stated reason it falls short here)
 Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)
 Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a first approach is an event: a requirement is not a first approach, and the marker does not make it allowed: leave a gap)
 Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials, and the sentence is written as a stated fact)
 Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source, and states a first approach the evidence does not describe)
-Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)`;
+Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)
+Bad: "No documented method existed for holding a cold room at its setpoint while its doors stay open." (names no standard approach and no reason it falls short: name the standard approach, what it does and why it falls short here)
+Bad: "The team first tried the standard setpoint tables. [INFERRED: general practice, not in the source: setpoint tables are the usual method]" (general practice is never something the company tried unless the evidence says so)`;
 
 /**
  * 2026-09-30 (third): the Compliance Note instruction and the repair fix for

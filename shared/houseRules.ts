@@ -41,8 +41,20 @@ When first person is in use, choose voice by what each sentence DOES, never by w
 export const GENERAL_LENGTH_RULE = "- Word count is a guideline; the official constraint is line count. Write in dense, formal paragraphs.";
 export const CHAT_LENGTH_RULE = "- Each Line has two CRA limits, its form lines and its words; stay within both. Write in dense, formal paragraphs.";
 
+/**
+ * 2026-10-29 (third, owner: "Yes relax the rule"): the first general rule
+ * said "This is a PERSUASIVE ESSAY to convince a CRA auditor. Every sentence
+ * must serve the SR&ED argument.", which pushed drafts to fill the story
+ * with claims the evidence does not make. None of the firm's 16 approved
+ * Brain PDs reads as a persuasive essay: they are factual, scoped and candid
+ * about failure, and they hold ordinary context sentences. The rule now
+ * asks for that record. Locked, like the rest of GENERAL RULES.
+ */
+export const GENERAL_FACTUAL_ARGUMENT_RULE =
+  "- Write a factual technical record for a CRA reviewer: specific, measured, and candid about failures and open questions. The case is made by specifics, not adjectives, and never by claims the evidence does not support.";
+
 export const RULES_GENERAL = `GENERAL RULES:
-- This is a PERSUASIVE ESSAY to convince a CRA auditor. Every sentence must serve the SR&ED argument.
+${GENERAL_FACTUAL_ARGUMENT_RULE}
 - Use formal paragraph structure. NO bullet points. NO numbered lists.
 - NEVER hallucinate or fabricate technical details. If information is missing from the analysis, insert a clearly marked placeholder: [GAP: description of what information is needed].
 - Tie every claim back to evidence from the transcript analysis.
@@ -119,12 +131,15 @@ Do NOT skip this step. The word "novel" in particular appears frequently in AI-g
 // When waived, the writer's own preferences document defines each line's
 // architecture and framing; only the CRA form line/word limits and the
 // no-fabrication/evidence rules remain enforced. Since 2026-09-15 the default
-// mandates content coverage and order, never a paragraph count.
+// mandates content coverage and order, never a paragraph count. 2026-10-29
+// (third): the summary follows the relaxed drafting rules (standard approach
+// and shortfall, a hypothesis number only from the evidence, experiments as
+// far as the evidence goes, each advancement's status as the evidence shows).
 export const RULES_REPORT_SKELETON = `REPORT SKELETON (default architecture):
 Each line covers its content roles in the order given, in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one.
-- Line 242 (Scientific/Technological Uncertainty): company context → goal/problem → passive limitations of standard practice → technological objective → active uncertainties, each with a "because" clause.
-- Line 244 (Work Performed): optional prior-year status → workplan → hypothesis in if/then form with a measurable then-clause → experimentation paragraphs, each a problem → attempt → finding → adaptation → conclusion arc.
-- Line 246 (Scientific/Technological Advancement): overall advancement → knowledge-first advancement paragraphs (one per resolved uncertainty) → project status and next steps → project-goal bookend.
+- Line 242 (Scientific/Technological Uncertainty): company context → goal/problem → passive limitations of standard practice (the standard approaches, what they do and why they fall short here) → technological objective → active uncertainties, each with its cause.
+- Line 244 (Work Performed): optional prior-year status → workplan → one hypothesis per uncertainty in if/then form (a prediction with its reason, or the knowledge to be gained; a number only from the evidence) → experimentation paragraphs, each telling what was tried, what happened and what was changed, as far as the evidence shows, and ending with what was learned or what stayed unresolved → the year-end status.
+- Line 246 (Scientific/Technological Advancement): overall advancement as knowledge gained in the field → knowledge-first advancement paragraphs (one per uncertainty, each with its status only as the evidence shows) → project status and next steps → project-goal bookend, where the application is stated once.
 - The WHY-HOW-WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
 
 // ─── Display catalog for the admin House Rules page ─────────────────────────
@@ -162,7 +177,7 @@ export const LOCKED_RULES: Array<{ title: string; summary: string }> = [
   {
     title: "Formal prose and evidence discipline",
     summary:
-      "No bullet points or numbered lists; every claim traces back to the source material.",
+      "A factual technical record for a CRA reviewer: specific, measured, and candid about failures and open questions, never making claims the evidence does not support (2026-10-29). No bullet points or numbered lists; every claim traces back to the source material.",
   },
   {
     title: "Human prose: plain hyphens and plain language",

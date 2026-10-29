@@ -4532,7 +4532,7 @@ describe("step subtitles (F3 to F5)", () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ roleId: "hypothesis" }));
     await render(SeedWorkspace, workspaceProps({ requestedRoleId: "hypothesis" }));
-    await expect.poll(subtitle).toBe("A testable, measurable hypothesis in if/then form.");
+    await expect.poll(subtitle).toBe("A testable hypothesis in if/then form: the outcome expected, or the knowledge sought.");
     expect(document.body.textContent).not.toContain("State a specific, testable, and measurable hypothesis");
   });
 });

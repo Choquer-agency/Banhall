@@ -11,6 +11,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withoutInferenceMarker } from "../inferenceMarker.fixture";
+import { withoutHonestDrafting } from "../honestDrafting.fixture";
 import type { FunctionArgs } from "convex/server";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -376,7 +377,7 @@ async function completeSelfCheckRequestHash(
 ): Promise<string> {
   // 2026-10-29 (owner): with the inference marker's Self-check line taken
   // out (convex/inferenceMarker.fixture.ts), every other byte is pinned.
-  const bytes = new TextEncoder().encode(withoutInferenceMarker(JSON.stringify(params), "selfCheck"));
+  const bytes = new TextEncoder().encode(withoutHonestDrafting(withoutInferenceMarker(JSON.stringify(params), "selfCheck"), "selfCheck"));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

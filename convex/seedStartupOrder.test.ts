@@ -29,6 +29,7 @@ import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
 import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { withoutInferenceMarker } from "./inferenceMarker.fixture";
+import { withoutHonestDrafting } from "./honestDrafting.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
@@ -325,10 +326,20 @@ async function requestHashes(
     // opening moved the analyzer's company and goal categories, the Company /
     // Context objective and the Line 242 drafting rules; the old texts are
     // put back. 2026-10-29: so are the inference marker's rule and check
-    // lines (convex/inferenceMarker.fixture.ts).
-    let json = withoutInferenceMarker(
-      withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))),
-      name === "text" ? "draft" : name === "submit_self_check" ? "summarySelfCheckWithFacts" : "none"
+    // lines (convex/inferenceMarker.fixture.ts). 2026-10-29 (third): so
+    // are the honest drafting rules (convex/honestDrafting.fixture.ts).
+    let json = withoutHonestDrafting(
+      withoutInferenceMarker(
+        withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))),
+        name === "text" ? "draft" : name === "submit_self_check" ? "summarySelfCheckWithFacts" : "none"
+      ),
+      name === "text"
+        ? "draft"
+        : name === "submit_self_check"
+          ? "summarySelfCheckWithFacts"
+          : name === "submit_transcript_analysis"
+            ? "analysis"
+            : "none"
     );
     if (name === "submit_seed_batch") {
       const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);

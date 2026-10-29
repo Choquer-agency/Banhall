@@ -17,7 +17,8 @@ import {
 import { extractReportSections } from "../tiptapReport";
 import type { Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
-import type { FrozenBrainArtifact } from "./seedStage";
+import { loadFactsSourceDocuments, type FrozenBrainArtifact } from "./seedStage";
+import type { FactsSourceDocuments } from "../seedRevisions";
 import { type IterativeSection, SECTION_ORDER, getSectionRun } from "./iterative";
 import { transitionPostQa } from "../generationTransitions";
 import { appendGenerationProgress } from "../generationProgress";
@@ -47,6 +48,31 @@ export async function getPostQaAttemptHandler(
     // without writing when the project entered deletion.
     projectDeleting: await isProjectDeleting(ctx, generation.projectId),
   };
+}
+
+/** Argument validators of generations.getQaSourceEvidence. */
+export const getQaSourceEvidenceArgs = {
+  generationId: v.id("generations"),
+  /** The drafted Lines QA scores: the parts of each file that best match them are read. */
+  subjectTexts: v.array(v.string()),
+};
+
+/**
+ * 2026-10-29 (third, owner "Sure" to item 4): the source evidence QA reads,
+ * so it checks claims against the sources and not only the analysis. It is
+ * the facts check's own Phase D choice (loadFactsSourceDocuments, entry
+ * "2026-10-28 (fifth)"): the generation's frozen interviews, project files
+ * and company files, whole when they fit the 48,000-byte budget, otherwise
+ * the writer's notes first and then the parts that best match the drafted
+ * Lines. Null when the generation is gone.
+ */
+export async function getQaSourceEvidenceHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof getQaSourceEvidenceArgs>
+): Promise<FactsSourceDocuments | null> {
+  const generation = await ctx.db.get(args.generationId);
+  if (!generation) return null;
+  return await loadFactsSourceDocuments(ctx, generation, undefined, args.subjectTexts);
 }
 
 /** Argument validators of generations.getPostQaInput. */
