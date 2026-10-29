@@ -7,6 +7,12 @@
   across every project, and the recently edited projects, each card naming
   its client.
 
+  On the company page (2026-10-28, `embedded`) the page draws the company's
+  name, count and New project in its own bar, so the area draws only the
+  fiscal year sections, the selection and Show more. The company's Files
+  tab lives on that page only; on Projects the title carries the arrow
+  (Paper S9) that opens it.
+
   Selecting (Paper Z7n, 2026-10-19): a checkbox shows on a card's hover
   (and on keyboard focus and touch). Once one card is ticked every card
   shows its checkbox, a click anywhere on a card toggles it, and a light
@@ -23,14 +29,15 @@
   import { usePaginatedQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { DASHBOARD_PROJECT_PAGE_SIZE, DASHBOARD_UNNAMED_COMPANY_KEY } from "../../../../shared/dashboardProjection";
+  import { DASHBOARD_PROJECT_PAGE_SIZE } from "../../../../shared/dashboardProjection";
   import ProjectCard from "./ProjectCard.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
-  import CompanyFiles from "./CompanyFiles.svelte";
   import { IconArrowLeft, IconSearch } from "$lib/components/icons";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
+  import FrameIcon from "$lib/components/workspace/FrameIcon.svelte";
+  import { companiesPath, hasCompanyPage } from "$lib/companies/companies";
   import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
   import { topBarPrimary } from "$lib/components/shell/topBar";
   import { sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
@@ -65,9 +72,7 @@
     allClientsHref = "/projects",
     onShowAll = undefined,
     countLabel = null,
-    canReadCompanyFiles = false,
-    canAddCompanyFiles = false,
-    canManageCompanyFiles = false,
+    embedded = false,
   }: {
     /**
      * The selected client; null for All clients. `name` is null until known.
@@ -96,10 +101,8 @@
     onShowAll?: () => void;
     /** How many projects the title stands for ("10", "1000+"), from the company list. */
     countLabel?: string | null;
-    /** The company's Files tab (2026-10-26, Phase C): companyFiles.read, .add, .manage. */
-    canReadCompanyFiles?: boolean;
-    canAddCompanyFiles?: boolean;
-    canManageCompanyFiles?: boolean;
+    /** On the company page: no header and no search, the listing only. */
+    embedded?: boolean;
   } = $props();
 
   const auth = useAuth();
@@ -151,14 +154,11 @@
       : "All projects"
   );
   const searchLabel = $derived("Search projects");
-
-  // ─── Tabs (Paper Z8a, 2026-10-26): a company's Projects and Files ─────────
-  let tab = $state<"projects" | "files">("projects");
-  // Projects with no company name share no company, so no Files tab.
-  const showTabs = $derived(
-    Boolean(client) && !gone && canReadCompanyFiles && client?.key !== DASHBOARD_UNNAMED_COMPANY_KEY
+  // Paper S9: a named company's title leads to its company page; the
+  // projects with no company name and All projects have none.
+  const companyPageHref = $derived(
+    client && !gone && !client.missing && hasCompanyPage(client.key) ? companiesPath(resolve("/"), client.key) : null
   );
-  const onFiles = $derived(showTabs && tab === "files");
 
   // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
   // Read with the company key, before the first frame, so one company's
@@ -323,7 +323,6 @@
     untrack(() => {
       clearSearch();
       endSelect();
-      tab = "projects";
     });
   });
 
@@ -424,6 +423,7 @@
        company name at 22/28 500 with its muted 15/20 project count and the
        300px search on the right, 32px in from the sidebar on a desktop. On
        a phone the back link leads and the search drops to its own row. -->
+  {#if !embedded}
   <div
     class="flex shrink-0 flex-wrap items-center gap-3 px-4 pb-3 sm:px-6 md:h-16 md:flex-nowrap md:pb-0 lg:px-8"
     data-client-header
@@ -447,6 +447,18 @@
     <SectionSidebarExpand />
     <!-- The page's one visible h1 from 768px (the phone bar names the section). -->
     <h1 data-client-title tabindex="-1" class="min-w-0 truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{displayName}</h1>
+    {#if companyPageHref}
+      <!-- Paper S9: the teal arrow beside the name opens the company page. -->
+      <a
+        href={companyPageHref}
+        data-company-page-link
+        aria-label={`Open ${displayName}'s company page`}
+        title="Open the company page"
+        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] text-primary-selected transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
+      >
+        <FrameIcon name="arrow-up-right" />
+      </a>
+    {/if}
     {#if countLabel !== null && !gone}
       <span class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
     {/if}
@@ -458,7 +470,7 @@
       <!-- 768 to 1024px: no global bar and no phone bar, so the bell is here. -->
       <TopBarBell class="max-md:hidden" />
     {/if}
-    <div role="search" class={`relative w-[18.75rem] max-w-full max-md:order-last max-md:w-full ${onFiles ? "hidden" : ""}`}>
+    <div role="search" class="relative w-[18.75rem] max-w-full max-md:order-last max-md:w-full">
       <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
       <input
         bind:this={searchEl}
@@ -486,59 +498,9 @@
       <a href={resolve("/project/new")} data-top-bar-primary class={`${topBarPrimary} max-md:hidden`}>New project</a>
     {/if}
   </div>
+  {/if}
 
   <div class={`min-h-0 flex-1 overflow-y-auto px-4 pt-3 sm:px-6 lg:px-8 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>
-    {#if showTabs}
-      <div role="tablist" aria-label={`${displayName} views`} class="flex gap-1.5 pb-7" data-client-tabs>
-        {#each [["projects", "Projects"], ["files", "Files"]] as const as [id, label] (id)}
-          {@const selectedTab = tab === id}
-          <button
-            type="button"
-            role="tab"
-            id={`client-tab-${id}`}
-            aria-selected={selectedTab}
-            aria-controls={`client-panel-${id}`}
-            tabindex={selectedTab ? 0 : -1}
-            data-client-tab={id}
-            onclick={() => {
-              if (id === "files") endSelect();
-              tab = id;
-            }}
-            onkeydown={(event) => {
-              if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-              event.preventDefault();
-              const next = tab === "projects" ? "files" : "projects";
-              if (next === "files") endSelect();
-              tab = next;
-              void tick().then(() => document.getElementById(`client-tab-${next}`)?.focus());
-            }}
-            class={`flex h-[2.125rem] items-center rounded-md px-3.5 text-[0.9375rem] leading-[calc(4/3)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11 ${
-              selectedTab ? "bg-primary-selected font-medium text-white" : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
-            }`}
-          >{label}</button>
-        {/each}
-      </div>
-    {/if}
-
-    <!-- Mounted whenever the company has the tab, so files still being added
-         finish (and say so) when someone looks at Projects meanwhile. -->
-    {#if showTabs && client}
-      <div role="tabpanel" id="client-panel-files" aria-labelledby="client-tab-files" hidden={!onFiles} data-client-files-panel>
-        <CompanyFiles
-          companyKey={client.key}
-          companyName={displayName}
-          active={onFiles}
-          canAdd={canAddCompanyFiles}
-          canManage={canManageCompanyFiles}
-        />
-      </div>
-    {/if}
-    {#if !onFiles}
-    <div
-      role={showTabs ? "tabpanel" : undefined}
-      id={showTabs ? "client-panel-projects" : undefined}
-      aria-labelledby={showTabs ? "client-tab-projects" : undefined}
-    >
     {#if activeQ.error}
       <div class="flex flex-col items-start gap-2 py-10" role="alert" data-projects-error>
         <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink">Projects could not be loaded.</p>
@@ -589,14 +551,16 @@
         >Go to All projects</a>
       </div>
     {:else if client && raw.length === 0}
-      <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
-        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{displayName} has no projects yet.</p>
+      <!-- Paper Z9a: a company with no projects yet. -->
+      <div class="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-line px-6 py-[4.5rem] text-center" data-client-empty>
+        <p class="text-base leading-[1.5] font-medium text-ink">No projects for {displayName} yet</p>
+        <p class="max-w-[26.25rem] text-[0.9375rem] leading-[calc(22/15)] text-ink-secondary">Start a project and it will show up here, grouped by fiscal year.</p>
         {#if canCreate}
           <a
             href={`${resolve("/project/new")}${newProjectSearch(displayName)}`}
             data-client-new-project
-            class="inline-flex h-8 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-[0.8125rem] font-medium text-white hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
-          >New project</a>
+            class={`${topBarPrimary} mt-1 max-w-full`}
+          ><span class="truncate">New project for {displayName}</span></a>
         {/if}
       </div>
     {:else if client}
@@ -626,10 +590,8 @@
         </ul>
       </section>
     {/if}
-    </div>
-    {/if}
 
-    {#if hasMore && !activeQ.error && !loadingFirst && !onFiles}
+    {#if hasMore && !activeQ.error && !loadingFirst}
       <div class="flex justify-center pt-4">
         <button
           type="button"

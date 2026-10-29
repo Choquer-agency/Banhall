@@ -554,15 +554,53 @@ describe("Projects page client area", () => {
     expect(document.querySelector("[data-client-missing]")).toBeNull();
   });
 
-  it("says when a client has no projects, with New project for that client", async () => {
+  it("puts the S9 arrow beside a company's name to open its company page, and no Files tab (2026-10-28)", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    const arrow = document.querySelector<HTMLAnchorElement>("[data-company-page-link]")!;
+    expect(arrow.getAttribute("href")).toBe("/companies/cedarline%20systems");
+    expect(arrow.getAttribute("aria-label")).toBe("Open Cedarline Systems's company page");
+    // Right after the name, a teal primary arrow with a pointer cursor.
+    expect(title()!.nextElementSibling).toBe(arrow);
+    expect(arrow.className).toContain("text-primary-selected");
+    expect(arrow.className).toContain("hover:text-navy");
+    expect(getComputedStyle(arrow).cursor).toBe("pointer");
+    expect(arrow.querySelector('[data-frame-icon="arrow-up-right"]')).not.toBeNull();
+    // The company's Files tab lives on the company page only.
+    expect(document.querySelector("[data-client-tabs], [data-company-tabs], [data-company-files]")).toBeNull();
+  });
+
+  it("draws no arrow on All projects, for projects with no company name, or for a company that is gone", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    const screen = await mount("/projects");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(document.querySelector("[data-company-page-link]")).toBeNull();
+    screen.unmount();
+
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    const unnamed = await mount(`/projects?client=${encodeURIComponent("\uffff")}`);
+    await expect.poll(() => document.querySelector("[data-client-title]")).not.toBeNull();
+    expect(document.querySelector("[data-company-page-link]")).toBeNull();
+    unnamed.unmount();
+
+    await mount("/projects?client=old+merged+co");
+    await expect.poll(() => text(title())).toBe("Company not found");
+    expect(document.querySelector("[data-company-page-link]")).toBeNull();
+  });
+
+  it("says when a client has no projects, with New project for that client (Paper Z9a)", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", []);
     await mount("/projects?client=societe+generale");
     await expect.poll(() => text(document.querySelector("[data-client-empty] p"))).toBe(
-      "Société Générale has no projects yet."
+      "No projects for Société Générale yet"
     );
-    expect(document.querySelector("[data-client-new-project]")?.getAttribute("href")).toBe(
-      "/project/new?client=Soci%C3%A9t%C3%A9+G%C3%A9n%C3%A9rale"
+    expect(text(document.querySelector("[data-client-empty]"))).toContain(
+      "Start a project and it will show up here, grouped by fiscal year."
     );
+    const newProject = document.querySelector("[data-client-new-project]");
+    expect(newProject?.getAttribute("href")).toBe("/project/new?client=Soci%C3%A9t%C3%A9+G%C3%A9n%C3%A9rale");
+    expect(text(newProject)).toBe("New project for Société Générale");
   });
 
   it("keeps the card geometry while loading and offers Try again on an error", async () => {

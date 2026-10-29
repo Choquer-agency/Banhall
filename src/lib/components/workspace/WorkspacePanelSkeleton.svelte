@@ -1,8 +1,8 @@
 <script lang="ts" module>
   /** The page shapes a loading work panel can take. */
-  export type PanelSkeletonLayout = "home" | "projects" | "form" | "page" | "project";
+  export type PanelSkeletonLayout = "home" | "projects" | "form" | "page" | "project" | "companies" | "company";
   /** Content-only shapes for a page whose frame and heading are already drawn. */
-  export type ContentSkeletonLayout = "fields" | "list";
+  export type ContentSkeletonLayout = "fields" | "list" | "companies-table";
 </script>
 
 <script lang="ts">
@@ -67,6 +67,52 @@
       <span class={`${bar} h-4 w-40`}></span>
       <div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3">
         {#each [0, 1, 2, 3, 4, 5] as row (row)}
+          <div data-skeleton-row class="flex h-40 flex-col gap-3 rounded-[0.625rem] border border-line bg-surface p-3.5">
+            <span class={`${bar} h-3 w-24`}></span>
+            <span class={`${bar} h-4 w-44 max-w-full`}></span>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {:else if layout === "companies" || layout === "companies-table"}
+    <!-- All companies (2026-10-28): the table's header and rows, as Team's. -->
+    <div class={layout === "companies" ? "px-4 pb-8 pt-1 sm:px-6 lg:px-8" : ""}>
+      <div data-skeleton-table class="overflow-hidden rounded-[0.625rem] border border-line-soft">
+        <div class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4">
+          <span class={`${bar} h-2.5 w-12`}></span>
+        </div>
+        {#each [0.36, 0.28, 0.42, 0.3, 0.38, 0.26] as width, index (index)}
+          <div data-skeleton-row class="flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
+            <span class={`${bar} h-3`} style:width={`${width * 100}%`}></span>
+            <span class="flex-1"></span>
+            <span class={`${bar} h-3 w-8`}></span>
+            <span class={`${bar} h-3 w-24 max-sm:hidden`}></span>
+            <span class={`${bar} h-3 w-28 max-sm:hidden`}></span>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {:else if layout === "company"}
+    <!-- A company's page (2026-10-28): the facts row and tabs over a soft
+         line, then a year heading over a row of cards. -->
+    <div class="flex shrink-0 flex-col gap-5 border-b border-line-soft px-4 pb-3.5 pt-1 sm:px-6 lg:px-8">
+      <div class="flex gap-10">
+        {#each [28, 24, 16] as width, index (index)}
+          <div class="flex flex-col gap-2">
+            <span class={`${bar} h-3 w-20`}></span>
+            <span class={`${bar} h-4`} style:width={`${width / 4}rem`}></span>
+          </div>
+        {/each}
+      </div>
+      <div class="flex gap-1.5">
+        <span class={`${bar} h-[2.125rem] w-[5.5rem] rounded-md`}></span>
+        <span class={`${bar} h-[2.125rem] w-14 rounded-md`}></span>
+      </div>
+    </div>
+    <div data-skeleton-table class="flex flex-col gap-3.5 px-4 pt-6 sm:px-6 lg:px-8">
+      <span class={`${bar} h-4 w-40`}></span>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3">
+        {#each [0, 1, 2] as row (row)}
           <div data-skeleton-row class="flex h-40 flex-col gap-3 rounded-[0.625rem] border border-line bg-surface p-3.5">
             <span class={`${bar} h-3 w-24`}></span>
             <span class={`${bar} h-4 w-44 max-w-full`}></span>

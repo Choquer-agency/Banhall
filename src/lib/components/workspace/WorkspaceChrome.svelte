@@ -22,6 +22,7 @@
 
   let {
     title,
+    titlePending = false,
     description = null,
     subtitle = null,
     icon = undefined,
@@ -44,6 +45,8 @@
     sidebar = undefined,
   }: {
     title: string;
+    /** The title is not known yet: the bar holds its place with a quiet block. */
+    titlePending?: boolean;
     /** Muted count after the title, as on Projects. */
     count?: string | number | null;
     /** The top bar's filled button. */
@@ -127,7 +130,7 @@
 
   function focusProjectSearch() {
     navigationOpen = false;
-    // SPA navigation like the rest of the shell — the previous hard full-page
+    // SPA navigation like the rest of the shell; the previous hard full-page
     // reload dropped all client state just to reach the Projects board.
     void goto(destinationHref("all_projects"));
   }
@@ -158,6 +161,7 @@
          ("banhall.app/admin"), and no breadcrumb or actions. -->
     <PageTopBar
       title={hiddenInView && viewAsGate ? VIEW_AS_GATE_PAGE_NAMES[viewAsGate] : title}
+      titlePending={titlePending && !hiddenInView}
       subtitle={hiddenInView ? `${page.url.host}${page.url.pathname}` : null}
       count={hiddenInView ? null : count}
       primaryAction={hiddenInView ? null : primaryAction}

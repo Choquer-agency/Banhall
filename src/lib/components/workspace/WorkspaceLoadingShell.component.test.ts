@@ -3,13 +3,14 @@ import { page as browserPage } from "vitest/browser";
 import { createRawSnippet } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
-import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
+import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import MyWorkPage from "../../../routes/my-work/+page.svelte";
 import ProjectsPage from "../../../routes/projects/+page.svelte";
 import SettingsLayout from "../../../routes/settings/+layout.svelte";
 import AccountPage from "../../../routes/settings/account/+page.svelte";
+import CompaniesRoute from "../../../routes/companies/[[key]]/+page.svelte";
 import LoadingShell from "./WorkspaceLoadingShell.svelte";
 import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 
@@ -125,6 +126,44 @@ describe("round 2 loading shell", () => {
     await expect.poll(() => skeleton("fields")).not.toBeNull();
     expectQuietSkeleton("fields", 4);
     expect(skeleton("fields")!.getAttribute("aria-label")).toBe("Loading your account");
+  });
+
+  it("Companies (2026-10-28): All companies loads with the Companies sidebar, New company in its place and the table's rows", async () => {
+    __setAuthState({ isLoading: true, isAuthenticated: false });
+    __setQueryData("users:getCurrentUser", { _id: "c", role: "writer", firstName: "Jane" });
+    __setPageUrl("/companies");
+    await render(CompaniesRoute);
+    await expect.poll(() => sidebar("companies")).not.toBeNull();
+    expect(rail()).not.toBeNull();
+    expect(topBarTitle()).toBe("Companies");
+    expectQuietSkeleton("companies", 4);
+    const action = sidebar("companies")!.querySelector<HTMLButtonElement>("[data-section-sidebar-action]");
+    // The viewer is not known during the session check: no New company yet.
+    expect(action).toBeNull();
+    expect(sidebar("companies")!.querySelector("[data-client-skeleton]")).not.toBeNull();
+    expect(document.querySelector('[data-rail-item="companies"]')?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("Companies: once the viewer is known, New company is drawn but not usable; a company's page holds its name's place", async () => {
+    __setAuthState({ isLoading: false, isAuthenticated: true });
+    __setQueryData("users:getCurrentUser", { _id: "c", role: "writer", firstName: "Jane" });
+    __setPageUrl("/companies");
+    const list = await render(LoadingShell, { layout: "companies", title: "Companies" });
+    await expect.poll(() => sidebar("companies")?.querySelector("[data-section-sidebar-action]")).not.toBeNull();
+    const action = sidebar("companies")!.querySelector<HTMLButtonElement>("[data-section-sidebar-action]")!;
+    expect([action.textContent?.trim(), action.disabled]).toEqual(["New company", true]);
+    list.unmount();
+
+    __setPageUrl("/companies/cedarline%20systems");
+    __setPageParams({ key: "cedarline systems" });
+    await render(LoadingShell, { layout: "company", title: "Companies" });
+    await expect.poll(() => skeleton("company")).not.toBeNull();
+    expect(document.querySelector("[data-page-title-pending]")).not.toBeNull();
+    expect(document.querySelector("[data-workspace-page-header] h1")).toBeNull();
+    const newProject = document.querySelector<HTMLButtonElement>("[data-top-bar-primary]")!;
+    expect([newProject.textContent?.trim(), newProject.disabled]).toEqual(["New project", true]);
+    expect(getComputedStyle(newProject).display).not.toBe("none");
+    expect(sidebar("companies")).not.toBeNull();
   });
 
   it("Admin and Team load with no sidebar until the viewer is known to be allowed (review round 1, findings 1 and 6)", async () => {

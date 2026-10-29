@@ -142,16 +142,16 @@ export function railGroups(viewer: RailViewer, hrefs: RailHrefs, badges: RailBad
 }
 
 /**
- * Which rail row is selected. Companies has no page of its own yet: it opens
- * the Projects view grouped by client, which is also the Projects default
- * grouping, so the Projects route always selects Projects (the spec's
- * "Companies selected on group=client" cannot be told apart from Projects).
+ * Which rail row is selected. Companies is its own section since 2026-10-28
+ * (`/companies` and every company page); the Projects route always selects
+ * Projects, including a company chosen there.
  */
 export function selectedRailItem(url: { pathname: string; search: string }): RailItemId | null {
   const { pathname } = url;
   const under = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
   if (under("/my-work")) return "home";
   if (under("/projects")) return "projects";
+  if (under("/companies")) return "companies";
   if (under("/team")) return "team";
   if (under("/admin")) return "admin";
   if (under("/alerts")) return "alerts";
@@ -212,13 +212,14 @@ function under(pathname: string, prefix: string) {
 /**
  * The active rail item. Home, every project page and New project sit under
  * Projects; Alerts and Feature requests under Admin, whose sidebar lists
- * them. Companies opens the company list on Projects, so Projects stays the
- * selected item there, as before.
+ * them. Companies is selected on All companies and every company page
+ * (2026-10-28); a company chosen on the Projects page stays under Projects.
  */
 export function selectedFrameRailItem(pathname: string): FrameRailItemId | null {
   if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects") || under(pathname, "/project")) {
     return "projects";
   }
+  if (under(pathname, "/companies")) return "companies";
   if (under(pathname, "/team")) return "team";
   if (under(pathname, "/admin") || under(pathname, "/alerts") || under(pathname, "/requests")) return "admin";
   if (under(pathname, "/settings")) return "settings";
@@ -226,23 +227,27 @@ export function selectedFrameRailItem(pathname: string): FrameRailItemId | null 
 }
 
 /** The sections that draw an inner sidebar in the white card. */
-export type FrameSection = "projects" | "team" | "admin" | "settings";
+export type FrameSection = "projects" | "companies" | "team" | "admin" | "settings";
 
 /**
  * Which section sidebar a page draws (owner answers 1 and 5, 2026-10-28):
- * Home and Projects share the Projects sidebar; Team, Admin and Settings have
- * their own. New project, What's new, Alerts, Feature requests and the
+ * Home and Projects share the Projects sidebar; Companies, Team, Admin and
+ * Settings have their own. New project, What's new, Alerts, Feature requests and the
  * project page draw none. The loading frame reads it so nothing jumps.
  */
 export function frameSectionForPath(pathname: string): FrameSection | null {
   if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects")) return "projects";
+  if (under(pathname, "/companies")) return "companies";
   if (under(pathname, "/team")) return "team";
   if (under(pathname, "/admin")) return "admin";
   if (under(pathname, "/settings")) return "settings";
   return null;
 }
 
-/** Companies: the Projects view grouped by client (no page of its own yet). */
+/**
+ * The Projects view grouped by client, Companies' link before the Companies
+ * section existed (2026-10-28); kept for links that still carry it.
+ */
 export function companiesHrefFrom(projectsHref: string): string {
   const [path, query = ""] = projectsHref.split("?");
   const params = new URLSearchParams(query);

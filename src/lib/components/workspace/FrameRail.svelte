@@ -15,7 +15,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { ADMIN_LANDING_PATH } from "$lib/dashboard/adminRoutes";
-  import { CLIENT_PARAM } from "$lib/projects/clientList";
+  import { companiesPath } from "$lib/companies/companies";
   import { canSeeAdmin, frameRailItems, selectedFrameRailItem, type FrameRailItem } from "$lib/shell/navigation";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import FrameIcon from "./FrameIcon.svelte";
@@ -34,9 +34,8 @@
       viewer,
       {
         projectsHref,
-        // No Companies page yet: the company list on the Projects page, with
-        // the page's own query kept (no company selected).
-        companiesHref: companiesHref(projectsHref),
+        // The Companies section (2026-10-28): All companies.
+        companiesHref: companiesPath(resolve("/")),
         teamHref: `${resolve("/")}team`,
         adminHref: resolve(ADMIN_LANDING_PATH as "/"),
         settingsHref: resolve("/settings"),
@@ -45,15 +44,6 @@
     )
   );
   const selected = $derived(selectedFrameRailItem(page.url.pathname));
-
-  /** Projects' link with any selected company dropped, so Companies opens the list. */
-  function companiesHref(href: string): string {
-    const [path, query = ""] = href.split("?");
-    const params = new URLSearchParams(query);
-    params.delete(CLIENT_PARAM);
-    const search = params.toString();
-    return search ? `${path}?${search}` : path;
-  }
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";

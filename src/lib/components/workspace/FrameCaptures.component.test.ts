@@ -1,6 +1,7 @@
 /**
  * The page frame captures (owner, 2026-10-28; Paper S9, S11, S12, A1): the
- * Projects page, Team, Admin, Settings and a project page at 1440 by 900,
+ * Projects page, All companies, a company's page, Team, Admin, Settings and
+ * a project page at 1440 by 900,
  * rendered with the real stylesheet and written to the ignored
  * `.vitest-attachments/frame/` for review against the boards. Each capture
  * also pins the frame it shows: the 52px global bar, the 80px rail, the one
@@ -12,6 +13,7 @@ import { render } from "vitest-browser-svelte";
 import { createRawSnippet } from "svelte";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import TeamPage from "$lib/components/team/TeamPage.svelte";
+import CompaniesPage from "$lib/components/companies/CompaniesPage.svelte";
 import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
 import SettingsLayout from "../../../routes/settings/+layout.svelte";
 import PreviewProjectPage from "$lib/components/project/PreviewProjectPage.svelte";
@@ -19,7 +21,12 @@ import { captureOwner } from "$lib/test/captureOwner";
 import { __resetPage, __setPageParams, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
-import { __resetConvexStub, __setPaginatedRows, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
+import {
+  __resetConvexStub,
+  __setPaginatedRows,
+  __setQueryData,
+  __setQueryDataForArgs,
+} from "$lib/test/convex-svelte-stub.svelte";
 import { __resetQaSeenMemory } from "$lib/qa/qaSeen";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
@@ -158,6 +165,62 @@ describe("page frame captures (1440 by 900)", () => {
     expectFrame();
     expect(box(document.querySelector('[data-section-sidebar-slot="projects"]')).width).toBeCloseTo(board(228), 0);
     await capture("projects");
+  });
+
+  it("All companies (the Companies section, 2026-10-28; laid out as S11)", async () => {
+    seedFrame();
+    const now = Date.UTC(2026, 9, 14, 15);
+    __setQueryData("clients:listClients", {
+      clients: COMPANIES.map(([name, projectCount], index) => ({
+        key: name.toLowerCase(),
+        clientId: null,
+        name,
+        projectCount,
+        ...(index % 3 === 2 ? {} : { fiscalYearEndMonth: index % 2 ? 3 : 9, fiscalYearEndDay: index % 2 ? 31 : 30 }),
+        updatedAt: now - index * 3 * 86_400_000,
+      })),
+      truncated: false,
+    });
+    __setPageUrl("/companies");
+    await render(CompaniesPage, { companyKey: null });
+    await expect.poll(() => document.querySelectorAll("[data-company-row]").length).toBe(COMPANIES.length);
+    expectFrame();
+    expect(box(document.querySelector('[data-section-sidebar-slot="companies"]')).width).toBeCloseTo(board(228), 0);
+    expect(document.querySelector('[data-companies-sidebar="all"]')?.getAttribute("aria-current")).toBe("page");
+    expect(document.querySelector("[data-page-count]")?.textContent).toBe("10 companies");
+    await capture("companies");
+  });
+
+  it("A company's page (Z8a's content in the frame)", async () => {
+    seedFrame();
+    const now = Date.UTC(2026, 9, 14);
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, {
+      kind: "company",
+      key: "cedarline systems",
+      clientId: "c3",
+      name: "Cedarline Systems",
+      projectCount: 10,
+      fiscalYearEndMonth: 9,
+      fiscalYearEndDay: 30,
+      industry: "manufacturing",
+      mergedNote: null,
+    });
+    __setPaginatedRows("dashboard:listCompanyProjects", [
+      projectRow("p8", "Adaptive cold storage controls", "drafting", 2026, now),
+      projectRow("p9", "High-efficiency pump control", "client_review", 2026, now - 2 * 86_400_000),
+      projectRow("p10", "Defrost cycle prediction", "internal_review", 2026, now - 3 * 86_400_000),
+      projectRow("p7", "Variable-speed compressor tuning", "delivered", 2025, now - 200 * 86_400_000),
+      projectRow("p6", "Ammonia leak detection model", "delivered", 2025, now - 200 * 86_400_000),
+      projectRow("p5", "Low-temperature seal testing", "delivered", 2025, now - 230 * 86_400_000),
+    ]);
+    __setPageUrl("/companies/cedarline%20systems");
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelectorAll("[data-fy-group]").length).toBe(2);
+    expectFrame();
+    expect(document.querySelector('[data-client-row="cedarline systems"]')?.getAttribute("aria-current")).toBe("page");
+    expect(document.querySelector("[data-page-title]")?.textContent).toBe("Cedarline Systems");
+    expect(document.querySelector("[data-edit-company]")).not.toBeNull();
+    await capture("company");
   });
 
   it("Team (S11)", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
-import ProjectsPage from "./ProjectsPage.svelte";
+import CompaniesPage from "$lib/components/companies/CompaniesPage.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { userEvent } from "vitest/browser";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -17,10 +17,11 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 
 /**
- * 2026-10-26 (Phase C): a company page's Files tab. Consultants see and add
- * company files; only Managers and Admins archive, restore and remove them;
- * a viewer with no role sees no tab. A company with no company row gets one
- * on its first upload. Word files preview formatted.
+ * 2026-10-26 (Phase C): a company page's Files tab, on the company page of
+ * its own since 2026-10-28 (it left the Projects page). Consultants see and
+ * add company files; only Managers and Admins archive, restore and remove
+ * them; a viewer with no role sees no tab. A company with no company row gets
+ * one on its first upload. Word files preview formatted.
  */
 const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
 const CLIENTS = [
@@ -52,6 +53,16 @@ function listed(id: string, fileName: string, overrides: Record<string, unknown>
 function seed(role: string | null, files = [listed("f1", "history.txt")]) {
   __setQueryData("users:getCurrentUser", { _id: "u-1", ...(role ? { role } : {}) });
   __setQueryData("clients:listClients", { clients: CLIENTS, truncated: false });
+  for (const client of CLIENTS) {
+    __setQueryDataForArgs("clients:getCompanyPage", { key: client.key }, {
+      kind: "company",
+      key: client.key,
+      clientId: client.clientId,
+      name: client.name,
+      projectCount: client.projectCount,
+      mergedNote: null,
+    });
+  }
   __setQueryData("projects:listIndustries", []);
   __setQueryData("clients:findSimilarClients", { exact: null, similar: [] });
   __setPaginatedRows("dashboard:listCompanyProjects", []);
@@ -64,16 +75,16 @@ function seed(role: string | null, files = [listed("f1", "history.txt")]) {
 }
 
 async function mount() {
-  __setPageUrl("/projects?client=cedarline+systems");
+  __setPageUrl("/companies/cedarline%20systems");
   await page.viewport(1440, 900);
-  const screen = await render(ProjectsPage, { totalLabel: "1" });
+  const screen = await render(CompaniesPage, { companyKey: "cedarline systems" });
   screen.container.style.cssText = "display:flex;height:900px;";
   return screen;
 }
 
 async function openFiles() {
-  await expect.poll(() => document.querySelector('[data-client-tab="files"]')).not.toBeNull();
-  document.querySelector<HTMLButtonElement>('[data-client-tab="files"]')!.click();
+  await expect.poll(() => document.querySelector('[data-company-tab="files"]')).not.toBeNull();
+  document.querySelector<HTMLButtonElement>('[data-company-tab="files"]')!.click();
   await expect.poll(() => document.querySelector("[data-company-files]")).not.toBeNull();
 }
 
@@ -104,12 +115,12 @@ describe("a company's Files tab", () => {
     ]);
     await mount();
     await openFiles();
-    const files = document.querySelector('[data-client-tab="files"]')!;
+    const files = document.querySelector('[data-company-tab="files"]')!;
     expect(files.getAttribute("aria-selected")).toBe("true");
     expect(files.className).toContain("bg-primary-selected");
-    expect(document.querySelector('[data-client-tab="projects"]')!.className).not.toContain("bg-primary-selected");
-    // The project search belongs to the Projects tab.
-    expect(document.querySelector("[data-client-search]")?.closest(".hidden")).not.toBeNull();
+    expect(document.querySelector('[data-company-tab="projects"]')!.className).not.toContain("bg-primary-selected");
+    // The Projects panel is hidden while Files shows.
+    expect(document.querySelector<HTMLElement>("[data-company-projects-panel]")?.hidden).toBe(true);
     const rows = [...document.querySelectorAll("[data-company-file]")].map((node) => text(node));
     expect(rows[0]).toContain("history.txt");
     expect(rows[0]).toContain("How Cedarline seals pumps.");
@@ -118,7 +129,7 @@ describe("a company's Files tab", () => {
     expect(rows[0]).toContain("Added by Wendy Writer, Oct 20, 2026");
     expect(rows[1]).toContain("No text");
     expect(document.querySelector('[data-company-file="f2"] [data-company-file-status]')).not.toBeNull();
-    expect(text(document.querySelector("[data-company-files]"))).not.toMatch(/[‐-―]/);
+    expect(text(document.querySelector("[data-company-files]"))).not.toMatch(/[\u2010-\u2015]/);
   });
 
   it("a Consultant can upload but not archive or remove", async () => {
@@ -162,8 +173,9 @@ describe("a company's Files tab", () => {
   it("a viewer with no role sees no Files tab", async () => {
     seed(null);
     await mount();
-    await expect.poll(() => document.querySelector("[data-client-title]")).not.toBeNull();
-    expect(document.querySelector("[data-client-tabs]")).toBeNull();
+    await expect.poll(() => document.querySelector("[data-company-view]")).not.toBeNull();
+    expect(document.querySelector("[data-company-tabs]")).toBeNull();
+    expect(document.querySelector("[data-company-files]")).toBeNull();
   });
 
   it("uploads each picked file to the company, reading its text in the browser", async () => {
@@ -253,15 +265,16 @@ describe("a company's Files tab", () => {
     __setMutationResult("companyFiles:generateCompanyUploadUrl", "https://upload.test/bytes");
     let finish: (value: unknown) => void = () => {};
     __setMutationResult("companyFiles:addCompanyFile", new Promise((resolve) => (finish = resolve)));
-    await mount();
+    const screen = await mount();
     await openFiles();
     choose(new File(["Text."], "slow.txt", { type: "text/plain" }));
     await expect.poll(() => __mutationCalls("companyFiles:addCompanyFile").length).toBe(1);
 
-    __setPageUrl("/projects?client=acuity+insights");
-    await expect.poll(() => document.querySelector('[data-client-tab="projects"]')?.getAttribute("aria-selected")).toBe("true");
-    expect(document.querySelector<HTMLElement>("[data-client-files-panel]")?.hidden).toBe(true);
-    document.querySelector<HTMLButtonElement>('[data-client-tab="files"]')!.click();
+    __setPageUrl("/companies/acuity%20insights");
+    await screen.rerender({ companyKey: "acuity insights" });
+    await expect.poll(() => document.querySelector('[data-company-tab="projects"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector<HTMLElement>("[data-company-files-panel]")?.hidden).toBe(true);
+    document.querySelector<HTMLButtonElement>('[data-company-tab="files"]')!.click();
     await expect.poll(() => text(document.querySelector("[data-company-files-list]"))).toContain("acuity.txt");
     // The other company's upload is not shown here, and it was saved to that company.
     expect(document.querySelector("[data-company-file-uploads]")).toBeNull();

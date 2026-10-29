@@ -25,6 +25,7 @@
   import { VIEW_AS_LABELS, effectiveViewer } from "$lib/shell/viewAs.svelte";
   import { loadRailPreferences, persistRailPreferences } from "$lib/workspace/railPreferences";
   import { loadRecentCompanies, recentCompanyHref, type RecentCompany } from "$lib/workspace/recentCompanies";
+  import { companiesPath } from "$lib/companies/companies";
 
   let {
     displayedView,
@@ -93,8 +94,8 @@
       {
         myWorkHref,
         projectsHref,
-        // No Companies page yet: All companies on the Projects page.
-        companiesHref: resolve("/projects"),
+        // The Companies section (2026-10-28): All companies.
+        companiesHref: companiesPath(resolve("/")),
         // WS2 lands the /team route; until then the path is not a typed route id.
         teamHref: `${resolve("/")}team`,
         adminHref: resolve("/admin/house-rules"),

@@ -29,6 +29,8 @@
   import ProjectsSectionSidebar from "$lib/components/projects/ProjectsSectionSidebar.svelte";
   import TeamSidebar from "$lib/components/workspace/sidebars/TeamSidebar.svelte";
   import AdminSidebar from "$lib/components/workspace/sidebars/AdminSidebar.svelte";
+  import CompaniesSidebar from "$lib/components/companies/CompaniesSidebar.svelte";
+  import { companyKeyFromPath } from "$lib/companies/companies";
   import SettingsSidebar from "$lib/components/workspace/sidebars/SettingsSidebar.svelte";
   import { canViewTeam, frameSectionForPath, type FrameSection } from "$lib/shell/navigation";
   import WorkspacePanelSkeleton, {
@@ -64,6 +66,9 @@
   const viewer = $derived(effectiveViewer(userQ.data));
   const teamAllowed = $derived(Boolean(userQ.data) && canViewTeam(viewer.role));
   const teamCanInvite = $derived(hasCapability(viewer.role, "invites.manage"));
+  const canCreate = $derived(Boolean(userQ.data) && hasCapability(viewer.role, "project.create"));
+  // Companies (2026-10-28): All companies, or the company named by the address.
+  const companyKey = $derived(companyKeyFromPath(page.url.pathname) ?? null);
   // Projects on a phone shows the company list itself until a company is chosen.
   const phoneList = $derived(layout === "projects" && !page.url.searchParams.get(CLIENT_PARAM));
   const displayedView = $derived<DashboardView | null>(
@@ -90,7 +95,9 @@
       ? newProject
       : section === "team" && teamAllowed && teamCanInvite
         ? { label: "Invite people", disabled: true }
-        : null
+        : section === "companies" && companyKey === null && canCreate
+          ? { label: "New company", disabled: true }
+          : null
   );
 
   const currentDashboardHref = $derived.by(() => {
@@ -111,6 +118,8 @@
     {#if teamAllowed}
       <TeamSidebar onInvite={teamCanInvite ? () => {} : null} inviteDisabled />
     {/if}
+  {:else if section === "companies"}
+    <CompaniesSidebar selectedKey={companyKey} onNewCompany={canCreate ? () => {} : null} newCompanyDisabled />
   {:else if section === "admin"}
     <AdminSidebar />
   {:else if section === "settings"}
@@ -161,6 +170,22 @@
           </div>
         </FrameCard>
       </div>
+    {:else if layout === "company"}
+      <!-- A company's page: its name is not known yet, so a quiet block
+           holds its place; New project stays in the bar (the Companies
+           sidebar's own action is New company). -->
+      <FrameCard data-workspace-loading={layout} sidebar={sectionSidebar}>
+        <PageTopBar
+          {title}
+          titlePending
+          sidebarToggle
+          primaryAction={canCreate ? { label: "New project", disabled: true } : null}
+          onOpenNavigation={() => (navigationOpen = true)}
+        />
+        <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <WorkspacePanelSkeleton {layout} {label} {...rest} />
+        </div>
+      </FrameCard>
     {:else}
       <FrameCard data-workspace-loading={layout} sidebar={section ? sectionSidebar : undefined}>
         <!-- The same bar the loaded page draws: the title only (2026-10-19). -->

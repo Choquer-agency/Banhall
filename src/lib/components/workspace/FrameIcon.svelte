@@ -8,6 +8,8 @@
     | "plus"
     | "home"
     | "all-projects"
+    | "all-companies"
+    | "arrow-up-right"
     | "people"
     | "mail"
     | "search"
@@ -30,6 +32,8 @@
     plus: 14,
     home: 16,
     "all-projects": 16,
+    "all-companies": 16,
+    "arrow-up-right": 16,
     people: 16,
     mail: 16,
     search: 14,
@@ -65,13 +69,19 @@
   const dark = $derived(active ? "fill-ink" : "fill-ink-secondary");
   const light = $derived(active ? "fill-primary" : "fill-ink-faint");
   const outlineStroke = $derived(
-    name === "bell" || name === "home" || name === "all-projects" || name === "people" || name === "mail" || name === "keyboard"
+    name === "bell" ||
+      name === "home" ||
+      name === "all-projects" ||
+      name === "all-companies" ||
+      name === "people" ||
+      name === "mail" ||
+      name === "keyboard"
       ? 1.7
       : name === "sidebar-collapse" || name === "sidebar-expand" || name === "download"
         ? 1.8
         : name === "back"
           ? 1.9
-          : name === "search"
+          : name === "search" || name === "arrow-up-right"
             ? 2
             : 2.2
   );
@@ -141,6 +151,13 @@
     <rect x="13" y="4" width="7" height="7" rx="1.5" />
     <rect x="4" y="13" width="7" height="7" rx="1.5" />
     <rect x="13" y="13" width="7" height="7" rx="1.5" />
+  {:else if name === "all-companies"}
+    <!-- The Companies sidebar's All companies row (2026-10-28), the outline
+         building of the earlier rail. -->
+    <path d="M4 20V6l7-3v17M11 9h8v11M7 9h1M7 13h1M15 13h1M15 16h1" />
+  {:else if name === "arrow-up-right"}
+    <!-- Paper S9: the arrow beside a company's name that opens its page. -->
+    <path d="M7 17L17 7M9 7h8v8" />
   {:else if name === "people"}
     <circle cx="9" cy="8" r="3.5" />
     <path d="M2.5 20c.8-3.4 3.4-5.2 6.5-5.2s5.7 1.8 6.5 5.2" />

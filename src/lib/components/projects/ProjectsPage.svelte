@@ -28,15 +28,12 @@
   import ClientArea from "./ClientArea.svelte";
   import MergeClientsDialog, { type MergeResult } from "./MergeClientsDialog.svelte";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
-  import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
-  import ProjectEditPanel from "./ProjectEditPanel.svelte";
   import FrameCard from "$lib/components/workspace/FrameCard.svelte";
   import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
-  import BulkEditPanel from "./BulkEditPanel.svelte";
+  import ProjectCardDialogs from "./ProjectCardDialogs.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
-  import { canCreateProjects, duplicateProjectSearch } from "$lib/workspace/projectDuplicate";
-  import { hasCapability } from "../../../../shared/capabilities";
+  import { canCreateProjects } from "$lib/workspace/projectDuplicate";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
   import { clientHref, clientKeyFromUrl, type ClientEntry } from "$lib/projects/clientList";
   import { pruneRecentCompanies, rememberRecentCompany } from "$lib/workspace/recentCompanies";
@@ -87,10 +84,6 @@
   // Select and bulk edit: the roles bulkUpdateProjects accepts. Unknown (still
   // loading) reads as no.
   const canSelect = $derived(role === "writer" || role === "manager" || role === "admin");
-  // A company's Files tab (2026-10-26, Phase C): the capability matrix decides.
-  const canReadCompanyFiles = $derived(hasCapability(role, "companyFiles.read"));
-  const canAddCompanyFiles = $derived(hasCapability(role, "companyFiles.add"));
-  const canManageCompanyFiles = $derived(hasCapability(role, "companyFiles.manage"));
 
   const clients = $derived((clientsQ.data?.clients ?? []) as ClientEntry[]);
   const selectedKey = $derived(clientKeyFromUrl(page.url));
@@ -202,68 +195,8 @@
     endSelect: () => void;
     focusSearch: (options?: { select?: boolean }) => void;
   } | null = $state(null);
-  let deleteTarget = $state<{ id: string; title: string } | null>(null);
-  let deleteOpen = $state(false);
-  // The bulk dialog follows the live selection: it holds the projects picked
-  // when it opened that are still selected, with their latest values. A
-  // project that leaves the visible set drops out of the selection
-  // (ClientArea) and so out of the dialog; it closes once none is left.
-  let bulkIds = $state<ReadonlySet<string>>(new Set());
-  let bulkOpen = $state(false);
-  const bulkRows = $derived.by(() => {
-    if (!area) return [];
-    return area.selectedRows().filter((row) => bulkIds.has(row._id));
-  });
-  $effect(() => {
-    if (bulkOpen && bulkRows.length === 0) bulkOpen = false;
-  });
-  let editProjectId = $state<string | null>(null);
-  let editOpen = $state(false);
-
-  /** The card's "..." trigger, where focus goes back after the dialog. */
-  function cardMenuTrigger(projectId: string | null) {
-    if (projectId === null) return null;
-    return document.querySelector<HTMLElement>(`[data-card-menu="${CSS.escape(projectId)}"]`);
-  }
-
-  function editDetails(projectId: string) {
-    if (onEditDetails) {
-      onEditDetails(projectId);
-      return;
-    }
-    editProjectId = projectId;
-    editOpen = true;
-  }
-
-  function duplicate(projectId: string) {
-    void goto(`${resolve("/project/new")}${duplicateProjectSearch(projectId)}`);
-  }
-
-  function requestDelete(project: { id: string; title: string }) {
-    deleteTarget = project;
-    deleteOpen = true;
-  }
-
-  function bulkEdit(rows: DashboardProjectionRow[]) {
-    if (onBulkEdit) {
-      onBulkEdit(rows);
-      return;
-    }
-    bulkIds = new Set(rows.map((row) => row._id));
-    bulkOpen = true;
-  }
-
-  /** Applied: clear the selection and keep the page where it is. */
-  function onBulkApplied() {
-    area?.endSelect();
-  }
-
-  function bulkReturnFocus() {
-    return (
-      document.querySelector<HTMLElement>("[data-selection-edit]") ??
-      document.querySelector<HTMLElement>("[data-client-title]")
-    );
-  }
+  // Edit details, bulk edit and delete (shared with the company page).
+  let dialogs: ProjectCardDialogs | null = $state(null);
 
   const canDelete = (row: ProjectsTableRow) => canDeleteProject(viewer, row.createdBy, row.deleting);
 
@@ -330,16 +263,13 @@
         {canCreate}
         canDuplicate={canCreate}
         {canSelect}
-        {canReadCompanyFiles}
-        {canAddCompanyFiles}
-        {canManageCompanyFiles}
         allClientsHref={clientHref(page.url, null)}
         onShowAll={() => selectClient(null)}
         {canDelete}
-        onEditDetails={editDetails}
-        onDuplicate={duplicate}
-        onDelete={requestDelete}
-        onBulkEdit={bulkEdit}
+        onEditDetails={(projectId) => dialogs?.editDetails(projectId)}
+        onDuplicate={(projectId) => dialogs?.duplicate(projectId)}
+        onDelete={(project) => dialogs?.requestDelete(project)}
+        onBulkEdit={(rows) => dialogs?.bulkEdit(rows)}
         onRetry={() => (areaAttempt += 1)}
         onBack={backToList}
         {onOpenNavigation}
@@ -367,25 +297,4 @@
   <MergeClientsDialog bind:open={mergeOpen} clients={mergeClients} {onMerged} />
 {/if}
 
-{#if deleteTarget}
-  <DeleteProjectDialog bind:open={deleteOpen} projectId={deleteTarget.id} projectTitle={deleteTarget.title} />
-{/if}
-
-{#if !onEditDetails}
-  <ProjectEditPanel
-    bind:open={editOpen}
-    projectId={editProjectId}
-    {viewer}
-    returnFocus={() => cardMenuTrigger(editProjectId)}
-  />
-{/if}
-
-{#if !onBulkEdit}
-  <BulkEditPanel
-    bind:open={bulkOpen}
-    rows={bulkRows}
-    {viewer}
-    returnFocus={bulkReturnFocus}
-    onApplied={onBulkApplied}
-  />
-{/if}
+<ProjectCardDialogs bind:this={dialogs} {viewer} {area} {onEditDetails} {onBulkEdit} />

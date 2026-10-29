@@ -35,6 +35,7 @@
 
   let {
     title,
+    titlePending = false,
     count = null,
     subtitle = null,
     breadcrumb = null,
@@ -51,6 +52,8 @@
     class: className = "",
   }: {
     title: string;
+    /** The title is not known yet (a company page loading): a quiet block holds its place. */
+    titlePending?: boolean;
     /** Muted count after the title ("7 people", "42"). */
     count?: string | number | null;
     subtitle?: string | null;
@@ -132,6 +135,8 @@
         >{breadcrumb.label}</a><span aria-hidden="true">{" /"}</span></span>
       <h1 aria-current="page" class="min-w-0 truncate font-medium text-ink">{title}</h1>
     </nav>
+  {:else if titlePending}
+    <span data-page-title-pending aria-hidden="true" class="h-7 w-48 max-w-[40%] shrink animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></span>
   {:else}
     <svelte:element this={titleTag} data-page-title class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink">{title}</svelte:element>
     {#if count !== null && count !== undefined && count !== ""}

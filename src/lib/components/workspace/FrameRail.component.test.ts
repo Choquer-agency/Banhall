@@ -57,16 +57,27 @@ describe("FrameRail", () => {
     expect(item("team")!.getAttribute("href")).toBe("/team");
     expect(item("admin")!.getAttribute("href")).toBe("/admin/house-rules");
     expect(item("settings")!.getAttribute("href")).toBe("/settings");
-    // Companies opens the company list on Projects, as before.
-    expect(item("companies")!.getAttribute("href")).toBe("/projects");
+    // Companies opens All companies, its own section since 2026-10-28.
+    expect(item("companies")!.getAttribute("href")).toBe("/companies");
   });
 
-  it("Companies keeps the page's own query but drops a selected company (review round 1, finding 9)", async () => {
+  it("Companies opens All companies and is selected there and on every company page, not on Projects (2026-10-28)", async () => {
     seed("consultant");
+    __setPageUrl("/projects?layout=list&client=acme");
     await render(FrameRail, { projectsHref: "/projects?layout=list&client=acme" });
     await expect.poll(() => item("companies")).not.toBeNull();
     expect(item("projects")!.getAttribute("href")).toBe("/projects?layout=list&client=acme");
-    expect(item("companies")!.getAttribute("href")).toBe("/projects?layout=list");
+    expect(item("companies")!.getAttribute("href")).toBe("/companies");
+    // A company chosen on Projects stays under Projects.
+    expect(item("projects")!.getAttribute("aria-current")).toBe("page");
+    expect(item("companies")!.getAttribute("aria-current")).toBeNull();
+
+    for (const path of ["/companies", "/companies/cedarline%20systems"]) {
+      __setPageUrl(path);
+      await expect.poll(() => item("companies")!.getAttribute("aria-current")).toBe("page");
+      expect(item("projects")!.getAttribute("aria-current")).toBeNull();
+      expect(item("companies")!.querySelector("[data-rail-tile]")!.className).toContain("bg-frame-tile");
+    }
   });
 
   it("a developer Consultant gets no Admin and no developer rows (they sit in the Admin sidebar)", async () => {

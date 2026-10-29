@@ -127,6 +127,9 @@ describe("selectedRailItem", () => {
     ["/projects", "?layout=board&group=client", "projects"],
     ["/projects", "?group=stage", "projects"],
     ["/team", "", "team"],
+    ["/companies", "", "companies"],
+    ["/companies/cedarline%20systems", "", "companies"],
+    ["/companiesx", "", null],
     ["/admin/house-rules", "", "admin"],
     ["/alerts", "", "alerts"],
     ["/requests", "", "requests"],
@@ -163,7 +166,7 @@ describe("canViewTeam", () => {
 describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-28)", () => {
   const frameHrefs = {
     projectsHref: "/projects",
-    companiesHref: "/projects",
+    companiesHref: "/companies",
     teamHref: "/team",
     adminHref: "/admin/house-rules",
     settingsHref: "/settings",
@@ -211,6 +214,9 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
       ["/projects", "projects"],
       ["/project/abc", "projects"],
       ["/project/new", "projects"],
+      // The Companies section (2026-10-28): All companies and every company page.
+      ["/companies", "companies"],
+      ["/companies/cedarline%20systems", "companies"],
       ["/team", "team"],
       ["/admin/brain", "admin"],
       ["/alerts", "admin"],
@@ -228,6 +234,8 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
       ["/", "projects"],
       ["/my-work", "projects"],
       ["/projects", "projects"],
+      ["/companies", "companies"],
+      ["/companies/acme", "companies"],
       ["/team", "team"],
       ["/admin/house-rules", "admin"],
       ["/settings/account", "settings"],

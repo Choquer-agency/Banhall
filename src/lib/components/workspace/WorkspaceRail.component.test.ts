@@ -214,13 +214,13 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     expect(nav().querySelector("[data-rail-recent]")).toBeNull();
   });
 
-  it("gives Home and Projects real links; Companies opens All companies on the Projects page", async () => {
+  it("gives Home and Projects real links; Companies opens All companies (2026-10-28)", async () => {
     seed("consultant");
     await mount(baseProps({ projectsHref: "/projects?layout=board" }));
     await expect.poll(() => item("home")).not.toBeNull();
     expect(item("home")!.getAttribute("href")).toBe("/my-work?layout=board");
     expect(item("projects")!.getAttribute("href")).toBe("/projects?layout=board");
-    expect(item("companies")!.getAttribute("href")).toBe("/projects");
+    expect(item("companies")!.getAttribute("href")).toBe("/companies");
     expect(item("companies")!.getAttribute("aria-current")).toBeNull();
   });
 
