@@ -2640,7 +2640,8 @@
                    stays for screen readers and the mode switch leads. -->
               <header class={layout === "phone" ? "flex flex-col" : "flex flex-row items-end gap-4"}>
                 <div class={layout === "phone" ? "sr-only" : "flex min-w-0 flex-1 flex-col gap-1"}>
-                  <h1 class="font-serif text-[1.75rem] leading-[calc(17/14)] text-ink">New project</h1>
+                  <!-- The bar holds the page's h1 (one per page, the page frame). -->
+                  <h2 data-new-project-heading class="font-serif text-[1.75rem] font-normal leading-[calc(17/14)] text-ink">New project</h2>
                   <p class="text-sm leading-[calc(10/7)] text-ink-muted" data-new-project-subtitle>
                     {mode === "review" ? "Add the draft and the basics." : "Add the interview and the basics."}{layout === "desktop" ? " You become the project Owner." : ""}
                   </p>

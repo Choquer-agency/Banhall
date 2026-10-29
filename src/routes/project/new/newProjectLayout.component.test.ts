@@ -44,6 +44,11 @@ describe("E1 desktop layout", () => {
       "04 Details Optional",
     ]);
     expect(text(document.querySelector("h1"))).toBe("New project");
+    // One visible h1, the bar's; the serif body heading is an h2 that looks the same.
+    const visible = (element: Element) => element.getClientRects().length > 0;
+    expect([...document.querySelectorAll("h1")].filter(visible).map((h1) => h1.closest("[data-page-top-bar]") !== null)).toEqual([true]);
+    const heading = document.querySelector<HTMLElement>("[data-new-project-heading]")!;
+    expect([heading.tagName, getComputedStyle(heading).fontWeight, getComputedStyle(heading).fontSize]).toEqual(["H2", "400", getComputedStyle(heading).fontSize]);
     expect(text(document.querySelector("[data-new-project-subtitle]"))).toBe(
       "Add the interview and the basics. You become the project Owner."
     );
