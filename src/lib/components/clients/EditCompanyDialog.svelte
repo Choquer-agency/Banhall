@@ -10,6 +10,10 @@
     fiscalYearEndMonth?: number;
     fiscalYearEndDay?: number;
     industry?: string;
+    /** The year end shown is the newest project's: the company has none saved. */
+    fiscalYearEndFromProjects?: boolean;
+    /** The industry shown is the newest project's: the company has none saved. */
+    industryFromProjects?: boolean;
   };
 </script>
 
@@ -19,9 +23,15 @@
   // the New company fields: Name, Fiscal year end and Industry, filled from
   // the company. Save sends the whole company with the company as the dialog
   // opened it (its name, row and that row's last change), so a stale dialog
-  // never overwrites a change made since (clients.updateCompany). A rename moves every project of the company to
-  // the new name; a name another company has is refused with "Merge them
-  // instead". Each opening starts from the company as it is then.
+  // never overwrites a change made since (clients.updateCompany). A rename
+  // moves every project of the company to the new name; a name another
+  // company has is refused with "Merge them instead". Each opening starts
+  // from the company as it is then.
+  //
+  // A year end or industry the company has not saved shows its newest
+  // project's, marked "From the newest project". Saving leaves such a value
+  // out while it is unchanged, so the company keeps following its projects;
+  // only a value the person changed or chose is stored.
   import { untrack } from "svelte";
   import { useMutation } from "convex-svelte";
   import FormDialog from "$lib/components/ui/FormDialog.svelte";
@@ -75,6 +85,16 @@
   });
 
   const yearEndIncomplete = $derived(Boolean(month) !== Boolean(day));
+  /** Still exactly the newest project's year end, which the company has not saved. */
+  const yearEndBorrowed = $derived(
+    opened?.fiscalYearEndFromProjects === true &&
+      month === String(opened.fiscalYearEndMonth ?? "") &&
+      day === String(opened.fiscalYearEndDay ?? "")
+  );
+  /** Still exactly the newest project's industry, which the company has not saved. */
+  const industryBorrowed = $derived(
+    opened?.industryFromProjects === true && industry !== "" && industry === (opened.industry ?? "")
+  );
   const renames = $derived(opened !== null && name.trim() !== "" && name.trim() !== opened.name);
   const dirty = $derived.by(() => {
     if (!opened) return false;
@@ -104,8 +124,9 @@
         expectedClientId: opened.clientId as Id<"clients"> | null,
         expectedUpdatedAt: opened.clientUpdatedAt,
         name: name.trim(),
-        ...(month && day ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
-        ...(industry ? { industry } : {}),
+        // A value borrowed from the newest project, unchanged, stays unsaved.
+        ...(month && day && !yearEndBorrowed ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
+        ...(industry && !industryBorrowed ? { industry } : {}),
       });
       open = false;
       done?.({ key: result.key, name: result.name });
@@ -183,7 +204,9 @@
       <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-edit-company-year-end-helper>
         {yearEndIncomplete
           ? "Pick both a month and a day, or leave both empty."
-          : "New projects for this company start with it. Projects you already have keep their own."}
+          : yearEndBorrowed
+            ? "From the newest project"
+            : "New projects for this company start with it. Projects you already have keep their own."}
       </p>
     </div>
 
@@ -197,6 +220,9 @@
         offer={opened?.industry ? [opened.industry] : []}
         class={formSelect}
       />
+      {#if industryBorrowed}
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-edit-company-industry-helper>From the newest project</p>
+      {/if}
     </div>
   </div>
 </FormDialog>

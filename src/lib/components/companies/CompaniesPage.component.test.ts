@@ -8,6 +8,8 @@ import {
   __resetConvexStub,
   __setMutationError,
   __setMutationResult,
+  __activeQueryArgs,
+  __activeQueryCount,
   __queryArgsHistory,
   __setPaginatedRows,
   __setQueryData,
@@ -135,6 +137,8 @@ afterEach(() => {
 describe("All companies", () => {
   it("names the page with the count and lists every company A to Z: projects, fiscal year end, last update", async () => {
     seed("consultant");
+    // Ironleaf Farms has no year end saved and no project with one.
+    __setQueryDataForArgs("clients:listCompanyYearEnds", { keys: ["ironleaf farms"] }, []);
     await mount(null);
     await expect.poll(() => tableRows().length).toBe(3);
     expect(text(barTitle())).toBe("Companies");
@@ -170,6 +174,45 @@ describe("All companies", () => {
     expect(text(document.querySelector('[data-company-row="alder research"] [data-company-year-end]'))).toBe("March 31");
     expect(text(document.querySelector('[data-company-row="cedarline systems"] [data-company-year-end]'))).toBe("September 30");
     expect(__queryArgsHistory("clients:listCompanyYearEnds")).toEqual([{ keys: ["ironleaf farms"] }]);
+    // A borrowed year end reads in muted ink; a saved one does not.
+    const borrowed = document.querySelector<HTMLElement>('[data-company-row="ironleaf farms"] [data-company-year-end]')!;
+    expect(borrowed.hasAttribute("data-borrowed")).toBe(true);
+    expect(borrowed.className).toContain("text-ink-muted");
+    const saved = document.querySelector<HTMLElement>('[data-company-row="alder research"] [data-company-year-end]')!;
+    expect(saved.hasAttribute("data-borrowed")).toBe(false);
+    expect(saved.className).toContain("text-ink-secondary");
+  });
+
+  it("shows nothing while a borrowed year end is read, and drops one that went away", async () => {
+    seed("consultant");
+    await mount(null);
+    await expect.poll(() => tableRows().length).toBe(3);
+    // Not read yet: blank, not "Not set".
+    const cellText = () => text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-year-end]'));
+    expect(cellText()).toBe("");
+    __setQueryDataForArgs("clients:listCompanyYearEnds", { keys: ["ironleaf farms"] }, [
+      { key: "ironleaf farms", fiscalYearEndMonth: 12, fiscalYearEndDay: 31 },
+    ]);
+    await expect.poll(cellText).toBe("December 31");
+    // The project that gave it is gone: the read no longer has the key.
+    __setQueryDataForArgs("clients:listCompanyYearEnds", { keys: ["ironleaf farms"] }, []);
+    await expect.poll(cellText).toBe("Not set");
+  });
+
+  it("a company list update keeps each chunk's read as it is", async () => {
+    seed("consultant");
+    __setQueryDataForArgs("clients:listCompanyYearEnds", { keys: ["ironleaf farms"] }, []);
+    await mount(null);
+    await expect.poll(() => __activeQueryCount("clients:listCompanyYearEnds")).toBe(1);
+    const before = (__activeQueryArgs("clients:listCompanyYearEnds")[0] as { keys: string[] }).keys;
+    // A new list object, new entry objects, the same companies needing a year end.
+    __setQueryData("clients:listClients", {
+      clients: CLIENTS.map((client) => ({ ...client, projectCount: client.projectCount + 1 })),
+      truncated: false,
+    });
+    await expect.poll(() => text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-projects]'))).toBe("1");
+    expect(__activeQueryCount("clients:listCompanyYearEnds")).toBe(1);
+    expect((__activeQueryArgs("clients:listCompanyYearEnds")[0] as { keys: string[] }).keys).toBe(before);
   });
 
   it("Not set stays only when neither the company nor a project has a year end", async () => {
@@ -625,9 +668,8 @@ describe("Edit company (Managers and Admins)", () => {
     expect(text(barTitle())).toBe("Companies");
   });
 
-  it("shows the newest project's year end and industry when the company has none saved, and Edit company starts from them", async () => {
-    seed("manager");
-    __setMutationResult("clients:updateCompany", { clientId: null, key: "ironleaf farms", name: "Ironleaf Farms", moved: 0 });
+  /** Ironleaf Farms with nothing saved: its newest project's December 31 and Manufacturing. */
+  function borrowedIronleaf() {
     __setQueryDataForArgs("clients:getCompanyPage", { key: "ironleaf farms" }, companyPage("ironleaf farms", {
       fiscalYearEndMonth: 12,
       fiscalYearEndDay: 31,
@@ -636,18 +678,39 @@ describe("Edit company (Managers and Admins)", () => {
       industryFromProjects: true,
     }));
     __setPaginatedRows("dashboard:listCompanyProjects", []);
-    await mount("ironleaf farms");
-    await expect.poll(() => text(document.querySelector('[data-company-fact="year-end"] dd'))).toBe("December 31");
-    expect(text(document.querySelector('[data-company-fact="industry"] dd'))).toBe("Manufacturing");
+  }
 
+  it("shows the newest project's year end and industry, muted, when the company has none saved", async () => {
+    seed("manager");
+    borrowedIronleaf();
+    await mount("ironleaf farms");
+    const fact = (id: string) => document.querySelector<HTMLElement>(`[data-company-fact="${id}"] dd`)!;
+    await expect.poll(() => text(fact("year-end"))).toBe("December 31");
+    expect(text(fact("industry"))).toBe("Manufacturing");
+    for (const id of ["year-end", "industry"]) {
+      expect(fact(id).hasAttribute("data-borrowed")).toBe(true);
+      expect(fact(id).className).toContain("text-ink-muted");
+    }
+    // The project count is the company's own.
+    expect(fact("projects").className).toContain("text-ink");
+    expect(fact("projects").hasAttribute("data-borrowed")).toBe(false);
+  });
+
+  it("Edit company marks borrowed values and a rename leaves them unsaved, so the company keeps following its projects", async () => {
+    seed("manager");
+    borrowedIronleaf();
+    __setMutationResult("clients:updateCompany", { clientId: "c-made", key: "ironleaf farms ltd", name: "Ironleaf Farms Ltd", moved: 0 });
+    await mount("ironleaf farms");
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
     await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
     await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
     await expect.poll(() => document.querySelector<HTMLInputElement>("#edit-company-year-end-month")?.value).toBe("December");
     expect(document.querySelector<HTMLInputElement>("#edit-company-year-end-day")!.value).toBe("31");
     expect(document.querySelector<HTMLInputElement>("#edit-company-industry")!.value).toBe("Manufacturing");
-    // Saving stores what was shown.
+    expect(text(document.querySelector("[data-edit-company-year-end-helper]"))).toBe("From the newest project");
+    expect(text(document.querySelector("[data-edit-company-industry-helper]"))).toBe("From the newest project");
+
     await userEvent.fill(page.getByRole("textbox", { name: "Name" }), "Ironleaf Farms Ltd");
-    __setMutationResult("clients:updateCompany", { clientId: "c-made", key: "ironleaf farms ltd", name: "Ironleaf Farms Ltd", moved: 0 });
     await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company-save]")!);
     await expect.poll(() => __mutationCalls("clients:updateCompany").at(-1)).toEqual({
       key: "ironleaf farms",
@@ -655,9 +718,34 @@ describe("Edit company (Managers and Admins)", () => {
       expectedClientId: null,
       expectedUpdatedAt: null,
       name: "Ironleaf Farms Ltd",
-      fiscalYearEndMonth: 12,
-      fiscalYearEndDay: 31,
-      industry: "manufacturing",
+    });
+  });
+
+  it("a borrowed value the person changes is stored, and its hint goes; an unchanged one stays out", async () => {
+    seed("manager");
+    borrowedIronleaf();
+    __setMutationResult("clients:updateCompany", { clientId: "c-made", key: "ironleaf farms", name: "Ironleaf Farms", moved: 0 });
+    await mount("ironleaf farms");
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
+    await userEvent.click(page.getByRole("combobox", { name: "Fiscal year end month" }));
+    await userEvent.click(page.getByRole("option", { name: "June" }));
+    await userEvent.click(page.getByRole("combobox", { name: "Fiscal year end day" }));
+    await userEvent.click(page.getByRole("option", { name: "30", exact: true }));
+    await expect.poll(() => text(document.querySelector("[data-edit-company-year-end-helper]"))).toBe(
+      "New projects for this company start with it. Projects you already have keep their own."
+    );
+    expect(text(document.querySelector("[data-edit-company-industry-helper]"))).toBe("From the newest project");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company-save]")!);
+    await expect.poll(() => __mutationCalls("clients:updateCompany").at(-1)).toEqual({
+      key: "ironleaf farms",
+      expectedName: "Ironleaf Farms",
+      expectedClientId: null,
+      expectedUpdatedAt: null,
+      name: "Ironleaf Farms",
+      fiscalYearEndMonth: 6,
+      fiscalYearEndDay: 30,
     });
   });
 

@@ -21,7 +21,7 @@
   /** Rows shown at first and added by each Show more. */
   export const COMPANY_TABLE_PAGE = 50;
   /** Companies one fallback year end read asks about (the server's limit). */
-  const YEAR_END_CHUNK = 50;
+  const YEAR_END_CHUNK = 25;
 </script>
 
 <script lang="ts">
@@ -57,36 +57,66 @@
   });
 
   // Companies with no year end saved show their newest project's. The ones
-  // that need it are cut into fixed chunks of 50, A to Z, so a chunk's read
+  // that need it are cut into fixed chunks of 25, A to Z, so a chunk's read
   // stays the same while the person searches or shows more; only chunks with
-  // a row on screen are read, and what came back is kept.
+  // a row on screen are read. A chunk keeps the same keys array while its
+  // keys are the same (a company list update makes new arrays otherwise),
+  // so its read is not asked again.
   const needing = $derived(
     companies
       .filter((company) => company.fiscalYearEndMonth === undefined || company.fiscalYearEndDay === undefined)
       .map((company) => company.key)
   );
-  const chunkOf = $derived(new Map(needing.map((key, index) => [key, Math.floor(index / YEAR_END_CHUNK)])));
+  let chunkCache = new Map<string, string[]>();
+  const chunks = $derived.by(() => {
+    const next = new Map<string, string[]>();
+    const out: { id: string; keys: string[] }[] = [];
+    for (let start = 0; start < needing.length; start += YEAR_END_CHUNK) {
+      const slice = needing.slice(start, start + YEAR_END_CHUNK);
+      const id = slice.join("\n");
+      const keys = chunkCache.get(id) ?? slice;
+      next.set(id, keys);
+      out.push({ id, keys });
+    }
+    chunkCache = next;
+    return out;
+  });
+  const chunkOf = $derived(new Map(chunks.flatMap((chunk, index) => chunk.keys.map((key) => [key, index] as const))));
   const shownRows = $derived(visible.slice(0, shown));
   const chunksOnScreen = $derived(
-    [...new Set(shownRows.map((company) => chunkOf.get(company.key)).filter((id): id is number => id !== undefined))].sort(
-      (a, b) => a - b
-    )
+    [...new Set(shownRows.map((company) => chunkOf.get(company.key)).filter((index): index is number => index !== undefined))]
+      .sort((a, b) => a - b)
+      .map((index) => chunks[index]!)
   );
-  const projectYearEnds = new SvelteMap<string, { month: number; day: number }>();
-  function keepYearEnds(entries: { key: string; fiscalYearEndMonth: number; fiscalYearEndDay: number }[]) {
-    for (const entry of entries) {
-      const known = projectYearEnds.get(entry.key);
-      if (known?.month !== entry.fiscalYearEndMonth || known?.day !== entry.fiscalYearEndDay) {
-        projectYearEnds.set(entry.key, { month: entry.fiscalYearEndMonth, day: entry.fiscalYearEndDay });
+  /** Per key: the newest project's year end, null when it has none, absent until its chunk is read. */
+  const projectYearEnds = new SvelteMap<string, { month: number; day: number } | null>();
+  /** A chunk's read replaces what its keys showed: a fallback that went away goes too. */
+  function keepYearEnds(
+    keys: readonly string[],
+    entries: { key: string; fiscalYearEndMonth: number; fiscalYearEndDay: number }[]
+  ) {
+    const byKey = new Map(entries.map((entry) => [entry.key, entry]));
+    for (const key of keys) {
+      const entry = byKey.get(key);
+      const known = projectYearEnds.get(key);
+      if (!entry) {
+        if (known !== null) projectYearEnds.set(key, null);
+      } else if (known?.month !== entry.fiscalYearEndMonth || known?.day !== entry.fiscalYearEndDay) {
+        projectYearEnds.set(key, { month: entry.fiscalYearEndMonth, day: entry.fiscalYearEndDay });
       }
     }
   }
-  /** The saved year end, else the newest project's. */
-  function yearEndOf(company: CompanyRow): string | null {
+  /**
+   * The saved year end; else the newest project's, in muted ink; "Not set"
+   * when neither has one; nothing while its chunk is being read.
+   */
+  function yearEndOf(company: CompanyRow): { text: string; tone: "saved" | "borrowed" | "muted" } {
     const saved = yearEndLabel(company.fiscalYearEndMonth, company.fiscalYearEndDay);
-    if (saved) return saved;
+    if (saved) return { text: saved, tone: "saved" };
     const fromProjects = projectYearEnds.get(company.key);
-    return fromProjects ? yearEndLabel(fromProjects.month, fromProjects.day) : null;
+    if (fromProjects === undefined) return { text: "", tone: "muted" };
+    if (fromProjects === null) return { text: "Not set", tone: "muted" };
+    return { text: yearEndLabel(fromProjects.month, fromProjects.day) ?? "", tone: "borrowed" };
   }
 
   const quietButton =
@@ -94,8 +124,8 @@
   const cell = "text-[0.8125rem] leading-[calc(19/13)]";
 </script>
 
-{#each chunksOnScreen as id (id)}
-  <CompanyYearEndsLoader keys={needing.slice(id * YEAR_END_CHUNK, (id + 1) * YEAR_END_CHUNK)} onLoaded={keepYearEnds} />
+{#each chunksOnScreen as chunk (chunk.id)}
+  <CompanyYearEndsLoader keys={chunk.keys} onLoaded={(entries) => keepYearEnds(chunk.keys, entries)} />
 {/each}
 
 {#if companies.length === 0}
@@ -128,7 +158,12 @@
             >{company.name}</a>
           </span>
           <span role="cell" data-company-projects class={`${cell} w-20 shrink-0 text-right text-ink-secondary`}>{company.projectCount}</span>
-          <span role="cell" data-company-year-end class={`${cell} w-36 shrink-0 truncate ${yearEnd ? "text-ink-secondary" : "text-ink-muted"}`}>{yearEnd ?? "Not set"}</span>
+          <span
+            role="cell"
+            data-company-year-end
+            data-borrowed={yearEnd.tone === "borrowed" ? "" : undefined}
+            class={`${cell} w-36 shrink-0 truncate ${yearEnd.tone === "saved" ? "text-ink-secondary" : "text-ink-muted"}`}
+          >{yearEnd.text}</span>
           <span role="cell" data-company-updated class={`${cell} w-40 shrink-0 truncate text-ink-muted`}>{company.updatedAt !== undefined ? longDate(company.updatedAt) : ""}</span>
         </div>
       {/each}

@@ -45,6 +45,10 @@
       fiscalYearEndMonth?: number;
       fiscalYearEndDay?: number;
       industry?: string;
+      /** The year end shown is the newest project's (none saved). */
+      fiscalYearEndFromProjects?: boolean;
+      /** The industry shown is the newest project's (none saved). */
+      industryFromProjects?: boolean;
     };
     /** The merged company's note (Paper Z9g), or null. */
     note?: { fromName: string; mergedAt: number; projectCount: number | null } | null;
@@ -63,10 +67,16 @@
   } = $props();
 
   const yearEnd = $derived(yearEndLabel(company.fiscalYearEndMonth, company.fiscalYearEndDay));
+  // A value borrowed from the newest project (none saved) reads in muted ink.
   const facts = $derived([
-    { id: "year-end", label: "Fiscal year ends", value: yearEnd },
-    { id: "industry", label: "Industry", value: company.industry ? industryLabel(company.industry) : null },
-    { id: "projects", label: "Projects", value: String(company.projectCount) },
+    { id: "year-end", label: "Fiscal year ends", value: yearEnd, borrowed: company.fiscalYearEndFromProjects === true },
+    {
+      id: "industry",
+      label: "Industry",
+      value: company.industry ? industryLabel(company.industry) : null,
+      borrowed: company.industryFromProjects === true,
+    },
+    { id: "projects", label: "Projects", value: String(company.projectCount), borrowed: false },
   ]);
 
   // ─── Tabs (Paper Z8a): Projects and Files ─────────────────────────────────
@@ -126,7 +136,10 @@
         {#each facts as fact (fact.id)}
           <div class="flex flex-col gap-1" data-company-fact={fact.id}>
             <dt class="text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">{fact.label}</dt>
-            <dd class={`text-[0.9375rem] leading-[calc(4/3)] ${fact.value ? "text-ink" : "text-ink-muted"}`}>{fact.value ?? "Not set"}</dd>
+            <dd
+              data-borrowed={fact.value && fact.borrowed ? "" : undefined}
+              class={`text-[0.9375rem] leading-[calc(4/3)] ${fact.value && !fact.borrowed ? "text-ink" : "text-ink-muted"}`}
+            >{fact.value ?? "Not set"}</dd>
           </div>
         {/each}
       </dl>
