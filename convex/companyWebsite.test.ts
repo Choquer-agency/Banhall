@@ -292,6 +292,18 @@ describe("a finished read", () => {
     expect((await client(s, made.clientId))?.websiteRead).toMatchObject({ status: "failed", url: "https://hatchbetter.ca" });
   });
 
+  it("a read that comes back after its check marked it failed is still saved", async () => {
+    const s = await setup();
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    await s.t.mutation(internal.companyWebsite.expireWebsiteRead, (await expiries(s))[0]!.args[0] as never);
+    expect(await client(s, made.clientId)).toMatchObject({ websiteRead: { status: "failed" } });
+    // The slow read finishes after all: its text is better than nothing.
+    await finishRead(s, made.clientId, { ok: true, text: "Late but good." });
+    expect(await client(s, made.clientId)).toMatchObject({ websiteRead: { status: "read" } });
+    expect(await companyFiles(s, made.clientId)).toHaveLength(1);
+    expect((await companyFiles(s, made.clientId))[0]!.archived).toBeUndefined();
+  });
+
   it("a read that finished before its check is left alone", async () => {
     const s = await setup();
     const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
