@@ -125,4 +125,18 @@ describe("Notification card above sticky action bars", () => {
     const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
     expect(Math.round(window.innerHeight - section.bottom)).toBe(Math.round(board(16)));
   });
+
+  it("lifts over a mid-window bar once content above it grows and pins it to the foot, with no scroll (review round 2, item 2)", async () => {
+    await page.viewport(1440, 900);
+    __setPageUrl("/project/p-1");
+    await render(StickyBarToasterHarness, { content: MidPaneStickyBar });
+    await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
+    const toaster = () => document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
+    expect(Math.round(window.innerHeight - toaster().bottom)).toBe(Math.round(board(16)));
+    document.querySelector<HTMLButtonElement>("[data-grow]")!.click();
+    await expect.poll(() => Math.round(document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect().bottom)).toBe(window.innerHeight);
+    const bar = document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect();
+    await expect.poll(() => toaster().bottom).toBeLessThanOrEqual(bar.top - board(16) + 0.5);
+    expect(window.scrollY).toBe(0);
+  });
 });

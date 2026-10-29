@@ -23,18 +23,30 @@ export function stickyBarLift(rect: { top: number; bottom: number; height: numbe
   return Math.max(rect.height, windowHeight - rect.top);
 }
 
+/** The nearest ancestor that scrolls, where a sticky bar pins itself. */
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+  }
+  return null;
+}
+
 /**
  * Attachment: `<div {@attach stickyActionBar}>`. A bar measures the space from
  * its top to the window's foot when it sits at the foot, so a bar inside the
- * page frame's white card is cleared too. It measures again when it or the
- * window resizes, and on any scroll (passive, once a frame), since a sticky
- * bar reaches the foot only once its pane is scrolled or filled.
+ * page frame's white card is cleared too. It measures again whenever its
+ * place can change: when it or the window resizes, on any scroll, and when
+ * the content around it grows or shrinks (its parent, its scroll container
+ * and that container's content), so a bar pushed to the foot by content
+ * that arrives later is cleared without a scroll. Every path but its own
+ * resize waits for the next frame and measures once.
  */
 export function stickyActionBar(element: HTMLElement) {
   const measure = () => heights.set(element, stickyBarLift(element.getBoundingClientRect(), window.innerHeight));
   measure();
   let frame = 0;
-  const onScroll = () => {
+  const soon = () => {
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
@@ -43,12 +55,18 @@ export function stickyActionBar(element: HTMLElement) {
   };
   const observer = new ResizeObserver(measure);
   observer.observe(element);
+  const around = new ResizeObserver(soon);
+  const container = scrollParent(element);
+  for (const node of new Set([element.parentElement, container, container?.firstElementChild ?? null])) {
+    if (node instanceof Element && node !== element) around.observe(node);
+  }
   window.addEventListener("resize", measure);
-  document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+  document.addEventListener("scroll", soon, { capture: true, passive: true });
   return () => {
     observer.disconnect();
+    around.disconnect();
     window.removeEventListener("resize", measure);
-    document.removeEventListener("scroll", onScroll, { capture: true });
+    document.removeEventListener("scroll", soon, { capture: true });
     if (frame) cancelAnimationFrame(frame);
     heights.delete(element);
   };
