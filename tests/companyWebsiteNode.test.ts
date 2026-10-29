@@ -48,6 +48,18 @@ beforeAll(async () => {
       response.on("close", () => clearInterval(timer));
       return;
     }
+    if (path === "/gzip-cut" || path === "/plain-cut") {
+      // Half the body, then the connection drops.
+      const gzip = path === "/gzip-cut";
+      response.writeHead(200, {
+        "content-type": "text/html",
+        ...(gzip ? { "content-encoding": "gzip" } : {}),
+        "content-length": String(gzip ? packed.gzip.length : 100_000),
+      });
+      response.write(gzip ? packed.gzip.subarray(0, packed.gzip.length >> 1) : "x".repeat(50_000));
+      setTimeout(() => response.socket?.destroy(), 50);
+      return;
+    }
     if (path === "/latin1-meta") {
       // No charset in the header: the page says it in a <meta>.
       response.writeHead(200, { "content-type": "text/html" });
@@ -142,6 +154,12 @@ describe("createNodeFetch", () => {
     expect(Date.now() - started).toBeLessThan(3_000);
   });
 
+  it.each([["/gzip-cut"], ["/plain-cut"]])("fails at once when %s is cut off mid-body, not at the deadline", async (path) => {
+    const started = Date.now();
+    await expect(fetchPage(url(path), { ...limits, timeoutMs: 8_000 })).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
   it("gives up on a server that trickles its body, at the timeout", async () => {
     const started = Date.now();
     await expect(fetchPage(url("/trickle"), { ...limits, timeoutMs: 500 })).rejects.toThrow();
@@ -180,6 +198,16 @@ describe("decodeBody", () => {
     // A <meta> past the first 1 KB is not looked at; an unknown charset falls back.
     expect(decodeBody(latin1(`${" ".repeat(1100)}<meta charset="iso-8859-1"><p>\u00e9</p>`), null)).toContain("\ufffd");
     expect(decodeBody(Buffer.from("<p>é</p>", "utf8"), "text/html; charset=nonsense-9")).toBe("<p>é</p>");
+  });
+
+  it("reads a <meta> naming UTF-16 as UTF-8, and x-user-defined as windows-1252 (the WHATWG pre-scan rule)", () => {
+    const ascii = '<meta charset="utf-16"><p>Hatch Better caf\u00c3\u00a9</p>';
+    for (const label of ["utf-16", "UTF-16LE", "utf-16be", "ucs-2"]) {
+      expect(decodeBody(Buffer.from(ascii.replace("utf-16", label), "latin1"), "text/html")).toBe(
+        `<meta charset="${label}"><p>Hatch Better café</p>`
+      );
+    }
+    expect(decodeBody(Buffer.from('<meta charset="x-user-defined"><p>\u0080 caf\u00e9</p>', "latin1"), null)).toContain("\u20ac café");
   });
 
   it("reads a page whose charset only its <meta> names", async () => {

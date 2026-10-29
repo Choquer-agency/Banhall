@@ -14,7 +14,7 @@ import dns from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import zlib from "node:zlib";
-import type { Readable } from "node:stream";
+import { pipeline, type Readable } from "node:stream";
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -46,12 +46,21 @@ export function guardedLookup(resolve: Resolver = dns.lookup as unknown as Resol
 /**
  * The body as text: in the Content-Type's charset, or else the one a
  * `<meta charset>` (or `http-equiv` Content-Type) names in its first 1 KB,
- * or else UTF-8.
+ * or else UTF-8. As the WHATWG pre-scan rule says, a meta tag naming UTF-16
+ * means UTF-8 (a page that can say so in ASCII is not UTF-16), and one
+ * naming x-user-defined means windows-1252.
  */
 export function decodeBody(bytes: Buffer, contentType: string | null): string {
   const fromHeader = /charset\s*=\s*"?([^";\s]+)/i.exec(contentType ?? "")?.[1];
   const head = fromHeader ? "" : bytes.subarray(0, 1024).toString("latin1");
-  const fromMeta = fromHeader ? undefined : /<meta\b[^>]{0,300}?charset\s*=\s*["']?\s*([a-zA-Z0-9_:.-]+)/i.exec(head)?.[1];
+  const named = fromHeader ? undefined : /<meta\b[^>]{0,300}?charset\s*=\s*["']?\s*([a-zA-Z0-9_:.-]+)/i.exec(head)?.[1];
+  const fromMeta = !named
+    ? undefined
+    : /^(utf-?16|utf-?16le|utf-?16be|ucs-?2|csunicode|iso-10646-ucs-2|unicode|unicodefeff|unicodefffe)$/i.test(named)
+      ? "utf-8"
+      : /^x-user-defined$/i.test(named)
+        ? "windows-1252"
+        : named;
   for (const label of [fromHeader, fromMeta, "utf-8"]) {
     if (!label) continue;
     try {
@@ -67,14 +76,24 @@ export function decodeBody(bytes: Buffer, contentType: string | null): string {
  * The body, decompressed. zlib's streams take no output limit (its
  * `maxOutputLength` applies only to the one-call buffer helpers), so the
  * byte cap is kept by the data handler below, which destroys the stream as
- * soon as `maxBytes` is passed.
+ * soon as `maxBytes` is passed. `pipeline` (not `pipe`) passes a response
+ * cut off mid-body on to the decompressor as an error, so the read fails at
+ * once instead of waiting out its deadline.
  */
 function decompressed(response: http.IncomingMessage): Readable {
   const encoding = String(response.headers["content-encoding"] ?? "").toLowerCase();
-  if (encoding === "gzip" || encoding === "x-gzip") return response.pipe(zlib.createGunzip());
-  if (encoding === "deflate") return response.pipe(zlib.createInflate());
-  if (encoding === "br") return response.pipe(zlib.createBrotliDecompress());
-  return response;
+  const decoder =
+    encoding === "gzip" || encoding === "x-gzip"
+      ? zlib.createGunzip()
+      : encoding === "deflate"
+        ? zlib.createInflate()
+        : encoding === "br"
+          ? zlib.createBrotliDecompress()
+          : null;
+  if (!decoder) return response;
+  // Errors reach the decompressor (pipeline destroys it with them) and its
+  // own "error" handler; nothing more to do here.
+  return pipeline(response, decoder, () => {});
 }
 
 /** A neutral, honest name for the reader: no product, client or purpose in it. */
@@ -121,6 +140,12 @@ export function createNodeFetch(options: { lookup?: ReturnType<typeof guardedLoo
         },
         (incoming) => {
           response = incoming;
+          // A response cut off before its end fails the read at once.
+          incoming.on("aborted", () => done(new Error("The website closed the connection mid-page")));
+          incoming.on("error", (error) => done(error));
+          incoming.on("close", () => {
+            if (!incoming.complete) done(new Error("The website closed the connection mid-page"));
+          });
           const status = response.statusCode ?? 0;
           const location = typeof response.headers.location === "string" ? response.headers.location : null;
           const contentType = typeof response.headers["content-type"] === "string" ? response.headers["content-type"] : null;
