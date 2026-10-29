@@ -256,6 +256,9 @@ const SKIPPED = new Set([
   "select",
   "textarea",
   "button",
+  // Their fallback text ("Your browser does not support the video tag.").
+  "video",
+  "audio",
 ]);
 /** Skipped parts that may hold themselves (an svg in an svg): their closing tags are counted. */
 const NESTING = new Set(["svg", "math", "object", "template"]);
@@ -265,7 +268,10 @@ const SELF_CLOSING = new Set(["svg", "math"]);
  * Navigation, footer and aside boilerplate: their text is left out, but
  * their links are still read (the about page is usually linked from the
  * navigation). A header stays, only the navigation inside it going. One
- * that is never closed is read as text, so it cannot hide the page.
+ * that is never closed is read as text; and since a left-open one can still
+ * borrow a later closing tag (a header nav left open, then a footer nav),
+ * the main content (<main>), the end of the header and the end of the body
+ * always bring the text back.
  */
 const QUIET = new Set(["nav", "footer", "aside"]);
 /** What a head may hold; any other element ends a head that is never closed. */
@@ -273,7 +279,7 @@ const HEAD_ONLY = new Set(["meta", "link", "title", "base", "style", "script", "
 const BLOCKS = new Set([
   "p", "div", "section", "article", "main", "header", "li", "ul", "ol", "tr", "table", "tbody", "thead",
   "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "dd", "dt", "dl", "figure", "figcaption", "form", "address",
-  "hr", "pre",
+  "hr", "pre", "summary", "details", "caption", "fieldset", "legend", "dialog",
 ]);
 /** Inline tags that still part words ("<td>Founded</td><td>1999</td>"). */
 const SPACERS = new Set(["td", "th", "label", "option", "img", "input", "wbr"]);
@@ -393,19 +399,38 @@ function skippedEnd(lower: string, name: string, from: number): number {
   let depth = 1;
   let p = from;
   // Each search starts past the last one found, so the scan stays linear.
+  // A tag only counts when its name ends there ("<svgfoo", "</scripts" do not).
+  const ends = (at: number) => !isNameChar(lower.charCodeAt(at));
   let nextOpen = NESTING.has(name) ? lower.indexOf(opening, p) : -1;
   let nextClose = lower.indexOf(closing, p);
+  // The next ">" (the length when there is none), looked for again only once passed.
+  let nextGt = -1;
   while (depth > 0) {
     if (nextClose === -1) return -1;
     if (nextOpen !== -1 && nextOpen < nextClose) {
-      // "<svgfoo" is not this name.
-      if (!isNameChar(lower.charCodeAt(nextOpen + opening.length))) depth += 1;
-      p = nextOpen + opening.length;
+      let after = nextOpen + opening.length;
+      if (ends(after)) {
+        // A nested `<svg ... />` opens nothing: its ">" comes before any
+        // other "<" and follows a "/".
+        let selfClosing = false;
+        if (SELF_CLOSING.has(name)) {
+          if (nextGt < after) {
+            const found = lower.indexOf(">", after);
+            nextGt = found === -1 ? lower.length : found;
+          }
+          const nextLt = lower.indexOf("<", after);
+          selfClosing = nextGt < lower.length && (nextLt === -1 || nextGt < nextLt) && lower.charCodeAt(nextGt - 1) === 47;
+        }
+        if (selfClosing) after = nextGt + 1;
+        else depth += 1;
+      }
+      p = Math.max(p, after);
       nextOpen = lower.indexOf(opening, p);
+      if (nextClose < p) nextClose = lower.indexOf(closing, p);
       continue;
     }
-    depth -= 1;
     p = nextClose + closing.length;
+    if (ends(p)) depth -= 1;
     if (depth > 0) nextClose = lower.indexOf(closing, p);
   }
   const gt = lower.indexOf(">", p);
@@ -524,6 +549,8 @@ export function parseHtml(input: string): ParsedPage {
       else if ((lastQuietClose.get(name) ?? -1) > i) quiet += 1;
       continue;
     }
+    // The page's own content is never boilerplate.
+    if ((name === "main" && !closing) || (closing && (name === "header" || name === "body"))) quiet = 0;
     if (name === "head") {
       inHead = !closing;
       if (closing) inTitle = false;
@@ -544,6 +571,8 @@ export function parseHtml(input: string): ParsedPage {
       continue;
     }
     if (name === "a") {
+      // Minified links run into their neighbours ("Get a quoteCall us"): a space each side.
+      out.push(" ");
       // An <a> left open ends where the next one starts.
       closeLink();
       if (!closing) {
@@ -556,7 +585,7 @@ export function parseHtml(input: string): ParsedPage {
     if (BLOCKS.has(name)) {
       out.push("\n");
       if (link) link.parts.push(" ");
-    } else if (SPACERS.has(name)) {
+    } else if (SPACERS.has(name) || (closing && name === "span")) {
       out.push(" ");
       if (link) link.parts.push(" ");
     }

@@ -307,10 +307,15 @@ describe("the text", () => {
     ["2 MB of unclosed <p title=\"", '<p title="'.repeat(209_715)],
     ["2 MB of &amp without a semicolon", "&ampamp".repeat(262_144)],
     ["2 MB of <a href=\"", '<a href="'.repeat(233_016) + ">"],
-    ["2 MB of nested <svg", "<svg>" + "<svg".repeat(524_287) + "</svg>"],
-    ["2 MB of <svg> closed once", "<svg>".repeat(419_430) + "</svg>"],
+    // Round 3: within 2 MB, so the closing tag survives the cut and the
+    // nesting count is what runs.
+    ["2 MB of nested <svg", "<svg>" + "<svg".repeat(524_280) + "</svg>"],
+    ["2 MB of <svg> closed once", "<svg>".repeat(419_428) + "</svg>"],
+    ["2 MB of nested <svg/>", "<svg>" + "<svg/>".repeat(349_520) + "</svg>"],
+    ["2 MB of </scripts", "<script>" + "</scripts".repeat(233_015) + "</script>"],
     ["2 MB of <nav> never closed", "<nav>".repeat(419_430)],
   ])("parses %s in a straight pass, well within the deadline", (_label, input) => {
+    expect(input.length).toBeLessThanOrEqual(WEBSITE_MAX_BYTES);
     const started = performance.now();
     const page = parseHtml(input);
     const elapsed = performance.now() - started;
@@ -418,6 +423,43 @@ describe("the text", () => {
       { href: "/about", text: "About us" },
       { href: "/shop", text: "Shop" },
     ]);
+  });
+
+  it("a nav left open does not blank the page, even when a later </nav> exists", () => {
+    // A header nav left open, then a footer nav that is closed.
+    const page = `<header><nav><a href="/">Home</a></header><main><p>Body text.</p></main><footer><nav><a href="/legal">Legal</a></nav></footer>`;
+    expect(htmlToText(page)).toBe("Body text.");
+    expect(htmlToText(`<nav><a href="/">Home</a><main><p>Main text.</p></main><footer></nav></footer>`)).toBe("Main text.");
+    expect(htmlToText(`<body><nav><a href="/">Home</a></body><p>After the body.</p><nav></nav>`)).toBe("After the body.");
+  });
+
+  it("keeps minified words apart, and reads details, captions and dialogs as blocks", () => {
+    expect(htmlToText(`<p><a href="/q">Get a quote</a><a href="/c">Call us</a></p>`)).toBe("Get a quote Call us");
+    expect(htmlToText("<p><span>Founded</span><span>2019</span></p>")).toBe("Founded 2019");
+    expect(htmlToText("<details><summary>Do you ship?</summary>Yes, across Canada.</details>")).toBe("Do you ship?\nYes, across Canada.");
+    expect(htmlToText("<table><caption>Prices</caption><tr><td>A</td></tr></table><fieldset><legend>Contact</legend>Form</fieldset>")).toBe(
+      "Prices\nA\nContact\nForm"
+    );
+    expect(htmlToText("<dialog>Signed up.</dialog><p>Page.</p>")).toBe("Signed up.\nPage.");
+  });
+
+  it("leaves out video and audio fallback text", () => {
+    expect(
+      htmlToText(`<video controls><source src="a.mp4">Your browser does not support the video tag.</video><audio>No audio.</audio><p>Text.</p>`)
+    ).toBe("Text.");
+  });
+
+  it("handles the round 3 edges", () => {
+    // An unclosed title ends at the first element a head cannot hold.
+    expect(htmlToText("<head><title>T<h1>Body")).toBe("Body");
+    expect(htmlTitle("<head><title>T<h1>Body")).toBe("T");
+    // "<svgfoo" and "</svgfoo" are not the svg's own tags.
+    expect(htmlToText("<svg><svgfoo>a</svgfoo>inside</svg><p>After.</p>")).toBe("After.");
+    // A self-closing svg inside an svg opens nothing.
+    expect(htmlToText("<svg><svg/><path d='M0'/></svg><p>After.</p>")).toBe("After.");
+    expect(htmlToText("<svg><svg width=1 /></svg><p>After.</p>")).toBe("After.");
+    // "</scripts" does not close a script.
+    expect(htmlToText("<script>var a = '</scripts>';</script><p>After.</p>")).toBe("After.");
   });
 
   it("handles the small parser edges", () => {
