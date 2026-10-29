@@ -1007,6 +1007,7 @@ What changes:
 
 - [x] The shared chooser, then the facts check, the Brief, Seeds and the analysis (ce99ed4a to 4458dc57), each through the full gate before its commit; the last at 8,252 tests. Each reviewed by Claude Opus 5.5 (requested high; it reported low), fixes in the next commit.
 - [x] The reused-Brief fix (entry "(ninth)"): 3216e9fb (gate 8,255 tests), review Claude Opus 5.5 (high, as it reported) round 1 "ship after fixes", round 2 "ship"; its P3 fixes in the next commit.
+- [x] The record keeps the parts each step sent, and the Inputs band says how much (entry "(tenth)"): gate 8,261 tests and the band's 33 browser tests, review Claude Opus 5.5 (high, as it reported) round 1 "ship after fixes", round 2 "ship".
 
 ### Automated, live on localhost
 
@@ -1017,6 +1018,7 @@ What changes:
 ### Manual on localhost
 
 - [ ] Start a second Step by step draft on an unchanged project: its Seeds show quotes from the interview, as the first draft's did.
+- [ ] Open a large draft's Inputs band: a file read in part says how much, for example "the facts check (in part, up to 12% in 4 excerpts, 3 of 8 Lines)".
 
 ## F6: release suite, live
 

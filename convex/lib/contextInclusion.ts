@@ -64,6 +64,10 @@ export type SourceUseRow = {
   step: SourceUseStep;
   run?: string;
   state: "whole" | "part" | "left_out";
+  /** How much was sent of how much (step 1), and how many parts, when recorded. */
+  sent?: number;
+  total?: number;
+  parts?: number;
 };
 
 export type SourceUseStep = "analyzer" | "brief" | "seeds" | "facts_check";
@@ -71,9 +75,19 @@ export type SourceUseStep = "analyzer" | "brief" | "seeds" | "facts_check";
 /**
  * How one step read one row: its runs, how many read some of it, whether
  * every reading run read it whole, and whether every reading run read a
- * transcript only through its digest or fact pack (review).
+ * transcript only through its digest or fact pack (review). Phase D, step 1:
+ * when every reading run read the row itself in part, the largest share of
+ * it one run read (0 to 1), and that run's parts when they were recorded.
  */
-export type RowUse = { step: SourceUseStep; runs: number; read: number; whole: boolean; condensed?: true };
+export type RowUse = {
+  step: SourceUseStep;
+  runs: number;
+  read: number;
+  whole: boolean;
+  condensed?: true;
+  share?: number;
+  parts?: number;
+};
 
 export type ContextInclusionRow = {
   key: string;
@@ -134,7 +148,7 @@ function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[])
       keyOf.set(row._id, { key: `source:${row._id}`, condensed: false });
     }
   }
-  type RunRead = { state: "whole" | "part" | "left_out"; condensed: boolean };
+  type RunRead = { state: "whole" | "part" | "left_out"; condensed: boolean; share?: number; parts?: number };
   const rank = { left_out: 0, part: 1, whole: 2 } as const;
   const runs = new Map<string, Map<SourceUseStep, Map<string, RunRead>>>();
   for (const use of uses) {
@@ -148,11 +162,22 @@ function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[])
     // best read; at the same depth, reading the transcript itself wins.
     const run = use.run ?? "";
     const before = byRun.get(run);
+    const share = use.state === "part" && use.sent !== undefined && use.total ? use.sent / use.total : undefined;
     const better =
       !before ||
       rank[use.state] > rank[before.state] ||
-      (rank[use.state] === rank[before.state] && before.condensed && !target.condensed);
-    if (better) byRun.set(run, { state: use.state, condensed: target.condensed });
+      (rank[use.state] === rank[before.state] && before.condensed && !target.condensed) ||
+      // A run that read the row in part more than once (Phase D, step 1)
+      // counts its widest read.
+      (rank[use.state] === rank[before.state] && before.condensed === target.condensed && (share ?? 0) > (before.share ?? 0));
+    if (better) {
+      byRun.set(run, {
+        state: use.state,
+        condensed: target.condensed,
+        ...(share !== undefined ? { share } : {}),
+        ...(share !== undefined && use.parts ? { parts: use.parts } : {}),
+      });
+    }
   }
   const result = new Map<string, RowUse[]>();
   for (const [key, bySteps] of runs) {
@@ -165,6 +190,12 @@ function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[])
         const reading = reads.filter((entry) => entry.state !== "left_out");
         const read = reading.length;
         const condensed = read > 0 && reading.every((entry) => entry.condensed);
+        // How much: only when every reading run read the row itself in part
+        // and said how much, from the widest one.
+        const measured = reading.every((entry) => entry.state === "part" && !entry.condensed && entry.share !== undefined);
+        const widest = read > 0 && measured
+          ? reading.reduce((best, entry) => (entry.share! > best.share! ? entry : best))
+          : undefined;
         return [
           {
             step,
@@ -172,6 +203,8 @@ function usesByKey(sources: InclusionSourceRow[], uses: readonly SourceUseRow[])
             read,
             whole: read > 0 && reading.every((entry) => entry.state === "whole"),
             ...(condensed ? { condensed: true as const } : {}),
+            ...(widest ? { share: widest.share! } : {}),
+            ...(widest?.parts ? { parts: widest.parts } : {}),
           },
         ];
       })

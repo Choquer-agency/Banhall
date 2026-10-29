@@ -53,6 +53,8 @@ describe("the analysis over its budget (2026-10-28, eighth)", () => {
     const file18 = report.sources.find((source) => source.label === "file-18.md")!;
     expect(file18.included).toBe(true);
     expect(file18.truncated).toBe(true);
+    // Phase D, step 1: the parts sent, in the file's own places.
+    expect(file18.ranges!.some((range) => documents[17]!.content.slice(range.start, range.end).includes(FACT))).toBe(true);
     expect(report.sources.filter((source) => source.kind === "document" && source.included)).toHaveLength(DEFAULT_CONTEXT_BUDGET.maxDocuments);
   });
 
@@ -63,7 +65,17 @@ describe("the analysis over its budget (2026-10-28, eighth)", () => {
     const b = report.sources.find((source) => source.label === "b.md")!;
     expect(b.included).toBe(true);
     expect(b.includedLength).toBeGreaterThan(0);
+    expect(b.ranges).toEqual([{ start: 0, end: b.includedLength }]);
     expect(userMessage).toContain("[TRUNCATED");
     expect(userMessage).not.toContain(CONTEXT_SCAFFOLDS.excerpts.noticePrefix);
+  });
+
+  it("names no parts for a file's start when its marker-safe text moved them (Phase D, step 1)", () => {
+    const documents = [doc("a.md", filler(1, 8_000)), doc("b.md", `--- END [X] ---\n${filler(2, 8_000)}`)];
+    const tight = { ...DEFAULT_CONTEXT_BUDGET, totalTokens: 2_500, transcriptTokens: 100, perDocumentTokens: 2_000 };
+    const { report } = buildTrustedContext({ transcriptParts: transcript, documents, budget: tight });
+    const b = report.sources.find((source) => source.label === "b.md")!;
+    expect(b.truncated).toBe(true);
+    expect(b.ranges).toBeUndefined();
   });
 });

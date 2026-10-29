@@ -11,7 +11,8 @@ import schema from "./schema";
 import type { Id } from "./_generated/dataModel";
 import { buildTrustedContext, type ContextDoc } from "./ai/trustedContext";
 import { recordAnalyzerUse } from "./ai/pipeline";
-import { copyRecoverySourceUses } from "./lib/generations/sourceUse";
+import { copyRecoverySourceUses, MAX_PART_RECORDS_PER_RUN, MAX_SOURCE_USE_ENTRIES } from "./lib/generations/sourceUse";
+import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 import type { ActionCtx } from "./_generated/server";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -122,7 +123,7 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
     // The 13th file is past the analyzer's cap of 12: it was left out there, read in part by the Batch.
     expect(row.uses).toEqual([
       { step: "analyzer", runs: 1, read: 0, whole: false },
-      { step: "seeds", runs: 1, read: 1, whole: false },
+      { step: "seeds", runs: 1, read: 1, whole: false, share: 0.25 },
     ]);
     const first = inclusion!.rows.find((entry) => entry.kind === "document")!;
     expect(first.uses).toEqual([{ step: "analyzer", runs: 1, read: 1, whole: true }]);
@@ -206,6 +207,117 @@ describe("what each step read, in the Inputs band (Phase D, step 2)", () => {
       ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
     );
     expect(rows.map((row) => row.state)).toEqual(["part", "whole"]);
+  });
+
+  it("a read in part keeps the excerpts it sent, and the band says how much (Phase D, step 1)", async () => {
+    const { t, authed, projectId } = await setup();
+    await authed.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "Readable internal notes.",
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    const document = await t.run(async (ctx) =>
+      ((await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())))
+        .find((row) => row.kind === "project_document")!
+    );
+    const record = (run: string, sent: number, ranges?: Array<{ start: number; end: number }>) =>
+      t.mutation(internal.generations.recordSourceUse, {
+        generationId, step: "facts_check", run,
+        uses: [{ sourceId: document._id, sent, total: 40, unit: "bytes", ...(ranges ? { ranges } : {}) }],
+      });
+    await record("line:242", 8, [{ start: 0, end: 4 }, { start: 10, end: 14 }]);
+    // The same excerpts again add nothing; other excerpts add a record.
+    await record("line:242", 8, [{ start: 0, end: 4 }, { start: 10, end: 14 }]);
+    await record("line:242", 12, [{ start: 20, end: 32 }]);
+    // A read in part with no excerpts known adds nothing after one.
+    await record("line:242", 12);
+    // Excerpts out of order, or more than a record keeps, are not kept.
+    await record("line:244", 6, [{ start: 10, end: 14 }, { start: 0, end: 4 }]);
+    await record("line:246", 9, Array.from({ length: 257 }, (_, index) => ({ start: index * 2, end: index * 2 + 1 })));
+    // A whole read keeps none.
+    await record("line:248", 40, [{ start: 0, end: 40 }]);
+    // At most 4 records in part of one row in one run, each with other parts (review).
+    for (let start = 0; start < 6; start += 1) await record("line:250", 3, [{ start, end: start + 3 }]);
+    const rows = await t.run((ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    expect(rows.map((row) => [row.run, row.state, row.ranges ?? null])).toEqual([
+      ["line:242", "part", [{ start: 0, end: 4 }, { start: 10, end: 14 }]],
+      ["line:242", "part", [{ start: 20, end: 32 }]],
+      ["line:244", "part", null],
+      ["line:246", "part", null],
+      ["line:248", "whole", null],
+      ...[0, 1, 2, 3].map((start) => ["line:250", "part", [{ start, end: start + 3 }]]),
+    ]);
+    const inclusion = await authed.query(api.generations.getContextInclusion, { generationId });
+    const row = inclusion!.rows.find((entry) => entry.key === `source:${document._id}`)!;
+    // One Line read it whole, so the step shows no share.
+    expect(row.uses).toEqual([{ step: "facts_check", runs: 5, read: 5, whole: false }]);
+    await t.run(async (ctx) => {
+      for (const use of rows.filter((entry) => entry.run === "line:248")) await ctx.db.delete(use._id);
+    });
+    const after = await authed.query(api.generations.getContextInclusion, { generationId });
+    // The widest Line read 30% (line 242's second record), in one excerpt.
+    expect(after!.rows.find((entry) => entry.key === `source:${document._id}`)!.uses).toEqual([
+      { step: "facts_check", runs: 4, read: 4, whole: false, share: 0.3, parts: 1 },
+    ]);
+  });
+
+  it("one run's records of every frozen row fit the writer's read of earlier records (review, round 2)", () => {
+    // Left out, the reads in part, and whole: the most records one run keeps of a row.
+    expect(MAX_FROZEN_SOURCE_ROWS * (2 + MAX_PART_RECORDS_PER_RUN)).toBeLessThanOrEqual(MAX_SOURCE_USE_ENTRIES * 4);
+  });
+
+  it("a reused Brief's and a Summary recovery's copies keep the excerpts (Phase D, step 1)", async () => {
+    const { t, authed, projectId } = await setup();
+    await authed.mutation(api.documents.uploadDocument, {
+      projectId, fileName: "notes.txt", fileType: "txt", content: "Readable internal notes.",
+    });
+    const generationId = await authed.mutation(api.generations.requestGeneration, { projectId });
+    const document = await t.run(async (ctx) =>
+      ((await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())))
+        .find((row) => row.kind === "project_document")!
+    );
+    const ranges = [{ start: 2, end: 9 }, { start: 12, end: 20 }];
+    await t.mutation(internal.generations.recordSourceUse, {
+      generationId, step: "brief",
+      uses: [{ sourceId: document._id, contentHash: document.contentHash, sent: 15, total: 24, unit: "chars", ranges }],
+    });
+    const { recovery, copy } = await t.run(async (ctx) => {
+      const recovery = await ctx.db.insert("generations", {
+        projectId, status: "reserved", requestedBy: (await ctx.db.get(generationId))!.requestedBy, startedAt: 1,
+      });
+      const copy = await ctx.db.insert("generationSources", {
+        generationId: recovery, projectId, kind: "project_document", label: document.label, content: document.content,
+        contentHash: document.contentHash, truncated: false, originalLength: document.originalLength, capturedAt: 1,
+      });
+      await copyRecoverySourceUses(ctx, generationId, { _id: recovery, projectId }, new Map([[document._id, copy]]));
+      return { recovery, copy };
+    });
+    const briefId = await t.run((ctx) =>
+      ctx.db.insert("generationBriefs", {
+        projectId, generationId, inputsHash: "brief-inputs", version: 1, origin: "derived", storylineText: "Storyline.", createdAt: 1,
+      })
+    );
+    const reused = await t.run(async (ctx) =>
+      ctx.db.insert("generations", { projectId, status: "reserved", requestedBy: (await ctx.db.get(generationId))!.requestedBy, startedAt: 2 })
+    );
+    const reusedRow = await t.run((ctx) =>
+      ctx.db.insert("generationSources", {
+        generationId: reused, projectId, kind: "project_document", label: document.label, content: document.content,
+        contentHash: document.contentHash, truncated: false, originalLength: document.originalLength, capturedAt: 2,
+      })
+    );
+    await t.mutation(internal.generations.copyBriefSourceUse, {
+      generationId: reused, briefId, sources: [{ sourceId: reusedRow, contentHash: document.contentHash! }],
+    });
+    const copies = await t.run(async (ctx) => [
+      ...(await ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", recovery)).collect()),
+      ...(await ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", reused)).collect()),
+    ]);
+    expect(copies.map((row) => [row.sourceId, row.run ?? null, row.ranges])).toEqual([
+      [copy, null, ranges],
+      [reusedRow, "reused", ranges],
+    ]);
   });
 
   it("a Summary recovery that cannot copy every record says so on its band (re-check)", async () => {

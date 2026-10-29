@@ -248,6 +248,11 @@ export interface TrustedContextSource {
   includedLength: number;
   included: boolean;
   truncated: boolean;
+  /**
+   * Phase D, step 1: for a document sent in part, the parts of its text
+   * that were sent (string positions), when known in the text's own places.
+   */
+  ranges?: Array<{ start: number; end: number }>;
 }
 
 /** What the analyzer's context budget did with one frozen source row. */
@@ -618,6 +623,7 @@ export function buildTrustedContext(input: TrustedContextInput): {
     const safe = neutralizeMarkers(doc.content);
     let kept: string;
     let content: string;
+    let ranges: Array<{ start: number; end: number }> | undefined;
     const [chosen] =
       subject && safe.length > allowance
         ? chooseEvidence({
@@ -636,6 +642,7 @@ export function buildTrustedContext(input: TrustedContextInput): {
       // on its raw text and charged as sent (marker-neutralized).
       const sent = chosen!.ranges.map((range) => neutralizeMarkers(doc.content.slice(range.start, range.end)));
       kept = sent.join("");
+      ranges = chosen!.ranges;
       const prefix = chosen!.ranges.length === 1 && chosen!.ranges[0]!.start === 0;
       const excerpts = CONTEXT_SCAFFOLDS.excerpts;
       content = !kept.length
@@ -646,6 +653,8 @@ export function buildTrustedContext(input: TrustedContextInput): {
     } else {
       kept = cutToBudget(safe, allowance);
       content = kept.length < safe.length ? `${kept}\n${truncationNotice(safe.length - kept.length, safe.length)}` : kept;
+      // The marker-safe text only ever grows: same length, same places.
+      if (safe.length === doc.content.length && kept.length > 0) ranges = [{ start: 0, end: kept.length }];
     }
     if (!kept.length && safe.length > 0) {
       sources.push(base);
@@ -665,6 +674,7 @@ export function buildTrustedContext(input: TrustedContextInput): {
       includedLength: charged,
       included: true,
       truncated,
+      ...(truncated && ranges ? { ranges } : {}),
     });
   });
 

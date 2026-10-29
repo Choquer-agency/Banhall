@@ -92,7 +92,7 @@ A project of any size, new or old: every step finds the evidence that matters to
 
 ## Step 1, Seeds in detail (2026-10-28, revised after review)
 
-Built so far in step 1: the shared chooser (`shared/evidenceChoice.ts`), the facts check (entry "(fifth)") and the Brief (entry "(sixth)").
+Built in step 1: the shared chooser (`shared/evidenceChoice.ts`), the facts check (entry "(fifth)"), the Brief (entry "(sixth)"), Seeds (entry "(seventh)"), the analysis (entry "(eighth)") and the record's parts (entry "(tenth)"). The live check found and fixed a reused-Brief fault (entry "(ninth)").
 
 Design review: Claude Opus 5.5 (requested high; it reported running at low), "go with changes". The changes are in below.
 
@@ -114,7 +114,7 @@ Design review: Claude Opus 5.5 (requested high; it reported running at low), "go
   - The speaker check keeps each row's real text and only limits its search for another place of the same words to the sent view.
   - Fact mode: documents get the same sent view; fact spans are unchanged.
 - **Inside a mutation.** `dispatchSeedAttempt` (also run from a writer's Approve) checks the prompt's size without choosing parts, since nothing it can refuse depends on which parts are chosen.
-- **The record.** A Batch's sent bytes are the sum of its parts', so "in part" follows. The ranges themselves come with the record's ranges piece.
+- **The record.** A Batch's sent bytes are the sum of its parts', so "in part" follows, and the record keeps the parts themselves (entry "(tenth)").
 - **Tests.**
   - Small drafts are byte for byte unchanged.
   - Over the allowance: a fact in a late file is sent.

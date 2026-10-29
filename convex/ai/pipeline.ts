@@ -977,6 +977,8 @@ export async function recordAnalyzerUse(
                 : source.originalLength,
             total: source.originalLength,
             unit: "chars" as const,
+            // Phase D, step 1: the parts of a document sent in part.
+            ...(source.included && source.truncated && source.ranges ? { ranges: source.ranges } : {}),
           },
         ]
       : []

@@ -5050,7 +5050,7 @@ This changes what one AI request reads and how its citations are checked, not a 
 - **Known limits.**
   - Seeds still read only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - A Seed's offsets are relative to what the model read; the existing relocation search finds the excerpt's real place, nearest to the offset given.
-  - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
+  - The record says "in part" for such a source (its sent bytes are the sum of its parts), and since entry "(tenth)" which parts.
   - In fact mode, a fact pack cut where the allowance runs out still lets every fact of that interview be cited, as before.
   - A file whose stored text really holds U+0000 characters cannot be quoted across them. Models rarely copy such characters.
   - Live check (pack `_bmad-output/test-artifacts/stress/2026-10-28-step1`): on the 51-file stress project, Seeds read all 14 frozen files in part (F5: 2). They still quoted only the interview. The check also found the reused-Brief fault fixed in entry "(ninth)".
@@ -5150,6 +5150,42 @@ This restores the existing rule (a Seed cites the draft's own frozen rows); no s
 
   Round 2, Claude Opus 5.5 (high, as it reported), "ship", every finding P3. Done: the helper's place above `loadBriefCheck`'s comment, this entry's wording, and the refused case's error in the test.
 - **Approval:** not needed: a fix that restores the existing rule, recorded so the change can be traced.
+
+### 2026-10-28 (tenth): The record of what each step read keeps the parts it sent, and the Inputs band says how much (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)" (plan: "Every excerpt is traceable"). Before, each step's record of a frozen file said only whole, in part or not read, and how much in its unit; it could not say which parts.
+
+This adds an optional field to a telemetry record and words to the Inputs band, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - A step that reads a file in part records the parts it sent, as positions in the frozen file's own text (start included, end left out, in order), when it knows them in those positions: the analysis, the Brief, Seeds and each Line's facts check. At most 256 parts; a list that is longer, out of order or overlapping is not kept, and the record still says "in part".
+  - A step that read a marker-safe copy of the text whose length changed (a forged marker line) keeps no parts, since the positions would not be the file's.
+  - A run that sends other parts of a file it already read in part (its inputs moved, say a changed budget) adds a record, at most 4 a file and run; the same parts again add nothing.
+  - A reused Brief's record and a Summary recovery's copy keep the parts (the same text, so the same places); the recovery keeps, per run, the record that read the most.
+  - Each part is traceable to its frozen row, whose text fingerprint the row keeps.
+  - The Inputs band says how much a step read of a file it read in part, and in how many excerpts when more than one: "Read by the Brief (in part, 8% in 3 excerpts)". Over several runs it gives the widest: "Seeds (in part, up to 6% in 5 excerpts, 13 of 13 steps)". A share under 1% reads "under 1%"; a read in part never reads 100%. A step where some run read the file whole, or read an interview through its digest or fact pack, shows no share.
+- **Where.**
+  - `generationSourceUse.ranges` (`convex/schema.ts`, optional, a widen; older records have none).
+  - `recordedRanges` and `insertSourceUses` in `convex/lib/generations/sourceUse.ts`, and the two copies there.
+  - The callers: `recordAnalyzerUse` (`convex/ai/pipeline.ts`, from `TrustedContextSource.ranges`), `recordBriefUse` (`convex/ai/brief.ts`), the Seed Batch action (`convex/ai/seeds.ts`), `loadFactsSourceDocuments` (`convex/lib/generations/seedStage.ts`).
+  - The band: `convex/lib/contextInclusion.ts`, `convex/lib/generations/inputs.ts`, `inclusionUsesText` in `src/lib/brief.ts`.
+- **Known limits.**
+  - An interview the analysis cuts at its start records no parts.
+  - The band shows how much and how many excerpts, not the excerpts themselves.
+  - A Summary recovery copies one record per run and file, the widest, so a run's other parts of the same file are not copied.
+  - A run keeps its first 4 different reads in part of a file; a wider fifth is not kept, so "up to" can understate.
+- **Tests:**
+  - `convex/contextInclusion.test.ts`: a read in part keeps its parts; the same parts add nothing and other parts add a record, at most 4 a file and run, and one run's records of every frozen row fit the writer's read; out-of-order or too many parts are not kept; a whole read keeps none; the band shows the widest share and its excerpts, and no share when a run read the file whole; a reused Brief's and a recovery's copies keep the parts.
+  - `convex/factsSourceDocuments.test.ts`: the facts check records parts in the file's own places, and none when the marker-safe text moved them.
+  - `convex/analyzerByRelevance.test.ts`: the analysis reports a long file's parts and a cut file's start, and none when the marker-safe text moved them.
+  - `src/lib/brief.test.ts`: the band's words.
+- **Review:** Round 1, Claude Opus 5.5 (high, as it reported), "ship after fixes"; no wrong position found in any step. Done:
+  - at most 4 records in part a file and run, so one run's records stay within the writer's read;
+  - one excerpt is not named, since it is often the file's start;
+  - comments and this entry.
+
+  Round 2, Claude Opus 5.5 (high, as it reported), "ship", every finding P3. Done: the recovery's read estimate kept as it was, since counting every record at 256 parts would cut whole steps near the limit and one run's parts are few; a test that one run's records of every frozen row fit the writer's read; this entry's limits.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process
 
