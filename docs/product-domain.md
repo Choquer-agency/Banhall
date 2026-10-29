@@ -5053,7 +5053,7 @@ This changes what one AI request reads and how its citations are checked, not a 
   - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
   - In fact mode, a fact pack cut where the allowance runs out still lets every fact of that interview be cited, as before.
   - A file whose stored text really holds U+0000 characters cannot be quoted across them. Models rarely copy such characters.
-  - Live check: with the rest of step 1, on the 51-file stress project.
+  - Live check (pack `_bmad-output/test-artifacts/stress/2026-10-28-step1`): on the 51-file stress project, Seeds read all 14 frozen files in part (F5: 2). They still quoted only the interview. The check also found the reused-Brief fault fixed in entry "(ninth)".
 - **Tests:**
   - `convex/seedByRelevance.test.ts`:
     - a small draft is sent exactly as before;
@@ -5119,6 +5119,34 @@ This changes what one AI request reads, not a workflow stage, transition or perm
   - the tests;
   - this entry.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
+### 2026-10-28 (ninth): Seeds see a reused Brief's entries with the draft's own rows (fix found by the step 1 live check)
+
+The step 1 live check (pack `_bmad-output/test-artifacts/stress/2026-10-28-step1`) found that a draft whose Brief was reused from an earlier draft lost almost every Seed quote: 4 of 46 Seeds kept one, against 45 of 47 in F5's draft of the same files. The cause predates step 1. A Brief is reused only when the draft froze the same texts (its inputs hash), but its entries name the rows of the draft that made it. The Seed request showed those ids, the model copied them into its quotes, and the citation check, which accepts only the draft's own rows, dropped the quotes without a word.
+
+This restores the existing rule (a Seed cites the draft's own frozen rows); no stage, transition or permission changes. No AI tool writes report prose.
+
+- **Rule.**
+  - When Seeds read a Brief, each entry that names a row of another draft is shown with this draft's row of the same text (its fingerprint), so its offsets still hold. Among rows of the same text an interview comes first, so the speaker check still applies. An entry that names one of this draft's rows, or a text this draft did not freeze, keeps its id. Seeds never run on a draft that has a Summary, so a Summary recovery never reaches this.
+  - The same cause stopped a Summary recovery of such a draft from starting: the recovery checks that every Brief entry names one of the original draft's rows, through its source map. A recovery now admits an entry outside its map when the Brief is the one the original draft pinned for its Seeds (the same inputs hash, so the same texts). It never maps that entry by its text, and nothing in a recovery reads its row. Without the pin the recovery still refuses it.
+- **Where.** `ownSourceIdOf` in `convex/lib/seedSnapshotLoader.ts`, used by `loadFrozenSeedActionInput`, which both the Batch claim and dispatch's size check read. `briefPinnedToOrigin` in `loadBriefCheck` (`convex/lib/generations/brief.ts`).
+- **Known limits.**
+  - The Lines' Brief block shows no ids, so the Lines were not affected. The stored Brief keeps its ids; only what Seeds read changes.
+  - An entry citing a row whose text this draft did not freeze (a digest made again, say) still shows the earlier id, and a Seed that copies it loses that quote, as before.
+- **Live check.** With the fix on the live copy, the model quoted the draft's own rows, and 40 of 46 Seeds in the same 8 steps kept a quote.
+- **Tests:**
+  - `convex/seedReusedBrief.test.ts`:
+    - a reused Brief's entry names this draft's row of the same text, and one whose text this draft lacks keeps its id;
+    - a Seed quoting the id it was shown keeps its quote, and with the earlier id it would not;
+    - the draft's own ids are kept, and an interview comes first among rows of the same text.
+  - `convex/generationSeedSignoff.test.ts`: a Summary recovery of a draft whose Brief was reused starts with the original's pin, and is refused without it.
+- **Review:** Round 1, Claude Opus 5.5 (high, as it reported), "ship after fixes". Done:
+  - the recovery start (found by the review, the same cause);
+  - an interview first among rows of the same text;
+  - the unreachable recovery branch dropped;
+  - the numbers in comments;
+  - this entry.
+- **Approval:** not needed: a fix that restores the existing rule, recorded so the change can be traced.
 
 ## Amendment process
 

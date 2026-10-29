@@ -869,6 +869,21 @@ export async function renderBriefForGenerationHandler(
 
 /** The Brief a section is drafted with and checked against: the same rows
  * renderBriefForGeneration renders into the prompt. */
+/** Whether `brief` is the Brief the original draft pinned for its Seeds (by its inputs hash). */
+async function briefPinnedToOrigin(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  brief: Doc<"generationBriefs">
+): Promise<boolean> {
+  const origin = generation.originGenerationId ? await ctx.db.get(generation.originGenerationId) : generation;
+  return (
+    origin !== null &&
+    origin.projectId === generation.projectId &&
+    origin.seedBriefInputsHash !== undefined &&
+    origin.seedBriefInputsHash === brief.inputsHash
+  );
+}
+
 export async function loadBriefCheck(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">
@@ -929,7 +944,18 @@ export async function loadBriefCheck(
   );
   // Brief and Seed citations share the same immutable origin-to-current
   // resolver. Recovery never substitutes equal hashes for source identity.
+  // 2026-10-28 (ninth, review): a Brief the original draft reused from an
+  // earlier draft names that draft's rows, which no recovery map holds. It
+  // was pinned to the original because the original froze the same texts
+  // (the same inputs hash), so such an entry is admitted on that pin, never
+  // mapped; nothing in a recovery reads its row.
+  const mapped = new Set((generation.sourceIdMap ?? []).map((entry) => entry.originSourceId as string));
+  let pinnedToOrigin: boolean | undefined;
   for (const sourceId of new Set(entries.map((entry) => entry.sourceId as string))) {
+    if (generation.sourceIdMap && !mapped.has(sourceId)) {
+      pinnedToOrigin ??= await briefPinnedToOrigin(ctx, generation, briefDoc);
+      if (pinnedToOrigin) continue;
+    }
     resolveFrozenSourceId(sourceId, generation.sourceIdMap);
   }
   return {

@@ -3924,6 +3924,55 @@ describe("seed Summary sign-off and recovery", () => {
     });
   });
 
+  it("starts a Summary recovery of a draft whose Brief was reused from an earlier draft, only on the original's pin (2026-10-28, ninth, review)", async () => {
+    for (const pinned of [true, false]) {
+      const s = await decisionFixture();
+      // The Brief came from an earlier draft of the same texts, so its entry
+      // names that draft's row, which the recovery's map does not hold.
+      await s.t.run(async (ctx) => {
+        const earlier = await ctx.db.insert("generations", {
+          projectId: s.projectId, status: "completed", requestedBy: s.userId, startedAt: 0,
+        });
+        const earlierRow = await ctx.db.insert("generationSources", {
+          generationId: earlier, projectId: s.projectId, kind: "transcript", label: "Interview",
+          content: "Evidence alpha supports the work.", contentHash: "source-hash",
+          truncated: false, originalLength: 33, capturedAt: 0,
+        });
+        await ctx.db.insert("generationBriefEntries", {
+          briefId: s.briefId, projectId: s.projectId, group: "confidenceMap", text: "Evidence alpha supports the work.",
+          confidence: "established", sourceId: earlierRow, sourceContentHash: "source-hash",
+          startOffset: 0, endOffset: 14, exactExcerpt: "Evidence alpha", createdAt: 0,
+        });
+        await ctx.db.patch(s.generationId, { seedBriefInputsHash: pinned ? "brief-inputs" : "other-inputs" });
+      });
+      await makeReady(s);
+      await s.writer.mutation(api.generations.signOffSeedStage, {
+        generationId: s.generationId,
+        expectedSeedStageVersion: 0,
+      });
+      await s.t.mutation(internal.generations.failGeneration, {
+        generationId: s.generationId,
+        error: "prepare Summary recovery",
+      });
+      const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+        failedGenerationId: s.generationId,
+      });
+      await s.t.action(internal.ai.orderedGeneration.startSummaryRecovery, { generationId: recoveryId });
+      const state = await s.t.run(async (ctx) => {
+        const pending = (await ctx.db.system.query("_scheduled_functions").take(30)).find(
+          (candidate) =>
+            candidate.name === "ai/orderedGeneration:generateOrderedSection" &&
+            candidate.args[0]?.generationId === recoveryId &&
+            candidate.state.kind === "pending"
+        );
+        if (pending) await ctx.scheduler.cancel(pending._id);
+        return { status: (await ctx.db.get(recoveryId))?.status, started: pending !== undefined };
+      });
+      // Pinned: the recovery drafts. Not pinned: the map still refuses the row.
+      expect(state).toEqual(pinned ? { status: "running", started: true } : { status: "failed", started: false });
+    }
+  });
+
   it("rolls back an oversized recovery claim, then the owning action terminalizes the chain without a provider call", async () => {
     const s = await decisionFixture();
     await makeReady(s);

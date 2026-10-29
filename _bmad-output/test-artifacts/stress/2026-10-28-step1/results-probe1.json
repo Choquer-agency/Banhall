@@ -1,0 +1,59 @@
+{
+  "startedAt": "2026-10-29T01:26:05.557Z",
+  "drafts": {
+    "k974a47xj23fsb2w793750nbd98h4g06": {
+      "generationId": "k5736r777j14yp6gzh5gvjk6cd8h7rae",
+      "requestedAt": 1793237165763,
+      "stageOpenMs": 19770,
+      "readyMs": 38146,
+      "progress": {
+        "candidateMode": "iterative",
+        "draftingInputs": "ready",
+        "gatedWorkflow": "seeds",
+        "reportGeneratedAt": null,
+        "reportId": null,
+        "requestedAt": 1793237165593,
+        "seedStageError": null,
+        "seedStageVersion": 3,
+        "seedSubsections": 13,
+        "singleModelId": "claude-sonnet-5-5",
+        "status": "awaiting_input",
+        "summaryVersionId": null
+      },
+      "byCallSite": {
+        "generation:analyzer claude-sonnet-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.65,
+          "inputSide": 230523,
+          "outputTokens": 2576,
+          "stops": {
+            "tool_use": 1
+          },
+          "usd": 0.6020655
+        },
+        "generation:retrieval_brief claude-haiku-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.57,
+          "inputSide": 46547,
+          "outputTokens": 637,
+          "stops": {
+            "tool_use": 1
+          },
+          "usd": 0.006136225
+        },
+        "generation:seeds:company_context claude-sonnet-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.63,
+          "inputSide": 202030,
+          "outputTokens": 388,
+          "stops": {
+            "tool_use": 1
+          },
+          "usd": 0.810894
+        }
+      }
+    }
+  },
+  "finishedAt": "2026-10-29T01:26:43.909Z",
+  "spendSinceT0": 35.66601806999999
+}

@@ -993,6 +993,31 @@ What changes:
 - [ ] On a large project with company files, open the start dialog: each company file reads "Read last, newest first, while there is room" (hover shows the whole line).
 - [ ] Start a draft there and open its Inputs band: the company files that did not fit read "not included (not captured)".
 
+## Evidence layer, step 1: every step reads the parts of every frozen file that best match
+
+Decision records: `docs/product-domain.md`, entries "2026-10-28 (fourth)" to "(ninth)". Plan: `docs/todos/phase-d-evidence-layer.md`. Pack: `_bmad-output/test-artifacts/stress/2026-10-28-step1`.
+
+What changes:
+
+- **When a draft's files do not all fit a step**, the step reads the parts of every frozen file that best match what it works on (the facts check: the Line's plan; the Brief and the analysis: the interviews; Seeds: the Brief), instead of the first files in upload order. When everything fits, every request is exactly as before.
+- **Quotes are checked only against what was sent**, so a quote cannot bind to text the step never saw.
+- **Seeds keep their quotes when a draft reuses an earlier draft's Brief** (entry "(ninth)"). Before, almost every such Seed lost its quote, and a Summary recovery of such a draft could not start.
+
+### Automated, offline
+
+- [x] The shared chooser, then the facts check, the Brief, Seeds and the analysis (ce99ed4a to 4458dc57), each through the full gate before its commit; the last at 8,252 tests. Each reviewed by Claude Opus 5.5 (requested high; it reported low), fixes in the next commit.
+- [ ] The reused-Brief fix (entry "(ninth)"): gate and review.
+
+### Automated, live on localhost
+
+- [x] One draft of the 51-file stress project through sign-off to a report, against F5's draft of the same files: Seeds read all 14 frozen files in part (F5: 2), the facts check 12 (F5: none), the analysis 12 (F5: 11). Report 1.4 minutes after sign-off, no refusals, $5.49 (F5: $5.77).
+- [x] The same check found Seeds losing their quotes with a reused Brief (4 of 46 kept one; F5 45 of 47). With the fix: 40 of 46.
+- [ ] The Brief's own choice by relevance, on a draft that makes a new Brief (this one reused its Brief).
+
+### Manual on localhost
+
+- [ ] Start a second Step by step draft on an unchanged project: its Seeds show quotes from the interview, as the first draft's did.
+
 ## F6: release suite, live
 
 Decision record: `docs/product-domain.md`, entry "2026-10-27 (ninth)". Pack: `_bmad-output/test-artifacts/seed-plan-eval/2026-10-27`.
