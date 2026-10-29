@@ -5087,7 +5087,7 @@ This changes what one AI request reads and how its citations are checked, not a 
   - the U+0000 refusal is recorded as applying to every source.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
-### 2026-10-28 (seventh): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)
+### 2026-10-28 (eighth): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)
 
 Owner direction 2026-10-28, from the Paper page "Assistant + report, exploration" (rows 16 B, 21 and 32 to 37). The owner's answers in that conversation are this entry's approval.
 
@@ -5131,7 +5131,7 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
     - closing the limit popover from the pill gives focus back to the pill.
   - **Round 3.** Claude Opus 5.5, requested at high; it reported running at low. "Ship": all six round 2 fixes traced correct. Done after it: the popover's scroll and resize close no longer scroll the pill back into view, and the popover finds the pill again after the report redraws it. Left as a known limit: the Shortening chip follows the open conversation, so switching conversation while the shorten reply runs clears it early.
 
-### 2026-10-28 (eighth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
+### 2026-10-28 (ninth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
 
 Owner direction 2026-10-28, from the Paper page "Assistant + report, exploration" (rows 9 and 10: boards S9, S11, S12, S13 and the A1 project top bar). The owner's six answers in that conversation ("build for now, we can always change") are this entry's approval.
 
