@@ -64,6 +64,9 @@ export type RowUse = {
   whole: boolean;
   /** Every run that read it read a transcript only through its digest or fact pack. */
   condensed?: true;
+  /** When every run that read it read it in part: the largest share one run read (0 to 1), and that run's excerpts. */
+  share?: number;
+  parts?: number;
 };
 
 export type InclusionRow = {
@@ -90,17 +93,28 @@ const USE_RUNS_WORDS: Record<RowUse["step"], string> = {
   facts_check: "Lines",
 };
 
+/** "8%", "under 1%": a share read in part, never shown as all of it. */
+function shareWords(share: number): string {
+  if (share < 0.005) return "under 1%";
+  return `${Math.min(99, Math.round(share * 100))}%`;
+}
+
 /**
  * Phase D (step 2): which steps read a row and how much, in plain words:
  * "Read by the analysis (whole), Seeds (in part, 3 of 13 steps). Not read
  * by the Brief." A transcript read only through its digest or fact pack
- * reads "condensed". Empty when no step recorded a use.
+ * reads "condensed". Step 1: a row read in part says how much, and in how
+ * many excerpts when more than one: "the Brief (in part, 8% in 3 excerpts)",
+ * or "up to 8%" over several runs. Empty when no step recorded a use.
  */
 export function inclusionUsesText(uses: readonly RowUse[] | undefined): string {
   if (!uses || uses.length === 0) return "";
   const read = uses.filter((use) => use.read > 0).map((use) => {
     const count = use.runs > 1 ? `, ${use.read} of ${use.runs} ${USE_RUNS_WORDS[use.step]}` : "";
-    const how = use.condensed ? "condensed" : use.whole ? "whole" : "in part";
+    // One part is often the file's start, which "1 excerpt" would misname (review).
+    const excerpts = use.parts && use.parts > 1 ? ` in ${use.parts} excerpts` : "";
+    const much = use.share !== undefined ? `, ${use.read > 1 ? "up to " : ""}${shareWords(use.share)}${excerpts}` : "";
+    const how = use.condensed ? "condensed" : use.whole ? "whole" : `in part${much}`;
     return `${USE_STEP_WORDS[use.step]} (${how}${count})`;
   });
   const unread = uses.filter((use) => use.read === 0).map((use) => USE_STEP_WORDS[use.step]);

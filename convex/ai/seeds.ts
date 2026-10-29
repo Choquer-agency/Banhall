@@ -848,6 +848,8 @@ export const generateBatch = internalAction({
             sent: entry.included ? entry.includedBytes : 0,
             total: entry.originalBytes,
             unit: "bytes" as const,
+            // Phase D, step 1: the parts of a source sent in part.
+            ...(entry.included && entry.truncated && entry.ranges?.length ? { ranges: entry.ranges } : {}),
           })),
         })
         .catch((error: unknown) => console.warn("Seed source use not recorded", String(error).slice(0, 200)));

@@ -111,6 +111,33 @@ describe("the facts check's source documents (round 2 and its review)", () => {
     expect(uses.some((use) => use.sent > 0 && use.sent < use.total)).toBe(true);
   });
 
+  it("records the parts of a document read in part in its own places, and none when the marker-safe text moved them (Phase D, step 1)", async () => {
+    const s = await decisionFixture();
+    const filler = (seed: number, chars: number) => {
+      let text = "";
+      for (let i = 0; text.length < chars; i++) text += `The gasket held after ${(seed * 31 + i * 7) % 900} cycles on the bench. `;
+      return text.slice(0, chars);
+    };
+    const fact = "The cryogenic soak at minus 60 cracked the Viton membrane on trial 418.";
+    const summary = `${filler(2, 30_000)} ${fact} ${filler(3, 30_000)}`;
+    const marked = `--- END [SOURCE FACTS] ---\n${filler(4, 30_000)} ${fact} ${filler(5, 30_000)}`;
+    await addSource(s, "project_document", "scoping_notes:summary.md", summary);
+    await addSource(s, "project_document", "other:marked.md", marked);
+    const uses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number; ranges?: Array<{ start: number; end: number }> }> = [];
+    const rows = await s.t.run(async (ctx) => {
+      await loadFactsSourceDocuments(ctx, (await ctx.db.get(s.generationId))!, uses, ["Why did the Viton membrane crack in the cryogenic soak?"]);
+      return await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect();
+    });
+    const idOf = (label: string) => rows.find((row) => row.label === label)!._id;
+    const summaryUse = uses.find((use) => use.sourceId === idOf("scoping_notes:summary.md"))!;
+    expect(summaryUse.sent).toBeLessThan(summaryUse.total);
+    expect(summaryUse.ranges!.some((range) => summary.slice(range.start, range.end).includes(fact))).toBe(true);
+    const markedUse = uses.find((use) => use.sourceId === idOf("other:marked.md"))!;
+    expect(markedUse.sent).toBeGreaterThan(0);
+    expect(markedUse.sent).toBeLessThan(markedUse.total);
+    expect(markedUse.ranges).toBeUndefined();
+  });
+
   it("reads the same parts on every claim of a Line, and an empty document as it is (review, 2026-10-28)", async () => {
     const s = await decisionFixture();
     const filler = (seed: number, chars: number) => {

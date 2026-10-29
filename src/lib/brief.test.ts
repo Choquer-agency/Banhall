@@ -170,4 +170,17 @@ describe("inclusionUsesText (Phase D, step 2)", () => {
       ])
     ).toBe("Read by the analysis (condensed), Seeds (condensed, 2 of 4 steps).");
   });
+
+  it("says how much of a row read in part, and in how many excerpts, when known (Phase D, step 1)", () => {
+    expect(
+      inclusionUsesText([
+        { step: "analyzer", runs: 1, read: 1, whole: false, share: 0.08, parts: 3 },
+        { step: "brief", runs: 1, read: 1, whole: false, share: 0.002, parts: 1 },
+        { step: "seeds", runs: 13, read: 13, whole: false, share: 0.996 },
+        { step: "facts_check", runs: 8, read: 3, whole: false },
+      ])
+    ).toBe(
+      "Read by the analysis (in part, 8% in 3 excerpts), the Brief (in part, under 1%), Seeds (in part, up to 99%, 13 of 13 steps), the facts check (in part, 3 of 8 Lines)."
+    );
+  });
 });

@@ -755,6 +755,8 @@ async function recordBriefUse(
         sent: entry.sent,
         total: entry.total,
         unit: "chars" as const,
+        // Phase D, step 1: the parts of a source read in part.
+        ...(entry.sent > 0 && entry.sent < entry.total ? { ranges: entry.ranges } : {}),
       })),
     });
   } catch (error) {

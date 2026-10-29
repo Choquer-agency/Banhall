@@ -382,6 +382,9 @@ export async function getContextInclusionHandler(
       step: use.step,
       ...(use.run ? { run: use.run } : {}),
       state: use.state,
+      sent: use.sent,
+      total: use.total,
+      ...(use.ranges ? { parts: use.ranges.length } : {}),
     })),
     usesTruncated,
     sources: sources.map((row) => ({

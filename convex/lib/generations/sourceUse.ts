@@ -19,6 +19,10 @@ export const sourceUseStepValidator = v.union(
 );
 export type SourceUseStep = Infer<typeof sourceUseStepValidator>;
 
+/** One part of a row's text that was sent: string positions, start inclusive, end exclusive. */
+export const sourceUseRangeValidator = v.object({ start: v.number(), end: v.number() });
+export type SourceUseRange = Infer<typeof sourceUseRangeValidator>;
+
 export const sourceUseEntryValidator = v.object({
   sourceId: v.id("generationSources"),
   /** The source's content fingerprint, when the caller has it. */
@@ -27,11 +31,47 @@ export const sourceUseEntryValidator = v.object({
   sent: v.number(),
   total: v.number(),
   unit: v.union(v.literal("chars"), v.literal("bytes")),
+  /**
+   * Phase D, step 1: for a row read in part, the parts of its frozen text
+   * that were sent, when the step knows them in the text's own positions.
+   */
+  ranges: v.optional(v.array(sourceUseRangeValidator)),
 });
 export type SourceUseEntry = Infer<typeof sourceUseEntryValidator>;
 
 /** At most this many rows one call records: a draft freezes at most 123. */
 export const MAX_SOURCE_USE_ENTRIES = 200;
+
+/**
+ * At most this many parts one record keeps. A step's whole request holds
+ * far fewer (a part is about 2,400 characters of at most 600,000), so a
+ * record past it keeps none rather than a list that hides the rest.
+ */
+export const MAX_SOURCE_USE_RANGES = 256;
+
+/**
+ * The parts a record keeps: whole numbers, each non-empty, in order and not
+ * overlapping, at most MAX_SOURCE_USE_RANGES. Anything else keeps none, so
+ * a record never shows parts that were not sent.
+ */
+export function recordedRanges(ranges: readonly SourceUseRange[] | undefined): SourceUseRange[] | undefined {
+  if (!ranges || ranges.length === 0 || ranges.length > MAX_SOURCE_USE_RANGES) return undefined;
+  let end = 0;
+  for (const range of ranges) {
+    if (!Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end)) return undefined;
+    if (range.start < end || range.end <= range.start) return undefined;
+    end = range.end;
+  }
+  return ranges.map((range) => ({ start: range.start, end: range.end }));
+}
+
+/** At most this many records in part one run keeps of one row, each with other parts. */
+export const MAX_PART_RECORDS_PER_RUN = 4;
+
+/** The same parts, as one key, so a run that sends the same parts again adds no record. */
+function rangesKey(ranges: readonly SourceUseRange[] | undefined): string {
+  return ranges ? ranges.map((range) => `${range.start}-${range.end}`).join(",") : "";
+}
 
 /** Whole, in part or left out, from what was sent of how much. */
 export function sourceUseState(sent: number, total: number): "whole" | "part" | "left_out" {
@@ -70,7 +110,11 @@ const STATE_RANK = { left_out: 0, part: 1, whole: 2 } as const;
  * Empty rows are skipped, and so is a row that reads no more of its source
  * than this run's earlier record of it (re-check: a retried or repeated
  * Batch of one step adds no rows, so a step's records stay within the
- * band's read).
+ * band's read). Phase D, step 1: a row read in part keeps the parts that
+ * were sent, and a run that sends other parts of a row it read in part (its
+ * inputs moved, say a changed budget) adds a record, up to
+ * MAX_PART_RECORDS_PER_RUN a row (review: so one run's records of a draft's
+ * at most 123 rows, 6 a row, stay within this read; a test holds the bound).
  */
 export async function insertSourceUses(
   ctx: MutationCtx,
@@ -83,6 +127,7 @@ export async function insertSourceUses(
     sent: number;
     total: number;
     unit: "chars" | "bytes";
+    ranges?: SourceUseRange[];
   }>
 ): Promise<void> {
   const earlier = await ctx.db
@@ -92,13 +137,33 @@ export async function insertSourceUses(
     )
     .take(MAX_SOURCE_USE_ENTRIES * 4);
   const best = new Map<Id<"generationSources">, number>();
-  for (const row of earlier) best.set(row.sourceId, Math.max(best.get(row.sourceId) ?? -1, STATE_RANK[row.state]));
+  // The parts of each row this run's records already read in part.
+  const partsSeen = new Map<Id<"generationSources">, Set<string>>();
+  const seePart = (sourceId: Id<"generationSources">, ranges: readonly SourceUseRange[] | undefined) => {
+    const seen = partsSeen.get(sourceId) ?? new Set<string>();
+    seen.add(rangesKey(ranges));
+    partsSeen.set(sourceId, seen);
+  };
+  for (const row of earlier) {
+    best.set(row.sourceId, Math.max(best.get(row.sourceId) ?? -1, STATE_RANK[row.state]));
+    if (row.state === "part") seePart(row.sourceId, row.ranges);
+  }
   const at = Date.now();
   for (const use of uses.slice(0, MAX_SOURCE_USE_ENTRIES)) {
     if (use.total <= 0) continue;
     const state = sourceUseState(use.sent, use.total);
-    if ((best.get(use.sourceId) ?? -1) >= STATE_RANK[state]) continue;
+    const ranges = state === "part" ? recordedRanges(use.ranges) : undefined;
+    const before = best.get(use.sourceId) ?? -1;
+    if (before > STATE_RANK[state]) continue;
+    if (before === STATE_RANK[state]) {
+      // Only a read in part with parts not recorded yet adds a record; one
+      // with no parts known adds nothing after another read in part.
+      const seen = partsSeen.get(use.sourceId);
+      if (state !== "part" || !ranges || seen?.has(rangesKey(ranges))) continue;
+      if ((seen?.size ?? 0) >= MAX_PART_RECORDS_PER_RUN) continue;
+    }
     best.set(use.sourceId, STATE_RANK[state]);
+    if (state === "part") seePart(use.sourceId, ranges);
     await ctx.db.insert("generationSourceUse", {
       generationId: generation._id,
       projectId: generation.projectId,
@@ -110,6 +175,7 @@ export async function insertSourceUses(
       sent: Math.max(0, Math.round(use.sent)),
       total: Math.max(0, Math.round(use.total)),
       unit: use.unit,
+      ...(ranges ? { ranges } : {}),
       at,
     });
   }
@@ -143,7 +209,10 @@ export async function copyBriefSourceUseHandler(
     .take(MAX_SOURCE_USE_ENTRIES);
   const copies = original.flatMap((use) => {
     const sourceId = use.contentHash ? byHash.get(use.contentHash) : undefined;
-    return sourceId ? [{ sourceId, contentHash: use.contentHash, sent: use.sent, total: use.total, unit: use.unit }] : [];
+    // Same text, so the parts keep their places.
+    return sourceId
+      ? [{ sourceId, contentHash: use.contentHash, sent: use.sent, total: use.total, unit: use.unit, ...(use.ranges ? { ranges: use.ranges } : {}) }]
+      : [];
   });
   await insertSourceUses(ctx, generation, "brief", "reused", copies);
   return null;
@@ -153,7 +222,13 @@ export async function copyBriefSourceUseHandler(
 export const RECOVERY_SOURCE_USE_ROWS_PER_STEP = 2500;
 /** At most this many records one Summary recovery writes, within a mutation's write limit. */
 export const RECOVERY_SOURCE_USE_COPIES = 4000;
-/** At least the size of one source-use record read, with its index entries. */
+/**
+ * About the size of one source-use record read, with its index entries. A
+ * record with parts is larger (about 32 bytes a part), but one run's parts
+ * are few, its budget over a part's size (about 250 at most), so a page of
+ * records stays within the guard's margin (review, round 2: counting every
+ * record at 256 parts would cut whole steps from a recovery near its limit).
+ */
 const SOURCE_USE_ROW_BYTES = 1024;
 /** Records read, or written, between two checks of the room left. */
 const SOURCE_USE_PAGE = 100;
@@ -239,7 +314,14 @@ export async function copyRecoverySourceUses(
       if (!copyOf.has(row.sourceId)) continue;
       const key = `${row.run ?? ""}\u0000${row.sourceId}`;
       const before = best.get(key);
-      if (!before || STATE_RANK[row.state] > STATE_RANK[before.state]) best.set(key, row);
+      // At the same depth, the record that read the most, with its parts.
+      if (
+        !before ||
+        STATE_RANK[row.state] > STATE_RANK[before.state] ||
+        (row.state === before.state && row.sent > before.sent)
+      ) {
+        best.set(key, row);
+      }
     }
     copies.push(...best.values());
   }
@@ -255,6 +337,8 @@ export async function copyRecoverySourceUses(
     sent: row.sent,
     total: row.total,
     unit: row.unit,
+    // The copies hold the same text, so the parts keep their places.
+    ...(row.ranges ? { ranges: row.ranges } : {}),
     at: row.at,
   }));
   let written = 0;

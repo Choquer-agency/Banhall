@@ -1,0 +1,93 @@
+{
+  "k578k98q09a8s54teakgjfr0dd8h4tsm": {
+    "bySite": {
+      "generation": 1.257,
+      "generation:section": 0.099,
+      "generation:seeds": 4.135,
+      "generation:selfCheck": 0.281
+    },
+    "filesCitedByAnySeed": 0,
+    "filesCitedByPickedSeeds": null,
+    "frozenFiles": 14,
+    "picked": 0,
+    "reads": {
+      "analyzer": {
+        "notRead": 3,
+        "part": 11,
+        "records": 15,
+        "whole": 0,
+        "withParts": 0
+      },
+      "brief": {
+        "notRead": 9,
+        "part": 3,
+        "records": 15,
+        "whole": 2,
+        "withParts": 0
+      },
+      "facts_check": {
+        "notRead": 14,
+        "part": 0,
+        "records": 45,
+        "whole": 0,
+        "withParts": 0
+      },
+      "seeds": {
+        "notRead": 12,
+        "part": 1,
+        "records": 180,
+        "whole": 1,
+        "withParts": 0
+      }
+    },
+    "seedsWritten": 60,
+    "status": "completed",
+    "usd": 5.77
+  },
+  "k57dywwf0n9se17fp1qs7qns218h6sxt": {
+    "bySite": {
+      "generation": 0.702,
+      "generation:repair": 0.033,
+      "generation:section": 0.102,
+      "generation:seeds": 4.127,
+      "generation:selfCheck": 0.526
+    },
+    "filesCitedByAnySeed": 0,
+    "filesCitedByPickedSeeds": null,
+    "frozenFiles": 14,
+    "picked": 0,
+    "reads": {
+      "analyzer": {
+        "notRead": 2,
+        "part": 12,
+        "records": 15,
+        "whole": 0,
+        "withParts": 0
+      },
+      "brief": {
+        "notRead": 9,
+        "part": 3,
+        "records": 15,
+        "whole": 2,
+        "withParts": 0
+      },
+      "facts_check": {
+        "notRead": 2,
+        "part": 12,
+        "records": 45,
+        "whole": 0,
+        "withParts": 0
+      },
+      "seeds": {
+        "notRead": 0,
+        "part": 14,
+        "records": 180,
+        "whole": 0,
+        "withParts": 0
+      }
+    },
+    "seedsWritten": 4,
+    "status": "completed",
+    "usd": 5.49
+  }
+}

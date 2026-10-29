@@ -5050,10 +5050,10 @@ This changes what one AI request reads and how its citations are checked, not a 
 - **Known limits.**
   - Seeds still read only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - A Seed's offsets are relative to what the model read; the existing relocation search finds the excerpt's real place, nearest to the offset given.
-  - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
+  - The record says "in part" for such a source (its sent bytes are the sum of its parts), and since entry "(tenth)" which parts.
   - In fact mode, a fact pack cut where the allowance runs out still lets every fact of that interview be cited, as before.
   - A file whose stored text really holds U+0000 characters cannot be quoted across them. Models rarely copy such characters.
-  - Live check: with the rest of step 1, on the 51-file stress project.
+  - Live check (pack `_bmad-output/test-artifacts/stress/2026-10-28-step1`): on the 51-file stress project, Seeds read all 14 frozen files in part (F5: 2). They still quoted only the interview. The check also found the reused-Brief fault fixed in entry "(ninth)".
 - **Tests:**
   - `convex/seedByRelevance.test.ts`:
     - a small draft is sent exactly as before;
@@ -5087,7 +5087,107 @@ This changes what one AI request reads and how its citations are checked, not a 
   - the U+0000 refusal is recorded as applying to every source.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
-### 2026-10-28 (eighth): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)
+### 2026-10-28 (eighth): The analysis ranks files by how well they match the interviews, and reads a long file's best parts (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the fourth step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, step 1). Before, the analysis read at most 12 frozen files, picked by trust order and then upload order, each cut to its first 40,000 characters.
+
+This changes what one AI request reads, not a workflow stage, transition or permission. No AI tool writes report prose. The analysis cites interviews only, so no citation check changes.
+
+- **Rule.**
+  - When every document fits (at most 12, each within its 40,000-character share, all within the room the interviews leave), or the interviews give no words to match, the request is exactly as before.
+  - When they do not:
+    - Trust order stays: the project's files before the company's, then by category, writer's notes first.
+    - Within one scope and category, files are ranked by how well their best part matches the interviews, ahead of upload order.
+    - A file over its share sends its parts that best match the interviews (one long file is enough for this, on a project of any size), with the notice "[EXCERPTS: only the parts of this document that best match the interviews were sent, N of M characters; the text between them was left out.]", or "only parts of this document were sent" when none matched.
+    - Writer's notes keep their start, as the Brief and Seeds keep them whole.
+    - When the chosen parts are one run from the file's start, it reads "[TRUNCATED: ...]", as before. When no part fits the room left, the file's start is sent, as before.
+- **Where.** `buildTrustedContext` and `CONTEXT_SCAFFOLDS.excerpts` in `convex/ai/trustedContext.ts`. The analysis's words are part of the prompt program, which moves.
+- **Known limits.**
+  - The analysis still reads at most 12 files, from the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - Excerpt separators are charged to the file's own share, not to the room left; notices are not counted, as before.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:** `convex/analyzerByRelevance.test.ts`:
+  - unchanged when everything fits, upload order kept with a matching later file;
+  - one long file sends its best parts;
+  - scope and category stay ahead of relevance, and writer's notes keep their start;
+  - over the budget, a late file that matches the interviews is among the 12 and its matching part is sent;
+  - a file's start is sent when no part fits.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". 1,500 random cases matched the old builder byte for byte whenever everything fit. Done:
+  - one long file triggers the choice;
+  - writer's notes keep their start;
+  - no interview words means no change;
+  - the tests;
+  - this entry.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
+### 2026-10-28 (ninth): Seeds see a reused Brief's entries with the draft's own rows (fix found by the step 1 live check)
+
+The step 1 live check (pack `_bmad-output/test-artifacts/stress/2026-10-28-step1`) found that a draft whose Brief was reused from an earlier draft lost almost every Seed quote: 4 of 46 Seeds kept one, against 45 of 47 in F5's draft of the same files. The cause predates step 1. A Brief is reused only when the draft froze the same texts (its inputs hash), but its entries name the rows of the draft that made it. The Seed request showed those ids, the model copied them into its quotes, and the citation check, which accepts only the draft's own rows, dropped the quotes without a word.
+
+This restores the existing rule (a Seed cites the draft's own frozen rows); no stage, transition or permission changes. No AI tool writes report prose.
+
+- **Rule.**
+  - When Seeds read a Brief, each entry that names a row of another draft is shown with this draft's row of the same text (its fingerprint), so its offsets still hold. Among rows of the same text an interview comes first, so the speaker check still applies. An entry that names one of this draft's rows, or a text this draft did not freeze, keeps its id. Seeds never run on a draft that has a Summary, so a Summary recovery never reaches this.
+  - The same cause stopped a Summary recovery of such a draft from starting: the recovery checks that every Brief entry names one of the original draft's rows, through its source map. A recovery now admits an entry outside its map when the Brief is the one the original draft pinned for its Seeds (the same inputs hash, so the same frozen files). It never maps that entry by its text, and nothing in a recovery reads its row; the original draft accepted the same entry. Without the pin the recovery still refuses it (every Step by step draft has one, so this only refuses a damaged record).
+- **Where.** `ownSourceIdOf` in `convex/lib/seedSnapshotLoader.ts`, used by `loadFrozenSeedActionInput`, which both the Batch claim and dispatch's size check read. `briefPinnedToOrigin` in `loadBriefCheck` (`convex/lib/generations/brief.ts`).
+- **Known limits.**
+  - The Lines' Brief block shows no ids, so the Lines were not affected. The stored Brief keeps its ids; only what Seeds read changes.
+  - An entry citing a row whose text this draft did not freeze (a digest made again, say) still shows the earlier id, and a Seed that copies it loses that quote, as before.
+  - A recovery also admits an entry citing a digest the earlier draft made, as the original draft did.
+- **Live check.** With the fix on the live copy, the model quoted the draft's own rows, and 40 of 46 Seeds in the same 8 steps kept a quote.
+- **Tests:**
+  - `convex/seedReusedBrief.test.ts`:
+    - a reused Brief's entry names this draft's row of the same text, and one whose text this draft lacks keeps its id;
+    - a Seed quoting the id it was shown keeps its quote, and with the earlier id it would not;
+    - the draft's own ids are kept, and an interview comes first among rows of the same text.
+  - `convex/generationSeedSignoff.test.ts`: a Summary recovery of a draft whose Brief was reused starts with the original's pin, and is refused without it.
+- **Review:** Round 1, Claude Opus 5.5 (high, as it reported), "ship after fixes". Done:
+  - the recovery start (found by the review, the same cause);
+  - an interview first among rows of the same text;
+  - the unreachable recovery branch dropped;
+  - the numbers in comments;
+  - this entry.
+
+  Round 2, Claude Opus 5.5 (high, as it reported), "ship", every finding P3. Done: the helper's place above `loadBriefCheck`'s comment, this entry's wording, and the refused case's error in the test.
+- **Approval:** not needed: a fix that restores the existing rule, recorded so the change can be traced.
+
+### 2026-10-28 (tenth): The record of what each step read keeps the parts it sent, and the Inputs band says how much (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)" (plan: "Every excerpt is traceable"). Before, each step's record of a frozen file said only whole, in part or not read, and how much in its unit; it could not say which parts.
+
+This adds an optional field to a telemetry record and words to the Inputs band, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - A step that reads a file in part records the parts it sent, as positions in the frozen file's own text (start included, end left out, in order), when it knows them in those positions: the analysis, the Brief, Seeds and each Line's facts check. At most 256 parts; a list that is longer, out of order or overlapping is not kept, and the record still says "in part".
+  - A step that read a marker-safe copy of the text whose length changed (a forged marker line) keeps no parts, since the positions would not be the file's.
+  - A run that sends other parts of a file it already read in part (its inputs moved, say a changed budget) adds a record, at most 4 a file and run; the same parts again add nothing.
+  - A reused Brief's record and a Summary recovery's copy keep the parts (the same text, so the same places); the recovery keeps, per run, the record that read the most.
+  - Each part is traceable to its frozen row, whose text fingerprint the row keeps.
+  - The Inputs band says how much a step read of a file it read in part, and in how many excerpts when more than one: "Read by the Brief (in part, 8% in 3 excerpts)". Over several runs it gives the widest: "Seeds (in part, up to 6% in 5 excerpts, 13 of 13 steps)". A share under 1% reads "under 1%"; a read in part never reads 100%. A step where some run read the file whole, or read an interview through its digest or fact pack, shows no share.
+- **Where.**
+  - `generationSourceUse.ranges` (`convex/schema.ts`, optional, a widen; older records have none).
+  - `recordedRanges` and `insertSourceUses` in `convex/lib/generations/sourceUse.ts`, and the two copies there.
+  - The callers: `recordAnalyzerUse` (`convex/ai/pipeline.ts`, from `TrustedContextSource.ranges`), `recordBriefUse` (`convex/ai/brief.ts`), the Seed Batch action (`convex/ai/seeds.ts`), `loadFactsSourceDocuments` (`convex/lib/generations/seedStage.ts`).
+  - The band: `convex/lib/contextInclusion.ts`, `convex/lib/generations/inputs.ts`, `inclusionUsesText` in `src/lib/brief.ts`.
+- **Known limits.**
+  - An interview the analysis cuts at its start records no parts.
+  - The band shows how much and how many excerpts, not the excerpts themselves.
+  - A Summary recovery copies one record per run and file, the widest, so a run's other parts of the same file are not copied.
+  - A run keeps its first 4 different reads in part of a file; a wider fifth is not kept, so "up to" can understate.
+- **Tests:**
+  - `convex/contextInclusion.test.ts`: a read in part keeps its parts; the same parts add nothing and other parts add a record, at most 4 a file and run, and one run's records of every frozen row fit the writer's read; out-of-order or too many parts are not kept; a whole read keeps none; the band shows the widest share and its excerpts, and no share when a run read the file whole; a reused Brief's and a recovery's copies keep the parts.
+  - `convex/factsSourceDocuments.test.ts`: the facts check records parts in the file's own places, and none when the marker-safe text moved them.
+  - `convex/analyzerByRelevance.test.ts`: the analysis reports a long file's parts and a cut file's start, and none when the marker-safe text moved them.
+  - `src/lib/brief.test.ts`: the band's words.
+- **Review:** Round 1, Claude Opus 5.5 (high, as it reported), "ship after fixes"; no wrong position found in any step. Done:
+  - at most 4 records in part a file and run, so one run's records stay within the writer's read;
+  - one excerpt is not named, since it is often the file's start;
+  - comments and this entry.
+
+  Round 2, Claude Opus 5.5 (high, as it reported), "ship", every finding P3. Done: the recovery's read estimate kept as it was, since counting every record at 256 parts would cut whole steps near the limit and one run's parts are few; a test that one run's records of every frozen row fit the writer's read; this entry's limits.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
+### 2026-10-28 (eleventh): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)
 
 Owner direction 2026-10-28, from the Paper page "Assistant + report, exploration" (rows 16 B, 21 and 32 to 37). The owner's answers in that conversation are this entry's approval.
 
@@ -5131,7 +5231,7 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
     - closing the limit popover from the pill gives focus back to the pill.
   - **Round 3.** Claude Opus 5.5, requested at high; it reported running at low. "Ship": all six round 2 fixes traced correct. Done after it: the popover's scroll and resize close no longer scroll the pill back into view, and the popover finds the pill again after the report redraws it. Left as a known limit: the Shortening chip follows the open conversation, so switching conversation while the shorten reply runs clears it early.
 
-### 2026-10-28 (ninth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
+### 2026-10-28 (twelfth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
 
 Owner direction 2026-10-28, from the Paper page "Assistant + report, exploration" (rows 9 and 10: boards S9, S11, S12, S13 and the A1 project top bar). The owner's six answers in that conversation ("build for now, we can always change") are this entry's approval.
 

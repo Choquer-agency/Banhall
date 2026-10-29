@@ -1,0 +1,6 @@
+{
+  "note": "First versions of Seeds in the first 8 steps; 'a/b' is Seeds whose original support was a quote, of Seeds written. Read from the seeds and seedProvenance tables of the live copy.",
+  "k578k98q09a8s54teakgjfr0dd8h4tsm (F5, before step 1, the draft's own Brief)": {"total": "45/47", "company_context": "2/3", "goal_problem": "3/4", "passive_limitations": "4/4", "technological_objective": "3/3", "active_uncertainties": "20/20", "workplan": "4/4", "hypothesis": "3/3", "experimentation": "6/6"},
+  "k57dywwf0n9se17fp1qs7qns218h6sxt (step 1, Brief reused from an earlier draft, no fix)": {"total": "4/46", "company_context": "0/3", "goal_problem": "0/3", "passive_limitations": "0/3", "technological_objective": "0/3", "active_uncertainties": "0/21", "workplan": "0/3", "hypothesis": "4/4", "experimentation": "0/6"},
+  "k57c9vw4e0ew9g0rrfqe5fvgm58h63hj (step 1 with the fix, Brief reused)": {"total": "40/46", "company_context": "2/3", "goal_problem": "3/4", "passive_limitations": "2/4", "technological_objective": "1/3", "active_uncertainties": "22/22", "workplan": "4/4", "hypothesis": "3/3", "experimentation": "3/3"}
+}

@@ -1,0 +1,122 @@
+{
+  "generationId": "k57c9vw4e0ew9g0rrfqe5fvgm58h63hj",
+  "bigRole": "active_uncertainties",
+  "startedAt": "2026-10-29T01:31:04.811Z",
+  "lines": [
+    "2026-10-29T01:31:06.508Z start; spend since T0 $36.55, stop point $37.3",
+    "2026-10-29T01:31:07.157Z company_context: approved with 3 picks (3 Seeds seen, 1 Batches, 1 s)",
+    "2026-10-29T01:31:22.360Z goal_problem: first Batch in 15 s",
+    "2026-10-29T01:31:22.903Z goal_problem: approved with 2 picks (4 Seeds seen, 1 Batches, 16 s)",
+    "2026-10-29T01:31:33.098Z passive_limitations: first Batch in 10 s",
+    "2026-10-29T01:31:33.711Z passive_limitations: approved with 3 picks (4 Seeds seen, 1 Batches, 11 s)",
+    "2026-10-29T01:31:38.853Z technological_objective: first Batch in 5 s",
+    "2026-10-29T01:31:39.408Z technological_objective: approved with 2 picks (3 Seeds seen, 1 Batches, 6 s)",
+    "2026-10-29T01:31:49.593Z active_uncertainties: first Batch in 10 s",
+    "2026-10-29T01:31:49.859Z active_uncertainties: 3 of 20 picked; asking for more",
+    "2026-10-29T01:32:02.416Z active_uncertainties: new Batch in 10 s",
+    "2026-10-29T01:32:02.767Z active_uncertainties: 7 of 20 picked; asking for more",
+    "2026-10-29T01:32:15.278Z active_uncertainties: new Batch in 10 s",
+    "2026-10-29T01:32:15.636Z active_uncertainties: 11 of 20 picked; asking for more",
+    "2026-10-29T01:32:28.171Z active_uncertainties: new Batch in 10 s",
+    "2026-10-29T01:32:28.551Z active_uncertainties: 15 of 20 picked; asking for more",
+    "2026-10-29T01:32:41.054Z active_uncertainties: new Batch in 10 s",
+    "2026-10-29T01:32:41.359Z active_uncertainties: 18 of 20 picked; asking for more",
+    "2026-10-29T01:32:53.900Z active_uncertainties: new Batch in 10 s",
+    "2026-10-29T01:32:54.518Z active_uncertainties: approved with 20 picks (22 Seeds seen, 6 Batches, 75 s)",
+    "2026-10-29T01:32:54.561Z prior_year_status: skipped (no previous-year files)",
+    "2026-10-29T01:33:09.794Z workplan: first Batch in 15 s",
+    "2026-10-29T01:33:10.406Z workplan: approved with 2 picks (4 Seeds seen, 1 Batches, 16 s)",
+    "2026-10-29T01:33:20.633Z hypothesis: first Batch in 10 s",
+    "2026-10-29T01:33:21.259Z hypothesis: approved with 2 picks (3 Seeds seen, 1 Batches, 11 s)",
+    "2026-10-29T01:33:31.479Z experimentation: first Batch in 10 s",
+    "2026-10-29T01:33:31.825Z experimentation: 3 of 5 picked; asking for more",
+    "2026-10-29T01:33:33.900Z stopped: stopping before a new Batch for experimentation: $38.69 spent since T0, stop point $37.3"
+  ],
+  "steps": {
+    "company_context": {
+      "want": 3,
+      "batches": 1,
+      "picked": 3,
+      "seedsSeen": 3,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 0,
+      "ms": 646
+    },
+    "goal_problem": {
+      "want": 2,
+      "batches": 1,
+      "picked": 2,
+      "seedsSeen": 4,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 0,
+      "ms": 15746
+    },
+    "passive_limitations": {
+      "want": 3,
+      "batches": 1,
+      "picked": 3,
+      "seedsSeen": 4,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 0,
+      "ms": 10807
+    },
+    "technological_objective": {
+      "want": 2,
+      "batches": 1,
+      "picked": 2,
+      "seedsSeen": 3,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 0,
+      "ms": 5697
+    },
+    "active_uncertainties": {
+      "want": 20,
+      "batches": 6,
+      "picked": 20,
+      "seedsSeen": 22,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 1,
+      "ms": 75110
+    },
+    "prior_year_status": {
+      "batches": 0,
+      "picked": 0,
+      "state": "skipped",
+      "noPreviousYearMaterial": true
+    },
+    "workplan": {
+      "want": 2,
+      "batches": 1,
+      "picked": 2,
+      "seedsSeen": 4,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 0,
+      "ms": 15844
+    },
+    "hypothesis": {
+      "want": 2,
+      "batches": 1,
+      "picked": 2,
+      "seedsSeen": 3,
+      "approved": true,
+      "carried": 0,
+      "exclusions": 0,
+      "ms": 10852
+    },
+    "experimentation": {
+      "want": 5,
+      "batches": 2,
+      "picked": 0
+    }
+  },
+  "refusals": [],
+  "batches": 5,
+  "stoppedBecause": "stopping before a new Batch for experimentation: $38.69 spent since T0, stop point $37.3",
+  "spendSinceT0": 38.68567608
+}

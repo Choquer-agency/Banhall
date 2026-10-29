@@ -321,7 +321,7 @@ export async function orderedSectionClaim(
   // source documents in full when they fit its budget. Phase D, step 1
   // (2026-10-28, fourth): when they do not, the parts that best match this
   // Line's own plan.
-  const factsUses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }> = [];
+  const factsUses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number; ranges?: Array<{ start: number; end: number }> }> = [];
   // The subject is what the Line must cover: each cover item's wording, the
   // wording it relates to and its quotes, never a Skip or a LEAVE OUT entry
   // nor the plan's own scaffold (Phase D review).

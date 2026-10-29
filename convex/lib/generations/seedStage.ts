@@ -1447,13 +1447,16 @@ function planItemSourcesOf(
 export async function loadFactsSourceDocuments(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">,
-  /** Phase D (step 2): filled with what the check sends of each row it weighs, in UTF-8 bytes. */
-  uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number }>,
+  /**
+   * Phase D (step 2): filled with what the check sends of each row it
+   * weighs, in UTF-8 bytes, and (step 1) the parts of a row read in part.
+   */
+  uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number; ranges?: Array<{ start: number; end: number }> }>,
   /** Phase D, step 1: what the Line is about, to choose the parts read. */
   subjectTexts: readonly string[] = []
 ): Promise<FactsSourceDocuments> {
   const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
-  const weighed: Array<{ sourceId: Id<"generationSources">; document: FactsSourceDocument; bytes: number }> = [];
+  const weighed: Array<{ sourceId: Id<"generationSources">; document: FactsSourceDocument; bytes: number; samePlaces: boolean }> = [];
   for await (const row of ctx.db
     .query("generationSources")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
@@ -1461,8 +1464,11 @@ export async function loadFactsSourceDocuments(
     // Phase C: no company file of a company the project has left.
     if (row.kind === "company_file" && (await withCurrentCompanyFiles(ctx, generation.projectId, [row])).length === 0) continue;
     // B1, second part: the row's text, wherever it is kept.
-    const document = factsSourceDocumentOf(await withSourceText(ctx, row));
-    weighed.push({ sourceId: row._id, document, bytes: utf8Size(document.content) });
+    const text = await withSourceText(ctx, row);
+    const document = factsSourceDocumentOf(text);
+    // Parts are chosen on the marker-safe text, which only ever grows, so
+    // its positions are the row's own when its length is unchanged.
+    weighed.push({ sourceId: row._id, document, bytes: utf8Size(document.content), samePlaces: document.content.length === text.content.length });
   }
   const chosen = chooseEvidence({
     rows: weighed.map(({ document }) => ({
@@ -1478,7 +1484,7 @@ export async function loadFactsSourceDocuments(
   const documents: FactsSourceDocument[] = [];
   const leftOut: FactsSourceDocuments["leftOut"] = [];
   const readInPart: NonNullable<FactsSourceDocuments["readInPart"]> = [];
-  weighed.forEach(({ sourceId, document, bytes }, index) => {
+  weighed.forEach(({ sourceId, document, bytes, samePlaces }, index) => {
     const { ranges, whole, cut, matched } = chosen[index]!;
     if (whole) {
       documents.push(document);
@@ -1507,7 +1513,7 @@ export async function loadFactsSourceDocuments(
       ...(cut ? { start: true as const } : {}),
       ...(matched ? { matched: true as const } : {}),
     });
-    uses?.push({ sourceId, sent, total: bytes });
+    uses?.push({ sourceId, sent, total: bytes, ...(samePlaces ? { ranges } : {}) });
   });
   return { documents, leftOut, budget, ...(readInPart.length > 0 ? { readInPart } : {}) };
 }

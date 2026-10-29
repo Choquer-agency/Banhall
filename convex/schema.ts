@@ -3236,6 +3236,13 @@ export default defineSchema({
     sent: v.number(),
     total: v.number(),
     unit: v.union(v.literal("chars"), v.literal("bytes")),
+    /**
+     * 2026-10-28 widen (Phase D, step 1): for a source read in part, the
+     * parts of its frozen text that were sent (string positions, start
+     * inclusive, end exclusive, in order), when the step knows them. At
+     * most 256; absent on older records and whole or left-out reads.
+     */
+    ranges: v.optional(v.array(v.object({ start: v.number(), end: v.number() }))),
     at: v.number(),
   })
     .index("by_generationId", ["generationId"])

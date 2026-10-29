@@ -295,6 +295,31 @@ function frozenStyleProjection(content: string): {
   return { styleGuidance, styleOverrides };
 }
 
+/**
+ * 2026-10-28 (Phase D step 1 live check): a Brief reused from an earlier
+ * draft names that draft's rows. It is reused only when this draft froze the
+ * same texts (its inputs hash), but a Seed may cite only this draft's rows,
+ * and a Seed that quoted a Brief entry kept the earlier id, so its quote was
+ * refused (live: 4 of 46 Seeds kept a quote, against 45 of 47 with the
+ * draft's own Brief). Each entry is shown with this draft's row of the same
+ * text, so its offsets still hold; among rows of the same text an interview
+ * comes first, so the speaker check still applies (review). An entry naming
+ * one of this draft's rows, or a text this draft did not freeze, keeps its
+ * id. Seeds never run on a draft that has a Summary, so a Summary recovery
+ * (which maps rows by its own source map) never reaches this.
+ */
+export function ownSourceIdOf(
+  sources: ReadonlyArray<{ _id: Id<"generationSources">; kind: string; contentHash: string }>,
+): (entry: { sourceId: Id<"generationSources">; sourceContentHash: string }) => Id<"generationSources"> {
+  const own = new Set<string>(sources.map((source) => source._id));
+  const byText = new Map<string, { _id: Id<"generationSources">; kind: string }>();
+  for (const source of sources) {
+    const before = byText.get(source.contentHash);
+    if (!before || (before.kind !== "transcript" && source.kind === "transcript")) byText.set(source.contentHash, source);
+  }
+  return (entry) => (own.has(entry.sourceId) ? entry.sourceId : (byText.get(entry.sourceContentHash)?._id ?? entry.sourceId));
+}
+
 /** Read generation-frozen model inputs. Called only after the attempt claim. */
 export async function loadFrozenSeedActionInput(
   ctx: SeedReadCtx,
@@ -402,6 +427,7 @@ export async function loadFrozenSeedActionInput(
     texts.set(source._id, await sourceRowText(ctx, source, charge));
   }
   const style = frozenStyleProjection(settingsArtifact.content);
+  const ownSourceId = ownSourceIdOf(sources);
   return {
     brief: {
       _id: brief._id,
@@ -421,7 +447,7 @@ export async function loadFrozenSeedActionInput(
         text: entry.text,
         reason: entry.reason,
         confidence: entry.confidence,
-        sourceId: entry.sourceId,
+        sourceId: ownSourceId(entry),
         sourceContentHash: entry.sourceContentHash,
         startOffset: entry.startOffset,
         endOffset: entry.endOffset,
