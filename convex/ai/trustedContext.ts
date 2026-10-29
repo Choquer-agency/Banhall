@@ -568,8 +568,12 @@ export function buildTrustedContext(input: TrustedContextInput): {
   const perDocChars = Math.max(0, budget.perDocumentTokens) * CHARS_PER_TOKEN;
   const overflow =
     documents.length > budget.maxDocuments ||
+    // One file over its share is enough (review: the common long-file case).
+    documents.some((doc) => neutralizeMarkers(doc.content).length > perDocChars) ||
     documents.reduce((sum, doc) => sum + Math.min(neutralizeMarkers(doc.content).length, perDocChars), 0) > remaining;
-  const subject = overflow ? subjectOf(parts.map((part) => part.content)) : null;
+  // With no interview words to match, nothing changes: the old order and cut.
+  const interviewSubject = overflow ? subjectOf(parts.map((part) => part.content)) : null;
+  const subject = interviewSubject && interviewSubject.size > 0 ? interviewSubject : null;
   const bestScore = new Map<number, number>();
   if (subject) {
     const pieces: Array<{ doc: number; text: string }> = [];
@@ -617,7 +621,8 @@ export function buildTrustedContext(input: TrustedContextInput): {
     const [chosen] =
       subject && safe.length > allowance
         ? chooseEvidence({
-            rows: [{ text: doc.content }],
+            // Writer's notes keep their start, as the Brief and Seeds keep them whole (review).
+            rows: [{ text: doc.content, ...(effectiveCategory(doc) === "writer_notes" ? { whole: true } : {}) }],
             subject,
             budget: allowance,
             size: (text) => neutralizeMarkers(text).length,

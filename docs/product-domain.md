@@ -5094,21 +5094,30 @@ Under the owner's decision "2026-10-28 (fourth)", the fourth step that chooses i
 This changes what one AI request reads, not a workflow stage, transition or permission. No AI tool writes report prose. The analysis cites interviews only, so no citation check changes.
 
 - **Rule.**
-  - When every document fits (at most 12, each within its 40,000-character share, all within the room the interviews leave), the request is exactly as before.
+  - When every document fits (at most 12, each within its 40,000-character share, all within the room the interviews leave), or the interviews give no words to match, the request is exactly as before.
   - When they do not:
     - Trust order stays: the project's files before the company's, then by category, writer's notes first.
     - Within one scope and category, files are ranked by how well their best part matches the interviews, ahead of upload order.
-    - A file over its share sends its parts that best match the interviews, with the notice "[EXCERPTS: only the parts of this document that best match the interviews were sent, N of M characters; the text between them was left out.]", or "only parts of this document were sent" when none matched.
+    - A file over its share sends its parts that best match the interviews (one long file is enough for this, on a project of any size), with the notice "[EXCERPTS: only the parts of this document that best match the interviews were sent, N of M characters; the text between them was left out.]", or "only parts of this document were sent" when none matched.
+    - Writer's notes keep their start, as the Brief and Seeds keep them whole.
     - When the chosen parts are one run from the file's start, it reads "[TRUNCATED: ...]", as before. When no part fits the room left, the file's start is sent, as before.
 - **Where.** `buildTrustedContext` and `CONTEXT_SCAFFOLDS.excerpts` in `convex/ai/trustedContext.ts`. The analysis's words are part of the prompt program, which moves.
 - **Known limits.**
   - The analysis still reads at most 12 files, from the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
-  - Excerpt separators and notices are not counted against the total, as notices were not before.
+  - Excerpt separators are charged to the file's own share, not to the room left; notices are not counted, as before.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:** `convex/analyzerByRelevance.test.ts`:
-  - unchanged when everything fits;
+  - unchanged when everything fits, upload order kept with a matching later file;
+  - one long file sends its best parts;
+  - scope and category stay ahead of relevance, and writer's notes keep their start;
   - over the budget, a late file that matches the interviews is among the 12 and its matching part is sent;
   - a file's start is sent when no part fits.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". 1,500 random cases matched the old builder byte for byte whenever everything fit. Done:
+  - one long file triggers the choice;
+  - writer's notes keep their start;
+  - no interview words means no change;
+  - the tests;
+  - this entry.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process
