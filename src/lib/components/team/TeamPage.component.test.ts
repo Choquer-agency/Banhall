@@ -9,6 +9,7 @@ import {
   __resetConvexStub,
   __setMutationResult,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage } from "$lib/test/app-state-stub.svelte";
@@ -300,5 +301,26 @@ describe("TeamPage", () => {
     expect(barInvite().textContent?.trim()).toBe("Invite people");
     document.querySelector<HTMLButtonElement>("[data-section-sidebar-expand]")!.click();
     await expect.poll(() => barInvite().getBoundingClientRect().width).toBe(0);
+  });
+
+  it("keeps the Pending invites section, with a quiet notice, when the invites cannot be read", async () => {
+    seed(ADMIN);
+    __setQueryError("invites:listTeamInvites", new Error("offline"));
+    await page.viewport(1440, 900);
+    await render(TeamPage, { origin: "https://banhall.app" });
+    await expect.poll(() => document.querySelector("[data-pending-failed]")?.textContent).toBe("Pending invites could not be loaded.");
+    const section = document.querySelector<HTMLElement>("#team-pending-invites")!;
+    expect(section.querySelector("[data-pending-count]")).toBeNull();
+    const link = document.querySelector<HTMLAnchorElement>('[data-team-sidebar="invites"]')!;
+    expect(document.getElementById(new URL(link.href).hash.slice(1))).toBe(section);
+    expect(link.querySelector("[data-section-sidebar-count]")).toBeNull();
+  });
+
+  it("draws the members loading rows plain, with no round placeholder", async () => {
+    __setQueryData("users:getCurrentUser", ADMIN);
+    __setQueryData("invites:listTeamInvites", []);
+    await render(TeamPage, { origin: "https://banhall.app" });
+    await expect.poll(() => document.querySelector("[data-team-loading]")).not.toBeNull();
+    expect(document.querySelector("[data-team-loading] .rounded-full")).toBeNull();
   });
 });

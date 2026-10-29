@@ -149,7 +149,7 @@
 {#snippet teamSidebar()}
   <TeamSidebar
     peopleCount={membersQ.data ? members.length : null}
-    invitesCount={invitesQ.data ? invites.length : null}
+    invitesCount={invitesQ.data && !invitesQ.error ? invites.length : null}
     onInvite={canInvite ? () => (inviteOpen = true) : null}
   />
 {/snippet}
@@ -185,7 +185,6 @@
         <div data-team-loading class="flex flex-col overflow-hidden rounded-[0.625rem] border border-line-soft" aria-busy="true">
           {#each [0, 1, 2, 3] as row (row)}
             <div class="flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
-              <div class="h-6 w-6 animate-pulse rounded-full bg-chrome"></div>
               <div class="h-3 w-40 animate-pulse rounded bg-chrome"></div>
             </div>
           {/each}
@@ -199,8 +198,9 @@
           onSetPassword={askPassword}
         />
       {/if}
-      {#if invitesQ.data !== undefined}
+      {#if invitesQ.data !== undefined || invitesQ.error}
         <PendingInvitesTable
+          failed={Boolean(invitesQ.error)}
           {invites}
           {now}
           canInviteAdmin={isAdminViewer}

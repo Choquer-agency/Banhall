@@ -15,6 +15,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { ADMIN_LANDING_PATH } from "$lib/dashboard/adminRoutes";
+  import { CLIENT_PARAM } from "$lib/projects/clientList";
   import { canSeeAdmin, frameRailItems, selectedFrameRailItem, type FrameRailItem } from "$lib/shell/navigation";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import FrameIcon from "./FrameIcon.svelte";
@@ -49,7 +50,7 @@
   function companiesHref(href: string): string {
     const [path, query = ""] = href.split("?");
     const params = new URLSearchParams(query);
-    params.delete("client");
+    params.delete(CLIENT_PARAM);
     const search = params.toString();
     return search ? `${path}?${search}` : path;
   }
