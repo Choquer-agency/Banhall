@@ -7,17 +7,32 @@
  * labels, drafts and Seeds as company background) does the rest. Only the
  * company's own address is fetched: no AI call and no web search.
  *
- * A new website archives the file the old one was read into, a removed
- * website archives it too, and a failed read is kept on the company row with
- * a plain reason; none of it ever blocks the save.
+ * A new website archives the file the old one was read into, once the new
+ * read is saved or has failed; a removed website archives it at once. A
+ * failed read (or one still not finished after WEBSITE_READ_EXPIRY_MS) is
+ * kept on the company row with a plain reason; none of it ever blocks the
+ * save. Each person may ask for website reads at the rate of
+ * `websiteReadPerUser`; past it the read fails with a plain reason.
  */
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { companyFileTextFacts, insertCompanyFileTextPieces } from "./lib/companyFileText";
 import { deriveProcessingStatus } from "../shared/documentStatus";
 import { companyWebsiteFileName } from "../shared/companyWebsite";
+import { limitUserAction } from "./lib/aiRateLimits";
+import { WEBSITE_READ_REASONS } from "./lib/websiteRead";
+
+/** A read still not finished this long after it was asked for has failed. */
+export const WEBSITE_READ_EXPIRY_MS = 2 * 60_000;
+/** The reason a read past the hourly limit shows, after "The website could not be read: ". */
+export const WEBSITE_READ_RATE_LIMITED =
+  "more than 20 websites were saved for reading in the last hour. Remove it and add it again later.";
+
+function rateLimited(error: unknown): boolean {
+  return error instanceof ConvexError && (error.data as { code?: unknown } | null)?.code === "RATE_LIMITED";
+}
 
 async function logFileEvent(
   ctx: MutationCtx,
@@ -46,10 +61,31 @@ async function archiveWebsiteFile(ctx: MutationCtx, client: Doc<"clients">, user
 }
 
 /**
+ * A read that failed: its plain reason on the company row, and the file of
+ * the address it replaced archived, so an old website's text stops feeding
+ * drafts once the address changed.
+ */
+async function failRead(
+  ctx: MutationCtx,
+  client: Doc<"clients">,
+  read: { url: string; requestedAt: number },
+  reason: string,
+  userId: Id<"users">,
+  now: number
+) {
+  await archiveWebsiteFile(ctx, client, userId, now);
+  await ctx.db.patch(client._id, {
+    websiteRead: { ...read, status: "failed", reason, finishedAt: now },
+    websiteFileId: undefined,
+  });
+}
+
+/**
  * Called in the same transaction as a website change on a company row
  * (`clients.createClient`, `clients.updateCompany`), after the row holds the
- * new `website`. A new website is marked as being read and the read is
- * scheduled; a removed one archives its file.
+ * new `website`. A new website is marked as being read, and the read and
+ * its expiry check are scheduled (past the hourly limit the read fails at
+ * once); a removed one archives its file.
  */
 export async function onCompanyWebsiteChanged(
   ctx: MutationCtx,
@@ -65,6 +101,13 @@ export async function onCompanyWebsiteChanged(
     await ctx.db.patch(clientId, { websiteRead: undefined, websiteFileId: undefined });
     return;
   }
+  try {
+    await limitUserAction(ctx, "websiteReadPerUser", userId);
+  } catch (error) {
+    if (!rateLimited(error)) throw error;
+    await failRead(ctx, client, { url: website, requestedAt: now }, WEBSITE_READ_RATE_LIMITED, userId, now);
+    return;
+  }
   await ctx.db.patch(clientId, { websiteRead: { url: website, status: "reading", requestedAt: now } });
   await ctx.scheduler.runAfter(0, internal.companyWebsiteNode.readCompanyWebsite, {
     clientId,
@@ -72,7 +115,29 @@ export async function onCompanyWebsiteChanged(
     requestedAt: now,
     userId,
   });
+  await ctx.scheduler.runAfter(WEBSITE_READ_EXPIRY_MS, internal.companyWebsite.expireWebsiteRead, {
+    clientId,
+    requestedAt: now,
+    userId,
+  });
 }
+
+/**
+ * A read that never finished (its action was stopped, or never ran) fails
+ * WEBSITE_READ_EXPIRY_MS after it was asked for, as unreachable, instead of
+ * reading forever. A read that finished, or a newer one, is left alone.
+ */
+export const expireWebsiteRead = internalMutation({
+  args: { clientId: v.id("clients"), requestedAt: v.number(), userId: v.id("users") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.clientId);
+    const read = client?.websiteRead;
+    if (!client || !read || read.status !== "reading" || read.requestedAt !== args.requestedAt) return null;
+    await failRead(ctx, client, read, WEBSITE_READ_REASONS.unreachable, args.userId, Date.now());
+    return null;
+  },
+});
 
 export const websiteReadResultValidator = v.union(
   v.object({
@@ -113,7 +178,7 @@ export const finishWebsiteRead = internalMutation({
     const now = Date.now();
     const read = { url: args.url, requestedAt: args.requestedAt, finishedAt: now };
     if (!args.result.ok) {
-      await ctx.db.patch(client._id, { websiteRead: { ...read, status: "failed", reason: args.result.reason } });
+      await failRead(ctx, client, read, args.result.reason, args.userId, now);
       return null;
     }
     const text = args.result.text;

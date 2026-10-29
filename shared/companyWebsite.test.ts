@@ -3,6 +3,7 @@ import {
   COMPANY_WEBSITE_MAX_LENGTH,
   companyWebsiteFileName,
   companyWebsiteHost,
+  companyWebsiteProblem,
   normalizeCompanyWebsite,
 } from "./companyWebsite";
 
@@ -40,6 +41,19 @@ describe("normalizeCompanyWebsite", () => {
 
   it("refuses an address longer than the limit", () => {
     expect(normalizeCompanyWebsite(`hatchbetter.com/${"a".repeat(COMPANY_WEBSITE_MAX_LENGTH)}`)).toBeNull();
+  });
+});
+
+describe("companyWebsiteProblem", () => {
+  it("says what is wrong, with its own words for a port", () => {
+    expect(companyWebsiteProblem("")).toBeNull();
+    expect(companyWebsiteProblem("hatchbetter.com")).toBeNull();
+    expect(companyWebsiteProblem("https://hatchbetter.com:443")).toBeNull();
+    expect(companyWebsiteProblem("hatch better")).toBe("Enter a website like hatchbetter.com.");
+    for (const typed of ["hatchbetter.com:8080", "https://hatchbetter.com:8443/about", "http://hatchbetter.com:443"]) {
+      expect(companyWebsiteProblem(typed)).toBe("Enter the website without a port number, like hatchbetter.com.");
+      expect(normalizeCompanyWebsite(typed)).toBeNull();
+    }
   });
 });
 

@@ -30,7 +30,7 @@ import {
   dashboardFiscalYearRank,
 } from "../shared/dashboardProjection";
 import { clientNamesLookAlike, isValidClientYearEnd } from "../shared/clientNames";
-import { COMPANY_WEBSITE_INVALID, normalizeCompanyWebsite } from "../shared/companyWebsite";
+import { COMPANY_WEBSITE_INVALID, companyWebsiteProblem, normalizeCompanyWebsite } from "../shared/companyWebsite";
 import { onCompanyWebsiteChanged } from "./companyWebsite";
 
 // ─── Saved clients (2026-10-14 amendment) ───────────────────────────────────
@@ -206,11 +206,11 @@ function clientExistsError(existingName: string, existingKey: string): never {
   });
 }
 
-/** The website to store for what was sent: undefined for none, refused when it is not a usable website. */
+/** The website to store for what was sent: undefined for none (empty), refused when it is not a usable website. */
 function requireWebsite(raw: string | undefined): string | undefined {
   if (raw === undefined || !raw.trim()) return undefined;
   const website = normalizeCompanyWebsite(raw);
-  if (!website) domainError("INVALID_INPUT", COMPANY_WEBSITE_INVALID);
+  if (!website) domainError("INVALID_INPUT", companyWebsiteProblem(raw) ?? COMPANY_WEBSITE_INVALID);
   return website;
 }
 
@@ -790,6 +790,24 @@ export const mergeClients = mutation({
       }
     }
 
+    // 2b'. A merged company's website file (2026-10-29) moved with its
+    //      files; its website does not come along, so the file is archived
+    //      rather than left feeding drafts with no website behind it.
+    for (const side of plan.merged) {
+      const websiteFileId = side.client?.websiteFileId;
+      const file = websiteFileId ? movingFiles.find((moving) => moving._id === websiteFileId) : undefined;
+      if (!file || file.archived === true) continue;
+      await ctx.db.patch(file._id, { archived: true });
+      await ctx.db.insert("companyFileEvents", {
+        clientId: keptClientId,
+        companyFileId: file._id,
+        fileName: file.fileName,
+        action: "archive",
+        userId: user._id,
+        at: now,
+      });
+    }
+
     await ctx.db.patch(keptClientId, {
       ...(formerNames.size > 0 ? { formerNames: [...formerNames] } : {}),
       nameHistoryComplete: true,
@@ -896,6 +914,8 @@ export const updateCompany = mutation({
     fiscalYearEndMonth: v.optional(v.number()),
     fiscalYearEndDay: v.optional(v.number()),
     industry: v.optional(v.string()),
+    // 2026-10-29: absent leaves the website as it is (an older tab never
+    // clears it); "" removes it.
     website: v.optional(v.string()),
   },
   returns: v.object({
@@ -939,7 +959,7 @@ export const updateCompany = mutation({
       args.industry !== undefined && args.industry === keep.client?.industry
         ? keep.client.industry
         : await validatedIndustry(ctx, args.industry);
-    const website = requireWebsite(args.website);
+    const website = args.website === undefined ? keep.client?.website : requireWebsite(args.website);
     const renames = name !== sideName(keep);
     const websiteChanges = keep.client?.website !== website;
     const detailsChange =
