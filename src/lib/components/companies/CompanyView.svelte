@@ -87,6 +87,14 @@
   let dialogs: ProjectCardDialogs | null = $state(null);
   let areaAttempt = $state(0);
 
+  /** No title of its own in the listing: focus falls back to the active tab, else the page title. */
+  function pageFocus(): HTMLElement | null {
+    return (
+      document.getElementById(`company-tab-${tab}`) ??
+      document.querySelector<HTMLElement>("[data-page-title]")
+    );
+  }
+
   function selectTab(next: "projects" | "files", focus = false) {
     if (next === "files") area?.endSelect();
     tab = next;
@@ -179,6 +187,7 @@
         onDelete={(project) => dialogs?.requestDelete(project)}
         onBulkEdit={(rows) => dialogs?.bulkEdit(rows)}
         onRetry={() => (areaAttempt += 1)}
+        focusFallback={pageFocus}
       />
     {/key}
   </div>
@@ -205,4 +214,4 @@
   {/if}
 </div>
 
-<ProjectCardDialogs bind:this={dialogs} {viewer} {area} />
+<ProjectCardDialogs bind:this={dialogs} {viewer} {area} focusFallback={pageFocus} />

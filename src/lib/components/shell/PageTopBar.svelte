@@ -138,7 +138,8 @@
   {:else if titlePending}
     <span data-page-title-pending aria-hidden="true" class="h-7 w-48 max-w-[40%] shrink animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></span>
   {:else}
-    <svelte:element this={titleTag} data-page-title class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink">{title}</svelte:element>
+    <!-- Focusable from script only (a rename, a selection that ends), never by Tab. -->
+    <svelte:element this={titleTag} data-page-title tabindex="-1" class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{title}</svelte:element>
     {#if count !== null && count !== undefined && count !== ""}
       <span data-page-count class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted">{count}</span>
     {/if}

@@ -73,6 +73,7 @@
     onShowAll = undefined,
     countLabel = null,
     embedded = false,
+    focusFallback = undefined,
   }: {
     /**
      * The selected client; null for All clients. `name` is null until known.
@@ -103,6 +104,12 @@
     countLabel?: string | null;
     /** On the company page: no header and no search, the listing only. */
     embedded?: boolean;
+    /**
+     * Where focus goes when the selection ends with focus lost; the area's
+     * own title by default. The company page, which has none, names its
+     * active tab or its page title.
+     */
+    focusFallback?: () => HTMLElement | null;
   } = $props();
 
   const auth = useAuth();
@@ -226,7 +233,7 @@
     const active = document.activeElement;
     const lost = !active || active === document.body || !document.contains(active);
     if (!lost && !active.closest("[data-selection-bar]")) return;
-    document.querySelector<HTMLElement>("[data-client-title]")?.focus();
+    (focusFallback ? focusFallback() : document.querySelector<HTMLElement>("[data-client-title]"))?.focus();
   }
 
   function toggle(source: DashboardProjectionRow) {

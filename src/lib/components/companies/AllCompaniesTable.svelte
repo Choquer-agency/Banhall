@@ -89,10 +89,11 @@
           <span role="cell" data-company-updated class={`${cell} w-40 shrink-0 truncate text-ink-muted`}>{company.updatedAt !== undefined ? longDate(company.updatedAt) : ""}</span>
         </div>
       {/each}
-      {#if visible.length === 0}
-        <p role="status" class={`${cell} px-4 py-3.5 text-ink-muted`} data-companies-no-match>No company matches "{query.trim()}".</p>
-      {/if}
     </div>
+    {#if visible.length === 0}
+      <!-- Outside the table: a status line, not a row. -->
+      <p role="status" class={`${cell} px-4 py-3.5 text-ink-muted`} data-companies-no-match>No company matches "{query.trim()}".</p>
+    {/if}
   </div>
   {#if visible.length > shown}
     <div class="flex justify-center pt-4">

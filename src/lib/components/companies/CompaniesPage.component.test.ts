@@ -8,6 +8,7 @@ import {
   __resetConvexStub,
   __setMutationError,
   __setMutationResult,
+  __queryArgsHistory,
   __setPaginatedRows,
   __setQueryData,
   __setQueryDataForArgs,
@@ -63,6 +64,7 @@ function companyPage(key: string, extra: Record<string, unknown> = {}) {
     kind: "company",
     key: client.key,
     clientId: client.clientId,
+    clientUpdatedAt: client.clientId ? 1_000 : null,
     name: client.name,
     projectCount: client.projectCount,
     ...("fiscalYearEndMonth" in client ? { fiscalYearEndMonth: client.fiscalYearEndMonth, fiscalYearEndDay: client.fiscalYearEndDay } : {}),
@@ -162,6 +164,8 @@ describe("All companies", () => {
     await expect.poll(() => tableRows().map((row) => row.dataset.companyRow)).toEqual(["cedarline systems"]);
     await userEvent.fill(search, "nobody");
     await expect.poll(() => text(document.querySelector("[data-companies-no-match]"))).toBe('No company matches "nobody".');
+    // A status line beside the table, not a child of role="table".
+    expect(document.querySelector("[data-companies-no-match]")!.closest('[role="table"]')).toBeNull();
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => tableRows().length).toBe(3);
   });
@@ -391,13 +395,46 @@ describe("a company's page", () => {
     await expect.poll(() => text(document.querySelector("[data-merged-note]"))).toBe(
       "Cedarline Systems Inc was merged into Cedarline Systems on October 3, 2026. Its 2 projects are here now."
     );
+    // Closing it must not reload the page: the read without the old key is
+    // still loading, so a changed read would unmount the company view.
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, undefined);
+    document.querySelector<HTMLElement>('[data-company-tab="files"]')!.click();
+    const view = document.querySelector("[data-company-view]");
+    const gotos = __navigationCalls.filter((call) => call.kind === "goto").length;
     await userEvent.click(page.getByRole("button", { name: "Close this note" }));
     await expect.poll(() => document.querySelector("[data-merged-note]")).toBeNull();
-    expect(appPage.url.searchParams.get("merged")).toBeNull();
+    expect(document.querySelector("[data-company-view]")).toBe(view);
+    expect(document.querySelector('[data-company-tab="files"]')!.getAttribute("aria-selected")).toBe("true");
+    expect(__queryArgsHistory("clients:getCompanyPage").at(-1)).toEqual({
+      key: "cedarline systems",
+      mergedFrom: "cedarline systems inc",
+    });
+    // The address drops the old key shallowly, with no navigation.
+    expect(__navigationCalls.filter((call) => call.kind === "goto")).toHaveLength(gotos);
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "replaceState", url: "/companies/cedarline%20systems" });
+    // Focus leaves the gone close button for the page title.
+    await expect.poll(() => document.activeElement?.hasAttribute("data-page-title")).toBe(true);
+    screen.unmount();
+
     // Closed stays closed: the same old link again shows no note.
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems"));
     __setPageUrl("/companies/cedarline%20systems?merged=cedarline+systems+inc");
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector("[data-company-view]")).not.toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(document.querySelector("[data-merged-note]")).toBeNull();
+  });
+
+  it("ending a selection with Escape puts focus on the active tab, since the listing has no title here", async () => {
+    seed("consultant");
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector('[data-card-select-box="p1"]')).not.toBeNull();
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Project p1" }));
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).not.toBeNull();
+    document.querySelector<HTMLElement>("[data-selection-clear]")!.focus();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("projects");
   });
 
   it("holds its place while it loads: the bar's title block and the company's skeleton", async () => {
@@ -454,6 +491,8 @@ describe("Edit company (Managers and Admins)", () => {
       {
         key: "cedarline systems",
         expectedName: "Cedarline Systems",
+        expectedClientId: "c3",
+        expectedUpdatedAt: 1_000,
         name: "Cedarline Systems",
         fiscalYearEndMonth: 12,
         fiscalYearEndDay: 31,
@@ -468,7 +507,7 @@ describe("Edit company (Managers and Admins)", () => {
   it("a rename says every project takes the new name, and the page moves to the new key", async () => {
     seed("admin");
     __setMutationResult("clients:updateCompany", { clientId: "c3", key: "cedarline robotics", name: "Cedarline Robotics", moved: 10 });
-    await mount("cedarline systems");
+    const screen = await mount("cedarline systems");
     await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
     await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
     const name = page.getByRole("textbox", { name: "Name" });
@@ -488,6 +527,25 @@ describe("Edit company (Managers and Admins)", () => {
     __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, { kind: "missing" });
     await expect.poll(() => document.querySelector('[data-panel-skeleton="company"]')).not.toBeNull();
     expect(document.querySelector("[data-company-missing]")).toBeNull();
+    // Once the new address is drawn, focus is on its Edit company, not lost.
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline robotics" }, {
+      ...companyPage("cedarline systems"),
+      key: "cedarline robotics",
+      name: "Cedarline Robotics",
+    });
+    await screen.rerender({ companyKey: "cedarline robotics" });
+    await expect.poll(() => text(barTitle())).toBe("Cedarline Robotics");
+    await expect.poll(() => document.activeElement?.hasAttribute("data-edit-company")).toBe(true);
+  });
+
+  it("shows the company's own industry even when no project uses it", async () => {
+    seed("manager");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "alder research" }, companyPage("alder research", { industry: "quantum-optics" }));
+    await mount("alder research");
+    await expect.poll(() => text(document.querySelector('[data-company-fact="industry"] dd'))).toBe("Quantum optics");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
+    await expect.poll(() => document.querySelector<HTMLInputElement>("#edit-company-industry")?.value).toBe("Quantum optics");
   });
 
   it("shows the refusal of another company's name in the dialog", async () => {

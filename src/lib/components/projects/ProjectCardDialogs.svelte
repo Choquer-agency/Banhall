@@ -24,6 +24,7 @@
     area,
     onEditDetails = undefined,
     onBulkEdit = undefined,
+    focusFallback = undefined,
   }: {
     viewer: Viewer;
     /** The card area (ClientArea): its live selection, and ending it once applied. */
@@ -32,6 +33,8 @@
     onEditDetails?: (projectId: string) => void;
     /** Edit details for a selection. Default: the bulk edit dialog. */
     onBulkEdit?: (rows: DashboardProjectionRow[]) => void;
+    /** Where focus goes after bulk edit once its bar is gone; the area's title by default. */
+    focusFallback?: () => HTMLElement | null;
   } = $props();
 
   let deleteTarget = $state<{ id: string; title: string } | null>(null);
@@ -84,7 +87,7 @@
   function bulkReturnFocus() {
     return (
       document.querySelector<HTMLElement>("[data-selection-edit]") ??
-      document.querySelector<HTMLElement>("[data-client-title]")
+      (focusFallback ? focusFallback() : document.querySelector<HTMLElement>("[data-client-title]"))
     );
   }
 </script>

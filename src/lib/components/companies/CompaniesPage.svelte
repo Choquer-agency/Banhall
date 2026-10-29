@@ -17,7 +17,8 @@
   files. The cards' own dialogs read the signed-in user, as on Projects.
 -->
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { tick, untrack } from "svelte";
+  import { goto, replaceState } from "$app/navigation";
   import { page } from "$app/state";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
@@ -82,7 +83,13 @@
   let searchEl: HTMLInputElement | null = $state(null);
 
   // ─── One company ──────────────────────────────────────────────────────────
-  const mergedFrom = $derived(page.url.searchParams.get(MERGED_PARAM) || null);
+  // The old key an old link came from is read once per company, so closing
+  // its note (which drops it from the address) leaves the read as it is and
+  // the page stays mounted: tab, scroll, selection, dialogs and uploads.
+  const mergedFrom = $derived.by(() => {
+    void companyKey;
+    return untrack(() => page.url.searchParams.get(MERGED_PARAM) || null);
+  });
   const companyQ = useQuery(api.clients.getCompanyPage, () =>
     auth.isAuthenticated && companyKey !== null
       ? { key: companyKey, ...(mergedFrom ? { mergedFrom } : {}) }
@@ -114,9 +121,14 @@
     const noteId = company.mergedNote.noteId;
     closeMergedNote(noteId);
     closedNotes = [...closedNotes, noteId];
+    // A shallow change of the address only: no navigation, no new read.
     const url = new URL(page.url);
     url.searchParams.delete(MERGED_PARAM);
-    void goto(`${url.pathname}${url.search}`, { replaceState: true, keepFocus: true, noScroll: true });
+    replaceState(`${url.pathname}${url.search}${url.hash}`, page.state);
+    // The note held focus on its close button, which is gone now.
+    void tick().then(() =>
+      (document.querySelector<HTMLElement>("[data-edit-company]") ?? document.querySelector<HTMLElement>("[data-page-title]"))?.focus()
+    );
   }
 
   // ─── Navigation, New company, Edit company ────────────────────────────────
@@ -136,13 +148,23 @@
    * company does not exist.
    */
   let movingTo = $state<string | null>(null);
+  /** After a rename, focus goes to the moved page's Edit company (or its title) once it is drawn. */
+  let focusAfterMove = $state(false);
   $effect(() => {
     if (movingTo !== null && companyKey === movingTo) movingTo = null;
+  });
+  $effect(() => {
+    if (!focusAfterMove || movingTo !== null || company?.key !== companyKey) return;
+    focusAfterMove = false;
+    void tick().then(() =>
+      (document.querySelector<HTMLElement>("[data-edit-company]") ?? document.querySelector<HTMLElement>("[data-page-title]"))?.focus()
+    );
   });
   function onCompanySaved(result: { key: string }) {
     // A rename moves the company to its new key's address.
     if (result.key === companyKey) return;
     movingTo = result.key;
+    focusAfterMove = true;
     openCompany(result.key, { replace: true });
   }
 
