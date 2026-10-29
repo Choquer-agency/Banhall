@@ -7,10 +7,11 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  MAX_HTML_CHARS,
+  WEBSITE_MAX_BYTES,
   WEBSITE_MAX_TEXT_CHARS,
   WEBSITE_READ_REASONS,
   findAboutLink,
+  htmlTitle,
   htmlToText,
   isBlockedAddress,
   parseHtml,
@@ -28,6 +29,7 @@ function html(body: string, title = "Hatch Better") {
 function page(body: string, overrides: Partial<WebsitePage> = {}): WebsitePage {
   return { status: 200, location: null, contentType: "text/html; charset=utf-8", body, tooLarge: false, ...overrides };
 }
+const page2 = page;
 
 /** A site where each address answers with a fixed page, every name resolving to `addresses`. */
 function site(pages: Record<string, WebsitePage>, addresses: Record<string, string[]> = {}) {
@@ -176,9 +178,11 @@ describe("what may be fetched", () => {
 });
 
 describe("the limits", () => {
-  it("refuses a page over 2 MB", async () => {
-    const s = site({ "https://hatchbetter.com/": page(html("<p>Big</p>"), { tooLarge: true }) });
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.tooLarge });
+  it("reads the first 2 MB of a page over 2 MB instead of refusing it", async () => {
+    const s = site({ "https://hatchbetter.com/": page(html("<p>Big but readable.</p>"), { tooLarge: true }) });
+    const result = await readWebsite("https://hatchbetter.com", s.deps);
+    expect(result).toMatchObject({ ok: true });
+    expect(result.ok && result.text).toContain("Big but readable.");
     expect(s.deps.fetchPage).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ maxBytes: 2 * 1024 * 1024 }));
   });
 
@@ -303,16 +307,24 @@ describe("the text", () => {
     ["2 MB of unclosed <p title=\"", '<p title="'.repeat(209_715)],
     ["2 MB of &amp without a semicolon", "&ampamp".repeat(262_144)],
     ["2 MB of <a href=\"", '<a href="'.repeat(233_016) + ">"],
+    ["2 MB of nested <svg", "<svg>" + "<svg".repeat(524_287) + "</svg>"],
+    ["2 MB of <svg> closed once", "<svg>".repeat(419_430) + "</svg>"],
+    ["2 MB of <nav> never closed", "<nav>".repeat(419_430)],
   ])("parses %s in a straight pass, well within the deadline", (_label, input) => {
     const started = performance.now();
     const page = parseHtml(input);
     const elapsed = performance.now() - started;
     expect(elapsed).toBeLessThan(1_500);
-    expect(page.text.length).toBeLessThanOrEqual(MAX_HTML_CHARS);
+    expect(page.text.length).toBeLessThanOrEqual(WEBSITE_MAX_BYTES);
   });
 
-  it("parses only the first 512 KB of a page", () => {
-    const page = parseHtml(`<p>${"a".repeat(MAX_HTML_CHARS)}</p><p>Past the cap.</p>`);
+  it("reads a heavy page whole: its text after 600 KB of inline script (Wix, Shopify, Elementor)", () => {
+    const heavy = html(`<script>window.__DATA__ = ${JSON.stringify("x".repeat(600 * 1024))};</script><main><p>Hatch Better builds incubators.</p></main>`);
+    expect(htmlToText(heavy)).toBe("Hatch Better builds incubators.");
+  });
+
+  it("parses at most 2 MB of a page", () => {
+    const page = parseHtml(`<p>${"a".repeat(WEBSITE_MAX_BYTES)}</p><p>Past the cap.</p>`);
     expect(page.text).not.toContain("Past the cap.");
   });
 
@@ -335,6 +347,89 @@ describe("the text", () => {
       return answer;
     });
     expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
+  });
+
+  it("does not end a tag at a > inside a quoted attribute", () => {
+    expect(htmlToText(`<p title="x>y" x-show="n > 0">Shown</p><span data-a='b>c'>too</span>`)).toBe("Shown\ntoo");
+  });
+
+  it("ends a head nobody closed at the first element a head cannot hold", () => {
+    expect(htmlToText(`<html><head><title>Hatch Better</title><meta charset="utf-8"><h1>Incubators</h1><p>Since 2019.</p>`)).toBe(
+      "Incubators\nSince 2019."
+    );
+    expect(htmlTitle(`<head><title>Hatch Better</title><div>Body</div>`)).toBe("Hatch Better");
+    // Text alone ends it too.
+    expect(htmlToText(`<head><meta charset="utf-8">Plain text page`)).toBe("Plain text page");
+  });
+
+  it("keeps words apart across table cells, labels and images", () => {
+    expect(htmlToText("<table><tr><td>Founded</td><td>1999</td></tr><tr><th>Staff</th><td>40</td></tr></table>")).toBe(
+      "Founded 1999\nStaff 40"
+    );
+    expect(htmlToText("<p><label>Email</label><input name=e>Call<img src=x.png alt=\"\">us</p>")).toBe("Email Call us");
+  });
+
+  it("folds line breaks inside text, breaking lines only at blocks and <br>", () => {
+    expect(htmlToText("<p>We build incubators\n   for poultry\r\n farms.</p><p>Second<br>line</p>")).toBe(
+      "We build incubators for poultry farms.\nSecond\nline"
+    );
+  });
+
+  it("decodes the Latin-1 letters and common punctuation of French and English sites", () => {
+    expect(htmlToText("<p>&Agrave; propos &mdash; l&rsquo;&eacute;quipe d&rsquo;&Eacute;tienne &copy; 2026 &laquo;&nbsp;Fran&ccedil;ais&nbsp;&raquo; &hellip; &OElig;uvre &uuml;ber</p>")).toBe(
+      "À propos \u2014 l\u2019équipe d\u2019Étienne © 2026 « Français » \u2026 Œuvre über"
+    );
+  });
+
+  it("never hands on half a character", async () => {
+    const page = parseHtml("<p>Lone &#xD800; and &#xDFFF; surrogates, a real &#x1F600; one</p>");
+    expect(page.text).toBe("Lone \ufffd and \ufffd surrogates, a real \u{1F600} one");
+    // A raw lone surrogate in the page is replaced too.
+    expect(parseHtml("<p>Raw \ud800 here</p><title>T\udc00</title>").text).toBe("Raw \ufffd here");
+    // The 50,000 character cut never splits an emoji.
+    const s = site({ "https://hatchbetter.com/": page2(html(`<p>${"\u{1F600}".repeat(30_000)}</p>`)) });
+    const result = await readWebsite("https://hatchbetter.com", s.deps);
+    if (!result.ok) throw new Error("expected a read");
+    expect(result.text.length).toBeLessThanOrEqual(WEBSITE_MAX_TEXT_CHARS);
+    const last = result.text.charCodeAt(result.text.length - 1);
+    expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+  });
+
+  it("picks the surest about page, document order only breaking ties", () => {
+    const base = new URL("https://hatchbetter.com/");
+    const pick = (links: string) => findAboutLink(`<body>${links}</body>`, base)?.pathname ?? null;
+    expect(
+      pick(
+        `<a href="/blog/about-our-launch">Launch</a><a href="/roundabout-project">Roundabout</a>` +
+          `<a href="/services">Learn about our services</a><a href="/about">Company</a>`
+      )
+    ).toBe("/about");
+    expect(pick(`<a href="/blog/about-our-launch">Launch</a><a href="/roundabout-project">Roundabout</a>`)).toBe("/blog/about-our-launch");
+    expect(pick(`<a href="/roundabout-project">Roundabout</a><a href="/services">Learn about our services</a>`)).toBeNull();
+    expect(pick(`<a href="/fr/equipe">À propos</a><a href="/a-propos">Notre équipe</a>`)).toBe("/a-propos");
+    expect(pick(`<a href="/qui-sommes-nous/">Qui sommes-nous</a>`)).toBe("/qui-sommes-nous/");
+    expect(pick(`<a href="/our-story">Story</a><a href="/about-us">About us</a>`)).toBe("/our-story");
+    expect(pick(`<a href="/team">About</a><a href="/history">About us</a>`)).toBe("/team");
+  });
+
+  it("keeps an <a> left open when the next one starts", () => {
+    const page = parseHtml(`<p><a href="/about">About us<a href="/shop">Shop</a></p>`);
+    expect(page.links).toEqual([
+      { href: "/about", text: "About us" },
+      { href: "/shop", text: "Shop" },
+    ]);
+  });
+
+  it("handles the small parser edges", () => {
+    // "<!-->" and "<!--->" are empty comments, not openings.
+    expect(htmlToText("<p>Before<!-->after<!--->end</p>")).toBe("Beforeafterend");
+    // A nested svg or object does not close its parent early.
+    expect(htmlToText("<svg><svg><text>inner</text></svg><text>outer</text></svg><p>Text.</p>")).toBe("Text.");
+    expect(htmlToText("<object><object>a</object>b</object><p>Text.</p>")).toBe("Text.");
+    // An iframe ending its address with "/" still opens an iframe.
+    expect(htmlToText("<iframe src=/embed/>Fallback words</iframe><p>Text.</p>")).toBe("Text.");
+    // A nav nobody closed does not silence the rest of the page.
+    expect(htmlToText("<nav><a href=/>Home</a><main><p>All of the page.</p></main>")).toBe("Home\nAll of the page.");
   });
 
   it("puts blocks on their own lines and decodes entities", () => {
