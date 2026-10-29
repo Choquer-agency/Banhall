@@ -2,12 +2,14 @@
   /**
    * A company's website, optional (owner, 2026-10-29), in New company and
    * Edit company: the dialog frame's field styles, a short line on what
-   * happens with it, and "Enter a website like hatchbetter.com." once the
-   * field is left holding something that is not a website. The host checks
-   * `invalid` before it saves; the server checks again.
+   * happens with it, and "Enter a website like hatchbetter.com." (or, for a
+   * port other than the usual one, "Enter the website without a port
+   * number, like hatchbetter.com.") once the field is left holding
+   * something that is not a usable website. The host checks `invalid`
+   * before it saves; the server checks again.
    */
   import { formError, formField, formLabel } from "$lib/components/ui/formDialog";
-  import { COMPANY_WEBSITE_INVALID, normalizeCompanyWebsite } from "../../../../shared/companyWebsite";
+  import { companyWebsiteProblem } from "../../../../shared/companyWebsite";
 
   let {
     value = $bindable(""),
@@ -23,8 +25,9 @@
   } = $props();
 
   let left = $state(false);
+  const problem = $derived(companyWebsiteProblem(value));
   $effect(() => {
-    invalid = value.trim() !== "" && normalizeCompanyWebsite(value) === null;
+    invalid = problem !== null;
   });
 </script>
 
@@ -48,7 +51,7 @@
     class={`field-control ${formField}`}
   />
   {#if left && invalid}
-    <p role="alert" id={`${id}-helper`} class={formError} data-company-website-error>{COMPANY_WEBSITE_INVALID}</p>
+    <p role="alert" id={`${id}-helper`} class={formError} data-company-website-error>{problem}</p>
   {:else}
     <p id={`${id}-helper`} class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-company-website-helper>
       Optional. Its home page and about page are read into the company's files.

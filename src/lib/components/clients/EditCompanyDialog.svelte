@@ -147,7 +147,8 @@
         // A value borrowed from the newest project, unchanged, stays unsaved.
         ...(month && day && !yearEndBorrowed ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
         ...(industry && !industryBorrowed ? { industry } : {}),
-        ...(website.trim() ? { website: website.trim() } : {}),
+        // Always sent: "" removes it (the server reads an absent website as no change).
+        website: website.trim(),
       });
       open = false;
       done?.({ key: result.key, name: result.name });

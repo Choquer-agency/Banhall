@@ -658,6 +658,7 @@ describe("Edit company (Managers and Admins)", () => {
         fiscalYearEndMonth: 12,
         fiscalYearEndDay: 31,
         industry: "manufacturing",
+        website: "",
       },
     ]);
     await expect.poll(() => document.querySelector('[data-testid="edit-company-dialog"]')).toBeNull();
@@ -785,6 +786,7 @@ describe("Edit company (Managers and Admins)", () => {
       expectedClientId: null,
       expectedUpdatedAt: null,
       name: "Ironleaf Farms",
+      website: "",
     });
   });
 
@@ -851,6 +853,7 @@ describe("Edit company (Managers and Admins)", () => {
       expectedClientId: null,
       expectedUpdatedAt: null,
       name: "Ironleaf Farms Ltd",
+      website: "",
     });
   });
 
@@ -879,6 +882,7 @@ describe("Edit company (Managers and Admins)", () => {
       name: "Ironleaf Farms",
       fiscalYearEndMonth: 6,
       fiscalYearEndDay: 30,
+      website: "",
     });
   });
 
@@ -912,6 +916,12 @@ describe("Edit company (Managers and Admins)", () => {
     await userEvent.click(page.getByRole("textbox", { name: "Name" }));
     await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe("Enter a website like hatchbetter.com.");
     expect(save().disabled).toBe(true);
+    await userEvent.fill(field, "cedarline.ca:8080");
+    await userEvent.click(page.getByRole("textbox", { name: "Name" }));
+    await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe(
+      "Enter the website without a port number, like hatchbetter.com."
+    );
+    expect(save().disabled).toBe(true);
     await userEvent.fill(field, "cedarline.com");
     await expect.poll(() => save().disabled).toBe(false);
     await userEvent.click(save());
@@ -921,6 +931,21 @@ describe("Edit company (Managers and Admins)", () => {
       expectedUpdatedAt: 1_000,
       website: "cedarline.com",
     });
+  });
+
+  it("emptying the website in Edit company sends an empty one, which removes it", async () => {
+    seed("manager");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+    }));
+    __setMutationResult("clients:updateCompany", { clientId: "c3", key: "cedarline systems", name: "Cedarline Systems", moved: 0 });
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await userEvent.clear(page.getByRole("textbox", { name: "Website" }));
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-edit-company-save]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company-save]")!);
+    await expect.poll(() => __mutationCalls("clients:updateCompany").at(-1)).toMatchObject({ website: "" });
   });
 
   it("shows the refusal of another company's name in the dialog", async () => {
