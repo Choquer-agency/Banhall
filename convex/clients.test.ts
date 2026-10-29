@@ -1490,8 +1490,19 @@ describe("updateCompany (Edit company, 2026-10-28)", () => {
     const f = await editFixture(s);
     const old = await acmeArgs(s);
     await s.manager.mutation(api.clients.updateCompany, { ...old, name: "Acme Robotics" });
-    // Someone makes a new "Acme": same key and the same name the old dialog saw.
+    // Someone makes a new "Acme": same key and the same name the old dialog
+    // saw, and (pinned here) the same last change, so only the row can tell
+    // the two companies apart.
     const created = await s.writer.mutation(api.clients.createClient, { name: "Acme" });
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(created.clientId, { updatedAt: old.expectedUpdatedAt! });
+    });
+    expect(await opened(s, "acme")).toEqual({
+      key: old.key,
+      expectedName: old.expectedName,
+      expectedClientId: created.clientId,
+      expectedUpdatedAt: old.expectedUpdatedAt,
+    });
     await expect(
       s.admin.mutation(api.clients.updateCompany, { ...old, industry: "manufacturing" })
     ).rejects.toMatchObject({ data: CHANGED });
@@ -1505,10 +1516,50 @@ describe("updateCompany (Edit company, 2026-10-28)", () => {
     await insertProject(s, { clientName: "Birch Foods" });
     const old = await opened(s, "birch foods");
     expect(old).toMatchObject({ expectedClientId: null, expectedUpdatedAt: null });
-    await s.manager.mutation(api.clients.updateCompany, { ...old, name: "Birch Foods", industry: "software" });
+    const made = await s.manager.mutation(api.clients.updateCompany, { ...old, name: "Birch Foods", industry: "software" });
+    const row = await getClient(s, made.clientId);
+    // Even a dialog whose last change matches the new row is refused: it
+    // opened on no row, and now there is one.
     await expect(
-      s.admin.mutation(api.clients.updateCompany, { ...old, name: "Birch Foods", industry: "manufacturing" })
+      s.admin.mutation(api.clients.updateCompany, {
+        ...old,
+        expectedUpdatedAt: row!.updatedAt,
+        name: "Birch Foods",
+        industry: "manufacturing",
+      })
     ).rejects.toMatchObject({ data: CHANGED });
+    expect(await getClient(s, made.clientId)).toMatchObject({ industry: "software" });
+  });
+
+  it("each save moves the last change forward, even twice in the same millisecond", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const at = Date.UTC(2026, 9, 28, 12);
+      vi.setSystemTime(at);
+      const s = await setup();
+      const f = await editFixture(s);
+      expect((await getClient(s, f.acmeId))?.updatedAt).toBe(at);
+      const first = await acmeArgs(s);
+      await s.manager.mutation(api.clients.updateCompany, { ...first, industry: "manufacturing" });
+      const afterFirst = (await getClient(s, f.acmeId))!.updatedAt;
+      expect(afterFirst).toBe(at + 1);
+
+      // Opened between the two saves; the clock has not moved.
+      const between = await acmeArgs(s);
+      expect(between.expectedUpdatedAt).toBe(afterFirst);
+      await s.manager.mutation(api.clients.updateCompany, { ...between, industry: "life-sciences" });
+      const afterSecond = (await getClient(s, f.acmeId))!.updatedAt;
+      expect(afterSecond).toBe(afterFirst + 1);
+      expect(Date.now()).toBe(at);
+
+      // A dialog from before the second save, same name and row, is refused.
+      await expect(
+        s.admin.mutation(api.clients.updateCompany, { ...between, industry: "software" })
+      ).rejects.toMatchObject({ data: CHANGED });
+      expect(await getClient(s, f.acmeId)).toMatchObject({ industry: "life-sciences" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a Manager keeps a company's own industry that no project uses; only a changed industry is checked", async () => {
