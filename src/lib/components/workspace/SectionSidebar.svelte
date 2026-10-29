@@ -74,7 +74,7 @@
   const hint = shortcutHint("collapseSidebar", detectPlatform());
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
-  const actionClass = `flex h-8 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-line bg-surface text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink transition-colors hover:bg-primary-wash ${focusRing} motion-reduce:transition-none pointer-coarse:h-11`;
+  const actionClass = $derived(`${phone === "full" ? "max-md:hidden" : ""} flex h-8 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-line bg-surface text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink transition-colors hover:bg-primary-wash ${focusRing} motion-reduce:transition-none pointer-coarse:h-11`);
 </script>
 
 <div
@@ -91,7 +91,9 @@
     aria-label={title}
     class="flex min-h-0 w-full shrink-0 flex-col px-2.5 pb-3 md:w-[14.1875rem]"
   >
-    <div data-section-sidebar-header class="flex h-16 shrink-0 items-center gap-2 pl-2 pr-0.5">
+    <!-- Filling a phone, the page's own bar already names the section and
+         holds its action, so the sidebar's header and action step aside. -->
+    <div data-section-sidebar-header class={`flex h-16 shrink-0 items-center gap-2 pl-2 pr-0.5 ${phone === "full" ? "max-md:hidden" : ""}`}>
       <p data-section-sidebar-title class="min-w-0 flex-1 truncate text-base font-medium leading-[1.25] text-ink">{title}</p>
       <Tooltip text="Collapse the sidebar" {hint} side="bottom" delayDuration={300}>
         {#snippet children({ props })}

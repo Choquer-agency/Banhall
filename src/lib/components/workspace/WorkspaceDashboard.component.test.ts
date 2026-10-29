@@ -182,4 +182,25 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
     expect([button.textContent?.trim(), button.getAttribute("href")]).toEqual(["New project", "/project/new"]);
     expect(button.getBoundingClientRect().width).toBeGreaterThan(0);
   });
+
+  it("on a 390px phone the Projects list sits in one visible main, under one Projects heading and one New project (review round 2, items 3 and 5)", async () => {
+    await mountShell("/projects", { view: "all_projects" });
+    await browserPage.viewport(390, 844);
+    await expect.poll(() => document.querySelector('[data-client-row="client 03"]')?.getClientRects().length).toBe(1);
+    const visible = (element: Element) => element.getClientRects().length > 0 && element.getBoundingClientRect().width > 0;
+    const mains = [...document.querySelectorAll("main")].filter(visible);
+    expect(mains).toHaveLength(1);
+    expect(mains[0].contains(document.querySelector('[data-client-row="client 03"]'))).toBe(true);
+    const named = [...document.querySelectorAll<HTMLElement>("h1, h2, p, span")].filter(
+      (element) => visible(element) && element.children.length === 0 && element.textContent?.trim() === "Projects"
+    );
+    expect(named).toHaveLength(1);
+    expect(named[0].tagName).toBe("H1");
+    const newProject = [...document.querySelectorAll<HTMLElement>("a, button")].filter(
+      (element) => visible(element) && element.textContent?.trim() === "New project"
+    );
+    expect(newProject).toHaveLength(1);
+    expect(newProject[0].hasAttribute("data-top-bar-primary")).toBe(true);
+    await browserPage.viewport(1440, 900);
+  });
 });
