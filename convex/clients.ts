@@ -13,12 +13,15 @@ import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
 import { syncProjectDashboardFields } from "./lib/dashboardProjection";
 import {
+  activeClientAfterMerges,
   activeClientForKey,
   companyOtherNames,
   dashboardCompanyForKey,
   linkKeyProjects,
+  mergedClientForKey,
   NameHistoryTooLongError,
 } from "./lib/clients";
+import { linkKeyProjectsPage } from "./companyFiles";
 import { validatedIndustry } from "./projects";
 import {
   DASHBOARD_NO_FISCAL_YEAR_RANK,
@@ -79,6 +82,10 @@ const clientListEntryValidator = v.object({
   fiscalYearEndMonth: v.optional(v.number()),
   fiscalYearEndDay: v.optional(v.number()),
   industry: v.optional(v.string()),
+  // 2026-10-28 (All companies, "Last update"): the later of the company
+  // row's last change and its projects' projection row's (a project added,
+  // moved, removed or changing stage).
+  updatedAt: v.optional(v.number()),
 });
 
 const clientSummaryValidator = v.object({
@@ -95,6 +102,7 @@ type ClientListEntry = {
   fiscalYearEndMonth?: number;
   fiscalYearEndDay?: number;
   industry?: string;
+  updatedAt?: number;
 };
 
 function clientEntry(
@@ -113,6 +121,7 @@ function clientEntry(
       ? { fiscalYearEndDay: client.fiscalYearEndDay }
       : {}),
     ...(client.industry !== undefined ? { industry: client.industry } : {}),
+    updatedAt: Math.max(client.updatedAt, company?.updatedAt ?? 0),
   };
 }
 
@@ -122,6 +131,7 @@ function companyEntry(company: Doc<"dashboardCompanies">): ClientListEntry {
     clientId: null,
     name: company.clientName,
     projectCount: company.projectCount,
+    updatedAt: company.updatedAt,
   };
 }
 
@@ -392,6 +402,20 @@ async function planClientMerge(
   args: MergeArgs,
   options: { strictName: boolean }
 ): Promise<MergePlan> {
+  validateMergeKeys(args);
+
+  let name: string | undefined;
+  if (args.name !== undefined) {
+    if (options.strictName || args.name.trim()) name = requireClientName(args.name);
+  }
+
+  const keep = await loadMergeSide(ctx, args.keepKey);
+  const merged: MergeSide[] = [];
+  for (const key of args.mergeKeys) merged.push(await loadMergeSide(ctx, key));
+  return await planCompanyMove(ctx, keep, merged, name);
+}
+
+function validateMergeKeys(args: MergeArgs) {
   if (args.mergeKeys.length === 0) {
     domainError("INVALID_INPUT", "Select at least one company to merge.");
   }
@@ -410,19 +434,24 @@ async function planClientMerge(
   ) {
     domainError("INVALID_INPUT", "Projects without a company name cannot be merged.");
   }
+}
 
-  let name: string | undefined;
-  if (args.name !== undefined) {
-    if (options.strictName || args.name.trim()) name = requireClientName(args.name);
-  }
-
-  const keep = await loadMergeSide(ctx, args.keepKey);
-  const merged: MergeSide[] = [];
-  for (const key of args.mergeKeys) merged.push(await loadMergeSide(ctx, key));
-
+/**
+ * What folding `merged` into `keep` under `name` (or keep's own name) would
+ * move and link (2026-10-14 merge; Edit company's rename, 2026-10-28, is the
+ * same move with nothing merged). Reads every key until it is exhausted or
+ * MERGE_PROJECT_LIMIT is passed; writes nothing.
+ */
+async function planCompanyMove(
+  ctx: Ctx,
+  keep: MergeSide,
+  merged: MergeSide[],
+  name: string | undefined
+): Promise<MergePlan> {
+  const mergeKeys = merged.map((side) => side.key);
   const keptName = name ?? sideName(keep);
   const keptKey = name ? dashboardCompanyKey(name) : keep.key;
-  const involved = new Set([keep.key, ...args.mergeKeys]);
+  const involved = new Set([keep.key, ...mergeKeys]);
   let nameConflict: string | null = null;
   if (name && !involved.has(keptKey)) {
     const otherClient = await activeClientForKey(ctx, keptKey);
@@ -431,7 +460,7 @@ async function planClientMerge(
   }
 
   const keepMoves = keptKey !== keep.key || keptName !== sideName(keep);
-  const moveKeys = keepMoves ? [keep.key, ...args.mergeKeys] : args.mergeKeys;
+  const moveKeys = keepMoves ? [keep.key, ...mergeKeys] : mergeKeys;
   // Every key is read until it is exhausted or the cap is passed, so
   // `tooMany` is exact. A project being deleted is skipped, like the bulk
   // edit skips it, and does not count.
@@ -696,12 +725,15 @@ export const mergeClients = mutation({
     // 2. Merged clients become tombstones pointing at the kept client; a
     //    merged company name without a client row gets one so the history
     //    exists. Done before any rename so two active rows never share a key.
+    //    Each records how many of its projects moved, for the note an old
+    //    link to it shows on the company page (2026-10-28).
     for (const side of plan.merged) {
       const tombstone = {
         status: "merged" as const,
         mergedIntoClientId: keptClientId,
         mergedAt: now,
         mergedBy: user._id,
+        mergedProjectCount: plan.moving.filter((project) => projectKey(project) === side.key).length,
         updatedAt: now,
       };
       if (side.client) {
@@ -748,49 +780,8 @@ export const mergeClients = mutation({
       nameHistoryComplete: true,
     });
 
-    // 3. A new name renames the kept client.
-    if (plan.keptName !== sideName(plan.keep) || plan.keptKey !== plan.keep.key) {
-      await ctx.db.patch(keptClientId, {
-        name: plan.keptName,
-        nameKey: plan.keptKey,
-        updatedAt: now,
-      });
-    }
-
-    // 4. Projects that stay on their key are linked first (read in the plan
-    //    before anything moved onto the kept key; no updatedAt bump).
-    for (const project of plan.linking) {
-      await ctx.db.patch(project._id, { clientId: keptClientId });
-    }
-
-    // 5. Projects move: client name and clientId, then the dashboard
-    //    projection (company counts, stage buckets, search text) follows in
-    //    the same transaction. Project numbers are not changed.
-    for (const project of plan.moving) {
-      const patch = { clientName: plan.keptName, clientId: keptClientId, updatedAt: now };
-      await ctx.db.patch(project._id, patch);
-      await syncProjectDashboardFields(ctx, project._id, patch);
-    }
-
-    // 6. Every live project of the merged keys has moved, so a company row
-    //    still standing for one of them only holds drifted counts; remove it
-    //    so the name does not linger in the client list. If a live project
-    //    is still on the key, the plan missed it: fail the whole transaction
-    //    rather than delete a row that still counts it.
-    const leftKeys = plan.merged.map((side) => side.key);
-    if (plan.keepMoves) leftKeys.push(plan.keep.key);
-    for (const key of leftKeys) {
-      if (key === plan.keptKey) continue;
-      const row = await dashboardCompanyForKey(ctx, key);
-      if (!row) continue;
-      const remaining = await liveProjectsOfKey(ctx, key, 0);
-      if (remaining.rows.length > 0 || !remaining.complete) {
-        throw new Error(
-          `mergeClients invariant: live projects remain on merged key ${JSON.stringify(key)}`
-        );
-      }
-      await ctx.db.delete(row._id);
-    }
+    // 3 to 6: the rename, links, moves and leftover company rows.
+    await applyCompanyMove(ctx, plan, keptClientId, now);
 
     return {
       moved: plan.moving.length,
@@ -798,6 +789,274 @@ export const mergeClients = mutation({
       keptName: plan.keptName,
       clientId: keptClientId,
     };
+  },
+});
+
+/**
+ * Applies a planned move once the kept company has its row (merge steps 3 to
+ * 6; Edit company's rename runs the same steps). The caller has already
+ * refused a name conflict and a plan over the limit.
+ */
+async function applyCompanyMove(
+  ctx: MutationCtx,
+  plan: MergePlan,
+  keptClientId: Id<"clients">,
+  now: number
+) {
+  // 3. A new name renames the kept client.
+  if (plan.keptName !== sideName(plan.keep) || plan.keptKey !== plan.keep.key) {
+    await ctx.db.patch(keptClientId, {
+      name: plan.keptName,
+      nameKey: plan.keptKey,
+      updatedAt: now,
+    });
+  }
+
+  // 4. Projects that stay on their key are linked first (read in the plan
+  //    before anything moved onto the kept key; no updatedAt bump).
+  for (const project of plan.linking) {
+    await ctx.db.patch(project._id, { clientId: keptClientId });
+  }
+
+  // 5. Projects move: client name and clientId, then the dashboard
+  //    projection (company counts, stage buckets, search text) follows in
+  //    the same transaction. Project numbers are not changed.
+  for (const project of plan.moving) {
+    const patch = { clientName: plan.keptName, clientId: keptClientId, updatedAt: now };
+    await ctx.db.patch(project._id, patch);
+    await syncProjectDashboardFields(ctx, project._id, patch);
+  }
+
+  // 6. Every live project of the merged keys has moved, so a company row
+  //    still standing for one of them only holds drifted counts; remove it
+  //    so the name does not linger in the client list. If a live project
+  //    is still on the key, the plan missed it: fail the whole transaction
+  //    rather than delete a row that still counts it.
+  const leftKeys = plan.merged.map((side) => side.key);
+  if (plan.keepMoves) leftKeys.push(plan.keep.key);
+  for (const key of leftKeys) {
+    if (key === plan.keptKey) continue;
+    const row = await dashboardCompanyForKey(ctx, key);
+    if (!row) continue;
+    const remaining = await liveProjectsOfKey(ctx, key, 0);
+    if (remaining.rows.length > 0 || !remaining.complete) {
+      throw new Error(
+        `mergeClients invariant: live projects remain on merged key ${JSON.stringify(key)}`
+      );
+    }
+    await ctx.db.delete(row._id);
+  }
+}
+
+// ─── Edit company (2026-10-28, the company page) ────────────────────────────
+// Managers and Admins (the people who merge companies and archive company
+// files) change a company's name, usual fiscal year end and industry. The
+// year end and industry change the company row only; projects keep their
+// own. A rename re-keys every live project exactly as a merge renames the
+// kept company (the same plan and steps, with nothing merged), keeps the old
+// name in `formerNames`, and is refused onto another company's name.
+
+function sameYearEnd(
+  client: Doc<"clients"> | null,
+  month: number | undefined,
+  day: number | undefined
+) {
+  return client?.fiscalYearEndMonth === month && client?.fiscalYearEndDay === day;
+}
+
+export const updateCompany = mutation({
+  args: {
+    key: v.string(),
+    /** The name the person saw when they opened Edit company. */
+    expectedName: v.string(),
+    name: v.string(),
+    // Absent means not set: the dialog always sends the whole company.
+    fiscalYearEndMonth: v.optional(v.number()),
+    fiscalYearEndDay: v.optional(v.number()),
+    industry: v.optional(v.string()),
+  },
+  returns: v.object({
+    clientId: v.id("clients"),
+    key: v.string(),
+    name: v.string(),
+    moved: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    // "Edit company": Manager and Admin only, as "Merge clients".
+    const user = await requireRole(ctx, ["manager", "admin"]);
+    if (args.key === DASHBOARD_UNNAMED_COMPANY_KEY) {
+      domainError("INVALID_INPUT", "Projects with no company name are not a company. Name their company first.");
+    }
+    const name = requireClientName(args.name);
+    if (!isValidClientYearEnd(args.fiscalYearEndMonth, args.fiscalYearEndDay)) {
+      domainError(
+        "INVALID_INPUT",
+        "Enter a fiscal year end with both a month and a day that exists in that month."
+      );
+    }
+    const keep: MergeSide = {
+      key: args.key,
+      client: await activeClientForKey(ctx, args.key),
+      company: await dashboardCompanyForKey(ctx, args.key),
+    };
+    if (!keep.client && !keep.company) {
+      domainError(
+        "NOT_FOUND",
+        "This company was renamed or merged while you were editing. Open it again and make your change there."
+      );
+    }
+    // A stale dialog never overwrites a rename made since it opened.
+    if (sideName(keep) !== args.expectedName) {
+      domainError(
+        "STALE_REVISION",
+        `This company was renamed to ${sideName(keep)} while you were editing. Open Edit company again.`
+      );
+    }
+    const industry = await validatedIndustry(ctx, args.industry);
+    const renames = name !== sideName(keep);
+    const detailsChange =
+      !sameYearEnd(keep.client, args.fiscalYearEndMonth, args.fiscalYearEndDay) ||
+      keep.client?.industry !== industry;
+    if (!renames && !detailsChange && keep.client) {
+      return { clientId: keep.client._id, key: keep.key, name, moved: 0 };
+    }
+
+    let plan: MergePlan | null = null;
+    let formerNames: string[] | null = null;
+    if (renames) {
+      plan = await planCompanyMove(ctx, keep, [], name);
+      if (plan.nameConflict !== null) {
+        domainError(
+          "CLIENT_EXISTS",
+          `A company named ${plan.nameConflict} already exists. Merge them instead.`,
+          { existingName: plan.nameConflict, existingKey: plan.keptKey }
+        );
+      }
+      if (plan.tooMany) {
+        domainError(
+          "INVALID_INPUT",
+          `This company has more than ${MERGE_PROJECT_LIMIT} projects, too many to rename at once. Ask an admin for help.`
+        );
+      }
+      // The old name joins the company's history, so company file labels
+      // still hide it; the history stays as complete as it was.
+      const names = new Set(keep.client?.formerNames ?? []);
+      names.add(sideName(keep));
+      names.delete(name);
+      if (names.size > MAX_FORMER_NAMES) {
+        domainError(
+          "INVALID_INPUT",
+          `This company already has ${MAX_FORMER_NAMES} former names. Ask an admin for help.`
+        );
+      }
+      formerNames = [...names];
+    }
+
+    const now = Date.now();
+    // A company known only by its projects' name gets its row first, as a
+    // merge or a first company file makes it.
+    const clientId =
+      keep.client?._id ??
+      (await ctx.db.insert("clients", {
+        name: sideName(keep),
+        nameKey: keep.key,
+        status: "active",
+        nameHistoryComplete: true,
+        createdBy: user._id,
+        createdAt: now,
+        updatedAt: now,
+      }));
+    await ctx.db.patch(clientId, {
+      fiscalYearEndMonth: args.fiscalYearEndMonth,
+      fiscalYearEndDay: args.fiscalYearEndDay,
+      industry,
+      ...(formerNames ? { formerNames } : {}),
+      updatedAt: now,
+    });
+    if (plan) {
+      await applyCompanyMove(ctx, plan, clientId, now);
+    } else if (!keep.client) {
+      // The new row's projects point at it, a page now and the rest in steps.
+      await linkKeyProjectsPage(ctx, keep.key, clientId, null);
+    }
+    return {
+      clientId,
+      key: plan?.keptKey ?? keep.key,
+      name: plan?.keptName ?? sideName(keep),
+      moved: plan?.moving.length ?? 0,
+    };
+  },
+});
+
+// ─── The company page (2026-10-28) ──────────────────────────────────────────
+
+const mergedNoteValidator = v.object({
+  /** The tombstone the note is about: closing it is kept per tombstone. */
+  noteId: v.id("clients"),
+  fromName: v.string(),
+  mergedAt: v.number(),
+  /** Projects that moved with it; null on merges made before it was kept. */
+  projectCount: v.union(v.number(), v.null()),
+});
+
+/**
+ * What `/companies/<key>` shows: the company (a saved client, or a name its
+ * projects carry with no row yet) with its facts; for a key a merge took
+ * away, the company it ended up in (the page opens that one); otherwise
+ * missing. `mergedFrom` (the old key the page was sent from) adds the note
+ * when that key's merge ended in this company.
+ */
+export const getCompanyPage = query({
+  args: { key: v.string(), mergedFrom: v.optional(v.string()) },
+  returns: v.union(
+    v.object({
+      kind: v.literal("company"),
+      key: v.string(),
+      clientId: v.union(v.id("clients"), v.null()),
+      name: v.string(),
+      projectCount: v.number(),
+      fiscalYearEndMonth: v.optional(v.number()),
+      fiscalYearEndDay: v.optional(v.number()),
+      industry: v.optional(v.string()),
+      mergedNote: v.union(mergedNoteValidator, v.null()),
+    }),
+    v.object({ kind: v.literal("merged"), key: v.string(), name: v.string() }),
+    v.object({ kind: v.literal("missing") })
+  ),
+  handler: async (ctx, args) => {
+    // D1: firm-wide read visibility for internal users.
+    await requireInternalActor(ctx);
+    const entry = await clientEntryForKey(ctx, args.key);
+    if (entry) {
+      let mergedNote = null;
+      if (args.mergedFrom !== undefined && entry.clientId !== null && args.mergedFrom !== args.key) {
+        const old = await mergedClientForKey(ctx, args.mergedFrom);
+        const into = old ? await activeClientAfterMerges(ctx, old) : null;
+        if (old && into?._id === entry.clientId) {
+          mergedNote = {
+            noteId: old._id,
+            fromName: old.name,
+            mergedAt: old.mergedAt ?? old.updatedAt,
+            projectCount: old.mergedProjectCount ?? null,
+          };
+        }
+      }
+      return {
+        kind: "company" as const,
+        key: entry.key,
+        clientId: entry.clientId,
+        name: entry.name,
+        projectCount: entry.projectCount,
+        ...(entry.fiscalYearEndMonth !== undefined ? { fiscalYearEndMonth: entry.fiscalYearEndMonth } : {}),
+        ...(entry.fiscalYearEndDay !== undefined ? { fiscalYearEndDay: entry.fiscalYearEndDay } : {}),
+        ...(entry.industry !== undefined ? { industry: entry.industry } : {}),
+        mergedNote,
+      };
+    }
+    const old = await mergedClientForKey(ctx, args.key);
+    const into = old ? await activeClientAfterMerges(ctx, old) : null;
+    if (into) return { kind: "merged" as const, key: into.nameKey, name: into.name };
+    return { kind: "missing" as const };
   },
 });
 

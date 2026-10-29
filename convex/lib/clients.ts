@@ -37,6 +37,41 @@ export async function activeClientIdForName(
   return (await activeClientForKey(ctx, dashboardCompanyKey(clientName)))?._id;
 }
 
+/** Merges followed to find the company a merged one ended up in. */
+export const MERGE_CHAIN_HOPS = 10;
+
+/**
+ * The newest merge tombstone that had this company key, or null (the company
+ * page's old links, 2026-10-28). Index order within one key is creation
+ * order, so the newest row wins when a name was merged away more than once.
+ */
+export async function mergedClientForKey(
+  ctx: Ctx,
+  nameKey: string
+): Promise<Doc<"clients"> | null> {
+  if (nameKey === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
+  return await ctx.db
+    .query("clients")
+    .withIndex("by_status_and_nameKey", (q) => q.eq("status", "merged").eq("nameKey", nameKey))
+    .order("desc")
+    .first();
+}
+
+/**
+ * The active company a client ended up in, following merges of merges up to
+ * MERGE_CHAIN_HOPS, or null when the chain is broken or too long.
+ */
+export async function activeClientAfterMerges(
+  ctx: Ctx,
+  client: Doc<"clients">
+): Promise<Doc<"clients"> | null> {
+  let current: Doc<"clients"> | null = client;
+  for (let hop = 0; current && current.status !== "active" && hop < MERGE_CHAIN_HOPS; hop++) {
+    current = current.mergedIntoClientId ? await ctx.db.get(current.mergedIntoClientId) : null;
+  }
+  return current?.status === "active" ? current : null;
+}
+
 /** The dashboardCompanies projection row for a company key, or null. */
 export async function dashboardCompanyForKey(
   ctx: Ctx,

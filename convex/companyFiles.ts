@@ -14,7 +14,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
-import { activeClientForKey, dashboardCompanyForKey } from "./lib/clients";
+import { activeClientForKey, dashboardCompanyForKey, MERGE_CHAIN_HOPS } from "./lib/clients";
 import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { requireAttemptKey } from "./lib/uploadAttempts";
 import { labelsCurrent } from "./lib/fileLabels";
@@ -43,8 +43,6 @@ const MAX_FILE_NAME_CHARS = 300;
 export const COMPANY_FILE_LIST_LIMIT = 500;
 /** Projects one step links to a company row made from a company's name. */
 const LINK_PROJECT_PAGE = 200;
-/** Merges followed to name the company a merged one ended up in. */
-const MERGE_CHAIN_HOPS = 10;
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -157,9 +155,10 @@ export const ensureCompanyForKey = mutation({
 /**
  * Links one page of a key's live projects to its company row and schedules
  * the next page. A company row that is no longer the key's active one (it
- * was merged meanwhile) stops the chain: the merge links projects itself.
+ * was merged or renamed meanwhile) stops the chain: the merge or rename
+ * links projects itself. Edit company uses it too (clients.updateCompany).
  */
-async function linkKeyProjectsPage(
+export async function linkKeyProjectsPage(
   ctx: MutationCtx,
   key: string,
   clientId: Id<"clients">,

@@ -332,9 +332,10 @@ describe("listClients and findSimilarClients", () => {
           fiscalYearEndMonth: 9,
           fiscalYearEndDay: 30,
           industry: "software",
+          updatedAt: expect.any(Number),
         },
-        { key: "beta works", clientId: null, name: "Beta Works", projectCount: 2 },
-        { key: "gamma", clientId: gammaId, name: "Gamma", projectCount: 0 },
+        { key: "beta works", clientId: null, name: "Beta Works", projectCount: 2, updatedAt: expect.any(Number) },
+        { key: "gamma", clientId: gammaId, name: "Gamma", projectCount: 0, updatedAt: expect.any(Number) },
       ],
     });
   });
@@ -680,7 +681,7 @@ describe("previewClientMerge and mergeClients", () => {
 
     const list = await s.writer.query(api.clients.listClients, {});
     expect(list.clients).toEqual([
-      { key: "acme", clientId: f.acmeId, name: "Acme", projectCount: 4 },
+      { key: "acme", clientId: f.acmeId, name: "Acme", projectCount: 4, updatedAt: expect.any(Number) },
     ]);
   });
 
@@ -1277,5 +1278,407 @@ describe("listClients bound ignores the unnamed company row (finding 5)", () => 
     const result = await s.writer.query(api.clients.listClients, {});
     expect(result.truncated).toBe(false);
     expect(result.clients).toHaveLength(1000);
+  });
+});
+
+describe("updateCompany (Edit company, 2026-10-28)", () => {
+  /** Acme (saved client, 2 projects with exact stage counts) and Zenith (saved, 1 project). */
+  async function editFixture(s: Setup) {
+    const acmeId = await insertClient(s, "Acme", {
+      fiscalYearEndMonth: 3,
+      fiscalYearEndDay: 31,
+      industry: "software",
+    });
+    await insertCompany(s, "Acme", 2, { intake: 1, drafting: 1 });
+    const a1 = await insertProject(s, {
+      clientName: "Acme",
+      clientId: acmeId,
+      stage: "intake",
+      fiscalYearEnd: FY2025,
+      title: "Acme one",
+    });
+    const a2 = await insertProject(s, {
+      clientName: "Acme",
+      clientId: acmeId,
+      stage: "drafting",
+      fiscalYearEnd: FY2024,
+      title: "Acme two",
+    });
+    const zenithId = await insertClient(s, "Zenith");
+    await insertCompany(s, "Zenith", 1, { intake: 1 });
+    const z1 = await insertProject(s, { clientName: "Zenith", clientId: zenithId, title: "Zenith one" });
+    return { acmeId, a1, a2, zenithId, z1 };
+  }
+
+  const acmeArgs = {
+    key: "acme",
+    expectedName: "Acme",
+    name: "Acme",
+    fiscalYearEndMonth: 3,
+    fiscalYearEndDay: 31,
+    industry: "software",
+  };
+
+  it("is for Managers and Admins: a Consultant or a roleless user is refused and nothing changes", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    for (const actor of [s.writer, s.roleless]) {
+      await expect(
+        actor.mutation(api.clients.updateCompany, { ...acmeArgs, name: "Acme Robotics" })
+      ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
+    }
+    expect(await getClient(s, f.acmeId)).toMatchObject({ name: "Acme", nameKey: "acme" });
+    await expect(
+      s.manager.mutation(api.clients.updateCompany, { ...acmeArgs, industry: "manufacturing" })
+    ).resolves.toMatchObject({ key: "acme", name: "Acme", moved: 0 });
+    await expect(
+      s.admin.mutation(api.clients.updateCompany, { ...acmeArgs, industry: "software" })
+    ).resolves.toMatchObject({ key: "acme" });
+  });
+
+  it("changes the year end and industry on the company row only, and clears what is left unset", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    const before = await getProject(s, f.a1);
+    await s.manager.mutation(api.clients.updateCompany, {
+      key: "acme",
+      expectedName: "Acme",
+      name: "Acme",
+      fiscalYearEndMonth: 9,
+      fiscalYearEndDay: 30,
+      industry: "manufacturing",
+    });
+    expect(await getClient(s, f.acmeId)).toMatchObject({
+      fiscalYearEndMonth: 9,
+      fiscalYearEndDay: 30,
+      industry: "manufacturing",
+    });
+    // Projects keep their own fiscal year and are not touched.
+    expect(await getProject(s, f.a1)).toEqual(before);
+
+    await s.manager.mutation(api.clients.updateCompany, { key: "acme", expectedName: "Acme", name: "Acme" });
+    const cleared = await getClient(s, f.acmeId);
+    expect(cleared?.fiscalYearEndMonth).toBeUndefined();
+    expect(cleared?.fiscalYearEndDay).toBeUndefined();
+    expect(cleared?.industry).toBeUndefined();
+  });
+
+  it("refuses half a year end and a day the month does not have", async () => {
+    const s = await setup();
+    await editFixture(s);
+    for (const yearEnd of [{ fiscalYearEndMonth: 9 }, { fiscalYearEndMonth: 2, fiscalYearEndDay: 30 }]) {
+      await expect(
+        s.manager.mutation(api.clients.updateCompany, { key: "acme", expectedName: "Acme", name: "Acme", ...yearEnd })
+      ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+    }
+  });
+
+  it("a rename re-keys every live project as a merge does, moves the counts and keeps the old name", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    const deleting = await insertProject(s, { clientName: "Acme", deleting: true, title: "Going" });
+    const result = await s.manager.mutation(api.clients.updateCompany, {
+      ...acmeArgs,
+      name: "  Acme Robotics ",
+    });
+    expect(result).toEqual({ clientId: f.acmeId, key: "acme robotics", name: "Acme Robotics", moved: 2 });
+    expect(await getClient(s, f.acmeId)).toMatchObject({
+      name: "Acme Robotics",
+      nameKey: "acme robotics",
+      status: "active",
+      formerNames: ["Acme"],
+      fiscalYearEndMonth: 3,
+      industry: "software",
+    });
+    for (const projectId of [f.a1, f.a2]) {
+      expect(await getProject(s, projectId)).toMatchObject({
+        clientName: "Acme Robotics",
+        clientId: f.acmeId,
+        dashboardCompanyKey: "acme robotics",
+      });
+    }
+    // The old projection row is gone, the new one counts both with their stages.
+    expect(await companyRow(s, "Acme")).toBeNull();
+    expect(await companyRow(s, "Acme Robotics")).toMatchObject({
+      clientName: "Acme Robotics",
+      projectCount: 2,
+      stageCounts: { intake: 1, drafting: 1 },
+    });
+    // A project being deleted keeps its name, as in a merge.
+    expect(await getProject(s, deleting)).toMatchObject({ clientName: "Acme" });
+    // The company list shows the new name once.
+    const list = await s.writer.query(api.clients.listClients, {});
+    expect(list.clients.map((entry) => entry.key)).toEqual(["acme robotics", "zenith"]);
+  });
+
+  it("a rename that only changes case keeps the key and relabels the projects and the row", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    const result = await s.admin.mutation(api.clients.updateCompany, { ...acmeArgs, name: "ACME" });
+    expect(result).toMatchObject({ key: "acme", name: "ACME", moved: 2 });
+    expect(await getProject(s, f.a1)).toMatchObject({ clientName: "ACME", dashboardCompanyKey: "acme" });
+    expect(await companyRow(s, "Acme")).toMatchObject({ clientName: "ACME", projectCount: 2 });
+    expect(await getClient(s, f.acmeId)).toMatchObject({ name: "ACME", formerNames: ["Acme"] });
+  });
+
+  it("refuses a name another company has, saved or known only by its projects, and writes nothing", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    await insertCompany(s, "Orbit Co", 1);
+    await expect(
+      s.manager.mutation(api.clients.updateCompany, { ...acmeArgs, name: "zenith" })
+    ).rejects.toMatchObject({
+      data: { code: "CLIENT_EXISTS", message: "A company named Zenith already exists. Merge them instead." },
+    });
+    await expect(
+      s.manager.mutation(api.clients.updateCompany, { ...acmeArgs, name: "ORBIT CO" })
+    ).rejects.toMatchObject({
+      data: { code: "CLIENT_EXISTS", message: "A company named Orbit Co already exists. Merge them instead." },
+    });
+    expect(await getClient(s, f.acmeId)).toMatchObject({ name: "Acme", nameKey: "acme" });
+    expect(await getProject(s, f.a1)).toMatchObject({ clientName: "Acme" });
+  });
+
+  it("refuses a stale dialog: the name it saw was changed since, or the company left its key", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    await s.manager.mutation(api.clients.updateCompany, { ...acmeArgs, name: "ACME" });
+    await expect(
+      s.admin.mutation(api.clients.updateCompany, { ...acmeArgs, name: "Acme", industry: "manufacturing" })
+    ).rejects.toMatchObject({
+      data: {
+        code: "STALE_REVISION",
+        message: "This company was renamed to ACME while you were editing. Open Edit company again.",
+      },
+    });
+    await s.manager.mutation(api.clients.updateCompany, { ...acmeArgs, expectedName: "ACME", name: "Acme Robotics" });
+    await expect(
+      s.admin.mutation(api.clients.updateCompany, { ...acmeArgs, expectedName: "ACME", name: "Acme Two" })
+    ).rejects.toMatchObject({ data: { code: "NOT_FOUND" } });
+    expect(await getClient(s, f.acmeId)).toMatchObject({ name: "Acme Robotics", industry: "software" });
+  });
+
+  it("gives a company known only by its projects its row first, linking its projects", async () => {
+    const s = await setup();
+    await insertCompany(s, "Birch Foods", 2);
+    const b1 = await insertProject(s, { clientName: "Birch Foods", title: "Birch one" });
+    const b2 = await insertProject(s, { clientName: "Birch Foods", title: "Birch two" });
+    const result = await s.manager.mutation(api.clients.updateCompany, {
+      key: "birch foods",
+      expectedName: "Birch Foods",
+      name: "Birch Foods",
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+    });
+    expect(result).toMatchObject({ key: "birch foods", name: "Birch Foods", moved: 0 });
+    expect(await getClient(s, result.clientId)).toMatchObject({
+      name: "Birch Foods",
+      nameKey: "birch foods",
+      status: "active",
+      nameHistoryComplete: true,
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+      createdBy: s.managerId,
+    });
+    for (const projectId of [b1, b2]) {
+      expect(await getProject(s, projectId)).toMatchObject({ clientId: result.clientId });
+    }
+
+    // Renaming another name-only company makes its row and moves its projects.
+    await insertCompany(s, "Cedar Ltd", 1);
+    const c1 = await insertProject(s, { clientName: "Cedar Ltd", title: "Cedar one" });
+    const renamed = await s.manager.mutation(api.clients.updateCompany, {
+      key: "cedar ltd",
+      expectedName: "Cedar Ltd",
+      name: "Cedarline",
+    });
+    expect(renamed).toMatchObject({ key: "cedarline", name: "Cedarline", moved: 1 });
+    expect(await getClient(s, renamed.clientId)).toMatchObject({ name: "Cedarline", formerNames: ["Cedar Ltd"] });
+    expect(await getProject(s, c1)).toMatchObject({ clientName: "Cedarline", clientId: renamed.clientId });
+    expect(await companyRow(s, "Cedar Ltd")).toBeNull();
+  });
+
+  it("keeps the history as complete as it was, and a name taken back leaves the former names", async () => {
+    const s = await setup();
+    const f = await editFixture(s);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(f.acmeId, { formerNames: ["Acme Robotics", "Acme Old"], nameHistoryComplete: false });
+    });
+    await s.manager.mutation(api.clients.updateCompany, { ...acmeArgs, name: "Acme Robotics" });
+    const client = await getClient(s, f.acmeId);
+    expect(new Set(client?.formerNames)).toEqual(new Set(["Acme Old", "Acme"]));
+    expect(client?.nameHistoryComplete).toBe(false);
+  });
+
+  it("refuses a rename that would move more than 200 projects, but still saves the details", async () => {
+    const s = await setup();
+    const bigId = await insertClient(s, "Bigger");
+    await insertCompany(s, "Bigger", 201);
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      for (let i = 0; i < 201; i++) {
+        await ctx.db.insert("projects", {
+          title: `Bigger ${i}`,
+          clientName: "Bigger",
+          clientId: bigId,
+          dashboardCompanyKey: "bigger",
+          dashboardFiscalYearRank: dashboardFiscalYearRank(undefined),
+          dashboardSearchText: "bigger",
+          dashboardCompanyCounted: true,
+          workflowStage: "intake",
+          workflowStageRank: workflowStageRank("intake"),
+          ownerId: s.writerId,
+          status: "draft",
+          createdBy: s.writerId,
+          shareToken: `bigger-${i}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+    await expect(
+      s.manager.mutation(api.clients.updateCompany, { key: "bigger", expectedName: "Bigger", name: "Biggest" })
+    ).rejects.toMatchObject({
+      data: {
+        code: "INVALID_INPUT",
+        message: "This company has more than 200 projects, too many to rename at once. Ask an admin for help.",
+      },
+    });
+    expect(await getClient(s, bigId)).toMatchObject({ name: "Bigger" });
+    await expect(
+      s.manager.mutation(api.clients.updateCompany, {
+        key: "bigger",
+        expectedName: "Bigger",
+        name: "Bigger",
+        industry: "software",
+      })
+    ).resolves.toMatchObject({ key: "bigger", moved: 0 });
+    expect(await getClient(s, bigId)).toMatchObject({ industry: "software" });
+  });
+
+  it("refuses the projects with no company name", async () => {
+    const s = await setup();
+    await expect(
+      s.manager.mutation(api.clients.updateCompany, {
+        key: dashboardCompanyKey(""),
+        expectedName: "",
+        name: "Named",
+      })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT" } });
+  });
+});
+
+describe("getCompanyPage (the company page, 2026-10-28)", () => {
+  it("returns a saved company with its facts, and a name-only company with its count", async () => {
+    const s = await setup();
+    const acmeId = await insertClient(s, "Acme", { fiscalYearEndMonth: 9, fiscalYearEndDay: 30, industry: "software" });
+    await insertCompany(s, "Acme", 3);
+    await insertCompany(s, "Birch Foods", 2);
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "acme" })).toEqual({
+      kind: "company",
+      key: "acme",
+      clientId: acmeId,
+      name: "Acme",
+      projectCount: 3,
+      fiscalYearEndMonth: 9,
+      fiscalYearEndDay: 30,
+      industry: "software",
+      mergedNote: null,
+    });
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "birch foods" })).toEqual({
+      kind: "company",
+      key: "birch foods",
+      clientId: null,
+      name: "Birch Foods",
+      projectCount: 2,
+      mergedNote: null,
+    });
+  });
+
+  it("says missing for an unknown key and the projects with no company name", async () => {
+    const s = await setup();
+    await insertCompany(s, "", 1);
+    for (const key of ["nobody", dashboardCompanyKey("")]) {
+      expect(await s.writer.query(api.clients.getCompanyPage, { key })).toEqual({ kind: "missing" });
+    }
+  });
+
+  it("requires an internal user", async () => {
+    const s = await setup();
+    await expect(s.t.query(api.clients.getCompanyPage, { key: "acme" })).rejects.toBeTruthy();
+  });
+
+  it("sends a merged key to the company it ended up in, through merges of merges, with the note once asked", async () => {
+    const s = await setup();
+    const acmeId = await insertClient(s, "Acme");
+    await insertCompany(s, "Acme", 1);
+    await insertProject(s, { clientName: "Acme", clientId: acmeId });
+    await insertCompany(s, "ACME Inc.", 2);
+    await insertProject(s, { clientName: "ACME Inc." });
+    await insertProject(s, { clientName: "ACME Inc." });
+    await s.manager.mutation(api.clients.mergeClients, { keepKey: "acme", mergeKeys: ["acme inc."] });
+    // The tombstone records how many projects moved with it.
+    const [tombstone] = (await clientsByKey(s, "ACME Inc.")).filter((row) => row.status === "merged");
+    expect(tombstone).toMatchObject({ status: "merged", mergedIntoClientId: acmeId, mergedProjectCount: 2 });
+
+    // Then Acme itself is merged into Zenith: the oldest key still lands there.
+    const zenithId = await insertClient(s, "Zenith");
+    await s.manager.mutation(api.clients.mergeClients, { keepKey: "zenith", mergeKeys: ["acme"] });
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "acme inc." })).toEqual({
+      kind: "merged",
+      key: "zenith",
+      name: "Zenith",
+    });
+    const page = await s.writer.query(api.clients.getCompanyPage, { key: "zenith", mergedFrom: "acme" });
+    expect(page).toMatchObject({ kind: "company", clientId: zenithId, projectCount: 3 });
+    expect(page.kind === "company" && page.mergedNote).toMatchObject({ fromName: "Acme", projectCount: 3 });
+    // A merged-from key that did not end here adds no note.
+    expect(
+      await s.writer.query(api.clients.getCompanyPage, { key: "zenith", mergedFrom: "nobody" })
+    ).toMatchObject({ kind: "company", mergedNote: null });
+  });
+
+  it("names no count for a merge made before counts were kept", async () => {
+    const s = await setup();
+    const keptId = await insertClient(s, "Kept");
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("clients", {
+        name: "Old Name",
+        nameKey: "old name",
+        status: "merged",
+        mergedIntoClientId: keptId,
+        mergedAt: Date.UTC(2026, 9, 3),
+        createdBy: s.adminId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    const page = await s.writer.query(api.clients.getCompanyPage, { key: "kept", mergedFrom: "old name" });
+    expect(page.kind === "company" && page.mergedNote).toMatchObject({
+      fromName: "Old Name",
+      mergedAt: Date.UTC(2026, 9, 3),
+      projectCount: null,
+    });
+  });
+});
+
+describe("listClients last update (All companies, 2026-10-28)", () => {
+  it("is the later of the company row's and its projection row's change", async () => {
+    const s = await setup();
+    const acmeId = await insertClient(s, "Acme");
+    await insertCompany(s, "Acme", 1);
+    await insertCompany(s, "Birch Foods", 1);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(acmeId, { updatedAt: 5_000 });
+      const acme = await ctx.db.query("dashboardCompanies").withIndex("by_companyKey", (q) => q.eq("companyKey", "acme")).unique();
+      await ctx.db.patch(acme!._id, { updatedAt: 9_000 });
+      const birch = await ctx.db.query("dashboardCompanies").withIndex("by_companyKey", (q) => q.eq("companyKey", "birch foods")).unique();
+      await ctx.db.patch(birch!._id, { updatedAt: 7_000 });
+    });
+    const list = await s.writer.query(api.clients.listClients, {});
+    expect(list.clients.map((entry) => [entry.key, entry.updatedAt])).toEqual([
+      ["acme", 9_000],
+      ["birch foods", 7_000],
+    ]);
   });
 });

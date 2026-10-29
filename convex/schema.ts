@@ -423,6 +423,10 @@ export default defineSchema({
     mergedIntoClientId: v.optional(v.id("clients")),
     mergedAt: v.optional(v.number()),
     mergedBy: v.optional(v.id("users")),
+    // 2026-10-28 (the company page): on a merge tombstone, how many live
+    // projects moved from it, for the note an old link shows ("Its 2
+    // projects are here now."). Absent on tombstones made before.
+    mergedProjectCount: v.optional(v.number()),
     // 2026-10-26 (Phase C): every name this company had before a rename,
     // and every name of the companies merged into it (theirs included),
     // so company file labels hide them all. Written by mergeClients.
