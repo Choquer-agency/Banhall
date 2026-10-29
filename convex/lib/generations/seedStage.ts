@@ -1453,8 +1453,15 @@ export async function loadFactsSourceDocuments(
    */
   uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number; ranges?: Array<{ start: number; end: number }> }>,
   /** Phase D, step 1: what the Line is about, to choose the parts read. */
-  subjectTexts: readonly string[] = []
+  subjectTexts: readonly string[] = [],
+  /**
+   * 2026-10-29 (third), review round 1: QA's read skips a row whose text
+   * cannot be read and names it in `unreadable`, so one bad row does not
+   * cost QA every source. The facts check still refuses by name, as before.
+   */
+  options: { skipUnreadable?: boolean } = {}
 ): Promise<FactsSourceDocuments> {
+  const unreadable: NonNullable<FactsSourceDocuments["unreadable"]> = [];
   const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
   const weighed: Array<{ sourceId: Id<"generationSources">; document: FactsSourceDocument; bytes: number; samePlaces: boolean }> = [];
   for await (const row of ctx.db
@@ -1464,7 +1471,20 @@ export async function loadFactsSourceDocuments(
     // Phase C: no company file of a company the project has left.
     if (row.kind === "company_file" && (await withCurrentCompanyFiles(ctx, generation.projectId, [row])).length === 0) continue;
     // B1, second part: the row's text, wherever it is kept.
-    const text = await withSourceText(ctx, row);
+    let text: Awaited<ReturnType<typeof withSourceText<typeof row>>>;
+    try {
+      text = await withSourceText(ctx, row);
+    } catch (error) {
+      if (!options.skipUnreadable) throw error;
+      const label = factsSourceDocumentOf({
+        kind: row.kind,
+        label: row.label,
+        content: "",
+        ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
+      }).label;
+      unreadable.push({ label });
+      continue;
+    }
     const document = factsSourceDocumentOf(text);
     // Parts are chosen on the marker-safe text, which only ever grows, so
     // its positions are the row's own when its length is unchanged.
@@ -1515,7 +1535,13 @@ export async function loadFactsSourceDocuments(
     });
     uses?.push({ sourceId, sent, total: bytes, ...(samePlaces ? { ranges } : {}) });
   });
-  return { documents, leftOut, budget, ...(readInPart.length > 0 ? { readInPart } : {}) };
+  return {
+    documents,
+    leftOut,
+    budget,
+    ...(readInPart.length > 0 ? { readInPart } : {}),
+    ...(unreadable.length > 0 ? { unreadable } : {}),
+  };
 }
 
 /** One frozen transcript, project document or company file (Phase C), marker-safe, as the facts check reads it. */

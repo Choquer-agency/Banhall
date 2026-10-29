@@ -402,7 +402,13 @@ export async function runSectionDraftTask(metered: MeteredClient, model: string)
   }
 }
 
-/** The QA scorecard call on fixed sections, first attempt against QA_SCHEMA. */
+/**
+ * The QA scorecard call on fixed sections, first attempt against QA_SCHEMA.
+ * 2026-10-29 (third), review round 1: live QA now also reads the source
+ * evidence the drafts were written from (qaSourceEvidenceBlock); this task
+ * has no generation and sends none, so its request and any score it returns
+ * no longer match live QA. It measures the structured answer only.
+ */
 export async function runQaStructuredTask(metered: MeteredClient, model: string): Promise<EvalOutput> {
   const before = metered.meter.costUsd;
   const { state, client } = capturing(metered.client);

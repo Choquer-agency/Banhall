@@ -124,6 +124,12 @@ export type FactsSourceDocuments = {
    * too long to go in whole, their start (`start`).
    */
   readInPart?: Array<{ label: string; bytes: number; sent: number; start?: true; matched?: true }>;
+  /**
+   * 2026-10-29 (third), review round 1: QA's read only (`skipUnreadable`),
+   * the frozen documents whose text could not be read, so they were left
+   * out. The facts check never gets this list: it refuses instead.
+   */
+  unreadable?: Array<{ label: string }>;
 };
 
 /** What an excerpt's label line adds beyond the label itself: its frame and " (excerpt N of M)". */

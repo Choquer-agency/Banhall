@@ -33,7 +33,7 @@ import {
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
-import { runQAAgent } from "./qaAgent";
+import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import { MODEL, candidateModelsForMode } from "./model";
 import { modelById, type ModelEntry } from "../../shared/generationModels";
@@ -64,6 +64,7 @@ import {
 import { sha256 } from "../lib/contracts";
 import { wordingLoss, type WriterWordingRules } from "../lib/writerWording";
 import type { SectionNumber } from "../lib/orderedChain";
+import type { FactsSourceDocuments } from "../lib/seedRevisions";
 import {
   describeTranscriptInput,
   mapClaimToPart,
@@ -1306,7 +1307,11 @@ export async function runPipelineForModel(
   // Owner decision 43: the model each call site's request names, from the
   // same step routing as `anthropicFor`. Every call names `modelId` when
   // absent, as before step routing.
-  modelFor: (callSite: string) => string = () => modelId
+  modelFor: (callSite: string) => string = () => modelId,
+  // 2026-10-29 (third), review round 1: reads the source evidence QA checks
+  // the drafted Lines against (qaSourceEvidenceFor). Absent, QA reads the
+  // analysis alone, as before.
+  loadQaSourceEvidence?: (sections: string[]) => Promise<FactsSourceDocuments | null>
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -1360,8 +1365,11 @@ export async function runPipelineForModel(
   // without them. Neither may fail a generation the writer would otherwise
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
+  const qaSourceEvidence = loadQaSourceEvidence
+    ? await loadQaSourceEvidence([section242, section244, section246])
+    : undefined;
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor), qaSourceEvidence),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelFor("generation:chronology")),
   ]);
   if (qaSettled.status === "rejected") {
@@ -1939,7 +1947,8 @@ export const generateCandidate = internalAction({
           sharedAnalysis,
           briefBlock,
           input.factQuotes,
-          (callSite) => steps.route(callSite).model
+          (callSite) => steps.route(callSite).model,
+          (sections) => qaSourceEvidenceFor(ctx, args.generationId, sections)
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,

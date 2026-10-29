@@ -72,7 +72,7 @@ export async function getQaSourceEvidenceHandler(
 ): Promise<FactsSourceDocuments | null> {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) return null;
-  return await loadFactsSourceDocuments(ctx, generation, undefined, args.subjectTexts);
+  return await loadFactsSourceDocuments(ctx, generation, undefined, args.subjectTexts, { skipUnreadable: true });
 }
 
 /** Argument validators of generations.getPostQaInput. */

@@ -46,6 +46,8 @@ export const QA_REQUEST = {
     readInPartPrefix: "\n\nRead only in part, over QA's ",
     leftOutPrefix: "\n\nLeft out, over QA's ",
     budgetSuffix: "-byte budget: ",
+    /** 2026-10-29 (third), review round 1: a frozen file whose text could not be read. */
+    unreadablePrefix: "\n\nLeft out, as their text could not be read: ",
     separator: "; ",
     suffix: ".",
   },
@@ -101,7 +103,11 @@ export function qaSourceEvidenceBlock(evidence?: FactsSourceDocuments | null): s
         .map((document) => `${document.label} (${document.bytes} bytes)`)
         .join(scaffold.separator)}${scaffold.suffix}`
     : "";
-  return `${scaffold.heading}${documents}${inPart}${leftOut}`;
+  const unreadableLabels = (evidence.unreadable ?? []).map((document) => document.label);
+  const unreadable = unreadableLabels.length > 0
+    ? `${scaffold.unreadablePrefix}${unreadableLabels.join(scaffold.separator)}${scaffold.suffix}`
+    : "";
+  return `${scaffold.heading}${documents}${inPart}${leftOut}${unreadable}`;
 }
 
 /**
