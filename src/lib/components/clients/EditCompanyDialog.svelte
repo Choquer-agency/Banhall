@@ -18,6 +18,8 @@
     hasProjectFiscalYearEnd?: boolean;
     /** A project has an industry, which an emptied field shows. */
     hasProjectIndustry?: boolean;
+    /** The company's website (2026-10-29), stored normalized. */
+    website?: string;
   };
 </script>
 
@@ -47,6 +49,8 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import FiscalYearEndPicker from "./FiscalYearEndPicker.svelte";
+  import CompanyWebsiteField from "./CompanyWebsiteField.svelte";
+  import { normalizeCompanyWebsite } from "../../../../shared/companyWebsite";
 
   let {
     open = $bindable(false),
@@ -69,6 +73,8 @@
   let month = $state("");
   let day = $state("");
   let industry = $state("");
+  let website = $state("");
+  let websiteInvalid = $state(false);
   let busy = $state(false);
   let errorMessage = $state<string | null>(null);
   /** Escape was pressed over unsaved edits: say how to leave instead. */
@@ -84,6 +90,7 @@
       month = company.fiscalYearEndMonth !== undefined ? String(company.fiscalYearEndMonth) : "";
       day = company.fiscalYearEndDay !== undefined ? String(company.fiscalYearEndDay) : "";
       industry = company.industry ?? "";
+      website = company.website ?? "";
       errorMessage = null;
       escapeNote = false;
       busy = false;
@@ -115,13 +122,15 @@
       name.trim() !== opened.name ||
       month !== openedMonth ||
       day !== openedDay ||
-      industry !== (opened.industry ?? "")
+      industry !== (opened.industry ?? "") ||
+      // "hatchbetter.com" for a stored "https://hatchbetter.com" is no change.
+      (normalizeCompanyWebsite(website) ?? website.trim()) !== (opened.website ?? "")
     );
   });
   $effect(() => {
     if (!dirty) escapeNote = false;
   });
-  const canSave = $derived(dirty && Boolean(name.trim()) && !yearEndIncomplete && !busy);
+  const canSave = $derived(dirty && Boolean(name.trim()) && !yearEndIncomplete && !websiteInvalid && !busy);
 
   async function save() {
     if (!canSave || !opened) return;
@@ -138,6 +147,7 @@
         // A value borrowed from the newest project, unchanged, stays unsaved.
         ...(month && day && !yearEndBorrowed ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
         ...(industry && !industryBorrowed ? { industry } : {}),
+        ...(website.trim() ? { website: website.trim() } : {}),
       });
       open = false;
       done?.({ key: result.key, name: result.name });
@@ -239,5 +249,7 @@
         </p>
       {/if}
     </div>
+
+    <CompanyWebsiteField id="edit-company-website" bind:value={website} bind:invalid={websiteInvalid} onInput={() => (errorMessage = null)} />
   </div>
 </FormDialog>

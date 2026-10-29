@@ -20,6 +20,7 @@
   import { topBarSecondary } from "$lib/components/shell/topBar";
   import { industryLabel } from "$lib/industries";
   import { mergedNoteText, yearEndLabel } from "$lib/companies/companies";
+  import { companyWebsiteHost } from "../../../../shared/companyWebsite";
   import type { CapabilityRole } from "../../../../shared/capabilities";
 
   type Viewer = { _id: string; role?: CapabilityRole | null; isAnonymous?: boolean } | null;
@@ -49,6 +50,9 @@
       fiscalYearEndFromProjects?: boolean;
       /** The industry shown is the newest project's (none saved). */
       industryFromProjects?: boolean;
+      /** The company's website (2026-10-29) and how its latest read went. */
+      website?: string;
+      websiteRead?: { status: "reading" | "read" | "failed"; reason?: string } | null;
     };
     /** The merged company's note (Paper Z9g), or null. */
     note?: { fromName: string; mergedAt: number; projectCount: number | null } | null;
@@ -142,6 +146,31 @@
             >{fact.value ?? "Not set"}{#if fact.value && fact.borrowed}<span class="sr-only">{" from the newest project"}</span>{/if}</dd>
           </div>
         {/each}
+        <!-- 2026-10-29: the website, its host as a link that opens a new tab,
+             and how its read into the company's files went. -->
+        <div class="flex min-w-0 max-w-[18rem] flex-col gap-1" data-company-fact="website">
+          <dt class="text-[0.8125rem] leading-[calc(16/13)] text-ink-muted">Website</dt>
+          <dd class="min-w-0 text-[0.9375rem] leading-[calc(4/3)]">
+            {#if company.website}
+              <a
+                href={company.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-company-website
+                class="block truncate rounded-sm text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
+              >{companyWebsiteHost(company.website)}</a>
+            {:else}
+              <span class="text-ink-muted">Not set</span>
+            {/if}
+          </dd>
+          {#if company.website && company.websiteRead?.status === "reading"}
+            <dd role="status" class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-company-website-status="reading">Reading the website...</dd>
+          {:else if company.website && company.websiteRead?.status === "failed"}
+            <dd role="status" class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-company-website-status="failed">
+              The website could not be read: {company.websiteRead.reason ?? "it could not be reached."}
+            </dd>
+          {/if}
+        </div>
       </dl>
       <div class="flex-1"></div>
       {#if canEdit && onEdit}

@@ -32,6 +32,7 @@
   import { formCancel, formError, formField, formLabel, formPrimary, formSelect } from "$lib/components/ui/formDialog";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import FiscalYearEndPicker from "./FiscalYearEndPicker.svelte";
+  import CompanyWebsiteField from "./CompanyWebsiteField.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { api } from "../../../../convex/_generated/api";
 
@@ -62,6 +63,8 @@
   let month = $state("");
   let day = $state("");
   let industry = $state("");
+  let website = $state("");
+  let websiteInvalid = $state(false);
   let filledFromProject = $state(false);
   let busy = $state(false);
   let errorMessage = $state<string | null>(null);
@@ -78,6 +81,7 @@
       day = initialFiscalYearEnd ? String(initialFiscalYearEnd.day) : "";
       filledFromProject = initialFiscalYearEnd !== null;
       industry = initialIndustry;
+      website = "";
       errorMessage = null;
       busy = false;
       checkedName = name;
@@ -116,7 +120,7 @@
   // the 250ms pause, the read itself) or after it failed, nothing is known
   // about look-alikes yet.
   const canCreate = $derived(
-    Boolean(name.trim()) && similar !== undefined && !exact && !yearEndIncomplete && !busy
+    Boolean(name.trim()) && similar !== undefined && !exact && !yearEndIncomplete && !websiteInvalid && !busy
   );
 
   const projectCount = (count: number) =>
@@ -140,7 +144,7 @@
       ...(industry ? { industry } : {}),
     };
     try {
-      const created = await createClient({ name: name.trim(), ...defaults });
+      const created = await createClient({ name: name.trim(), ...defaults, ...(website.trim() ? { website: website.trim() } : {}) });
       open = false;
       done?.({ clientId: created.clientId, key: created.key, name: created.name, ...defaults });
     } catch (error) {
@@ -244,5 +248,7 @@
       <label for="new-client-industry" class={formLabel}>Industry</label>
       <IndustrySelect ariaLabel="Industry" id="new-client-industry" bind:value={industry} canCreate={canAddIndustry} class={formSelect} />
     </div>
+
+    <CompanyWebsiteField id="new-client-website" bind:value={website} bind:invalid={websiteInvalid} onInput={() => (errorMessage = null)} />
   </div>
 </FormDialog>

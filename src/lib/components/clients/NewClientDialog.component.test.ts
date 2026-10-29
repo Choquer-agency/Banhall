@@ -218,4 +218,25 @@ describe("NewClientDialog", () => {
       "Optional. It fills in on new projects for this company, and you can change it on any project."
     );
   });
+
+  it("takes an optional website, refuses one that is not a website once the field is left, and sends it (2026-10-29)", async () => {
+    __setMutationResult("clients:createClient", { clientId: "client-3", key: "hatch better", name: "Hatch Better" });
+    await render(NewClientDialog, { open: true });
+    await userEvent.fill(nameField(), "Hatch Better");
+    const website = page.getByRole("textbox", { name: "Website" });
+    await expect.element(website).toBeVisible();
+    expect(text(document.querySelector("[data-company-website-helper]"))).toBe(
+      "Optional. Its home page and about page are read into the company's files."
+    );
+    await userEvent.fill(website, "hatch better");
+    await userEvent.click(nameField());
+    await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe(
+      "Enter a website like hatchbetter.com."
+    );
+    expect(createButton().disabled).toBe(true);
+    await userEvent.fill(website, "HatchBetter.com");
+    await expect.poll(() => createButton().disabled).toBe(false);
+    await userEvent.click(createButton());
+    await expect.poll(() => __mutationCalls("clients:createClient")).toEqual([{ name: "Hatch Better", website: "HatchBetter.com" }]);
+  });
 });

@@ -77,6 +77,7 @@ function companyPage(key: string, extra: Record<string, unknown> = {}) {
     industryFromProjects: false,
     hasProjectFiscalYearEnd: false,
     hasProjectIndustry: false,
+    websiteRead: null,
     mergedNote: null,
     ...extra,
   };
@@ -422,7 +423,7 @@ describe("a company's page", () => {
     expect(newProject.getAttribute("href")).toBe("/project/new?client=Cedarline+Systems");
     expect(getComputedStyle(newProject).display).not.toBe("none");
     const facts = [...document.querySelectorAll("[data-company-fact]")].map((node) => text(node));
-    expect(facts).toEqual(["Fiscal year ends September 30", "Industry Manufacturing", "Projects 10"]);
+    expect(facts).toEqual(["Fiscal year ends September 30", "Industry Manufacturing", "Projects 10", "Website Not set"]);
     // The fiscal year sections and cards of the Projects page's company view.
     await expect.poll(() => document.querySelectorAll("[data-fy-group]").length).toBe(1);
     expect(text(document.querySelector("[data-fy-header]"))).toContain("FY 2026");
@@ -434,12 +435,48 @@ describe("a company's page", () => {
     expect(tabs).toEqual([["Projects", "true"], ["Files", "false"]]);
   });
 
+  it("shows the website as a link to its host that opens a new tab, and how its read went (2026-10-29)", async () => {
+    seed("consultant");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://www.cedarline.ca/about",
+      websiteRead: { status: "read", finishedAt: OCT_14 },
+    }));
+    const screen = await mount("cedarline systems");
+    const link = () => document.querySelector<HTMLAnchorElement>("[data-company-website]");
+    await expect.poll(() => link()).not.toBeNull();
+    expect(text(document.querySelector('[data-company-fact="website"] dt'))).toBe("Website");
+    expect(text(link())).toBe("cedarline.ca");
+    expect(link()!.getAttribute("href")).toBe("https://www.cedarline.ca/about");
+    expect(link()!.getAttribute("target")).toBe("_blank");
+    expect(link()!.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(document.querySelector("[data-company-website-status]")).toBeNull();
+
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "reading" },
+    }));
+    await expect.poll(() => text(document.querySelector('[data-company-website-status="reading"]'))).toBe("Reading the website...");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "failed", reason: "it did not answer within 10 seconds." },
+    }));
+    await expect.poll(() => text(document.querySelector('[data-company-website-status="failed"]'))).toBe(
+      "The website could not be read: it did not answer within 10 seconds."
+    );
+    screen.unmount();
+
+    // No website: Not set, no link.
+    await mount("alder research");
+    await expect.poll(() => text(document.querySelector('[data-company-fact="website"] dd'))).toBe("Not set");
+    expect(document.querySelector("[data-company-website]")).toBeNull();
+  });
+
   it("says Not set for a missing fiscal year end or industry", async () => {
     seed("consultant");
     __setPaginatedRows("dashboard:listCompanyProjects", []);
     await mount("ironleaf farms");
     await expect.poll(() => text(barTitle())).toBe("Ironleaf Farms");
-    expect([...document.querySelectorAll("[data-company-fact] dd")].map((node) => text(node))).toEqual(["Not set", "Not set", "0"]);
+    expect([...document.querySelectorAll("[data-company-fact] dd")].map((node) => text(node))).toEqual(["Not set", "Not set", "0", "Not set"]);
     expect(text(barCount())).toBe("0 projects");
   });
 
@@ -853,6 +890,37 @@ describe("Edit company (Managers and Admins)", () => {
     await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
     await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
     await expect.poll(() => document.querySelector<HTMLInputElement>("#edit-company-industry")?.value).toBe("Quantum optics");
+  });
+
+  it("Edit company starts from the website, sends a changed one, and refuses one that is not a website", async () => {
+    seed("manager");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+    }));
+    __setMutationResult("clients:updateCompany", { clientId: "c3", key: "cedarline systems", name: "Cedarline Systems", moved: 0 });
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
+    const field = page.getByRole("textbox", { name: "Website" });
+    await expect.element(field).toHaveValue("https://cedarline.ca");
+    const save = () => document.querySelector<HTMLButtonElement>("[data-edit-company-save]")!;
+    // The same address written another way is no change.
+    await userEvent.fill(field, "Cedarline.ca/");
+    await expect.poll(() => save().disabled).toBe(true);
+    await userEvent.fill(field, "not a website");
+    await userEvent.click(page.getByRole("textbox", { name: "Name" }));
+    await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe("Enter a website like hatchbetter.com.");
+    expect(save().disabled).toBe(true);
+    await userEvent.fill(field, "cedarline.com");
+    await expect.poll(() => save().disabled).toBe(false);
+    await userEvent.click(save());
+    await expect.poll(() => __mutationCalls("clients:updateCompany").at(-1)).toMatchObject({
+      key: "cedarline systems",
+      expectedClientId: "c3",
+      expectedUpdatedAt: 1_000,
+      website: "cedarline.com",
+    });
   });
 
   it("shows the refusal of another company's name in the dialog", async () => {
