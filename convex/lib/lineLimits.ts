@@ -51,7 +51,10 @@ export type SectionKey = keyof typeof LINE_LIMITS;
  * (review round 3). Each branch starts on a different character, so the
  * match stays linear.
  */
-const NOTE_BODY = String.raw`(?:[^\[\]\n]|\[(?!(?:GAP|INFERRED):)[^\[\]\n]*\]|\n(?![^\S\n]*\n))*`;
+// The opening test spells out both cases, so a copy of these patterns made
+// without the "i" flag (tiptapReport's GAP_CAPTURE_RE) still stops at a
+// lowercase "[inferred:" (review round 4).
+const NOTE_BODY = String.raw`(?:[^\[\]\n]|\[(?!(?:[Gg][Aa][Pp]|[Ii][Nn][Ff][Ee][Rr][Rr][Ee][Dd]):)[^\[\]\n]*\]|\n(?![^\S\n]*\n))*`;
 
 export const GAP_MARKER_RE = new RegExp(String.raw`\[GAP:${NOTE_BODY}\]`, "gi");
 

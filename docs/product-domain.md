@@ -5483,6 +5483,7 @@ This adds no workflow stage, transition, permission or stored field, and leaves 
   - The chip's delete keys went beyond the heading protection's: they are now the same lists, imported from it.
   - Two compression fixes had no test that failed without them: the "e.g." join and the minimum of 2 words each have one now.
   - Finding notes paragraph by paragraph changes no result, since a note already stops at a blank line; it stays, with a comment saying so.
+- **Review round 4 (Claude Opus 5.5, requested high; it reported running at low): ship, one P3, fixed.** The stored gap highlight (`textToParagraphs`) copies the gap pattern without the "i" flag, so a lowercase "[inferred:" opened inside a gap did not end it there, and the highlight wrapped the inference chip. The opening test inside a note now spells out both cases, with a test.
 
 ## Amendment process
 
