@@ -5034,9 +5034,10 @@ This changes what one AI request reads and how its citations are checked, not a 
     - A source sent in parts shows them joined by "[...]" lines and the notice "[EXCERPTS: only the parts of this frozen source that best match the Brief were sent, N of M UTF-8 bytes; the text between them was left out.]", or "only parts of this frozen source were sent" when no part matched.
     - A source with nothing sent is named in the omitted block, as before.
   - The choice depends only on the frozen sources, the Brief version and generation-wide settings (writer settings, length target, guidance), the same for every role, every Batch and every path (first Batch, retry, Regenerate, Feedback, prefetch). So every step sends the same cached block.
-  - Parts are chosen on the raw text and charged by the bytes of the text as sent. Each source's frame and longest notice are charged with its first part, and 2 KB is kept for marker-like dash runs lengthened where two parts join. A final check still refuses a prompt over the limit.
+  - Parts are chosen on the raw text and charged by the bytes of the text as sent. Each source's frame and longest notice are charged with its first part (an empty source's frame as it is), and 2 KB is kept for marker-like dash runs lengthened where two parts join. When the assembled sources still pass their room, the choice is made again with that much less room, so they fit. A final check still refuses a prompt over the limit.
 - **Citations.**
-  - A source sent in part is citable only in what was sent and in the spans its Brief entries cite (the Seed prompt allows quoting a Brief entry's excerpt), a reused Brief's entries included, matched by the text's fingerprint. The rest of its text is blanked, positions kept, for the citation check in the Batch action and again in `completeAttempt`. An excerpt holding the blanking character is refused, here and in the Brief.
+  - A source sent in part is citable only in what was sent and in the spans its Brief entries cite (the Seed prompt allows quoting a Brief entry's excerpt), a reused Brief's entries included, matched by the text's fingerprint. The rest of its text is blanked, positions kept, for the citation check in the Batch action and again in `completeAttempt`.
+  - An excerpt holding the blanking character (U+0000) is refused, for every source, here and in the Brief.
   - The speaker check keeps each row's real text and looks for another place of the same words only in what was sent, in `completeAttempt` and in a prefetch's quote count.
   - Sources sent whole, and sources no choice weighed, are checked as before.
   - An action started before this change sends no ranges, and nothing is blanked.
@@ -5051,6 +5052,7 @@ This changes what one AI request reads and how its citations are checked, not a 
   - A Seed's offsets are relative to what the model read; the existing relocation search finds the excerpt's real place, nearest to the offset given.
   - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
   - In fact mode, a fact pack cut where the allowance runs out still lets every fact of that interview be cited, as before.
+  - A file whose stored text really holds U+0000 characters cannot be quoted across them. Models rarely copy such characters.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
   - `convex/seedByRelevance.test.ts`:
@@ -5077,6 +5079,12 @@ This changes what one AI request reads and how its citations are checked, not a 
   - this entry.
 
   Left: a full convex-test of `completeAttempt` with ranges (its pieces are tested; the live run exercises it).
+
+  Follow-up review, Claude Opus 5.5 (requested high; it reported running at low), "ship", every finding P3. Done:
+  - an assembly over its room chooses again with less room;
+  - empty sources' frames are charged;
+  - comments and this entry match the code;
+  - the U+0000 refusal is recorded as applying to every source.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process

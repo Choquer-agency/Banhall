@@ -332,22 +332,25 @@ export const utf8Size = (text: string) => encoder.encode(text).length;
  * fit, else their name-safe start), then the best-scoring parts of the
  * rest, then the unmatched parts in row order. A part that does not fit is
  * passed over for a later, smaller one. Touching chosen parts of a row join
- * into one range. `budget` is what the rows' text may take: a step takes
- * its headers and notices off first.
+ * into one range. `budget` is what the rows may take: their text, each
+ * excerpt's `excerptCost`, and each row's `openCost` (its frame) once
+ * anything of it is sent; a step takes anything else off first.
  */
 export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
   const { rows, size } = input;
   const excerptCost = input.excerptCost ?? 0;
   const result: ChosenRow[] = rows.map(() => ({ ranges: [], whole: false }));
   // A row's opening cost counts too: everything fits only with every frame.
-  const totalWhole = rows.reduce((sum, row) => sum + size(row.text) + (row.text.length > 0 ? (row.openCost ?? 0) : 0), 0);
+  const totalWhole = rows.reduce((sum, row) => sum + size(row.text) + (row.openCost ?? 0), 0);
   const wholeRow = (row: ChoiceRow): ChosenRow => ({ ranges: row.text.length > 0 ? [{ start: 0, end: row.text.length }] : [], whole: true });
   if (totalWhole <= input.budget) return rows.map(wholeRow);
-  // An empty row costs nothing and goes in as it is.
-  rows.forEach((row, index) => {
-    if (row.text.length === 0) result[index] = wholeRow(row);
-  });
+  // An empty row goes in as it is, costing only its frame.
   let remaining = input.budget;
+  rows.forEach((row, index) => {
+    if (row.text.length > 0) return;
+    result[index] = wholeRow(row);
+    remaining -= row.openCost ?? 0;
+  });
 
   // The rows that go in whole, in row order.
   rows.forEach((row, index) => {

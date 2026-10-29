@@ -1308,12 +1308,31 @@ function seedSubjectTexts(brief: unknown): string[] {
  * uploaded go in whole (their start only, when the allowance runs out);
  * every other source sends the parts that best match the Brief. Parts are
  * chosen on the raw text (raw positions) and charged by the UTF-8 bytes of
- * the text as sent (marker-neutralized), after every source's block frame,
- * join and longest notice are taken off, so the assembled blocks always
- * fit `budgetBytes`. Pure: the same sources and Brief give the same blocks
- * for every role.
+ * the text as sent (marker-neutralized); each source's block frame, join
+ * and longest notice are charged with its first part (or as it is, when it
+ * is empty). Joining two parts can lengthen a marker-like dash run across
+ * their seam; when the assembled blocks still pass `budgetBytes`, the
+ * choice is made again with that much less room (follow-up review), so the
+ * blocks fit. Pure: the same sources and Brief give the same blocks for
+ * every role.
  */
 function seedSourcesByRelevance(
+  sources: readonly SeedPromptSource[],
+  brief: unknown,
+  budgetBytes: number,
+  separatorBytes: number
+): { blocks: string[]; reports: SeedPromptSourceReport[] } {
+  let room = budgetBytes;
+  for (let attempt = 0; ; attempt += 1) {
+    const built = seedSourcesWithin(sources, brief, room, separatorBytes);
+    const used = built.blocks.reduce((sum, block) => sum + utf8Bytes(block), 0) + separatorBytes * Math.max(0, built.blocks.length - 1);
+    if (used <= budgetBytes || attempt >= 3 || room <= 0) return built;
+    room -= used - budgetBytes + SEED_JOIN_MARGIN_BYTES;
+  }
+}
+
+/** One relevance choice within `budgetBytes`; see seedSourcesByRelevance. */
+function seedSourcesWithin(
   sources: readonly SeedPromptSource[],
   brief: unknown,
   budgetBytes: number,

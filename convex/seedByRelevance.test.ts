@@ -205,3 +205,27 @@ describe("Seeds review fixes (2026-10-28)", () => {
     expect(checkedSentRanges([{ sourceId: "a", ranges: [{ start: 0, end: 500 }] }], rows, { onlyLoaded: true })).toBeNull();
   });
 });
+
+describe("Seeds follow-up review (2026-10-28)", () => {
+  const nearReserve = { decisions: "x".repeat(60_000), feedback: "(none)" };
+
+  it("fits a file whose long dash run turns into a marker when its parts join", () => {
+    const sources = largeSources();
+    sources.push({
+      sourceId: "dashes",
+      label: "other:dashes.md",
+      kind: "project_document",
+      content: `${filler(55, 4_000)}\n${"-".repeat(8_000)} BEGIN [x]\n${filler(56, 4_000)} Viton membrane cracked again.`,
+      contentHash: "h-dashes",
+    });
+    expect(() => buildSeedPrompt({ ...base(sources, true), projection: nearReserve })).not.toThrow();
+  });
+
+  it("charges the frames of empty sources", () => {
+    const sources = largeSources();
+    for (let index = 0; index < 20; index++) {
+      sources.push({ sourceId: `empty-${index}`, label: `other:empty-${index}.md`, kind: "project_document", content: "", contentHash: `h-e${index}` });
+    }
+    expect(() => buildSeedPrompt({ ...base(sources, true), projection: nearReserve })).not.toThrow();
+  });
+});
