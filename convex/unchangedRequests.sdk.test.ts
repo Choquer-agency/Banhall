@@ -44,6 +44,7 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
+import { withoutInferenceMarker, withoutInferenceMarkerText } from "./inferenceMarker.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { streamWhenAsked } from "./anthropicSse.fixture";
 
@@ -243,7 +244,8 @@ function inJson(text: string): string {
 const THIRD_AMENDMENT_ADDITIONS: Record<string, string[]> = {
   section: [inJson(reportFactsBlock())],
   repair: [inJson(reportFactsBlock())],
-  selfCheck: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)],
+  // 2026-10-29: the bodies are compared with the inference marker's line taken out.
+  selfCheck: [inJson(withoutInferenceMarkerText(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`))],
 };
 
 async function draftAndHash(args: {
@@ -304,8 +306,11 @@ async function hashesOf(asSent: Sent[]): Promise<{
   // prompt lost one sentence. Exactly those spans are put back, so every
   // other byte is still pinned (these fixtures list no merged item, so the
   // checklist is unchanged).
+  // 2026-10-29 (owner): the inference marker's rule and check lines are put
+  // back to before (convex/inferenceMarker.fixture.ts), so every other byte
+  // is still pinned.
   const sent = asSent.map((request) => {
-    const body = withPinnedLine242Opening(request.body);
+    const body = withoutInferenceMarker(withPinnedLine242Opening(request.body));
     return {
       ...request,
       body:

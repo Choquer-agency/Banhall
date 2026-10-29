@@ -46,7 +46,8 @@ import {
 import {
   sectionMetrics,
   wordBudget,
-  GAP_MARKER_RE,
+  INFERRED_MARKER_RE,
+  NOTE_MARKER_RE,
   LINE_LIMITS,
   CHARS_PER_LINE,
   type LengthTarget,
@@ -457,7 +458,8 @@ function useCounts(uses: readonly string[]): Map<string, number> {
 /**
  * Why a compression pass dropped required content, or null when it kept it
  * (review P2-1; 2026-09-28 second, full suite). A pass must keep every [GAP] marker of
- * the text it was given verbatim. A number, or a negation read with the word
+ * the text it was given verbatim, and (2026-10-29) every [INFERRED] marker,
+ * adding none of its own. A number, or a negation read with the word
  * it negates, that the text holds and a Must keep line also holds must still
  * appear somewhere in the pass; any other number or negation may go with the
  * detail it belongs to (the request forbids changing one). A pass under
@@ -473,8 +475,14 @@ export function compressionLoss(
   mustKeep: readonly string[] = [],
   exactTerms: readonly string[] = []
 ): string | null {
-  for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
+  // 2026-10-29: an [INFERRED: ...] marker is the writer's to accept or
+  // remove, so a pass keeps it verbatim as it keeps a gap, and adds none.
+  for (const match of input.matchAll(new RegExp(NOTE_MARKER_RE.source, "gi"))) {
     if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
+  }
+  const given = new Set([...input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))].map((match) => match[0]));
+  for (const match of output.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
+    if (!given.has(match[0])) return `added the marker ${match[0]}`;
   }
   for (const term of exactTerms) {
     if (containsTerm(input, term) && !containsTerm(output, term)) {

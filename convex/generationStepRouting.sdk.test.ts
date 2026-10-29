@@ -41,6 +41,7 @@ import { seedToolSchema } from "./lib/seedContract";
 import { seedToolSchemaForFacts } from "./lib/seedFacts";
 import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
+import { withoutInferenceMarkerJson } from "./inferenceMarker.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
@@ -468,10 +469,18 @@ const withoutLine242Opening = (json: Record<string, unknown>) => {
   const pinned = withPinnedLine242Opening(body);
   return pinned === body ? json : (JSON.parse(pinned) as Record<string, unknown>);
 };
+/**
+ * 2026-10-29 (owner): the inference marker's rule and check lines are the
+ * only bytes it added (convex/inferenceMarker.fixture.ts). Applied last:
+ * the compression line it added sits in the system text withoutLengthFix
+ * replaces whole.
+ */
 const asPinned = (json: Record<string, unknown>) =>
-  withoutLine242Opening(
-    withPinnedCompressionAnswer(
-      withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
+  withoutInferenceMarkerJson(
+    withoutLine242Opening(
+      withPinnedCompressionAnswer(
+        withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
+      )
     )
   );
 
@@ -487,7 +496,7 @@ const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_se
 const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
 async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
   // 2026-10-26: captured before the judges' larger limit and streaming.
-  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json)))))
+  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutInferenceMarkerJson(withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json))))))
     .submit_self_check;
 }
 
@@ -1068,7 +1077,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent, (json) => withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))));
+    const now = await stagesOf(wire.sent, (json) => withoutInferenceMarkerJson(withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json)))));
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);

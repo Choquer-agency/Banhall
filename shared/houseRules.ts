@@ -157,7 +157,7 @@ export const LOCKED_RULES: Array<{ title: string; summary: string }> = [
   {
     title: "No fabrication",
     summary:
-      "Nothing unsupported by the transcript/analysis; missing information becomes a [GAP: ...] placeholder.",
+      "Nothing unsupported by the transcript/analysis; missing information becomes a [GAP: ...] placeholder. A claim that follows from the evidence without being stated in it is written with an [INFERRED: what it rests on] note for the writer to check (2026-10-29).",
   },
   {
     title: "Formal prose and evidence discipline",

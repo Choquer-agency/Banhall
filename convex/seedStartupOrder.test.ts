@@ -28,6 +28,7 @@ import { SEED_PROMPT_PROGRAM, SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
 import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
+import { withoutInferenceMarker } from "./inferenceMarker.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
@@ -323,8 +324,9 @@ async function requestHashes(
     // request, which holds them exactly once. 2026-10-19: Line 242's plain
     // opening moved the analyzer's company and goal categories, the Company /
     // Context objective and the Line 242 drafting rules; the old texts are
-    // put back.
-    let json = withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body)));
+    // put back. 2026-10-29: so are the inference marker's rule and check
+    // lines (convex/inferenceMarker.fixture.ts).
+    let json = withoutInferenceMarker(withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))));
     if (name === "submit_seed_batch") {
       const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);
       expect(json.split(wording)).toHaveLength(2);

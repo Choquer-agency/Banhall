@@ -1157,8 +1157,12 @@ describe("prompt versions", () => {
     // Re-read after 2026-10-28 (eighth): the analysis's words for a document
     // sent in parts move on purpose; before it they were sha256:f7709e4b...
     // and sha256:2ecfaf15....
-    expect(await hashPromptProgram()).toBe("sha256:9bb679f89f09a55e29cd1122fb38ce561e5dcc4f460e25b87895d4c950e62f60");
-    expect(await legacyPromptVersion()).toBe("sha256:c93316ea7f1cc8b632c5d74b7c143cfdb9ef6563e11c062a0ffff432811c5b2a");
+    // Re-read after 2026-10-29 (inference marker): the shared writing rules'
+    // stated, inferred or missing block and the check, compression and
+    // Assistant lines on [INFERRED] notes move on purpose; before it they
+    // were sha256:9bb679f8... and sha256:c93316ea....
+    expect(await hashPromptProgram()).toBe("sha256:f8b22f23921dc395effb717feea854ccebd9a66703ba755a5f93620342cc5595");
+    expect(await legacyPromptVersion()).toBe("sha256:2ab7a8e343f5c83e0b14a8bcc5cf7ef9b0586bcb706ad51806e3bf3a3371964a");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });
