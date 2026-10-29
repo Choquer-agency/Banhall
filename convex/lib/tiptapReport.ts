@@ -25,7 +25,10 @@ export function sectionParagraphs(text: string): string[] {
 }
 
 /** Split section prose into Tiptap paragraph nodes, highlighting [GAP: …]
- * markers so the editor renders them as fill-me-in prompts. */
+ * markers so the editor renders them as fill-me-in prompts. An [INFERRED: …]
+ * marker (2026-10-29) stays plain text: the editor draws its chip as a
+ * decoration (src/lib/components/editor/inferenceNotes.ts), so a typed or
+ * Assistant-applied marker shows the same way. */
 export function textToParagraphs(text: string): Array<Record<string, unknown>> {
   return sectionParagraphs(text)
     .map((p) => {
