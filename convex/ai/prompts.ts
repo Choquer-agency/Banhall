@@ -491,9 +491,15 @@ BAD: "No documented methods existed for multi-species growth stage classificatio
 WRONG: "Existing PG rated windows max out at PG45."
 RIGHT: "Conventional frame design methods, glass-to-frame thermal break calculations and structural load distribution models size a window for one performance grade at a time, and window systems designed with them stop at PG45. These methods do not account for the combined stress factors present at higher grades, so they gave no known way to design a frame that exceeds PG45."`;
 
-/** 2026-10-29 (third), review round 1 (P3-2): Line 242 may name well-known general practice. */
+/**
+ * 2026-10-29 (third), review round 1 (P3-2): Line 242 may name well-known
+ * general practice. Review round 2 (P3-E): the writer's-own-structure build
+ * says it too; that build has no limitations rule after this line, so the
+ * text names the rule (in RULES_EVIDENCE_KINDS, sent to both) without
+ * "below".
+ */
 export const SECTION_242_GENERAL_PRACTICE_ALLOWED =
-  " (and well-known general practice, as the limitations rule below allows)";
+  " (and well-known general practice, as the limitations rule allows)";
 
 /** 2026-10-29 (third): the cause may come first, as the firm's approved PDs put it. */
 export const SECTION_242_CAUSE_FIRST =
@@ -511,7 +517,7 @@ export function buildSection242Instructions(
   if (overrides.reportSkeleton) {
     return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 242 (Scientific or Technological Uncertainty) of an SR&ED project description report.
 
-You will receive structured analysis of an interview transcript. Use ONLY the information provided.
+You will receive structured analysis of an interview transcript. Use ONLY the information provided${SECTION_242_GENERAL_PRACTICE_ALLOWED}.
 
 ${writerArchitectureBlock("Line 242", LINE_242_PURPOSE)}`;
   }
@@ -760,19 +766,34 @@ export const SECTION_246_KNOWLEDGE_LEADS =
  * 2026-10-29 (third), review round 1 (P2-1): with one paragraph per
  * uncertainty, an uncertainty the evidence reports nothing learned for
  * would otherwise get an invented finding to lead with. Its paragraph opens
- * with the uncertainty and its status instead, then one gap.
+ * with the uncertainty and its status instead, then one gap. Review round 2
+ * (P3-A): the status only as the evidence gives it, or a gap for it, so the
+ * exception invents no status either; and no gap for what was learned where
+ * the evidence says nothing has been learned yet.
  */
+export const SECTION_246_NO_FINDING_OPENING =
+  "open with the uncertainty and its status as the evidence gives it, or a [GAP: ...] for the status; then one [GAP: ...] for what has been learned, unless the evidence says nothing has been learned yet";
 export const SECTION_246_NOTHING_LEARNED_YET =
-  ' Where the evidence reports nothing learned yet for an uncertainty, this opening rule does not apply to its paragraph: open it with the uncertainty and its status (for example, "In addressing the uncertainty around [X], the work was still in progress at year end."), then one [GAP: ...] for what has been learned.';
+  ` Where the evidence gives no finding for an uncertainty, this opening rule does not apply to its paragraph: ${SECTION_246_NO_FINDING_OPENING}.`;
 export const SECTION_246_KNOWLEDGE_FIRST_EXCEPTION =
-  ", except a paragraph for an uncertainty where the evidence reports nothing learned yet, which opens with the uncertainty and its status";
+  ", except a paragraph for an uncertainty where the evidence gives no finding, which opens with the uncertainty and its status as the evidence gives it, or a [GAP: ...] for the status";
 export const SECTION_246_SELF_CHECK_EXCEPTION =
-  " Where the evidence reports nothing learned yet for the uncertainty, the paragraph opens with the uncertainty and its status instead, then one [GAP: ...].";
+  ` Where the evidence gives no finding for the uncertainty, do not lead with one: ${SECTION_246_NO_FINDING_OPENING}.`;
+/** Review round 2 (P3-A): the paragraph rules below take the same exception. */
+export const SECTION_246_NO_FINDING_PARAGRAPH =
+  ` Where the evidence gives no finding for the uncertainty, the paragraph states none: ${SECTION_246_NO_FINDING_OPENING}.`;
+
+/**
+ * 2026-10-29 (third), review round 2 (P3-B): the line's opening otherwise
+ * claims knowledge gained even where the evidence reports none yet.
+ */
+export const SECTION_246_OVERALL_NOTHING_LEARNED =
+  " Where the evidence reports nothing learned yet, open by restating the technological objective and say how far the work went, as the evidence shows.";
 
 export const SECTION_246_OVERALL_ADVANCEMENT = `**ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
-Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]." Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, put one [GAP: ...] for the result. This ties back directly to Section 242.`;
+Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]."${SECTION_246_OVERALL_NOTHING_LEARNED} Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, put one [GAP: ...] for the result. This ties back directly to Section 242.`;
 
-export const SECTION_246_ADVANCEMENT_RULES = `Each paragraph names the uncertainty, states what was learned about it, and gives its status in plain words, only as the evidence shows: resolved, resolved for the conditions tested, partially resolved, or unresolved. Then it says what remains open. For example: "In addressing the uncertainty around [X], the company gained knowledge that [what was learned]. The uncertainty was resolved for [the conditions tested]; [what remains open]."
+export const SECTION_246_ADVANCEMENT_RULES = `Each paragraph names the uncertainty, states what was learned about it, and gives its status in plain words, only as the evidence shows: resolved, resolved for the conditions tested, partially resolved, or unresolved. Then it says what remains open. For example: "In addressing the uncertainty around [X], the company gained knowledge that [what was learned]. The uncertainty was resolved for [the conditions tested]; [what remains open]."${SECTION_246_NO_FINDING_PARAGRAPH}
 
 Claim no more resolution than the evidence shows. A stated purpose or design intent ("to ensure...", "designed to...", "so that...") is a goal, not a result: never write it as achieved. Where the evidence does not give the result, state what it does establish, put one [GAP: ...] for the result or its status, and say plainly what remains open. Never build a paragraph from gap frames, and never put a [GAP: ...] straight after an opener such as "it was determined that".
 
@@ -788,7 +809,7 @@ BAD (a goal written as a result):
 BAD (a paragraph built from gap frames):
 "It was established that [GAP: what was learned]. This resolved the uncertainty regarding [GAP: which uncertainty]."
 
-GOOD (the evidence reports nothing learned yet):
+GOOD (the evidence says the work continues and reports no finding yet):
 "In addressing the uncertainty around holding the room within a degree while a door stays open, the work was still in progress at year end. [GAP: what has been learned about it so far]"
 
 GOOD (the evidence does not give the result):
@@ -976,10 +997,11 @@ export const QA_STANDARD_APPROACH_CHECK = `- IMPORTANT CLARIFICATION on knowledg
 /**
  * 2026-10-29 (third), review round 1: the opening of Line 246 follows item
  * 1d (P3-6), and a paragraph with nothing learned yet is not a capability
- * lead (P2-1).
+ * lead (P2-1). Review round 2 (P3-B): it restates the objective where the
+ * evidence reports nothing learned yet, as the drafter is told.
  */
 export const QA_246_OPENING_NOTE =
-  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field (or by restating the technological objective). Do NOT apply the advancement-paragraph opener rule to it.";
+  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports nothing learned yet, by restating the technological objective and saying how far the work went. Do NOT apply the advancement-paragraph opener rule to it.";
 export const QA_NOTHING_LEARNED_YET =
   "\n- A paragraph for an uncertainty where the evidence reports nothing learned yet may open with the uncertainty and its status and hold one [GAP: ...]: that is not a capability lead, so do not flag or deduct it.";
 /**

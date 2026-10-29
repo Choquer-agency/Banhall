@@ -84,7 +84,7 @@ describe("lineLengthsAfterEdit", () => {
     const at = (count: number) => report({ s242: sentence, s244: words(count), s246: sentence });
     const within = lineLengthsAfterEdit(at(760), at(761));
     expect(within).toContain("Line 244 would have 761 of 700 words (now 760)");
-    expect(within).toContain("over a CRA limit but within its drafting room of 840 words and 120 form lines, so it is trimmed before export.");
+    expect(within).toContain("over a CRA limit but within its drafting room of 840 words and 120 form lines, so it must still be trimmed to fit before export.");
     expect(within).not.toContain("takes it over");
     expect(lineLengthsAfterEdit(at(830), at(845))).toContain(
       "over a CRA limit, and this edit takes it over its drafting room of 840 words and 120 form lines."

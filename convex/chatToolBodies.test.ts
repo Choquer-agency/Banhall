@@ -508,7 +508,7 @@ describe("an edit to a Line over its CRA limit but within its drafting room (202
     );
     expect(reply).toContain("Once applied, Line 244 would have 762 of 700 words (now 761)");
     expect(reply).toContain(
-      "over a CRA limit but within its drafting room of 840 words and 120 form lines, so it is trimmed before export."
+      "over a CRA limit but within its drafting room of 840 words and 120 form lines, so it must still be trimmed to fit before export."
     );
     expect(reply).not.toContain("takes it over its drafting room");
   });

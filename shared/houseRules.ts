@@ -135,11 +135,12 @@ Do NOT skip this step. The word "novel" in particular appears frequently in AI-g
 // (third): the summary follows the relaxed drafting rules (standard approach
 // and shortfall, a hypothesis number only from the evidence, experiments as
 // far as the evidence goes, each advancement's status as the evidence shows).
+// Review round 2 (P3-D): an uncertainty with no finding is not given one.
 export const RULES_REPORT_SKELETON = `REPORT SKELETON (default architecture):
 Each line covers its content roles in the order given, in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one.
 - Line 242 (Scientific/Technological Uncertainty): company context → goal/problem → passive limitations of standard practice (the standard approaches, what they do and why they fall short here) → technological objective → active uncertainties, each with its cause.
 - Line 244 (Work Performed): optional prior-year status → workplan → one hypothesis per uncertainty in if/then form (a prediction with its reason, or the knowledge to be gained; a number only from the evidence) → experimentation paragraphs, each telling what was tried, what happened and what was changed, as far as the evidence shows, and ending with what was learned or what stayed unresolved → the year-end status.
-- Line 246 (Scientific/Technological Advancement): overall advancement as knowledge gained in the field → knowledge-first advancement paragraphs (one per uncertainty, each with its status only as the evidence shows) → project status and next steps → project-goal bookend, where the application is stated once.
+- Line 246 (Scientific/Technological Advancement): overall advancement as knowledge gained in the field → knowledge-first advancement paragraphs (one per uncertainty, each with its status only as the evidence shows; where the evidence gives no finding for an uncertainty, its paragraph opens with the uncertainty and its status, or a gap for the status, and states no finding) → project status and next steps → project-goal bookend, where the application is stated once.
 - The WHY-HOW-WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
 
 // ─── Display catalog for the admin House Rules page ─────────────────────────
@@ -167,7 +168,7 @@ export const LOCKED_RULES: Array<{ title: string; summary: string }> = [
   {
     title: "CRA form length limits",
     summary:
-      "Line/word caps from the T661 form (50/100/50 lines); enforced by compression, not negotiable.",
+      "Line/word caps from the T661 form (50/100/50 lines); enforced at export; drafts may run up to 20% over.",
   },
   {
     title: "No fabrication",

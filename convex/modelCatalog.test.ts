@@ -1184,9 +1184,13 @@ describe("prompt versions", () => {
     // pointer, Line 242's opening, the examples, QA's opener note and its
     // unreadable-source line, the Assistant's retry rule, the gaps heading,
     // two Seed objectives and the Seed version move on purpose; before it
-    // they were sha256:0ec90d51... and sha256:ed39c6c1....
-    expect(await hashPromptProgram()).toBe("sha256:316935b93f597ec3a38f9831048b628bca0457371d9efd07cbd150ff800fd0f6");
-    expect(await legacyPromptVersion()).toBe("sha256:3f48ba26dfc9efb7ae52c57be0cf9ed189e11b7f529c3afc937b910d9d1675f5");
+    // they were sha256:0ec90d51... and sha256:ed39c6c1.... Re-read after its
+    // review round 2: the no-finding exception for Line 246's paragraphs,
+    // its opening and QA's note, the report skeleton, the locked length
+    // summary and Line 242's general-practice line move on purpose; before
+    // it they were sha256:316935b9... and sha256:3f48ba26....
+    expect(await hashPromptProgram()).toBe("sha256:e0daa1cede24523f98445d2ea6265f22c751761209b387e42610e6941b6dbcee");
+    expect(await legacyPromptVersion()).toBe("sha256:8d059f8409f49302dde67789ceeb38846a348442cb50dda450996485f37d7afa");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

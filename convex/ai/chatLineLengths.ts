@@ -75,7 +75,7 @@ function afterEditVerdict(
     return `over a CRA limit, and this edit takes it over ${room}`;
   }
   if (overRoom(after)) return `over a CRA limit and over ${room}, no further than now`;
-  return `over a CRA limit but within ${room}, so it is trimmed before export`;
+  return `over a CRA limit but within ${room}, so it must still be trimmed to fit before export`;
 }
 
 /**
