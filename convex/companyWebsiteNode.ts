@@ -43,22 +43,37 @@ export function guardedLookup(resolve: Resolver = dns.lookup as unknown as Resol
   };
 }
 
-function decoderFor(contentType: string | null): TextDecoder {
-  const charset = /charset\s*=\s*"?([^";\s]+)/i.exec(contentType ?? "")?.[1];
-  try {
-    return new TextDecoder(charset ?? "utf-8");
-  } catch {
-    return new TextDecoder("utf-8");
+/**
+ * The body as text: in the Content-Type's charset, or else the one a
+ * `<meta charset>` (or `http-equiv` Content-Type) names in its first 1 KB,
+ * or else UTF-8.
+ */
+export function decodeBody(bytes: Buffer, contentType: string | null): string {
+  const fromHeader = /charset\s*=\s*"?([^";\s]+)/i.exec(contentType ?? "")?.[1];
+  const head = fromHeader ? "" : bytes.subarray(0, 1024).toString("latin1");
+  const fromMeta = fromHeader ? undefined : /<meta\b[^>]{0,300}?charset\s*=\s*["']?\s*([a-zA-Z0-9_:.-]+)/i.exec(head)?.[1];
+  for (const label of [fromHeader, fromMeta, "utf-8"]) {
+    if (!label) continue;
+    try {
+      return new TextDecoder(label).decode(bytes);
+    } catch {
+      // An unknown charset: try the next.
+    }
   }
+  return new TextDecoder("utf-8").decode(bytes);
 }
 
-/** The body, decompressed; the decompressor stops producing past `maxBytes` + 1. */
-function decompressed(response: http.IncomingMessage, maxBytes: number): Readable {
+/**
+ * The body, decompressed. zlib's streams take no output limit (its
+ * `maxOutputLength` applies only to the one-call buffer helpers), so the
+ * byte cap is kept by the data handler below, which destroys the stream as
+ * soon as `maxBytes` is passed.
+ */
+function decompressed(response: http.IncomingMessage): Readable {
   const encoding = String(response.headers["content-encoding"] ?? "").toLowerCase();
-  const limit = { maxOutputLength: maxBytes + 1 };
-  if (encoding === "gzip" || encoding === "x-gzip") return response.pipe(zlib.createGunzip(limit));
-  if (encoding === "deflate") return response.pipe(zlib.createInflate(limit));
-  if (encoding === "br") return response.pipe(zlib.createBrotliDecompress(limit));
+  if (encoding === "gzip" || encoding === "x-gzip") return response.pipe(zlib.createGunzip());
+  if (encoding === "deflate") return response.pipe(zlib.createInflate());
+  if (encoding === "br") return response.pipe(zlib.createBrotliDecompress());
   return response;
 }
 
@@ -66,8 +81,9 @@ function decompressed(response: http.IncomingMessage, maxBytes: number): Readabl
 export const WEBSITE_READER_USER_AGENT = "Mozilla/5.0 (compatible; WebsiteReader/1.0)";
 
 /**
- * One GET that never follows a redirect, stops at `maxBytes` of decoded body
- * (marking the page too large), downloads no body for a redirect or for
+ * One GET that never follows a redirect, stops at `maxBytes` of decompressed
+ * body (keeping those bytes and marking the page too large, so its first
+ * 2 MB are read), downloads no body for a redirect or for
  * anything that is not text/html, and gives up after `timeoutMs`. Every
  * request opens its own connection (`agent: false`), so no kept-alive
  * connection skips the guarded lookup, and no proxy from the environment is
@@ -113,13 +129,12 @@ export function createNodeFetch(options: { lookup?: ReturnType<typeof guardedLoo
             done(null, { status, location, contentType, body: "", tooLarge: false });
             return;
           }
-          const stream = decompressed(incoming, maxBytes);
+          const stream = decompressed(incoming);
           body = stream;
           const chunks: Buffer[] = [];
           let size = 0;
           const tooLarge = () => {
-            const text = decoderFor(contentType).decode(Buffer.concat(chunks));
-            done(null, { status, location, contentType, body: text, tooLarge: true });
+            done(null, { status, location, contentType, body: decodeBody(Buffer.concat(chunks), contentType), tooLarge: true });
           };
           stream.on("data", (chunk: Buffer) => {
             if (settled) return;
@@ -132,12 +147,10 @@ export function createNodeFetch(options: { lookup?: ReturnType<typeof guardedLoo
             size += chunk.length;
             chunks.push(chunk);
           });
-          stream.on("end", () => done(null, { status, location, contentType, body: decoderFor(contentType).decode(Buffer.concat(chunks)), tooLarge: false }));
-          stream.on("error", (error: NodeJS.ErrnoException) => {
-            // zlib stopping at maxOutputLength: the body is over the cap.
-            if (error.code === "ERR_BUFFER_TOO_LARGE" || size >= maxBytes) tooLarge();
-            else done(error);
-          });
+          stream.on("end", () =>
+            done(null, { status, location, contentType, body: decodeBody(Buffer.concat(chunks), contentType), tooLarge: false })
+          );
+          stream.on("error", (error) => done(error));
         }
       );
       const timer = setTimeout(() => {

@@ -9,7 +9,7 @@ import http from "node:http";
 import zlib from "node:zlib";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createNodeFetch, guardedLookup, WEBSITE_READER_USER_AGENT } from "../convex/companyWebsiteNode";
+import { createNodeFetch, decodeBody, guardedLookup, WEBSITE_READER_USER_AGENT } from "../convex/companyWebsiteNode";
 
 let server: http.Server;
 let port = 0;
@@ -46,6 +46,12 @@ beforeAll(async () => {
       response.writeHead(200, { "content-type": "text/html" });
       const timer = setInterval(() => response.write("x"), 100);
       response.on("close", () => clearInterval(timer));
+      return;
+    }
+    if (path === "/latin1-meta") {
+      // No charset in the header: the page says it in a <meta>.
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end(Buffer.from('<html><head><meta charset="iso-8859-1"></head><body><p>Qu\u00e9bec, \u00e9quipe</p></body></html>', "latin1"));
       return;
     }
     if (path === "/page") {
@@ -159,6 +165,25 @@ describe("createNodeFetch", () => {
     const started = Date.now();
     await expect(fetchPage(url("/slow"), { ...limits, timeoutMs: 300 })).rejects.toThrow();
     expect(Date.now() - started).toBeLessThan(3_000);
+  });
+});
+
+describe("decodeBody", () => {
+  const latin1 = (text: string) => Buffer.from(text, "latin1");
+  it("uses the header's charset first, then a <meta charset> in the first 1 KB, then UTF-8", () => {
+    expect(decodeBody(latin1("<p>\u00e9</p>"), "text/html; charset=ISO-8859-1")).toBe("<p>é</p>");
+    expect(decodeBody(latin1('<meta charset="windows-1252"><p>caf\u00e9 \u0080</p>'), "text/html")).toContain("café");
+    expect(
+      decodeBody(latin1('<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"><p>\u00e0 propos</p>'), "text/html")
+    ).toContain("à propos");
+    expect(decodeBody(Buffer.from("<p>é</p>", "utf8"), "text/html")).toBe("<p>é</p>");
+    // A <meta> past the first 1 KB is not looked at; an unknown charset falls back.
+    expect(decodeBody(latin1(`${" ".repeat(1100)}<meta charset="iso-8859-1"><p>\u00e9</p>`), null)).toContain("\ufffd");
+    expect(decodeBody(Buffer.from("<p>é</p>", "utf8"), "text/html; charset=nonsense-9")).toBe("<p>é</p>");
+  });
+
+  it("reads a page whose charset only its <meta> names", async () => {
+    expect((await fetchPage(url("/latin1-meta"), limits)).body).toContain("Québec, équipe");
   });
 });
 
