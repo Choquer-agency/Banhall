@@ -18,6 +18,32 @@ export const LINE_LIMITS = { s242: 50, s244: 100, s246: 50 } as const;
 export const WORD_CAPS = { s242: 350, s244: 700, s246: 350 } as const;
 
 /**
+ * 2026-10-29 (third, item 7, owner: "Its for when we export that they need
+ * to fit CRA's template, during generation we can be 15-20% over if needed
+ * to get the point across but shouldn't be a bottleneck."): the CRA limits
+ * above are export limits. While drafting, a Line may run up to this share
+ * over its word cap and its line limit; compression runs only above that
+ * ceiling, and aims under it, never down to the export limit. Export, its
+ * validation, the editor's meters and the Assistant's shorten options still
+ * hold a Line to the CRA limits. One number, so it can be tuned.
+ */
+export const GENERATION_LIMIT_ALLOWANCE = 0.2;
+
+/** The most a Line may hold while drafting: its CRA limits plus the allowance (420/840/420 words, 60/120/60 lines). */
+export function generationCeiling(section: SectionKey): { wordCap: number; lineLimit: number } {
+  return {
+    wordCap: Math.floor(WORD_CAPS[section] * (1 + GENERATION_LIMIT_ALLOWANCE)),
+    lineLimit: Math.floor(LINE_LIMITS[section] * (1 + GENERATION_LIMIT_ALLOWANCE)),
+  };
+}
+
+/** Whether measured text is over the drafting ceiling (gap-stripped, like the CRA limits). */
+export function overGenerationCeiling(metrics: { words: number; lines: number }, section: SectionKey): boolean {
+  const ceiling = generationCeiling(section);
+  return metrics.words > ceiling.wordCap || metrics.lines > ceiling.lineLimit;
+}
+
+/**
  * Length preference (client email: parameterizable — shorter for quick
  * review, fuller for trim-down editing). Fraction of the line limit the
  * generator should aim for.

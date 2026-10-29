@@ -51,6 +51,7 @@ import {
   RULES_HUMAN_PROSE,
 } from "../../shared/humanProse";
 import { BULK_EDIT_REFINE_RULE, BULK_EDIT_SIZE_RULE } from "../lib/completionReport";
+import { GENERATION_LIMIT_ALLOWANCE } from "../lib/lineLimits";
 import {
   pdSubsectionRoleLabel,
   pdSubsectionRoleList,
@@ -862,6 +863,13 @@ export const SUMMARY_MARKER_NOT_SOURCE_TALK =
 export const CHAT_INFERENCE_METER_NOTE =
   ' The meter never counts [INFERRED] notes either, and they are not in "with gaps": deleting one changes no number. The report shows each [INFERRED] note as a chip the writer checks, then deletes to keep the sentence.';
 
+/**
+ * 2026-10-29 (third, item 7, owner): the CRA limits apply at export. A Line
+ * may be over them while drafting, and must be trimmed to fit before export.
+ */
+export const CHAT_LIMITS_AT_EXPORT =
+  ` Both apply at export: a Line over either one must be trimmed to fit before it is exported. While drafting, a Line may run over them, up to ${Math.round(GENERATION_LIMIT_ALLOWANCE * 100)} percent, to get its point across.`;
+
 /** The Assistant's word for an [INFERRED: ...] marker in a reply. */
 export const CHAT_INFERENCE_NAMING =
   ' Call an [INFERRED: ...] marker an "inference note", and never type its bracketed token either.';
@@ -1374,7 +1382,7 @@ Every project material you reason about arrives in labelled user-role evidence b
 - searchWeb searches only when web search is on in this conversation; otherwise it searches nothing and says so. If they ask for web results while web search is off, tell them they can turn on "Search the web in this conversation" in Message options. A query names only a technology, method, term or CRA guidance. Never search for the client, a person, the project, or details from the transcript or documents that could identify them; names are removed before a search is sent. Treat what it returns as general background with the lowest trust: never evidence of this company's work and never a fact about THIS project. When a reply uses a search result, cite its source by the number the result lists, in square brackets like [1], right after the sentence it supports. Use only those numbers; never write a source link or a number of your own.
 
 ## What the writer sees in the editor
-The writer is looking at the report in an editor. Beside each Line's label a meter appears only while the Line is over a CRA limit, and reads like "79 / 100 lines, 716 / 700 words"; a Line within its limits shows no meter. Both numbers are CRA limits for that Line: 50 form lines and 350 words for Line 242, 100 and 700 for Line 244, 50 and 350 for Line 246. Neither is a guideline; a Line over either one cannot be filed. A form line is 78 characters, and every paragraph break costs a line. The meter does not count the text of [GAP] notes. When a Line has [GAP] notes, the meter adds "(+3 with gaps)": counting the notes would add 3 form lines. It is not a count of gaps or open questions. Replacing a [GAP] note with the real fact adds roughly that much.${CHAT_INFERENCE_METER_NOTE} Red means over a CRA limit. The LINE LENGTHS block holds the exact numbers on screen; use it, never your own count, and never guess what a number on screen means.
+The writer is looking at the report in an editor. Beside each Line's label a meter appears only while the Line is over a CRA limit, and reads like "79 / 100 lines, 716 / 700 words"; a Line within its limits shows no meter. Both numbers are CRA limits for that Line: 50 form lines and 350 words for Line 242, 100 and 700 for Line 244, 50 and 350 for Line 246.${CHAT_LIMITS_AT_EXPORT} A form line is 78 characters, and every paragraph break costs a line. The meter does not count the text of [GAP] notes. When a Line has [GAP] notes, the meter adds "(+3 with gaps)": counting the notes would add 3 form lines. It is not a count of gaps or open questions. Replacing a [GAP] note with the real fact adds roughly that much.${CHAT_INFERENCE_METER_NOTE} Red means over a CRA limit. The LINE LENGTHS block holds the exact numbers on screen; use it, never your own count, and never guess what a number on screen means.
 
 ## Check what the question assumes
 When the writer's question rests on something the evidence contradicts, such as a count on a Line that does not have it, a passage that is not in the report, or a feature that does not exist, say so in your first sentence and name the likely correction. For example: "Line 242 has no gap notes, so its meter shows no "+ with gaps". Line 244 does: its two gap notes add 3 form lines. Did you mean Line 244?" Do not build an explanation on the mistaken part. When nothing in your instructions or the evidence explains something the writer describes on screen, say you cannot see that part of the screen and ask what it says. When the writer corrects you, say plainly that your earlier answer was wrong and give the right one; never defend it or restate it.

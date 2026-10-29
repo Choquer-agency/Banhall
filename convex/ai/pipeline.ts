@@ -51,11 +51,13 @@ import {
   stripNoteMarkers,
   LINE_LIMITS,
   CHARS_PER_LINE,
+  generationCeiling,
+  overGenerationCeiling,
   type LengthTarget,
   type SectionKey,
 } from "../lib/lineLimits";
 import {
-  effectiveLineLimits,
+  draftingLineLimits,
   writerCapText,
   type WriterLineCap,
 } from "../lib/writerLineCap";
@@ -155,11 +157,13 @@ export function compressionTargetWords(
   current?: { words: number; lines: number },
   writerCap: WriterLineCap | null = null
 ): number {
-  const limits = effectiveLineLimits(section, writerCap);
-  let words = Math.min(
-    wordBudget(section, target),
-    Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom)
-  );
+  // 2026-10-29 (third, item 7): with no writer's cap, a pass runs only over
+  // the drafting ceiling and aims under it, never down to the export limit
+  // or the length budget.
+  const limits = draftingLineLimits(section, writerCap);
+  let words = writerCap
+    ? Math.min(wordBudget(section, target), Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom))
+    : Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom);
   if (current && current.lines > limits.lineLimit) {
     words = Math.min(
       words,
@@ -224,11 +228,12 @@ export async function compressSection(
     );
   }
   const scaffold = COMPRESSION_REQUEST.userScaffold;
+  const ceiling = generationCeiling(section);
   return await requestCompression(
     anthropic,
     modelId,
     text,
-    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToAllowance}${ceiling.lineLimit}${scaffold.ceilingLinesToWords}${ceiling.wordCap}${scaffold.ceilingWordsToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
   );
 }
 
@@ -247,7 +252,8 @@ export function finalCutTargetWords(
   writerCap: WriterLineCap | null = null
 ): number {
   const headroom = COMPRESSION_REQUEST.finalCut.capHeadroom;
-  const limits = effectiveLineLimits(section, writerCap);
+  // 2026-10-29 (third, item 7): with no writer's cap, under the drafting ceiling.
+  const limits = draftingLineLimits(section, writerCap);
   let words = Math.floor(limits.wordCap * headroom);
   if (current.lines > limits.lineLimit) {
     words = Math.min(
@@ -261,6 +267,8 @@ export function finalCutTargetWords(
 /**
  * 2026-09-28 (fifth): whether the targeted pass applies: the text is over a
  * Locked limit, and over each limit by at most `finalCut.maxOverage` of it.
+ * 2026-10-29 (third, item 7): the Locked case passes the drafting ceiling as
+ * its limits (ceilingMetrics).
  */
 export function withinFinalCutReach(metrics: {
   overLimit: boolean;
@@ -297,11 +305,12 @@ async function finalCutSection(
     );
   }
   const scaffold = COMPRESSION_REQUEST.finalCut.userScaffold;
+  const ceiling = generationCeiling(section);
   return await requestCompression(
     anthropic,
     modelId,
     text,
-    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToAllowance}${ceiling.lineLimit}${scaffold.ceilingLinesToWords}${ceiling.wordCap}${scaffold.ceilingWordsToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
   );
 }
 
@@ -378,19 +387,51 @@ export function limitOverage(text: string, key: SectionKey): number {
 }
 
 /**
+ * 2026-10-29 (third, item 7): whether `text` is over the drafting ceiling,
+ * the CRA limits plus GENERATION_LIMIT_ALLOWANCE. Compression and the
+ * repair's length choices treat that ceiling as the hard limit while
+ * drafting; the CRA limits apply at export.
+ */
+export function overCeiling(text: string, key: SectionKey): boolean {
+  return overGenerationCeiling(sectionMetrics(text, key), key);
+}
+
+/** How far `text` is from its drafting ceiling: its word and line ratios to it (at most 1 within it). */
+export function ceilingOverage(text: string, key: SectionKey): number {
+  const metrics = sectionMetrics(text, key);
+  const ceiling = generationCeiling(key);
+  return Math.max(metrics.words / ceiling.wordCap, metrics.lines / ceiling.lineLimit);
+}
+
+/** The text's metrics against its drafting ceiling, in the shape withinFinalCutReach reads. */
+function ceilingMetrics(text: string, key: SectionKey) {
+  const metrics = sectionMetrics(text, key);
+  const ceiling = generationCeiling(key);
+  return {
+    words: metrics.words,
+    lines: metrics.lines,
+    wordCap: ceiling.wordCap,
+    limit: ceiling.lineLimit,
+    overLimit: overGenerationCeiling(metrics, key),
+  };
+}
+
+/**
  * 2026-10-04 (first): the metrics of `text` against the limits it must meet,
  * the writer's cap where it is below the Locked cap: `overLimit` is over
  * either, `wordCap` and `limit` are the writer's where set.
  */
 function capMetrics(text: string, key: SectionKey, writerCap: WriterLineCap) {
   const metrics = sectionMetrics(text, key);
-  const limits = effectiveLineLimits(key, writerCap);
+  // 2026-10-29 (third, item 7): the writer's cap, else the drafting ceiling.
+  const limits = draftingLineLimits(key, writerCap);
   return {
     words: metrics.words,
     lines: metrics.lines,
     wordCap: limits.wordCap,
     limit: limits.lineLimit,
-    overLimit: metrics.overLimit || metrics.words > limits.wordCap || metrics.lines > limits.lineLimit,
+    // 2026-10-29 (third, item 7): the drafting ceiling, not the export limit.
+    overLimit: overGenerationCeiling(metrics, key) || metrics.words > limits.wordCap || metrics.lines > limits.lineLimit,
   };
 }
 
@@ -409,8 +450,9 @@ export function closerToLimits(
   writerCap: WriterLineCap | null
 ): boolean {
   if (!writerCap) return limitOverage(out, key) < limitOverage(best, key);
-  const lockedOut = Math.max(1, limitOverage(out, key));
-  const lockedBest = Math.max(1, limitOverage(best, key));
+  // 2026-10-29 (third, item 7): texts within the drafting ceiling are equally placed.
+  const lockedOut = Math.max(1, ceilingOverage(out, key));
+  const lockedBest = Math.max(1, ceilingOverage(best, key));
   if (lockedOut !== lockedBest) return lockedOut < lockedBest;
   const writer = (text: string) => {
     const metrics = capMetrics(text, key, writerCap);
@@ -667,6 +709,7 @@ export function coverItemLoss(
 export type LimitFit = {
   text: string;
   passes: number;
+  /** Over the drafting ceiling (2026-10-29, third, item 7), not the export limit. */
   overLimit: boolean;
   error?: unknown;
   heldForPlan?: number;
@@ -742,6 +785,12 @@ export function meetsWriterCap(text: string, key: SectionKey, writerCap: WriterL
  * items outrank the writer's cap, so a pass run only for it (its text
  * within the Locked limits) that drops words of a COVER item is not kept
  * (coverItemLoss, counted in `heldForPlan`).
+ *
+ * 2026-10-29 (third, item 7, owner): the CRA limits apply at export. Here a
+ * Line counts as over only above its drafting ceiling (the CRA limits plus
+ * GENERATION_LIMIT_ALLOWANCE, generationCeiling), and every pass and the
+ * targeted pass aim under that ceiling, never down to the export limit. A
+ * writer's own cap below the CRA cap is still met as before.
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -800,7 +849,7 @@ export async function compressWithinLimit(
     }
     // Signed-off items outrank the writer's cap: a pass that only the
     // writer's cap asked for never takes words of one.
-    const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
+    const forWriterOnly = writerCap !== null && !overCeiling(best, key);
     // Round 5 (rule 11; review P1-2): nor breaks a wording rule its text
     // kept. A pass for a Locked limit is judged as before (Locked outranks
     // both), and a break it brings is measured on the final text.
@@ -838,9 +887,10 @@ export async function compressWithinLimit(
     ...(heldBack > 0 ? { heldBack } : {}),
     ...(heldForFigures > 0 ? { heldForFigures } : {}),
   });
-  // Over a Locked limit, or over the writer's cap where one is set.
+  // Over the drafting ceiling (2026-10-29, third, item 7: the CRA limits
+  // plus GENERATION_LIMIT_ALLOWANCE), or over the writer's cap where one is set.
   const over = (value: string) =>
-    writerCap ? capMetrics(value, key, writerCap).overLimit : sectionMetrics(value, key).overLimit;
+    writerCap ? capMetrics(value, key, writerCap).overLimit : overCeiling(value, key);
   for (const squeeze of COMPRESSION_REQUEST.squeezes) {
     const metrics = sectionMetrics(best, key);
     if (!over(best)) break;
@@ -859,7 +909,7 @@ export async function compressWithinLimit(
         writerCap
       );
     } catch (error) {
-      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
+      return fit({ text: best, passes, overLimit: overCeiling(best, key), error });
     }
     keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics, writerCap), false);
   }
@@ -872,14 +922,14 @@ export async function compressWithinLimit(
   // reach), with the same guards: a pass for the writer's cap alone never
   // takes words of a signed-off item (coverItemLoss), keeps the Must keep
   // figures and never ends a paragraph mid-sentence.
-  const writerOnly = writerCap !== null && !metrics.overLimit && capMetrics(best, key, writerCap).overLimit;
+  const writerOnly = writerCap !== null && !overCeiling(best, key) && capMetrics(best, key, writerCap).overLimit;
   // A targeted pass the old 10 percent reach would not have sent.
   const pastReach = writerOnly && writerCap !== null && !withinFinalCutReach(capMetrics(best, key, writerCap));
   const aim: WriterLineCap | null | undefined = !options.finalCut
     ? undefined
     : writerCap && (writerOnly || withinFinalCutReach(capMetrics(best, key, writerCap)))
       ? writerCap
-      : withinFinalCutReach(metrics)
+      : withinFinalCutReach(ceilingMetrics(best, key))
         ? null
         : undefined;
   if (aim !== undefined) {
@@ -888,11 +938,11 @@ export async function compressWithinLimit(
       passes += 1;
       compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms, aim);
     } catch (error) {
-      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
+      return fit({ text: best, passes, overLimit: overCeiling(best, key), error });
     }
     keep(compressed, finalCutTargetWords(key, metrics, aim), true, pastReach);
   }
-  return fit({ text: best, passes, overLimit: sectionMetrics(best, key).overLimit });
+  return fit({ text: best, passes, overLimit: overCeiling(best, key) });
 }
 
 /** Where a paragraph may end: sentence punctuation, a closing quote or bracket. */

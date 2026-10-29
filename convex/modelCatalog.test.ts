@@ -1176,8 +1176,12 @@ describe("prompt versions", () => {
     // evidence, the goal-as-result check lines, the gaps already asked,
     // the Assistant's skeleton and three Seed objectives move on purpose;
     // before it they were sha256:06c66f89... and sha256:a18aa300....
-    expect(await hashPromptProgram()).toBe("sha256:b501156ea8fb482917df750aa2840a938f4fed0c186b43c238ce3eacddb25bc3");
-    expect(await legacyPromptVersion()).toBe("sha256:e828e9f7cc0f2fe6494b800fdd2d36d96056333aa3ce06d313ca590244fc1a01");
+    // Re-read after its item 7: the drafting allowance over the CRA limits,
+    // the compression wording that names it and the Assistant's words on
+    // the limits move on purpose; before it they were sha256:b501156e...
+    // and sha256:e828e9f7....
+    expect(await hashPromptProgram()).toBe("sha256:0ec90d5150e7c506938a64afaf2daa20011bed5ccdb6fcb0c9014d847aecc22e");
+    expect(await legacyPromptVersion()).toBe("sha256:ed39c6c19fc8014446c70a696cf69f18c409bb935f36917494ba14225e5db093");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

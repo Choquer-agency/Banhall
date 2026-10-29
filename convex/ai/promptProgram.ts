@@ -29,6 +29,7 @@ import {
   LENGTH_TARGETS,
   LINE_LIMITS,
   WORD_CAPS,
+  GENERATION_LIMIT_ALLOWANCE,
   WORD_BUDGET_USABLE_LINE_FACTOR,
   WORD_BUDGET_WORDS_PER_LINE,
   wordBudget,
@@ -737,6 +738,9 @@ export const generationPromptProgram = {
       // 2026-10-04 (first), Round 4: within the Locked caps it runs toward
       // the writer's cap whatever the overage.
       finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over-or-over-only-the-writers-cap",
+      // 2026-10-29 (third, item 7): every pass runs only over the drafting
+      // ceiling and aims under it (or under the writer's cap).
+      runsOver: "drafting-ceiling-cra-limits-plus-allowance-or-the-writers-cap",
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {
@@ -1001,6 +1005,10 @@ export const generationPromptProgram = {
       charsPerLine: CHARS_PER_LINE,
       lineLimits: LINE_LIMITS,
       wordCaps: WORD_CAPS,
+      // 2026-10-29 (third, item 7): the CRA limits apply at export; while
+      // drafting a Line may run this share over them before it is compressed.
+      generationLimitAllowance: GENERATION_LIMIT_ALLOWANCE,
+      generationCeilingRounding: "floor",
       lengthTargets: LENGTH_TARGETS,
       wordBudgetFormula: {
         usableLineFactor: WORD_BUDGET_USABLE_LINE_FACTOR,

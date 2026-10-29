@@ -69,7 +69,7 @@ import {
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
 import { anthropicToolSse, sseResponse, streamWhenAsked } from "./anthropicSse.fixture";
 import { compressionTargetWords, lengthBudgetBlock } from "./ai/pipeline";
-import { draftWordTarget, wordBudget } from "./lib/lineLimits";
+import { draftWordTarget, generationCeiling, wordBudget } from "./lib/lineLimits";
 import { RULES_ANALYSIS_FIGURES, RULES_HUMAN_PROSE } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -403,8 +403,11 @@ const withoutQuoteRules = (json: Record<string, unknown>) => {
  */
 const COMPRESSION_SYSTEM_771AF202 =
   "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.\n\n";
+// 2026-10-29 (third, item 7): the request names the drafting ceiling after
+// the CRA limits, and aims under it; the normalizer below checks both and
+// puts the pinned wording back.
 const COMPRESSION_USER_NOW =
-  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words\. Rewrite it to AT MOST (\d+) words: cut at least (\d+) words, about (\d+) percent of it, while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
+  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words, which it must meet before export\. While drafting it may run up to (\d+) percent over them, to (\d+) lines and (\d+) words, and it is over that\. Rewrite it to AT MOST (\d+) words: cut at least (\d+) words, about (\d+) percent of it, while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
 /**
  * 2026-09-28 (second, full suite): ordered-chain drafts and repairs ask for the draft
  * target, 85 percent of the word cap, where the pins asked for the length
@@ -432,8 +435,13 @@ const withoutLengthFix = (json: Record<string, unknown>) => {
   const block = edited.messages[0].content[0];
   const match = COMPRESSION_USER_NOW.exec(block.text);
   if (!match) throw new Error("Unexpected compression request wording");
-  const [, lines, words, limit, chars, cap, target, cut, , text] = match;
+  const [, lines, words, limit, chars, cap, allowance, ceilingLines, ceilingWords, target, cut, , text] = match;
   const key = cap === "700" ? "s244" : "s242";
+  expect([Number(allowance), Number(ceilingLines), Number(ceilingWords)]).toEqual([
+    20,
+    generationCeiling(key).lineLimit,
+    generationCeiling(key).wordCap,
+  ]);
   expect(Number(target)).toBe(compressionTargetWords(key, "standard"));
   expect(Number(cut)).toBe(Number(words) - Number(target));
   block.text = `This section is ${lines} lines / ${words} words, but the CRA field allows only ${limit} lines of ${chars} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${wordBudget(key, "standard")} words while preserving all technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n${text}`;

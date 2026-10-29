@@ -15,6 +15,7 @@ import {
   ANALYZER_SYSTEM_PROMPT,
   CHAT_ADVANCEMENT_STATUS,
   CHAT_EXPERIMENT_ORDER,
+  CHAT_LIMITS_AT_EXPORT,
   CHAT_HYPOTHESIS_THEN,
   CHAT_STANDARD_APPROACH,
   QA_EXPERIMENT_ARC_CHECK,
@@ -44,7 +45,22 @@ import {
   buildSectionStructureRules,
   buildSharedWritingRules,
 } from "./prompts";
-import { FACTS_GOAL_AS_RESULT, ORDERED_PROMPT_SCAFFOLDS, gapsAlreadyAskedBlock } from "./promptDefinitions";
+import {
+  COMPRESSION_LIMITS_AT_EXPORT,
+  COMPRESSION_REQUEST,
+  FACTS_GOAL_AS_RESULT,
+  ORDERED_PROMPT_SCAFFOLDS,
+  gapsAlreadyAskedBlock,
+} from "./promptDefinitions";
+import { compressToFit, compressWithinLimit, compressionTargetWords, finalCutTargetWords } from "./pipeline";
+import {
+  GENERATION_LIMIT_ALLOWANCE,
+  generationCeiling,
+  overGenerationCeiling,
+  sectionMetrics,
+} from "../lib/lineLimits";
+import { draftingLineLimits } from "../lib/writerLineCap";
+import { LOCKED_WITHIN_ALLOWANCE } from "../lib/selfCheckRules";
 import { factsMatchSourcesInstruction } from "./selfCheck";
 import { checkBannedWords, checkBecauseClauses } from "./qaChecks";
 import { QA_REQUEST, qaSourceEvidenceBlock, runQAAgent } from "./qaAgent";
@@ -518,5 +534,84 @@ describe("the pinned-request fixture", () => {
     expect(() => withoutHonestDraftingText(buildQaSystemPrompt(), "draft")).toThrow(/holds the honest drafting additions/);
     // A Line 244 draft put back holds the five elements again.
     expect(withoutHonestDraftingText(buildSection244Instructions(), "draft")).toContain("3. WHAT WENT WRONG OR WAS LEARNED (1-2 sentences)");
+  });
+});
+
+describe("drafts may run over the CRA limits until export (7)", () => {
+  /** `count` words in short sentences, one paragraph; no digit or negation. */
+  const words = (count: number) =>
+    `${Array.from({ length: count }, (_, index) => `word${String.fromCharCode(97 + (index % 26))}`).join(" ")}.`;
+  /** A client that answers each compression request with the next text, then echoes nothing new. */
+  function compressor(answers: string[]) {
+    const queue = [...answers];
+    const create = vi.fn(async () => ({
+      content: [{ type: "text", text: queue.shift() ?? "" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }));
+    const anthropic = { messages: { create } } as unknown as GenerationClient;
+    return { create, anthropicFor: () => anthropic };
+  }
+
+  it("has one allowance, 20 percent, over each CRA limit", () => {
+    expect(GENERATION_LIMIT_ALLOWANCE).toBe(0.2);
+    expect(generationCeiling("s242")).toEqual({ wordCap: 420, lineLimit: 60 });
+    expect(generationCeiling("s244")).toEqual({ wordCap: 840, lineLimit: 120 });
+    expect(generationCeiling("s246")).toEqual({ wordCap: 420, lineLimit: 60 });
+    expect(overGenerationCeiling({ words: 420, lines: 60 }, "s246")).toBe(false);
+    expect(overGenerationCeiling({ words: 421, lines: 30 }, "s246")).toBe(true);
+    expect(overGenerationCeiling({ words: 300, lines: 61 }, "s246")).toBe(true);
+    // The writer's own cap stays; without one, the ceiling is the limit while drafting.
+    expect(draftingLineLimits("s246", null)).toEqual({ wordCap: 420, lineLimit: 60 });
+    expect(draftingLineLimits("s246", { words: 260 })).toEqual({ wordCap: 260, lineLimit: 60 });
+    expect(draftingLineLimits("s246", { lines: 40 })).toEqual({ wordCap: 420, lineLimit: 40 });
+  });
+
+  it("does not compress a Line at 110 percent of its limit", async () => {
+    const text = words(385);
+    expect(sectionMetrics(text, "s246")).toMatchObject({ words: 385, overLimit: true });
+    const run = compressor([]);
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", text, "standard", undefined, [], [], { finalCut: true });
+    expect(run.create).not.toHaveBeenCalled();
+    expect(fit).toEqual({ text, passes: 0, overLimit: false });
+    expect(await compressToFit(run.anthropicFor, "claude-sonnet-5", "s246", text, "standard")).toBe(text);
+  });
+
+  it("compresses a Line above 120 percent to under 120 percent, not down to the export limit", async () => {
+    const text = words(480);
+    const underCeiling = words(400);
+    expect(overGenerationCeiling(sectionMetrics(text, "s246"), "s246")).toBe(true);
+    const run = compressor([underCeiling]);
+    const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", text, "standard", undefined, [], [], { finalCut: true });
+    // One pass, kept at 400 words: over the CRA limit, under the ceiling, so it stops.
+    expect(run.create).toHaveBeenCalledTimes(1);
+    expect(fit).toEqual({ text: underCeiling, passes: 1, overLimit: false });
+    expect(sectionMetrics(fit.text, "s246").overLimit).toBe(true);
+    // The pass aims at 85 percent of the ceiling, and says so after the CRA limits.
+    expect(compressionTargetWords("s246", "standard")).toBe(357);
+    expect(compressionTargetWords("s244", "standard")).toBe(714);
+    expect(finalCutTargetWords("s246", { words: 440, lines: 40 })).toBe(399);
+    const params = (run.create.mock.calls[0] as unknown as [{ system: string; messages: Array<{ content: string }> }])[0];
+    expect(params.messages[0]!.content).toContain(
+      "and at most 350 words, which it must meet before export. While drafting it may run up to 20 percent over them, to 60 lines and 420 words, and it is over that. Rewrite it to AT MOST 357 words"
+    );
+    expect(params.system).toContain(COMPRESSION_LIMITS_AT_EXPORT);
+    expect(COMPRESSION_REQUEST.system).not.toContain("cannot be filed");
+  });
+
+  it("names the drafting allowance in the Locked row (convex/sectionLengthLimit.sdk.test.ts runs it)", () => {
+    expect(LOCKED_WITHIN_ALLOWANCE).toBe("over the CRA limit but within the drafting allowance");
+  });
+
+  it("the Assistant says the limits apply at export", () => {
+    const prompt = buildChatSystemPromptV2();
+    expect(prompt).toContain(CHAT_LIMITS_AT_EXPORT);
+    expect(CHAT_LIMITS_AT_EXPORT).toBe(
+      " Both apply at export: a Line over either one must be trimmed to fit before it is exported. While drafting, a Line may run over them, up to 20 percent, to get its point across."
+    );
+    expect(prompt).not.toContain("cannot be filed");
+    for (const text of [CHAT_LIMITS_AT_EXPORT, COMPRESSION_LIMITS_AT_EXPORT, LOCKED_WITHIN_ALLOWANCE]) {
+      expect(findDashConnectors(text)).toEqual([]);
+    }
   });
 });

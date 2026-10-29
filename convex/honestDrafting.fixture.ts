@@ -9,6 +9,7 @@ import {
   CHAT_ADVANCEMENT_STATUS,
   CHAT_EXPERIMENT_ORDER,
   CHAT_HYPOTHESIS_THEN,
+  CHAT_LIMITS_AT_EXPORT,
   CHAT_STANDARD_APPROACH,
   QA_BECAUSE_SCAN_WORDS,
   QA_EXPERIMENT_ARC_CHECK,
@@ -173,6 +174,8 @@ export const HONEST_DRAFTING_SWAPS: ReadonlyArray<readonly [now: string, before:
   [CHAT_ADVANCEMENT_STATUS, "one per resolved uncertainty"],
   ["the specific technological advancements (one per uncertainty)", "the specific technological advancements (one per resolved uncertainty)"],
   ["the specific advancements (one per uncertainty)", "the specific advancements (one per resolved uncertainty)"],
+  // Item 7: the limits apply at export.
+  [CHAT_LIMITS_AT_EXPORT, " Neither is a guideline; a Line over either one cannot be filed."],
   [objectiveOf("hypothesis"), PINNED_OBJECTIVES.hypothesis],
   [objectiveOf("experimentation"), PINNED_OBJECTIVES.experimentation],
   [objectiveOf("specific_advancements"), PINNED_OBJECTIVES.specific_advancements],

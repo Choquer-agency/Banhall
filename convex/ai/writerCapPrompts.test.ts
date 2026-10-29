@@ -114,14 +114,16 @@ describe("the length blocks under a writer's cap", () => {
 
 describe("the shortening passes under a writer's cap", () => {
   it("aim under the writer's cap with the Locked headroom, and as before without one", () => {
-    expect(compressionTargetWords("s246", "standard")).toBe(297);
-    expect(compressionTargetWords("s246", "standard", 1, undefined, null)).toBe(297);
+    // 2026-10-29 (third, item 7): with no writer's cap, under the drafting
+    // ceiling (420 words for Line 246), not the length budget.
+    expect(compressionTargetWords("s246", "standard")).toBe(357);
+    expect(compressionTargetWords("s246", "standard", 1, undefined, null)).toBe(357);
     expect(compressionTargetWords("s246", "standard", 1, undefined, CAP_260)).toBe(221);
     expect(compressionTargetWords("s246", "standard", 0.85, undefined, CAP_260)).toBe(188);
     expect(compressionTargetWords("s244", "standard", 1, undefined, { words: 520 })).toBe(442);
     // A writer's line cap holds a Line over it to the words that fit it.
     expect(compressionTargetWords("s242", "standard", 1, { words: 300, lines: 45 }, { lines: 40 })).toBe(226);
-    expect(finalCutTargetWords("s246", { words: 270, lines: 30 })).toBe(332);
+    expect(finalCutTargetWords("s246", { words: 270, lines: 30 })).toBe(399);
     expect(finalCutTargetWords("s246", { words: 270, lines: 30 }, CAP_260)).toBe(247);
   });
 
@@ -305,10 +307,11 @@ describe("the shortening passes under a writer's cap", () => {
     expect(fit.text).toBe(good);
     expect(warned).toContain('generation:compression:246: pass 1 not kept: it removed the opening "The aim of this work was to" the writer\'s settings require');
     expect(warned).toContain('generation:compression:246: pass 2 not kept: it wrote "optimized", which the writer\'s settings ban');
-    // Review P1-2: a pass for a Locked limit (400 of 350 words) that
-    // rewrites the opening is kept, since the Locked Rule outranks the
-    // writer's settings; the break is measured on the final text.
-    const locked = `${opening}\n\n${plain(390)}`;
+    // Review P1-2: a pass for a Locked limit (450 words, over the 420-word
+    // drafting ceiling since 2026-10-29, third) that rewrites the opening is
+    // kept, since the Locked Rule outranks the writer's settings; the break
+    // is measured on the final text.
+    const locked = `${opening}\n\n${plain(440)}`;
     const lockedRun = client([noOpening]);
     const lockedFit = await compressWithinLimit(lockedRun.anthropicFor, "claude-sonnet-5", "s246", locked, "standard", undefined, [], [], {
       finalCut: true,
@@ -320,21 +323,23 @@ describe("the shortening passes under a writer's cap", () => {
   });
 
   it("leave the Locked targeted pass as it was: a text over a Locked limit past its reach gets none (Round 4)", async () => {
-    const far = text(400);
+    // 2026-10-29 (third, item 7): past the reach of the 420-word drafting ceiling.
+    const far = text(470);
     const run = client([], far);
     await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", far, "standard", undefined, [], [], {
       finalCut: true,
       writerCap: CAP_260,
     });
-    // 400 of 350 is over the Locked cap past its reach: two squeezes only.
+    // 470 of 420 is over the drafting ceiling past its reach: two squeezes only.
     expect(run.create).toHaveBeenCalledTimes(2);
   });
 
   it("keep the Locked limits first: a pass under the writer's cap but over a Locked limit is not kept", async () => {
     const draft = text(300);
-    // 250 words in 28 one-line paragraphs: 55 form lines, over the 50-line Locked limit.
-    const overLines = text(250, 28);
-    expect(sectionMetrics(overLines, "s246")).toMatchObject({ words: 250, lines: 55, overLimit: true });
+    // 250 words in 32 one-line paragraphs: 63 form lines, over the 60-line
+    // drafting ceiling (2026-10-29, third, item 7).
+    const overLines = text(250, 32);
+    expect(sectionMetrics(overLines, "s246")).toMatchObject({ words: 250, lines: 63, overLimit: true });
     const run = client([overLines, overLines]);
     const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", draft, "standard", undefined, [], [], {
       finalCut: true,
@@ -356,9 +361,9 @@ describe("the shortening passes under a writer's cap", () => {
     expect(targeted.startsWith(COMPRESSION_REQUEST.writerCap.finalCutScaffold.prefix)).toBe(true);
     expect(targeted).toContain("and the writer's settings ask for at most 260 words in this section. Cut at least 23 words, so that it ends at 247 words or fewer");
 
-    // 370 words: beyond the writer's reach, within the Locked one, so the
-    // Locked targeted pass still runs as before.
-    const over = text(370);
+    // 440 words: beyond the writer's reach, over the 420-word drafting
+    // ceiling and within its reach, so the Locked targeted pass still runs.
+    const over = text(440);
     const locked = client([], over);
     await compressWithinLimit(locked.anthropicFor, "claude-sonnet-5", "s246", over, "standard", undefined, [], [], {
       finalCut: true,
@@ -367,7 +372,7 @@ describe("the shortening passes under a writer's cap", () => {
     expect(locked.create).toHaveBeenCalledTimes(3);
     const lockedTargeted = userText(locked.create.mock.calls[2]![0]);
     expect(lockedTargeted.startsWith(COMPRESSION_REQUEST.finalCut.userScaffold.prefix)).toBe(true);
-    expect(lockedTargeted).toContain("Cut at least 38 words, so that it ends at 332 words or fewer");
+    expect(lockedTargeted).toContain("Cut at least 41 words, so that it ends at 399 words or fewer");
   });
 });
 
@@ -460,8 +465,9 @@ describe("signed-off items outrank the writer's cap (owner decision, 2026-10-04)
   });
 
   it("judges a pass for a Locked limit as before", async () => {
-    const draft = withCover(24);
-    expect(sectionMetrics(draft, "s246").overLimit).toBe(true);
+    // 2026-10-29 (third, item 7): over the 420-word drafting ceiling.
+    const draft = withCover(26);
+    expect(sectionMetrics(draft, "s246").words).toBeGreaterThan(420);
     const thinned = Array.from({ length: 14 }, () => FILLER).join(" ");
     const run = client([thinned], draft);
     const fit = await compressWithinLimit(run.anthropicFor, "claude-sonnet-5", "s246", draft, "standard", undefined, [COVER], [], {

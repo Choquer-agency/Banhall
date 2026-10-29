@@ -2,7 +2,7 @@ import {
   matchesClaimExclusion,
   normalizeExclusionMatch,
 } from "./claimExclusionMatcher";
-import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
+import { LINE_LIMITS, WORD_CAPS, generationCeiling, overGenerationCeiling, sectionMetrics } from "./lineLimits";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
@@ -48,6 +48,13 @@ import {
   type WordingLoss,
   type WriterWordingRules,
 } from "./writerWording";
+
+/**
+ * 2026-10-29 (third, item 7): the Locked row's words for a Line over its CRA
+ * limits but within its drafting ceiling: it passes, and must be trimmed
+ * before export.
+ */
+export const LOCKED_WITHIN_ALLOWANCE = "over the CRA limit but within the drafting allowance";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -443,21 +450,30 @@ export function runDeterministicSelfCheck(input: {
     }
   }
 
-  // Locked caps (never overridable).
+  // Locked caps (never overridable). 2026-10-29 (third, item 7, owner):
+  // they apply at export. While drafting, a Line within its drafting
+  // ceiling (the caps plus GENERATION_LIMIT_ALLOWANCE) passes, with a note
+  // that it must be trimmed before export; only a Line over the ceiling
+  // fails and is shortened, to under the ceiling.
   const metrics = sectionMetrics(text, key);
   const lockedCap = `${metrics.wordCap} words and ${metrics.limit} form lines`;
+  const ceiling = generationCeiling(key);
+  const overCeiling = overGenerationCeiling(metrics, key);
+  const counts = `${metrics.words}/${metrics.wordCap} words, ${metrics.lines}/${metrics.limit} lines`;
   add(
     "locked",
     {
       instruction: `Locked Rule: Line ${section} holds at most ${lockedCap}`,
-      outcome: metrics.overLimit ? "not_applied" : "applied",
+      outcome: overCeiling ? "not_applied" : "applied",
       tier: "locked",
-      reason: metrics.overLimit
-        ? `cap breach at ${metrics.words}/${metrics.wordCap} words, ${metrics.lines}/${metrics.limit} lines`
-        : `within cap at ${metrics.words}/${metrics.wordCap} words, ${metrics.lines}/${metrics.limit} lines`,
+      reason: overCeiling
+        ? `cap breach at ${counts}, over the drafting limit of ${ceiling.wordCap} words and ${ceiling.lineLimit} lines`
+        : metrics.overLimit
+          ? `${LOCKED_WITHIN_ALLOWANCE} at ${counts}; trim Line ${section} to ${lockedCap} before export`
+          : `within cap at ${counts}`,
     },
-    metrics.overLimit,
-    `Shorten Line ${section} to at most ${lockedCap} (now ${metrics.words} words, ${metrics.lines} lines).`
+    overCeiling,
+    `Shorten Line ${section} to at most ${ceiling.wordCap} words and ${ceiling.lineLimit} form lines (now ${metrics.words} words, ${metrics.lines} lines); it must fit ${lockedCap} before export.`
   );
   entries[entries.length - 1]!.measuredCap = {
     kind: "locked",
@@ -1563,7 +1579,7 @@ export function assembleSectionNotes(input: {
       ...rows[lockedIndex],
       reason: `${rows[lockedIndex].reason}; still over after ${passes} shortening ${
         passes === 1 ? "pass" : "passes"
-      }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
+      }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before export`,
     };
   }
   // 2026-10-04 (first): a writer's whole-Line cap still not met after the
@@ -1604,8 +1620,14 @@ export function assembleSectionNotes(input: {
   ).length;
   // 2026-10-04 (first): the caps code measured and found not met on the
   // final text. No model row may vouch for one of them (writerRowGuard).
+  // 2026-10-29 (third, item 7): a Line over the CRA cap but within its
+  // drafting allowance passes its Locked row, and is still over the cap it
+  // must meet at export, so no model row vouches for its length either.
   const failedCaps = finalEntries.flatMap((entry) =>
-    entry.measuredCap && entry.row.outcome === "not_applied" ? [entry.measuredCap] : []
+    entry.measuredCap &&
+    (entry.row.outcome === "not_applied" || (entry.measuredCap.kind === "locked" && entry.measuredCap.over.length > 0))
+      ? [entry.measuredCap]
+      : []
   );
   // Round 5: the writer's wording rules code measured as broken on the
   // final text, which the model's row for the settings never contradicts.

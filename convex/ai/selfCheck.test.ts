@@ -1427,7 +1427,7 @@ describe("Self-check before display (CAP-9)", () => {
     // 2026-09-28 (second): the breach says the text was kept whole and
     // what the writer must do; it counts the passes on the kept repair.
     expect(locked[0].reason).toContain(
-      "still over after 2 shortening passes. The text was not cut to fit: shorten Line 242 to 350 words and 50 lines before filing"
+      "still over after 2 shortening passes. The text was not cut to fit: shorten Line 242 to 350 words and 50 lines before export"
     );
 
     const { selfCheck, slotCounts } = rowFor(sectionRows, "242");

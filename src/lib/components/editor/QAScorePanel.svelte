@@ -543,7 +543,7 @@
       <ul class="flex flex-col gap-1.5">
         {#each lineLimitBreaches as breach (breach.line)}
           <li class="rounded-md bg-red-100 px-3 py-2 text-xs leading-[1.5] text-red-700" data-qa-line-limit={breach.line}>
-            Line {breach.line} is over the CRA limit: {breach.words} of {breach.wordCap} words, {breach.lines} of {breach.limit} lines. Shorten it before filing.
+            Line {breach.line} is over the CRA limit: {breach.words} of {breach.wordCap} words, {breach.lines} of {breach.limit} lines. Trim it to fit before export.
           </li>
         {/each}
       </ul>

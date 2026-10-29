@@ -33,7 +33,7 @@ import {
   TARGET_RULES,
 } from "../../shared/humanProse";
 import { GOVERNED_IN_IDEA_CLAUSE } from "../lib/writerPrecedence";
-import { findReportNotes } from "../lib/lineLimits";
+import { GENERATION_LIMIT_ALLOWANCE, findReportNotes } from "../lib/lineLimits";
 
 export const LENGTH_BUDGET_SCAFFOLD = {
   prefix:
@@ -398,9 +398,18 @@ export const COMPRESSION_KEEPS_PLAIN_OPENING =
 export const COMPRESSION_KEEPS_INFERENCES =
   " Keep every [INFERRED: …] marker verbatim too, right after the sentence it marks: you may shorten that sentence, never drop it or its marker, and never add a marker.";
 
+/**
+ * 2026-10-29 (third, item 7, owner): the CRA limits apply at export. While
+ * drafting, a Line may run up to GENERATION_LIMIT_ALLOWANCE over them, and a
+ * compression pass runs only above that ceiling and aims under it.
+ */
+export const GENERATION_ALLOWANCE_PERCENT = Math.round(GENERATION_LIMIT_ALLOWANCE * 100);
+export const COMPRESSION_LIMITS_AT_EXPORT =
+  `You compress SR&ED report sections that are over their drafting length. A section must fit the CRA form's line and word limits before it is exported; while drafting, it may run up to ${GENERATION_ALLOWANCE_PERCENT} percent over them to get its point across. This section is over that, so reaching the word target comes first.`;
+
 export const COMPRESSION_REQUEST = {
   system:
-    "You compress SR&ED report sections to fit CRA form limits. The line and word limits are hard: a section over either one cannot be filed, so reaching the word target comes first. Keep every [GAP: …] marker verbatim (never remove or reword one), every point in the Must keep list and every writer instruction the text follows. To reach the target, cut in this order: repetition and restated context, then framing and filler, then the least important supporting detail, and say what stays more briefly." +
+    COMPRESSION_LIMITS_AT_EXPORT + " Keep every [GAP: …] marker verbatim (never remove or reword one), every point in the Must keep list and every writer instruction the text follows. To reach the target, cut in this order: repetition and restated context, then framing and filler, then the least important supporting detail, and say what stays more briefly." +
     COMPRESSION_KEEPS_INFERENCES +
     COMPRESSION_KEEPS_PLAIN_OPENING +
     " A number or negation may go only together with the detail it belongs to: never change a number and never turn a negative statement into a positive one. Never invent content. Keep the same paragraph conventions (blank line between paragraphs), and end every paragraph on a complete sentence. Return ONLY the compressed section text.\n\n" + RULES_HUMAN_PROSE,
@@ -428,7 +437,10 @@ export const COMPRESSION_REQUEST = {
     limitToChars: " lines of ",
     charsToCap:
       " characters (blank lines between paragraphs each cost one line) and at most ",
-    capToTarget: " words. Rewrite it to AT MOST ",
+    // 2026-10-29 (third, item 7): the drafting ceiling, after the CRA limits.
+    capToAllowance: ` words, which it must meet before export. While drafting it may run up to ${GENERATION_ALLOWANCE_PERCENT} percent over them, to `,
+    ceilingLinesToWords: " lines and ",
+    ceilingWordsToTarget: " words, and it is over that. Rewrite it to AT MOST ",
     targetToCut: " words: cut at least ",
     cutToPercent: " words, about ",
     percentToText:
@@ -441,6 +453,8 @@ export const COMPRESSION_REQUEST = {
       "{{runtime.lineLimit}}",
       "{{runtime.charsPerLine}}",
       "{{runtime.wordCap}}",
+      "{{runtime.ceilingLines}}",
+      "{{runtime.ceilingWords}}",
       "{{runtime.targetWords}}",
       "{{runtime.cutWords}}",
       "{{runtime.cutPercent}}",
@@ -455,6 +469,8 @@ export const COMPRESSION_REQUEST = {
   /**
    * The share of the Locked word cap a compression aims for at most
    * (2026-09-28 second, full suite: 297 for Lines 242 and 246, 595 for Line 244).
+   * 2026-10-29 (third, item 7): of the drafting ceiling instead, with no
+   * writer's cap (357 for Lines 242 and 246, 714 for Line 244).
    */
   capHeadroom: 0.85,
   /**
@@ -476,13 +492,16 @@ export const COMPRESSION_REQUEST = {
     maxOverage: 0.1,
     capHeadroom: 0.95,
     userScaffold: {
-      prefix: "This section is still over the CRA limit after the earlier shortening passes: it is ",
+      prefix: "This section is still over its drafting length after the earlier shortening passes: it is ",
       linesToWords: " lines and ",
       wordsToLimit: " words, and the CRA field allows at most ",
       limitToChars: " lines of ",
       charsToCap:
         " characters (blank lines between paragraphs each cost one line) and at most ",
-      capToCut: " words. Cut at least ",
+      // 2026-10-29 (third, item 7): the drafting ceiling it is over.
+      capToAllowance: ` words before export. While drafting it may run up to ${GENERATION_ALLOWANCE_PERCENT} percent over them, to `,
+      ceilingLinesToWords: " lines and ",
+      ceilingWordsToCut: " words. Cut at least ",
       cutToTarget: " words, so that it ends at ",
       targetToText:
         " words or fewer: that is what it is over by, plus about 5 percent headroom. Take the words from whole phrases, clauses or sentences of the least important supporting detail, not by trimming single words here and there. Leave everything else as it is, and end every paragraph on a complete sentence.\n\n",
@@ -494,6 +513,8 @@ export const COMPRESSION_REQUEST = {
         "{{runtime.lineLimit}}",
         "{{runtime.charsPerLine}}",
         "{{runtime.wordCap}}",
+        "{{runtime.ceilingLines}}",
+        "{{runtime.ceilingWords}}",
         "{{runtime.cutWords}}",
         "{{runtime.targetWords}}",
         "{{runtime.sectionText}}",

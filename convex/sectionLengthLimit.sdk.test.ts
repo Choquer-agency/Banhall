@@ -14,6 +14,12 @@
  * tests below reproduce those shapes: a small overage closed by an honest
  * pass, and the guard kept to Must keep content and [GAP] markers.
  *
+ * 2026-10-29 (third, item 7, owner): the CRA limits apply at export. While
+ * drafting, a Line may run up to 20 percent over them (the drafting
+ * ceiling: 420 words and 60 lines for Line 246), and compression runs only
+ * above that ceiling and aims under it. The fixtures below are sized to the
+ * ceiling: what was just over 350 words is now just over 420.
+ *
  * Every test here runs the ordered chain through the real entry actions, the
  * real Anthropic SDK and the production instrumented client, with only
  * `fetch` stubbed, and scripts each Line's draft, compression and repair.
@@ -39,7 +45,8 @@ import {
   finalCutTargetWords,
   withinFinalCutReach,
 } from "./ai/pipeline";
-import { draftWordTarget, sectionMetrics } from "./lib/lineLimits";
+import { draftWordTarget, generationCeiling, GENERATION_LIMIT_ALLOWANCE, sectionMetrics } from "./lib/lineLimits";
+import { LOCKED_WITHIN_ALLOWANCE } from "./lib/selfCheckRules";
 import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -132,11 +139,17 @@ function line246WithDetail(support: number): string {
 
 const DRAFT_242 = sectionText("uncertainty", 2, 4);
 const DRAFT_244 = sectionText("work", 4, 5);
-/** The release suite's shape: under the 50-line limit, over the 350-word cap. */
-const DRAFT_246 = line246(14);
+/**
+ * The release suite's shape: under the 50-line limit, over the 350-word cap,
+ * and (2026-10-29, third) over the 420-word drafting ceiling: 503 words.
+ */
+const DRAFT_246 = line246(16);
 const FIT_246 = line246(4);
-/** The release suite's small overage (changed-advancement-links, 370 of 350 words). */
-const NEAR_246 = line246WithDetail(8);
+/**
+ * The release suite's small overage (changed-advancement-links, 370 of 350
+ * words), moved to just over the drafting ceiling: 429 of 420 words.
+ */
+const NEAR_246 = line246WithDetail(11);
 /** A Self-check fix holding a number and a negation, as a repair's Must keep line. */
 const FIX_246 = "Say that two coating candidates did not survive chlorinated water past day 20.";
 
@@ -418,14 +431,39 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
   it("the fixture is the release suite's shape: Line 246 under its line limit but over its word cap", () => {
     const metrics = sectionMetrics(DRAFT_246, "s246");
     expect(metrics.lines).toBeLessThanOrEqual(50);
-    expect(metrics.words).toBeGreaterThan(350);
+    expect(metrics.words).toBeGreaterThan(420);
+    expect(generationCeiling("s246")).toEqual({ wordCap: 420, lineLimit: 60 });
+    expect(generationCeiling("s244")).toEqual({ wordCap: 840, lineLimit: 120 });
+    expect(GENERATION_LIMIT_ALLOWANCE).toBe(0.2);
     expect(sectionMetrics(FIT_246, "s246").overLimit).toBe(false);
-    expect(words(FIT_246)).toBeGreaterThan(Math.floor(297 * COMPRESSION_REQUEST.targetFloor));
+    expect(words(FIT_246)).toBeGreaterThan(Math.floor(357 * COMPRESSION_REQUEST.targetFloor));
     expect(sectionMetrics(DRAFT_242, "s242").overLimit).toBe(false);
     expect(sectionMetrics(DRAFT_244, "s244").overLimit).toBe(false);
     expect(compressionLoss(DRAFT_246, FIT_246, "s246", 297)).toBeNull();
-    expect(words(NEAR_246)).toBeGreaterThan(350);
-    expect(words(NEAR_246)).toBeLessThanOrEqual(375);
+    expect(words(NEAR_246)).toBeGreaterThan(420);
+    expect(words(NEAR_246)).toBeLessThanOrEqual(445);
+  });
+
+  // 2026-10-29 (third, item 7): a Line over the CRA limits but within the
+  // drafting ceiling is not compressed; its Locked row passes and says it
+  // must be trimmed before export.
+  it("a Line at 110 percent of its limit is not compressed, and its Locked row passes with a note to trim before export", async () => {
+    const within = line246(10);
+    expect(words(within)).toBeGreaterThan(350);
+    expect(words(within)).toBeLessThanOrEqual(385);
+    const run = await runSingle({ drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": within } });
+    expect(run.sent.filter((request) => request.stage === "compression")).toEqual([]);
+    expect(run.sent.filter((request) => request.stage === "repair:246")).toEqual([]);
+    expect(run.row("246").draftText).toBe(within);
+    expect(JSON.parse(run.row("246").metrics ?? "null")).toMatchObject({ overLimit: true, words: words(within) });
+    const { lines } = sectionMetrics(within, "s246");
+    expect(run.locked("246")).toEqual([
+      expect.objectContaining({
+        outcome: "applied",
+        reason: `${LOCKED_WITHIN_ALLOWANCE} at ${words(within)}/350 words, ${lines}/50 lines; trim Line 246 to 350 words and 50 form lines before export`,
+      }),
+    ]);
+    expectOtherLinesUnchanged(run);
   });
 
   it("an over-limit Line 246 draft is compressed under the limit, and the other Lines are unchanged", async () => {
@@ -439,13 +477,18 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     // and has nothing to list as must-keep (no plan, no repair yet).
     const { lines, words: draftWords } = sectionMetrics(DRAFT_246, "s246");
     // 2026-09-28 (second, full suite): it aims at 85 percent of the cap and says how
-    // much to cut.
-    const cut = draftWords - 297;
+    // much to cut. 2026-10-29 (third, item 7): of the drafting ceiling, which
+    // it names after the CRA limits.
+    const cut = draftWords - 357;
     expect(compressions[0].user.startsWith(
-      `This section is ${lines} lines and ${draftWords} words, but the CRA field allows at most 50 lines of 78 characters (blank lines between paragraphs each cost one line) and at most 350 words. Rewrite it to AT MOST 297 words: cut at least ${cut} words, about ${Math.round((cut / draftWords) * 100)} percent of it, while preserving the technical substance.`
+      `This section is ${lines} lines and ${draftWords} words, but the CRA field allows at most 50 lines of 78 characters (blank lines between paragraphs each cost one line) and at most 350 words, which it must meet before export. While drafting it may run up to 20 percent over them, to 60 lines and 420 words, and it is over that. Rewrite it to AT MOST 357 words: cut at least ${cut} words, about ${Math.round((cut / draftWords) * 100)} percent of it, while preserving the technical substance.`
     )).toBe(true);
-    expect(compressionTargetWords("s246", "standard")).toBe(297);
-    expect(compressionTargetWords("s244", "standard")).toBe(595);
+    expect(compressionTargetWords("s246", "standard")).toBe(357);
+    expect(compressionTargetWords("s244", "standard")).toBe(714);
+    expect(textOf(compressions[0].json.system)).toContain(
+      "A section must fit the CRA form's line and word limits before it is exported; while drafting, it may run up to 20 percent over them to get its point across."
+    );
+    expect(textOf(compressions[0].json.system)).not.toContain("cannot be filed");
     expect(textOf(compressions[0].json.system)).toContain(
       "so reaching the word target comes first. Keep every [GAP: …] marker verbatim (never remove or reword one), every point in the Must keep list and every writer instruction the text follows. To reach the target, cut in this order: repetition and restated context, then framing and filler, then the least important supporting detail"
     );
@@ -497,7 +540,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(compressions).toHaveLength(1);
     const near = words(NEAR_246);
     expect(compressions[0].user).toContain(
-      `and at most 350 words. Rewrite it to AT MOST 297 words: cut at least ${near - 297} words, about ${Math.round(((near - 297) / near) * 100)} percent of it`
+      `and it is over that. Rewrite it to AT MOST 357 words: cut at least ${near - 357} words, about ${Math.round(((near - 357) / near) * 100)} percent of it`
     );
     expect(run.row("246").draftText).toBe(FIT_246);
     expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
@@ -552,7 +595,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(compressions[0].user.startsWith(`${COMPRESSION_REQUEST.mustKeep.prefix}- Paragraph 2: ${FIX_246}\n\n`)).toBe(true);
     // The second pass works from the repair, not from the refused pass.
     expect(compressions[1].user).toContain(NEAR_246);
-    expect(compressions[1].user).toContain("AT MOST 252 words");
+    expect(compressions[1].user).toContain("AT MOST 303 words");
     expect(run.row("246").draftText).toBe(FIT_246);
     expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
     expectOtherLinesUnchanged(run);
@@ -587,19 +630,21 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
   });
 
   it("a Line over on lines alone is asked for the words that fit its lines", () => {
-    expect(compressionTargetWords("s242", "standard", 1, { words: 300, lines: 60 })).toBe(212);
-    expect(compressionTargetWords("s242", "standard", 0.85, { words: 300, lines: 60 })).toBe(180);
+    // 2026-10-29 (third, item 7): the lines of the drafting ceiling (60).
+    expect(compressionTargetWords("s242", "standard", 1, { words: 300, lines: 70 })).toBe(218);
+    expect(compressionTargetWords("s242", "standard", 0.85, { words: 300, lines: 70 })).toBe(185);
     // Within its lines: the word target alone.
-    expect(compressionTargetWords("s242", "standard", 1, { words: 400, lines: 45 })).toBe(297);
-    expect(compressionTargetWords("s242", "standard", 0.85, { words: 400, lines: 45 })).toBe(252);
+    expect(compressionTargetWords("s242", "standard", 1, { words: 500, lines: 45 })).toBe(357);
+    expect(compressionTargetWords("s242", "standard", 0.85, { words: 500, lines: 45 })).toBe(303);
   });
 
   it("a compression that cannot reach the limit keeps the best attempt whole and records the breach", async () => {
-    const closest = line246(10);
-    const longer = line246(12);
-    const repaired = line246(16);
-    const repairedShorter = line246(11);
-    expect(words(closest)).toBeGreaterThan(350);
+    // 2026-10-29 (third, item 7): sized to the 420-word drafting ceiling.
+    const closest = line246(13);
+    const longer = line246(14);
+    const repaired = line246(17);
+    const repairedShorter = line246(15);
+    expect(words(closest)).toBeGreaterThan(420);
     expect(words(longer)).toBeGreaterThan(words(closest));
     expect(words(repairedShorter)).toBeGreaterThan(words(closest));
 
@@ -616,24 +661,26 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     const compressions = run.sent.filter((request) => request.stage === "compression");
     expect(compressions).toHaveLength(5);
     expect(compressions[2].user.startsWith(COMPRESSION_REQUEST.finalCut.userScaffold.prefix)).toBe(true);
-    expect(compressions[2].user).toContain(`Cut at least ${words(closest) - 332} words, so that it ends at 332 words or fewer`);
+    expect(compressions[2].user).toContain(`Cut at least ${words(closest) - 399} words, so that it ends at 399 words or fewer`);
     // The repair's compressions keep its fixes; the length guidance is not one.
     expect(compressions[3].user.startsWith(COMPRESSION_REQUEST.mustKeep.prefix)).toBe(false);
     expect(run.sent.filter((request) => request.stage === "repair:246")).toHaveLength(1);
     const repairRequest = run.sent.find((request) => request.stage === "repair:246");
-    expect(repairRequest?.user).toContain(`Shorten Line 246 to at most 350 words and 50 form lines (now ${words(closest)} words`);
+    expect(repairRequest?.user).toContain(
+      `Shorten Line 246 to at most 420 words and 60 form lines (now ${words(closest)} words, ${sectionMetrics(closest, "s246").lines} lines); it must fit 350 words and 50 form lines before export.`
+    );
 
     // The best attempt, byte for byte: never clipped to fit.
     expect(run.row("246").draftText).toBe(closest);
     const [locked] = run.locked("246");
     expect(locked).toMatchObject({ outcome: "not_applied", tier: "locked", source: "deterministic" });
-    expect(locked.reason).toContain(`cap breach at ${words(closest)}/350 words`);
+    expect(locked.reason).toContain(`cap breach at ${words(closest)}/350 words, ${sectionMetrics(closest, "s246").lines}/50 lines, over the drafting limit of 420 words and 60 lines`);
     expect(locked.reason).toContain(
       `repair not used (the repaired text came out at ${words(repairedShorter)}/350 words`
     );
     // Only the passes on the kept text count (review P3-6).
     expect(locked.reason).toContain(
-      "still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
+      "still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before export"
     );
     expect(JSON.parse(run.row("246").selfCheck ?? "null")).toMatchObject({
       status: "repair_failed",
@@ -677,7 +724,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
   });
 
   it("a failed second pass keeps the first pass's text instead of failing the Section", async () => {
-    const closer = line246(10);
+    const closer = line246(13);
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
       // Draft: a closer pass, then a failure. Repair (the draft echoed):
@@ -696,16 +743,16 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
   it("a repair whose compression fails is judged on its best text, and the note says compression failed", async () => {
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": FIT_246 },
-      compressions: [line246(10), FAIL],
+      compressions: [line246(13), FAIL],
       repairs: { "246": DRAFT_246 },
       verdictsFor: verdictFor246,
     });
     expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(2);
-    // The best compressed repair is still further over than the checked
-    // draft, so the checked draft is kept.
+    // The best compressed repair is still over the drafting ceiling and
+    // further over than the checked draft, so the checked draft is kept.
     expect(run.row("246").draftText).toBe(FIT_246);
     expect(run.model("246", "Storyline")?.reason).toMatch(
-      new RegExp(`repair not used \\(the repaired text came out at ${words(line246(10))}/350 words, .*; compression of the repair failed \\([A-Za-z_]+\\)\\)$`)
+      new RegExp(`repair not used \\(the repaired text came out at ${words(line246(13))}/350 words, .*; compression of the repair failed \\([A-Za-z_]+\\)\\)$`)
     );
     expect(run.locked("246")).toEqual([expect.objectContaining({ outcome: "applied" })]);
     expectOtherLinesUnchanged(run);
@@ -713,46 +760,48 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
 
   // 2026-09-28 (fifth, release suite run 6): "skipped-role-supported" shipped
   // Line 246 at 355 of 350 words, 36 of 50 lines, after the repair's two
-  // shortening passes. line246(9) is that shape: 354 words, 36 lines.
-  const RUN6_246 = line246(9);
-  const CUT_246 = line246(8);
+  // shortening passes. 2026-10-29 (third, item 7): the same shape against
+  // the 420-word drafting ceiling is line246(13), 436 words and 43 lines;
+  // the cut lands at 416 words, over the CRA limit but within the ceiling.
+  const RUN6_246 = line246(13);
+  const CUT_246 = line246(12);
 
-  it("the run 6 shape: a small overage is within reach of the targeted pass, which aims 5 percent under the cap", () => {
-    expect(sectionMetrics(RUN6_246, "s246")).toMatchObject({ words: 354, lines: 36, overLimit: true });
-    expect(sectionMetrics(CUT_246, "s246").overLimit).toBe(false);
-    expect(finalCutTargetWords("s246", { words: 354, lines: 36 })).toBe(332);
-    expect(finalCutTargetWords("s242", { words: 360, lines: 40 })).toBe(332);
-    expect(finalCutTargetWords("s244", { words: 712, lines: 80 })).toBe(665);
-    // Over on lines: the words that fit the lines, 5 percent under.
-    expect(finalCutTargetWords("s246", { words: 300, lines: 55 })).toBe(259);
+  it("the run 6 shape: a small overage is within reach of the targeted pass, which aims 5 percent under the ceiling", () => {
+    expect(sectionMetrics(RUN6_246, "s246")).toMatchObject({ words: 436, lines: 43, overLimit: true });
+    expect(words(CUT_246)).toBeLessThanOrEqual(420);
+    expect(finalCutTargetWords("s246", { words: 436, lines: 43 })).toBe(399);
+    expect(finalCutTargetWords("s242", { words: 440, lines: 40 })).toBe(399);
+    expect(finalCutTargetWords("s244", { words: 860, lines: 80 })).toBe(798);
+    // Over on lines: the words that fit the ceiling's lines, 5 percent under.
+    expect(finalCutTargetWords("s246", { words: 300, lines: 66 })).toBe(259);
     const at = (words: number, lines: number) =>
-      withinFinalCutReach({ overLimit: words > 350 || lines > 50, words, wordCap: 350, lines, limit: 50 });
-    expect(at(355, 36)).toBe(true);
-    expect(at(385, 36)).toBe(true);
-    expect(at(386, 36)).toBe(false);
-    expect(at(300, 55)).toBe(true);
-    expect(at(300, 56)).toBe(false);
-    expect(at(350, 50)).toBe(false);
+      withinFinalCutReach({ overLimit: words > 420 || lines > 60, words, wordCap: 420, lines, limit: 60 });
+    expect(at(421, 36)).toBe(true);
+    expect(at(462, 36)).toBe(true);
+    expect(at(463, 36)).toBe(false);
+    expect(at(300, 66)).toBe(true);
+    expect(at(300, 67)).toBe(false);
+    expect(at(420, 60)).toBe(false);
   });
 
   it("run 6: a repair still a little over after its two passes gets one targeted pass that must cut the stated words, and fits", async () => {
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": FIT_246 },
       // The repair's two passes come back barely shorter, as in run 6; the
-      // targeted pass cuts two supporting sentences.
-      compressions: [line246(10), RUN6_246, CUT_246],
+      // targeted pass cuts one supporting sentence.
+      compressions: [line246(14), RUN6_246, CUT_246],
       repairs: { "246": DRAFT_246 },
       verdictsFor: verdictFor246,
     });
     const compressions = run.sent.filter((request) => request.stage === "compression");
     expect(compressions).toHaveLength(3);
-    expect(compressions[1].user).toContain("AT MOST 252 words");
+    expect(compressions[1].user).toContain("AT MOST 303 words");
     // The same content guards: the fix stays a Must keep line, the system
     // prompt is the compression prompt, and the request names the cut.
     expect(compressions[2].user).toBe(
       `${COMPRESSION_REQUEST.mustKeep.prefix}- Paragraph 1: Tie the paragraph to the field trial.\n\n` +
-        "This section is still over the CRA limit after the earlier shortening passes: it is 36 lines and 354 words, and the CRA field allows at most 50 lines of 78 characters (blank lines between paragraphs each cost one line) and at most 350 words. " +
-        "Cut at least 22 words, so that it ends at 332 words or fewer: that is what it is over by, plus about 5 percent headroom. Take the words from whole phrases, clauses or sentences of the least important supporting detail, not by trimming single words here and there. Leave everything else as it is, and end every paragraph on a complete sentence.\n\n" +
+        "This section is still over its drafting length after the earlier shortening passes: it is 43 lines and 436 words, and the CRA field allows at most 50 lines of 78 characters (blank lines between paragraphs each cost one line) and at most 350 words before export. While drafting it may run up to 20 percent over them, to 60 lines and 420 words. " +
+        "Cut at least 37 words, so that it ends at 399 words or fewer: that is what it is over by, plus about 5 percent headroom. Take the words from whole phrases, clauses or sentences of the least important supporting detail, not by trimming single words here and there. Leave everything else as it is, and end every paragraph on a complete sentence.\n\n" +
         RUN6_246
     );
     expect(textOf(compressions[2].json.system)).toBe(textOf(compressions[0].json.system));
@@ -761,7 +810,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(run.locked("246")).toEqual([
       expect.objectContaining({
         outcome: "applied",
-        reason: `within cap at ${words(CUT_246)}/350 words, ${sectionMetrics(CUT_246, "s246").lines}/50 lines`,
+        reason: `${LOCKED_WITHIN_ALLOWANCE} at ${words(CUT_246)}/350 words, ${sectionMetrics(CUT_246, "s246").lines}/50 lines; trim Line 246 to 350 words and 50 form lines before export`,
       }),
     ]);
     expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 3, "repair:246": 1 });
@@ -771,7 +820,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
   it("a draft still a little over after its two passes gets the targeted pass too; one that fits stops there", async () => {
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
-      compressions: [line246(10), RUN6_246, CUT_246],
+      compressions: [line246(14), RUN6_246, CUT_246],
     });
     const compressions = run.sent.filter((request) => request.stage === "compression");
     expect(compressions).toHaveLength(3);
@@ -793,7 +842,7 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(endedMidSentence("One. [GAP: two]", "One. [GAP: two]")).toBeNull();
     // A text whose paragraphs already ended oddly is left to the other guards.
     expect(endedMidSentence("One and", "One")).toBeNull();
-    expect(compressionLoss(RUN6_246, clipped, "s246", 332)).toBeNull();
+    expect(compressionLoss(RUN6_246, clipped, "s246", 399)).toBeNull();
 
     const run = await runSingle({
       drafts: { "242": DRAFT_242, "244": DRAFT_244, "246": DRAFT_246 },
@@ -801,8 +850,8 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
       // (asked to shorten, echoes the draft): the same, with a targeted pass
       // that drops the [GAP] marker.
       compressions: [
-        line246(10), RUN6_246, clipped,
-        line246(10), RUN6_246, CUT_246.replace(` ${GAP}`, ""),
+        line246(14), RUN6_246, clipped,
+        line246(14), RUN6_246, CUT_246.replace(` ${GAP}`, ""),
       ],
     });
     expect(run.sent.filter((request) => request.stage === "compression")).toHaveLength(6);
@@ -810,9 +859,9 @@ describe("Step-by-step Sections stay within the line limits (real SDK, fetch stu
     expect(run.row("246").draftText).toBe(RUN6_246);
     const [locked] = run.locked("246");
     expect(locked).toMatchObject({ outcome: "not_applied", tier: "locked" });
-    expect(locked.reason).toContain("cap breach at 354/350 words, 36/50 lines");
+    expect(locked.reason).toContain("cap breach at 436/350 words, 43/50 lines, over the drafting limit of 420 words and 60 lines");
     expect(locked.reason).toContain(
-      "still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before filing"
+      "still over after 3 shortening passes. The text was not cut to fit: shorten Line 246 to 350 words and 50 lines before export"
     );
     // 6 compression requests: within the ordered allowance, no overrun.
     expect(JSON.parse(run.row("246").slotCounts ?? "null")).toMatchObject({ "compression:246": 6, "repair:246": 1 });

@@ -39,6 +39,7 @@ import {
   lengthBudgetBlock,
   quotedTerms,
   limitOverage,
+  overCeiling,
   type LimitFit,
   provenanceDrafts,
   recordCandidateProvenance,
@@ -1262,8 +1263,9 @@ export async function draftCheckedSection(input: {
     : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
+  // 2026-10-29 (third, item 7): over the drafting ceiling, not the export limit.
   const overLimitMore = (checked: string, other: string) =>
-    sectionMetrics(checked, key).overLimit && limitOverage(checked, key) > limitOverage(other, key);
+    overCeiling(checked, key) && limitOverage(checked, key) > limitOverage(other, key);
   // 2026-10-04 (first): the writer's whole-Line cap below the Locked cap
   // (null without one). The draft, its repair and every shortening pass aim
   // under it; the Self-check measures the same rules (writerLineCap.ts).
@@ -1341,7 +1343,7 @@ export async function draftCheckedSection(input: {
     // fails the Section when no pass was kept. A draft within the Locked
     // caps, shortened only for the writer's cap, is kept as drafted and the
     // failure is recorded on the cap row (compression.failure).
-    if (firstFit.text === text && sectionMetrics(text, key).overLimit) throw firstFit.error;
+    if (firstFit.text === text && overCeiling(text, key)) throw firstFit.error;
     console.warn(
       `generation:compression:${section}: a later pass failed (${normalizeProviderError(firstFit.error).code}); the best pass so far is kept`
     );
