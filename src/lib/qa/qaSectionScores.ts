@@ -162,18 +162,17 @@ export function qaTopIssues(
 }
 
 /**
- * The QA issues a new conversation may offer: only from a finished QA run on
- * the report as it reads now. Any save after the run (`reportUpdatedAt` past
- * `completedAt`) may have fixed them, so none is offered until QA runs again.
+ * The QA issues a new conversation may offer: only from a finished QA run
+ * whose recorded result still describes the report (`current`: the same
+ * revision and text, from `generations.getGenerationQaResult`). Any edit may
+ * have fixed them, so none is offered until QA runs again.
  */
 export function chatQaIssues(input: {
   agentOutputs: unknown;
   qaDone: boolean;
-  completedAt: number | null | undefined;
-  reportUpdatedAt: number | null | undefined;
+  current: boolean | null | undefined;
   overrides?: ReadonlyMap<string, "deduction" | "warning" | null>;
 }): QaTopIssue[] {
-  if (!input.qaDone || input.completedAt == null || input.reportUpdatedAt == null) return [];
-  if (input.reportUpdatedAt > input.completedAt) return [];
+  if (!input.qaDone || input.current !== true) return [];
   return qaTopIssues(input.agentOutputs, input.overrides);
 }

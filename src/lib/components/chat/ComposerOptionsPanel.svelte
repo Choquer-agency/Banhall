@@ -87,10 +87,22 @@
     }
   }
 
-  /** A key that writes text: not a shortcut (AltGr and Option still type). */
+  // Option types characters on a Mac; elsewhere Alt alone is a shortcut.
+  const optionTypes = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+
+  /** A key that writes text: not a shortcut (AltGr, and Option on a Mac, still type). */
   function typed(event: KeyboardEvent): boolean {
-    if (event.metaKey || (event.ctrlKey && !event.getModifierState?.("AltGraph"))) return false;
+    const altGraph = event.getModifierState?.("AltGraph") ?? false;
+    if (event.metaKey || (event.ctrlKey && !altGraph) || (event.altKey && !altGraph && !optionTypes)) return false;
     return event.key.length === 1 || event.key === "Dead" || event.key === "Process" || event.isComposing;
+  }
+
+  /** Pasting on "Get started" goes to the message box too. */
+  function onListPaste(event: ClipboardEvent) {
+    if (!onType || event.target === inputEl) return;
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    event.preventDefault();
+    onType(text);
   }
 
   function onInputKeydown(event: KeyboardEvent) {
@@ -116,7 +128,7 @@
     <p id={questionId} class="px-3.5 pb-1.5 pt-3 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{question}</p>
     <div bind:this={listEl} role="listbox" tabindex="0" aria-labelledby={questionId}
       aria-activedescendant={`${componentId}-option-${active}`}
-      class="flex flex-col gap-0.5 px-1.5 pb-1.5 outline-none" onkeydown={onListKeydown}>
+      class="flex flex-col gap-0.5 px-1.5 pb-1.5 outline-none" onkeydown={onListKeydown} onpaste={onListPaste}>
       {#each rows as option, index (index)}
         {@const selected = index === active}
         <div id={`${componentId}-option-${index}`} role="option" aria-selected={selected} tabindex="-1"

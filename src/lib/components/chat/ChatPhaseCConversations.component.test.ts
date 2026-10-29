@@ -461,15 +461,64 @@ describe("options above the message box", () => {
     expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
   });
 
-  it("keeps the message box once it has held words, even when emptied", async () => {
-    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
-    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
-    await userEvent.keyboard("Tighten");
-    await expect.element(composer()).toHaveValue("Tighten");
-    await composer().fill("");
+  it("keeps the message box once it has held a selection, after the selection is cleared", async () => {
+    // Typing on the panel already skips it; a selection sent from the page
+    // is the path only the message box's own record covers.
+    const view = await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      pendingHighlight: { from: 1, to: 12, text: "word0 word1" },
+    });
+    await expect.element(composer()).toBeVisible();
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await view.rerender({ pendingHighlight: null });
     await new Promise((resolve) => setTimeout(resolve, 200));
     await expect.element(composer()).toBeVisible();
     expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("offers no options while research the writer started is being published, here or in a new conversation", async () => {
+    __setMutationResult("research:startResearch", "session-1");
+    const view = await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      pendingResearch: { from: 1, to: 20, text: "Kiln drying above 80 C warps birch.", context: "", preset: "vet" },
+    });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect.poll(() => __mutationCalls("research:startResearch").length).toBe(1);
+    // The page clears the selection once research starts.
+    await view.rerender({ pendingResearch: null });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await expect.element(composer()).toBeVisible();
+  });
+
+  it("offers Get started in a new conversation on a report with research sessions", async () => {
+    __setQueryData("research:listSessions", [{ _id: "session-1", selectedText: "Kiln drying above 80 C warps birch.", instruction: "", preset: "vet", status: "completed", createdAt: 1 }]);
+    __setQueryData("research:getSessionDetails", null);
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+  });
+
+  it("moves to the message box on a space, a dead key or a paste, and lands the pasted text", async () => {
+    for (const key of [" ", "Dead"]) {
+      const view = await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+      await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+      const list = document.querySelector<HTMLElement>("[data-composer-options] [role=listbox]")!;
+      list.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      await expect.element(composer()).toHaveValue("");
+      await expect.element(composer()).toHaveFocus();
+      view.unmount();
+    }
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    const data = new DataTransfer();
+    data.setData("text/plain", "Pasted request");
+    document.querySelector<HTMLElement>("[data-composer-options] [role=listbox]")!
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    await expect.element(composer()).toHaveValue("Pasted request");
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
   });
 
   it("shows the AI's question with its options, and sends the writer's own answer", async () => {

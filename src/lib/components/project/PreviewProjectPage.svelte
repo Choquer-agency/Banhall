@@ -1877,22 +1877,26 @@
   });
   const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
   // Owner 2026-10-29: a new conversation's options name the finished QA
-  // run's issues, only while the report still reads as QA saw it, and never
-  // one the writer marked a warning in the QA panel.
-  const qaFresh = $derived(
-    qaState === "done" && qaCompletedAt !== null && !!report && report.updatedAt <= qaCompletedAt
+  // run's issues, only while its recorded result still describes the report
+  // (same revision and text), and never one this person reclassified as a
+  // warning in the QA panel (managers and admins can). Held until both reads
+  // answer, so an overridden issue never shows and then leaves.
+  const qaResultQ = useQuery(api.generations.getGenerationQaResult, () =>
+    qaState === "done" && generation ? { generationId: generation._id } : "skip"
   );
+  const qaFresh = $derived(qaState === "done" && qaResultQ.data?.current === true);
   const qaOverridesQ = useQuery(api.reviews.getMyQaItemFeedback, () =>
     qaFresh && report ? { target: { reportId: report._id } } : "skip"
   );
   const chatQaIssueList = $derived(
-    chatQaIssues({
-      agentOutputs: generation?.agentOutputs ?? null,
-      qaDone: qaFresh,
-      completedAt: qaCompletedAt,
-      reportUpdatedAt: report?.updatedAt,
-      overrides: new Map((qaOverridesQ.data ?? []).map((row) => [row.itemKey, row.overrideSeverity])),
-    })
+    qaOverridesQ.data === undefined && !qaOverridesQ.error
+      ? []
+      : chatQaIssues({
+          agentOutputs: generation?.agentOutputs ?? null,
+          qaDone: qaFresh,
+          current: qaResultQ.data?.current,
+          overrides: new Map((qaOverridesQ.data ?? []).map((row) => [row.itemKey, row.overrideSeverity])),
+        })
   );
   let qaSeenTick = $state(0);
   const qaSeen = $derived.by((): QaSeenState | null => {

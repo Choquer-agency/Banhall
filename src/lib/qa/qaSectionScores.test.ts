@@ -132,13 +132,13 @@ describe("qaTopIssues", () => {
     expect(qaTopIssues(outputs, new Map([["issue:242:0", "warning"]]))).toEqual([{ line: "242", text: "Next." }]);
   });
 
-  it("offers QA issues only from a finished run on the report as saved then", () => {
+  it("offers QA issues only from a finished run whose result still describes the report", () => {
     const outputs = card({ "246": [{ text: "Advancement is vague.", severity: "deduction", deduction: 4 }] });
-    const base = { agentOutputs: outputs, qaDone: true, completedAt: 2_000, reportUpdatedAt: 1_500 };
+    const base = { agentOutputs: outputs, qaDone: true, current: true };
     expect(chatQaIssues(base)).toEqual([{ line: "246", text: "Advancement is vague." }]);
-    expect(chatQaIssues({ ...base, reportUpdatedAt: 2_001 })).toEqual([]);
+    expect(chatQaIssues({ ...base, current: false })).toEqual([]);
+    expect(chatQaIssues({ ...base, current: undefined })).toEqual([]);
     expect(chatQaIssues({ ...base, qaDone: false })).toEqual([]);
-    expect(chatQaIssues({ ...base, completedAt: null })).toEqual([]);
   });
 
   it("returns nothing without a readable scorecard or outside Lines 242 to 246", () => {

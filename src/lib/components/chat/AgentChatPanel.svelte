@@ -1452,7 +1452,8 @@
   const newChatOptions = $derived(startOptions(reportContent, qaIssues));
   const optionsPanel = $derived.by(() => {
     if (!transcriptReady) return null;
-    if (isStreaming || awaitingReply || sending || pendingResearch || refiningProposal) return null;
+    // Research being started or published blocks a send, as it blocks Send.
+    if (isStreaming || awaitingReply || sending || pendingResearch || refiningProposal || researchStarting || publicationPending) return null;
     if (writerQuestion && selectedThreadId) {
       const key = `question:${selectedThreadId}:${writerQuestion.toolCallId}`;
       if (skippedPanelKeys.has(key)) return null;
@@ -1513,10 +1514,11 @@
     if (key) skippedPanelKeys.add(key);
     void tick().then(() => textareaEl?.focus());
   }
-  // Review P2-2: once a conversation's message box has held words or a
-  // selection, emptying it never brings "Get started" back over it.
+  // Review P2-2: once a conversation's message box has held words, a
+  // selection or a research request, emptying it never brings "Get started"
+  // back over it.
   $effect(() => {
-    if (!input.trim() && !pendingHighlight) return;
+    if (!input.trim() && !pendingHighlight && !pendingResearch) return;
     const key = `start:${selectedThreadId ?? draftConversationId}`;
     untrack(() => skippedPanelKeys.add(key));
   });
@@ -2494,7 +2496,7 @@
           label={optionsPanel.label}
           question={optionsPanel.question}
           options={optionsPanel.options}
-          disabled={sending}
+          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading}
           onSelect={(text) => void sendText(text)}
           onSkip={() => skipOptionsPanel(optionsPanel?.key)}
           onType={optionsPanel.kind === "start" ? (text) => typeIntoComposer(optionsPanel?.key, text) : undefined}
