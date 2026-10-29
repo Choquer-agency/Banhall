@@ -453,7 +453,6 @@
         href={companyPageHref}
         data-company-page-link
         aria-label={`Open ${displayName}'s company page`}
-        title="Open the company page"
         class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] text-primary-selected transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
       >
         <FrameIcon name="arrow-up-right" />
