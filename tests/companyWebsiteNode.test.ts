@@ -9,15 +9,45 @@ import http from "node:http";
 import zlib from "node:zlib";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createNodeFetch, guardedLookup } from "../convex/companyWebsiteNode";
+import { createNodeFetch, guardedLookup, WEBSITE_READER_USER_AGENT } from "../convex/companyWebsiteNode";
 
 let server: http.Server;
 let port = 0;
 let bodyRequested = 0;
+let connections = 0;
+const userAgents: string[] = [];
+const THREE_MB = "x".repeat(3 * 1024 * 1024);
+const packed = {
+  gzip: zlib.gzipSync(THREE_MB),
+  deflate: zlib.deflateSync(THREE_MB),
+  br: zlib.brotliCompressSync(THREE_MB),
+  // 64 MB of zeros packs into about 64 KB.
+  bomb: zlib.gzipSync(Buffer.alloc(64 * 1024 * 1024)),
+};
 
 beforeAll(async () => {
   server = http.createServer((request, response) => {
     const path = request.url ?? "/";
+    userAgents.push(String(request.headers["user-agent"] ?? ""));
+    const encoded = /^\/(gzip|deflate|br)-big$/.exec(path);
+    if (encoded) {
+      const encoding = encoded[1] as "gzip" | "deflate" | "br";
+      response.writeHead(200, { "content-type": "text/html", "content-encoding": encoding });
+      response.end(packed[encoding]);
+      return;
+    }
+    if (path === "/bomb") {
+      response.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+      response.end(packed.bomb);
+      return;
+    }
+    if (path === "/trickle") {
+      // Answers at once, then sends one byte every 100ms, forever.
+      response.writeHead(200, { "content-type": "text/html" });
+      const timer = setInterval(() => response.write("x"), 100);
+      response.on("close", () => clearInterval(timer));
+      return;
+    }
     if (path === "/page") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<p>Hello, café.</p>");
@@ -41,6 +71,7 @@ beforeAll(async () => {
       response.end("Not found");
     }
   });
+  server.on("connection", () => (connections += 1));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   port = (server.address() as AddressInfo).port;
 });
@@ -89,6 +120,39 @@ describe("createNodeFetch", () => {
 
   it("decompresses a gzip page", async () => {
     expect((await fetchPage(url("/gzip"), limits)).body).toBe("<p>Packed text.</p>");
+  });
+
+  it.each([["gzip"], ["deflate"], ["br"]])("stops at the byte cap after decompressing %s", async (encoding) => {
+    const page = await fetchPage(url(`/${encoding}-big`), limits);
+    expect(page.tooLarge).toBe(true);
+    expect(page.body.length).toBe(2 * 1024 * 1024);
+  });
+
+  it("stops a compression bomb at the cap, quickly", async () => {
+    const started = Date.now();
+    const page = await fetchPage(url("/bomb"), limits);
+    expect(page.tooLarge).toBe(true);
+    expect(page.body.length).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it("gives up on a server that trickles its body, at the timeout", async () => {
+    const started = Date.now();
+    await expect(fetchPage(url("/trickle"), { ...limits, timeoutMs: 500 })).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(2_500);
+  });
+
+  it("opens a new connection for every request, so none skips the guarded lookup", async () => {
+    const before = connections;
+    await fetchPage(url("/page"), limits);
+    await fetchPage(url("/page"), limits);
+    expect(connections - before).toBe(2);
+  });
+
+  it("names itself neutrally, with no product, client or purpose", async () => {
+    await fetchPage(url("/page"), limits);
+    expect(userAgents.at(-1)).toBe("Mozilla/5.0 (compatible; WebsiteReader/1.0)");
+    expect(WEBSITE_READER_USER_AGENT).not.toMatch(/banhall|sr&ed|report/i);
   });
 
   it("gives up at its timeout", async () => {

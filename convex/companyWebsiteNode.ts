@@ -52,18 +52,26 @@ function decoderFor(contentType: string | null): TextDecoder {
   }
 }
 
-function decompressed(response: http.IncomingMessage): Readable {
+/** The body, decompressed; the decompressor stops producing past `maxBytes` + 1. */
+function decompressed(response: http.IncomingMessage, maxBytes: number): Readable {
   const encoding = String(response.headers["content-encoding"] ?? "").toLowerCase();
-  if (encoding === "gzip" || encoding === "x-gzip") return response.pipe(zlib.createGunzip());
-  if (encoding === "deflate") return response.pipe(zlib.createInflate());
-  if (encoding === "br") return response.pipe(zlib.createBrotliDecompress());
+  const limit = { maxOutputLength: maxBytes + 1 };
+  if (encoding === "gzip" || encoding === "x-gzip") return response.pipe(zlib.createGunzip(limit));
+  if (encoding === "deflate") return response.pipe(zlib.createInflate(limit));
+  if (encoding === "br") return response.pipe(zlib.createBrotliDecompress(limit));
   return response;
 }
+
+/** A neutral, honest name for the reader: no product, client or purpose in it. */
+export const WEBSITE_READER_USER_AGENT = "Mozilla/5.0 (compatible; WebsiteReader/1.0)";
 
 /**
  * One GET that never follows a redirect, stops at `maxBytes` of decoded body
  * (marking the page too large), downloads no body for a redirect or for
- * anything that is not text/html, and gives up after `timeoutMs`.
+ * anything that is not text/html, and gives up after `timeoutMs`. Every
+ * request opens its own connection (`agent: false`), so no kept-alive
+ * connection skips the guarded lookup, and no proxy from the environment is
+ * used.
  */
 export function createNodeFetch(options: { lookup?: ReturnType<typeof guardedLookup> } = {}): WebsiteDeps["fetchPage"] {
   const lookup = options.lookup ?? guardedLookup();
@@ -71,10 +79,15 @@ export function createNodeFetch(options: { lookup?: ReturnType<typeof guardedLoo
     new Promise<WebsitePage>((resolve, reject) => {
       const transport = url.protocol === "https:" ? https : http;
       let settled = false;
+      let body: Readable | null = null;
+      let response: http.IncomingMessage | null = null;
       const done = (error: Error | null, page?: WebsitePage) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        // Stop reading and decompressing at once.
+        if (body && body !== response) body.destroy();
+        response?.destroy();
         if (error) reject(error);
         else resolve(page!);
       };
@@ -82,41 +95,49 @@ export function createNodeFetch(options: { lookup?: ReturnType<typeof guardedLoo
         url,
         {
           method: "GET",
+          agent: false,
           lookup: lookup as unknown as http.RequestOptions["lookup"],
           headers: {
-            "user-agent": "BanhallWebsiteReader/1.0 (reads a company's own website for its SR&ED reports)",
+            "user-agent": WEBSITE_READER_USER_AGENT,
             accept: "text/html",
             "accept-encoding": "gzip, deflate, br",
           },
         },
-        (response) => {
+        (incoming) => {
+          response = incoming;
           const status = response.statusCode ?? 0;
           const location = typeof response.headers.location === "string" ? response.headers.location : null;
           const contentType = typeof response.headers["content-type"] === "string" ? response.headers["content-type"] : null;
           const isHtml = (contentType ?? "").split(";")[0]!.trim().toLowerCase() === "text/html";
           if ((status >= 300 && status < 400) || !isHtml || status < 200 || status >= 300) {
-            response.destroy();
             done(null, { status, location, contentType, body: "", tooLarge: false });
             return;
           }
-          const body = decompressed(response);
+          const stream = decompressed(incoming, maxBytes);
+          body = stream;
           const chunks: Buffer[] = [];
           let size = 0;
-          body.on("data", (chunk: Buffer) => {
+          const tooLarge = () => {
+            const text = decoderFor(contentType).decode(Buffer.concat(chunks));
+            done(null, { status, location, contentType, body: text, tooLarge: true });
+          };
+          stream.on("data", (chunk: Buffer) => {
             if (settled) return;
             if (size + chunk.length > maxBytes) {
               chunks.push(chunk.subarray(0, maxBytes - size));
               size = maxBytes;
-              const text = decoderFor(contentType).decode(Buffer.concat(chunks));
-              response.destroy();
-              done(null, { status, location, contentType, body: text, tooLarge: true });
+              tooLarge();
               return;
             }
             size += chunk.length;
             chunks.push(chunk);
           });
-          body.on("end", () => done(null, { status, location, contentType, body: decoderFor(contentType).decode(Buffer.concat(chunks)), tooLarge: false }));
-          body.on("error", (error) => done(error));
+          stream.on("end", () => done(null, { status, location, contentType, body: decoderFor(contentType).decode(Buffer.concat(chunks)), tooLarge: false }));
+          stream.on("error", (error: NodeJS.ErrnoException) => {
+            // zlib stopping at maxOutputLength: the body is over the cap.
+            if (error.code === "ERR_BUFFER_TOO_LARGE" || size >= maxBytes) tooLarge();
+            else done(error);
+          });
         }
       );
       const timer = setTimeout(() => {

@@ -7,11 +7,13 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
+  MAX_HTML_CHARS,
   WEBSITE_MAX_TEXT_CHARS,
   WEBSITE_READ_REASONS,
   findAboutLink,
   htmlToText,
   isBlockedAddress,
+  parseHtml,
   readWebsite,
   type WebsiteDeps,
   type WebsitePage,
@@ -73,6 +75,16 @@ describe("isBlockedAddress", () => {
     ["::ffff:192.168.0.1"],
     ["64:ff9b::a9fe:a9fe"],
     ["2001:db8::1"],
+    // Review round 1: NAT64 local use, IPv4-translated, 6to4, Teredo,
+    // discard-only, and the 6to4 relay anycast.
+    ["64:ff9b:1::a00:1"],
+    ["::ffff:0:7f00:1"],
+    ["::ffff:0:10.0.0.1"],
+    ["2002:c0a8:101::1"],
+    ["2002:808:808::1"],
+    ["2001:0:4136:e378:8000:63bf:3fff:fdd2"],
+    ["100::1"],
+    ["192.88.99.1"],
     ["not an address"],
   ])("refuses %s", (address) => {
     expect(isBlockedAddress(address)).toBe(true);
@@ -190,6 +202,19 @@ describe("the limits", () => {
     expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
   });
 
+  it("races the first lookup against the time left: a name that never resolves times out", async () => {
+    const s = site({});
+    s.deps.lookup = vi.fn(() => new Promise<string[]>(() => {}));
+    const started = Date.now();
+    s.deps.now = () => Date.now();
+    expect(await readWebsite("https://hatchbetter.com", s.deps, { timeoutMs: 150 })).toEqual({
+      ok: false,
+      reason: WEBSITE_READ_REASONS.timeout,
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(s.fetched).toEqual([]);
+  });
+
   it("says unreachable for a name that does not resolve or a network error", async () => {
     const s = site({});
     s.deps.lookup = vi.fn(async () => {
@@ -247,6 +272,69 @@ describe("the text", () => {
     expect(result.ok && result.text.length).toBe(WEBSITE_MAX_TEXT_CHARS);
     const empty = site({ "https://hatchbetter.com/": page(html("<script>only()</script>")) });
     expect(await readWebsite("https://hatchbetter.com", empty.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.empty });
+  });
+
+  it("keeps an ASP.NET page that sits in one form, leaving out only its controls", () => {
+    const page = html(
+      `<form method="post" action="./"><input type="hidden" name="__VIEWSTATE" value="dGhpcyBpcyBzZWNyZXQ=">
+       <main><h1>Hatch Better</h1><p>Incubators for poultry farms.</p></main>
+       <select><option>English</option><option>Français</option></select><button>Search</button><textarea>notes</textarea></form>`
+    );
+    const text = htmlToText(page);
+    expect(text).toBe("Hatch Better\nIncubators for poultry farms.");
+  });
+
+  it("keeps a header's own text and leaves out only the navigation inside it, and still reads links in the navigation", () => {
+    const page = parseHtml(
+      html(`<header><p>Hatch Better: incubators since 2019</p><nav><a href="/about-us">About us</a><a href="/shop">Shop</a></nav></header><main><p>Body.</p></main>`)
+    );
+    expect(page.text).toBe("Hatch Better: incubators since 2019\nBody.");
+    expect(page.links.map((link) => [link.href, link.text])).toEqual([
+      ["/about-us", "About us"],
+      ["/shop", "Shop"],
+    ]);
+  });
+
+  it.each([
+    ["2 MB of <", "<".repeat(2 * 1024 * 1024)],
+    ["2 MB of <script ", "<script ".repeat(262_144)],
+    ["2 MB of <a<b", "<a<b".repeat(524_288)],
+    ["2 MB of <!--", "<!--".repeat(524_288)],
+    ["2 MB of unclosed <p title=\"", '<p title="'.repeat(209_715)],
+    ["2 MB of &amp without a semicolon", "&ampamp".repeat(262_144)],
+    ["2 MB of <a href=\"", '<a href="'.repeat(233_016) + ">"],
+  ])("parses %s in a straight pass, well within the deadline", (_label, input) => {
+    const started = performance.now();
+    const page = parseHtml(input);
+    const elapsed = performance.now() - started;
+    expect(elapsed).toBeLessThan(1_500);
+    expect(page.text.length).toBeLessThanOrEqual(MAX_HTML_CHARS);
+  });
+
+  it("parses only the first 512 KB of a page", () => {
+    const page = parseHtml(`<p>${"a".repeat(MAX_HTML_CHARS)}</p><p>Past the cap.</p>`);
+    expect(page.text).not.toContain("Past the cap.");
+  });
+
+  it("a whole read of a 2 MB page of < finishes in time, the lone < kept as text", async () => {
+    const s = site({ "https://hatchbetter.com/": page("<".repeat(2 * 1024 * 1024)) });
+    const started = performance.now();
+    const result = await readWebsite("https://hatchbetter.com", s.deps);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    // Lone "<" characters are text, not tags.
+    expect(result.ok).toBe(true);
+  });
+
+  it("checks the deadline after parsing", async () => {
+    const s = site({ "https://hatchbetter.com/": page(html("<p>Text.</p>")) });
+    const fetchPage = s.deps.fetchPage;
+    s.deps.fetchPage = vi.fn(async (url: URL, options: { timeoutMs: number; maxBytes: number }) => {
+      const answer = await fetchPage(url, options);
+      // The page arrived just as time ran out.
+      s.clock.now += 10_001;
+      return answer;
+    });
+    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
   });
 
   it("puts blocks on their own lines and decodes entities", () => {
