@@ -1166,9 +1166,12 @@ describe("prompt versions", () => {
     // it they were sha256:f8b22f23... and sha256:2ab7a8e3.... Re-read after
     // its review round 2, which says an event is never inferred and puts the
     // gap first in the rule, the pointer and three check lines, on purpose;
-    // before it they were sha256:c03ace4c... and sha256:f648e3fb....
-    expect(await hashPromptProgram()).toBe("sha256:c1e5249c8b4ac3174b9ea7eac9e4c42266fe3bf6367eea4e9ce9f77bcde96b57");
-    expect(await legacyPromptVersion()).toBe("sha256:8daa03ec4482966c8a9d06512e84bd05ac8e1643137fd72eb1a6ff4c607bc401");
+    // before it they were sha256:c03ace4c... and sha256:f648e3fb.... Re-read
+    // after its review round 3, which adds "first approach" to the four
+    // event lists and a marked first approach as a Bad example, on
+    // purpose; before it they were sha256:c1e5249c... and sha256:8daa03ec....
+    expect(await hashPromptProgram()).toBe("sha256:06c66f894749d39ce5bd5e878eebe6590ce27d3b38fc879348814727ebb6e3e0");
+    expect(await legacyPromptVersion()).toBe("sha256:a18aa300b4e42f2413ee0eae52d0dccf14f6504846851d83ebc4a89997ddb55b");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

@@ -300,7 +300,9 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
 export function reportNotes(body: CanonicalReportBody): ReportNote[] {
   return SECTION_ORDER.flatMap((section) => {
     const seen = new Map<string, number>();
-    // Paragraph by paragraph (review round 2): a note never spans two.
+    // Paragraph by paragraph (review round 2): a note never spans two. The
+    // blocks are joined by a blank line, where NOTE_BODY stops anyway, so this
+    // finds what plainText would; it keeps the bound explicit (review round 3).
     return body.sections[section].blocks.flatMap((block) =>
       findReportNotes(block.text).map(({ kind, text, note }) => {
         const occurrence = seen.get(text) ?? 0;

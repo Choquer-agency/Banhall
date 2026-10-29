@@ -24,6 +24,11 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { findReportNotes } from "../../../../convex/lib/lineLimits";
 import { reportSectionKeyForHeading, type ReportNote, type TiptapNode } from "$lib/reportSections";
+// The keys Tiptap binds to deleting backward and forward, exactly as the
+// Section heading protection binds them (review round 3: round 2 bound more,
+// so Shift-Delete, Cut on Windows and Linux, deleted a widened selection
+// without copying it). The Mac-only ones are bound only on Mac and iOS.
+import { BACKWARD_KEYS, FORWARD_KEYS, MAC_BACKWARD_KEYS, MAC_FORWARD_KEYS } from "./reportSectionHeadings";
 
 /** The chip's class (styled in src/routes/layout.css). */
 export const INFERRED_NOTE_CLASS = "report-inferred";
@@ -173,17 +178,6 @@ function rangeToRemove(state: EditorState, direction: "backward" | "forward"): R
   const end = Math.max(to, ...overlapped.map((range) => range.to));
   return start === from && end === to ? null : { from: start, to: end };
 }
-
-/**
- * The keys Tiptap binds to deleting backward and forward, with every
- * modifier (review round 2, P3-1, as reportSectionHeadings binds them). The
- * Mac-only ones are bound only on Mac and iOS, as Tiptap does, so Ctrl-d,
- * Ctrl-h and Alt-d keep their browser meaning elsewhere.
- */
-const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace", "Ctrl-Backspace", "Meta-Backspace", "Alt-Backspace"] as const;
-const FORWARD_KEYS = ["Delete", "Shift-Delete", "Mod-Delete", "Ctrl-Delete", "Meta-Delete", "Alt-Delete"] as const;
-const MAC_BACKWARD_KEYS = ["Ctrl-h"] as const;
-const MAC_FORWARD_KEYS = ["Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
 
 const inferenceNotesKey = new PluginKey<DecorationSet>("reportInferenceNotes");
 

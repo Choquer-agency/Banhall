@@ -323,6 +323,20 @@ describe("INFERRED_MARKER_RE and the note helpers", () => {
     expect(findReportNotes("A [GAP: one\n  \ntwo] b")).toEqual([]);
   });
 
+  // Review round 3 (P3-1): a gap with a citation in it is still one gap.
+  test("a note may hold one level of plain brackets, such as a citation", () => {
+    const text = "Alpha beta. [GAP: the load figure, see test log [3], and the date] Gamma.";
+    expect(findReportNotes(text).map((note) => note.text)).toEqual(["[GAP: the load figure, see test log [3], and the date]"]);
+    expect(sectionMetrics(text, "s244").words).toBe(3);
+    // Another note's opening inside it still ends it.
+    expect(findReportNotes("A [INFERRED: one [GAP: two] three").map((note) => note.text)).toEqual(["[GAP: two]"]);
+    // Still linear on a long run of nested openings and plain brackets.
+    const flood = `[GAP: ${"[x] ".repeat(200_000)}`;
+    const started = performance.now();
+    expect(findReportNotes(flood)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   test("word-cap overflow ignores inference marker words", () => {
     const words = Array.from({ length: WORD_CAPS.s242 }, () => "w").join(" ");
     expect(overflowStartOffset(`${words} ${MARK}`, "s242")).toBeNull();

@@ -331,11 +331,12 @@ function edgeBesideSectionHeading(editor: CoreEditor, direction: "backward" | "f
 
 // The keys Tiptap binds to its Backspace and Delete handlers. The Mac-only ones
 // are registered only on Mac and iOS, as Tiptap does, so Ctrl-d, Ctrl-h and
-// Alt-d keep their browser meaning elsewhere (review g1).
-const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace"] as const;
-const FORWARD_KEYS = ["Delete", "Mod-Delete"] as const;
-const MAC_BACKWARD_KEYS = ["Alt-Backspace", "Ctrl-h"] as const;
-const MAC_FORWARD_KEYS = ["Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
+// Alt-d keep their browser meaning elsewhere (review g1). The inference chips
+// (inferenceNotes.ts) bind the same keys.
+export const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace"] as const;
+export const FORWARD_KEYS = ["Delete", "Mod-Delete"] as const;
+export const MAC_BACKWARD_KEYS = ["Alt-Backspace", "Ctrl-h"] as const;
+export const MAC_FORWARD_KEYS = ["Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
 
 /**
  * Plugin-level node view for `heading`, so StarterKit's Heading extension
