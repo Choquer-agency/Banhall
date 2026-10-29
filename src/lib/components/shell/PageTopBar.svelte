@@ -69,7 +69,10 @@
     /**
      * The section sidebar carries the same action from 768px ("New project",
      * "Invite people"), so the bar shows it only below that, or while the
-     * sidebar is collapsed or not drawn.
+     * sidebar is collapsed or not drawn. The server always counts the
+     * sidebar as drawn and open, so set this only where the server draws the
+     * sidebar whenever it draws the action; otherwise the button is hidden
+     * from 768px until the page is live.
      */
     primaryActionInSidebar?: boolean;
     /** The page has a section sidebar: lead with its expand button while it is collapsed. */

@@ -5174,7 +5174,8 @@ This is presentation only. It adds no workflow stage, transition, permission or 
 - **Review round 3 (Claude Opus 5.5, effort requested high, reported below high): ship after fixes.** Round 2's six items and its minor ones closed. Fixed:
   - the server-drawn page bar leaves the main button to the sidebar it draws open (`sidebarHoldsAction`), so a reload of Home no longer shows New project twice until the page is live;
   - the Projects loading header draws the expand button while the sidebar is collapsed and, from 768 to 1023px, the menu button and the bell, as the loaded header does, so its title does not move when the page arrives.
-- **Review:** round 3 done; round 4 (the round 3 fixes) pending.
+- **Review round 4 (Claude Opus 5.5, effort high), the round 3 fixes: ship.** Both closed; Svelte's hydration rewrites the bar's class before the first paint, so no frame shows the button twice. Its one note, that the server counts every sidebar as drawn and open, is now on the `primaryActionInSidebar` prop. Not covered by a test: the server render of the bar itself, since the repo has no server-render test yet.
+- **Review:** done, four rounds.
 
 ## Amendment process
 
