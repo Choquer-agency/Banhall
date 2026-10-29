@@ -148,6 +148,32 @@ describe("Editor search surface", () => {
     expect(component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }], { showChanges: false })).toBe(true);
   });
 
+  it("checks a card on its first show only: outside its Line it is still marked, and switching options never ends it (review 2026-10-28)", async () => {
+    const block = (type: string, text: string) =>
+      type === "heading"
+        ? { type, attrs: { level: 2 }, content: [{ type: "text", text }] }
+        : { type, content: [{ type: "text", text }] };
+    const lines = JSON.stringify({
+      type: "doc",
+      content: [
+        block("heading", "Line 242 - Scientific/Technological Uncertainty"),
+        block("paragraph", "The loop drifted under load."),
+        block("heading", "Line 244 - Work performed"),
+        block("paragraph", "The team ran twelve trials."),
+      ],
+    });
+    const { component, container } = await mountEditor(lines);
+    // A card for Line 242 whose words now sit in Line 244: marked there, and
+    // Accept lets the server decide.
+    expect(component.previewProposal([{ find: "ran twelve trials", replaceWith: "ran 12 trials" }], { line: "242", key: "card-a" })).toBe(true);
+    await expect.poll(() => container.querySelectorAll(".review-cut").length).toBeGreaterThan(0);
+    // The same card's other option on words the report no longer has: the review stays.
+    expect(component.previewProposal([{ find: "ran forty trials", replaceWith: "ran 40 trials" }], { line: "242", key: "card-a" })).toBe(true);
+    // Another card with the same words is a new show, and is checked.
+    expect(component.previewProposal([{ find: "ran forty trials", replaceWith: "ran 40 trials" }], { line: "244", key: "card-b" })).toBe(false);
+    component.clearProposalPreview();
+  });
+
   it("marks only the changed words of each occurrence, and clears", async () => {
     const { component, container } = await mountEditor();
 

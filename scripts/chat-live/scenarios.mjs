@@ -156,7 +156,11 @@ const SCENARIOS = [
       await send(page, "Tighten one sentence in Line 246. Keep every fact. Offer no other options.");
       await waitIdle(page);
       const before = await reportText(page);
-      await page.getByRole("button", { name: "Review", exact: true }).last().click();
+      const reviews = page.getByRole("button", { name: "Review", exact: true });
+      expect((await reviews.count()) > 0, "the reply made no card to review (it asked or declined)");
+      await reviews.last().click();
+      await page.waitForTimeout(1000);
+      expect(!(await page.getByText(/^Couldn't review\./).count()), "Review found none of the new card's words in the report");
       await page.getByRole("toolbar", { name: "Review suggestion" }).waitFor({ timeout: 10_000 });
       let marks = 0;
       for (let i = 0; i < 10 && !marks; i++) {

@@ -511,7 +511,7 @@
     // so this effect follows the session only.
     untrack(() => {
       if (!target) ed.clearProposalPreview();
-      else if (!ed.previewProposal(pairs, { showChanges, line: target.line })) review.nothingToShow();
+      else if (!ed.previewProposal(pairs, { showChanges, line: target.line, key: target.proposalId })) review.nothingToShow();
     });
   });
   // Review shows the report: leave Sources, Assistant full screen, or the

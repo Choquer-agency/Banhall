@@ -746,6 +746,10 @@
     pairs: { find: string; replaceWith: string }[];
     showChanges: boolean;
     line: string | null;
+    /** The card under review (its proposal id), so its option and Show changes switches are not a new show. */
+    key: string;
+    /** None of its words were inside its Line, so it is marked wherever the report has them. */
+    wholeReport: boolean;
   };
   let reviewPreview = $state<ReviewPreview | null>(null);
 
@@ -1368,14 +1372,17 @@
    * Owner 2026-10-28 (rows 34 and 35): show a suggestion under review in the
    * report. Show changes on strikes the old words and adds the new ones; off
    * shows the report as it would read, the new words lightly marked. `line`
-   * keeps the marks inside the card's Line. The first time a suggestion is
-   * shown the report scrolls to it. Pass [] to clear. Returns false, and
-   * shows nothing, when the report no longer holds the suggestion's words
-   * (they were edited after it was made).
+   * keeps the marks inside the card's Line; `key` names the card. A card's
+   * first show scrolls the report to it and checks that the report still
+   * holds its words: inside its Line, else anywhere (a Line this editor
+   * bounds differently from the server, which decides on Accept). Returns
+   * false, and shows nothing, when the report holds none of them (they were
+   * edited after the suggestion was made), or for []. Switching the card's
+   * option or Show changes never ends the review.
    */
   export function previewProposal(
     pairs: { find: string; replaceWith: string }[],
-    options: { showChanges?: boolean; line?: string | null } = {}
+    options: { showChanges?: boolean; line?: string | null; key?: string } = {}
   ): boolean {
     if (!editor) return true;
     const kept = pairs.filter((p) => p.find.trim());
@@ -1383,20 +1390,36 @@
       clearProposalPreview();
       return false;
     }
-    const firstShow = !reviewPreview || reviewPreview.pairs[0]?.find !== kept[0].find;
-    if (!firstShow) {
-      reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
+    const doc = editor.state.doc;
+    const key = options.key ?? kept[0].find;
+    const showChanges = options.showChanges ?? true;
+    const previous = reviewPreview;
+    const marksIn = (line: string | null) => reviewMarks(doc, kept, diffWords, line ? lineScope(doc, line) : undefined);
+    if (previous && previous.key === key) {
+      const line = previous.wholeReport ? null : (options.line ?? null);
+      reviewPreview = { pairs: kept, showChanges, line, key, wholeReport: previous.wholeReport };
+      // Another option on another passage: take the writer there.
+      if (previous.pairs[0]?.find !== kept[0].find) {
+        const first = marksIn(line)[0];
+        if (first) scrollContainerToPos(first.kind === "cut" ? first.from : first.at, 120);
+      }
       return true;
     }
-    // The first change inside the card's Line, not the same words elsewhere.
-    const doc = editor.state.doc;
-    const scope = options.line ? lineScope(doc, options.line) : undefined;
-    const first = reviewMarks(doc, kept, diffWords, scope)[0];
+    let line = options.line ?? null;
+    let first = marksIn(line)[0];
+    let wholeReport = false;
+    if (!first && line) {
+      first = marksIn(null)[0];
+      if (first) {
+        line = null;
+        wholeReport = true;
+      }
+    }
     if (!first) {
       clearProposalPreview();
       return false;
     }
-    reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
+    reviewPreview = { pairs: kept, showChanges, line, key, wholeReport };
     scrollContainerToPos(first.kind === "cut" ? first.from : first.at, 120);
     return true;
   }
