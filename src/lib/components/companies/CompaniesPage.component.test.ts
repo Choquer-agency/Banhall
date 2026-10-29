@@ -483,6 +483,11 @@ describe("Edit company (Managers and Admins)", () => {
       name: "Cedarline Robotics",
     });
     await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/cedarline%20robotics");
+    // The old key is no company any more: until the new address arrives the
+    // page holds its shape rather than saying the company does not exist.
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, { kind: "missing" });
+    await expect.poll(() => document.querySelector('[data-panel-skeleton="company"]')).not.toBeNull();
+    expect(document.querySelector("[data-company-missing]")).toBeNull();
   });
 
   it("shows the refusal of another company's name in the dialog", async () => {

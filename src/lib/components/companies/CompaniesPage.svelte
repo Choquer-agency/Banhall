@@ -130,9 +130,20 @@
   }
 
   let editOpen = $state(false);
+  /**
+   * A rename's new key while the page moves there: the old key stops being
+   * a company at once, so the page holds its shape instead of saying the
+   * company does not exist.
+   */
+  let movingTo = $state<string | null>(null);
+  $effect(() => {
+    if (movingTo !== null && companyKey === movingTo) movingTo = null;
+  });
   function onCompanySaved(result: { key: string }) {
     // A rename moves the company to its new key's address.
-    if (result.key !== companyKey) openCompany(result.key, { replace: true });
+    if (result.key === companyKey) return;
+    movingTo = result.key;
+    openCompany(result.key, { replace: true });
   }
 
   function onMerged(result: MergeResult) {
@@ -142,6 +153,7 @@
   // ─── The bar ──────────────────────────────────────────────────────────────
   const title = $derived.by(() => {
     if (companyKey === null) return "Companies";
+    if (movingTo !== null) return "";
     if (company) return company.name;
     if (pageData?.kind === "missing") return "Companies";
     return "";
@@ -229,6 +241,8 @@
         />
       {/if}
     </div>
+  {:else if movingTo !== null}
+    <WorkspacePanelSkeleton layout="company" label="Loading the company" />
   {:else if company}
     <CompanyView
       {company}
