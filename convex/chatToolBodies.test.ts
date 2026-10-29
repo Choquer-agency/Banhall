@@ -73,6 +73,8 @@ async function setup(
       archived?: boolean;
       processingStatus?: "could_not_read" | "reference_only" | "ready";
     }>;
+    /** 2026-10-29 (third): Line 244's paragraphs, where a case needs its own. */
+    s244?: string[];
   } = {}
 ) {
   const t = convexTest(schema, modules);
@@ -145,7 +147,7 @@ async function setup(
     const reportId = await ctx.db.insert("reports", {
       projectId,
       ...(generationId ? { generationId } : {}),
-      content: reportDoc({ s242: DRAFT_242 }),
+      content: reportDoc({ s242: DRAFT_242, ...(opts.s244 ? { s244: opts.s244 } : {}) }),
       version: 1,
       generatedAt: now,
       updatedAt: now,
@@ -482,6 +484,33 @@ describe("runCompareReferencePd", () => {
     const reply = await runCompareReferencePd(f.ctx, {});
     expect(reply).toContain("more than one previous-year report");
     expect(reply).toContain("Ask the writer which one");
+  });
+});
+
+describe("an edit to a Line over its CRA limit but within its drafting room (2026-10-29, third)", () => {
+  // Review round 1 (plumbing P2): Line 244 at 760 of 700 words, and the
+  // writer asks to fix a date in paragraph 2. The result says the Line stays
+  // within its drafting room, so the Assistant sends no tighter card.
+  test("tells the Assistant the Line is trimmed before export, not to shorten it again", async () => {
+    const filler = (count: number) => Array.from({ length: count }, (_, index) => `word${index % 40}`).join(" ");
+    const f = await setup({
+      s244: [`${filler(380)}.`, `The trials ended in March 2025 ${filler(375)}.`],
+    });
+    const reply = await runProposeBulkEdits(
+      f.ctx,
+      {
+        edits: [{ targetText: "The trials ended in March 2025", newText: "The trials ended in early March 2025" }],
+        findings: [
+          { id: "c-244-2-1", section: "244", paragraph: 2, kind: "content", status: "resolved", editNumbers: [1] },
+        ],
+      },
+      { toolCallId: "call-date", bannedWordsWaived: false }
+    );
+    expect(reply).toContain("Once applied, Line 244 would have 762 of 700 words (now 761)");
+    expect(reply).toContain(
+      "over a CRA limit but within its drafting room of 840 words and 120 form lines, so it is trimmed before export."
+    );
+    expect(reply).not.toContain("takes it over its drafting room");
   });
 });
 

@@ -75,4 +75,23 @@ describe("lineLengthsAfterEdit", () => {
   it("says nothing when no meter changes", () => {
     expect(lineLengthsAfterEdit(before, before)).toBeNull();
   });
+
+  // 2026-10-29 (third), review round 1 (plumbing P2): a Line over a CRA limit
+  // but within its drafting room is trimmed before export; only an edit that
+  // takes it over that room asks for a tighter card.
+  it("says whether an edit takes a Line over its drafting room, or leaves it within it", () => {
+    const words = (count: number) => Array.from({ length: count }, (_, index) => `w${index % 50}`).join(" ");
+    const at = (count: number) => report({ s242: sentence, s244: words(count), s246: sentence });
+    const within = lineLengthsAfterEdit(at(760), at(761));
+    expect(within).toContain("Line 244 would have 761 of 700 words (now 760)");
+    expect(within).toContain("over a CRA limit but within its drafting room of 840 words and 120 form lines, so it is trimmed before export.");
+    expect(within).not.toContain("takes it over");
+    expect(lineLengthsAfterEdit(at(830), at(845))).toContain(
+      "over a CRA limit, and this edit takes it over its drafting room of 840 words and 120 form lines."
+    );
+    expect(lineLengthsAfterEdit(at(850), at(860))).toContain("this edit takes it over its drafting room");
+    expect(lineLengthsAfterEdit(at(860), at(850))).toContain(
+      "over a CRA limit and over its drafting room of 840 words and 120 form lines, no further than now."
+    );
+  });
 });

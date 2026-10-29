@@ -7,7 +7,7 @@
  * It uses the editor's own measure (`reportSectionMetrics`), one parser and
  * one CRA line model, so the block and the meters can never disagree.
  */
-import { GAP_MARKER_RE, INFERRED_MARKER_RE } from "../lib/lineLimits";
+import { GAP_MARKER_RE, INFERRED_MARKER_RE, generationCeiling } from "../lib/lineLimits";
 import { parseCanonicalReport, reportSectionMetrics } from "../../src/lib/reportSections";
 
 const LINES = [
@@ -53,6 +53,32 @@ export function lineLengthsText(reportContent: string | null): string | null {
 }
 
 /**
+ * 2026-10-29 (third), review round 1 (plumbing P2): while drafting a Line
+ * may run up to its drafting room (the CRA limits plus
+ * GENERATION_LIMIT_ALLOWANCE), so a Line over a CRA limit is often fine
+ * until export. The verdict says whether the edit itself takes the Line over
+ * that room (over it now and not before, or further over it): only then is
+ * a tighter card wanted without the writer asking about length
+ * (CHAT_RETRY_WHEN).
+ */
+function afterEditVerdict(
+  key: (typeof LINES)[number][0],
+  before: { words: number; lines: number },
+  after: { words: number; lines: number; wordCap: number; limit: number }
+): string {
+  if (after.lines <= after.limit && after.words <= after.wordCap) return "within the CRA limits";
+  const ceiling = generationCeiling(key);
+  const room = `its drafting room of ${ceiling.wordCap} words and ${ceiling.lineLimit} form lines`;
+  const overRoom = (m: { words: number; lines: number }) => m.words > ceiling.wordCap || m.lines > ceiling.lineLimit;
+  const share = (m: { words: number; lines: number }) => Math.max(m.words / ceiling.wordCap, m.lines / ceiling.lineLimit);
+  if (overRoom(after) && (!overRoom(before) || share(after) > share(before))) {
+    return `over a CRA limit, and this edit takes it over ${room}`;
+  }
+  if (overRoom(after)) return `over a CRA limit and over ${room}, no further than now`;
+  return `over a CRA limit but within ${room}, so it is trimmed before export`;
+}
+
+/**
  * What an edit would do to the meters (owner, 2026-10-21): one sentence per
  * Line whose counts change, returned to the model with the edit tool's
  * result. With it the model checks a trim against the real meter instead of
@@ -66,7 +92,7 @@ export function lineLengthsAfterEdit(beforeContent: string, afterContent: string
     const b = before[key];
     const a = after[key];
     if (a.lines === b.lines && a.words === b.words) return [];
-    const verdict = a.lines > a.limit || a.words > a.wordCap ? "over a CRA limit" : "within the CRA limits";
+    const verdict = afterEditVerdict(key, b, a);
     return [
       `Line ${line} would have ${a.words} of ${a.wordCap} words (now ${b.words}) and ${a.lines} of ${a.limit} form lines (now ${b.lines}), ${verdict}.`,
     ];
