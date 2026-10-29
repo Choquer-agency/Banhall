@@ -206,13 +206,24 @@ describe("validateExport inference handling", () => {
     const unclosed = result.warnings.filter((w) => w.message.includes("no closing bracket"));
     expect(unclosed.map((w) => w.field)).toEqual(["s244", "s246"]);
     expect(unclosed[0].message).toBe(
-      'Line 244 has a gap or inference note with no closing bracket. It counts toward the limits and exports as plain text: finish it with "]" or delete it.'
+      'Line 244 has a gap or inference note with no closing bracket. Its words count toward the limits as report text and export as plain text: finish it with "]" or delete it.'
     );
     // It is neither listed nor counted as a note.
     expect(result.notes).toEqual([]);
     // A whole marker beside it is not mistaken for one.
     const whole = validateExport(canonicalizeExportPreflight(preflight(tiptapDoc({ s242: `One. ${MARK}`, s244: "Beta.", s246: "Gamma." }))));
     expect(whole.warnings.some((w) => w.message.includes("no closing bracket"))).toBe(false);
+    // Review round 2 (P3-5): only an opening with its colon counts.
+    const words = validateExport(
+      canonicalizeExportPreflight(preflight(tiptapDoc({ s242: "The [GAP] notes and [Inferred] tags are words here.", s244: "Beta.", s246: "Gamma." })))
+    );
+    expect(words.warnings.some((w) => w.message.includes("no closing bracket"))).toBe(false);
+    // An unclosed note's words are counted, and a later note in its Line is still found whole.
+    const later = validateExport(
+      canonicalizeExportPreflight(preflight(tiptapDoc({ s242: "Alpha [INFERRED: unclosed\n\nBeta [GAP: the load] gamma.", s244: "Beta.", s246: "Gamma." })))
+    );
+    expect(later.notes.map((note) => note.text)).toEqual(["[GAP: the load]"]);
+    expect(later.warnings.filter((w) => w.message.includes("no closing bracket")).map((w) => w.field)).toEqual(["s242"]);
   });
 
   test("a clean report has no notes", () => {

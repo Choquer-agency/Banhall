@@ -152,6 +152,72 @@ describe("Inference chips in the report editor", () => {
     await expect.poll(() => inside.tiptap.getText()).not.toContain("INFERRED");
   });
 
+  // Review round 2 (P3-1): every modifier the editor deletes with, as the
+  // Section heading tests press them.
+  const BACKWARD = ["{Shift>}{Backspace}{/Shift}", "{Meta>}{Backspace}{/Meta}", "{Control>}{Backspace}{/Control}", "{Alt>}{Backspace}{/Alt}"];
+  const FORWARD = ["{Shift>}{Delete}{/Shift}", "{Meta>}{Delete}{/Meta}", "{Control>}{Delete}{/Control}", "{Alt>}{Delete}{/Alt}"];
+  for (const keys of BACKWARD) {
+    it(`removes the whole marker on ${keys} at the chip's end`, async () => {
+      const { tiptap } = await mount("classic");
+      await placeCursor(tiptap, rangeOf(tiptap, MARK).to);
+      await userEvent.keyboard(keys);
+      await expect.poll(() => tiptap.getText()).not.toContain("INFERRED");
+      expect(tiptap.getText()).toContain("Readiness was first judged from single readings. The team then held each sample for an hour.");
+    });
+  }
+  for (const keys of FORWARD) {
+    it(`removes the whole marker on ${keys} at the chip's start`, async () => {
+      const { tiptap } = await mount("classic");
+      await placeCursor(tiptap, rangeOf(tiptap, MARK).from);
+      await userEvent.keyboard(keys);
+      await expect.poll(() => tiptap.getText()).not.toContain("INFERRED");
+      expect(tiptap.getText()).toContain("Readiness was first judged from single readings. The team then held each sample for an hour.");
+    });
+  }
+
+  it("widens a selection that covers part of a chip to the whole marker", async () => {
+    const { tiptap } = await mount("classic");
+    const mark = rangeOf(tiptap, MARK);
+    // From inside the chip to the middle of "team", six characters after it.
+    tiptap.chain().setTextSelection({ from: mark.from + 5, to: mark.to + 6 }).focus().run();
+    await expect.poll(() => tiptap.view.hasFocus() && tiptap.state.selection.from === mark.from + 5).toBe(true);
+    await userEvent.keyboard("{Backspace}");
+    await expect.poll(() => tiptap.getText()).not.toContain("INFERRED");
+    expect(tiptap.getText()).not.toContain("source asks");
+    expect(tiptap.getText()).toContain("single readings. eam then held each sample");
+  });
+
+  it("widens a selection from before a chip into it, with Delete", async () => {
+    const { tiptap } = await mount("classic");
+    const mark = rangeOf(tiptap, MARK);
+    // From the space before "readings" into the chip.
+    tiptap.chain().setTextSelection({ from: mark.from - 11, to: mark.from + 4 }).focus().run();
+    await expect.poll(() => tiptap.view.hasFocus() && tiptap.state.selection.to === mark.from + 4).toBe(true);
+    await userEvent.keyboard("{Delete}");
+    await expect.poll(() => tiptap.getText()).not.toContain("INFERRED");
+    expect(tiptap.getText()).not.toContain("stability");
+    expect(tiptap.getText()).toContain("Readiness was first judged from single The team then held");
+  });
+
+  // Review round 2 (P3-6): the hidden prefix is not a stop for the caret.
+  for (const presentation of ["classic", "reading"] as const) {
+    it(`moves the caret across the hidden prefix with the arrow keys (${presentation})`, async () => {
+      const { tiptap } = await mount(presentation);
+      const mark = rangeOf(tiptap, MARK);
+      await placeCursor(tiptap, mark.from);
+      await userEvent.keyboard("{ArrowRight}");
+      await expect.poll(() => tiptap.state.selection.from).toBe(mark.from + 1);
+      await userEvent.keyboard("{ArrowLeft}");
+      await expect.poll(() => tiptap.state.selection.from).toBe(mark.from);
+      await userEvent.keyboard("{ArrowLeft}");
+      await expect.poll(() => tiptap.state.selection.from).toBe(mark.from - 1);
+      await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+      await expect.poll(() => tiptap.state.selection.from).toBe(mark.from + 1);
+      // Nothing was typed or deleted on the way.
+      expect(tiptap.getText()).toContain(`single readings. ${MARK} The team`);
+    });
+  }
+
   it("leaves Backspace alone away from a chip, and on a gap", async () => {
     const { tiptap } = await mount("classic");
     await placeCursor(tiptap, rangeOf(tiptap, "an hour.").to);
@@ -203,6 +269,31 @@ describe("Inference chips in the report editor", () => {
     // A note the report no longer holds there is not found.
     expect(component.showNote({ section: "s244", text: MARK, occurrence: 2 })).toBe(false);
     expect(component.showNote({ section: "s242", text: MARK, occurrence: 0 })).toBe(false);
+  });
+
+  // Review round 2 (P3-4): Show counts notes as the export parser does, in
+  // top-level paragraphs only, so a note in a list does not shift the count.
+  it("skips a note in a list, which the export list never holds, when it shows a note", async () => {
+    const paragraph = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+    const heading = (text: string, level = 2) => ({ type: "heading", attrs: { level }, content: [{ type: "text", text }] });
+    const doc = {
+      type: "doc",
+      content: [
+        heading("Cold room readiness", 1),
+        heading("Line 242 - Scientific/Technological Uncertainty"),
+        paragraph("Uncertainty."),
+        heading("Line 244 - Work Performed"),
+        { type: "bulletList", content: [{ type: "listItem", content: [paragraph(`Listed one. ${MARK}`)] }] },
+        paragraph(`Real one. ${MARK}`),
+        heading("Line 246 - Scientific/Technological Advancement"),
+        paragraph("Advancement."),
+      ],
+    };
+    const { container, component } = await mount("classic", JSON.stringify(doc));
+    expect(component.showNote({ section: "s244", text: MARK, occurrence: 0 })).toBe(true);
+    await expect.poll(() => container.querySelector(".ai-ref-highlight")?.closest("p")?.textContent?.startsWith("Real one.")).toBe(true);
+    expect(container.querySelector(".ai-ref-highlight")?.closest("li")).toBeNull();
+    expect(component.showNote({ section: "s244", text: MARK, occurrence: 1 })).toBe(false);
   });
 });
 

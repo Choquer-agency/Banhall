@@ -308,6 +308,21 @@ describe("INFERRED_MARKER_RE and the note helpers", () => {
     expect(overflowStartOffset(text, "s242")).toBeNull();
   });
 
+  // Review round 2 (P3-2): an opening left unclosed swallows nothing after it.
+  test("an unclosed note never swallows the text after it, in its paragraph or the next", () => {
+    // The probe: 11 words, which the old match counted as 3.
+    const probe = "One two [INFERRED: three four five\n\nsix seven eight nine ten eleven] end";
+    expect(sectionMetrics(probe, "s244").words).toBe(sectionMetrics(probe.replace(/[[\]]/g, ""), "s244").words);
+    expect(findReportNotes(probe)).toEqual([]);
+    // Another opening bracket ends it too, so the later marker is still found whole.
+    const nested = "Alpha [INFERRED: beta gamma [GAP: the load] delta.";
+    expect(findReportNotes(nested).map((note) => note.text)).toEqual(["[GAP: the load]"]);
+    expect(sectionMetrics(nested, "s244").words).toBe(5);
+    // A single line break (a hard break) may still sit inside a note.
+    expect(findReportNotes("A [INFERRED: one\ntwo] b").map((note) => note.note)).toEqual(["one\ntwo"]);
+    expect(findReportNotes("A [GAP: one\n  \ntwo] b")).toEqual([]);
+  });
+
   test("word-cap overflow ignores inference marker words", () => {
     const words = Array.from({ length: WORD_CAPS.s242 }, () => "w").join(" ");
     expect(overflowStartOffset(`${words} ${MARK}`, "s242")).toBeNull();

@@ -42,7 +42,15 @@ export type SectionKey = keyof typeof LINE_LIMITS;
  * (lastIndex). Use `matchAll`/`replace` (which reset it), or build a fresh
  * non-global copy via `new RegExp(GAP_MARKER_RE.source, "i")`.
  */
-export const GAP_MARKER_RE = /\[GAP:\s*[^\]]*\]/gi;
+/**
+ * What a note holds between its colon and its "]": anything but another
+ * bracket or a blank line (review round 2 of the inference marker), so an
+ * opening left unclosed never swallows the text after it, in its paragraph
+ * or the next. A single line break (a hard break) may sit inside a note.
+ */
+const NOTE_BODY = String.raw`(?:[^\[\]\n]|\n(?![^\S\n]*\n))*`;
+
+export const GAP_MARKER_RE = new RegExp(String.raw`\[GAP:${NOTE_BODY}\]`, "gi");
 
 /**
  * 2026-10-29 (owner): a claim the evidence does not state but that follows
@@ -53,10 +61,10 @@ export const GAP_MARKER_RE = /\[GAP:\s*[^\]]*\]/gi;
  * accepting the inference) therefore changes no count. Same caution as
  * GAP_MARKER_RE: global, so use `matchAll`/`replace` or a fresh copy.
  */
-export const INFERRED_MARKER_RE = /\[INFERRED:\s*[^\]]*\]/gi;
+export const INFERRED_MARKER_RE = new RegExp(String.raw`\[INFERRED:${NOTE_BODY}\]`, "gi");
 
 /** Either note marker: a [GAP: ...] or an [INFERRED: ...]. Global, as above. */
-export const NOTE_MARKER_RE = /\[(?:GAP|INFERRED):\s*[^\]]*\]/gi;
+export const NOTE_MARKER_RE = new RegExp(String.raw`\[(?:GAP|INFERRED):${NOTE_BODY}\]`, "gi");
 
 /** Collapse the doubled spaces a marker's removal creates while PRESERVING
  * newlines (every explicit break costs a CRA form line). */

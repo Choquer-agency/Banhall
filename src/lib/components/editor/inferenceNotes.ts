@@ -18,7 +18,7 @@
  * an aria-label on an inline mark in an editable area is not read reliably
  * (P3-9).
  */
-import { Extension } from "@tiptap/core";
+import { Extension, isiOS, isMacOS } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -90,29 +90,35 @@ export function inferredNoteRanges(doc: PMNode): Array<Range & { note: string }>
  * Review round 1 (P2-4): the range of one listed note, the
  * `occurrence`-th marker with exactly its text inside its own Line, so two
  * notes with the same words each jump to their own place. Null when the
- * report no longer holds it there.
+ * report no longer holds it there. Round 2 (P3-4): counted as the export
+ * parser counts (`reportNotes`): top-level paragraphs only, so a note in a
+ * list, a table or an extra heading, which the parser does not read, never
+ * shifts the count; a legacy QA Scorecard heading ends Line 246.
  */
 export function reportNoteRange(doc: PMNode, note: Pick<ReportNote, "section" | "text" | "occurrence">): Range | null {
-  // The Line each top-level node belongs to, from the Section headings.
-  const lineOf: Array<ReportNote["section"] | null> = [];
   let line: ReportNote["section"] | null = null;
-  doc.forEach((top) => {
-    const key = top.type.name === "heading" ? reportSectionKeyForHeading(top.toJSON() as TiptapNode) : null;
-    if (key) line = key;
-    lineOf.push(key ? null : line);
-  });
   let seen = 0;
-  for (const { text, positions, top } of textBlocks(doc)) {
-    if (lineOf[top] !== note.section) continue;
+  let found: Range | null = null;
+  doc.forEach((top, offset) => {
+    if (found) return;
+    if (top.type.name === "heading") {
+      const key = reportSectionKeyForHeading(top.toJSON() as TiptapNode);
+      if (key) line = key;
+      else if (line === "s246" && /^qa scorecard$/i.test(top.textContent.trim())) line = null;
+      return;
+    }
+    if (line !== note.section || top.type.name !== "paragraph") return;
+    const { text, positions } = blockText(top, offset);
     for (const match of findReportNotes(text)) {
       if (match.text !== note.text) continue;
       if (seen === note.occurrence) {
-        return { from: positions[match.index], to: positions[match.index + match.text.length - 1] + 1 };
+        found = { from: positions[match.index], to: positions[match.index + match.text.length - 1] + 1 };
+        return;
       }
       seen += 1;
     }
-  }
-  return null;
+  });
+  return found;
 }
 
 /** The chip and its hidden prefix for each [INFERRED: ...] marker of `doc`. */
@@ -142,22 +148,42 @@ export function inferredNoteDecorations(doc: PMNode): DecorationSet {
 }
 
 /**
- * The marker a key would delete into: for Backspace, one whose inside or end
- * the empty cursor is at; for Delete, one whose start or inside it is at.
- * The space before the marker goes with it, so no doubled space is left.
+ * The range a delete key removes in one step, or null to leave the key to
+ * the editor. An empty cursor: for a backward key, the marker whose inside or
+ * end it is at; for a forward key, the marker whose start or inside it is at.
+ * The space before the marker goes with it, so no doubled space is left. A
+ * selection that overlaps part of a marker (review round 2, P3-1) widens to
+ * the whole marker, so no part of one is ever left behind.
  */
-function markerToRemove(state: EditorState, key: "Backspace" | "Delete"): Range | null {
-  const { selection } = state;
-  if (!selection.empty) return null;
-  const at = selection.from;
-  for (const range of inferredNoteRanges(state.doc)) {
-    const touches = key === "Backspace" ? at > range.from && at <= range.to : at >= range.from && at < range.to;
-    if (!touches) continue;
-    const before = range.from > 0 ? state.doc.textBetween(range.from - 1, range.from) : "";
-    return { from: before === " " ? range.from - 1 : range.from, to: range.to };
+function rangeToRemove(state: EditorState, direction: "backward" | "forward"): Range | null {
+  const { from, to, empty } = state.selection;
+  const markers = inferredNoteRanges(state.doc);
+  if (empty) {
+    for (const range of markers) {
+      const touches = direction === "backward" ? from > range.from && from <= range.to : from >= range.from && from < range.to;
+      if (!touches) continue;
+      const before = range.from > 0 ? state.doc.textBetween(range.from - 1, range.from) : "";
+      return { from: before === " " ? range.from - 1 : range.from, to: range.to };
+    }
+    return null;
   }
-  return null;
+  const overlapped = markers.filter((range) => from < range.to && to > range.from);
+  if (overlapped.length === 0) return null;
+  const start = Math.min(from, ...overlapped.map((range) => range.from));
+  const end = Math.max(to, ...overlapped.map((range) => range.to));
+  return start === from && end === to ? null : { from: start, to: end };
 }
+
+/**
+ * The keys Tiptap binds to deleting backward and forward, with every
+ * modifier (review round 2, P3-1, as reportSectionHeadings binds them). The
+ * Mac-only ones are bound only on Mac and iOS, as Tiptap does, so Ctrl-d,
+ * Ctrl-h and Alt-d keep their browser meaning elsewhere.
+ */
+const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace", "Ctrl-Backspace", "Meta-Backspace", "Alt-Backspace"] as const;
+const FORWARD_KEYS = ["Delete", "Shift-Delete", "Mod-Delete", "Ctrl-Delete", "Meta-Delete", "Alt-Delete"] as const;
+const MAC_BACKWARD_KEYS = ["Ctrl-h"] as const;
+const MAC_FORWARD_KEYS = ["Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
 
 const inferenceNotesKey = new PluginKey<DecorationSet>("reportInferenceNotes");
 
@@ -168,13 +194,17 @@ export const ReportInferenceNotes = Extension.create({
   priority: 1000,
 
   addKeyboardShortcuts() {
-    const accept = (key: "Backspace" | "Delete") => () => {
+    const accept = (direction: "backward" | "forward") => () => {
       if (!this.editor.isEditable) return false;
-      const range = markerToRemove(this.editor.state, key);
+      const range = rangeToRemove(this.editor.state, direction);
       if (!range) return false;
       return this.editor.commands.deleteRange(range);
     };
-    return { Backspace: accept("Backspace"), Delete: accept("Delete") };
+    const mac = isMacOS() || isiOS();
+    const shortcuts: Record<string, () => boolean> = {};
+    for (const key of [...BACKWARD_KEYS, ...(mac ? MAC_BACKWARD_KEYS : [])]) shortcuts[key] = accept("backward");
+    for (const key of [...FORWARD_KEYS, ...(mac ? MAC_FORWARD_KEYS : [])]) shortcuts[key] = accept("forward");
+    return shortcuts;
   },
 
   addProseMirrorPlugins() {

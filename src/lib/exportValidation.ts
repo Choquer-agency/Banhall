@@ -159,7 +159,7 @@ export function validateExport(
         severity: "warning",
         field: diagnostic.section ?? "content",
         label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
-        message: `${subject} has a gap or inference note with no closing bracket. It counts toward the limits and exports as plain text: finish it with "]" or delete it.`,
+        message: `${subject} has a gap or inference note with no closing bracket. Its words count toward the limits as report text and export as plain text: finish it with "]" or delete it.`,
       });
       continue;
     }

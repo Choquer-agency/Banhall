@@ -12,7 +12,7 @@ import {
 const HAS_GAP_RE = new RegExp(GAP_MARKER_RE.source, "i");
 const HAS_INFERRED_RE = new RegExp(INFERRED_MARKER_RE.source, "i");
 /** A note's opening with no closing bracket, once every whole marker is taken out. */
-const UNCLOSED_NOTE_RE = /\[(?:GAP|INFERRED)\b/i;
+const UNCLOSED_NOTE_RE = /\[(?:GAP|INFERRED):/i;
 
 export interface TiptapNode {
   type: string;
@@ -300,11 +300,14 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
 export function reportNotes(body: CanonicalReportBody): ReportNote[] {
   return SECTION_ORDER.flatMap((section) => {
     const seen = new Map<string, number>();
-    return findReportNotes(body.sections[section].plainText).map(({ kind, text, note }) => {
-      const occurrence = seen.get(text) ?? 0;
-      seen.set(text, occurrence + 1);
-      return { section, kind, text, note, occurrence };
-    });
+    // Paragraph by paragraph (review round 2): a note never spans two.
+    return body.sections[section].blocks.flatMap((block) =>
+      findReportNotes(block.text).map(({ kind, text, note }) => {
+        const occurrence = seen.get(text) ?? 0;
+        seen.set(text, occurrence + 1);
+        return { section, kind, text, note, occurrence };
+      })
+    );
   });
 }
 
