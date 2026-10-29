@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import type { UIMessage } from "@convex-dev/agent";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
 import AgentChatPanel from "./AgentChatPanel.svelte";
 import MessageContent from "./primitives/MessageContent.svelte";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
@@ -73,6 +74,29 @@ it("never shows the welcome to a report with a conversation while it loads", asy
   expect(loading().elements()).toHaveLength(0);
   expect(watch.seen.welcome).toBe(false);
   watch.stop();
+});
+
+// 2026-10-28 (owner): reopening a chat on a report with a Line over its limit
+// briefly showed a new conversation's "Get started" options and title.
+it("never shows a new conversation's options or title while an earlier chat loads", async () => {
+  const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
+  const overLimit = JSON.stringify(buildTiptapDocument("Report", words(385), words(20), words(30)));
+  const seen = { getStarted: false, newTitle: false };
+  const observer = new MutationObserver(() => {
+    if (document.body.textContent?.includes("Get started")) seen.getStarted = true;
+    if (document.querySelector("[data-conversation-title]")?.textContent === "New conversation") seen.newTitle = true;
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  await render(AgentChatPanel, { ...ids, reportContent: overLimit });
+  await expect.element(loading()).toBeInTheDocument();
+  __setQueryData("chatV2:listThreads", [{ _id: "mapping-1", agentThreadId: "thread-1", title: "Earlier" }]);
+  await expect.element(page.getByText("Earlier", { exact: true })).toBeVisible();
+  await expect.element(loading()).toBeInTheDocument();
+  __setPaginatedRows("chatV2:listMessages", rows);
+  await expect.element(page.getByText("Stored answer", { exact: true })).toBeVisible();
+  await expect.element(composer()).toBeVisible();
+  observer.disconnect();
+  expect(seen).toEqual({ getStarted: false, newTitle: false });
 });
 
 it("says a conversation could not load instead of loading forever, and holds Send", async () => {

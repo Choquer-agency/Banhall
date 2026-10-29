@@ -1437,11 +1437,14 @@
   // Owner 2026-10-28 (row 37): options that take the message box's place.
   // "Assistant needs you" holds the AI's open question; "Get started" a new
   // conversation's "Shorten Line N" options, only while a Line is over its
-  // limit. Skip returns to the message box for that question or chat.
+  // limit. Skip returns to the message box for that question or chat. A
+  // conversation still loading reads as empty, so neither shows until the
+  // transcript is ready: reopening a chat never flashes "Get started".
   const skippedPanelKeys = new SvelteSet<string>();
   const writerQuestion = $derived(openWriterQuestion(messages));
   const newChatOptions = $derived(startOptions(reportContent));
   const optionsPanel = $derived.by(() => {
+    if (!transcriptReady) return null;
     if (isStreaming || awaitingReply || sending || pendingResearch || refiningProposal) return null;
     if (writerQuestion && selectedThreadId) {
       const key = `question:${selectedThreadId}:${writerQuestion.toolCallId}`;
@@ -1490,11 +1493,14 @@
     untrack(() => onWorkingChange?.(working));
   });
 
-  // Row 16 B: the header names the open conversation.
+  // Row 16 B: the header names the open conversation. Until the list says
+  // there is none to reopen, it is not yet a new one.
   const conversationTitle = $derived(
     selectedThreadId
       ? (threadsQ.data?.find((thread) => thread.agentThreadId === selectedThreadId)?.title ?? "Assistant")
-      : "New conversation"
+      : startingNewChat || threadsQ.data?.length === 0
+        ? "New conversation"
+        : "Assistant"
   );
   function skipOptionsPanel(key: string | undefined) {
     if (key) skippedPanelKeys.add(key);
