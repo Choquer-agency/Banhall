@@ -673,11 +673,22 @@ export async function claimRedraftSectionHandler(
         (prior.status === "drafted" ? (prior.draftText ?? null) : null);
       return text ? [{ section, text }] : [];
     });
+  // 2026-10-29 (third), review round 1: the Lines after this one already in
+  // the report (the writer's text). Their gap notes are asked already, so
+  // this Line does not ask them again.
+  const laterSections = chainRows
+    .filter((later) => (later.orderIndex ?? 0) > orderIndex)
+    .flatMap((later) => {
+      const section = sectionNumberOfRow(later);
+      const text = presentReportSection(current, section);
+      return text ? [{ section, text }] : [];
+    });
   return await orderedSectionClaim(ctx, {
     generation: fence.generation,
     row,
     section: args.section,
     priorSections,
+    laterSections,
     executionBrief,
   });
 }

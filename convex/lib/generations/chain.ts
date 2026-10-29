@@ -299,6 +299,12 @@ export async function orderedSectionClaim(
     row: Doc<"generationSectionRuns">;
     section: SectionNumber;
     priorSections: Array<{ section: SectionNumber; text: string }>;
+    /**
+     * 2026-10-29 (third), review round 1: on a redraft, the Lines after this
+     * one that are already in the report. Only their [GAP: ...] notes reach
+     * the request, so the Line asks none of them again.
+     */
+    laterSections?: Array<{ section: SectionNumber; text: string }>;
     executionBrief?: Awaited<ReturnType<typeof loadBriefCheck>>;
   }
 ) {
@@ -351,6 +357,7 @@ export async function orderedSectionClaim(
     orderIndex,
     isFirstInOrder: orderIndex === 0,
     priorSections: args.priorSections,
+    ...(args.laterSections && args.laterSections.length > 0 ? { laterSections: args.laterSections } : {}),
     briefBlock,
     brief,
     ...plan,

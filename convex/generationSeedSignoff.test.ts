@@ -9741,6 +9741,35 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(generation?.redraft).toMatchObject({ status: "completed", filledSections: ["242"] });
   });
 
+  // 2026-10-29 (third, item 5), review round 1: a redrafted Line also gets
+  // the gap notes of a Line after it that is already in the report, so it
+  // does not ask the client the same question again.
+  it("sends a redrafted Line the gap notes of a later Line the writer already filled", async () => {
+    const { s } = await stopAfterFirstSection("Gaps");
+    configureSuccessfulSummaryFinalization("GapsRedraft");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    // This fixture drafts in the order 246, 242, 244, and stopped after 246.
+    // The writer fills the 244 placeholder, with a gap note, before the 242
+    // redraft runs: 244 comes after 242 in the build order.
+    await writerTypes(s, "[NOT GENERATED]", "Writer wrote 244. [GAP: how many trials ran]");
+    network.create.mockClear();
+    await runRedraftSection(s);
+    const draft = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => !params.tool_choice);
+    if (!draft) throw new Error("The redraft made no drafting call");
+    const user = providerUser(draft);
+    expect(user).toContain(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.gapsAsked.prefix);
+    expect(user).toContain("Your task is to draft Line 242");
+    expect(user).toContain("- Line 244 (Work performed): how many trials ran");
+    expect(user).toContain(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.gapsAsked.rule);
+    // Only its gap notes: the later Line's text is not sent as an earlier Line.
+    expect(user).not.toContain("### Line 244 (Work performed) (DRAFTED)");
+    expect(user).not.toContain("Writer wrote 244.");
+  });
+
   /** Replace the report's last "[NOT GENERATED]" body with `text` (or, when
    * no placeholder is left, the previous typed text) as a writer save. */
   async function writerTypes(s: ReadyFixture, from: string, text: string) {

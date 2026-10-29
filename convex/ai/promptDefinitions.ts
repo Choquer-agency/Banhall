@@ -703,7 +703,7 @@ export const ORDERED_PROMPT_SCAFFOLDS = {
      */
     gapsAsked: {
       prefix:
-        "\n\n## Gaps already asked in the Lines above\nEach of these is a question for the client, and each is asked once:\n",
+        "\n\n## Gaps already asked in other Lines\nEach of these is a question for the client, and each is asked once:\n",
       itemPrefix: "- ",
       itemMiddle: ": ",
       itemSeparator: "\n",

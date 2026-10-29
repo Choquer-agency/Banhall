@@ -167,9 +167,17 @@ export const startSummaryRecovery = internalAction({
 /** Prompt block carrying this candidate's prior DRAFTED sections (ungated:
  * context for consistency, never iterative's "approved" canonical text). */
 export function draftedPriorSectionsBlock(
-  priorSections: Array<{ section: SectionNumber; text: string }>
+  priorSections: Array<{ section: SectionNumber; text: string }>,
+  /**
+   * 2026-10-29 (third), review round 1: on a redraft, the Lines after this
+   * one already in the report; only their gap notes are sent.
+   */
+  laterSections: Array<{ section: SectionNumber; text: string }> = []
 ): string {
-  if (priorSections.length === 0) return "";
+  const gaps = gapsAlreadyAskedBlock(
+    [...priorSections, ...laterSections].map((other) => ({ title: ORDERED_SECTION_TITLES[other.section], text: other.text }))
+  );
+  if (priorSections.length === 0) return gaps;
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections;
   const body = priorSections
     .map(
@@ -177,9 +185,7 @@ export function draftedPriorSectionsBlock(
         `${scaffold.itemTitlePrefix}${ORDERED_SECTION_TITLES[prior.section]}${scaffold.itemTitleSuffix}${prior.text}`
     )
     .join(scaffold.separator);
-  return `${scaffold.prefix}${body}${gapsAlreadyAskedBlock(
-    priorSections.map((prior) => ({ title: ORDERED_SECTION_TITLES[prior.section], text: prior.text }))
-  )}`;
+  return `${scaffold.prefix}${body}${gaps}`;
 }
 
 /**
@@ -1221,7 +1227,7 @@ export async function draftCheckedSection(input: {
   const styleGuidance =
     (payload.frozenStyleGuidance ??
       buildStyleGuidance(payload.draftStyle, payload.writerFlavor, styleOverrides)) +
-    draftedPriorSectionsBlock(claim.priorSections);
+    draftedPriorSectionsBlock(claim.priorSections, claim.laterSections ?? []);
   const styleDigestIds =
     payload.draftStyleDigestId && payload.draftStyle?.trim()
       ? [payload.draftStyleDigestId]
