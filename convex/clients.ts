@@ -1003,6 +1003,88 @@ export const updateCompany = mutation({
 
 // ─── The company page (2026-10-28) ──────────────────────────────────────────
 
+// Fiscal year end and industry fall back to the company's newest project's
+// values when the company has none saved (the clients backfill made rows
+// without them; their projects carry `fiscalYearEnd` and `industry`).
+
+/** Rows of the latest fiscal years read to find the company's latest year end. */
+const FALLBACK_YEAR_END_READ = 10;
+/** Newest projects read to find the most recently updated one with an industry. */
+const FALLBACK_INDUSTRY_READ = 25;
+/** Companies one year end read may ask about (one table page on All companies). */
+export const COMPANY_YEAR_END_KEY_LIMIT = 50;
+
+/**
+ * The month and day of the latest fiscal year end among a company's live
+ * projects, or null. The rank index puts the latest fiscal year first, so the
+ * first FALLBACK_YEAR_END_READ rows hold it (a short year in the same year
+ * included); projects being deleted are skipped.
+ */
+async function projectYearEnd(
+  ctx: Ctx,
+  key: string
+): Promise<{ month: number; day: number } | null> {
+  if (key === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
+  const rows = await ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) => q.eq("dashboardCompanyKey", key))
+    .order("asc")
+    .take(FALLBACK_YEAR_END_READ);
+  let latest: number | null = null;
+  for (const row of rows) {
+    if (row.deletionStartedAt !== undefined || row.fiscalYearEnd === undefined) continue;
+    if (latest === null || row.fiscalYearEnd > latest) latest = row.fiscalYearEnd;
+  }
+  if (latest === null) return null;
+  const date = new Date(latest);
+  return { month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+/**
+ * The industry of the most recently updated live project that has one, among
+ * the company's FALLBACK_INDUSTRY_READ newest projects, or null.
+ */
+async function projectIndustry(ctx: Ctx, key: string): Promise<string | null> {
+  if (key === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
+  const rows = await ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
+    .order("desc")
+    .take(FALLBACK_INDUSTRY_READ);
+  let best: Doc<"projects"> | null = null;
+  for (const row of rows) {
+    if (row.deletionStartedAt !== undefined || !row.industry) continue;
+    if (!best || row.updatedAt > best.updatedAt) best = row;
+  }
+  return best?.industry ?? null;
+}
+
+/**
+ * All companies' Fiscal year end column for companies with none saved: each
+ * key's latest project year end (as the company page shows it). At most
+ * COMPANY_YEAR_END_KEY_LIMIT keys, each read by index up to
+ * FALLBACK_YEAR_END_READ rows; keys with no project year end are left out.
+ */
+export const listCompanyYearEnds = query({
+  args: { keys: v.array(v.string()) },
+  returns: v.array(
+    v.object({ key: v.string(), fiscalYearEndMonth: v.number(), fiscalYearEndDay: v.number() })
+  ),
+  handler: async (ctx, args) => {
+    // D1: firm-wide read visibility for internal users.
+    await requireInternalActor(ctx);
+    if (args.keys.length > COMPANY_YEAR_END_KEY_LIMIT) {
+      domainError("INVALID_INPUT", `Ask for at most ${COMPANY_YEAR_END_KEY_LIMIT} companies at a time.`);
+    }
+    const out: { key: string; fiscalYearEndMonth: number; fiscalYearEndDay: number }[] = [];
+    for (const key of new Set(args.keys)) {
+      const yearEnd = await projectYearEnd(ctx, key);
+      if (yearEnd) out.push({ key, fiscalYearEndMonth: yearEnd.month, fiscalYearEndDay: yearEnd.day });
+    }
+    return out;
+  },
+});
+
 const mergedNoteValidator = v.object({
   /** The tombstone the note is about: closing it is kept per tombstone. */
   noteId: v.id("clients"),
@@ -1033,6 +1115,10 @@ export const getCompanyPage = query({
       fiscalYearEndMonth: v.optional(v.number()),
       fiscalYearEndDay: v.optional(v.number()),
       industry: v.optional(v.string()),
+      /** The year end shown is the newest project's (the company has none saved). */
+      fiscalYearEndFromProjects: v.boolean(),
+      /** The industry shown is the newest project's (the company has none saved). */
+      industryFromProjects: v.boolean(),
       mergedNote: v.union(mergedNoteValidator, v.null()),
     }),
     v.object({ kind: v.literal("merged"), key: v.string(), name: v.string() }),
@@ -1065,6 +1151,13 @@ export const getCompanyPage = query({
           };
         }
       }
+      // A value saved on the company wins; with none, its newest project's.
+      const savedYearEnd =
+        entry.fiscalYearEndMonth !== undefined && entry.fiscalYearEndDay !== undefined
+          ? { month: entry.fiscalYearEndMonth, day: entry.fiscalYearEndDay }
+          : null;
+      const yearEnd = savedYearEnd ?? (await projectYearEnd(ctx, entry.key));
+      const industry = entry.industry ?? (await projectIndustry(ctx, entry.key));
       return {
         kind: "company" as const,
         key: entry.key,
@@ -1072,9 +1165,10 @@ export const getCompanyPage = query({
         clientUpdatedAt: client?.updatedAt ?? null,
         name: entry.name,
         projectCount: entry.projectCount,
-        ...(entry.fiscalYearEndMonth !== undefined ? { fiscalYearEndMonth: entry.fiscalYearEndMonth } : {}),
-        ...(entry.fiscalYearEndDay !== undefined ? { fiscalYearEndDay: entry.fiscalYearEndDay } : {}),
-        ...(entry.industry !== undefined ? { industry: entry.industry } : {}),
+        ...(yearEnd ? { fiscalYearEndMonth: yearEnd.month, fiscalYearEndDay: yearEnd.day } : {}),
+        ...(industry ? { industry } : {}),
+        fiscalYearEndFromProjects: savedYearEnd === null && yearEnd !== null,
+        industryFromProjects: entry.industry === undefined && industry !== null,
         mergedNote,
       };
     }

@@ -1,7 +1,9 @@
 <!--
   All companies (owner, 2026-10-28; no Paper board, kept plain and laid out
   as Team's tables, Paper S11): every company A to Z with its projects, its
-  usual fiscal year end ("September 30", or "Not set") and its last update,
+  usual fiscal year end ("September 30"; with none saved, its newest
+  project's, as on the company page; "Not set" only when neither has one)
+  and its last update,
   filtered by the page's "Search companies" (case and accents ignored). A
   row opens the company page. The list is the company directory the
   sidebar already reads (index-backed, bounded); the table shows it 50 rows
@@ -18,10 +20,14 @@
 
   /** Rows shown at first and added by each Show more. */
   export const COMPANY_TABLE_PAGE = 50;
+  /** Companies one fallback year end read asks about (the server's limit). */
+  const YEAR_END_CHUNK = 50;
 </script>
 
 <script lang="ts">
+  import { SvelteMap } from "svelte/reactivity";
   import { filterClients } from "$lib/projects/clientList";
+  import CompanyYearEndsLoader from "./CompanyYearEndsLoader.svelte";
   import { companiesPath, yearEndLabel } from "$lib/companies/companies";
   import { longDate } from "$lib/projects/projectCard";
   import { topBarPrimary } from "$lib/components/shell/topBar";
@@ -50,10 +56,47 @@
     shown = COMPANY_TABLE_PAGE;
   });
 
+  // Companies with no year end saved show their newest project's. The ones
+  // that need it are cut into fixed chunks of 50, A to Z, so a chunk's read
+  // stays the same while the person searches or shows more; only chunks with
+  // a row on screen are read, and what came back is kept.
+  const needing = $derived(
+    companies
+      .filter((company) => company.fiscalYearEndMonth === undefined || company.fiscalYearEndDay === undefined)
+      .map((company) => company.key)
+  );
+  const chunkOf = $derived(new Map(needing.map((key, index) => [key, Math.floor(index / YEAR_END_CHUNK)])));
+  const shownRows = $derived(visible.slice(0, shown));
+  const chunksOnScreen = $derived(
+    [...new Set(shownRows.map((company) => chunkOf.get(company.key)).filter((id): id is number => id !== undefined))].sort(
+      (a, b) => a - b
+    )
+  );
+  const projectYearEnds = new SvelteMap<string, { month: number; day: number }>();
+  function keepYearEnds(entries: { key: string; fiscalYearEndMonth: number; fiscalYearEndDay: number }[]) {
+    for (const entry of entries) {
+      const known = projectYearEnds.get(entry.key);
+      if (known?.month !== entry.fiscalYearEndMonth || known?.day !== entry.fiscalYearEndDay) {
+        projectYearEnds.set(entry.key, { month: entry.fiscalYearEndMonth, day: entry.fiscalYearEndDay });
+      }
+    }
+  }
+  /** The saved year end, else the newest project's. */
+  function yearEndOf(company: CompanyRow): string | null {
+    const saved = yearEndLabel(company.fiscalYearEndMonth, company.fiscalYearEndDay);
+    if (saved) return saved;
+    const fromProjects = projectYearEnds.get(company.key);
+    return fromProjects ? yearEndLabel(fromProjects.month, fromProjects.day) : null;
+  }
+
   const quietButton =
     "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
   const cell = "text-[0.8125rem] leading-[calc(19/13)]";
 </script>
+
+{#each chunksOnScreen as id (id)}
+  <CompanyYearEndsLoader keys={needing.slice(id * YEAR_END_CHUNK, (id + 1) * YEAR_END_CHUNK)} onLoaded={keepYearEnds} />
+{/each}
 
 {#if companies.length === 0}
   <!-- Paper Z9c: no companies yet. -->
@@ -73,8 +116,8 @@
         <span role="columnheader" class="w-36 shrink-0">Fiscal year end</span>
         <span role="columnheader" class="w-40 shrink-0">Last update</span>
       </div>
-      {#each visible.slice(0, shown) as company (company.key)}
-        {@const yearEnd = yearEndLabel(company.fiscalYearEndMonth, company.fiscalYearEndDay)}
+      {#each shownRows as company (company.key)}
+        {@const yearEnd = yearEndOf(company)}
         <div role="row" data-company-row={company.key} class="relative flex h-12 items-center gap-4 border-b border-line-soft px-4 transition-colors last:border-b-0 hover:bg-primary-wash motion-reduce:transition-none">
           <span role="cell" class="flex min-w-0 flex-1 items-center">
             <!-- The name's link covers the row, so the whole row opens the page. -->

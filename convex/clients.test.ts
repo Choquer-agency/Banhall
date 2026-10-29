@@ -1745,6 +1745,8 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       fiscalYearEndMonth: 9,
       fiscalYearEndDay: 30,
       industry: "software",
+      fiscalYearEndFromProjects: false,
+      industryFromProjects: false,
       mergedNote: null,
     });
     expect(await s.writer.query(api.clients.getCompanyPage, { key: "birch foods" })).toEqual({
@@ -1754,6 +1756,8 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       clientUpdatedAt: null,
       name: "Birch Foods",
       projectCount: 2,
+      fiscalYearEndFromProjects: false,
+      industryFromProjects: false,
       mergedNote: null,
     });
   });
@@ -1878,5 +1882,138 @@ describe("listClients last update (All companies, 2026-10-28)", () => {
       ["acme", 9_000],
       ["birch foods", 7_000],
     ]);
+  });
+});
+
+describe("fiscal year end and industry fall back to the newest project's (2026-10-28)", () => {
+  const DEC_31_2025 = Date.UTC(2025, 11, 31);
+  const DEC_31_2024 = Date.UTC(2024, 11, 31);
+  const JUN_30_2025 = Date.UTC(2025, 5, 30);
+
+  async function setIndustry(s: Setup, projectId: Id<"projects">, industry: string | undefined, updatedAt: number) {
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(projectId, { industry, updatedAt });
+    });
+  }
+
+  it("a company with none saved shows its latest project year end and its most recently updated project's industry", async () => {
+    const s = await setup();
+    await insertClient(s, "3GA Marine Ltd");
+    await insertCompany(s, "3GA Marine Ltd", 4);
+    const old = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: DEC_31_2024 });
+    const latest = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: DEC_31_2025 });
+    const shortYear = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: JUN_30_2025 });
+    const going = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: Date.UTC(2026, 2, 31), deleting: true });
+    await setIndustry(s, old, "manufacturing", 1_000);
+    await setIndustry(s, latest, "software", 2_000);
+    // Updated last, but with no industry; and one being deleted.
+    await setIndustry(s, shortYear, undefined, 3_000);
+    await setIndustry(s, going, "life-sciences", 4_000);
+
+    const page = await s.writer.query(api.clients.getCompanyPage, { key: "3ga marine ltd" });
+    expect(page).toMatchObject({
+      kind: "company",
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+      industry: "software",
+      fiscalYearEndFromProjects: true,
+      industryFromProjects: true,
+    });
+    // The same year end for the All companies column.
+    expect(await s.writer.query(api.clients.listCompanyYearEnds, { keys: ["3ga marine ltd", "nobody"] })).toEqual([
+      { key: "3ga marine ltd", fiscalYearEndMonth: 12, fiscalYearEndDay: 31 },
+    ]);
+  });
+
+  it("a company known only by its projects falls back too", async () => {
+    const s = await setup();
+    await insertCompany(s, "Birch Foods", 1);
+    const birch = await insertProject(s, { clientName: "Birch Foods", fiscalYearEnd: Date.UTC(2025, 2, 31) });
+    await setIndustry(s, birch, "life-sciences", 5_000);
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "birch foods" })).toMatchObject({
+      clientId: null,
+      fiscalYearEndMonth: 3,
+      fiscalYearEndDay: 31,
+      industry: "life-sciences",
+    });
+  });
+
+  it("a value saved on the company wins over its projects'", async () => {
+    const s = await setup();
+    await insertClient(s, "Acme", { fiscalYearEndMonth: 9, fiscalYearEndDay: 30, industry: "manufacturing" });
+    await insertCompany(s, "Acme", 1);
+    const acme = await insertProject(s, { clientName: "Acme", fiscalYearEnd: DEC_31_2025 });
+    await setIndustry(s, acme, "software", 9_000);
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "acme" })).toMatchObject({
+      fiscalYearEndMonth: 9,
+      fiscalYearEndDay: 30,
+      industry: "manufacturing",
+      fiscalYearEndFromProjects: false,
+      industryFromProjects: false,
+    });
+    // Each falls back on its own: a saved year end, no saved industry.
+    await s.t.run(async (ctx) => {
+      const client = await ctx.db.query("clients").withIndex("by_nameKey", (q) => q.eq("nameKey", "acme")).first();
+      await ctx.db.patch(client!._id, { industry: undefined });
+    });
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "acme" })).toMatchObject({
+      fiscalYearEndMonth: 9,
+      industry: "software",
+      fiscalYearEndFromProjects: false,
+      industryFromProjects: true,
+    });
+  });
+
+  it("says nothing when neither the company nor a project has a value", async () => {
+    const s = await setup();
+    await insertClient(s, "Plain Co");
+    await insertCompany(s, "Plain Co", 1);
+    await insertProject(s, { clientName: "Plain Co" });
+    const page = await s.writer.query(api.clients.getCompanyPage, { key: "plain co" });
+    expect(page.kind === "company" && [page.fiscalYearEndMonth, page.fiscalYearEndDay, page.industry]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(page).toMatchObject({ fiscalYearEndFromProjects: false, industryFromProjects: false });
+  });
+
+  it("saving Edit company with the shown values stores them on the company", async () => {
+    const s = await setup();
+    const clientId = await insertClient(s, "3GA Marine Ltd");
+    await insertCompany(s, "3GA Marine Ltd", 1);
+    const p = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: DEC_31_2025 });
+    await setIndustry(s, p, "manufacturing", 1_000);
+    const page = await s.manager.query(api.clients.getCompanyPage, { key: "3ga marine ltd" });
+    if (page.kind !== "company") throw new Error("not a company");
+    await s.manager.mutation(api.clients.updateCompany, {
+      key: page.key,
+      expectedName: page.name,
+      expectedClientId: page.clientId,
+      expectedUpdatedAt: page.clientUpdatedAt,
+      name: "3GA Marine",
+      fiscalYearEndMonth: page.fiscalYearEndMonth,
+      fiscalYearEndDay: page.fiscalYearEndDay,
+      industry: page.industry,
+    });
+    expect(await getClient(s, clientId)).toMatchObject({
+      name: "3GA Marine",
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+      industry: "manufacturing",
+    });
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "3ga marine" })).toMatchObject({
+      fiscalYearEndFromProjects: false,
+      industryFromProjects: false,
+    });
+  });
+
+  it("the column read asks about at most 50 companies and requires an internal user", async () => {
+    const s = await setup();
+    const keys = Array.from({ length: 51 }, (_, index) => `company ${index}`);
+    await expect(s.writer.query(api.clients.listCompanyYearEnds, { keys })).rejects.toMatchObject({
+      data: { code: "INVALID_INPUT" },
+    });
+    await expect(s.t.query(api.clients.listCompanyYearEnds, { keys: ["acme"] })).rejects.toBeTruthy();
   });
 });
