@@ -9,3 +9,4 @@ Drafts now follow how the firm's best approved reports are written: they report 
 - Line 246 gives each uncertainty its status as the sources show it (resolved, resolved for the conditions tested, partially resolved or unresolved), and never writes a goal as if it had been achieved.
 - The QA score now checks the draft against your interviews and files, not only a summary of them, and never takes points off for an honest gap.
 - A question for the client is asked once: a later Line no longer repeats a gap an earlier Line already asks.
+- A draft may run up to 20 percent over a Line's CRA word and line limits when it needs the room, instead of being squeezed while it is written. Trim it to fit before you export: the Line's meter, the export window and the Assistant's shorten options show where.
