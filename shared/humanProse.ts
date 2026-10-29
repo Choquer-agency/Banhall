@@ -163,8 +163,9 @@ No talk about sources:
  * really not there". A stated claim is written plainly; a consequence,
  * cause or comparison the stated facts clearly imply is written and marked;
  * a claim with no basis is not written and a gap takes its place. Review
- * round 2: an event (a trial, result, finding or change of approach) is
- * never inferred, marked or not: without evidence it is a gap. The marker
+ * round 2: an event (a trial, test, result, finding, first approach or
+ * change of approach) is never inferred, marked or not: without evidence it
+ * is a gap. The marker
  * is a note to the writer, like a gap, so it may name the source; the
  * sentence never does.
  *
@@ -193,6 +194,7 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
 Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
 Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)
+Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a first approach is an event: a requirement is not a first approach, and the marker does not make it allowed: leave a gap)
 Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials, and the sentence is written as a stated fact)
 Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source, and states a first approach the evidence does not describe)
 Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)`;

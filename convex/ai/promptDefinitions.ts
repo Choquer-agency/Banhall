@@ -1126,7 +1126,7 @@ export const SUMMARY_PLAN_SELF_CHECK_MAX_TOKENS =
  * checks a figure or a specific detail it states.
  */
 export const FACTS_MARKED_INFERENCE =
-  " A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check: never flag it for having no source, but check a figure or a specific detail it states like any other, and flag an event it states (a trial, test, result, finding or change of approach) that the sources do not describe. Check the marker's own words the same way: a figure in them, or what they say the sources say, must match the sources.";
+  " A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check: never flag it for having no source, but check a figure or a specific detail it states like any other, and flag an event it states (a trial, test, result, finding, first approach or change of approach) that the sources do not describe. Check the marker's own words the same way: a figure in them, or what they say the sources say, must match the sources.";
 
 export const SUMMARY_PLAN_SELF_CHECK_REQUEST = {
   blockLabel: "CONTENT PLAN CHECKS",

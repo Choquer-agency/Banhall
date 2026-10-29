@@ -44,11 +44,14 @@ export type SectionKey = keyof typeof LINE_LIMITS;
  */
 /**
  * What a note holds between its colon and its "]": anything but another
- * bracket or a blank line (review round 2 of the inference marker), so an
- * opening left unclosed never swallows the text after it, in its paragraph
- * or the next. A single line break (a hard break) may sit inside a note.
+ * note's opening or a blank line (review round 2 of the inference marker),
+ * so an opening left unclosed never swallows the text after it, in its
+ * paragraph or the next. A single line break (a hard break) may sit inside a
+ * note, and so may one level of plain brackets such as a "[3]" citation
+ * (review round 3). Each branch starts on a different character, so the
+ * match stays linear.
  */
-const NOTE_BODY = String.raw`(?:[^\[\]\n]|\n(?![^\S\n]*\n))*`;
+const NOTE_BODY = String.raw`(?:[^\[\]\n]|\[(?!(?:GAP|INFERRED):)[^\[\]\n]*\]|\n(?![^\S\n]*\n))*`;
 
 export const GAP_MARKER_RE = new RegExp(String.raw`\[GAP:${NOTE_BODY}\]`, "gi");
 

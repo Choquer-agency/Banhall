@@ -323,7 +323,7 @@ export function buildSectionSharedSystemPrompt(
  * their request here.
  */
 export const SECTION_EVIDENCE_POINTER =
-  "\n\nWhere these instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding, a result or a measurable target, the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding or change of approach) the evidence does not describe. Never invent it to complete the shape, even where these instructions say a missing element will be flagged.";
+  "\n\nWhere these instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding, a result or a measurable target, the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe. Never invent it to complete the shape, even where these instructions say a missing element will be flagged.";
 
 export const SECTION_DRAFT_SCAFFOLD = {
   sharedPrefix:
@@ -717,11 +717,11 @@ export function buildSection246SystemPrompt(
 
 /** QA's Faithfulness check: a marked inference is not a fabrication. */
 export const QA_INFERENCE_FAITHFULNESS_CHECK =
-  "\n- A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check: do not count it as untraceable or fabricated, unless it states an event (a trial, test, result, finding or change of approach) the evidence does not describe, which a marker does not allow. Flag an inference written as a stated fact, with no marker, as before.";
+  "\n- A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check: do not count it as untraceable or fabricated, unless it states an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe, which a marker does not allow. Flag an inference written as a stated fact, with no marker, as before.";
 
 /** The Self-check: a marked inference is allowed, and a marker may name a source. */
 export const SELF_CHECK_INFERENCE_RULE =
-  "\n- A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. Only its lack of a source is allowed: never fail it for that alone. A marked event (a trial, test, result, finding or change of approach) the evidence does not describe is not allowed. Judge its hedging against the Confidence Map, and everything else about it, as usual. A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.";
+  "\n- A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. Only its lack of a source is allowed: never fail it for that alone. A marked event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe is not allowed. Judge its hedging against the Confidence Map, and everything else about it, as usual. A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.";
 
 /** The Summary Self-check's source-talk rule: a marker is not a sentence of the section. */
 export const SUMMARY_MARKER_NOT_SOURCE_TALK =

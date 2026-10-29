@@ -72,6 +72,10 @@ describe("the three kinds rule", () => {
     expect(RULES_EVIDENCE_KINDS).toContain(
       'Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)'
     );
+    // Round 3: a marked first approach, the meeting's own case, is Bad too.
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      'Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a first approach is an event'
+    );
     // No Good example marks an event.
     const goods = RULES_EVIDENCE_KINDS.split("\n").filter((line) => line.startsWith("Good"));
     expect(goods).toHaveLength(2);
@@ -127,7 +131,7 @@ describe("the three kinds rule", () => {
       expect(task.endsWith("# BRIEF")).toBe(true);
     }
     expect(SECTION_EVIDENCE_POINTER).toContain(
-      "the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding or change of approach) the evidence does not describe."
+      "the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe."
     );
     expect(SECTION_EVIDENCE_POINTER).toContain("even where these instructions say a missing element will be flagged");
     expect(findDashConnectors(SECTION_EVIDENCE_POINTER)).toEqual([]);
@@ -171,7 +175,7 @@ describe("the checks allow a marked inference", () => {
     for (const prompt of [SELF_CHECK_SYSTEM_PROMPT, SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT]) {
       expect(prompt).toContain("A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. Only its lack of a source is allowed");
       // Round 2: a marked event is still not allowed.
-      expect(prompt).toContain("A marked event (a trial, test, result, finding or change of approach) the evidence does not describe is not allowed.");
+      expect(prompt).toContain("A marked event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe is not allowed.");
       // Review round 1 (P3-7): its hedging is still judged.
       expect(prompt).toContain("Judge its hedging against the Confidence Map, and everything else about it, as usual.");
       expect(prompt).toContain("A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.");
@@ -185,7 +189,7 @@ describe("the checks allow a marked inference", () => {
     for (const complete of [true, false]) {
       const instruction = factsMatchSourcesInstruction(complete);
       expect(instruction).toContain(
-        "never flag it for having no source, but check a figure or a specific detail it states like any other, and flag an event it states (a trial, test, result, finding or change of approach) that the sources do not describe."
+        "never flag it for having no source, but check a figure or a specific detail it states like any other, and flag an event it states (a trial, test, result, finding, first approach or change of approach) that the sources do not describe."
       );
       // Review round 1 (P3-8): and the marker's own words.
       expect(instruction).toContain("Check the marker's own words the same way: a figure in them, or what they say the sources say, must match the sources.");
@@ -196,7 +200,7 @@ describe("the checks allow a marked inference", () => {
     for (const prompt of [buildQaSystemPrompt(), buildQaSystemPrompt({ ...NO_STYLE_OVERRIDES, reportSkeleton: true })]) {
       expect(prompt).toContain("- Are [GAP] placeholders used where information is missing?");
       expect(prompt).toContain(
-        "do not count it as untraceable or fabricated, unless it states an event (a trial, test, result, finding or change of approach) the evidence does not describe, which a marker does not allow. Flag an inference written as a stated fact, with no marker, as before."
+        "do not count it as untraceable or fabricated, unless it states an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe, which a marker does not allow. Flag an inference written as a stated fact, with no marker, as before."
       );
     }
   });
@@ -270,6 +274,15 @@ describe("compression keeps every marker", () => {
     const abbreviated = `The room was held at 2 C. Loads varied, e.g. pallets of fish and approx. 3 t of ice, so the tables did not fit them. ${MARK}`;
     expect(inferredSentenceLoss(abbreviated, `The room was held at 2 C. Loads varied, so the tables did not fit. ${MARK}`)).toBeNull();
     expect(inferredSentenceLoss(abbreviated, `The room was held at 2 C. ${MARK}`)).toBe(`dropped the sentence the marker ${MARK} belongs to`);
+    // Review round 3 (P3-3): a squeeze that keeps only the words before
+    // "e.g." is still that sentence; split there, it would hold none of them.
+    expect(inferredSentenceLoss(abbreviated, `The room was held at 2 C. Loads of fish varied across pallets. ${MARK}`)).toBeNull();
+    // A short marked sentence needs 2 of its words, not 1.
+    const short = `The room was cold at night. Doors stayed open. ${MARK}`;
+    expect(inferredSentenceLoss(short, `The room was cold at night. Doors closed quickly. ${MARK}`)).toBe(
+      `dropped the sentence the marker ${MARK} belongs to`
+    );
+    expect(inferredSentenceLoss(short, `The room was cold at night. Doors stayed open. ${MARK}`)).toBeNull();
   });
 
   it("reads a paragraph that ends on a marker as ending on a whole sentence", () => {

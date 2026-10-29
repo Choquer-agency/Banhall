@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
-import { Editor as TiptapEditor } from "@tiptap/core";
+import { Editor as TiptapEditor, isiOS, isMacOS } from "@tiptap/core";
 import Editor from "./Editor.svelte";
 import ReadOnlyEditor from "../review/ReadOnlyEditor.svelte";
 import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
@@ -152,10 +152,17 @@ describe("Inference chips in the report editor", () => {
     await expect.poll(() => inside.tiptap.getText()).not.toContain("INFERRED");
   });
 
-  // Review round 2 (P3-1): every modifier the editor deletes with, as the
-  // Section heading tests press them.
-  const BACKWARD = ["{Shift>}{Backspace}{/Shift}", "{Meta>}{Backspace}{/Meta}", "{Control>}{Backspace}{/Control}", "{Alt>}{Backspace}{/Alt}"];
-  const FORWARD = ["{Shift>}{Delete}{/Shift}", "{Meta>}{Delete}{/Meta}", "{Control>}{Delete}{/Control}", "{Alt>}{Delete}{/Alt}"];
+  // Review round 2 (P3-1): every modifier the editor deletes with. Round 3:
+  // exactly the keys Tiptap and the Section heading protection bind, so only
+  // the ones bound on the platform the suite runs on (Mod is Cmd on a Mac and
+  // Ctrl elsewhere; Shift-Delete stays Cut on Windows and Linux).
+  const MAC = isMacOS() || isiOS();
+  const BACKWARD = MAC
+    ? ["{Shift>}{Backspace}{/Shift}", "{Meta>}{Backspace}{/Meta}", "{Alt>}{Backspace}{/Alt}", "{Control>}h{/Control}"]
+    : ["{Shift>}{Backspace}{/Shift}", "{Control>}{Backspace}{/Control}"];
+  const FORWARD = MAC
+    ? ["{Meta>}{Delete}{/Meta}", "{Alt>}{Delete}{/Alt}", "{Control>}d{/Control}", "{Alt>}d{/Alt}", "{Control>}{Alt>}{Backspace}{/Alt}{/Control}"]
+    : ["{Control>}{Delete}{/Control}"];
   for (const keys of BACKWARD) {
     it(`removes the whole marker on ${keys} at the chip's end`, async () => {
       const { tiptap } = await mount("classic");
