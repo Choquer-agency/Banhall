@@ -30,6 +30,8 @@ import {
   dashboardFiscalYearRank,
 } from "../shared/dashboardProjection";
 import { clientNamesLookAlike, isValidClientYearEnd } from "../shared/clientNames";
+import { COMPANY_WEBSITE_INVALID, normalizeCompanyWebsite } from "../shared/companyWebsite";
+import { onCompanyWebsiteChanged } from "./companyWebsite";
 
 // ─── Saved clients (2026-10-14 amendment) ───────────────────────────────────
 // "Saved clients, client merge, and the Projects page redesign" in
@@ -204,6 +206,14 @@ function clientExistsError(existingName: string, existingKey: string): never {
   });
 }
 
+/** The website to store for what was sent: undefined for none, refused when it is not a usable website. */
+function requireWebsite(raw: string | undefined): string | undefined {
+  if (raw === undefined || !raw.trim()) return undefined;
+  const website = normalizeCompanyWebsite(raw);
+  if (!website) domainError("INVALID_INPUT", COMPANY_WEBSITE_INVALID);
+  return website;
+}
+
 function requireClientName(raw: string): string {
   const name = raw.trim();
   if (!name || dashboardCompanyKey(name) === DASHBOARD_UNNAMED_COMPANY_KEY) {
@@ -264,6 +274,8 @@ export const createClient = mutation({
     fiscalYearEndMonth: v.optional(v.number()),
     fiscalYearEndDay: v.optional(v.number()),
     industry: v.optional(v.string()),
+    /** 2026-10-29: the company's website, read into a company file once saved. */
+    website: v.optional(v.string()),
   },
   returns: v.object({
     clientId: v.id("clients"),
@@ -281,6 +293,7 @@ export const createClient = mutation({
       );
     }
     const industry = await validatedIndustry(ctx, args.industry);
+    const website = requireWebsite(args.website);
     const key = dashboardCompanyKey(name);
     const existing = await activeClientForKey(ctx, key);
     if (existing) clientExistsError(existing.name, existing.nameKey);
@@ -298,6 +311,7 @@ export const createClient = mutation({
           }
         : {}),
       ...(industry ? { industry } : {}),
+      ...(website ? { website } : {}),
       status: "active",
       nameHistoryComplete: true,
       createdBy: user._id,
@@ -307,6 +321,7 @@ export const createClient = mutation({
     // A key with no company row has no counted projects; link any uncounted
     // stragglers so the dual-write invariant holds from the start.
     await linkKeyProjects(ctx, key, clientId, MERGE_PROJECT_LIMIT);
+    if (website) await onCompanyWebsiteChanged(ctx, clientId, website, user._id, now);
     return { clientId, key, name };
   },
 });
@@ -881,6 +896,7 @@ export const updateCompany = mutation({
     fiscalYearEndMonth: v.optional(v.number()),
     fiscalYearEndDay: v.optional(v.number()),
     industry: v.optional(v.string()),
+    website: v.optional(v.string()),
   },
   returns: v.object({
     clientId: v.id("clients"),
@@ -923,10 +939,13 @@ export const updateCompany = mutation({
       args.industry !== undefined && args.industry === keep.client?.industry
         ? keep.client.industry
         : await validatedIndustry(ctx, args.industry);
+    const website = requireWebsite(args.website);
     const renames = name !== sideName(keep);
+    const websiteChanges = keep.client?.website !== website;
     const detailsChange =
       !sameYearEnd(keep.client, args.fiscalYearEndMonth, args.fiscalYearEndDay) ||
-      keep.client?.industry !== industry;
+      keep.client?.industry !== industry ||
+      websiteChanges;
     if (!renames && !detailsChange && keep.client) {
       return { clientId: keep.client._id, key: keep.key, name, moved: 0 };
     }
@@ -989,9 +1008,13 @@ export const updateCompany = mutation({
       fiscalYearEndMonth: args.fiscalYearEndMonth,
       fiscalYearEndDay: args.fiscalYearEndDay,
       industry,
+      website,
       ...(formerNames ? { formerNames } : {}),
       updatedAt: Math.max(now, (keep.client?.updatedAt ?? 0) + 1),
     });
+    // A new website is read into a company file (never blocking the save);
+    // a removed one archives its file.
+    if (websiteChanges) await onCompanyWebsiteChanged(ctx, clientId, website, user._id, now);
     return {
       clientId,
       key: plan?.keptKey ?? keep.key,
@@ -1145,6 +1168,16 @@ export const getCompanyPage = query({
       hasProjectFiscalYearEnd: v.boolean(),
       /** A project has an industry: an emptied one shows it. */
       hasProjectIndustry: v.boolean(),
+      /** 2026-10-29: the company's website, and how its latest read went. */
+      website: v.optional(v.string()),
+      websiteRead: v.union(
+        v.object({
+          status: v.union(v.literal("reading"), v.literal("read"), v.literal("failed")),
+          reason: v.optional(v.string()),
+          finishedAt: v.optional(v.number()),
+        }),
+        v.null()
+      ),
       mergedNote: v.union(mergedNoteValidator, v.null()),
     }),
     v.object({ kind: v.literal("merged"), key: v.string(), name: v.string() }),
@@ -1200,6 +1233,15 @@ export const getCompanyPage = query({
         industryFromProjects: entry.industry === undefined && industry !== null,
         hasProjectFiscalYearEnd: fromProjects.yearEnd !== null,
         hasProjectIndustry: fromProjects.industry !== null,
+        ...(client?.website ? { website: client.website } : {}),
+        websiteRead:
+          client?.website && client.websiteRead?.url === client.website
+            ? {
+                status: client.websiteRead.status,
+                ...(client.websiteRead.reason ? { reason: client.websiteRead.reason } : {}),
+                ...(client.websiteRead.finishedAt ? { finishedAt: client.websiteRead.finishedAt } : {}),
+              }
+            : null,
         mergedNote,
       };
     }

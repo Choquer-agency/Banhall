@@ -419,6 +419,25 @@ export default defineSchema({
     fiscalYearEndMonth: v.optional(v.number()),
     fiscalYearEndDay: v.optional(v.number()),
     industry: v.optional(v.string()),
+    // 2026-10-29 (owner: "We can include the company website field"): the
+    // company's website, a normalized absolute http(s) address
+    // (shared/companyWebsite.ts). Saving one reads it into a company file.
+    website: v.optional(v.string()),
+    // The latest read of `website`: requested, read or failed with a plain
+    // reason. Written by the server only; never part of Edit company's
+    // stale check (`updatedAt` does not move).
+    websiteRead: v.optional(
+      v.object({
+        url: v.string(),
+        status: v.union(v.literal("reading"), v.literal("read"), v.literal("failed")),
+        requestedAt: v.number(),
+        finishedAt: v.optional(v.number()),
+        reason: v.optional(v.string()),
+      })
+    ),
+    // The company file the website was last read into; archived when a new
+    // website replaces it or the website is removed.
+    websiteFileId: v.optional(v.id("companyFiles")),
     status: v.union(v.literal("active"), v.literal("merged")),
     mergedIntoClientId: v.optional(v.id("clients")),
     mergedAt: v.optional(v.number()),
