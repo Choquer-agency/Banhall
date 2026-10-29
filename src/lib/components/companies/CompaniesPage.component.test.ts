@@ -15,7 +15,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage, __setPageUrl, page as appPage } from "$lib/test/app-state-stub.svelte";
-import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+import { __navigationCalls, __resetNavigation, __setGotoUpdatesPageUrl } from "$lib/test/app-navigation-stub";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { reloadSectionSidebar, sectionSidebar, SECTION_SIDEBAR_KEY } from "$lib/workspace/sectionSidebar.svelte";
 import { board } from "$lib/test/boardScale";
@@ -425,6 +425,26 @@ describe("a company's page", () => {
     expect(document.querySelector("[data-merged-note]")).toBeNull();
   });
 
+  it("an applied bulk edit puts focus on the active tab, since the listing has no title here", async () => {
+    seed("manager");
+    __setQueryData("tags:listTags", []);
+    __setMutationResult("projects:bulkUpdateProjects", { updated: 1, skipped: 0 });
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector('[data-card-select-box="p1"]')).not.toBeNull();
+    await userEvent.click(page.getByRole("checkbox", { name: "Select Project p1" }));
+    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
+    const bulk = () => document.querySelector<HTMLElement>('[data-testid="bulk-edit-panel"]');
+    await expect.poll(bulk).not.toBeNull();
+    await expect.poll(() => bulk()!.getAnimations().length).toBe(0);
+    await userEvent.click(bulk()!.querySelector<HTMLElement>('[data-bulk-clear="fiscalYearEnd"]')!);
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-bulk-apply]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-apply]")!);
+    await expect.poll(() => __mutationCalls("projects:bulkUpdateProjects")).toEqual([{ projectIds: ["p1"], fiscalYearEnd: null }]);
+    await expect.poll(bulk).toBeNull();
+    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("projects");
+  });
+
   it("ending a selection with Escape puts focus on the active tab, since the listing has no title here", async () => {
     seed("consultant");
     await mount("cedarline systems");
@@ -536,6 +556,47 @@ describe("Edit company (Managers and Admins)", () => {
     await screen.rerender({ companyKey: "cedarline robotics" });
     await expect.poll(() => text(barTitle())).toBe("Cedarline Robotics");
     await expect.poll(() => document.activeElement?.hasAttribute("data-edit-company")).toBe(true);
+  });
+
+  it("a rename's hold ends when the person opens another company before the new address lands", async () => {
+    seed("admin");
+    __setMutationResult("clients:updateCompany", { clientId: "c3", key: "cedarline robotics", name: "Cedarline Robotics", moved: 10 });
+    const screen = await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await userEvent.fill(page.getByRole("textbox", { name: "Name" }), "Cedarline Robotics");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company-save]")!);
+    await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/cedarline%20robotics");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, { kind: "missing" });
+    await expect.poll(() => document.querySelector('[data-panel-skeleton="company"]')).not.toBeNull();
+
+    // The person clicks Alder Research in the sidebar before the new page arrives.
+    __setPageUrl("/companies/alder%20research");
+    await screen.rerender({ companyKey: "alder research" });
+    await expect.poll(() => text(barTitle())).toBe("Alder Research");
+    expect(document.querySelector('[data-panel-skeleton="company"]')).toBeNull();
+    expect(document.querySelector('[data-company-view="alder research"]')).not.toBeNull();
+    // Focus is not pulled onto this page's Edit company for the rename.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.activeElement?.hasAttribute("data-edit-company")).toBe(false);
+  });
+
+  it("a rename's hold ends when the navigation never reaches the new address", async () => {
+    seed("admin");
+    __setMutationResult("clients:updateCompany", { clientId: "c3", key: "cedarline robotics", name: "Cedarline Robotics", moved: 10 });
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
+    // The navigation is aborted: the address stays on the old key.
+    __setGotoUpdatesPageUrl(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await userEvent.fill(page.getByRole("textbox", { name: "Name" }), "Cedarline Robotics");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company-save]")!);
+    await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/cedarline%20robotics");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, { kind: "missing" });
+    // No endless skeleton: the page says what is at this address now.
+    await expect.poll(() => document.querySelector("[data-company-missing]")).not.toBeNull();
+    expect(document.querySelector('[data-panel-skeleton="company"]')).toBeNull();
+    expect(text(barTitle())).toBe("Companies");
   });
 
   it("shows the company's own industry even when no project uses it", async () => {

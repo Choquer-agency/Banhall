@@ -84,9 +84,16 @@
     bulkOpen = true;
   }
 
+  /**
+   * Back to the selection bar's Edit details while the selection lasts
+   * (Cancel). Once an apply ended it, the bar is still animating out when
+   * this is asked, so its button would take focus and then vanish: go to the
+   * area's title (or the host's fallback) instead.
+   */
   function bulkReturnFocus() {
+    const stillSelecting = (area?.selectedRows().length ?? 0) > 0;
     return (
-      document.querySelector<HTMLElement>("[data-selection-edit]") ??
+      (stillSelecting ? document.querySelector<HTMLElement>("[data-selection-edit]") : null) ??
       (focusFallback ? focusFallback() : document.querySelector<HTMLElement>("[data-client-title]"))
     );
   }

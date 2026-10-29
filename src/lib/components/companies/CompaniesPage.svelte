@@ -38,6 +38,7 @@
     closeMergedNote,
     companiesPath,
     companyCountLabel,
+    companyKeyFromPath,
     mergedNoteClosed,
     projectCountText,
   } from "$lib/companies/companies";
@@ -148,14 +149,34 @@
    * company does not exist.
    */
   let movingTo = $state<string | null>(null);
+  /** The key the rename started from: any other address ends the hold. */
+  let movingFrom = $state<string | null>(null);
   /** After a rename, focus goes to the moved page's Edit company (or its title) once it is drawn. */
-  let focusAfterMove = $state(false);
+  let focusKey = $state<string | null>(null);
+  function stopMoving() {
+    movingTo = null;
+    movingFrom = null;
+    focusKey = null;
+  }
   $effect(() => {
-    if (movingTo !== null && companyKey === movingTo) movingTo = null;
+    if (movingTo === null) return;
+    if (companyKey === movingTo) {
+      // Arrived: the page draws the company; focus follows once it is there.
+      movingTo = null;
+      movingFrom = null;
+    } else if (companyKey !== movingFrom) {
+      // Somewhere else first (another company, All companies, Back).
+      stopMoving();
+    }
   });
   $effect(() => {
-    if (!focusAfterMove || movingTo !== null || company?.key !== companyKey) return;
-    focusAfterMove = false;
+    if (focusKey === null || movingTo !== null) return;
+    if (companyKey !== focusKey) {
+      focusKey = null;
+      return;
+    }
+    if (company?.key !== focusKey) return;
+    focusKey = null;
     void tick().then(() =>
       (document.querySelector<HTMLElement>("[data-edit-company]") ?? document.querySelector<HTMLElement>("[data-page-title]"))?.focus()
     );
@@ -163,9 +184,20 @@
   function onCompanySaved(result: { key: string }) {
     // A rename moves the company to its new key's address.
     if (result.key === companyKey) return;
-    movingTo = result.key;
-    focusAfterMove = true;
-    openCompany(result.key, { replace: true });
+    const to = result.key;
+    movingTo = to;
+    movingFrom = companyKey;
+    focusKey = to;
+    void goto(companiesPath(root, to), { keepFocus: true, noScroll: true, replaceState: true })
+      .catch(() => {
+        // An aborted navigation is handled below.
+      })
+      .finally(() => {
+        // The navigation settled without reaching the new key (aborted, or
+        // overtaken by another): stop holding the page.
+        const reached = companyKeyFromPath(page.url.pathname.slice(root.length - 1));
+        if (movingTo === to && reached !== to) stopMoving();
+      });
   }
 
   function onMerged(result: MergeResult) {
