@@ -3,7 +3,7 @@ import type {
   CanonicalExportReport,
 } from "$lib/exportValidation";
 import {
-  EXPORTED_HIGHLIGHTED_DIAGNOSTICS,
+  NON_BLOCKING_DIAGNOSTICS,
   type CanonicalReportSection,
   type ExportParagraphBlock,
 } from "$lib/reportSections";
@@ -47,19 +47,22 @@ function escapeXml(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
+/** A highlighted span of one line: [start, end) in the line, with its run properties. */
+type NoteSpan = { start: number; end: number; rPr: string };
+
 /** One line's runs: other text as plain Courier, [GAP: …] spans as
  * yellow-highlighted Courier and [INFERRED: …] spans as cyan-highlighted
  * Courier. The optional `<w:br/>` stays on the first run. */
-function courierLineRuns(line: string, breakXml: string): string {
+function courierLineRuns(line: string, breakXml: string, spans: readonly NoteSpan[]): string {
   type Segment = { text: string; rPr: string };
   const segments: Segment[] = [];
   let cursor = 0;
-  for (const note of findReportNotes(line)) {
-    if (note.index > cursor) {
-      segments.push({ text: line.slice(cursor, note.index), rPr: COURIER_RPR });
+  for (const span of spans) {
+    if (span.start > cursor) {
+      segments.push({ text: line.slice(cursor, span.start), rPr: COURIER_RPR });
     }
-    segments.push({ text: note.text, rPr: note.kind === "gap" ? COURIER_GAP_RPR : COURIER_INFERRED_RPR });
-    cursor = note.index + note.text.length;
+    segments.push({ text: line.slice(span.start, span.end), rPr: span.rPr });
+    cursor = span.end;
   }
   if (cursor < line.length || segments.length === 0) {
     segments.push({ text: line.slice(cursor), rPr: COURIER_RPR });
@@ -72,10 +75,26 @@ function courierLineRuns(line: string, breakXml: string): string {
     .join("");
 }
 
+/**
+ * Review round 1 (P3-11): notes are found across the whole paragraph, so a
+ * marker that spans a hard break is highlighted on each line it covers.
+ */
 function courierParagraph(block: ExportParagraphBlock): string {
+  const notes = findReportNotes(block.text);
   const lines = block.text.split("\n");
+  let lineStart = 0;
   const runs = lines
-    .map((line, index) => courierLineRuns(line, index === 0 ? "" : "<w:br/>"))
+    .map((line, index) => {
+      const lineEnd = lineStart + line.length;
+      const spans = notes.flatMap((note): NoteSpan[] => {
+        const start = Math.max(note.index, lineStart);
+        const end = Math.min(note.index + note.text.length, lineEnd);
+        if (end <= start) return [];
+        return [{ start: start - lineStart, end: end - lineStart, rPr: note.kind === "gap" ? COURIER_GAP_RPR : COURIER_INFERRED_RPR }];
+      });
+      lineStart = lineEnd + 1;
+      return courierLineRuns(line, index === 0 ? "" : "<w:br/>", spans);
+    })
     .join("");
   return `<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr>${runs}</w:p>`;
 }
@@ -165,10 +184,11 @@ export async function exportToTemplateDocx(
   if (!scienceCode) {
     throw new Error("A valid CRA field of science or technology code is required");
   }
-  // Unresolved [GAP] and unchecked [INFERRED] markers export highlighted;
-  // every other diagnostic blocks.
+  // Unresolved [GAP] and unchecked [INFERRED] markers export highlighted,
+  // and an unclosed note exports as plain text; every other diagnostic
+  // blocks.
   const blocking = report.body.diagnostics.filter(
-    (diagnostic) => !EXPORTED_HIGHLIGHTED_DIAGNOSTICS.has(diagnostic.code)
+    (diagnostic) => !NON_BLOCKING_DIAGNOSTICS.has(diagnostic.code)
   );
   if (blocking.length > 0) {
     throw new Error("Report parser diagnostics must be resolved before export");

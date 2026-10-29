@@ -52,6 +52,17 @@ describe("exportToTemplateDocx notes", () => {
     expect(runHolding(xml, "The hold time was")).not.toContain("<w:highlight");
   });
 
+  // Review round 1 (P3-11): a marker across a hard break is highlighted on both lines.
+  test("highlights a marker that spans a hard break on each line it covers", async () => {
+    const xml = await exportedXml("Readiness was judged from single readings. [INFERRED: the source asks\nfor stability over time] The team then held each sample.");
+    const first = runHolding(xml, "[INFERRED: the source asks");
+    expect(first).toContain('<w:highlight w:val="cyan"/>');
+    const second = runHolding(xml, "for stability over time]");
+    expect(second).toContain('<w:highlight w:val="cyan"/>');
+    expect(second).toContain("<w:br/>");
+    expect(runHolding(xml, " The team then held each sample.")).not.toContain("<w:highlight");
+  });
+
   test("an inference does not block the export", async () => {
     await expect(exportedXml(`Only an inference here. ${MARK}`)).resolves.toContain(MARK);
   });

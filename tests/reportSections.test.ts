@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  EXPORTED_HIGHLIGHTED_DIAGNOSTICS,
+  NON_BLOCKING_DIAGNOSTICS,
   parseCanonicalReport,
   reportNotes,
   reportSectionMetrics,
@@ -154,7 +154,7 @@ describe("parseCanonicalReport", () => {
       section: "s242",
       message: "Line 242 contains an unchecked [INFERRED: ...] marker.",
     });
-    expect([...EXPORTED_HIGHLIGHTED_DIAGNOSTICS].sort()).toEqual(["UNCHECKED_INFERENCE", "UNRESOLVED_GAP"]);
+    expect([...NON_BLOCKING_DIAGNOSTICS].sort()).toEqual(["UNCHECKED_INFERENCE", "UNCLOSED_NOTE", "UNRESOLVED_GAP"]);
     expect(reportNotes(parsed).map((note) => [note.kind, note.note])).toEqual([
       ["inferred", "the source asks for stability over time"],
       ["gap", "the reading interval"],

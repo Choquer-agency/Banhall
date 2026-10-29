@@ -167,10 +167,52 @@ describe("validateExport inference handling", () => {
       )
     );
     expect(result.notes).toEqual([
-      { section: "s242", kind: "gap", text: "[GAP: need failure metrics]", note: "need failure metrics" },
-      { section: "s244", kind: "inferred", text: MARK, note: "the source asks for stability over time, not single-point checks" },
-      { section: "s246", kind: "gap", text: "[GAP: next year's plan]", note: "next year's plan" },
+      { section: "s242", kind: "gap", text: "[GAP: need failure metrics]", note: "need failure metrics", occurrence: 0 },
+      { section: "s244", kind: "inferred", text: MARK, note: "the source asks for stability over time, not single-point checks", occurrence: 0 },
+      { section: "s246", kind: "gap", text: "[GAP: next year's plan]", note: "next year's plan", occurrence: 0 },
     ]);
+  });
+
+  // Review round 1 (P2-4): two notes with the same words each know which one they are.
+  test("numbers notes with the same text within their Line, so each jumps to its own place", () => {
+    const result = validateExport(
+      canonicalizeExportPreflight(
+        preflight(
+          tiptapDoc({
+            s242: `One. ${MARK}`,
+            s244: `Two. ${MARK}\n\nThree. [GAP: the load] Four. ${MARK}`,
+            s246: "Gamma.",
+          })
+        )
+      )
+    );
+    expect(result.notes.map((note) => [note.section, note.kind, note.occurrence])).toEqual([
+      ["s242", "inferred", 0],
+      ["s244", "inferred", 0],
+      ["s244", "gap", 0],
+      ["s244", "inferred", 1],
+    ]);
+  });
+
+  // Review round 1 (P2-5): a note opened and never closed is report text to
+  // the counts, so export warns about it.
+  test("warns, without blocking, about a note with no closing bracket", () => {
+    const result = validateExport(
+      canonicalizeExportPreflight(
+        preflight(tiptapDoc({ s242: "Alpha.", s244: "Readings were taken once. [INFERRED: the source asks for", s246: "Gamma [GAP: dates." }))
+      )
+    );
+    expect(result.errors).toEqual([]);
+    const unclosed = result.warnings.filter((w) => w.message.includes("no closing bracket"));
+    expect(unclosed.map((w) => w.field)).toEqual(["s244", "s246"]);
+    expect(unclosed[0].message).toBe(
+      'Line 244 has a gap or inference note with no closing bracket. It counts toward the limits and exports as plain text: finish it with "]" or delete it.'
+    );
+    // It is neither listed nor counted as a note.
+    expect(result.notes).toEqual([]);
+    // A whole marker beside it is not mistaken for one.
+    const whole = validateExport(canonicalizeExportPreflight(preflight(tiptapDoc({ s242: `One. ${MARK}`, s244: "Beta.", s246: "Gamma." }))));
+    expect(whole.warnings.some((w) => w.message.includes("no closing bracket"))).toBe(false);
   });
 
   test("a clean report has no notes", () => {

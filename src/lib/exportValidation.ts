@@ -149,6 +149,20 @@ export function validateExport(
       });
       continue;
     }
+    // Review round 1 (P2-5): a note opened and never closed is report text
+    // to the counts and the export. It warns, as a gap does.
+    if (diagnostic.code === "UNCLOSED_NOTE") {
+      const subject = diagnostic.section
+        ? `Line ${diagnostic.section.slice(1)}`
+        : "The report";
+      warnings.push({
+        severity: "warning",
+        field: diagnostic.section ?? "content",
+        label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
+        message: `${subject} has a gap or inference note with no closing bracket. It counts toward the limits and exports as plain text: finish it with "]" or delete it.`,
+      });
+      continue;
+    }
     errors.push({
       severity: "error",
       field: diagnostic.section ?? "content",

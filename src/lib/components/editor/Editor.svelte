@@ -671,6 +671,8 @@
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
   import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
+  import { reportNoteRange } from "$lib/components/editor/inferenceNotes";
+  import type { ReportNote } from "$lib/reportSections";
   import EditorToolbar from "$lib/components/editor/EditorToolbar.svelte";
   import SlashCommandMenu from "$lib/components/editor/SlashCommandMenu.svelte";
   import BlockHandle from "$lib/components/editor/BlockHandle.svelte";
@@ -1366,6 +1368,19 @@
     if (!editor) return;
     aiHighlights = [{ from, to, text }];
     scrollContainerToPos(from, 120);
+  }
+
+  /**
+   * 2026-10-29 (review round 1, P2-4): one note of the export dialog's
+   * list, its own occurrence in its own Line, so two notes with the same
+   * words each go to their own place.
+   */
+  export function showNote(note: Pick<ReportNote, "section" | "text" | "occurrence">): boolean {
+    if (!editor) return false;
+    const range = reportNoteRange(editor.state.doc, note);
+    if (!range) return false;
+    highlightRange(range.from, range.to, note.text);
+    return true;
   }
 
   /**

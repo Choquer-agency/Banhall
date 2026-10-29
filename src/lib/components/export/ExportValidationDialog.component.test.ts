@@ -67,6 +67,7 @@ describe("ExportValidationDialog notes", () => {
       kind: "inferred",
       text: `[INFERRED: ${REASON}]`,
       note: REASON,
+      occurrence: 0,
     });
     await page.getByRole("button", { name: "Show this gap in Line 242" }).click();
     expect(onShowNote.mock.calls[1][0]).toMatchObject({ section: "s242", kind: "gap", text: "[GAP: the room sizes]" });

@@ -3,6 +3,7 @@ import {
   GAP_MARKER_RE,
   INFERRED_MARKER_RE,
   findReportNotes,
+  stripNoteMarkers,
   sectionMetrics,
   type SectionMetrics,
 } from "../../convex/lib/lineLimits";
@@ -10,6 +11,8 @@ import {
 // Non-global copies: the marker regexes are /g and .test() on them would be stateful.
 const HAS_GAP_RE = new RegExp(GAP_MARKER_RE.source, "i");
 const HAS_INFERRED_RE = new RegExp(INFERRED_MARKER_RE.source, "i");
+/** A note's opening with no closing bracket, once every whole marker is taken out. */
+const UNCLOSED_NOTE_RE = /\[(?:GAP|INFERRED)\b/i;
 
 export interface TiptapNode {
   type: string;
@@ -57,21 +60,25 @@ export interface ReportParseDiagnostic {
     | "UNSUPPORTED_NODE"
     | "CONTENT_OUTSIDE_SECTION"
     | "UNRESOLVED_GAP"
-    | "UNCHECKED_INFERENCE";
+    | "UNCHECKED_INFERENCE"
+    | "UNCLOSED_NOTE";
   message: string;
   section?: ReportSectionKey;
   nodeType?: string;
 }
 
 /**
- * Diagnostics that never block export: the note stays in the text and is
- * exported highlighted, so whoever reads the file sees exactly what is still
- * open. Gaps since before 2026-10-29; [INFERRED: ...] markers follow them
- * (owner, 2026-10-29). Every other diagnostic blocks.
+ * Diagnostics that warn and never block export. A gap or an inference stays
+ * in the text and is exported highlighted, so whoever reads the file sees
+ * exactly what is still open: gaps since before 2026-10-29, [INFERRED: ...]
+ * markers following them (owner, 2026-10-29). A note opened and never closed
+ * (review round 1, P2-5) counts as report text and exports plain, so the
+ * writer is told. Every other diagnostic blocks.
  */
-export const EXPORTED_HIGHLIGHTED_DIAGNOSTICS: ReadonlySet<ReportParseDiagnostic["code"]> = new Set([
+export const NON_BLOCKING_DIAGNOSTICS: ReadonlySet<ReportParseDiagnostic["code"]> = new Set([
   "UNRESOLVED_GAP",
   "UNCHECKED_INFERENCE",
+  "UNCLOSED_NOTE",
 ]);
 
 /** One [GAP: ...] or [INFERRED: ...] note in a Line, for the lists that show them. */
@@ -82,6 +89,11 @@ export interface ReportNote {
   text: string;
   /** What the marker says after its colon. */
   note: string;
+  /**
+   * Review round 1 (P2-4): how many markers with exactly this text come
+   * before it in the same Line, so a jump finds this one, not the first.
+   */
+  occurrence: number;
 }
 
 export interface CanonicalReportBody {
@@ -259,6 +271,13 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
         message: `Line ${current.slice(1)} contains an unchecked [INFERRED: ...] marker.`,
       });
     }
+    if (UNCLOSED_NOTE_RE.test(stripNoteMarkers(text))) {
+      diagnostics.push({
+        code: "UNCLOSED_NOTE",
+        section: current,
+        message: `Line ${current.slice(1)} has a [GAP or [INFERRED note with no closing bracket.`,
+      });
+    }
     sections[current].blocks.push({ kind: "paragraph", text });
   }
 
@@ -279,14 +298,14 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
 
 /** Every gap and inference note of the three Lines, in build order and text order. */
 export function reportNotes(body: CanonicalReportBody): ReportNote[] {
-  return SECTION_ORDER.flatMap((section) =>
-    findReportNotes(body.sections[section].plainText).map(({ kind, text, note }) => ({
-      section,
-      kind,
-      text,
-      note,
-    }))
-  );
+  return SECTION_ORDER.flatMap((section) => {
+    const seen = new Map<string, number>();
+    return findReportNotes(body.sections[section].plainText).map(({ kind, text, note }) => {
+      const occurrence = seen.get(text) ?? 0;
+      seen.set(text, occurrence + 1);
+      return { section, kind, text, note, occurrence };
+    });
+  });
 }
 
 export type ReportSectionMetricMap = Record<ReportSectionKey, SectionMetrics>;

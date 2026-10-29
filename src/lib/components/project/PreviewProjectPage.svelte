@@ -1258,10 +1258,14 @@
     exportValidation = null;
   }
 
-  /** 2026-10-29: a note in the export dialog's list closes it and shows that note in the report. */
+  /**
+   * 2026-10-29: a note in the export dialog's list closes it and shows that
+   * note in the report: its own occurrence in its own Line (review round 1,
+   * P2-4), or every place with its words if the report moved since.
+   */
   function showExportNote(note: ReportNote) {
     cancelExportValidation();
-    editorRef?.highlightText([note.text], note.text);
+    if (!editorRef?.showNote(note)) editorRef?.highlightText([note.text], note.text);
   }
 
   // Iterative (section-by-section) generations render the stepper for their
