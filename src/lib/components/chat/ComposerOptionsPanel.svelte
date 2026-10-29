@@ -9,7 +9,9 @@
    * started" for a new conversation. The last option, "Something else…",
    * turns into a text field for the writer's own answer. Picking an option
    * sends it at once. Up and down move, a number picks, Enter selects, Esc
-   * skips back to the message box.
+   * skips back to the message box. With `onType` (owner 2026-10-29, "Get
+   * started" in every new conversation), typing a letter goes back to the
+   * message box with that letter in it.
    */
   interface Props {
     label: string;
@@ -18,9 +20,10 @@
     disabled?: boolean;
     onSelect: (text: string) => void;
     onSkip: () => void;
+    onType?: (text: string) => void;
   }
 
-  let { label, question, options, disabled = false, onSelect, onSkip }: Props = $props();
+  let { label, question, options, disabled = false, onSelect, onSkip, onType }: Props = $props();
 
   const componentId = $props.id();
   const questionId = `${componentId}-question`;
@@ -74,6 +77,9 @@
     } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= rows.length) {
       event.preventDefault();
       void choose(Number(event.key) - 1);
+    } else if (onType && event.key.length === 1 && event.key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      onType(event.key);
     }
   }
 

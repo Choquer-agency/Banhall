@@ -416,7 +416,8 @@ describe("rich copy keeps only text, structure and safe links (review R2 P3-6)",
 describe("options above the message box", () => {
   const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
   const overLimit = JSON.stringify(buildTiptapDocument("Report", words(385), words(20), words(30)));
-  const withinLimits = JSON.stringify(buildTiptapDocument("Report", words(30), words(20), words(30)));
+  // Every Line fits and none is under half its word limit.
+  const settled = JSON.stringify(buildTiptapDocument("Report", words(200), words(400), words(200)));
 
   it("offers a new conversation one Shorten option per Line over its limit, and sends a pick at once", async () => {
     __setMutationResult("chatV2:sendMessage", { threadId: "thread-new", messageId: "q-new" });
@@ -432,16 +433,31 @@ describe("options above the message box", () => {
     await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Shorten Line 242 to 350 words");
   });
 
-  it("shows the message box when every Line fits, or after Skip", async () => {
-    const first = await render(AgentChatPanel, { reportId, projectId, reportContent: withinLimits });
-    await expect.element(composer()).toBeVisible();
-    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
-    first.unmount();
-
-    await render(AgentChatPanel, { reportId, projectId, reportContent: overLimit });
+  // Owner 2026-10-29: options in every new conversation, built from the report.
+  it("offers the source check when nothing needs work, the QA run's issues, and the message box after Skip", async () => {
+    const first = await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
     await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /Check the report for claims the source files don't support/ })).toBeVisible();
+    expect(page.getByRole("option").elements()).toHaveLength(2);
     await page.getByRole("button", { name: /Skip/ }).click();
     await expect.element(composer()).toBeVisible();
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+    first.unmount();
+
+    await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      qaIssues: [{ line: "244", text: "No baseline is stated for the first experiment." }],
+    });
+    await expect.element(page.getByRole("option", { name: /Fix the QA issue in Line 244: No baseline is stated/ })).toBeVisible();
+    expect(page.getByRole("option", { name: /Check the report for claims/ }).elements()).toHaveLength(0);
+  });
+
+  it("goes to the message box with the letter typed on Get started, and keeps the AI's question for its own answer", async () => {
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await userEvent.keyboard("Tighten");
+    await expect.element(composer()).toHaveValue("Tighten");
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
     expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
   });
 

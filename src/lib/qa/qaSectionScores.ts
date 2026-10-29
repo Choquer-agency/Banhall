@@ -1,4 +1,5 @@
 import { qaScorecardSchema } from "../../../shared/qaScorecard";
+import { issueDeduction } from "$lib/qaScoring";
 
 /**
  * Maps a stored QA scorecard to the rows of the "QA finished" notice
@@ -97,4 +98,55 @@ export function qaFinishedAgo(completedAt: number | null | undefined, now: numbe
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+export interface QaTopIssue {
+  /** "242" */
+  line: "242" | "244" | "246";
+  /** The issue's first sentence, at most 160 characters. */
+  text: string;
+}
+
+const QA_LINES = new Set(["242", "244", "246"]);
+const ISSUE_TEXT_MAX = 160;
+
+/** The first sentence, without an older scorecard's "Deduct N points" lead, cut on a word. */
+function issueSummary(text: string): string {
+  const plain = text
+    .replace(/\bDeduct\s+\d+(?:\.\d+)?\s+points?\b[:.]?\s*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentence = plain.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? plain;
+  if (sentence.length <= ISSUE_TEXT_MAX) return sentence;
+  const cut = sentence.slice(0, ISSUE_TEXT_MAX + 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > 0 ? cut.slice(0, space) : cut.slice(0, ISSUE_TEXT_MAX)).replace(/[\s,;:]+$/, "")}…`;
+}
+
+/**
+ * Owner 2026-10-29: a new conversation's options name the last QA run's
+ * issues. One per Line, its costliest deduction (warnings and zero-point
+ * issues cost nothing and are left out), costliest Line first. The writer's
+ * own severity overrides are not read here; the QA panel applies them.
+ */
+export function qaTopIssues(agentOutputsQa: unknown): QaTopIssue[] {
+  const raw = unwrap(agentOutputsQa);
+  if (raw == null) return [];
+  const parsed = qaScorecardSchema.safeParse(raw);
+  if (!parsed.success) return [];
+  const top: Array<QaTopIssue & { points: number }> = [];
+  for (const [key, section] of Object.entries(parsed.data.section_scores)) {
+    const line = lineNumber(key);
+    if (!QA_LINES.has(line)) continue;
+    let best: { text: string; points: number } | null = null;
+    for (const issue of section.issues) {
+      const points = issueDeduction(issue);
+      if (points > 0 && (!best || points > best.points)) best = { text: issue.text, points };
+    }
+    const text = best ? issueSummary(best.text) : "";
+    if (best && text) top.push({ line: line as QaTopIssue["line"], text, points: best.points });
+  }
+  return top
+    .sort((a, b) => b.points - a.points || a.line.localeCompare(b.line))
+    .map(({ line, text }) => ({ line, text }));
 }

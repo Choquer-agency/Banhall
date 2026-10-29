@@ -119,6 +119,12 @@ function seed({ seedRun = false }: { seedRun?: boolean } = {}) {
   __setPaginatedRows("chatV2:listMessages", []);
 }
 
+// Owner 2026-10-29: a new conversation opens on its options, which stand in
+// for the message box until the writer skips or types.
+const assistantShown = () =>
+  expect
+    .poll(() => !!document.querySelector('[data-composer-options], textarea[aria-label="Message the report assistant"]'))
+    .toBe(true);
 const tabs = () => Array.from(document.querySelectorAll("[data-panel-tab]")).map((tab) => tab.getAttribute("data-panel-tab"));
 const surface = () => document.querySelector<HTMLElement>("[data-report-surface]")!;
 
@@ -314,7 +320,7 @@ describe("PreviewProjectPage final shell", () => {
     await render(PreviewProjectPage);
     // The project opens on the report alone (owner, 2026-10-06).
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
-    await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
+    await assistantShown();
     const aside = document.querySelector<HTMLElement>("[data-side-panel]")!;
     await expect.poll(() => aside.getBoundingClientRect().width).toBe(board(400));
     const main = document.querySelector<HTMLElement>("[data-project-main]")!;
@@ -337,7 +343,7 @@ describe("PreviewProjectPage final shell", () => {
     await render(PreviewProjectPage);
     // The project opens on the report alone (owner, 2026-10-06).
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
-    await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
+    await assistantShown();
     const main = () => document.querySelector<HTMLElement>("[data-project-main]")!;
 
     await page.getByRole("button", { name: "Expand assistant", exact: true }).click();
@@ -514,7 +520,7 @@ describe("PreviewProjectPage final shell", () => {
     await render(PreviewProjectPage);
     // The project opens on the report alone (owner, 2026-10-06).
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
-    await expect.element(page.getByRole("textbox", { name: "Message the report assistant" })).toBeVisible();
+    await assistantShown();
     await page.getByRole("button", { name: "Details", exact: true }).click();
     await expect.element(page.getByRole("heading", { name: "Details", exact: true })).toBeVisible();
     expect(document.querySelector("[data-side-panel]")?.getAttribute("data-side-panel")).toBe("details");

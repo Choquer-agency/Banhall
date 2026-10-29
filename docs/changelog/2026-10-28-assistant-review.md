@@ -8,7 +8,7 @@ The Assistant's suggestions now wait for you. Press Review to see exactly which 
 - Press Review and the report marks only the words that change: old words struck in red, new words in green. Turn Show changes off to read the report as it would read once accepted.
 - When a request could mean different things, the Assistant asks you a short question with a few answers to pick from, right where you type.
 - A Line over its CRA limit shows how far over it is. Click it, then "Ask the Assistant to shorten it".
-- A new conversation offers to shorten any Line that is over its limit.
+- A new conversation offers up to three next steps built from your report: shorten a Line over its limit, fix the last QA check's main issue in a Line, or add detail to a thin Line from your files. Start typing to write your own message instead.
 
 ### Improved
 - After you accept, the card turns into a short line, and an Undo bar sits above the message box. Open any accepted card to undo it later.

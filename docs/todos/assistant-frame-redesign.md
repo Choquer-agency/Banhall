@@ -8,7 +8,7 @@ Branch `feat/assistant-and-frame-redesign`, worktree `../Banhall-assistant`, cut
 
 - Conversation switcher: row 16 B, the history clock button in the panel header.
 - New conversation: O4, the "Get started" options panel in place of the message box.
-- New-chat options are built by code from the report, and only shown when a section is over its CRA limit. Reading: one "Shorten Line N" option per over-limit section, plus "Something else…"; no panel when nothing is over. Picking an option sends it right away.
+- New-chat options are built by code from the report. Superseded 2026-10-29 (owner): shown in every new conversation, built from the report (over-limit Lines, the last QA run's issues, thin Lines, else a source check); see the product-domain "(eleventh)" entry. Originally: only shown when a section is over its CRA limit. Reading: one "Shorten Line N" option per over-limit section, plus "Something else…"; no panel when nothing is over. Picking an option sends it right away.
 - "Assistant needs you" (the AI asks with numbered options) is for mid-chat AI suggestions only, not new conversations.
 - Several Lines: one card per Line, each reviewed and accepted on its own. When two or more cards from one reply are still waiting, they sit in a grey tray with "Accept all" at the bottom right. Accept all is hidden when any waiting card has options. The tray goes away once fewer than two cards wait.
 - The one-card-for-several-Lines pattern is dropped: the AI always splits edits by Line.

@@ -64,6 +64,9 @@ describe("Esc on the preview report page", () => {
     seed();
     await render(PreviewProjectPage);
     await page.getByRole("button", { name: "Assistant", exact: true }).click();
+    // Owner 2026-10-29: a new conversation opens on its options; Skip shows
+    // the message box these tests use.
+    await page.getByRole("button", { name: "Skip", exact: true }).click();
     await expect.element(composer()).toBeVisible();
   }
   const assistantOpen = () => document.querySelector('[data-panel-toggle="assistant"]')?.getAttribute("aria-pressed");

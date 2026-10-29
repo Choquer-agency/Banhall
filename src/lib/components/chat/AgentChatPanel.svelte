@@ -66,6 +66,7 @@
   import { openWriterQuestion } from "$lib/chat/writerQuestion";
   import { groupHistory, shortTimeAgo } from "$lib/chat/chatHistory";
   import { startOptions } from "$lib/chat/startOptions";
+  import type { QaTopIssue } from "$lib/qa/qaSectionScores";
   import ComposerOptionsPanel from "./ComposerOptionsPanel.svelte";
 
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
@@ -101,10 +102,12 @@
     /** Opens the report's version history, offered when an Undo is refused. */
     onOpenVersionHistory?: () => void;
     /**
-     * Owner 2026-10-28 (O4): the report, so a new conversation can offer one
-     * "Shorten Line N" option for each Line over its CRA limit.
+     * Owner 2026-10-28 (O4) and 2026-10-29: the report, so a new conversation
+     * can offer options built from it (`startOptions`).
      */
     reportContent?: string | null;
+    /** The last finished QA run's costliest issue per Line (`qaTopIssues`). */
+    qaIssues?: readonly QaTopIssue[];
     /**
      * Owner 2026-10-28 (row 21): a message the page asks the Assistant to
      * send in a new conversation, such as the over-limit pill's shorten
@@ -135,6 +138,7 @@
     review = null,
     onOpenVersionHistory,
     reportContent = null,
+    qaIssues = [],
     pendingPrompt = null,
     onPromptTaken,
     onPromptDone,
@@ -1436,13 +1440,13 @@
 
   // Owner 2026-10-28 (row 37): options that take the message box's place.
   // "Assistant needs you" holds the AI's open question; "Get started" a new
-  // conversation's "Shorten Line N" options, only while a Line is over its
-  // limit. Skip returns to the message box for that question or chat. A
+  // conversation's options built from the report (owner 2026-10-29: always,
+  // see startOptions). Skip returns to the message box for that question or chat. A
   // conversation still loading reads as empty, so neither shows until the
   // transcript is ready: reopening a chat never flashes "Get started".
   const skippedPanelKeys = new SvelteSet<string>();
   const writerQuestion = $derived(openWriterQuestion(messages));
-  const newChatOptions = $derived(startOptions(reportContent));
+  const newChatOptions = $derived(startOptions(reportContent, qaIssues));
   const optionsPanel = $derived.by(() => {
     if (!transcriptReady) return null;
     if (isStreaming || awaitingReply || sending || pendingResearch || refiningProposal) return null;
@@ -1505,6 +1509,15 @@
   function skipOptionsPanel(key: string | undefined) {
     if (key) skippedPanelKeys.add(key);
     void tick().then(() => textareaEl?.focus());
+  }
+  /** Typing on "Get started" goes to the message box, letter included. */
+  function typeIntoComposer(key: string | undefined, text: string) {
+    if (key) skippedPanelKeys.add(key);
+    input = `${input}${text}`;
+    void tick().then(() => {
+      textareaEl?.focus();
+      textareaEl?.setSelectionRange(input.length, input.length);
+    });
   }
 
   const regenerationBusy = $derived(regenerationLoading || sending || researchStarting || isStreaming ||
@@ -2474,6 +2487,7 @@
           disabled={sending}
           onSelect={(text) => void sendText(text)}
           onSkip={() => skipOptionsPanel(optionsPanel?.key)}
+          onType={optionsPanel.kind === "start" ? (text) => typeIntoComposer(optionsPanel?.key, text) : undefined}
         />
       {/key}
     {:else}

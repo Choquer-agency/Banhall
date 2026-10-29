@@ -77,7 +77,7 @@
   import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
   import QaToggle from "$lib/components/qa/QaToggle.svelte";
   import QaFinishedNotice from "$lib/components/qa/QaFinishedNotice.svelte";
-  import { qaSectionScores } from "$lib/qa/qaSectionScores";
+  import { qaSectionScores, qaTopIssues } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
   import { readingColumn, reportColumn } from "$lib/components/ui/readingColumn";
@@ -1875,6 +1875,9 @@
     if (status === "failed") return "idle";
     return qaScore !== null ? "done" : "idle";
   });
+  // Owner 2026-10-29: a new conversation's options name the finished QA
+  // run's issues; a running or failed pass offers none.
+  const chatQaIssues = $derived(qaState === "done" ? qaTopIssues(generation?.agentOutputs ?? null) : []);
   const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
   let qaSeenTick = $state(0);
   const qaSeen = $derived.by((): QaSeenState | null => {
@@ -2870,6 +2873,7 @@
                         {review}
                         onOpenVersionHistory={() => (showHistory = true)}
                         reportContent={report.content}
+                        qaIssues={chatQaIssues}
                         pendingPrompt={assistantPrompt}
                         onPromptTaken={(id) => {
                           if (assistantPrompt?.id === id) assistantPrompt = null;

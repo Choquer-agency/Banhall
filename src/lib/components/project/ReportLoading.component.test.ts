@@ -49,7 +49,7 @@ function seed() {
   __setPaginatedRows("chatV2:listMessages", []);
 }
 beforeEach(() => {
-  __resetAuthState(); __resetPage(); __resetNavigation(); __resetConvexStub(); localStorage.clear();
+  __resetAuthState(); __resetPage(); __resetNavigation(); __resetConvexStub(); localStorage.clear(); sessionStorage.clear();
   __setPageParams({ id: "project-1" }); seed();
 });
 
@@ -62,6 +62,9 @@ for (const { name, component, openChat, closeChat, openQa, closeQaName, openHist
     expect(__activeQueryCount("chatV2:listThreads")).toBe(0);
     expect(__activeQueryCount("research:listSessions")).toBe(0);
     await openChat();
+    // Owner 2026-10-29: a new conversation opens on its options; Skip shows
+    // the message box.
+    if (name === "preview") await page.getByRole("button", { name: "Skip", exact: true }).click();
     await expect.element(composer()).toBeVisible();
     const textarea = composer().element();
     let acknowledge!: (value: { threadId: string; messageId: string }) => void;
@@ -137,6 +140,8 @@ it("preview mobile starts report-only, activates the Assistant once, and retains
   // Narrow screens show one pane: the Assistant toggle opens it, the Report
   // tab returns to the report.
   await page.getByRole("button", { name: "Assistant", exact: true }).click();
+  // A new conversation opens on its options; Skip shows the message box.
+  await page.getByRole("button", { name: "Skip", exact: true }).click();
   await expect.element(composer()).toBeVisible();
   const textarea = composer().element();
   await composer().fill("Mobile draft survives");

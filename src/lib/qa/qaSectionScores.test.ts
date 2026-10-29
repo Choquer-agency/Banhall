@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { qaFinishedAgo, qaSectionScores } from "./qaSectionScores";
+import { qaFinishedAgo, qaSectionScores, qaTopIssues } from "./qaSectionScores";
 
 const scorecard = {
   overall_score: 78,
@@ -77,5 +77,47 @@ describe("qaFinishedAgo", () => {
     expect(qaFinishedAgo(now - 5 * 60_000, now)).toBe("5 minutes ago");
     expect(qaFinishedAgo(now - 2 * 3_600_000, now)).toBe("2 hours ago");
     expect(qaFinishedAgo(now - 3 * 86_400_000, now)).toBe("3 days ago");
+  });
+});
+
+describe("qaTopIssues", () => {
+  const card = (sections: Record<string, Array<{ text: string; severity?: "deduction" | "warning"; deduction?: number } | string>>) => ({
+    qa: {
+      overall_score: 80,
+      section_scores: Object.fromEntries(
+        Object.entries(sections).map(([key, issues]) => [key, { score: 80, issues, strengths: [] }])
+      ),
+    },
+  });
+
+  it("takes each Line's costliest deduction, costliest Line first", () => {
+    const outputs = JSON.stringify(card({
+      "242": [
+        { text: "Minor wording.", severity: "deduction", deduction: 2 },
+        { text: "The uncertainty restates the goal.", severity: "deduction", deduction: 5 },
+      ],
+      "244": [{ text: "No baseline for the first test. It matters.", severity: "deduction", deduction: 8 }],
+      "246": [{ text: "Only a warning.", severity: "warning", deduction: 0 }],
+    }));
+    expect(qaTopIssues(outputs)).toEqual([
+      { line: "244", text: "No baseline for the first test." },
+      { line: "242", text: "The uncertainty restates the goal." },
+    ]);
+  });
+
+  it("drops an older scorecard's Deduct lead and cuts a long sentence on a word", () => {
+    const long = `Deduct 4 points: ${"the work performed lists tasks without saying what each one tested ".repeat(4)}`;
+    const [issue] = qaTopIssues(card({ "244": [long] }));
+    expect(issue.line).toBe("244");
+    expect(issue.text.startsWith("the work performed")).toBe(true);
+    expect(issue.text.length).toBeLessThanOrEqual(161);
+    expect(issue.text.endsWith("…")).toBe(true);
+    expect(issue.text).not.toMatch(/ …$/);
+  });
+
+  it("returns nothing without a readable scorecard or outside Lines 242 to 246", () => {
+    expect(qaTopIssues(null)).toEqual([]);
+    expect(qaTopIssues("not json")).toEqual([]);
+    expect(qaTopIssues(card({ "248": [{ text: "Elsewhere.", severity: "deduction", deduction: 9 }] }))).toEqual([]);
   });
 });
