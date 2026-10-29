@@ -132,6 +132,9 @@ describe("Notification card above sticky action bars", () => {
     await render(StickyBarToasterHarness, { content: MidPaneStickyBar });
     await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
     const toaster = () => document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
+    // Let the first measures settle (the bar's own first resize note, the
+    // window's), so only the content's growth can move the card.
+    await new Promise((resolve) => setTimeout(resolve, 300));
     expect(Math.round(window.innerHeight - toaster().bottom)).toBe(Math.round(board(16)));
     document.querySelector<HTMLButtonElement>("[data-grow]")!.click();
     await expect.poll(() => Math.round(document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect().bottom)).toBe(window.innerHeight);
