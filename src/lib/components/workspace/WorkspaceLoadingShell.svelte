@@ -155,7 +155,7 @@
           onOpenNavigation={() => (navigationOpen = true)}
         />
         <FrameCard data-workspace-loading={layout} class="flex-1" sidebar={sectionSidebar} mainClass={phoneList ? "max-md:hidden" : ""}>
-          <ProjectsLoadingHeader />
+          <ProjectsLoadingHeader onOpenNavigation={() => (navigationOpen = true)} />
           <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <WorkspacePanelSkeleton {layout} {label} {...rest} />
           </div>

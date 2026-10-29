@@ -183,6 +183,33 @@ describe("round 2 loading shell", () => {
     await expect.poll(visibleButton).toBe("New project");
   });
 
+  it("the Projects loading header draws the expand button while collapsed, and the menu button and bell from 768 to 1023px, as the loaded header does (review round 3)", async () => {
+    __setAuthState({ isLoading: false, isAuthenticated: true });
+    __setQueryData("users:getCurrentUser", { _id: "m", role: "manager", firstName: "Mo" });
+    __setPageUrl("/projects");
+    const header = () => document.querySelector<HTMLElement>("[data-client-header][data-loading]");
+    const shown = (selector: string) => {
+      const el = header()?.querySelector<HTMLElement>(selector);
+      return !!el && el.getBoundingClientRect().width > 0;
+    };
+    // 1440, collapsed: the expand button leads, as on the loaded header.
+    localStorage.setItem("banhall.sectionSidebar.v1", JSON.stringify({ collapsed: true }));
+    reloadSectionSidebar();
+    let view = await render(LoadingShell, { layout: "projects", title: "Projects" });
+    await expect.poll(() => shown("[data-section-sidebar-expand]")).toBe(true);
+    expect(shown('[aria-label="Open workspace navigation"]')).toBe(false);
+    view.unmount();
+    localStorage.clear();
+    reloadSectionSidebar();
+    // 900: no global bar, so the header holds the menu button and the bell.
+    await browserPage.viewport(900, 900);
+    view = await render(LoadingShell, { layout: "projects", title: "Projects" });
+    await expect.poll(() => shown('[aria-label="Open workspace navigation"]')).toBe(true);
+    expect(shown("[data-top-bar-bell]")).toBe(true);
+    expect(shown("[data-section-sidebar-expand]")).toBe(false);
+    view.unmount();
+  });
+
   it("a project page loads in the card with no sidebar and the project bar's back button", async () => {
     __setPageUrl("/project/p1");
     __setAuthState({ isLoading: true, isAuthenticated: false });

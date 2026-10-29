@@ -294,7 +294,7 @@
                 onOpenNavigation={() => (navigationOpen = true)}
               />
             {:else}
-              <ProjectsLoadingHeader />
+              <ProjectsLoadingHeader onOpenNavigation={() => (navigationOpen = true)} />
             {/if}
             <div class="px-4 pt-3 sm:px-6 lg:px-8">
               <div class="h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>

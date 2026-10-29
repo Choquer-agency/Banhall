@@ -7,6 +7,7 @@ import {
   reloadSectionSidebar,
   sectionSidebar,
   setSectionSidebarCollapsed,
+  sidebarHoldsAction,
   toggleSectionSidebar,
 } from "./sectionSidebar.svelte";
 
@@ -52,6 +53,20 @@ describe("sectionSidebar", () => {
     expect(sectionSidebar.collapsed).toBe(true);
     setSectionSidebarCollapsed(false);
     expect(localStorage.getItem(SECTION_SIDEBAR_KEY)).toBe('{"collapsed":false}');
+  });
+
+  it("an open sidebar holds the page's main button, and on the server before any sidebar registers (review round 3)", () => {
+    // In the browser, only once a sidebar is on screen and open.
+    expect(sidebarHoldsAction()).toBe(false);
+    const unregister = registerSectionSidebar();
+    expect(sidebarHoldsAction()).toBe(true);
+    setSectionSidebarCollapsed(true);
+    expect(sidebarHoldsAction()).toBe(false);
+    setSectionSidebarCollapsed(false);
+    unregister();
+    // The server draws the sidebar open before it registers, so the server
+    // bar leaves the button to it: a reload never shows the button twice.
+    expect(sidebarHoldsAction(true)).toBe(true);
   });
 
   it("stays expanded when storage is blocked", () => {

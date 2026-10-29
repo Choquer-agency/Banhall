@@ -5076,7 +5076,10 @@ This is presentation only. It adds no workflow stage, transition, permission or 
   - on a phone the Projects sidebar drops its own header and New project, which the phone bar already shows;
   - New project's serif body heading is an h2;
   - a failed invites read keeps the Pending invites section with "Pending invites could not be loaded."; the rail reads the client parameter by name; Team's loading rows have no round placeholder.
-- **Review:** round 2 done; round 3 pending.
+- **Review round 3 (Claude Opus 5.5, effort requested high, reported below high): ship after fixes.** Round 2's six items and its minor ones closed. Fixed:
+  - the server-drawn page bar leaves the main button to the sidebar it draws open (`sidebarHoldsAction`), so a reload of Home no longer shows New project twice until the page is live;
+  - the Projects loading header draws the expand button while the sidebar is collapsed and, from 768 to 1023px, the menu button and the bell, as the loaded header does, so its title does not move when the page arrives.
+- **Review:** round 3 done; round 4 (the round 3 fixes) pending.
 
 ## Amendment process
 

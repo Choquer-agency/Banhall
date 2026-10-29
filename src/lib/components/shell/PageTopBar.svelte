@@ -31,7 +31,7 @@
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
   import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
   import { topBarPrimary } from "$lib/components/shell/topBar";
-  import { sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
+  import { sidebarHoldsAction } from "$lib/workspace/sectionSidebar.svelte";
 
   let {
     title,
@@ -87,10 +87,8 @@
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
-  const sidebarHoldsAction = $derived(
-    primaryActionInSidebar && sectionSidebar.mounted > 0 && !sectionSidebar.collapsed
-  );
-  const primaryClass = $derived(`${topBarPrimary} ${sidebarHoldsAction ? "md:hidden" : ""}`);
+  const holdsAction = $derived(primaryActionInSidebar && sidebarHoldsAction());
+  const primaryClass = $derived(`${topBarPrimary} ${holdsAction ? "md:hidden" : ""}`);
 </script>
 
 <header

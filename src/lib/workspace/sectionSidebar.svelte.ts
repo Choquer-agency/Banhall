@@ -78,6 +78,17 @@ export function toggleSectionSidebar(): boolean {
   return true;
 }
 
+/**
+ * Whether an open section sidebar holds the page's main button, so the page
+ * bar hides its own copy from 768px. On the server no sidebar has registered
+ * yet, but the page draws one open (the server never knows a stored
+ * collapse), so the server bar leaves the button to the sidebar too;
+ * otherwise a reload shows it twice until the page is live (review round 3).
+ */
+export function sidebarHoldsAction(onServer: boolean = typeof window === "undefined"): boolean {
+  return !sectionSidebar.collapsed && (sectionSidebar.mounted > 0 || onServer);
+}
+
 /** A section sidebar mounting; the returned function unregisters it. */
 export function registerSectionSidebar(): () => void {
   // Untracked: an effect that registers must not depend on the count it changes.
