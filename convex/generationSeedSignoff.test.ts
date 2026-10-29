@@ -3966,10 +3966,14 @@ describe("seed Summary sign-off and recovery", () => {
             candidate.state.kind === "pending"
         );
         if (pending) await ctx.scheduler.cancel(pending._id);
-        return { status: (await ctx.db.get(recoveryId))?.status, started: pending !== undefined };
+        const generation = await ctx.db.get(recoveryId);
+        return { status: generation?.status, started: pending !== undefined, error: generation?.error ?? "" };
       });
       // Pinned: the recovery drafts. Not pinned: the map still refuses the row.
-      expect(state).toEqual(pinned ? { status: "running", started: true } : { status: "failed", started: false });
+      expect({ status: state.status, started: state.started }).toEqual(
+        pinned ? { status: "running", started: true } : { status: "failed", started: false }
+      );
+      if (!pinned) expect(state.error).toContain("Frozen source map is missing");
     }
   });
 

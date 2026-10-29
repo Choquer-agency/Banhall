@@ -1006,7 +1006,7 @@ What changes:
 ### Automated, offline
 
 - [x] The shared chooser, then the facts check, the Brief, Seeds and the analysis (ce99ed4a to 4458dc57), each through the full gate before its commit; the last at 8,252 tests. Each reviewed by Claude Opus 5.5 (requested high; it reported low), fixes in the next commit.
-- [ ] The reused-Brief fix (entry "(ninth)"): gate and review.
+- [x] The reused-Brief fix (entry "(ninth)"): 3216e9fb (gate 8,255 tests), review Claude Opus 5.5 (high, as it reported) round 1 "ship after fixes", round 2 "ship"; its P3 fixes in the next commit.
 
 ### Automated, live on localhost
 

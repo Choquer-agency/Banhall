@@ -5128,11 +5128,12 @@ This restores the existing rule (a Seed cites the draft's own frozen rows); no s
 
 - **Rule.**
   - When Seeds read a Brief, each entry that names a row of another draft is shown with this draft's row of the same text (its fingerprint), so its offsets still hold. Among rows of the same text an interview comes first, so the speaker check still applies. An entry that names one of this draft's rows, or a text this draft did not freeze, keeps its id. Seeds never run on a draft that has a Summary, so a Summary recovery never reaches this.
-  - The same cause stopped a Summary recovery of such a draft from starting: the recovery checks that every Brief entry names one of the original draft's rows, through its source map. A recovery now admits an entry outside its map when the Brief is the one the original draft pinned for its Seeds (the same inputs hash, so the same texts). It never maps that entry by its text, and nothing in a recovery reads its row. Without the pin the recovery still refuses it.
+  - The same cause stopped a Summary recovery of such a draft from starting: the recovery checks that every Brief entry names one of the original draft's rows, through its source map. A recovery now admits an entry outside its map when the Brief is the one the original draft pinned for its Seeds (the same inputs hash, so the same frozen files). It never maps that entry by its text, and nothing in a recovery reads its row; the original draft accepted the same entry. Without the pin the recovery still refuses it (every Step by step draft has one, so this only refuses a damaged record).
 - **Where.** `ownSourceIdOf` in `convex/lib/seedSnapshotLoader.ts`, used by `loadFrozenSeedActionInput`, which both the Batch claim and dispatch's size check read. `briefPinnedToOrigin` in `loadBriefCheck` (`convex/lib/generations/brief.ts`).
 - **Known limits.**
   - The Lines' Brief block shows no ids, so the Lines were not affected. The stored Brief keeps its ids; only what Seeds read changes.
   - An entry citing a row whose text this draft did not freeze (a digest made again, say) still shows the earlier id, and a Seed that copies it loses that quote, as before.
+  - A recovery also admits an entry citing a digest the earlier draft made, as the original draft did.
 - **Live check.** With the fix on the live copy, the model quoted the draft's own rows, and 40 of 46 Seeds in the same 8 steps kept a quote.
 - **Tests:**
   - `convex/seedReusedBrief.test.ts`:
@@ -5146,6 +5147,8 @@ This restores the existing rule (a Seed cites the draft's own frozen rows); no s
   - the unreachable recovery branch dropped;
   - the numbers in comments;
   - this entry.
+
+  Round 2, Claude Opus 5.5 (high, as it reported), "ship", every finding P3. Done: the helper's place above `loadBriefCheck`'s comment, this entry's wording, and the refused case's error in the test.
 - **Approval:** not needed: a fix that restores the existing rule, recorded so the change can be traced.
 
 ## Amendment process

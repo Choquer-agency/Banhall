@@ -867,8 +867,6 @@ export async function renderBriefForGenerationHandler(
   );
 }
 
-/** The Brief a section is drafted with and checked against: the same rows
- * renderBriefForGeneration renders into the prompt. */
 /** Whether `brief` is the Brief the original draft pinned for its Seeds (by its inputs hash). */
 async function briefPinnedToOrigin(
   ctx: { db: QueryCtx["db"] },
@@ -884,6 +882,8 @@ async function briefPinnedToOrigin(
   );
 }
 
+/** The Brief a section is drafted with and checked against: the same rows
+ * renderBriefForGeneration renders into the prompt. */
 export async function loadBriefCheck(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">
