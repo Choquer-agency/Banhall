@@ -193,7 +193,7 @@
                           </span>
                           <p class="min-w-0 flex-1 text-xs leading-[1.5] text-ink-secondary">
                             <span class="font-medium text-ink">{noteLine(note)}:</span>
-                            {note.note || "No reason given"}
+                            {note.note || (note.kind === "gap" ? "Nothing named" : "No reason given")}
                           </p>
                           {#if onShowNote}
                             <button

@@ -5406,7 +5406,7 @@ This adds no workflow stage, transition, permission or stored field, and leaves 
   - lagoon chip colours from the existing palette (the Technical seed tag fill and the owner role ink), and cyan in Word, the closest Word highlight to lagoon;
   - the chip is a decoration rather than a stored highlight mark like a gap's, so it also shows on typed and Assistant-applied markers;
   - the export dialog lists gaps as well as inferences, each with Show, and Show closes the dialog;
-  - the dialog's words: "Notes to check", "A gap needs the missing fact. An inference is not stated in the sources: check it, then delete its note to keep the sentence, or remove the sentence.", the kinds "Gap" and "Inferred", "No reason given" for an empty marker;
+  - the dialog's words: "Notes to check", "A gap needs the missing fact. An inference is not stated in the sources: check it, then delete its note to keep the sentence, or remove the sentence.", the kinds "Gap" and "Inferred", and "Nothing named" or "No reason given" for an empty gap or inference;
   - the Assistant's name for them, "inference note";
   - the style preview carries the rule too, as it carries the other shared writing rules.
 - **Review:** pending. No review has run on this change.
