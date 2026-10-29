@@ -672,7 +672,11 @@ export const generateBatch = internalAction({
       // was sent, plus the spans the Brief's entries cite on it; the rest
       // of its text is blanked for every check of this answer, positions
       // kept, and completeAttempt gets the same ranges.
-      const sentRanges = seedSentRanges(request.sources, claim.input.briefEntries);
+      const sentRanges = seedSentRanges(
+        request.sources,
+        claim.input.briefEntries,
+        new Map(claim.input.sources.map((source) => [source._id as string, source.contentHash]))
+      );
       const sentBy = new Map(sentRanges.map((entry) => [entry.sourceId, entry.ranges]));
       const sentOnly = (sourceId: string, content: string) => {
         const ranges = sentBy.get(sourceId);

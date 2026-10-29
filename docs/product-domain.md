@@ -5033,11 +5033,11 @@ This changes what one AI request reads and how its citations are checked, not a 
     - Every other source sends the parts that best match the Brief (its Storyline, each entry's text and quote).
     - A source sent in parts shows them joined by "[...]" lines and the notice "[EXCERPTS: only the parts of this frozen source that best match the Brief were sent, N of M UTF-8 bytes; the text between them was left out.]", or "only parts of this frozen source were sent" when no part matched.
     - A source with nothing sent is named in the omitted block, as before.
-  - The choice depends only on the frozen sources and the Brief version, the same for every role, every Batch and every path (first Batch, retry, Regenerate, Feedback, prefetch). So every step sends the same cached block.
-  - Parts are chosen on the raw text and charged by the bytes of the text as sent. Every source's frame and longest notice are counted first, so the prompt always fits.
+  - The choice depends only on the frozen sources, the Brief version and generation-wide settings (writer settings, length target, guidance), the same for every role, every Batch and every path (first Batch, retry, Regenerate, Feedback, prefetch). So every step sends the same cached block.
+  - Parts are chosen on the raw text and charged by the bytes of the text as sent. Each source's frame and longest notice are charged with its first part, and 2 KB is kept for marker-like dash runs lengthened where two parts join. A final check still refuses a prompt over the limit.
 - **Citations.**
-  - A source sent in part is citable only in what was sent and in the spans its Brief entries cite (the Seed prompt allows quoting a Brief entry's excerpt). The rest of its text is blanked, positions kept, for the citation check in the Batch action and again in `completeAttempt`, and for the quote count of a prefetch's repair.
-  - The speaker check keeps each row's real text and looks for another place of the same words only in what was sent.
+  - A source sent in part is citable only in what was sent and in the spans its Brief entries cite (the Seed prompt allows quoting a Brief entry's excerpt), a reused Brief's entries included, matched by the text's fingerprint. The rest of its text is blanked, positions kept, for the citation check in the Batch action and again in `completeAttempt`. An excerpt holding the blanking character is refused, here and in the Brief.
+  - The speaker check keeps each row's real text and looks for another place of the same words only in what was sent, in `completeAttempt` and in a prefetch's quote count.
   - Sources sent whole, and sources no choice weighed, are checked as before.
   - An action started before this change sends no ranges, and nothing is blanked.
 - **Where.**
@@ -5050,6 +5050,7 @@ This changes what one AI request reads and how its citations are checked, not a 
   - Seeds still read only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - A Seed's offsets are relative to what the model read; the existing relocation search finds the excerpt's real place, nearest to the offset given.
   - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
+  - In fact mode, a fact pack cut where the allowance runs out still lets every fact of that interview be cited, as before.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
   - `convex/seedByRelevance.test.ts`:
@@ -5057,10 +5058,25 @@ This changes what one AI request reads and how its citations are checked, not a 
     - over the allowance, a late file's matching part is sent at its raw place, a dash run ahead of it included;
     - two roles send the same shared block;
     - randomized pools always fit;
-    - a Brief entry's span stays citable;
+    - a Brief entry's span stays citable, a reused Brief's too;
+    - overlapping spans merge;
+    - internal writer's notes and the Storyline go in whole, a client's writer's notes in parts;
+    - an excerpt of blanked text is refused;
+    - a prefetch's check keeps the ranges of the rows it loaded;
     - the speaker check moves a quote only to a place that was sent;
     - the citation check keeps a sent quote at its real place and drops an unsent one.
   - Updated: the Seed version pins in `convex/ai/promptScaffolds.test.ts` and the program hash in `convex/modelCatalog.test.ts`.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - a prefetch's check no longer drops its ranges;
+  - a reused Brief's spans are matched by fingerprint;
+  - blanked-text excerpts are refused;
+  - frames are charged with a source's first part;
+  - the join margin;
+  - merged ranges;
+  - tests;
+  - this entry.
+
+  Left: a full convex-test of `completeAttempt` with ranges (its pieces are tested; the live run exercises it).
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ## Amendment process

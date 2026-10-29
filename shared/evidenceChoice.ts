@@ -295,6 +295,8 @@ export type ChoiceRow = {
   whole?: boolean;
   /** What one more excerpt of this row costs beyond its text (its own label); else `excerptCost`. */
   excerptCost?: number;
+  /** What the row costs once, when anything of it is sent (its block frame and notice). */
+  openCost?: number;
 };
 
 export type ChosenRow = {
@@ -337,7 +339,8 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
   const { rows, size } = input;
   const excerptCost = input.excerptCost ?? 0;
   const result: ChosenRow[] = rows.map(() => ({ ranges: [], whole: false }));
-  const totalWhole = rows.reduce((sum, row) => sum + size(row.text), 0);
+  // A row's opening cost counts too: everything fits only with every frame.
+  const totalWhole = rows.reduce((sum, row) => sum + size(row.text) + (row.text.length > 0 ? (row.openCost ?? 0) : 0), 0);
   const wholeRow = (row: ChoiceRow): ChosenRow => ({ ranges: row.text.length > 0 ? [{ start: 0, end: row.text.length }] : [], whole: true });
   if (totalWhole <= input.budget) return rows.map(wholeRow);
   // An empty row costs nothing and goes in as it is.
@@ -349,17 +352,22 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
   // The rows that go in whole, in row order.
   rows.forEach((row, index) => {
     if (!row.whole || row.text.length === 0 || remaining <= 0) return;
-    const cost = size(row.text);
+    const open = row.openCost ?? 0;
+    const cost = size(row.text) + open;
     if (cost <= remaining) {
       result[index] = { ranges: [{ start: 0, end: row.text.length }], whole: true };
       remaining -= cost;
       return;
     }
+    if (remaining <= open) return;
+    remaining -= open;
     const end = fittingEnd(row.text, 0, remaining, size);
     const safe = partRange(row.text, 0, end);
     if (safe.end > safe.start) {
       result[index] = { ranges: [safe], whole: false, cut: true };
       remaining -= size(row.text.slice(safe.start, safe.end));
+    } else {
+      remaining += open;
     }
   });
 
@@ -391,7 +399,9 @@ export function chooseEvidence(input: ChoiceInput): ChosenRow[] {
     // they join below before any edge moves to a sentence end.
     const safe = nameSafeRange(text, candidate.start, candidate.end);
     if (safe.end <= safe.start) continue;
-    const cost = size(text.slice(safe.start, safe.end)) + partCost;
+    // A row's frame is charged with its first part (Seeds review).
+    const open = chosen.has(candidate.row) ? 0 : (rows[candidate.row]!.openCost ?? 0);
+    const cost = size(text.slice(safe.start, safe.end)) + partCost + open;
     if (cost > remaining) continue;
     const list = chosen.get(candidate.row) ?? [];
     list.push(safe);

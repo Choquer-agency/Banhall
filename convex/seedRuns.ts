@@ -963,15 +963,18 @@ const sentRangesValidator = v.optional(
  * lies inside its text; otherwise null (and logged), so nothing is blanked,
  * as before. Our own action sends them; the shape is still checked.
  */
-function checkedSentRanges(
+export function checkedSentRanges(
   entries: ReadonlyArray<{ sourceId: string; ranges: ReadonlyArray<{ start: number; end: number }> }> | undefined,
-  rows: ReadonlyArray<{ _id: string; content: string }>
+  rows: ReadonlyArray<{ _id: string; content: string }>,
+  /** Only the rows given are checked: a caller that loaded only the cited rows skips the others. */
+  options: { onlyLoaded?: boolean } = {}
 ): Map<string, Array<{ start: number; end: number }>> | null {
   if (!entries || entries.length === 0) return null;
   const lengths = new Map(rows.map((row) => [row._id as string, row.content.length]));
   const sent = new Map<string, Array<{ start: number; end: number }>>();
   for (const entry of entries) {
     const length = lengths.get(entry.sourceId);
+    if (length === undefined && options.onlyLoaded) continue;
     const fits = length !== undefined && entry.ranges.every(
       (range) => Number.isInteger(range.start) && Number.isInteger(range.end) && range.start >= 0 && range.start < range.end && range.end <= length
     );
@@ -1387,7 +1390,8 @@ export const quoteRepairContext = internalQuery({
       }
     }
     const reader = citationSpeakerReader(ctx);
-    const sent = checkedSentRanges(args.sentRanges, [...sources.values()]);
+    // Only the cited rows are loaded here; the ranges of the others are not needed (review).
+    const sent = checkedSentRanges(args.sentRanges, [...sources.values()], { onlyLoaded: true });
     const checked = [];
     for (const seed of args.seeds) {
       checked.push(await checkedCitations(reader, seed.provenance, sources, sent ?? undefined));

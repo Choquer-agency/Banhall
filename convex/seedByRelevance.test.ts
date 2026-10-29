@@ -3,6 +3,7 @@ import { buildSeedPrompt, seedSentRanges, type SeedPromptSource } from "./ai/tru
 import { evidenceSpan } from "./lib/citationSpeakers";
 import { maskOutside } from "../shared/evidenceChoice";
 import { validateSeed } from "./lib/seedContract";
+import { checkedSentRanges } from "./seedRuns";
 
 // Phase D, step 1 (owner decision "2026-10-28 (fourth)"): over the source
 // allowance, Seeds send the parts of each file that best match the Brief,
@@ -91,19 +92,53 @@ describe("Seeds over the source allowance (2026-10-28, seventh)", () => {
 });
 
 describe("citations within what was sent (2026-10-28, seventh)", () => {
-  it("adds every span a Brief entry cites to what a source sent, and blanks the rest", () => {
+  it("adds every span a Brief entry cites to what a source sent, a reused Brief's included, and blanks the rest", () => {
     const sources = largeSources();
     const built = buildSeedPrompt(base(sources, true));
-    const sent = seedSentRanges(built.sources, BRIEF.entries);
-    const d3 = sources.find((source) => source.sourceId === "d3")!;
-    const d3Sent = sent.find((entry) => entry.sourceId === "d3");
-    if (d3Sent) {
-      const masked = maskOutside(d3.content, d3Sent.ranges);
-      // The Brief entry's own span stays citable.
-      expect(masked.slice(120, 139)).toBe(d3.content.slice(120, 139));
-    }
+    // A file really sent in part: some ranges, not whole.
+    const partial = built.sources.find((report) => report.ranges !== undefined && report.ranges.length > 0)!;
+    const row = sources.find((source) => source.sourceId === partial.sourceId)!;
+    // A span outside what was sent.
+    const gapStart = partial.ranges![0]!.end + 50;
+    const span = { startOffset: gapStart, endOffset: gapStart + 30 };
+    const own = seedSentRanges(built.sources, [{ sourceId: row.sourceId, ...span }]);
+    const masked = maskOutside(row.content, own.find((entry) => entry.sourceId === row.sourceId)!.ranges);
+    expect(masked.slice(span.startOffset, span.endOffset)).toBe(row.content.slice(span.startOffset, span.endOffset));
+    // A reused Brief names an earlier draft's row of the same text.
+    const hashes = new Map(sources.map((source) => [source.sourceId, source.contentHash]));
+    const reused = seedSentRanges(built.sources, [{ sourceId: "earlier-row", sourceContentHash: row.contentHash, ...span }], hashes);
+    const reusedMask = maskOutside(row.content, reused.find((entry) => entry.sourceId === row.sourceId)!.ranges);
+    expect(reusedMask.slice(span.startOffset, span.endOffset)).toBe(row.content.slice(span.startOffset, span.endOffset));
+    // Without the hash it is not added, and that text stays blanked.
+    const unmatched = seedSentRanges(built.sources, [{ sourceId: "earlier-row", ...span }]);
+    expect(maskOutside(row.content, unmatched.find((entry) => entry.sourceId === row.sourceId)!.ranges).slice(span.startOffset, span.endOffset)).toBe(
+      "\u0000".repeat(30)
+    );
     // A source sent whole is not listed, so it is checked as before.
-    expect(sent.find((entry) => entry.sourceId === "t1")).toBeUndefined();
+    expect(own.find((entry) => entry.sourceId === "t1")).toBeUndefined();
+  });
+
+  it("merges a span that overlaps what was sent", () => {
+    const merged = seedSentRanges(
+      [{ sourceId: "d", originalBytes: 100, includedBytes: 20, included: true, truncated: true, ranges: [{ start: 10, end: 30 }] }],
+      [{ sourceId: "d", startOffset: 25, endOffset: 40 }]
+    );
+    expect(merged).toEqual([{ sourceId: "d", ranges: [{ start: 10, end: 40 }] }]);
+  });
+
+  it("sends internal writer's notes and the Storyline whole, and a client's writer's notes in parts", () => {
+    const sources = largeSources();
+    const notes = (role: string, id: string) => ({
+      sourceId: id, label: "writer_notes:notes.md", kind: "project_document", content: filler(77, 40_000), contentHash: `h-${id}`, uploaderRole: role,
+    });
+    const withNotes = [...sources, notes("writer", "internal-notes"), notes("client", "client-notes"),
+      { sourceId: "story", label: "Storyline", kind: "writer_storyline", content: filler(78, 20_000), contentHash: "h-story" }];
+    const built = buildSeedPrompt(base(withNotes, true));
+    const report = (id: string) => built.sources.find((entry) => entry.sourceId === id)!;
+    expect(report("internal-notes").ranges).toBeUndefined();
+    expect(report("internal-notes").truncated).toBe(false);
+    expect(report("story").truncated).toBe(false);
+    expect(report("client-notes").ranges).toBeDefined();
   });
 
   it("moves a transcript quote only to another place that was sent", async () => {
@@ -143,5 +178,30 @@ describe("the citation check over a source sent in part (2026-10-28, seventh)", 
     const excerpt = "The pressure gauge was recalibrated by the night crew.";
     const result = check(excerpt, unsent);
     expect(result.ok && result.seed.provenance).toEqual([]);
+  });
+});
+
+describe("Seeds review fixes (2026-10-28)", () => {
+  it("never takes a quote of blanked text for a citation", () => {
+    const content = `${"x".repeat(50)}${"\u0000".repeat(60)}${"y".repeat(50)}`;
+    const excerpt = "\u0000".repeat(40);
+    const result = validateSeed({
+      roleId: "company_context",
+      seed: { bullets: ["The seal held."], tags: ["technical"], provenance: [{ sourceId: "d", startOffset: 55, endOffset: 95, exactExcerpt: excerpt }] },
+      frozenSources: [{ sourceId: "d", content, contentHash: "h" }],
+    } as never);
+    expect(result.ok && result.seed.provenance).toEqual([]);
+  });
+
+  it("keeps the ranges of the rows a prefetch's check loaded, and skips the others", () => {
+    const rows = [{ _id: "a", content: "x".repeat(100) }];
+    const entries = [
+      { sourceId: "a", ranges: [{ start: 0, end: 50 }] },
+      { sourceId: "not-loaded", ranges: [{ start: 0, end: 10 }] },
+    ];
+    expect(checkedSentRanges(entries, rows)).toBeNull();
+    expect(checkedSentRanges(entries, rows, { onlyLoaded: true })).toEqual(new Map([["a", [{ start: 0, end: 50 }]]]));
+    // A range past a loaded row's text is still refused.
+    expect(checkedSentRanges([{ sourceId: "a", ranges: [{ start: 0, end: 500 }] }], rows, { onlyLoaded: true })).toBeNull();
   });
 });

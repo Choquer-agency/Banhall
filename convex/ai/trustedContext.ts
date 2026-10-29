@@ -1278,6 +1278,9 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
   return { userMessage, parts: { shared, role }, promptBytes, sources: reports };
 }
 
+/** Room kept for a marker-like dash run lengthened across the seam of two joined parts. */
+const SEED_JOIN_MARGIN_BYTES = 2_048;
+
 /** The kinds sent whole by the relevance choice: the interviews and the writer's Storyline. */
 const SEED_WHOLE_KINDS: ReadonlySet<string> = new Set(["transcript", "transcript_digest", "transcript_facts", "writer_storyline"]);
 
@@ -1328,15 +1331,20 @@ function seedSourcesByRelevance(
     utf8Bytes(`\n${prompt.excerpts.noticeUnmatchedPrefix}${longest}${prompt.excerpts.noticeMiddle}${longest}${prompt.excerpts.noticeSuffix}`),
     utf8Bytes(`\n${prompt.excerpts.noticePrefix}${longest}${prompt.excerpts.noticeMiddle}${longest}${prompt.excerpts.noticeSuffix}`)
   );
-  const frames = sources.reduce(
-    (sum, source) => sum + utf8Bytes(seedBlock(sourceLabel(source), "")) + separatorBytes + noticeBytes,
-    0
-  );
+  // Each source's frame, join and longest notice are charged with its first
+  // part (a source that sends nothing is named in the omission block,
+  // reserved before). Parts are charged one by one; joining touching parts
+  // can lengthen a marker-like dash run across their seam, which the
+  // margin covers (Seeds review).
   const sentSize = (text: string) => utf8Bytes(neutralizeMarkers(text));
   const chosen = chooseEvidence({
-    rows: sources.map((source) => ({ text: source.content, ...(mustBeWhole(source) ? { whole: true } : {}) })),
+    rows: sources.map((source) => ({
+      text: source.content,
+      ...(mustBeWhole(source) ? { whole: true } : {}),
+      openCost: utf8Bytes(seedBlock(sourceLabel(source), "")) + separatorBytes + noticeBytes,
+    })),
     subject: subjectOf(seedSubjectTexts(brief)),
-    budget: Math.max(0, budgetBytes - frames),
+    budget: Math.max(0, budgetBytes - SEED_JOIN_MARGIN_BYTES),
     size: sentSize,
     excerptCost: utf8Bytes(prompt.excerpts.separator),
   });
@@ -1376,19 +1384,37 @@ function seedSourcesByRelevance(
  */
 export function seedSentRanges(
   reports: readonly SeedPromptSourceReport[],
-  briefEntries: ReadonlyArray<{ sourceId?: string | null; startOffset?: number | null; endOffset?: number | null }>
+  briefEntries: ReadonlyArray<{
+    sourceId?: string | null;
+    sourceContentHash?: string | null;
+    startOffset?: number | null;
+    endOffset?: number | null;
+  }>,
+  /** Each source's content hash: a reused Brief's entries name an earlier draft's rows of the same text. */
+  contentHashOf: ReadonlyMap<string, string> = new Map()
 ): Array<{ sourceId: string; ranges: Array<{ start: number; end: number }> }> {
   return reports
     .filter((report) => report.ranges !== undefined)
-    .map((report) => ({
-      sourceId: report.sourceId,
-      ranges: [
-        ...report.ranges!,
-        ...briefEntries
-          .filter((entry) => entry.sourceId === report.sourceId && typeof entry.startOffset === "number" && typeof entry.endOffset === "number")
-          .map((entry) => ({ start: entry.startOffset!, end: entry.endOffset! })),
-      ].sort((a, b) => a.start - b.start || a.end - b.end),
-    }));
+    .map((report) => {
+      const hash = contentHashOf.get(report.sourceId);
+      const spans = briefEntries
+        .filter(
+          (entry) =>
+            (entry.sourceId === report.sourceId || (hash !== undefined && entry.sourceContentHash === hash)) &&
+            typeof entry.startOffset === "number" &&
+            typeof entry.endOffset === "number" &&
+            entry.endOffset > entry.startOffset
+        )
+        .map((entry) => ({ start: entry.startOffset!, end: entry.endOffset! }));
+      // Overlapping or touching ranges merge, so a span across them is held (review).
+      const merged: Array<{ start: number; end: number }> = [];
+      for (const range of [...report.ranges!, ...spans].sort((a, b) => a.start - b.start || a.end - b.end)) {
+        const last = merged.at(-1);
+        if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+        else merged.push({ ...range });
+      }
+      return { sourceId: report.sourceId, ranges: merged };
+    });
 }
 
 /** Assemble the complete two-message request under one shared byte limit. */

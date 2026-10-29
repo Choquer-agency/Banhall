@@ -276,3 +276,18 @@ describe("Brief review fixes (2026-10-28)", () => {
     expect(maskOutside("abcdefgh", [{ start: 0, end: 8 }])).toBe("abcdefgh");
   });
 });
+
+describe("a row's opening cost (Seeds review, 2026-10-28)", () => {
+  it("charges a row's frame with its first part only, and nothing for a row that sends nothing", () => {
+    const rows = [
+      { text: "seal ".repeat(400), openCost: 300 },
+      { text: "pump ".repeat(400), openCost: 300 },
+    ];
+    // Each row is one 2,000-character part: room for one part and one frame (2,305), not two (4,610).
+    const chosen = chooseEvidence({ rows, subject: subjectOf(["seal"]), budget: 4_000, size: utf16Size, excerptCost: 5 });
+    const spent = (index: number) => chosen[index]!.ranges.reduce((sum, range) => sum + range.end - range.start, 0);
+    expect(spent(0)).toBeGreaterThan(0);
+    expect(spent(0)).toBeLessThanOrEqual(4_000 - 300 - 5);
+    expect(spent(1)).toBe(0);
+  });
+});
