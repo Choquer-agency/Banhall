@@ -90,7 +90,7 @@ Still with the owner: the Azure account, a card on the Voyage account, test page
 
 Each has a recommended answer. Work goes on with it until the owner says otherwise, except where it says "waits".
 
-1. **Who may edit a company's details** (name, other names, fiscal year end) from the company page. Recommended: Managers and Admins, the same people who archive and remove company files. Waits: "Edit company" stays hidden until answered.
+1. **Who may edit a company's details** (name, other names, fiscal year end) from the company page. Recommended: Managers and Admins, the same people who archive and remove company files. Waits: "Edit company" stays hidden until answered. Answered 2026-10-28: "Edit company" (name, fiscal year end, industry) is for Managers and Admins, the people who already archive and remove company files and merge companies; the company page moves to its own section under Companies. Built: decision entry "2026-10-28 (thirteenth)".
 2. **Drafting picks file text by relevance** (Phase D, step 3, `docs/todos/phase-d-search-first.md`): "Each drafting step stays one request with the same time and price, and file text is chosen by relevance instead of upload order. Tools for drafting are tried later in a measured test only if this misses evidence." Recommended: yes. Waits: it replaces an approved rule, so it needs the owner's amendment first. 2026-10-28: the owner asked for it in plain words; given in chat with the options for large projects (question 12). Answered 2026-10-28: yes, together with step 4 ("can we not do what you said on combining option 3 and option 4?"); decision entry "2026-10-28 (fourth)", plan `docs/todos/phase-d-evidence-layer.md`.
 3. **Edit size is recorded per editing burst** (up to 10 minutes) and at each chat apply, not after every autosave (decision entry "2026-10-27 (third)"). Recommended: keep it.
 4. **Sonnet 5.5 and structured answers.** Without a forced tool, Sonnet 5.5 sometimes wrote lists as tool markup, so Briefs came back empty; strict tools fixed it, and strict mode is skipped where a schema needs two or more items. Recommended: keep Sonnet 5.5 with strict tools; the release suite (F6) checks it again.
@@ -182,7 +182,7 @@ Order changed on 2026-10-26 (takeover session): B2, then B4, then Phase C, then 
 
 **Phase C: company files**
 - [x] C1. Company files table, permissions, log, merge and erasure rules. Done 2026-10-26: decision entry "2026-10-26 (sixth)".
-- [x] C2. Company page with the Files tab (Paper Z8a). Done 2026-10-26, same entry. "Edit company" waits for the owner's answer on who may edit company details.
+- [x] C2. Company page with the Files tab (Paper Z8a). Done 2026-10-26, same entry. "Edit company" waited for the owner's answer on who may edit company details; answered and built 2026-10-28 with the company page of its own (decision entry "2026-10-28 (thirteenth)").
 - [x] C3. Company files in drafts, chat and the Inputs band. Done 2026-10-26: decision entries "2026-10-26 (seventh)" and "(eighth)", reviewed in three rounds.
 
 **Phase D: search-first evidence**

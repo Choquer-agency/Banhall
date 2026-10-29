@@ -117,7 +117,7 @@ flowchart LR
 
 | Step | Where it happens (page) | Backend module | Main tables |
 | --- | --- | --- | --- |
-| 1. Client | `/projects` client list, client picker on New project | `convex/clients.ts` | `clients` |
+| 1. Client | `/companies` (every company and each company's page), the `/projects` company list, the client picker on New project | `convex/clients.ts` | `clients` |
 | 2. Project | `/project/new` | `convex/projects.ts`, `convex/intakeDrafts.ts` | `projects`, `intakeDrafts` |
 | 3. Evidence | `/project/new`, Files panel on `/project/[id]` | `convex/transcripts.ts`, `convex/documents.ts` | `transcripts`, `projectDocuments` |
 | 4. Draft | `/project/[id]` | `convex/generations.ts`, `convex/ai/` | `generations`, `generationSources`, `reports` |
@@ -206,7 +206,7 @@ Users also have `notifications` (their inbox) and the `workItems` assigned to th
 
 **Clients are new (2026-10-14).** Projects now store both `clientName` and `clientId`, and every write keeps the two in step. Grouping on the Projects page still reads `clientName`; nothing groups by `clientId` yet.
 
-**Companies hold their own files (2026-10-26).** A `companyFiles` row belongs to a company (a `clients` row), with its text in `companyFileTexts` and every add, archive, restore, removal and merge move in `companyFileEvents`. Reading, adding and managing them are their own capabilities (`companyFiles.read`, `companyFiles.add`, `companyFiles.manage`), and a company's view of the Projects page has a Files tab. A draft freezes the project's company's files after the project's own, as `company_file` rows; chat finds them only through its search and read tools. Merging companies moves their files, and erasing a project never touches them.
+**Companies hold their own files (2026-10-26).** A `companyFiles` row belongs to a company (a `clients` row), with its text in `companyFileTexts` and every add, archive, restore, removal and merge move in `companyFileEvents`. Reading, adding and managing them are their own capabilities (`companyFiles.read`, `companyFiles.add`, `companyFiles.manage`), and a company's page (`/companies/<key>`, 2026-10-28; on the Projects page until then) has a Files tab. A draft freezes the project's company's files after the project's own, as `company_file` rows; chat finds them only through its search and read tools. Merging companies moves their files, and erasing a project never touches them.
 
 **Tables by area**
 
@@ -242,7 +242,7 @@ flowchart TD
   open["No login needed<br/><br/>/login<br/>/signup/[token]: accept an invite<br/>/review/[shareToken]: client reads and comments"]:::person
   gate["WorkspaceGate<br/>signed out goes to /login"]:::web
   shell["WorkspaceShell<br/>global bar, fixed rail, one white card,<br/>section sidebars, command palette, shortcuts"]:::web
-  daily["Daily work<br/><br/>/my-work: Home, what is with you<br/>/projects: clients and their projects<br/>/project/new: create and upload evidence<br/>/project/[id]: the report page<br/>/project/[id]/financial"]:::web
+  daily["Daily work<br/><br/>/my-work: Home, what is with you<br/>/projects: clients and their projects<br/>/project/new: create and upload evidence<br/>/project/[id]: the report page<br/>/project/[id]/financial<br/>/companies, /companies/[key]: every company, one company's page"]:::web
   other["Everything else<br/><br/>/settings: account, writing, notifications, shortcuts<br/>/team: members and invites, Managers and Admins<br/>/changelog"]:::web
   restricted["Restricted<br/><br/>/admin/*: house rules, Brain, models, usage...<br/>/alerts, /requests: developers only"]:::admin
 
@@ -255,8 +255,8 @@ flowchart TD
 
 - `/` sends you to `/my-work` when signed in, otherwise to `/login`.
 - `/dashboard` is the old entry. It redirects to the new pages, or shows the old interface when the URL has `?workspace=current`. The old interface stays in the repo as a rollback.
-- There is no `/clients` page. Clients live on `/projects`; `?client=<key>` selects one, and the rail's Companies link points there.
-- The page frame (owner, 2026-10-28; `docs/design-system.md` "the page frame"). From 1024px every signed-in page has the same three parts: a 52px global bar (logo, What's new bell, account menu, `GlobalBar`), a fixed 80px labelled rail (Projects, Companies, Team, Admin, Settings; `FrameRail`, items from `frameRailItems` in `src/lib/shell/navigation.ts`) and one white card (`FrameCard`). The card holds the page and, for four sections, a section sidebar (`SectionSidebar`): Projects and Home share one (Home, All projects, every company; `ClientList`), Team, Admin and Settings have their own (`src/lib/components/workspace/sidebars/`). `frameSectionForPath` says which a page draws; the loading frame reads it so nothing jumps. New project, What's new, Alerts, Feature requests and the project page have no sidebar. Mod \ collapses the sidebar when one is on screen (`sectionSidebar.svelte.ts`, kept in this browser). The white card is each page's one `<main>`; the global bar is the only banner. The Team and Admin sidebars draw only once the viewer is known to be allowed. Below 1024px the bar and rail go away: the slide-out drawer (`WorkspaceRail`) and each page's own bar with its hamburger stay as before. The frame only shows and hides; who may open what is still decided by the capabilities and checked on the server.
+- Companies have their own section (owner, 2026-10-28): `/companies` lists every company (the company directory, `clients.listClients`) and `/companies/<key>` is one company's page (`clients.getCompanyPage`): its facts, Edit company for Managers and Admins (`clients.updateCompany`), and the Projects and Files tabs. One route (`src/routes/companies/[[key]]`) serves both; the page is `src/lib/components/companies/CompaniesPage.svelte`. The key is the same company key `/projects?client=<key>` uses, which still filters the Projects page by company; an arrow beside the company's name there opens its page. A merged company's old key opens the company it went into. There is no `/clients` page.
+- The page frame (owner, 2026-10-28; `docs/design-system.md` "the page frame"). From 1024px every signed-in page has the same three parts: a 52px global bar (logo, What's new bell, account menu, `GlobalBar`), a fixed 80px labelled rail (Projects, Companies, Team, Admin, Settings; `FrameRail`, items from `frameRailItems` in `src/lib/shell/navigation.ts`) and one white card (`FrameCard`). The card holds the page and, for five sections, a section sidebar (`SectionSidebar`): Projects and Home share one (Home, All projects, every company; `ClientList`), Companies has its own (`src/lib/components/companies/CompaniesSidebar.svelte`), and so do Team, Admin and Settings (`src/lib/components/workspace/sidebars/`). `frameSectionForPath` says which a page draws; the loading frame reads it so nothing jumps. New project, What's new, Alerts, Feature requests and the project page have no sidebar. Mod \ collapses the sidebar when one is on screen (`sectionSidebar.svelte.ts`, kept in this browser). The white card is each page's one `<main>`; the global bar is the only banner. The Team and Admin sidebars draw only once the viewer is known to be allowed. Below 1024px the bar and rail go away: the slide-out drawer (`WorkspaceRail`) and each page's own bar with its hamburger stay as before. The frame only shows and hides; who may open what is still decided by the capabilities and checked on the server.
 - Admin pages: house-rules, tags, brain, ingestion, models, reviews, learning and usage are in the Admin sidebar, with Alerts and Feature requests at its foot for developers; comparisons, backfill and users open from the command palette, which also lists the developer pages.
 
 ### How a page gets and changes data
@@ -558,6 +558,7 @@ Roles are stored on `users.role` (`shared/roles.ts`). "Own" means projects where
 | Complete someone else's work item | No | Yes | Yes |
 | See financial data | No | Yes | Yes |
 | See the team, send invites | No | Yes | Yes |
+| Edit a company's details, merge companies | No | Yes | Yes |
 | Change roles, configure settings, see alerts | No | No | Yes |
 
 Server-side checks live in `convex/lib/auth.ts` (`requireCurrentUser`, `requireInternalProjectAccess`) and `convex/lib/roleCapabilities.ts` (`requireCapability`, `requireReportEditAccess`). A client on a share link can read only the published report and add comments.
