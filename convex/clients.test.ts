@@ -1749,6 +1749,7 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       industryFromProjects: false,
       hasProjectFiscalYearEnd: false,
       hasProjectIndustry: false,
+      websiteRead: null,
       mergedNote: null,
     });
     expect(await s.writer.query(api.clients.getCompanyPage, { key: "birch foods" })).toEqual({
@@ -1762,6 +1763,7 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       industryFromProjects: false,
       hasProjectFiscalYearEnd: false,
       hasProjectIndustry: false,
+      websiteRead: null,
       mergedNote: null,
     });
   });
