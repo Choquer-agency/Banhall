@@ -326,7 +326,10 @@ async function requestHashes(
     // Context objective and the Line 242 drafting rules; the old texts are
     // put back. 2026-10-29: so are the inference marker's rule and check
     // lines (convex/inferenceMarker.fixture.ts).
-    let json = withoutInferenceMarker(withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))));
+    let json = withoutInferenceMarker(
+      withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))),
+      name === "text" ? "draft" : name === "submit_self_check" ? "summarySelfCheckWithFacts" : "none"
+    );
     if (name === "submit_seed_batch") {
       const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);
       expect(json.split(wording)).toHaveLength(2);

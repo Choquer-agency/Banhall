@@ -12,12 +12,19 @@ import {
   buildSection246Instructions,
   buildSectionDraftRequest,
   buildSharedWritingRules,
+  SECTION_EVIDENCE_POINTER,
 } from "./prompts";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { factsMatchSourcesInstruction } from "./selfCheck";
 import { buildStylePreviewPrompt } from "./stylePreview";
-import { compressionLoss, endedMidSentence } from "./pipeline";
-import { INFERENCE_MARKER_ADDITIONS, withoutInferenceMarkerText } from "../inferenceMarker.fixture";
+import { compressionLoss, endedMidSentence, inferredSentenceLoss } from "./pipeline";
+import {
+  INFERENCE_MARKER_ADDITIONS,
+  INFERENCE_MARKER_COUNTS,
+  inferenceMarkerCounts,
+  withoutInferenceMarker,
+  withoutInferenceMarkerText,
+} from "../inferenceMarker.fixture";
 
 /**
  * 2026-10-29 (owner, chat: "We can include the ... inference marker."):
@@ -37,7 +44,14 @@ describe("the three kinds rule", () => {
     expect(RULES_EVIDENCE_KINDS).toContain("[GAP: what is needed]");
     // The meeting's own example of an invented event is the bad example.
     expect(RULES_EVIDENCE_KINDS).toContain('Bad: "Trials then indicated that single readings were unreliable."');
-    expect(RULES_EVIDENCE_KINDS).toContain(`Good: "Readiness was first judged from single readings. ${MARK}"`);
+    // Review round 1 (P2-3): the Good example follows from stated facts, a
+    // missing story step becomes a gap, and a requirement read as a first
+    // approach is the Bad example.
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      `Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (it follows from two stated facts)`
+    );
+    expect(RULES_EVIDENCE_KINDS).toContain('"The first approach was [GAP: what was tried first and why it fell short].');
+    expect(RULES_EVIDENCE_KINDS).toContain('Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a requirement is not evidence of what was done first');
     // The marker may name the source; the sentence may not.
     expect(RULES_EVIDENCE_KINDS).toContain("A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on");
     expect(RULES_EVIDENCE_KINDS).toContain("The sentence itself never names a source.");
@@ -66,6 +80,31 @@ describe("the three kinds rule", () => {
         "- NEVER hallucinate or fabricate technical details. If information is missing from the analysis, insert a clearly marked placeholder: [GAP: description of what information is needed]."
       );
     }
+  });
+
+  // Review round 1 (P1-1): the rule is in the system prompt, before the Line
+  // instructions in the user message, so a pointer follows them.
+  it("points back to the rule right after each Line's instructions, before the Brief and any repair guidance", () => {
+    for (const instructions of [buildSection242Instructions(), buildSection244Instructions(), buildSection246Instructions()]) {
+      const request = buildSectionDraftRequest({
+        instructions,
+        analysisJson: "{}",
+        brainExemplars: "",
+        lengthBudget: "\n\n# LENGTH BUDGET",
+        styleGuidance: "\n\n## Self-check repair (high priority)",
+        contentPlanBlock: "",
+        briefBlock: "\n\n# BRIEF",
+      });
+      const task = request.messages[0].content[1].text;
+      expect(task.split(SECTION_EVIDENCE_POINTER)).toHaveLength(2);
+      expect(task.indexOf(SECTION_EVIDENCE_POINTER)).toBe(task.indexOf(instructions) + instructions.length);
+      expect(task.indexOf(SECTION_EVIDENCE_POINTER)).toBeLessThan(task.indexOf("# LENGTH BUDGET"));
+      expect(task.indexOf("## Self-check repair")).toBeGreaterThan(task.indexOf(SECTION_EVIDENCE_POINTER));
+      expect(task.endsWith("# BRIEF")).toBe(true);
+    }
+    expect(SECTION_EVIDENCE_POINTER).toContain("the STATED, INFERRED OR MISSING rule decides: mark a reasonable inference, or leave a [GAP: ...].");
+    expect(SECTION_EVIDENCE_POINTER).toContain("even where these instructions say a missing element will be flagged");
+    expect(findDashConnectors(SECTION_EVIDENCE_POINTER)).toEqual([]);
   });
 
   it("reaches every drafting request (Single draft, Compare, Step by step and redrafts all draft through it) and the Assistant", () => {
@@ -104,7 +143,9 @@ describe("the three kinds rule", () => {
 describe("the checks allow a marked inference", () => {
   it("the Self-check, in both modes, never fails a marked inference and lets a marker name a source", () => {
     for (const prompt of [SELF_CHECK_SYSTEM_PROMPT, SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT]) {
-      expect(prompt).toContain("A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. It is allowed");
+      expect(prompt).toContain("A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. Only its lack of a source is allowed");
+      // Review round 1 (P3-7): its hedging is still judged.
+      expect(prompt).toContain("Judge its hedging against the Confidence Map, and everything else about it, as usual.");
       expect(prompt).toContain("A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.");
     }
     expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT).toContain(
@@ -116,6 +157,8 @@ describe("the checks allow a marked inference", () => {
     for (const complete of [true, false]) {
       const instruction = factsMatchSourcesInstruction(complete);
       expect(instruction).toContain("never flag it for having no source, but check a figure or a specific detail it states like any other.");
+      // Review round 1 (P3-8): and the marker's own words.
+      expect(instruction).toContain("Check the marker's own words the same way: a figure in them, or what they say the sources say, must match the sources.");
     }
   });
 
@@ -163,6 +206,23 @@ describe("compression keeps every marker", () => {
     expect(compressionLoss(input, added, "s244", 10)).toBe("added the marker [INFERRED: the plan names no other check]");
   });
 
+  // Review round 1 (P3-11): a kept marker must keep the sentence it marks.
+  it("does not keep a pass that cuts the inferred sentence and leaves its marker on another", () => {
+    const text = `The room was held at 2 C in every trial. Readiness was first judged from single readings of the probe. ${MARK} [GAP: the hold time]`;
+    const shortened = `The room was held at 2 C in every trial. Readiness was judged from single probe readings. ${MARK} [GAP: the hold time]`;
+    expect(inferredSentenceLoss(text, shortened)).toBeNull();
+    expect(compressionLoss(text, shortened, "s244", 5)).toBeNull();
+    const moved = `The room was held at 2 C in every trial. ${MARK} [GAP: the hold time]`;
+    expect(inferredSentenceLoss(text, moved)).toBe(`dropped the sentence the marker ${MARK} belongs to`);
+    expect(compressionLoss(text, moved, "s244", 5)).toBe(`dropped the sentence the marker ${MARK} belongs to`);
+    // Each of two identical markers is judged at its own place.
+    const two = `Alpha probes drifted at night in the cold room. ${MARK}\n\nBeta valves stuck after each long door opening. ${MARK}`;
+    expect(inferredSentenceLoss(two, two)).toBeNull();
+    expect(inferredSentenceLoss(two, `Alpha probes drifted at night. ${MARK}\n\nThe door stayed open. ${MARK}`)).toBe(
+      `dropped the sentence the marker ${MARK} belongs to`
+    );
+  });
+
   it("reads a paragraph that ends on a marker as ending on a whole sentence", () => {
     expect(endedMidSentence(`One. ${MARK}`, `One. ${MARK}`)).toBeNull();
   });
@@ -170,12 +230,28 @@ describe("compression keeps every marker", () => {
 
 describe("the pinned-request fixture", () => {
   it("lists each addition once, and taking them out gives the shared rules as before", () => {
-    expect(new Set(INFERENCE_MARKER_ADDITIONS).size).toBe(INFERENCE_MARKER_ADDITIONS.length);
-    const before = withoutInferenceMarkerText(buildSharedWritingRules());
-    expect(before).not.toContain("[INFERRED");
-    expect(before).toContain("GENERAL RULES:");
-    expect(withoutInferenceMarkerText(buildChatSystemPromptV2())).not.toContain("INFERRED");
-    expect(withoutInferenceMarkerText(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT)).not.toContain("INFERRED");
-    expect(withoutInferenceMarkerText(COMPRESSION_REQUEST.system)).not.toContain("INFERRED");
+    const additions = Object.values(INFERENCE_MARKER_ADDITIONS);
+    expect(new Set(additions).size).toBe(additions.length);
+    // No addition holds another, so stripping order cannot matter.
+    for (const one of additions) for (const other of additions) if (one !== other) expect(one.includes(other)).toBe(false);
+    // A draft request holds the rules block and the pointer once each.
+    const request = buildSectionDraftRequest({
+      instructions: buildSection244Instructions(),
+      analysisJson: "{}",
+      brainExemplars: "",
+      lengthBudget: "",
+      styleGuidance: "",
+      contentPlanBlock: "",
+      briefBlock: "",
+    });
+    const body = JSON.stringify(request);
+    expect(inferenceMarkerCounts(body)).toEqual(INFERENCE_MARKER_COUNTS.draft);
+    expect(withoutInferenceMarker(body, "draft")).not.toContain("INFERRED");
+    // A count other than the stage's is refused, so a moved or doubled addition is caught.
+    expect(() => withoutInferenceMarker(body, "none")).toThrow(/holds the inference marker's additions/);
+    expect(() => withoutInferenceMarker(body.replace(JSON.stringify(SECTION_EVIDENCE_POINTER).slice(1, -1), ""), "draft")).toThrow();
+    expect(withoutInferenceMarkerText(buildChatSystemPromptV2(), "chat")).not.toContain("INFERRED");
+    expect(withoutInferenceMarkerText(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT, "summarySelfCheck")).not.toContain("INFERRED");
+    expect(withoutInferenceMarkerText(COMPRESSION_REQUEST.system, "compression")).not.toContain("INFERRED");
   });
 });

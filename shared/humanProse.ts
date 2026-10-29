@@ -168,8 +168,10 @@ No talk about sources:
  * Locked, like the [GAP] rule beside it: sent in the shared writing rules of
  * every drafting request (Single draft, Compare, Step by step and a redraft,
  * with their repairs, which reuse those requests) and of the Assistant. It
- * comes after the GENERAL RULES' [GAP] line and the section instructions,
- * and decides where a section's required content has no evidence.
+ * sits in the system prompt, right after the GENERAL RULES' [GAP] line. The
+ * Line instructions come later, in the user message, so a short pointer
+ * right after them (SECTION_EVIDENCE_POINTER, convex/ai/prompts.ts) says
+ * this rule decides where they ask for content the evidence does not give.
  */
 export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
 Every claim you write in a report Line is one of three kinds. Decide which before you write it.
@@ -183,7 +185,9 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 - One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
 - A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on, such as the client's answer or a test log. The sentence itself never names a source.
 - When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
-Good: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time, not single-point checks]"
+Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (it follows from two stated facts)
+Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
+Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a requirement is not evidence of what was done first: that step is missing, so leave a gap)
 Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials: an inference written as a stated fact)
 Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source; that belongs in the marker)
 Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)`;

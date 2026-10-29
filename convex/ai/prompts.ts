@@ -313,15 +313,29 @@ export function buildSectionSharedSystemPrompt(
  * 242, 244 and 246 one after another, a few minutes apart, and each read
  * refreshes the entry.
  */
+/**
+ * 2026-10-29, review round 1 (P1-1): RULES_EVIDENCE_KINDS sits in the
+ * system prompt, and each Line's instructions come later, in the user
+ * message, where Line 244's required story still asks for every step. This
+ * pointer, right after the Line instructions, says the rule decides there.
+ * The Line instructions themselves are unchanged (owner approval pending).
+ * Every draft, its Self-check repair and a redraft send it: they all build
+ * their request here.
+ */
+export const SECTION_EVIDENCE_POINTER =
+  "\n\nWhere these instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding, a result or a measurable target, the STATED, INFERRED OR MISSING rule decides: mark a reasonable inference, or leave a [GAP: ...]. Never invent it to complete the shape, even where these instructions say a missing element will be flagged.";
+
 export const SECTION_DRAFT_SCAFFOLD = {
   sharedPrefix:
     "Here is the structured transcript analysis. Use ONLY this information to draft the line named after it.\n\n",
   taskHeading: "\n\n# LINE TO DRAFT\n\n",
+  evidenceKindsPointer: SECTION_EVIDENCE_POINTER,
   sharedBlockOrder: ["{{runtime.transcriptAnalysis}}"],
   // The Brief stays last, after the signed-off content plan, as before: the
   // plan-then-Brief order is part of the Summary sign-off contract.
   taskBlockOrder: [
     "{{static.lineInstructions}}",
+    "{{static.evidenceKindsPointer}}",
     "{{runtime.brainExemplars}}",
     "{{runtime.lengthBudget}}",
     "{{runtime.styleGuidance}}",
@@ -359,7 +373,7 @@ export function buildSectionDraftRequest(args: {
   }>;
 } {
   const shared = `${SECTION_DRAFT_SCAFFOLD.sharedPrefix}${args.analysisJson}`;
-  const task = `${SECTION_DRAFT_SCAFFOLD.taskHeading}${args.instructions}${args.brainExemplars}${args.lengthBudget}${args.styleGuidance}${args.contentPlanBlock}${args.briefBlock}`;
+  const task = `${SECTION_DRAFT_SCAFFOLD.taskHeading}${args.instructions}${SECTION_DRAFT_SCAFFOLD.evidenceKindsPointer}${args.brainExemplars}${args.lengthBudget}${args.styleGuidance}${args.contentPlanBlock}${args.briefBlock}`;
   return {
     system: buildSectionSharedSystemPrompt(args.styleOverrides),
     messages: [
@@ -707,7 +721,7 @@ export const QA_INFERENCE_FAITHFULNESS_CHECK =
 
 /** The Self-check: a marked inference is allowed, and a marker may name a source. */
 export const SELF_CHECK_INFERENCE_RULE =
-  "\n- A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. It is allowed: never fail it for having no source or for stating what the evidence only suggests. Judge everything else about it as usual. A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.";
+  "\n- A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. Only its lack of a source is allowed: never fail it for that alone. Judge its hedging against the Confidence Map, and everything else about it, as usual. A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.";
 
 /** The Summary Self-check's source-talk rule: a marker is not a sentence of the section. */
 export const SUMMARY_MARKER_NOT_SOURCE_TALK =

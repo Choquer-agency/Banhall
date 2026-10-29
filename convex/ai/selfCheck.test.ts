@@ -376,7 +376,7 @@ async function completeSelfCheckRequestHash(
 ): Promise<string> {
   // 2026-10-29 (owner): with the inference marker's Self-check line taken
   // out (convex/inferenceMarker.fixture.ts), every other byte is pinned.
-  const bytes = new TextEncoder().encode(withoutInferenceMarker(JSON.stringify(params)));
+  const bytes = new TextEncoder().encode(withoutInferenceMarker(JSON.stringify(params), "selfCheck"));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

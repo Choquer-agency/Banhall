@@ -206,7 +206,7 @@ function withoutDraftHeadroom(params: GenerationMessageParams): string {
 }
 
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
-  const bytes = new TextEncoder().encode(withoutInferenceMarker(withPinnedLine242Opening(withoutDraftHeadroom(params))));
+  const bytes = new TextEncoder().encode(withoutInferenceMarker(withPinnedLine242Opening(withoutDraftHeadroom(params)), "draft"));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

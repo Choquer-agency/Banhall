@@ -48,6 +48,7 @@ import {
   wordBudget,
   INFERRED_MARKER_RE,
   NOTE_MARKER_RE,
+  stripNoteMarkers,
   LINE_LIMITS,
   CHARS_PER_LINE,
   type LengthTarget,
@@ -456,6 +457,50 @@ function useCounts(uses: readonly string[]): Map<string, number> {
 }
 
 /**
+ * The sentence an [INFERRED: ...] marker at `index` belongs to: the last
+ * sentence before it in its paragraph, other markers left out. "" when the
+ * marker opens its paragraph.
+ */
+function sentenceBeforeMarker(text: string, index: number): string {
+  const head = text.slice(0, index);
+  const paragraph = head.slice(head.search(/\n\s*\n(?![\s\S]*\n\s*\n)/) + 1);
+  const sentences = stripNoteMarkers(paragraph)
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  return sentences[sentences.length - 1] ?? "";
+}
+
+/**
+ * Review round 1 (P3-11): why a pass kept an [INFERRED: ...] marker but not
+ * the sentence it marks, or null. Each marker's sentence in the pass must
+ * still hold at least half of the content words of the sentence it marked
+ * in the text given (matched loosely, sameWord), so a shortened sentence
+ * keeps its marker and a marker never ends up on a stated sentence that was
+ * beside it.
+ */
+export function inferredSentenceLoss(input: string, output: string): string | null {
+  const seen = new Map<string, number>();
+  for (const match of input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
+    const occurrence = seen.get(match[0]) ?? 0;
+    seen.set(match[0], occurrence + 1);
+    const marked = sentenceBeforeMarker(input, match.index);
+    if (!marked) continue;
+    let at = -1;
+    for (let index = 0; index <= occurrence; index += 1) {
+      at = output.indexOf(match[0], at + 1);
+      if (at < 0) break;
+    }
+    if (at < 0) return `dropped the marker ${match[0]}`;
+    const words = contentWords(marked);
+    const keptWords = contentWords(sentenceBeforeMarker(output, at));
+    const shared = words.filter((word) => keptWords.some((other) => sameWord(word, other))).length;
+    if (shared < Math.ceil(words.length / 2)) return `dropped the sentence the marker ${match[0]} belongs to`;
+  }
+  return null;
+}
+
+/**
  * Why a compression pass dropped required content, or null when it kept it
  * (review P2-1; 2026-09-28 second, full suite). A pass must keep every [GAP] marker of
  * the text it was given verbatim, and (2026-10-29) every [INFERRED] marker,
@@ -484,6 +529,8 @@ export function compressionLoss(
   for (const match of output.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
     if (!given.has(match[0])) return `added the marker ${match[0]}`;
   }
+  const lostSentence = inferredSentenceLoss(input, output);
+  if (lostSentence) return lostSentence;
   for (const term of exactTerms) {
     if (containsTerm(input, term) && !containsTerm(output, term)) {
       return `dropped the writer's term "${term}"`;

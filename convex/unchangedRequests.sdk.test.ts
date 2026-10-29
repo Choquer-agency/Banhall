@@ -44,7 +44,7 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
-import { withoutInferenceMarker, withoutInferenceMarkerText } from "./inferenceMarker.fixture";
+import { INFERENCE_MARKER_ADDITIONS, withoutInferenceMarker, type InferenceMarkerStage } from "./inferenceMarker.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { streamWhenAsked } from "./anthropicSse.fixture";
 
@@ -245,7 +245,7 @@ const THIRD_AMENDMENT_ADDITIONS: Record<string, string[]> = {
   section: [inJson(reportFactsBlock())],
   repair: [inJson(reportFactsBlock())],
   // 2026-10-29: the bodies are compared with the inference marker's line taken out.
-  selfCheck: [inJson(withoutInferenceMarkerText(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`))],
+  selfCheck: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`.split(INFERENCE_MARKER_ADDITIONS.summarySelfCheck).join(""))],
 };
 
 async function draftAndHash(args: {
@@ -268,14 +268,14 @@ async function draftAndHash(args: {
       clientFor,
     });
   });
-  return await hashesOf(sent);
+  return await hashesOf(sent, args.plan !== undefined);
 }
 
 /**
  * Every request's hash as sent, and without exactly the 2026-09-30 (third)
  * additions, each of which must be in its request once.
  */
-async function hashesOf(asSent: Sent[]): Promise<{
+async function hashesOf(asSent: Sent[], signedOff: boolean): Promise<{
   stages: string[];
   hash: string;
   hashWithoutThirdAmendment: string;
@@ -310,7 +310,9 @@ async function hashesOf(asSent: Sent[]): Promise<{
   // back to before (convex/inferenceMarker.fixture.ts), so every other byte
   // is still pinned.
   const sent = asSent.map((request) => {
-    const body = withoutInferenceMarker(withPinnedLine242Opening(request.body));
+    const stage: InferenceMarkerStage =
+      request.stage === "selfCheck" ? (signedOff ? "summarySelfCheck" : "selfCheck") : "draft";
+    const body = withoutInferenceMarker(withPinnedLine242Opening(request.body), stage);
     return {
       ...request,
       body:
@@ -514,7 +516,7 @@ async function draftClaimAndHash(args: {
       clientFor,
     });
   });
-  return await hashesOf(sent);
+  return await hashesOf(sent, true);
 }
 
 async function consistencyHash(): Promise<string> {
