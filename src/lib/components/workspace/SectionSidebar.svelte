@@ -52,12 +52,22 @@
   $effect(() => registerSectionSidebar());
 
   // The server draws the sidebar open; a collapsed choice applies once the
-  // page is live. No width easing until the first frame has painted, so a
-  // reload snaps to the stored choice instead of sliding shut.
+  // page is live. No width easing until that state has been styled: on the
+  // first frame a layout read commits the snapped width (before the frame's
+  // own style pass could pair it with the easing), and only on the frame
+  // after does the easing switch on. A reload snaps, never slides shut.
+  let slot: HTMLDivElement | null = $state(null);
   let ready = $state(false);
   $effect(() => {
-    const frame = requestAnimationFrame(() => (ready = true));
-    return () => cancelAnimationFrame(frame);
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      void slot?.offsetWidth;
+      second = requestAnimationFrame(() => (ready = true));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
   });
 
   const collapsed = $derived(sectionSidebar.collapsed);
@@ -68,6 +78,7 @@
 </script>
 
 <div
+  bind:this={slot}
   data-section-sidebar-slot={section}
   data-collapsed={collapsed ? "" : undefined}
   data-ready={ready ? "" : undefined}

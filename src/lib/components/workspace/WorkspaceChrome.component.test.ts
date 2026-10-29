@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
-import { createRawSnippet } from "svelte";
+import { createRawSnippet, flushSync } from "svelte";
 import { IconGear } from "$lib/components/icons";
 import WorkspaceChrome from "./WorkspaceChrome.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
@@ -10,7 +10,7 @@ import { __mutationCalls, __resetConvexStub, __setQueryData } from "$lib/test/co
 import { readLastAccount } from "$lib/auth/lastAccount";
 import { viewAs } from "$lib/shell/viewAs.svelte";
 import { board, boardPx } from "$lib/test/boardScale";
-import { SECTION_SIDEBAR_KEY, reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
+import { SECTION_SIDEBAR_KEY, reloadSectionSidebar, sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 import SidebarHarness from "$lib/test/SectionSidebarChromeHarness.svelte";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn() } }));
@@ -140,6 +140,29 @@ describe("WorkspaceChrome (the page frame, 2026-10-28)", () => {
     // The header button collapses it too, and focus lands on the expand button.
     (document.activeElement as HTMLButtonElement).click();
     await expect.poll(() => document.activeElement?.hasAttribute("data-section-sidebar-expand")).toBe(true);
+  });
+
+  it("a stored collapse applied as the page goes live snaps shut, with no width easing (review round 2, item 1)", async () => {
+    await browserPage.viewport(1440, 900);
+    __setPageUrl("/settings/notifications");
+    // As after a server render: the sidebar is drawn and styled open, then
+    // the browser's stored choice (collapsed) lands before the next frame.
+    await render(SidebarHarness, { children: tallContent });
+    const slot = document.querySelector<HTMLElement>("[data-section-sidebar-slot]")!;
+    expect(slot.hasAttribute("data-ready")).toBe(false);
+    expect(slot.offsetWidth).toBeGreaterThan(0);
+    localStorage.setItem(SECTION_SIDEBAR_KEY, JSON.stringify({ collapsed: true }));
+    reloadSectionSidebar();
+    flushSync();
+    expect(sectionSidebar.collapsed).toBe(true);
+    await expect.poll(() => slot.hasAttribute("data-ready")).toBe(true);
+    const widthAnimations = () =>
+      slot.getAnimations().filter((animation) => (animation as CSSTransition).transitionProperty === "width");
+    expect(widthAnimations()).toHaveLength(0);
+    expect(slot.getBoundingClientRect().width).toBe(0);
+    // Once live, a toggle eases as before.
+    document.querySelector<HTMLButtonElement>("[data-section-sidebar-expand]")!.click();
+    await expect.poll(() => widthAnimations().length).toBeGreaterThan(0);
   });
 
   it("below 768px, where no sidebar shows, Mod \\ leaves the stored choice alone (review round 1, finding 5)", async () => {
