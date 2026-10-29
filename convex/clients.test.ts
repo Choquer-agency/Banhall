@@ -1904,24 +1904,48 @@ describe("fiscal year end and industry fall back to the newest project's (2026-1
     const latest = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: DEC_31_2025 });
     const shortYear = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: JUN_30_2025 });
     const going = await insertProject(s, { clientName: "3GA Marine Ltd", fiscalYearEnd: Date.UTC(2026, 2, 31), deleting: true });
-    await setIndustry(s, old, "manufacturing", 1_000);
+    // The older-made project was updated last: its industry wins over the
+    // newer-made one's, so the pick is by last update, not by creation.
+    await setIndustry(s, old, "manufacturing", 5_000);
     await setIndustry(s, latest, "software", 2_000);
-    // Updated last, but with no industry; and one being deleted.
+    // Updated later than "software", but with no industry; and one being deleted.
     await setIndustry(s, shortYear, undefined, 3_000);
-    await setIndustry(s, going, "life-sciences", 4_000);
+    await setIndustry(s, going, "life-sciences", 6_000);
 
     const page = await s.writer.query(api.clients.getCompanyPage, { key: "3ga marine ltd" });
     expect(page).toMatchObject({
       kind: "company",
       fiscalYearEndMonth: 12,
       fiscalYearEndDay: 31,
-      industry: "software",
+      industry: "manufacturing",
       fiscalYearEndFromProjects: true,
       industryFromProjects: true,
     });
     // The same year end for the All companies column.
     expect(await s.writer.query(api.clients.listCompanyYearEnds, { keys: ["3ga marine ltd", "nobody"] })).toEqual([
       { key: "3ga marine ltd", fiscalYearEndMonth: 12, fiscalYearEndDay: 31 },
+    ]);
+  });
+
+  it("the latest date of the latest fiscal year wins, whatever order its projects were made in", async () => {
+    const s = await setup();
+    await insertClient(s, "Twelve Co");
+    await insertCompany(s, "Twelve Co", 12);
+    // Ten projects being deleted first: skipped, and not the end of the read.
+    for (let i = 0; i < 10; i++) {
+      await insertProject(s, { clientName: "Twelve Co", fiscalYearEnd: Date.UTC(2025, 11, 31), deleting: true });
+    }
+    // Ten FY 2025 projects ending June 30 made first, then two ending December 31.
+    for (let i = 0; i < 10; i++) await insertProject(s, { clientName: "Twelve Co", fiscalYearEnd: JUN_30_2025 });
+    for (let i = 0; i < 2; i++) await insertProject(s, { clientName: "Twelve Co", fiscalYearEnd: DEC_31_2025 });
+    await insertProject(s, { clientName: "Twelve Co", fiscalYearEnd: DEC_31_2024 });
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "twelve co" })).toMatchObject({
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+      fiscalYearEndFromProjects: true,
+    });
+    expect(await s.writer.query(api.clients.listCompanyYearEnds, { keys: ["twelve co"] })).toEqual([
+      { key: "twelve co", fiscalYearEndMonth: 12, fiscalYearEndDay: 31 },
     ]);
   });
 
@@ -2008,12 +2032,18 @@ describe("fiscal year end and industry fall back to the newest project's (2026-1
     });
   });
 
-  it("the column read asks about at most 50 companies and requires an internal user", async () => {
+  it("the column read asks about at most 25 companies and requires an internal user", async () => {
     const s = await setup();
-    const keys = Array.from({ length: 51 }, (_, index) => `company ${index}`);
+    const keys = Array.from({ length: 26 }, (_, index) => `company ${index}`);
     await expect(s.writer.query(api.clients.listCompanyYearEnds, { keys })).rejects.toMatchObject({
-      data: { code: "INVALID_INPUT" },
+      data: { code: "INVALID_INPUT", message: "Ask for at most 25 companies at a time." },
     });
-    await expect(s.t.query(api.clients.listCompanyYearEnds, { keys: ["acme"] })).rejects.toBeTruthy();
+    await expect(s.writer.query(api.clients.listCompanyYearEnds, { keys: keys.slice(0, 25) })).resolves.toEqual([]);
+    await expect(s.t.query(api.clients.listCompanyYearEnds, { keys: ["acme"] })).rejects.toMatchObject({
+      data: { code: "NOT_AUTHENTICATED" },
+    });
+    await expect(s.roleless.query(api.clients.listCompanyYearEnds, { keys: ["acme"] })).rejects.toMatchObject({
+      data: { code: "NOT_AUTHORIZED" },
+    });
   });
 });

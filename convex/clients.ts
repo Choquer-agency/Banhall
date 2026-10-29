@@ -1007,33 +1007,48 @@ export const updateCompany = mutation({
 // values when the company has none saved (the clients backfill made rows
 // without them; their projects carry `fiscalYearEnd` and `industry`).
 
-/** Rows of the latest fiscal years read to find the company's latest year end. */
-const FALLBACK_YEAR_END_READ = 10;
-/** Newest projects read to find the most recently updated one with an industry. */
+/**
+ * Rows read, latest fiscal year first, to find the company's latest year
+ * end: enough for every live project of its latest fiscal year in all but
+ * the largest companies, and for projects being deleted, which are skipped.
+ */
+const FALLBACK_YEAR_END_READ = 50;
+/** Newest projects (by when they were made) read for an industry. */
 const FALLBACK_INDUSTRY_READ = 25;
-/** Companies one year end read may ask about (one table page on All companies). */
-export const COMPANY_YEAR_END_KEY_LIMIT = 50;
+/**
+ * Companies one year end read may ask about: All companies reads its column
+ * in chunks of this many, so one read stays within 25 x 50 project rows.
+ */
+export const COMPANY_YEAR_END_KEY_LIMIT = 25;
 
 /**
  * The month and day of the latest fiscal year end among a company's live
- * projects, or null. The rank index puts the latest fiscal year first, so the
- * first FALLBACK_YEAR_END_READ rows hold it (a short year in the same year
- * included); projects being deleted are skipped.
+ * projects of its latest fiscal year, or null. The rank index puts the
+ * latest fiscal year first; within it rows come in the order they were made,
+ * so every row of that year is read (up to FALLBACK_YEAR_END_READ rows in
+ * all) and the latest date wins (a short year and a full year in the same
+ * fiscal year: the later one). Projects being deleted are skipped.
  */
 async function projectYearEnd(
   ctx: Ctx,
   key: string
 ): Promise<{ month: number; day: number } | null> {
   if (key === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
-  const rows = await ctx.db
+  let latest: number | null = null;
+  let latestRank: number | undefined;
+  let read = 0;
+  for await (const row of ctx.db
     .query("projects")
     .withIndex("by_dashboardCompanyKey_and_dashboardFiscalYearRank", (q) => q.eq("dashboardCompanyKey", key))
-    .order("asc")
-    .take(FALLBACK_YEAR_END_READ);
-  let latest: number | null = null;
-  for (const row of rows) {
-    if (row.deletionStartedAt !== undefined || row.fiscalYearEnd === undefined) continue;
-    if (latest === null || row.fiscalYearEnd > latest) latest = row.fiscalYearEnd;
+    .order("asc")) {
+    // Past the latest fiscal year that has a live project: no later date follows.
+    if (latest !== null && row.dashboardFiscalYearRank !== latestRank) break;
+    if (row.deletionStartedAt === undefined && row.fiscalYearEnd !== undefined) {
+      if (latest === null || row.fiscalYearEnd > latest) latest = row.fiscalYearEnd;
+      latestRank = row.dashboardFiscalYearRank;
+    }
+    read += 1;
+    if (read >= FALLBACK_YEAR_END_READ) break;
   }
   if (latest === null) return null;
   const date = new Date(latest);
@@ -1041,8 +1056,10 @@ async function projectYearEnd(
 }
 
 /**
- * The industry of the most recently updated live project that has one, among
- * the company's FALLBACK_INDUSTRY_READ newest projects, or null.
+ * The industry of the most recently updated live project that has one,
+ * among the company's FALLBACK_INDUSTRY_READ newest projects (by when they
+ * were made; no index orders a company's projects by their last update), or
+ * null. An older project updated lately, past those 25, is not read.
  */
 async function projectIndustry(ctx: Ctx, key: string): Promise<string | null> {
   if (key === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
