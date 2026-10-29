@@ -15,7 +15,7 @@
   <div class="flex flex-col">
   <p class="p-4">A short page.</p>
   <button type="button" data-grow onclick={() => (tall = true)}>Grow the content</button>
-  {#if tall}<div data-grown style="height:2000px"></div>{/if}
+  {#if tall}<div data-grown class="h-[125rem]"></div>{/if}
   <div data-mid-bar {@attach stickyActionBar} class="sticky bottom-0 h-14 border-t border-line-soft bg-surface">Bar</div>
   </div>
 </div>
