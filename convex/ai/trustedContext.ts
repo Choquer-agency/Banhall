@@ -12,7 +12,8 @@
 // directive, no Node built-ins — because `convex/generations.ts` (a query)
 // imports the budget shape while the generation actions import the builder.
 
-import { chooseEvidence, endAtWordBoundary, subjectOf } from "../../shared/evidenceChoice";
+import { chooseEvidence, endAtWordBoundary, scoreParts, subjectOf } from "../../shared/evidenceChoice";
+import { splitSearchPieces } from "../../shared/searchPieces";
 import { chooseSettingsSource } from "../lib/settingsDocument";
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
@@ -169,6 +170,17 @@ export const CONTEXT_SCAFFOLDS = {
   labelClose: "]",
   /** Separates the delimited transcript from the guidance block. */
   guidancePrefix: "\n\n",
+  /**
+   * Phase D, step 1 (2026-10-28): a document over its share sent in the
+   * parts that best match the interviews, when the documents do not all fit.
+   */
+  excerpts: {
+    separator: "\n[...]\n",
+    noticePrefix: "[EXCERPTS: only the parts of this document that best match the interviews were sent, ",
+    noticeUnmatchedPrefix: "[EXCERPTS: only parts of this document were sent, ",
+    noticeMiddle: " of ",
+    noticeSuffix: " characters; the text between them was left out.]",
+  },
   runtimeSentinels: [
     "{{runtime.interviewTranscript}}",
     "{{runtime.contextDocuments}}",
@@ -547,6 +559,26 @@ export function buildTrustedContext(input: TrustedContextInput): {
   }
 
   // ── Documents, in trust order then insertion order; company files last ──
+  // Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when the
+  // documents do not all fit (more than maxDocuments, or past the room
+  // left), files of the same scope and trust category are ranked by how
+  // well their best part matches the interviews, ahead of upload order,
+  // and a document over its share sends its best-matching parts. When they
+  // all fit, nothing changes.
+  const perDocChars = Math.max(0, budget.perDocumentTokens) * CHARS_PER_TOKEN;
+  const overflow =
+    documents.length > budget.maxDocuments ||
+    documents.reduce((sum, doc) => sum + Math.min(neutralizeMarkers(doc.content).length, perDocChars), 0) > remaining;
+  const subject = overflow ? subjectOf(parts.map((part) => part.content)) : null;
+  const bestScore = new Map<number, number>();
+  if (subject) {
+    const pieces: Array<{ doc: number; text: string }> = [];
+    documents.forEach((doc, index) => {
+      for (const piece of splitSearchPieces(doc.content)) pieces.push({ doc: index, text: doc.content.slice(piece.start, piece.end) });
+    });
+    const scores = scoreParts(pieces.map((piece) => piece.text), subject);
+    pieces.forEach((piece, index) => bestScore.set(piece.doc, Math.max(bestScore.get(piece.doc) ?? 0, scores[index] ?? 0)));
+  }
   const ordered = documents
     .map((doc, index) => ({ doc, index }))
     .sort((a, b) => {
@@ -555,10 +587,11 @@ export function buildTrustedContext(input: TrustedContextInput): {
       const trust =
         ANALYZER_CATEGORY_ORDER.indexOf(effectiveCategory(a.doc)) -
         ANALYZER_CATEGORY_ORDER.indexOf(effectiveCategory(b.doc));
-      return trust !== 0 ? trust : a.index - b.index;
+      if (trust !== 0) return trust;
+      const relevance = (bestScore.get(b.index) ?? 0) - (bestScore.get(a.index) ?? 0);
+      return relevance !== 0 ? relevance : a.index - b.index;
     });
   let companyNoted = false;
-  const perDocChars = Math.max(0, budget.perDocumentTokens) * CHARS_PER_TOKEN;
   const blocks: string[] = [];
   ordered.forEach(({ doc }, rank) => {
     const original = doc.content.length;
@@ -579,16 +612,43 @@ export function buildTrustedContext(input: TrustedContextInput): {
       return;
     }
     const safe = neutralizeMarkers(doc.content);
-    const kept = cutToBudget(safe, allowance);
+    let kept: string;
+    let content: string;
+    const [chosen] =
+      subject && safe.length > allowance
+        ? chooseEvidence({
+            rows: [{ text: doc.content }],
+            subject,
+            budget: allowance,
+            size: (text) => neutralizeMarkers(text).length,
+            excerptCost: CONTEXT_SCAFFOLDS.excerpts.separator.length,
+          })
+        : [null];
+    // When no part fits the room left (a part is about 2,400 characters),
+    // the document's start is sent, as before.
+    if (chosen && chosen.ranges.length > 0) {
+      // The parts of this document that best match the interviews, chosen
+      // on its raw text and charged as sent (marker-neutralized).
+      const sent = chosen!.ranges.map((range) => neutralizeMarkers(doc.content.slice(range.start, range.end)));
+      kept = sent.join("");
+      const prefix = chosen!.ranges.length === 1 && chosen!.ranges[0]!.start === 0;
+      const excerpts = CONTEXT_SCAFFOLDS.excerpts;
+      content = !kept.length
+        ? ""
+        : prefix
+          ? `${kept}\n${truncationNotice(safe.length - kept.length, safe.length)}`
+          : `${sent.join(excerpts.separator)}\n${chosen!.matched ? excerpts.noticePrefix : excerpts.noticeUnmatchedPrefix}${formatCount(kept.length)}${excerpts.noticeMiddle}${formatCount(safe.length)}${excerpts.noticeSuffix}`;
+    } else {
+      kept = cutToBudget(safe, allowance);
+      content = kept.length < safe.length ? `${kept}\n${truncationNotice(safe.length - kept.length, safe.length)}` : kept;
+    }
     if (!kept.length && safe.length > 0) {
       sources.push(base);
       return;
     }
     const truncated = kept.length < safe.length;
+    // Separators between excerpts are scaffolding, charged by the chooser.
     const charged = kept.length;
-    const content = truncated
-      ? `${kept}\n${truncationNotice(safe.length - charged, safe.length)}`
-      : kept;
     remaining -= charged;
     if (doc.company && !companyNoted) {
       blocks.push(COMPANY_FILES_NOTE);

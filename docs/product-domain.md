@@ -5087,6 +5087,30 @@ This changes what one AI request reads and how its citations are checked, not a 
   - the U+0000 refusal is recorded as applying to every source.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
+### 2026-10-28 (eighth): The analysis ranks files by how well they match the interviews, and reads a long file's best parts (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the fourth step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, step 1). Before, the analysis read at most 12 frozen files, picked by trust order and then upload order, each cut to its first 40,000 characters.
+
+This changes what one AI request reads, not a workflow stage, transition or permission. No AI tool writes report prose. The analysis cites interviews only, so no citation check changes.
+
+- **Rule.**
+  - When every document fits (at most 12, each within its 40,000-character share, all within the room the interviews leave), the request is exactly as before.
+  - When they do not:
+    - Trust order stays: the project's files before the company's, then by category, writer's notes first.
+    - Within one scope and category, files are ranked by how well their best part matches the interviews, ahead of upload order.
+    - A file over its share sends its parts that best match the interviews, with the notice "[EXCERPTS: only the parts of this document that best match the interviews were sent, N of M characters; the text between them was left out.]", or "only parts of this document were sent" when none matched.
+    - When the chosen parts are one run from the file's start, it reads "[TRUNCATED: ...]", as before. When no part fits the room left, the file's start is sent, as before.
+- **Where.** `buildTrustedContext` and `CONTEXT_SCAFFOLDS.excerpts` in `convex/ai/trustedContext.ts`. The analysis's words are part of the prompt program, which moves.
+- **Known limits.**
+  - The analysis still reads at most 12 files, from the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - Excerpt separators and notices are not counted against the total, as notices were not before.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:** `convex/analyzerByRelevance.test.ts`:
+  - unchanged when everything fits;
+  - over the budget, a late file that matches the interviews is among the 12 and its matching part is sent;
+  - a file's start is sent when no part fits.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:
