@@ -139,7 +139,7 @@
             <dd
               data-borrowed={fact.value && fact.borrowed ? "" : undefined}
               class={`text-[0.9375rem] leading-[calc(4/3)] ${fact.value && !fact.borrowed ? "text-ink" : "text-ink-muted"}`}
-            >{fact.value ?? "Not set"}</dd>
+            >{fact.value ?? "Not set"}{#if fact.value && fact.borrowed}<span class="sr-only">{" from the newest project"}</span>{/if}</dd>
           </div>
         {/each}
       </dl>

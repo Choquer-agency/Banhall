@@ -14,6 +14,10 @@
     fiscalYearEndFromProjects?: boolean;
     /** The industry shown is the newest project's: the company has none saved. */
     industryFromProjects?: boolean;
+    /** A project has a year end, which an emptied field shows. */
+    hasProjectFiscalYearEnd?: boolean;
+    /** A project has an industry, which an emptied field shows. */
+    hasProjectIndustry?: boolean;
   };
 </script>
 
@@ -31,7 +35,9 @@
   // A year end or industry the company has not saved shows its newest
   // project's, marked "From the newest project". Saving leaves such a value
   // out while it is unchanged, so the company keeps following its projects;
-  // only a value the person changed or chose is stored.
+  // only a value the person changed is stored (picking the borrowed value
+  // again is no change). A field left empty where a project has a value
+  // says the project's will show again.
   import { untrack } from "svelte";
   import { useMutation } from "convex-svelte";
   import FormDialog from "$lib/components/ui/FormDialog.svelte";
@@ -95,6 +101,11 @@
   const industryBorrowed = $derived(
     opened?.industryFromProjects === true && industry !== "" && industry === (opened.industry ?? "")
   );
+  // Emptied over a project's value: saving stores nothing, and the newest
+  // project's shows again, so the field says so.
+  const yearEndRefills = $derived(opened?.hasProjectFiscalYearEnd === true && !month && !day);
+  const industryRefills = $derived(opened?.hasProjectIndustry === true && industry === "");
+  const REFILL_NOTE = "Left empty, this shows the newest project's again.";
   const renames = $derived(opened !== null && name.trim() !== "" && name.trim() !== opened.name);
   const dirty = $derived.by(() => {
     if (!opened) return false;
@@ -206,7 +217,9 @@
           ? "Pick both a month and a day, or leave both empty."
           : yearEndBorrowed
             ? "From the newest project"
-            : "New projects for this company start with it. Projects you already have keep their own."}
+            : yearEndRefills
+              ? REFILL_NOTE
+              : "New projects for this company start with it. Projects you already have keep their own."}
       </p>
     </div>
 
@@ -220,8 +233,10 @@
         offer={opened?.industry ? [opened.industry] : []}
         class={formSelect}
       />
-      {#if industryBorrowed}
-        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-edit-company-industry-helper>From the newest project</p>
+      {#if industryBorrowed || industryRefills}
+        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-edit-company-industry-helper>
+          {industryBorrowed ? "From the newest project" : REFILL_NOTE}
+        </p>
       {/if}
     </div>
   </div>

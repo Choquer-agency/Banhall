@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import { toast } from "svelte-sonner";
 import CompaniesPage from "./CompaniesPage.svelte";
+import AllCompaniesTable from "./AllCompaniesTable.svelte";
 import {
   __mutationCalls,
   __resetConvexStub,
@@ -14,8 +15,9 @@ import {
   __setPaginatedRows,
   __setQueryData,
   __setQueryDataForArgs,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
-import { __resetAuthState } from "$lib/test/convex-auth-stub";
+import { __resetAuthState, __setAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage, __setPageUrl, page as appPage } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation, __setGotoUpdatesPageUrl } from "$lib/test/app-navigation-stub";
 import { viewAs } from "$lib/shell/viewAs.svelte";
@@ -73,6 +75,8 @@ function companyPage(key: string, extra: Record<string, unknown> = {}) {
     ...("industry" in client ? { industry: client.industry } : {}),
     fiscalYearEndFromProjects: false,
     industryFromProjects: false,
+    hasProjectFiscalYearEnd: false,
+    hasProjectIndustry: false,
     mergedNote: null,
     ...extra,
   };
@@ -169,7 +173,11 @@ describe("All companies", () => {
     ]);
     await mount(null);
     await expect.poll(() => text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-year-end]'))).toBe(
-      "December 31"
+      "December 31 from the newest project"
+    );
+    // Screen readers hear what the muted ink shows.
+    expect(text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-year-end] .sr-only'))).toBe(
+      "from the newest project"
     );
     expect(text(document.querySelector('[data-company-row="alder research"] [data-company-year-end]'))).toBe("March 31");
     expect(text(document.querySelector('[data-company-row="cedarline systems"] [data-company-year-end]'))).toBe("September 30");
@@ -193,10 +201,37 @@ describe("All companies", () => {
     __setQueryDataForArgs("clients:listCompanyYearEnds", { keys: ["ironleaf farms"] }, [
       { key: "ironleaf farms", fiscalYearEndMonth: 12, fiscalYearEndDay: 31 },
     ]);
-    await expect.poll(cellText).toBe("December 31");
+    await expect.poll(cellText).toBe("December 31 from the newest project");
     // The project that gave it is gone: the read no longer has the key.
     __setQueryDataForArgs("clients:listCompanyYearEnds", { keys: ["ironleaf farms"] }, []);
     await expect.poll(cellText).toBe("Not set");
+  });
+
+  it("a year end read that fails shows Not set, not a blank cell", async () => {
+    seed("consultant");
+    __setQueryError("clients:listCompanyYearEnds", new Error("down"));
+    await mount(null);
+    await expect.poll(() => text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-year-end]'))).toBe(
+      "Not set"
+    );
+  });
+
+  it("a year end read that will not run (no session) shows Not set; one still loading stays blank", async () => {
+    __setQueryData("users:getCurrentUser", USERS.consultant);
+    await page.viewport(1440, 900);
+    const one = [{ key: "ironleaf farms", clientId: null, name: "Ironleaf Farms", projectCount: 0, updatedAt: OCT_14 }];
+    // Still loading: blank.
+    const loading = await render(AllCompaniesTable, { companies: one, root: "/" });
+    await expect.poll(() => document.querySelector('[data-company-row="ironleaf farms"]')).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-year-end]'))).toBe("");
+    loading.unmount();
+    // Signed out: the read is skipped, so there is nothing to wait for.
+    __setAuthState({ isLoading: false, isAuthenticated: false });
+    await render(AllCompaniesTable, { companies: one, root: "/" });
+    await expect.poll(() => text(document.querySelector('[data-company-row="ironleaf farms"] [data-company-year-end]'))).toBe(
+      "Not set"
+    );
   });
 
   it("a company list update keeps each chunk's read as it is", async () => {
@@ -676,17 +711,78 @@ describe("Edit company (Managers and Admins)", () => {
       industry: "manufacturing",
       fiscalYearEndFromProjects: true,
       industryFromProjects: true,
+      hasProjectFiscalYearEnd: true,
+      hasProjectIndustry: true,
     }));
     __setPaginatedRows("dashboard:listCompanyProjects", []);
   }
+
+  async function openEdit() {
+    await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
+    await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
+  }
+
+  const REFILL = "Left empty, this shows the newest project's again.";
+
+  it("emptying a borrowed year end or industry says the newest project's shows again, and saves nothing for them", async () => {
+    seed("manager");
+    borrowedIronleaf();
+    __setMutationResult("clients:updateCompany", { clientId: "c-made", key: "ironleaf farms", name: "Ironleaf Farms", moved: 0 });
+    await mount("ironleaf farms");
+    await openEdit();
+    await userEvent.click(page.getByRole("combobox", { name: "Fiscal year end month" }));
+    await userEvent.click(page.getByRole("option", { name: "Not set", exact: true }));
+    await userEvent.click(page.getByRole("combobox", { name: "Fiscal year end day" }));
+    await userEvent.click(page.getByRole("option", { name: "Not set", exact: true }));
+    await expect.poll(() => text(document.querySelector("[data-edit-company-year-end-helper]"))).toBe(REFILL);
+    await userEvent.click(page.getByRole("combobox", { name: "Industry" }));
+    await userEvent.click(page.getByRole("option", { name: "Not set (all industries)" }));
+    await expect.poll(() => text(document.querySelector("[data-edit-company-industry-helper]"))).toBe(REFILL);
+    expect(text(document.querySelector('[data-testid="edit-company-dialog"]'))).not.toMatch(/[\u2010-\u2015\u2212]/);
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-edit-company-save]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company-save]")!);
+    await expect.poll(() => __mutationCalls("clients:updateCompany").at(-1)).toEqual({
+      key: "ironleaf farms",
+      expectedName: "Ironleaf Farms",
+      expectedClientId: null,
+      expectedUpdatedAt: null,
+      name: "Ironleaf Farms",
+    });
+  });
+
+  it("emptying a saved value with a project's behind it says the project's will show", async () => {
+    seed("manager");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      hasProjectFiscalYearEnd: true,
+      hasProjectIndustry: false,
+    }));
+    await mount("cedarline systems");
+    await openEdit();
+    // Saved and unchanged: the usual line, no borrowed hint.
+    expect(text(document.querySelector("[data-edit-company-year-end-helper]"))).toBe(
+      "New projects for this company start with it. Projects you already have keep their own."
+    );
+    await userEvent.click(page.getByRole("combobox", { name: "Fiscal year end month" }));
+    await userEvent.click(page.getByRole("option", { name: "Not set", exact: true }));
+    await userEvent.click(page.getByRole("combobox", { name: "Fiscal year end day" }));
+    await userEvent.click(page.getByRole("option", { name: "Not set", exact: true }));
+    await expect.poll(() => text(document.querySelector("[data-edit-company-year-end-helper]"))).toBe(REFILL);
+    // No project has an industry: emptying it says nothing more.
+    await userEvent.click(page.getByRole("combobox", { name: "Industry" }));
+    await userEvent.click(page.getByRole("option", { name: "Not set (all industries)" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-edit-company-industry-helper]")).toBeNull();
+  });
 
   it("shows the newest project's year end and industry, muted, when the company has none saved", async () => {
     seed("manager");
     borrowedIronleaf();
     await mount("ironleaf farms");
     const fact = (id: string) => document.querySelector<HTMLElement>(`[data-company-fact="${id}"] dd`)!;
-    await expect.poll(() => text(fact("year-end"))).toBe("December 31");
-    expect(text(fact("industry"))).toBe("Manufacturing");
+    await expect.poll(() => text(fact("year-end"))).toBe("December 31 from the newest project");
+    expect(text(fact("industry"))).toBe("Manufacturing from the newest project");
+    expect(text(fact("year-end").querySelector(".sr-only"))).toBe("from the newest project");
     for (const id of ["year-end", "industry"]) {
       expect(fact(id).hasAttribute("data-borrowed")).toBe(true);
       expect(fact(id).className).toContain("text-ink-muted");

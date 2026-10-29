@@ -106,9 +106,16 @@
       }
     }
   }
+  /** A chunk's read failed or will not run: its companies not yet known show "Not set". */
+  function giveUpYearEnds(keys: readonly string[]) {
+    for (const key of keys) {
+      if (projectYearEnds.get(key) === undefined) projectYearEnds.set(key, null);
+    }
+  }
   /**
    * The saved year end; else the newest project's, in muted ink; "Not set"
-   * when neither has one; nothing while its chunk is being read.
+   * when neither has one, or when its read failed; nothing while its chunk
+   * is being read.
    */
   function yearEndOf(company: CompanyRow): { text: string; tone: "saved" | "borrowed" | "muted" } {
     const saved = yearEndLabel(company.fiscalYearEndMonth, company.fiscalYearEndDay);
@@ -125,7 +132,11 @@
 </script>
 
 {#each chunksOnScreen as chunk (chunk.id)}
-  <CompanyYearEndsLoader keys={chunk.keys} onLoaded={(entries) => keepYearEnds(chunk.keys, entries)} />
+  <CompanyYearEndsLoader
+    keys={chunk.keys}
+    onLoaded={(entries) => keepYearEnds(chunk.keys, entries)}
+    onUnavailable={() => giveUpYearEnds(chunk.keys)}
+  />
 {/each}
 
 {#if companies.length === 0}
@@ -163,7 +174,7 @@
             data-company-year-end
             data-borrowed={yearEnd.tone === "borrowed" ? "" : undefined}
             class={`${cell} w-36 shrink-0 truncate ${yearEnd.tone === "saved" ? "text-ink-secondary" : "text-ink-muted"}`}
-          >{yearEnd.text}</span>
+          >{yearEnd.text}{#if yearEnd.tone === "borrowed"}<span class="sr-only">{" from the newest project"}</span>{/if}</span>
           <span role="cell" data-company-updated class={`${cell} w-40 shrink-0 truncate text-ink-muted`}>{company.updatedAt !== undefined ? longDate(company.updatedAt) : ""}</span>
         </div>
       {/each}
