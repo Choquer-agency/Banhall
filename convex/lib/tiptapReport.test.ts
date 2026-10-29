@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { buildTiptapDocument, textToParagraphs, extractReportSections } from "./tiptapReport";
+import { findReportNotes } from "./lineLimits";
 import {
   fillNotDraftedSections,
   NOT_GENERATED_PLACEHOLDER,
@@ -25,6 +26,23 @@ describe("textToParagraphs", () => {
       text: "[GAP: need dates]",
       marks: [{ type: "highlight", attrs: { color: "#FEF3C7" } }],
     });
+  });
+
+  // Inference marker review round 4: a note opened inside a gap ends the gap
+  // here too, whatever its case, as it does for findReportNotes, so the
+  // stored highlight never wraps an inference chip.
+  test("never highlights a gap whole around a lowercase note opened inside it", () => {
+    for (const inner of ["[inferred: b]", "[gap: b]"]) {
+      const text = `x [GAP: a ${inner} c] y`;
+      const highlighted = (textToParagraphs(text)[0].content as Array<Record<string, unknown>>)
+        .filter((part) => Array.isArray(part.marks))
+        .map((part) => part.text);
+      expect(highlighted).not.toContain(`[GAP: a ${inner} c]`);
+      expect(findReportNotes(text).map((note) => note.text)).toEqual([inner]);
+    }
+    // A citation in a gap still keeps the gap whole.
+    const [cited] = textToParagraphs("x [GAP: see log [3] and the date] y");
+    expect((cited.content as Array<Record<string, unknown>>)[1].text).toBe("[GAP: see log [3] and the date]");
   });
 });
 
