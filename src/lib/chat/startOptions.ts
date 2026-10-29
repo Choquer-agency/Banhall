@@ -4,8 +4,8 @@
  * first and at most three (the panel adds "Something else"):
  * 1. each Line over its CRA limit: "Shorten Line N";
  * 2. the last QA run's costliest issue per Line: "Fix the QA issue in Line N";
- * 3. each Line under half its word limit: "Add detail to Line N" (an empty
- *    one: "Draft Line N"), from the source files.
+ * 3. each Line under half its word limit and half its form lines: "Add
+ *    detail to Line N" (an empty one: "Draft Line N"), from the source files.
  * When none applies, one check of the report against its sources. Picking
  * one sends it as the writer's message.
  */
@@ -28,8 +28,9 @@ export function startOptions(content: string | null | undefined, qaIssues: reado
   const fix = qaIssues.map((issue) => `Fix the QA issue in Line ${issue.line}: ${issue.text}`);
   const thin = LINES.flatMap((line) => {
     const metric = metrics[`s${line}`];
-    if (metric.lines > metric.limit) return [];
     if (metric.words === 0) return [`Draft Line ${line} from the source files`];
+    // Many short lines can fill the form before the words do.
+    if (metric.lines >= metric.limit / 2) return [];
     if (metric.words < metric.wordCap / 2) return [`Add detail to Line ${line} from the source files`];
     return [];
   });

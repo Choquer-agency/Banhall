@@ -452,13 +452,24 @@ describe("options above the message box", () => {
     expect(page.getByRole("option", { name: /Check the report for claims/ }).elements()).toHaveLength(0);
   });
 
-  it("goes to the message box with the letter typed on Get started, and keeps the AI's question for its own answer", async () => {
+  it("goes to the message box with what is typed on Get started, digits included, and never sends", async () => {
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await userEvent.keyboard("2 things to fix");
+    await expect.element(composer()).toHaveValue("2 things to fix");
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+  });
+
+  it("keeps the message box once it has held words, even when emptied", async () => {
     await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
     await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
     await userEvent.keyboard("Tighten");
     await expect.element(composer()).toHaveValue("Tighten");
+    await composer().fill("");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await expect.element(composer()).toBeVisible();
     expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
-    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
   });
 
   it("shows the AI's question with its options, and sends the writer's own answer", async () => {
@@ -481,6 +492,12 @@ describe("options above the message box", () => {
     await expect.element(page.getByText("What should I cut first?", { exact: true })).toBeVisible();
     await expect.element(page.getByRole("option", { name: /The repeated door detail/ })).toBeVisible();
     await page.screenshot({ path: `${CAPTURES}/assistant-needs-you.png` });
+    // Letters on the AI's question are not a message: it stays up.
+    (document.querySelector("[data-composer-options] [role=listbox]") as HTMLElement).focus();
+    await userEvent.keyboard("x");
+    await expect.element(page.getByText("Assistant needs you", { exact: true })).toBeVisible();
+    expect(composer().elements()).toHaveLength(0);
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
 
     await page.getByRole("option", { name: /Something else/ }).click();
     const own = page.getByRole("textbox", { name: "Your own answer" });

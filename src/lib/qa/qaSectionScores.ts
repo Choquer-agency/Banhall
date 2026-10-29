@@ -110,15 +110,20 @@ export interface QaTopIssue {
 const QA_LINES = new Set(["242", "244", "246"]);
 const ISSUE_TEXT_MAX = 160;
 
-/** The first sentence, without an older scorecard's "Deduct N points" lead, cut on a word. */
+/**
+ * The first sentence, without an older scorecard's leading "Deduct N points",
+ * starting with a capital and cut on a word. A sentence ends at ".", "!" or
+ * "?" before a capital letter, so "e.g. a" does not end one.
+ */
 function issueSummary(text: string): string {
   const plain = text
-    .replace(/\bDeduct\s+\d+(?:\.\d+)?\s+points?\b[:.]?\s*/gi, "")
+    .replace(/^\s*Deduct\s+\d+(?:\.\d+)?\s+points?\b[:.,]?\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
-  const sentence = plain.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? plain;
-  if (sentence.length <= ISSUE_TEXT_MAX) return sentence;
-  const cut = sentence.slice(0, ISSUE_TEXT_MAX + 1);
+  const sentence = plain.match(/^.*?[.!?](?=\s+[A-Z]|$)/)?.[0] ?? plain;
+  const capital = sentence.charAt(0).toUpperCase() + sentence.slice(1);
+  if (capital.length <= ISSUE_TEXT_MAX) return capital;
+  const cut = capital.slice(0, ISSUE_TEXT_MAX + 1);
   const space = cut.lastIndexOf(" ");
   return `${(space > 0 ? cut.slice(0, space) : cut.slice(0, ISSUE_TEXT_MAX)).replace(/[\s,;:]+$/, "")}…`;
 }
@@ -126,10 +131,14 @@ function issueSummary(text: string): string {
 /**
  * Owner 2026-10-29: a new conversation's options name the last QA run's
  * issues. One per Line, its costliest deduction (warnings and zero-point
- * issues cost nothing and are left out), costliest Line first. The writer's
- * own severity overrides are not read here; the QA panel applies them.
+ * issues cost nothing and are left out), costliest Line first. An issue the
+ * writer marked a warning in the QA panel (`overrides`, keyed as the panel
+ * keys them: "issue:<section>:<index>") is left out too.
  */
-export function qaTopIssues(agentOutputsQa: unknown): QaTopIssue[] {
+export function qaTopIssues(
+  agentOutputsQa: unknown,
+  overrides: ReadonlyMap<string, "deduction" | "warning" | null> = new Map()
+): QaTopIssue[] {
   const raw = unwrap(agentOutputsQa);
   if (raw == null) return [];
   const parsed = qaScorecardSchema.safeParse(raw);
@@ -139,7 +148,8 @@ export function qaTopIssues(agentOutputsQa: unknown): QaTopIssue[] {
     const line = lineNumber(key);
     if (!QA_LINES.has(line)) continue;
     let best: { text: string; points: number } | null = null;
-    for (const issue of section.issues) {
+    for (const [index, issue] of section.issues.entries()) {
+      if (overrides.get(`issue:${key}:${index}`) === "warning") continue;
       const points = issueDeduction(issue);
       if (points > 0 && (!best || points > best.points)) best = { text: issue.text, points };
     }
@@ -149,4 +159,21 @@ export function qaTopIssues(agentOutputsQa: unknown): QaTopIssue[] {
   return top
     .sort((a, b) => b.points - a.points || a.line.localeCompare(b.line))
     .map(({ line, text }) => ({ line, text }));
+}
+
+/**
+ * The QA issues a new conversation may offer: only from a finished QA run on
+ * the report as it reads now. Any save after the run (`reportUpdatedAt` past
+ * `completedAt`) may have fixed them, so none is offered until QA runs again.
+ */
+export function chatQaIssues(input: {
+  agentOutputs: unknown;
+  qaDone: boolean;
+  completedAt: number | null | undefined;
+  reportUpdatedAt: number | null | undefined;
+  overrides?: ReadonlyMap<string, "deduction" | "warning" | null>;
+}): QaTopIssue[] {
+  if (!input.qaDone || input.completedAt == null || input.reportUpdatedAt == null) return [];
+  if (input.reportUpdatedAt > input.completedAt) return [];
+  return qaTopIssues(input.agentOutputs, input.overrides);
 }

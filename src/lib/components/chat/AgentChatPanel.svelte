@@ -1397,6 +1397,9 @@
   const isEmpty = $derived(!messages || messages.length === 0);
   // Phase C (W2): older pages may still hold this path's messages.
   const isConversationEmpty = $derived(isEmpty && visibleLocalSends.length === 0 && !hasResearch && !pendingResearch && !canLoadOlder);
+  // "Get started" goes by the conversation's own messages: research sessions
+  // belong to the whole report and show in every conversation's feed.
+  const conversationUnstarted = $derived(isEmpty && visibleLocalSends.length === 0 && !pendingResearch && !canLoadOlder);
 
   // Typing dots while the reply hasn't started streaming text yet.
   const lastMessage = $derived(
@@ -1455,7 +1458,7 @@
       if (skippedPanelKeys.has(key)) return null;
       return { kind: "question" as const, key, label: "Assistant needs you", question: writerQuestion.question, options: writerQuestion.options };
     }
-    if (isConversationEmpty && newChatOptions.length && !input.trim() && !pendingHighlight && visibleLocalSends.length === 0) {
+    if (conversationUnstarted && newChatOptions.length && !input.trim() && !pendingHighlight) {
       const key = `start:${selectedThreadId ?? draftConversationId}`;
       if (skippedPanelKeys.has(key)) return null;
       return { kind: "start" as const, key, label: "Get started", question: "What should we work on?", options: newChatOptions };
@@ -1510,7 +1513,14 @@
     if (key) skippedPanelKeys.add(key);
     void tick().then(() => textareaEl?.focus());
   }
-  /** Typing on "Get started" goes to the message box, letter included. */
+  // Review P2-2: once a conversation's message box has held words or a
+  // selection, emptying it never brings "Get started" back over it.
+  $effect(() => {
+    if (!input.trim() && !pendingHighlight) return;
+    const key = `start:${selectedThreadId ?? draftConversationId}`;
+    untrack(() => skippedPanelKeys.add(key));
+  });
+  /** Typing on "Get started" goes to the message box, what was typed included. */
   function typeIntoComposer(key: string | undefined, text: string) {
     if (key) skippedPanelKeys.add(key);
     input = `${input}${text}`;

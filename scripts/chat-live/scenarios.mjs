@@ -18,7 +18,8 @@ async function openPanel(page, ctx) {
   if (!(await assistantOpen(page))) {
     await page.locator("button[aria-label^='Assistant']").first().click();
   }
-  await page.locator("textarea").first().waitFor({ timeout: 30_000 });
+  // A new conversation opens on its "Get started" options (owner 2026-10-29).
+  await page.locator("textarea, [data-composer-options]").first().waitFor({ timeout: 30_000 });
 }
 
 // Owner 2026-10-28 (row 16 B): the pencil starts a new conversation.
@@ -86,15 +87,20 @@ const SCENARIOS = [
     async run(page, ctx) {
       await openPanel(page, ctx);
       await newConversation(page);
-      // Owner 2026-10-28 (O4): "Get started" only when a Line is over its limit.
+      // Owner 2026-10-29: "Get started" in every new conversation, its
+      // options built from the report (at most three, then Something else);
+      // a Line over its limit comes first.
       const overLines = await page.locator("[data-report-limit-pill]").count();
+      await page.locator("[data-composer-options]").first().waitFor({ timeout: 15_000 });
       const panel = await page.getByText("Get started", { exact: true }).count();
-      expect((overLines > 0) === (panel > 0), `Get started shown ${panel ? "with" : "without"} a Line over its limit`);
-      if (panel) {
-        const options = await page.locator("[data-composer-option]").allInnerTexts();
-        expect(options.slice(0, -1).every((o) => /Shorten Line 24[246] to \d+/.test(o)), `unexpected options: ${options.join(" / ")}`);
-        expect(!(await busy(page)), "showing the options sent a message");
-      }
+      expect(panel > 0, "a new conversation did not open on Get started");
+      const options = (await page.locator("[data-composer-option]").allInnerTexts()).map((o) => o.replace(/^\d+\s*/, "").trim());
+      const known = /^(Shorten Line 24[246] to \d+ (words|form lines)|Fix the QA issue in Line 24[246]: .+|Add detail to Line 24[246] from the source files|Draft Line 24[246] from the source files|Check the report for claims the source files don't support)$/;
+      const picks = options.slice(0, -1);
+      expect(picks.length >= 1 && picks.length <= 3, `expected one to three options, got ${picks.length}`);
+      expect(picks.every((o) => known.test(o)), `unexpected options: ${options.join(" / ")}`);
+      if (overLines > 0) expect(/^Shorten Line/.test(picks[0]), `a Line is over its limit but the first option is: ${picks[0]}`);
+      expect(!(await busy(page)), "showing the options sent a message");
       await skipOptions(page);
       await page.getByRole("button", { name: "Message options" }).click();
       const items = await page.locator("[role=menuitemcheckbox], [role=menuitem]").evaluateAll((els) =>
@@ -106,7 +112,7 @@ const SCENARIOS = [
       // Owner, 2026-10-21: no "Web search on" label in the chat.
       expect((await page.getByText("Web search on", { exact: true }).count()) === 0, "the chat shows a web search label");
       expect(items.some((i) => i.endsWith("|Read a file in full")), "no Read a file in full");
-      return `Get started ${panel ? "shown" : "not shown"} with ${overLines} Line(s) over; Brain off, web on with no label, Read a file in full`;
+      return `Get started shown (${picks.join(" / ")}) with ${overLines} Line(s) over; Brain off, web on with no label, Read a file in full`;
     },
   },
   {

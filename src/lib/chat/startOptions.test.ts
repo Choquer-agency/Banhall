@@ -23,6 +23,15 @@ describe("startOptions", () => {
     expect(startOptions(report(words(200), "", words(175)))).toEqual(["Draft Line 244 from the source files"]);
   });
 
+  it("offers no Add detail to a Line that already uses half its form lines", () => {
+    // 15 one-word paragraphs: 15 words, but 29 of Line 246's 50 form lines.
+    const lines = Array.from({ length: 15 }, (_, index) => `word${index}`).join("\n\n");
+    const doc = JSON.parse(report(words(200), words(400), "x"));
+    const s246 = doc.content.findIndex((node: { type: string; content?: Array<{ text?: string }> }) => node.content?.[0]?.text === "x");
+    doc.content.splice(s246, 1, ...lines.split("\n\n").map((text) => ({ type: "paragraph", content: [{ type: "text", text }] })));
+    expect(startOptions(JSON.stringify(doc))).toEqual([CHECK_SOURCES_OPTION]);
+  });
+
   it("puts Shorten first, then the QA issues, then thin Lines, and keeps three", () => {
     const qa = [
       { line: "244" as const, text: "No baseline is stated for the first experiment." },

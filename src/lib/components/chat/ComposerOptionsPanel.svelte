@@ -10,8 +10,9 @@
    * turns into a text field for the writer's own answer. Picking an option
    * sends it at once. Up and down move, a number picks, Enter selects, Esc
    * skips back to the message box. With `onType` (owner 2026-10-29, "Get
-   * started" in every new conversation), typing a letter goes back to the
-   * message box with that letter in it.
+   * started" in every new conversation), typing goes back to the message box
+   * with what was typed, digits included, so a message that starts with a
+   * number never picks an option; number picks stay on the AI's question.
    */
   interface Props {
     label: string;
@@ -74,13 +75,22 @@
     } else if (event.key === "Escape") {
       event.preventDefault();
       onSkip();
+    } else if (onType && typed(event)) {
+      // A printable key lands in the message box. Space, a dead key or an
+      // input method's first key only moves there, so the next keys type.
+      const printable = event.key.length === 1 && event.key !== " " && !event.isComposing;
+      if (printable) event.preventDefault();
+      onType(printable ? event.key : "");
     } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= rows.length) {
       event.preventDefault();
       void choose(Number(event.key) - 1);
-    } else if (onType && event.key.length === 1 && event.key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      onType(event.key);
     }
+  }
+
+  /** A key that writes text: not a shortcut (AltGr and Option still type). */
+  function typed(event: KeyboardEvent): boolean {
+    if (event.metaKey || (event.ctrlKey && !event.getModifierState?.("AltGraph"))) return false;
+    return event.key.length === 1 || event.key === "Dead" || event.key === "Process" || event.isComposing;
   }
 
   function onInputKeydown(event: KeyboardEvent) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { qaFinishedAgo, qaSectionScores, qaTopIssues } from "./qaSectionScores";
+import { chatQaIssues, qaFinishedAgo, qaSectionScores, qaTopIssues } from "./qaSectionScores";
 
 const scorecard = {
   overall_score: 78,
@@ -109,10 +109,36 @@ describe("qaTopIssues", () => {
     const long = `Deduct 4 points: ${"the work performed lists tasks without saying what each one tested ".repeat(4)}`;
     const [issue] = qaTopIssues(card({ "244": [long] }));
     expect(issue.line).toBe("244");
-    expect(issue.text.startsWith("the work performed")).toBe(true);
+    expect(issue.text.startsWith("The work performed")).toBe(true);
     expect(issue.text.length).toBeLessThanOrEqual(161);
     expect(issue.text.endsWith("…")).toBe(true);
     expect(issue.text).not.toMatch(/ …$/);
+  });
+
+  it("strips Deduct only as a lead, keeps e.g. inside a sentence, and starts with a capital", () => {
+    expect(qaTopIssues(card({ "242": [{ text: "Missing baseline, so deduct 5 points. Add it.", severity: "deduction", deduction: 5 }] })))
+      .toEqual([{ line: "242", text: "Missing baseline, so deduct 5 points." }]);
+    expect(qaTopIssues(card({ "244": [{ text: "the tests, e.g. the pH runs, lack a control. More text.", severity: "deduction", deduction: 3 }] })))
+      .toEqual([{ line: "244", text: "The tests, e.g. the pH runs, lack a control." }]);
+  });
+
+  it("leaves out an issue the writer marked a warning, and offers the next costliest", () => {
+    const outputs = card({
+      "242": [
+        { text: "Costliest.", severity: "deduction", deduction: 6 },
+        { text: "Next.", severity: "deduction", deduction: 3 },
+      ],
+    });
+    expect(qaTopIssues(outputs, new Map([["issue:242:0", "warning"]]))).toEqual([{ line: "242", text: "Next." }]);
+  });
+
+  it("offers QA issues only from a finished run on the report as saved then", () => {
+    const outputs = card({ "246": [{ text: "Advancement is vague.", severity: "deduction", deduction: 4 }] });
+    const base = { agentOutputs: outputs, qaDone: true, completedAt: 2_000, reportUpdatedAt: 1_500 };
+    expect(chatQaIssues(base)).toEqual([{ line: "246", text: "Advancement is vague." }]);
+    expect(chatQaIssues({ ...base, reportUpdatedAt: 2_001 })).toEqual([]);
+    expect(chatQaIssues({ ...base, qaDone: false })).toEqual([]);
+    expect(chatQaIssues({ ...base, completedAt: null })).toEqual([]);
   });
 
   it("returns nothing without a readable scorecard or outside Lines 242 to 246", () => {

@@ -77,7 +77,7 @@
   import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
   import QaToggle from "$lib/components/qa/QaToggle.svelte";
   import QaFinishedNotice from "$lib/components/qa/QaFinishedNotice.svelte";
-  import { qaSectionScores, qaTopIssues } from "$lib/qa/qaSectionScores";
+  import { chatQaIssues, qaSectionScores } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
   import { readingColumn, reportColumn } from "$lib/components/ui/readingColumn";
@@ -1875,10 +1875,25 @@
     if (status === "failed") return "idle";
     return qaScore !== null ? "done" : "idle";
   });
-  // Owner 2026-10-29: a new conversation's options name the finished QA
-  // run's issues; a running or failed pass offers none.
-  const chatQaIssues = $derived(qaState === "done" ? qaTopIssues(generation?.agentOutputs ?? null) : []);
   const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
+  // Owner 2026-10-29: a new conversation's options name the finished QA
+  // run's issues, only while the report still reads as QA saw it, and never
+  // one the writer marked a warning in the QA panel.
+  const qaFresh = $derived(
+    qaState === "done" && qaCompletedAt !== null && !!report && report.updatedAt <= qaCompletedAt
+  );
+  const qaOverridesQ = useQuery(api.reviews.getMyQaItemFeedback, () =>
+    qaFresh && report ? { target: { reportId: report._id } } : "skip"
+  );
+  const chatQaIssueList = $derived(
+    chatQaIssues({
+      agentOutputs: generation?.agentOutputs ?? null,
+      qaDone: qaFresh,
+      completedAt: qaCompletedAt,
+      reportUpdatedAt: report?.updatedAt,
+      overrides: new Map((qaOverridesQ.data ?? []).map((row) => [row.itemKey, row.overrideSeverity])),
+    })
+  );
   let qaSeenTick = $state(0);
   const qaSeen = $derived.by((): QaSeenState | null => {
     void qaSeenTick;
@@ -2873,7 +2888,7 @@
                         {review}
                         onOpenVersionHistory={() => (showHistory = true)}
                         reportContent={report.content}
-                        qaIssues={chatQaIssues}
+                        qaIssues={chatQaIssueList}
                         pendingPrompt={assistantPrompt}
                         onPromptTaken={(id) => {
                           if (assistantPrompt?.id === id) assistantPrompt = null;
