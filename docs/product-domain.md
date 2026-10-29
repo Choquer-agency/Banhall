@@ -5020,6 +5020,49 @@ This changes what one AI request reads and how its quotes are found, not a workf
   `shared/evidenceChoice.test.ts` also: the paragraph-end edge, and `maskOutside`.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
+### 2026-10-28 (seventh): Seeds read the parts of every frozen file that best match the Brief (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the third step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, "Step 1, Seeds in detail", design reviewed). Before, a Seed request read the frozen sources in frozen order until its byte allowance ran out (about 530 KB), so on a large draft every step read the interviews and the first files only. Its citations were checked against every frozen row whole.
+
+This changes what one AI request reads and how its citations are checked, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - When the sources fit the allowance, the request is exactly as before, byte for byte.
+  - When they do not, the request is built in four parts:
+    - The interviews (or their fact packs or digests), the writer's Storyline, the settings document and writer's notes an internal user uploaded go in whole. Their start is cut only where the allowance runs out, as before.
+    - Every other source sends the parts that best match the Brief (its Storyline, each entry's text and quote).
+    - A source sent in parts shows them joined by "[...]" lines and the notice "[EXCERPTS: only the parts of this frozen source that best match the Brief were sent, N of M UTF-8 bytes; the text between them was left out.]", or "only parts of this frozen source were sent" when no part matched.
+    - A source with nothing sent is named in the omitted block, as before.
+  - The choice depends only on the frozen sources and the Brief version, the same for every role, every Batch and every path (first Batch, retry, Regenerate, Feedback, prefetch). So every step sends the same cached block.
+  - Parts are chosen on the raw text and charged by the bytes of the text as sent. Every source's frame and longest notice are counted first, so the prompt always fits.
+- **Citations.**
+  - A source sent in part is citable only in what was sent and in the spans its Brief entries cite (the Seed prompt allows quoting a Brief entry's excerpt). The rest of its text is blanked, positions kept, for the citation check in the Batch action and again in `completeAttempt`, and for the quote count of a prefetch's repair.
+  - The speaker check keeps each row's real text and looks for another place of the same words only in what was sent.
+  - Sources sent whole, and sources no choice weighed, are checked as before.
+  - An action started before this change sends no ranges, and nothing is blanked.
+- **Where.**
+  - `seedSourcesByRelevance` and `seedSentRanges` in `convex/ai/trustedContext.ts` (asked for by `chooseParts`, set only by the Batch action in `convex/ai/seeds.ts`; dispatch's size check and the model evaluation leave it off).
+  - The new optional `sentRanges` on `completeAttempt` and `quoteRepairContext` (`convex/seedRuns.ts`).
+  - The speaker check's `sent` argument (`convex/lib/citationSpeakers.ts`).
+  - `uploaderRole` on the Seed sources (`convex/lib/seedSnapshotLoader.ts`).
+  - The Seed prompt's words (`convex/ai/promptDefinitions.ts`, version `seeds.2026-10-28.1`).
+- **Known limits.**
+  - Seeds still read only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - A Seed's offsets are relative to what the model read; the existing relocation search finds the excerpt's real place, nearest to the offset given.
+  - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:**
+  - `convex/seedByRelevance.test.ts`:
+    - a small draft is sent exactly as before;
+    - over the allowance, a late file's matching part is sent at its raw place, a dash run ahead of it included;
+    - two roles send the same shared block;
+    - randomized pools always fit;
+    - a Brief entry's span stays citable;
+    - the speaker check moves a quote only to a place that was sent;
+    - the citation check keeps a sent quote at its real place and drops an unsent one.
+  - Updated: the Seed version pins in `convex/ai/promptScaffolds.test.ts` and the program hash in `convex/modelCatalog.test.ts`.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

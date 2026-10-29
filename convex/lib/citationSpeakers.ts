@@ -259,7 +259,9 @@ export function otherOccurrences(
 export async function evidenceSpan(
   speakerOf: SpeakerReader,
   source: SpeakerCheckSource,
-  citation: { startOffset: number; endOffset: number; exactExcerpt: string }
+  citation: { startOffset: number; endOffset: number; exactExcerpt: string },
+  /** Phase D, step 1: the parts of the row that were sent; another place is looked for only there. */
+  sent?: ReadonlyArray<{ start: number; end: number }>
 ): Promise<{
   startOffset: number;
   endOffset: number;
@@ -272,13 +274,14 @@ export async function evidenceSpan(
   if (!mayMoveQuote(citation.exactExcerpt)) return null;
   const length = citation.exactExcerpt.length;
   const movedFrom = { startOffset: citation.startOffset, endOffset: citation.endOffset };
+  const sentHolds = (at: number) => !sent || sent.some((range) => range.start <= at && at + length <= range.end);
   for (const at of otherOccurrences(
     source.content,
     citation.exactExcerpt,
     citation.startOffset,
     citation.startOffset,
     MAX_RELOCATIONS
-  )) {
+  ).filter(sentHolds)) {
     const there = await speakerOf(source, at, at + length, movedFrom);
     if (there !== "excluded") return { startOffset: at, endOffset: at + length, speaker: there };
   }
@@ -294,12 +297,14 @@ export async function evidenceSpan(
 export async function checkSeedSpeakers(
   speakerOf: SpeakerReader,
   seeds: readonly ValidatedSeedCandidate[],
-  sources: ReadonlyMap<string, SpeakerCheckSource>
+  sources: ReadonlyMap<string, SpeakerCheckSource>,
+  /** Phase D, step 1: per source sent only in part, what was sent. */
+  sent?: ReadonlyMap<string, ReadonlyArray<{ start: number; end: number }>>
 ): Promise<{ seeds: ValidatedSeedCandidate[]; dropped: number }> {
   let dropped = 0;
   const checkedSeeds: ValidatedSeedCandidate[] = [];
   for (const seed of seeds) {
-    const result = withCheckedSpeakers(seed, await checkedCitations(speakerOf, seed.provenance, sources));
+    const result = withCheckedSpeakers(seed, await checkedCitations(speakerOf, seed.provenance, sources, sent));
     dropped += result.dropped;
     checkedSeeds.push(result.seed);
   }
@@ -313,12 +318,13 @@ export async function checkSeedSpeakers(
 export async function checkedCitations(
   speakerOf: SpeakerReader,
   provenance: ReadonlyArray<{ sourceId: string; startOffset: number; endOffset: number; exactExcerpt: string }>,
-  sources: ReadonlyMap<string, SpeakerCheckSource>
+  sources: ReadonlyMap<string, SpeakerCheckSource>,
+  sent?: ReadonlyMap<string, ReadonlyArray<{ start: number; end: number }>>
 ): Promise<CheckedSeedCitation[]> {
   const checked: CheckedSeedCitation[] = [];
   for (const citation of provenance) {
     const source = sources.get(citation.sourceId);
-    const kept = source ? await evidenceSpan(speakerOf, source, citation) : null;
+    const kept = source ? await evidenceSpan(speakerOf, source, citation, sent?.get(citation.sourceId)) : null;
     checked.push(
       kept
         ? {

@@ -1,3 +1,4 @@
+import { maskOutside } from "../shared/evidenceChoice";
 import { getSourceRowWithText, withSourceTexts, type SourceRowWithText } from "./lib/sourceText";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
@@ -943,6 +944,46 @@ export const failAttempt = internalMutation({
   },
 });
 
+/**
+ * Phase D, step 1: the sources a Batch's prompt sent only in part, with
+ * what was sent (and the spans the Brief's entries cite on them). Optional:
+ * an action started before it existed sends none, and nothing is blanked.
+ */
+const sentRangesValidator = v.optional(
+  v.array(
+    v.object({
+      sourceId: v.id("generationSources"),
+      ranges: v.array(v.object({ start: v.number(), end: v.number() })),
+    })
+  )
+);
+
+/**
+ * The sent ranges by source, when every one names a row of this draft and
+ * lies inside its text; otherwise null (and logged), so nothing is blanked,
+ * as before. Our own action sends them; the shape is still checked.
+ */
+function checkedSentRanges(
+  entries: ReadonlyArray<{ sourceId: string; ranges: ReadonlyArray<{ start: number; end: number }> }> | undefined,
+  rows: ReadonlyArray<{ _id: string; content: string }>
+): Map<string, Array<{ start: number; end: number }>> | null {
+  if (!entries || entries.length === 0) return null;
+  const lengths = new Map(rows.map((row) => [row._id as string, row.content.length]));
+  const sent = new Map<string, Array<{ start: number; end: number }>>();
+  for (const entry of entries) {
+    const length = lengths.get(entry.sourceId);
+    const fits = length !== undefined && entry.ranges.every(
+      (range) => Number.isInteger(range.start) && Number.isInteger(range.end) && range.start >= 0 && range.start < range.end && range.end <= length
+    );
+    if (!fits) {
+      console.warn("Seed sent ranges ignored: a range does not fit its source", { sourceId: entry.sourceId });
+      return null;
+    }
+    sent.set(entry.sourceId, [...entry.ranges]);
+  }
+  return sent;
+}
+
 export const completeAttempt = internalMutation({
   args: {
     batchId: v.id("seedBatches"),
@@ -950,6 +991,7 @@ export const completeAttempt = internalMutation({
     requestsMade: v.number(),
     seeds: v.array(seedCandidateValidator),
     seedsDropped: v.optional(v.number()),
+    sentRanges: sentRangesValidator,
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
@@ -1029,10 +1071,17 @@ export const completeAttempt = internalMutation({
           ...(item.uncertaintySeedId ? { uncertaintySeedId: item.uncertaintySeedId } : {}),
         })),
     };
+    // Phase D, step 1: a source sent only in part is checked against what
+    // was sent, the rest blanked with its positions kept.
+    const sent = checkedSentRanges(args.sentRanges, sources);
+    const sentOnly = (sourceId: string, content: string) => {
+      const ranges = sent?.get(sourceId);
+      return ranges ? maskOutside(content, ranges) : content;
+    };
     const frozenSources: FrozenSeedSource[] = sources.map((source) => ({
       sourceId: source._id,
       generationId: source.generationId,
-      content: source.content,
+      content: sentOnly(source._id, source.content),
       contentHash: source.contentHash,
     }));
     // Transcript method (plan step 7, owner decision 25): with a fact pack
@@ -1042,7 +1091,7 @@ export const completeAttempt = internalMutation({
     const factSources: FactSource[] = sources.map((source) => ({
       sourceId: source._id,
       kind: source.kind,
-      content: source.content,
+      content: source.kind === "project_document" || source.kind === "company_file" ? sentOnly(source._id, source.content) : source.content,
       contentHash: source.contentHash,
       ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       ...(source.factSpans ? { factSpans: source.factSpans } : {}),
@@ -1116,7 +1165,8 @@ export const completeAttempt = internalMutation({
       const speakerChecked = await checkSeedSpeakers(
         citationSpeakerReader(ctx),
         validation.seeds,
-        new Map(sources.map((source) => [source._id as string, source]))
+        new Map(sources.map((source) => [source._id as string, source])),
+        sent ?? undefined
       );
       checkedSeeds = speakerChecked.seeds;
       if (speakerChecked.dropped > 0) {
@@ -1300,6 +1350,7 @@ export const quoteRepairContext = internalQuery({
   args: {
     batchId: v.id("seedBatches"),
     generationId: v.id("generations"),
+    sentRanges: sentRangesValidator,
     seeds: v.array(
       v.object({
         provenance: v.array(
@@ -1336,9 +1387,10 @@ export const quoteRepairContext = internalQuery({
       }
     }
     const reader = citationSpeakerReader(ctx);
+    const sent = checkedSentRanges(args.sentRanges, [...sources.values()]);
     const checked = [];
     for (const seed of args.seeds) {
-      checked.push(await checkedCitations(reader, seed.provenance, sources));
+      checked.push(await checkedCitations(reader, seed.provenance, sources, sent ?? undefined));
     }
     return { writerWaiting, checked };
   },
