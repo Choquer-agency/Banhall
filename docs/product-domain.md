@@ -5331,7 +5331,11 @@ It adds no workflow stage or transition, leaves `projects.createdBy` alone, and 
   - The limit test's name says what it proves, and a rename of exactly 200 projects is tested.
   - New project drafts with an old name: recorded above as a known limit.
   - The no-match line left the table's rows.
-- **Review:** round 1 done.
+- **Review round 2 (Claude Opus 5.5, requested high; it reported running below high): ship, three P3s, all fixed.**
+  - A rename's hold on the page (the loading shape while it moves to the new key) now ends as soon as the page is anywhere but the key the rename started from (another company, All companies, Back), or when the navigation settles without reaching the new key; before, it could stay on the loading shape with an empty title until a reload.
+  - The stale-dialog tests now prove the row check on its own (a new company on the key given the same last change, a row made for a name-only company), and a test with the clock pinned shows two saves in the same millisecond move the last change forward by one, with an older dialog still refused.
+  - An applied bulk edit put focus on the selection bar's Edit details while the bar was leaving, so focus fell to the page body: it now goes to the area's title on Projects and to the active tab on a company page, and Cancel still returns to Edit details. Tested on both pages.
+- **Review:** rounds 1 and 2 done.
 
 ## Amendment process
 
