@@ -1747,6 +1747,8 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       industry: "software",
       fiscalYearEndFromProjects: false,
       industryFromProjects: false,
+      hasProjectFiscalYearEnd: false,
+      hasProjectIndustry: false,
       mergedNote: null,
     });
     expect(await s.writer.query(api.clients.getCompanyPage, { key: "birch foods" })).toEqual({
@@ -1758,6 +1760,8 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       projectCount: 2,
       fiscalYearEndFromProjects: false,
       industryFromProjects: false,
+      hasProjectFiscalYearEnd: false,
+      hasProjectIndustry: false,
       mergedNote: null,
     });
   });
@@ -1949,6 +1953,64 @@ describe("fiscal year end and industry fall back to the newest project's (2026-1
     ]);
   });
 
+  it("a project the rank backfill has not reached neither hides a later year nor ends the read early", async () => {
+    const s = await setup();
+    await insertClient(s, "Unranked Co");
+    await insertCompany(s, "Unranked Co", 4);
+    // No rank: the index puts it first, though its year is the oldest.
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("projects", {
+        title: "Not backfilled",
+        clientName: "Unranked Co",
+        dashboardCompanyKey: "unranked co",
+        dashboardSearchText: "not backfilled",
+        dashboardCompanyCounted: true,
+        fiscalYearEnd: Date.UTC(2023, 11, 31),
+        workflowStage: "intake",
+        workflowStageRank: workflowStageRank("intake"),
+        ownerId: s.writerId,
+        status: "draft",
+        createdBy: s.writerId,
+        shareToken: "unranked-1",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    await insertProject(s, { clientName: "Unranked Co", fiscalYearEnd: JUN_30_2025 });
+    await insertProject(s, { clientName: "Unranked Co", fiscalYearEnd: DEC_31_2025 });
+    await insertProject(s, { clientName: "Unranked Co", fiscalYearEnd: DEC_31_2024 });
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "unranked co" })).toMatchObject({
+      fiscalYearEndMonth: 12,
+      fiscalYearEndDay: 31,
+      fiscalYearEndFromProjects: true,
+    });
+
+    // An unranked project in the newest year still wins over ranked ones.
+    await s.t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert("projects", {
+        title: "Newest, not backfilled",
+        clientName: "Unranked Co",
+        dashboardCompanyKey: "unranked co",
+        dashboardSearchText: "newest",
+        dashboardCompanyCounted: true,
+        fiscalYearEnd: Date.UTC(2026, 2, 31),
+        workflowStage: "intake",
+        workflowStageRank: workflowStageRank("intake"),
+        ownerId: s.writerId,
+        status: "draft",
+        createdBy: s.writerId,
+        shareToken: "unranked-2",
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    expect(await s.writer.query(api.clients.listCompanyYearEnds, { keys: ["unranked co"] })).toEqual([
+      { key: "unranked co", fiscalYearEndMonth: 3, fiscalYearEndDay: 31 },
+    ]);
+  });
+
   it("a company known only by its projects falls back too", async () => {
     const s = await setup();
     await insertCompany(s, "Birch Foods", 1);
@@ -1974,6 +2036,9 @@ describe("fiscal year end and industry fall back to the newest project's (2026-1
       industry: "manufacturing",
       fiscalYearEndFromProjects: false,
       industryFromProjects: false,
+      // Projects' values lie behind the saved ones: emptying a field shows them.
+      hasProjectFiscalYearEnd: true,
+      hasProjectIndustry: true,
     });
     // Each falls back on its own: a saved year end, no saved industry.
     await s.t.run(async (ctx) => {
@@ -1999,10 +2064,15 @@ describe("fiscal year end and industry fall back to the newest project's (2026-1
       undefined,
       undefined,
     ]);
-    expect(page).toMatchObject({ fiscalYearEndFromProjects: false, industryFromProjects: false });
+    expect(page).toMatchObject({
+      fiscalYearEndFromProjects: false,
+      industryFromProjects: false,
+      hasProjectFiscalYearEnd: false,
+      hasProjectIndustry: false,
+    });
   });
 
-  it("saving Edit company with the shown values stores them on the company", async () => {
+  it("saving Edit company stores the values it sends on the company", async () => {
     const s = await setup();
     const clientId = await insertClient(s, "3GA Marine Ltd");
     await insertCompany(s, "3GA Marine Ltd", 1);
