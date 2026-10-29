@@ -32,6 +32,8 @@ export class ReviewSession {
   showChanges = $state(true);
   accepting = $state(false);
   error = $state<string | null>(null);
+  /** Told when the report no longer holds a reviewed card's words. */
+  onUnmatched: ((target: ReviewTarget) => void) | null = null;
 
   get pairs(): ReviewPair[] {
     return this.target ? this.target.pairsFor(this.option) : [];
@@ -58,6 +60,18 @@ export class ReviewSession {
     this.option = 0;
     this.accepting = false;
     this.error = null;
+  }
+
+  /**
+   * The report marked nothing for the card under review: its words were
+   * edited after the suggestion was made. End the review rather than float
+   * the bar over an unchanged report, and say why in the chat.
+   */
+  nothingToShow() {
+    const target = this.target;
+    if (!target) return;
+    this.stop();
+    this.onUnmatched?.(target);
   }
 
   async accept(): Promise<boolean> {
@@ -101,6 +115,12 @@ export class AssistantCards {
 
   constructor(review: ReviewSession | null = null) {
     this.review = review;
+    if (review) {
+      review.onUnmatched = (target) =>
+        this.showNotice({
+          message: `Couldn't review. ${target.line ? `Line ${target.line}` : "This passage"} was edited after this suggestion was made.`,
+        });
+    }
   }
 
   accepted(cards: AcceptedCard[]) {

@@ -136,6 +136,18 @@ describe("Editor search surface", () => {
     await expect.poll(() => shown(bracket.container)).toBe("Table 1 (n=5) shows the drift.");
   });
 
+  it("shows nothing, and says so, when the report no longer holds the suggestion's words (live check 2026-10-28)", async () => {
+    const doc = (text: string) => JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const { component, container } = await mountEditor(doc("The big dog ran home."));
+    expect(component.previewProposal([{ find: "The small cat sat down.", replaceWith: "The cat sat." }])).toBe(false);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(container.querySelectorAll(".review-cut, .review-new").length).toBe(0);
+    expect(component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }])).toBe(true);
+    await expect.poll(() => container.querySelectorAll(".review-cut").length).toBe(1);
+    // Later calls for the same suggestion (Show changes, another option) report it shown.
+    expect(component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }], { showChanges: false })).toBe(true);
+  });
+
   it("marks only the changed words of each occurrence, and clears", async () => {
     const { component, container } = await mountEditor();
 

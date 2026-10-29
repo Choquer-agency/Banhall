@@ -60,11 +60,11 @@ export interface WriterEditorHandle extends EditorHandle {
    * Owner 2026-10-28: a suggestion under review, marked word by word in the
    * report (Show changes on: struck old words and new words; off: new words
    * lightly marked), inside `line` when given. Scrolls to it the first time.
-   * [] clears.
+   * [] clears. Returns false when the report holds none of its words.
    */
   previewProposal: (
     pairs: { find: string; replaceWith: string }[],
     options?: { showChanges?: boolean; line?: string | null }
-  ) => void;
+  ) => boolean;
   clearProposalPreview: () => void;
 }

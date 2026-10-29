@@ -149,12 +149,21 @@ const SCENARIOS = [
     name: "apply-undo",
     async run(page, ctx) {
       // Owner 2026-10-28 (rows 32 and 34): Review, then Accept on the bar,
-      // then Undo on the bar above the message box.
+      // then Undo on the bar above the message box. Its own card, in its own
+      // conversation: an older card may name words the report no longer has.
       await openPanel(page, ctx);
+      await newConversation(page);
+      await send(page, "Tighten one sentence in Line 246. Keep every fact. Offer no other options.");
+      await waitIdle(page);
       const before = await reportText(page);
       await page.getByRole("button", { name: "Review", exact: true }).last().click();
       await page.getByRole("toolbar", { name: "Review suggestion" }).waitFor({ timeout: 10_000 });
-      expect((await reportText(page)).length > 0 && (await page.locator(".review-cut, .review-new").count()) > 0, "Review marked nothing in the report");
+      let marks = 0;
+      for (let i = 0; i < 10 && !marks; i++) {
+        await page.waitForTimeout(300);
+        marks = await page.locator(".review-cut, .review-new").count();
+      }
+      expect(marks > 0, "Review marked nothing in the report");
       await page.getByRole("toolbar", { name: "Review suggestion" }).getByRole("button", { name: "Accept" }).click();
       await page.waitForTimeout(4000);
       expect((await reportText(page)) !== before, "Accept did not change the report");
@@ -236,6 +245,8 @@ const SCENARIOS = [
     async run(page, ctx) {
       await openPanel(page, ctx);
       await newConversation(page);
+      // With a Line over its limit, Get started stands in for the message box.
+      await skipOptions(page);
       await page.getByRole("button", { name: "Message options" }).click();
       await page.getByRole("menuitem", { name: "Read a file in full" }).click();
       await page.getByRole("checkbox", { name: "chat-live-log.pdf" }).click();
@@ -387,6 +398,7 @@ const SCENARIOS = [
       // A new, unsaved conversation: nothing is running, so the options are enabled.
       await openPanel(page, ctx);
       await newConversation(page);
+      await skipOptions(page);
       const toggleBrain = async () => {
         await page.getByRole("button", { name: "Message options" }).click();
         await page.getByRole("menuitemcheckbox", { name: "Use Brain examples for this message" }).click();
@@ -510,7 +522,18 @@ const SCENARIOS = [
 export async function runScenarios(ctx) {
   // The run handles signals and cleans up; Playwright's own handlers would
   // exit the process before that finishes.
-  const browser = await chromium.launch({ headless: true, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
+  // A --public-host address is plain http and so not a secure context: the
+  // clipboard is missing and the browser logs its ignored COOP header as an
+  // error. Treat it as secure, as localhost is, so the scenarios run the same.
+  const origin = new URL(ctx.base).origin;
+  const local = ["localhost", "127.0.0.1"].includes(new URL(ctx.base).hostname);
+  const browser = await chromium.launch({
+    headless: true,
+    handleSIGINT: false,
+    handleSIGTERM: false,
+    handleSIGHUP: false,
+    args: local ? [] : [`--unsafely-treat-insecure-origin-as-secure=${origin}`],
+  });
   ctx.onBrowser?.(browser);
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: ctx.base });

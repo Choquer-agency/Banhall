@@ -12,5 +12,5 @@ The Assistant's suggestions now wait for you. Press Review to see exactly which 
 
 ### Improved
 - After you accept, the card turns into a short line, and an Undo bar sits above the message box. Open any accepted card to undo it later.
-- When something can't be accepted or undone, the chat says why in plain words, with a way to Version history when you need it.
+- When something can't be reviewed, accepted or undone, the chat says why in plain words, with a way to Version history when you need it.
 - The Assistant's header shows the conversation's name, with buttons for your chat history and a new conversation.

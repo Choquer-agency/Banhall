@@ -1369,27 +1369,36 @@
    * report. Show changes on strikes the old words and adds the new ones; off
    * shows the report as it would read, the new words lightly marked. `line`
    * keeps the marks inside the card's Line. The first time a suggestion is
-   * shown the report scrolls to it. Pass [] to clear.
+   * shown the report scrolls to it. Pass [] to clear. Returns false, and
+   * shows nothing, when the report no longer holds the suggestion's words
+   * (they were edited after it was made).
    */
   export function previewProposal(
     pairs: { find: string; replaceWith: string }[],
     options: { showChanges?: boolean; line?: string | null } = {}
-  ) {
-    if (!editor) return;
+  ): boolean {
+    if (!editor) return true;
     const kept = pairs.filter((p) => p.find.trim());
     if (kept.length === 0) {
       clearProposalPreview();
-      return;
+      return false;
     }
     const firstShow = !reviewPreview || reviewPreview.pairs[0]?.find !== kept[0].find;
-    reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
-    if (!firstShow) return;
+    if (!firstShow) {
+      reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
+      return true;
+    }
     // The first change inside the card's Line, not the same words elsewhere.
     const doc = editor.state.doc;
     const scope = options.line ? lineScope(doc, options.line) : undefined;
     const first = reviewMarks(doc, kept, diffWords, scope)[0];
-    const at = first ? (first.kind === "cut" ? first.from : first.at) : findAllOccurrencesCI(doc, kept[0].find)[0]?.from;
-    if (at !== undefined) scrollContainerToPos(at, 120);
+    if (!first) {
+      clearProposalPreview();
+      return false;
+    }
+    reviewPreview = { pairs: kept, showChanges: options.showChanges ?? true, line: options.line ?? null };
+    scrollContainerToPos(first.kind === "cut" ? first.from : first.at, 120);
+    return true;
   }
 
   export function clearProposalPreview() {

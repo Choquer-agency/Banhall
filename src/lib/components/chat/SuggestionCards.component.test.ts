@@ -117,6 +117,19 @@ describe("Review", () => {
     expect(cards.lastAccepted).toEqual([{ proposalId: "card-242", line: "242", option: 1 }]);
   });
 
+  it("ends a review the report cannot show and says why in the chat (live check 2026-10-28)", async () => {
+    const { session, cards } = await mount([withOptions()]);
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    expect(session.target?.proposalId).toBe("card-242");
+    // The page's editor found none of the card's words in the report.
+    session.nothingToShow();
+    expect(session.target).toBeNull();
+    await expect.element(page.getByText("Couldn't review. Line 242 was edited after this suggestion was made.")).toBeVisible();
+    expect(cards.notice?.action).toBeUndefined();
+    expect(__mutationCalls("chatV2:applyProposal")).toEqual([]);
+    await expect.element(page.getByRole("button", { name: "Review", exact: true })).toBeVisible();
+  });
+
   it("Stop review ends the review and leaves the card as it was", async () => {
     const { session } = await mount([withOptions()]);
     await page.getByRole("button", { name: "Review", exact: true }).click();

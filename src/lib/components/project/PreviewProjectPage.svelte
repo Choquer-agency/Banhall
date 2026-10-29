@@ -510,8 +510,8 @@
     // The editor reads its own review state while it updates it: untracked,
     // so this effect follows the session only.
     untrack(() => {
-      if (target) ed.previewProposal(pairs, { showChanges, line: target.line });
-      else ed.clearProposalPreview();
+      if (!target) ed.clearProposalPreview();
+      else if (!ed.previewProposal(pairs, { showChanges, line: target.line })) review.nothingToShow();
     });
   });
   // Review shows the report: leave Sources, Assistant full screen, or the
