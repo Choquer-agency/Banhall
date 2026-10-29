@@ -44,8 +44,14 @@
     if (free) listEl?.focus({ preventScroll: true });
   });
 
+  // The options can change while the panel is up (the report, a QA run):
+  // keep the highlighted row inside the list.
+  $effect(() => {
+    if (active >= rows.length) active = 0;
+  });
+
   async function choose(index: number) {
-    if (disabled) return;
+    if (disabled || index < 0 || index >= rows.length) return;
     active = index;
     if (index === otherIndex) {
       typing = true;

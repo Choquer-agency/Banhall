@@ -108,6 +108,8 @@
     reportContent?: string | null;
     /** The last finished QA run's costliest issue per Line (`qaTopIssues`). */
     qaIssues?: readonly QaTopIssue[];
+    /** The page is still reading whether QA issues apply: "Get started" waits. */
+    qaLoading?: boolean;
     /**
      * Owner 2026-10-28 (row 21): a message the page asks the Assistant to
      * send in a new conversation, such as the over-limit pill's shorten
@@ -139,6 +141,7 @@
     onOpenVersionHistory,
     reportContent = null,
     qaIssues = [],
+    qaLoading = false,
     pendingPrompt = null,
     onPromptTaken,
     onPromptDone,
@@ -1461,7 +1464,8 @@
       if (skippedPanelKeys.has(key)) return null;
       return { kind: "question" as const, key, label: "Assistant needs you", question: writerQuestion.question, options: writerQuestion.options };
     }
-    if (conversationUnstarted && newChatOptions.length && !input.trim() && !pendingHighlight) {
+    // Waits for the QA reads, so its options never reorder under the writer.
+    if (conversationUnstarted && newChatOptions.length && !input.trim() && !pendingHighlight && !qaLoading) {
       const key = `start:${selectedThreadId ?? draftConversationId}`;
       if (skippedPanelKeys.has(key)) return null;
       return { kind: "start" as const, key, label: "Get started", question: "What should we work on?", options: newChatOptions };

@@ -1888,6 +1888,11 @@
   const qaOverridesQ = useQuery(api.reviews.getMyQaItemFeedback, () =>
     qaFresh && report ? { target: { reportId: report._id } } : "skip"
   );
+  const chatQaLoading = $derived(
+    qaState === "done" &&
+      ((qaResultQ.data === undefined && !qaResultQ.error) ||
+        (qaFresh && qaOverridesQ.data === undefined && !qaOverridesQ.error))
+  );
   const chatQaIssueList = $derived(
     chatQaIssues({
       agentOutputs: generation?.agentOutputs ?? null,
@@ -2892,6 +2897,7 @@
                         onOpenVersionHistory={() => (showHistory = true)}
                         reportContent={report.content}
                         qaIssues={chatQaIssueList}
+                        qaLoading={chatQaLoading}
                         pendingPrompt={assistantPrompt}
                         onPromptTaken={(id) => {
                           if (assistantPrompt?.id === id) assistantPrompt = null;

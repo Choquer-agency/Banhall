@@ -23,6 +23,7 @@ import {
 } from "$lib/test/convex-svelte-stub.svelte";
 import type { TurnWebSearch } from "$lib/chat/webSources";
 import AgentChatPanel from "./AgentChatPanel.svelte";
+import ComposerOptionsPanel from "./ComposerOptionsPanel.svelte";
 import ProposedEditCard from "./ProposedEditCard.svelte";
 import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
 import { VET_LABEL, VET_NOTE_MAX_CHARS } from "../../../../shared/researchPresets";
@@ -531,6 +532,29 @@ describe("options above the message box", () => {
     await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
     await expect.element(page.getByRole("alert")).toHaveTextContent("This conversation could not load.");
     expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("waits for the page's QA reads before showing Get started", async () => {
+    const view = await render(AgentChatPanel, { reportId, projectId, reportContent: settled, qaLoading: true });
+    await expect.element(composer()).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await view.rerender({ qaLoading: false, qaIssues: [{ line: "246", text: "Advancement is vague." }] });
+    await expect.element(page.getByRole("option", { name: /Fix the QA issue in Line 246: Advancement is vague\./ })).toBeVisible();
+  });
+
+  it("keeps the highlighted option inside the list when the options shrink", async () => {
+    const picked: unknown[] = [];
+    const view = await render(ComposerOptionsPanel, {
+      label: "Get started", question: "What should we work on?", options: ["First", "Second", "Third"],
+      onSelect: (text: string) => picked.push(text), onSkip: () => {}, onType: () => {},
+    });
+    const list = document.querySelector<HTMLElement>("[role=listbox]")!;
+    list.focus();
+    for (let step = 0; step < 3; step++) await userEvent.keyboard("{ArrowDown}");
+    await view.rerender({ options: ["First"] });
+    await userEvent.keyboard("{Enter}");
+    expect(picked).toEqual(["First"]);
   });
 
   it("never picks an option on Ctrl, Cmd or Alt with a digit", async () => {

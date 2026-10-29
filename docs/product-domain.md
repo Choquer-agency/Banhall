@@ -5235,6 +5235,11 @@ This changes how suggestions are shown, reviewed and accepted, and adds stored f
     - a review ends when its card is replaced by a later card or leaves the conversation's shown cards;
     - closing the limit popover from the pill gives focus back to the pill.
   - **Round 3.** Claude Opus 5.5, requested at high; it reported running at low. "Ship": all six round 2 fixes traced correct. Done after it: the popover's scroll and resize close no longer scroll the pill back into view, and the popover finds the pill again after the report redraws it. Left as a known limit: the Shortening chip follows the open conversation, so switching conversation while the shorten reply runs clears it early.
+  - **The reopened-chat flash fix and the 2026-10-29 new-chat options** (9d59d694, b5ff30fa and fixes), each round Claude Opus 5.5 requested at high, each reporting below high:
+    - Round 1: "ship after fixes". Fixed: a digit on "Get started" picked an option; emptying the message box brought the options back; the live check was out of date; stale or reclassified QA issues; Add detail ignored form lines; the "Deduct" strip, sentence cut and capitals; "Get started" missing on reports with research sessions.
+    - Round 2: "ship after fixes". Fixed: options showed while research ran and a pick did nothing; QA freshness used the save time instead of the recorded result; Alt on Windows and Linux, paste, and tests that proved less than their titles.
+    - Round 3: "ship after fixes". Fixed: options over an unreadable conversation; Ctrl, Cmd or Alt with a digit picked an option; the QA hold moved into a tested helper; the QA result's status checked.
+    - Round 4: "ship", two P3s, both fixed: "Get started" waits for the page's QA reads, so its options never reorder under the writer, and the highlighted row stays inside the list when the options shrink.
 
 ### 2026-10-28 (twelfth): The page frame: a global bar, a fixed labelled rail and one white card with section sidebars (owner)
 
