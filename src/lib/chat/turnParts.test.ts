@@ -818,6 +818,11 @@ describe("humanizeItemIds and the bare [GAP] token", () => {
     expect(humanizeItemIds("Proposed dropping the [GAP] note on Line 246.")).toBe("Proposed dropping the gap note on Line 246.");
     expect(humanizeItemIds("Two [GAP] notes remain.")).toBe("Two gap notes remain.");
     expect(humanizeItemIds("It reads [GAP: the measured load] here.")).toBe("It reads [GAP: the measured load] here.");
+    // 2026-10-29: the bare [INFERRED] token reads as "inference", a real marker keeps its brackets.
+    expect(humanizeItemIds("Line 244 has two [INFERRED] notes to check.")).toBe("Line 244 has two inference notes to check.");
+    expect(humanizeItemIds("It reads [INFERRED: the source asks for steady readings] here.")).toBe(
+      "It reads [INFERRED: the source asks for steady readings] here."
+    );
   });
 });
 

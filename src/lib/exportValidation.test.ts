@@ -116,3 +116,67 @@ describe("validateExport gap handling", () => {
     expect(result.errors.some((e) => e.field === "s242")).toBe(true);
   });
 });
+
+// 2026-10-29 (owner): an [INFERRED: ...] marker is a claim the writer still
+// checks. Export treats it like a gap: a warning, never a blocking error,
+// and the dialog lists it beside the gaps with a jump to each.
+describe("validateExport inference handling", () => {
+  const MARK = "[INFERRED: the source asks for stability over time, not single-point checks]";
+
+  test("UNCHECKED_INFERENCE is a warning, not an error", () => {
+    const canonical = canonicalizeExportPreflight(
+      preflight(
+        tiptapDoc({
+          s242: "Alpha.",
+          s244: `Readiness was first judged from single readings. ${MARK}\n\nA second paragraph. ${MARK}`,
+          s246: "Gamma.",
+        })
+      )
+    );
+    expect(canonical.body.diagnostics.map((d) => d.code)).toEqual(["UNCHECKED_INFERENCE", "UNCHECKED_INFERENCE"]);
+    const result = validateExport(canonical);
+    expect(result.errors).toEqual([]);
+    const inferenceWarnings = result.warnings.filter((w) => w.message.includes("[INFERRED]"));
+    // One message per Line; the dialog collapses the repeats.
+    expect(new Set(inferenceWarnings.map((w) => w.message))).toEqual(
+      new Set(["Line 244 has an inference to check (an [INFERRED] marker); it will be exported highlighted."])
+    );
+    expect(inferenceWarnings.every((w) => w.severity === "warning" && w.field === "s244")).toBe(true);
+  });
+
+  test("inference marker text never counts toward a limit, so it raises no with-gaps warning", () => {
+    const word = "x".repeat(77);
+    const atLimit = Array.from({ length: 50 }, () => word).join(" ");
+    const result = validateExport(
+      canonicalizeExportPreflight(preflight(tiptapDoc({ s242: `${atLimit} ${MARK} ${MARK}`, s244: "Beta.", s246: "Gamma." })))
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.some((w) => w.message.includes("only because of unresolved [GAP]"))).toBe(false);
+  });
+
+  test("notes lists every gap and inference in build order, each with its marker text", () => {
+    const result = validateExport(
+      canonicalizeExportPreflight(
+        preflight(
+          tiptapDoc({
+            s242: "Alpha [GAP: need failure metrics] omega.",
+            s244: `Readiness was first judged from single readings. ${MARK}`,
+            s246: "Gamma [GAP: next year's plan].",
+          })
+        )
+      )
+    );
+    expect(result.notes).toEqual([
+      { section: "s242", kind: "gap", text: "[GAP: need failure metrics]", note: "need failure metrics" },
+      { section: "s244", kind: "inferred", text: MARK, note: "the source asks for stability over time, not single-point checks" },
+      { section: "s246", kind: "gap", text: "[GAP: next year's plan]", note: "next year's plan" },
+    ]);
+  });
+
+  test("a clean report has no notes", () => {
+    const result = validateExport(
+      canonicalizeExportPreflight(preflight(tiptapDoc({ s242: "Alpha.", s244: "Beta.", s246: "Gamma." })))
+    );
+    expect(result.notes).toEqual([]);
+  });
+});

@@ -1,12 +1,15 @@
 import { z } from "zod";
 import {
   GAP_MARKER_RE,
+  INFERRED_MARKER_RE,
+  findReportNotes,
   sectionMetrics,
   type SectionMetrics,
 } from "../../convex/lib/lineLimits";
 
-// Non-global copy: GAP_MARKER_RE is /g and .test() on it would be stateful.
+// Non-global copies: the marker regexes are /g and .test() on them would be stateful.
 const HAS_GAP_RE = new RegExp(GAP_MARKER_RE.source, "i");
+const HAS_INFERRED_RE = new RegExp(INFERRED_MARKER_RE.source, "i");
 
 export interface TiptapNode {
   type: string;
@@ -53,10 +56,32 @@ export interface ReportParseDiagnostic {
     | "OUT_OF_ORDER_SECTION"
     | "UNSUPPORTED_NODE"
     | "CONTENT_OUTSIDE_SECTION"
-    | "UNRESOLVED_GAP";
+    | "UNRESOLVED_GAP"
+    | "UNCHECKED_INFERENCE";
   message: string;
   section?: ReportSectionKey;
   nodeType?: string;
+}
+
+/**
+ * Diagnostics that never block export: the note stays in the text and is
+ * exported highlighted, so whoever reads the file sees exactly what is still
+ * open. Gaps since before 2026-10-29; [INFERRED: ...] markers follow them
+ * (owner, 2026-10-29). Every other diagnostic blocks.
+ */
+export const EXPORTED_HIGHLIGHTED_DIAGNOSTICS: ReadonlySet<ReportParseDiagnostic["code"]> = new Set([
+  "UNRESOLVED_GAP",
+  "UNCHECKED_INFERENCE",
+]);
+
+/** One [GAP: ...] or [INFERRED: ...] note in a Line, for the lists that show them. */
+export interface ReportNote {
+  section: ReportSectionKey;
+  kind: "gap" | "inferred";
+  /** The whole marker as written: what the editor finds to jump to it. */
+  text: string;
+  /** What the marker says after its colon. */
+  note: string;
 }
 
 export interface CanonicalReportBody {
@@ -227,6 +252,13 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
         message: `Line ${current.slice(1)} contains an unresolved [GAP: ...] marker.`,
       });
     }
+    if (HAS_INFERRED_RE.test(text)) {
+      diagnostics.push({
+        code: "UNCHECKED_INFERENCE",
+        section: current,
+        message: `Line ${current.slice(1)} contains an unchecked [INFERRED: ...] marker.`,
+      });
+    }
     sections[current].blocks.push({ kind: "paragraph", text });
   }
 
@@ -243,6 +275,18 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
       .join("\n\n");
   }
   return { sections, diagnostics };
+}
+
+/** Every gap and inference note of the three Lines, in build order and text order. */
+export function reportNotes(body: CanonicalReportBody): ReportNote[] {
+  return SECTION_ORDER.flatMap((section) =>
+    findReportNotes(body.sections[section].plainText).map(({ kind, text, note }) => ({
+      section,
+      kind,
+      text,
+      note,
+    }))
+  );
 }
 
 export type ReportSectionMetricMap = Record<ReportSectionKey, SectionMetrics>;

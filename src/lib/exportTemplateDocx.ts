@@ -2,15 +2,16 @@ import JSZip from "jszip";
 import type {
   CanonicalExportReport,
 } from "$lib/exportValidation";
-import type {
-  CanonicalReportSection,
-  ExportParagraphBlock,
+import {
+  EXPORTED_HIGHLIGHTED_DIAGNOSTICS,
+  type CanonicalReportSection,
+  type ExportParagraphBlock,
 } from "$lib/reportSections";
 import {
   normalizeCraScienceCode,
   type CraScienceCode,
 } from "../../shared/craScienceCodes";
-import { GAP_MARKER_RE } from "../../convex/lib/lineLimits";
+import { findReportNotes } from "../../convex/lib/lineLimits";
 
 const TEMPLATE_URL = "/templates/schedule60.docx";
 const RULER_78 =
@@ -30,6 +31,10 @@ const COURIER_RPR =
 // the missing information is unmissable in the .docx.
 const COURIER_GAP_RPR =
   '<w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:highlight w:val="yellow"/></w:rPr>';
+// 2026-10-29 (owner): an [INFERRED: ...] marker the writer has not checked
+// yet exports the same way, in cyan so it reads apart from a gap.
+const COURIER_INFERRED_RPR =
+  '<w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:highlight w:val="cyan"/></w:rPr>';
 const BLANK_PARAGRAPH =
   '<w:p><w:pPr><w:pStyle w:val="BodyText"/><w:rPr><w:rFonts w:ascii="Courier New" w:hAnsi="Courier New" w:cs="Courier New"/><w:sz w:val="24"/></w:rPr></w:pPr></w:p>';
 
@@ -42,26 +47,27 @@ function escapeXml(value: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/** One line's runs: non-gap text as plain Courier, [GAP: …] spans as
- * yellow-highlighted Courier. The optional `<w:br/>` stays on the first run. */
+/** One line's runs: other text as plain Courier, [GAP: …] spans as
+ * yellow-highlighted Courier and [INFERRED: …] spans as cyan-highlighted
+ * Courier. The optional `<w:br/>` stays on the first run. */
 function courierLineRuns(line: string, breakXml: string): string {
-  type Segment = { text: string; gap: boolean };
+  type Segment = { text: string; rPr: string };
   const segments: Segment[] = [];
   let cursor = 0;
-  for (const match of line.matchAll(GAP_MARKER_RE)) {
-    if (match.index > cursor) {
-      segments.push({ text: line.slice(cursor, match.index), gap: false });
+  for (const note of findReportNotes(line)) {
+    if (note.index > cursor) {
+      segments.push({ text: line.slice(cursor, note.index), rPr: COURIER_RPR });
     }
-    segments.push({ text: match[0], gap: true });
-    cursor = match.index + match[0].length;
+    segments.push({ text: note.text, rPr: note.kind === "gap" ? COURIER_GAP_RPR : COURIER_INFERRED_RPR });
+    cursor = note.index + note.text.length;
   }
   if (cursor < line.length || segments.length === 0) {
-    segments.push({ text: line.slice(cursor), gap: false });
+    segments.push({ text: line.slice(cursor), rPr: COURIER_RPR });
   }
   return segments
     .map(
       (segment, index) =>
-        `<w:r>${segment.gap ? COURIER_GAP_RPR : COURIER_RPR}${index === 0 ? breakXml : ""}<w:t xml:space="preserve">${escapeXml(segment.text)}</w:t></w:r>`
+        `<w:r>${segment.rPr}${index === 0 ? breakXml : ""}<w:t xml:space="preserve">${escapeXml(segment.text)}</w:t></w:r>`
     )
     .join("");
 }
@@ -159,9 +165,10 @@ export async function exportToTemplateDocx(
   if (!scienceCode) {
     throw new Error("A valid CRA field of science or technology code is required");
   }
-  // Unresolved [GAP] markers export highlighted; every other diagnostic blocks.
+  // Unresolved [GAP] and unchecked [INFERRED] markers export highlighted;
+  // every other diagnostic blocks.
   const blocking = report.body.diagnostics.filter(
-    (diagnostic) => diagnostic.code !== "UNRESOLVED_GAP"
+    (diagnostic) => !EXPORTED_HIGHLIGHTED_DIAGNOSTICS.has(diagnostic.code)
   );
   if (blocking.length > 0) {
     throw new Error("Report parser diagnostics must be resolved before export");

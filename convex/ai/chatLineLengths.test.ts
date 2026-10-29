@@ -34,6 +34,25 @@ describe("lineLengthsText", () => {
     expect(lineLengthsText(content)).toContain(`${metrics.s246.words - 350} words over the CRA limit`);
   });
 
+  // 2026-10-29: an [INFERRED] note is never counted, so the block says so
+  // and the meter numbers stay the same with or without it.
+  it("says a Line's [INFERRED] notes are not counted and change no number", () => {
+    const mark = "[INFERRED: the source asks for stability over time, not single-point checks]";
+    const marked = report({
+      s242: `${sentence} ${mark}`,
+      s244: `${sentence} [GAP: the access-interface load reduction] ${sentence} ${mark} ${mark}`,
+      s246: sentence,
+    });
+    const plain = report({ s242: sentence, s244: `${sentence} [GAP: the access-interface load reduction] ${sentence}`, s246: sentence });
+    expect(reportSectionMetrics(marked)).toEqual(reportSectionMetrics(plain));
+    const text = lineLengthsText(marked)!;
+    expect(text).toContain("No [GAP] notes. Its one [INFERRED] note is not counted either, and deleting one changes no count.");
+    expect(text).toContain("Its one [GAP] note is not counted");
+    expect(text).toContain("Its 2 [INFERRED] notes are not counted either, and deleting one changes no count.");
+    // A Line with no notes of either kind reads as before.
+    expect(text.split("\n")[2]).toMatch(/No \[GAP\] notes\.$/);
+  });
+
   it("is left out when the report is not a readable editor document", () => {
     expect(lineLengthsText(null)).toBeNull();
     expect(lineLengthsText("not json")).toBeNull();

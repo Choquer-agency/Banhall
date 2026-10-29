@@ -805,7 +805,10 @@ export function humanizeItemIds(text: string): string {
     // Owner, 2026-10-21: the bare token "[GAP]" (no colon, no text) is the
     // model talking about gap notes, never a placeholder ("[GAP: ...]"),
     // which keeps its brackets; it reads as "gap" ("the gap note").
-    .replace(/\[GAP\](?!:)/g, "gap");
+    .replace(/\[GAP\](?!:)/g, "gap")
+    // 2026-10-29: the same for the bare "[INFERRED]", which reads as
+    // "inference" ("the inference note"); "[INFERRED: ...]" keeps its brackets.
+    .replace(/\[INFERRED\](?!:)/g, "inference");
 }
 
 /**
