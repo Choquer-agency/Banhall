@@ -12,6 +12,9 @@
  * lookbehind and `\p{L}` (V8 6.2+ / Safari 16.4+); Convex's runtime is V8.
  */
 
+// The framework-free note marker regexes (gap and inferred), beside the CRA line math.
+import { NOTE_MARKER_RE } from "../convex/lib/lineLimits";
+
 // Always-on. Not waivable: this is about not reading as AI-generated, which is
 // house policy rather than a style preference. It applies even when the
 // sentence-construction rules are waived. Owner, 2026-09-23: every path that
@@ -149,6 +152,50 @@ Figures and details as the sources give them:
 No talk about sources:
 - State the fact, never where it came from. Do not name an interview, an interviewee, a transcript, a memo, notes, a record, a document, the Brief, the Storyline, the Confidence Map or "the sources" in the report text.
 - Where a point is open or disputed, state the uncertainty or the range itself ("about 10 to 12 percent lower", "was not confirmed"), never who said what or which document says it.`;
+
+/**
+ * 2026-10-29 (owner, chat: "We can include the ... inference marker."): the
+ * three kinds of claim in report text. In a meeting the firm said drafts
+ * state, with confidence, things the source never says ("Trials then
+ * indicated...", "The team found that..."), so reviewers hunt for what was
+ * invented. Michael: "there's good inferences and there's bad ones ... maybe
+ * it needs to be flagged". Tracy: "let it leave blanks, basically, if it's
+ * really not there". A stated claim is written plainly; a consequence,
+ * cause or comparison the stated facts clearly imply is written and marked;
+ * a claim with no basis is not written and a gap takes its place. Review
+ * round 2: an event (a trial, result, finding or change of approach) is
+ * never inferred, marked or not: without evidence it is a gap. The marker
+ * is a note to the writer, like a gap, so it may name the source; the
+ * sentence never does.
+ *
+ * Locked, like the [GAP] rule beside it: sent in the shared writing rules of
+ * every drafting request (Single draft, Compare, Step by step and a redraft,
+ * with their repairs, which reuse those requests) and of the Assistant. It
+ * sits in the system prompt, right after the GENERAL RULES' [GAP] line. The
+ * Line instructions come later, in the user message, so a short pointer
+ * right after them (SECTION_EVIDENCE_POINTER, convex/ai/prompts.ts) says
+ * this rule decides where they ask for content the evidence does not give.
+ */
+export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
+Every claim you write in a report Line is one of three kinds. Decide which before you write it.
+1. Stated: the evidence says it. Write it plainly.
+2. Inferred: a consequence, a cause or a comparison that the stated facts clearly imply, and that a careful reader of the evidence would agree with. Write the sentence, then put a marker straight after it: [INFERRED: the stated facts it rests on, in plain words]. The marker tells the writer which sentence to check and why you thought it.
+3. Missing: nothing in the evidence supports it. Do not write it. Where the Line needs it, put a [GAP: what is needed] marker in its place.
+- Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed.
+- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts. Write an inferred cause as likely, never as confirmed.
+- Never write an inference as if the evidence stated it: mark it.
+- An inference adds no specific detail of its own: no number, material, name, date, setting or test result. A detail you would have to invent is missing and gets a gap.
+- When a Line's instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding or a result, leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it. Never make it up to fill the shape.
+- Most sentences should be stated. When in doubt, leave a gap.
+- One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
+- A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on, such as the client's answer or a test log. The sentence itself never names a source.
+- When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
+Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
+Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
+Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)
+Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials, and the sentence is written as a stated fact)
+Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source, and states a first approach the evidence does not describe)
+Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)`;
 
 /**
  * 2026-09-30 (third): the Compliance Note instruction and the repair fix for
@@ -295,9 +342,13 @@ function wordsOf(text: string): string[] {
  * (Greptile round, lead decision). Hits are in text order, one per position.
  */
 export function findSourceTalk(
-  text: string,
+  rawText: string,
   options: { subjectText?: readonly string[] } = {}
 ): SourceTalkHit[] {
+  // 2026-10-29: a [GAP: ...] or [INFERRED: ...] marker is a note to the
+  // writer, not report text, so it may name a source (RULES_EVIDENCE_KINDS).
+  // Its characters are blanked, so every index still points into the text.
+  const text = rawText.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
   // Greptile round (lead decision): the noun phrases the project's own
   // subject holds, each the noun with its modifier.
   const subjectPhrases = new Set(
@@ -321,7 +372,7 @@ export function findSourceTalk(
         hits.push({
           phrase,
           index: match.index,
-          context: "..." + text.slice(start, end).replace(/\r?\n/g, " ") + "...",
+          context: "..." + rawText.slice(start, end).replace(/\r?\n/g, " ") + "...",
         });
       }
     }

@@ -1157,8 +1157,18 @@ describe("prompt versions", () => {
     // Re-read after 2026-10-28 (eighth): the analysis's words for a document
     // sent in parts move on purpose; before it they were sha256:f7709e4b...
     // and sha256:2ecfaf15....
-    expect(await hashPromptProgram()).toBe("sha256:9bb679f89f09a55e29cd1122fb38ce561e5dcc4f460e25b87895d4c950e62f60");
-    expect(await legacyPromptVersion()).toBe("sha256:c93316ea7f1cc8b632c5d74b7c143cfdb9ef6563e11c062a0ffff432811c5b2a");
+    // Re-read after 2026-10-29 (inference marker): the shared writing rules'
+    // stated, inferred or missing block and the check, compression and
+    // Assistant lines on [INFERRED] notes move on purpose; before it they
+    // were sha256:9bb679f8... and sha256:c93316ea.... Re-read after its
+    // review round 1, which adds the pointer after each Line's instructions
+    // and moves the rule's examples and two check lines on purpose; before
+    // it they were sha256:f8b22f23... and sha256:2ab7a8e3.... Re-read after
+    // its review round 2, which says an event is never inferred and puts the
+    // gap first in the rule, the pointer and three check lines, on purpose;
+    // before it they were sha256:c03ace4c... and sha256:f648e3fb....
+    expect(await hashPromptProgram()).toBe("sha256:c1e5249c8b4ac3174b9ea7eac9e4c42266fe3bf6367eea4e9ce9f77bcde96b57");
+    expect(await legacyPromptVersion()).toBe("sha256:8daa03ec4482966c8a9d06512e84bd05ac8e1643137fd72eb1a6ff4c607bc401");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

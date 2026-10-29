@@ -80,6 +80,42 @@ describe("Section headings on the server Apply path", () => {
   });
 });
 
+// 2026-10-29 (owner): an accepted Assistant card keeps the [INFERRED: ...]
+// markers it was given, and brings any it adds, as plain text the editor
+// shows as chips. The apply path never strips or mangles one.
+describe("[INFERRED] markers on the server Apply path", () => {
+  const MARK = "[INFERRED: the source asks for stability over time, not single-point checks]";
+  const sentence = `Readiness was first judged from single readings. ${MARK}`;
+
+  it("keeps a marker the edit leaves alone, and one the new text carries", () => {
+    const doc = buildTiptapDocument("Report", "Uncertainty.", `${sentence} The team then held each sample.`, "Advancement.") as unknown as PMNode;
+    const kept = applyReplacements(doc, [{ find: "held each sample", replaceWith: "held each sample for an hour" }]);
+    expect(extractReportSections(JSON.stringify(kept.doc)).s244.trim()).toBe(`${sentence} The team then held each sample for an hour.`);
+    const rewritten = applyReplacements(doc, [
+      { find: sentence, replaceWith: `Readiness was first judged from one reading at a time. ${MARK}` },
+    ]);
+    expect(rewritten.count).toBe(1);
+    expect(extractReportSections(JSON.stringify(rewritten.doc)).s244).toContain(`one reading at a time. ${MARK}`);
+  });
+
+  it("keeps the marker's characters when a match spans inline nodes and the block is rebuilt", () => {
+    const doc = { type: "doc", content: [{ type: "paragraph", content: [
+      { type: "text", text: "Readiness was " },
+      { type: "text", text: "first", marks: [{ type: "bold" }] },
+      { type: "text", text: ` judged from single readings. ${MARK}` },
+    ] }] };
+    const result = applyReplacements(doc, [{ find: "was first judged", replaceWith: "was judged" }]);
+    expect(result.count).toBe(1);
+    expect(nodeTextOf(result.doc)).toBe(`Readiness was judged from single readings. ${MARK}`);
+  });
+
+  it("removes a marker only when the edit asks for it (the writer accepting it)", () => {
+    const doc = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: sentence }] }] };
+    const result = applyReplacements(doc, [{ find: ` ${MARK}`, replaceWith: "" }]);
+    expect(nodeTextOf(result.doc)).toBe("Readiness was first judged from single readings.");
+  });
+});
+
 const nodeTextOf = (node: PMNode): string =>
   typeof node.text === "string" ? node.text : ((node.content as PMNode[] | undefined) ?? []).map(nodeTextOf).join("");
 

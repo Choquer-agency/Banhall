@@ -78,6 +78,7 @@
     type CanonicalExportReport,
     type ExportValidationResult,
   } from "$lib/exportValidation";
+  import type { ReportNote } from "$lib/reportSections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
@@ -990,6 +991,7 @@
               message,
             })),
           warnings: [],
+          notes: [],
         };
       } else {
         exportError = userErrorMessage(error, "The export could not be completed.");
@@ -1072,6 +1074,16 @@
   function cancelExportValidation() {
     pendingExport = null;
     exportValidation = null;
+  }
+
+  /**
+   * 2026-10-29: a note in the export dialog's list closes it and shows that
+   * note in the report: its own occurrence in its own Line (review round 1,
+   * P2-4), or every place with its words if the report moved since.
+   */
+  function showExportNote(note: ReportNote) {
+    cancelExportValidation();
+    if (!editorRef?.showNote(note)) editorRef?.highlightText([note.text], note.text);
   }
 
   // Iterative (section-by-section) generations render the stepper for their
@@ -2174,8 +2186,10 @@
       <ExportValidationDialog
         errors={exportValidation.errors}
         warnings={exportValidation.warnings}
+        notes={exportValidation.notes}
         onCancel={cancelExportValidation}
         onProceed={proceedAfterExportWarnings}
+        onShowNote={showExportNote}
       />
     {/if}
     {#if exportError}

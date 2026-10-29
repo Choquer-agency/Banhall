@@ -21,6 +21,7 @@ deep-fir app bar, and a single lagoon accent. Quiet everywhere, loud once.
 | `primary-light` | `#45CFC9` | Accent on dark surfaces only |
 | `primary-wash` | `#F1FAF9` | Interactive hover fill on light surfaces |
 | `gap-bg` / `gap-text` | `#FEF3C7` / `#92400E` | Report [GAP:] highlights only |
+| `inferred-bg` / `inferred-text` | `#D5F3F1` / `#065F5B` | Report [INFERRED:] highlights only (an inference for the writer to check) |
 
 **Neutral ramp** — Tailwind's `gray-*` is *remapped* to teal-cast values so
 every neutral in the app shares the brand hue. Hierarchy:

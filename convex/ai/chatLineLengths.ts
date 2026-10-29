@@ -7,7 +7,7 @@
  * It uses the editor's own measure (`reportSectionMetrics`), one parser and
  * one CRA line model, so the block and the meters can never disagree.
  */
-import { GAP_MARKER_RE } from "../lib/lineLimits";
+import { GAP_MARKER_RE, INFERRED_MARKER_RE } from "../lib/lineLimits";
 import { parseCanonicalReport, reportSectionMetrics } from "../../src/lib/reportSections";
 
 const LINES = [
@@ -30,18 +30,25 @@ export function lineLengthsText(reportContent: string | null): string | null {
   return LINES.map(([key, line]) => {
     const m = metrics[key];
     const gaps = [...report.sections[key].plainText.matchAll(GAP_MARKER_RE)].length;
+    const inferred = [...report.sections[key].plainText.matchAll(INFERRED_MARKER_RE)].length;
+    // 2026-10-29: [INFERRED] notes never count, and deleting one (the writer
+    // accepting it) changes no number on the meter.
+    const inferredNote =
+      inferred === 0
+        ? ""
+        : ` ${inferred === 1 ? "Its one [INFERRED] note is" : `Its ${inferred} [INFERRED] notes are`} not counted either, and deleting one changes no count.`;
     const over = [
       m.lines > m.limit ? `${plural(m.lines - m.limit, "form line", "form lines")} over` : null,
       m.words > m.wordCap ? `${plural(m.words - m.wordCap, "word", "words")} over` : null,
     ].filter(Boolean);
     const verdict = over.length ? `${over.join(" and ")} the CRA limit` : "within the CRA limits";
     const meter = `Line ${line}: ${m.lines} of ${m.limit} form lines and ${m.words} of ${m.wordCap} words, ${verdict}.`;
-    if (gaps === 0) return `${meter} No [GAP] notes.`;
+    if (gaps === 0) return `${meter} No [GAP] notes.${inferredNote}`;
     const extraLines = m.rawLines - m.lines;
     const extraWords = m.rawWords - m.words;
     const shown = extraLines > 0 ? ` The meter shows this as "(+${extraLines} with gaps)".` : "";
     const notes = gaps === 1 ? "Its one [GAP] note is not counted; counted, it adds" : `Its ${gaps} [GAP] notes are not counted; counted, they add`;
-    return `${meter} ${notes} ${plural(extraLines, "form line", "form lines")} and ${plural(extraWords, "word", "words")}.${shown}`;
+    return `${meter} ${notes} ${plural(extraLines, "form line", "form lines")} and ${plural(extraWords, "word", "words")}.${shown}${inferredNote}`;
   }).join("\n");
 }
 

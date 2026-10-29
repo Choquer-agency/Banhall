@@ -46,7 +46,9 @@ import {
 import {
   sectionMetrics,
   wordBudget,
-  GAP_MARKER_RE,
+  INFERRED_MARKER_RE,
+  NOTE_MARKER_RE,
+  stripNoteMarkers,
   LINE_LIMITS,
   CHARS_PER_LINE,
   type LengthTarget,
@@ -454,10 +456,78 @@ function useCounts(uses: readonly string[]): Map<string, number> {
   return counts;
 }
 
+/** Words a sentence may end on that are not its end: "e.g.", "approx." and the like. */
+const ABBREVIATION_END = /\b(?:e\.g|i\.e|approx|etc|vs|cf|ca|fig|no|nos|dr|mr|mrs|ms|st)\.$/i;
+
+/** Sentences of one paragraph, never split after an abbreviation (review round 2). */
+function paragraphSentences(paragraph: string): string[] {
+  const sentences: string[] = [];
+  for (const piece of paragraph.split(/(?<=[.!?])\s+/)) {
+    const last = sentences[sentences.length - 1];
+    if (last !== undefined && ABBREVIATION_END.test(last)) sentences[sentences.length - 1] = `${last} ${piece}`;
+    else sentences.push(piece);
+  }
+  return sentences.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+/**
+ * The sentences before an [INFERRED: ...] marker at `index` in its
+ * paragraph, other markers left out: the last is the one it marks.
+ */
+function sentencesBeforeMarker(text: string, index: number): string[] {
+  const head = text.slice(0, index);
+  const paragraph = head.slice(head.search(/\n\s*\n(?![\s\S]*\n\s*\n)/) + 1);
+  return paragraphSentences(stripNoteMarkers(paragraph));
+}
+
+/** How many of `words` the sentence holds, matched loosely (sameWord). */
+function sharedWords(words: readonly string[], sentence: string): number {
+  const other = contentWords(sentence);
+  return words.filter((word) => other.some((candidate) => sameWord(word, candidate))).length;
+}
+
+/**
+ * Review round 1 (P3-11): why a pass kept an [INFERRED: ...] marker but not
+ * the sentence it marks, or null, so a marker never ends up on a stated
+ * sentence that was beside it. Round 2 (P3-3): a squeeze may shorten the
+ * sentence a lot. The marker's sentence in the pass must hold a third of the
+ * content words of the sentence it marked, and at least 2 (all of them when
+ * it has fewer), and must not be closer to the sentence that was before the
+ * marked one than to the marked one itself.
+ */
+export function inferredSentenceLoss(input: string, output: string): string | null {
+  const seen = new Map<string, number>();
+  for (const match of input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
+    const occurrence = seen.get(match[0]) ?? 0;
+    seen.set(match[0], occurrence + 1);
+    const before = sentencesBeforeMarker(input, match.index);
+    const marked = before[before.length - 1];
+    if (!marked) continue;
+    let at = -1;
+    for (let index = 0; index <= occurrence; index += 1) {
+      at = output.indexOf(match[0], at + 1);
+      if (at < 0) break;
+    }
+    if (at < 0) return `dropped the marker ${match[0]}`;
+    const keptBefore = sentencesBeforeMarker(output, at);
+    const kept = keptBefore[keptBefore.length - 1] ?? "";
+    const keptWords = contentWords(kept);
+    const words = contentWords(marked);
+    const required = Math.min(words.length, Math.max(2, Math.ceil(words.length / 3)));
+    const shared = sharedWords(words, kept);
+    const neighbour = before[before.length - 2];
+    const closerToNeighbour =
+      neighbour !== undefined && sharedWords(keptWords, neighbour) > sharedWords(keptWords, marked);
+    if (shared < required || closerToNeighbour) return `dropped the sentence the marker ${match[0]} belongs to`;
+  }
+  return null;
+}
+
 /**
  * Why a compression pass dropped required content, or null when it kept it
  * (review P2-1; 2026-09-28 second, full suite). A pass must keep every [GAP] marker of
- * the text it was given verbatim. A number, or a negation read with the word
+ * the text it was given verbatim, and (2026-10-29) every [INFERRED] marker,
+ * adding none of its own. A number, or a negation read with the word
  * it negates, that the text holds and a Must keep line also holds must still
  * appear somewhere in the pass; any other number or negation may go with the
  * detail it belongs to (the request forbids changing one). A pass under
@@ -473,9 +543,17 @@ export function compressionLoss(
   mustKeep: readonly string[] = [],
   exactTerms: readonly string[] = []
 ): string | null {
-  for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
+  // 2026-10-29: an [INFERRED: ...] marker is the writer's to accept or
+  // remove, so a pass keeps it verbatim as it keeps a gap, and adds none.
+  for (const match of input.matchAll(new RegExp(NOTE_MARKER_RE.source, "gi"))) {
     if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
   }
+  const given = new Set([...input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))].map((match) => match[0]));
+  for (const match of output.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
+    if (!given.has(match[0])) return `added the marker ${match[0]}`;
+  }
+  const lostSentence = inferredSentenceLoss(input, output);
+  if (lostSentence) return lostSentence;
   for (const term of exactTerms) {
     if (containsTerm(input, term) && !containsTerm(output, term)) {
       return `dropped the writer's term "${term}"`;

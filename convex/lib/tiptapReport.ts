@@ -1,13 +1,15 @@
 import { checkBecauseClauses } from "../ai/qaChecks";
+import { GAP_MARKER_RE } from "./lineLimits";
 
 // Framework-free Tiptap report-document construction, shared by the node
 // generation pipeline (convex/ai/pipeline.ts) and the default-runtime
 // iterative-assembly mutations (convex/generations.ts). No "use node", no
 // imports from node-only modules.
 
-// Capturing variant of GAP_MARKER_RE (convex/lib/lineLimits.ts) — the shared
-// constant has no capture group; keep the two in sync.
-const GAP_CAPTURE_RE = /\[GAP:\s*([^\]]*)\]/g;
+// The gap markers of GAP_MARKER_RE (convex/lib/lineLimits.ts), case-sensitive
+// as before; since review round 2 of the inference marker both stop at
+// another bracket or a blank line, so an unclosed one swallows nothing.
+const GAP_CAPTURE_RE = new RegExp(GAP_MARKER_RE.source, "g");
 
 const REPORT_BLOCK_TYPES = new Set([
   "paragraph", "heading", "codeBlock", "blockquote", "listItem", "bulletList",
@@ -25,7 +27,10 @@ export function sectionParagraphs(text: string): string[] {
 }
 
 /** Split section prose into Tiptap paragraph nodes, highlighting [GAP: …]
- * markers so the editor renders them as fill-me-in prompts. */
+ * markers so the editor renders them as fill-me-in prompts. An [INFERRED: …]
+ * marker (2026-10-29) stays plain text: the editor draws its chip as a
+ * decoration (src/lib/components/editor/inferenceNotes.ts), so a typed or
+ * Assistant-applied marker shows the same way. */
 export function textToParagraphs(text: string): Array<Record<string, unknown>> {
   return sectionParagraphs(text)
     .map((p) => {

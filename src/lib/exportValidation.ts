@@ -1,6 +1,8 @@
 import {
   parseCanonicalReport,
+  reportNotes,
   type CanonicalReportBody,
+  type ReportNote,
   type ReportSectionKey,
 } from "$lib/reportSections";
 import {
@@ -54,6 +56,11 @@ export interface CanonicalExportReport {
 export interface ExportValidationResult {
   errors: ExportValidationIssue[];
   warnings: ExportValidationIssue[];
+  /**
+   * Every [GAP: ...] and [INFERRED: ...] note still in the three Lines, in
+   * build order, for the dialog's list with a jump to each (2026-10-29).
+   */
+  notes: ReportNote[];
 }
 export interface ExportRevisionIdentity {
   reportId: string;
@@ -125,6 +132,34 @@ export function validateExport(
         field: diagnostic.section ?? "content",
         label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
         message: `${subject} contains an unresolved [GAP] marker; it will be exported highlighted.`,
+      });
+      continue;
+    }
+    // 2026-10-29 (owner): an [INFERRED: ...] marker is treated like a gap. It
+    // does not block; it exports highlighted until the writer checks it.
+    if (diagnostic.code === "UNCHECKED_INFERENCE") {
+      const subject = diagnostic.section
+        ? `Line ${diagnostic.section.slice(1)}`
+        : "The report";
+      warnings.push({
+        severity: "warning",
+        field: diagnostic.section ?? "content",
+        label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
+        message: `${subject} has an inference to check (an [INFERRED] marker); it will be exported highlighted.`,
+      });
+      continue;
+    }
+    // Review round 1 (P2-5): a note opened and never closed is report text
+    // to the counts and the export. It warns, as a gap does.
+    if (diagnostic.code === "UNCLOSED_NOTE") {
+      const subject = diagnostic.section
+        ? `Line ${diagnostic.section.slice(1)}`
+        : "The report";
+      warnings.push({
+        severity: "warning",
+        field: diagnostic.section ?? "content",
+        label: diagnostic.section ? LABELS[diagnostic.section] : "Report body",
+        message: `${subject} has a gap or inference note with no closing bracket. Its words count toward the limits as report text and export as plain text: finish it with "]" or delete it.`,
       });
       continue;
     }
@@ -245,5 +280,5 @@ export function validateExport(
     }
   }
 
-  return { errors, warnings };
+  return { errors, warnings, notes: reportNotes(report.body) };
 }

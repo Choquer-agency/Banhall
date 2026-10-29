@@ -2,18 +2,31 @@
   import { Dialog } from "bits-ui";
   import { overlayFade, modalPop } from "$lib/motion";
   import type { ExportValidationIssue } from "$lib/exportValidation";
+  import type { ReportNote } from "$lib/reportSections";
 
   let {
     errors,
     warnings,
+    notes = [],
     onCancel,
     onProceed,
+    onShowNote,
   }: {
     errors: ExportValidationIssue[];
     warnings: ExportValidationIssue[];
+    /**
+     * 2026-10-29 (owner): every gap and inference still in the report, so
+     * the writer sees each one and can jump to it before filing.
+     */
+    notes?: ReportNote[];
     onCancel: () => void;
     onProceed?: () => void;
+    /** Closes the dialog and shows this note in the report. */
+    onShowNote?: (note: ReportNote) => void;
   } = $props();
+
+  const NOTE_KIND = { gap: "Gap", inferred: "Inferred" } as const;
+  const noteLine = (note: ReportNote) => `Line ${note.section.slice(1)}`;
 
   const hasErrors = $derived(errors.length > 0);
   const title = $derived(hasErrors ? "Fix export errors" : "Review export warnings");
@@ -156,6 +169,45 @@
                 {/if}
                 {#if warningGroups.length > 0}
                   {@render issueSection("export-warnings-heading", "Warnings", warningGroups, "warning")}
+                {/if}
+                {#if notes.length > 0}
+                  <section class="mt-4" aria-labelledby="export-notes-heading" data-export-notes>
+                    <div class="flex items-center gap-2">
+                      <h4 id="export-notes-heading" class="text-label">Notes to check</h4>
+                      <span class="text-data inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-chrome px-1.5 text-ink-secondary">
+                        {notes.length}
+                      </span>
+                    </div>
+                    <p class="mt-1 text-xs leading-[1.5] text-ink-muted">
+                      A gap needs the missing fact. An inference is not stated in the sources: check it, then delete its note to keep the sentence, or remove the sentence.
+                    </p>
+                    <ul class="mt-1.5 space-y-1.5">
+                      {#each notes as note, index (index)}
+                        <li class="flex items-start gap-2.5 rounded-lg border border-line px-3 py-2" data-export-note={note.kind}>
+                          <span
+                            class={`mt-px inline-flex h-5 flex-none items-center rounded px-1.5 text-[0.6875rem] font-medium leading-[calc(16/11)] ${
+                              note.kind === "gap" ? "bg-gap-bg text-gap-text" : "bg-inferred-bg text-inferred-text"
+                            }`}
+                          >
+                            {NOTE_KIND[note.kind]}
+                          </span>
+                          <p class="min-w-0 flex-1 text-xs leading-[1.5] text-ink-secondary">
+                            <span class="font-medium text-ink">{noteLine(note)}:</span>
+                            {note.note || (note.kind === "gap" ? "Nothing named" : "No reason given")}
+                          </p>
+                          {#if onShowNote}
+                            <button
+                              type="button"
+                              onclick={() => onShowNote(note)}
+                              class="flex-none rounded-md px-2 py-0.5 text-xs font-medium leading-[1.5] text-primary-selected transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
+                            >
+                              Show<span class="sr-only"> this {note.kind === "gap" ? "gap" : "inference"} in {noteLine(note)}</span>
+                            </button>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ul>
+                  </section>
                 {/if}
               </div>
 

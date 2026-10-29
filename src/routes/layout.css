@@ -69,6 +69,12 @@
   --color-gap-bg: #FEF3C7;
   --color-gap-text: #A8500F;
 
+  /* Report inference highlight (2026-10-29): an [INFERRED: ...] marker for
+     the writer to check, a lagoon chip apart from the amber gap. Deep teal
+     on the wash is 6.4:1. */
+  --color-inferred-bg: #D5F3F1;
+  --color-inferred-text: #065F5B;
+
   /* Stale marker dot (amber, the orange score band's bar colour). */
   --color-stale-dot: #F59E0B;
 
@@ -1115,6 +1121,19 @@ textarea.input-chromeless:focus-visible {
   border-radius: 0.25rem;
 }
 
+/* [INFERRED: ...] markers (2026-10-29): the same chip as a gap, in the
+   lagoon inference colours. Drawn by the reportInferenceNotes decoration
+   (src/lib/components/editor/inferenceNotes.ts). */
+.tiptap-editor mark.report-inferred {
+  background-color: var(--color-inferred-bg);
+  color: var(--color-inferred-text);
+  font-family: var(--font-sans);
+  font-size: 0.93em;
+  font-weight: 500;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+}
+
 /* Selection */
 .tiptap-editor ::selection {
   background-color: rgba(26, 26, 46, 0.15);
@@ -1298,6 +1317,17 @@ textarea.input-chromeless:focus-visible {
   padding: 0.125rem 0.375rem;
   border-radius: 0.1875rem;
   color: var(--color-gap-text);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.report-reading .tiptap-editor mark.report-inferred {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: calc(23 / 15);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.1875rem;
+  color: var(--color-inferred-text);
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }

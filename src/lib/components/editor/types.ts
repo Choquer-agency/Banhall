@@ -4,6 +4,8 @@
  * the full writer Editor implements WriterEditorHandle via exported functions
  * (parents `bind:this` the component instance and call them directly).
  */
+import type { ReportNote } from "$lib/reportSections";
+
 export interface CommentRange {
   id: string;
   from: number;
@@ -46,6 +48,12 @@ export interface WriterEditorHandle extends EditorHandle {
    * `scrollTo` (one of the passages) — or the first occurrence if omitted.
    */
   highlightText: (texts: string[], scrollTo?: string) => void;
+  /**
+   * 2026-10-29 (review round 1, P2-4): highlight and scroll to one gap or
+   * inference note of the export dialog's list, its own occurrence in its
+   * own Line. False when the report no longer holds it there.
+   */
+  showNote: (note: Pick<ReportNote, "section" | "text" | "occurrence">) => boolean;
   /** Locate a 1-based non-empty paragraph after the matching section heading. */
   locateSectionParagraph: (section: string, paragraph: number | null) => void;
   clearHighlight: () => void;

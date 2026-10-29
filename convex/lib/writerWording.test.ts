@@ -89,6 +89,10 @@ describe("the matcher (Round 5)", () => {
     expect(openingAt("Context first. The aim of this work was to cure it.", "The aim of this work was to")).toEqual({ paragraphIndex: 0, opensParagraph: false });
     expect(openingAt("Its aim was that the aim of this work was to cure it.", "The aim of this work was to")).toBeNull();
     expect(openingAt("[GAP: company size] The aim of this work was to cure it.", "The aim of this work was to")).toEqual({ paragraphIndex: 0, opensParagraph: false });
+    // 2026-10-29: so does the sentence after an [INFERRED: ...] marker.
+    expect(
+      openingAt("It cured slowly. [INFERRED: the source names no faster cure] The aim of this work was to cure it.", "The aim of this work was to")
+    ).toEqual({ paragraphIndex: 0, opensParagraph: false });
   });
 });
 

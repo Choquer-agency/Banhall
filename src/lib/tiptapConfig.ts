@@ -4,6 +4,7 @@ import Highlight from "@tiptap/extension-highlight";
 import CharacterCount from "@tiptap/extension-character-count";
 import { Extension } from "@tiptap/core";
 import { ReportSectionHeadings, type SectionHeadingRefusal } from "$lib/components/editor/reportSectionHeadings";
+import { ReportInferenceNotes } from "$lib/components/editor/inferenceNotes";
 
 /**
  * Custom keyboard shortcuts extension.
@@ -52,6 +53,8 @@ export function getEditorExtensions({
     }),
     CharacterCount,
     CustomKeyboardShortcuts,
+    // 2026-10-29: [INFERRED: ...] markers show as chips for the writer to check.
+    ReportInferenceNotes,
     ...(sectionHeadings
       ? [ReportSectionHeadings.configure({ onRefuse: onSectionHeadingRefused ?? null })]
       : []),
