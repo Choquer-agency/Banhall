@@ -456,35 +456,52 @@ function useCounts(uses: readonly string[]): Map<string, number> {
   return counts;
 }
 
+/** Words a sentence may end on that are not its end: "e.g.", "approx." and the like. */
+const ABBREVIATION_END = /\b(?:e\.g|i\.e|approx|etc|vs|cf|ca|fig|no|nos|dr|mr|mrs|ms|st)\.$/i;
+
+/** Sentences of one paragraph, never split after an abbreviation (review round 2). */
+function paragraphSentences(paragraph: string): string[] {
+  const sentences: string[] = [];
+  for (const piece of paragraph.split(/(?<=[.!?])\s+/)) {
+    const last = sentences[sentences.length - 1];
+    if (last !== undefined && ABBREVIATION_END.test(last)) sentences[sentences.length - 1] = `${last} ${piece}`;
+    else sentences.push(piece);
+  }
+  return sentences.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
 /**
- * The sentence an [INFERRED: ...] marker at `index` belongs to: the last
- * sentence before it in its paragraph, other markers left out. "" when the
- * marker opens its paragraph.
+ * The sentences before an [INFERRED: ...] marker at `index` in its
+ * paragraph, other markers left out: the last is the one it marks.
  */
-function sentenceBeforeMarker(text: string, index: number): string {
+function sentencesBeforeMarker(text: string, index: number): string[] {
   const head = text.slice(0, index);
   const paragraph = head.slice(head.search(/\n\s*\n(?![\s\S]*\n\s*\n)/) + 1);
-  const sentences = stripNoteMarkers(paragraph)
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-  return sentences[sentences.length - 1] ?? "";
+  return paragraphSentences(stripNoteMarkers(paragraph));
+}
+
+/** How many of `words` the sentence holds, matched loosely (sameWord). */
+function sharedWords(words: readonly string[], sentence: string): number {
+  const other = contentWords(sentence);
+  return words.filter((word) => other.some((candidate) => sameWord(word, candidate))).length;
 }
 
 /**
  * Review round 1 (P3-11): why a pass kept an [INFERRED: ...] marker but not
- * the sentence it marks, or null. Each marker's sentence in the pass must
- * still hold at least half of the content words of the sentence it marked
- * in the text given (matched loosely, sameWord), so a shortened sentence
- * keeps its marker and a marker never ends up on a stated sentence that was
- * beside it.
+ * the sentence it marks, or null, so a marker never ends up on a stated
+ * sentence that was beside it. Round 2 (P3-3): a squeeze may shorten the
+ * sentence a lot. The marker's sentence in the pass must hold a third of the
+ * content words of the sentence it marked, and at least 2 (all of them when
+ * it has fewer), and must not be closer to the sentence that was before the
+ * marked one than to the marked one itself.
  */
 export function inferredSentenceLoss(input: string, output: string): string | null {
   const seen = new Map<string, number>();
   for (const match of input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
     const occurrence = seen.get(match[0]) ?? 0;
     seen.set(match[0], occurrence + 1);
-    const marked = sentenceBeforeMarker(input, match.index);
+    const before = sentencesBeforeMarker(input, match.index);
+    const marked = before[before.length - 1];
     if (!marked) continue;
     let at = -1;
     for (let index = 0; index <= occurrence; index += 1) {
@@ -492,10 +509,16 @@ export function inferredSentenceLoss(input: string, output: string): string | nu
       if (at < 0) break;
     }
     if (at < 0) return `dropped the marker ${match[0]}`;
+    const keptBefore = sentencesBeforeMarker(output, at);
+    const kept = keptBefore[keptBefore.length - 1] ?? "";
+    const keptWords = contentWords(kept);
     const words = contentWords(marked);
-    const keptWords = contentWords(sentenceBeforeMarker(output, at));
-    const shared = words.filter((word) => keptWords.some((other) => sameWord(word, other))).length;
-    if (shared < Math.ceil(words.length / 2)) return `dropped the sentence the marker ${match[0]} belongs to`;
+    const required = Math.min(words.length, Math.max(2, Math.ceil(words.length / 3)));
+    const shared = sharedWords(words, kept);
+    const neighbour = before[before.length - 2];
+    const closerToNeighbour =
+      neighbour !== undefined && sharedWords(keptWords, neighbour) > sharedWords(keptWords, marked);
+    if (shared < required || closerToNeighbour) return `dropped the sentence the marker ${match[0]} belongs to`;
   }
   return null;
 }

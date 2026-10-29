@@ -39,7 +39,24 @@ describe("the three kinds rule", () => {
   it("names the three kinds, the marker, the gap and the examples, in plain words with no dashes", () => {
     expect(RULES_EVIDENCE_KINDS).toContain("STATED, INFERRED OR MISSING (MANDATORY in the report text):");
     expect(RULES_EVIDENCE_KINDS).toContain("1. Stated: the evidence says it. Write it plainly.");
-    expect(RULES_EVIDENCE_KINDS).toContain("[INFERRED: what it rests on, in plain words]");
+    expect(RULES_EVIDENCE_KINDS).toContain("[INFERRED: the stated facts it rests on, in plain words]");
+    // Review round 2 (P2-1): an inference is a consequence, cause or
+    // comparison of stated facts; an event is never inferred, marked or not.
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      "2. Inferred: a consequence, a cause or a comparison that the stated facts clearly imply, and that a careful reader of the evidence would agree with."
+    );
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      "- Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed."
+    );
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      "- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts. Write an inferred cause as likely, never as confirmed."
+    );
+    // The gap comes first wherever the instructions ask for what the evidence lacks.
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      "leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it. Never make it up to fill the shape."
+    );
+    expect(RULES_EVIDENCE_KINDS).not.toContain("mark it as inferred, or leave a gap");
+    expect(RULES_EVIDENCE_KINDS).not.toContain("mark a reasonable inference, or leave a gap");
     expect(RULES_EVIDENCE_KINDS).toContain("3. Missing: nothing in the evidence supports it. Do not write it.");
     expect(RULES_EVIDENCE_KINDS).toContain("[GAP: what is needed]");
     // The meeting's own example of an invented event is the bad example.
@@ -48,10 +65,17 @@ describe("the three kinds rule", () => {
     // missing story step becomes a gap, and a requirement read as a first
     // approach is the Bad example.
     expect(RULES_EVIDENCE_KINDS).toContain(
-      `Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (it follows from two stated facts)`
+      `Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)`
     );
     expect(RULES_EVIDENCE_KINDS).toContain('"The first approach was [GAP: what was tried first and why it fell short].');
-    expect(RULES_EVIDENCE_KINDS).toContain('Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a requirement is not evidence of what was done first');
+    // Round 2: the marked invented event, the easy wrong answer, is the first Bad example.
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      'Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)'
+    );
+    // No Good example marks an event.
+    const goods = RULES_EVIDENCE_KINDS.split("\n").filter((line) => line.startsWith("Good"));
+    expect(goods).toHaveLength(2);
+    for (const good of goods) expect(good).not.toMatch(/\b(?:trials?|tests?|tested|found|showed|indicated)\b/i);
     // The marker may name the source; the sentence may not.
     expect(RULES_EVIDENCE_KINDS).toContain("A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on");
     expect(RULES_EVIDENCE_KINDS).toContain("The sentence itself never names a source.");
@@ -102,7 +126,9 @@ describe("the three kinds rule", () => {
       expect(task.indexOf("## Self-check repair")).toBeGreaterThan(task.indexOf(SECTION_EVIDENCE_POINTER));
       expect(task.endsWith("# BRIEF")).toBe(true);
     }
-    expect(SECTION_EVIDENCE_POINTER).toContain("the STATED, INFERRED OR MISSING rule decides: mark a reasonable inference, or leave a [GAP: ...].");
+    expect(SECTION_EVIDENCE_POINTER).toContain(
+      "the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding or change of approach) the evidence does not describe."
+    );
     expect(SECTION_EVIDENCE_POINTER).toContain("even where these instructions say a missing element will be flagged");
     expect(findDashConnectors(SECTION_EVIDENCE_POINTER)).toEqual([]);
   });
@@ -144,6 +170,8 @@ describe("the checks allow a marked inference", () => {
   it("the Self-check, in both modes, never fails a marked inference and lets a marker name a source", () => {
     for (const prompt of [SELF_CHECK_SYSTEM_PROMPT, SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT]) {
       expect(prompt).toContain("A sentence followed by an [INFERRED: ...] marker is a marked inference the writer will check. Only its lack of a source is allowed");
+      // Round 2: a marked event is still not allowed.
+      expect(prompt).toContain("A marked event (a trial, test, result, finding or change of approach) the evidence does not describe is not allowed.");
       // Review round 1 (P3-7): its hedging is still judged.
       expect(prompt).toContain("Judge its hedging against the Confidence Map, and everything else about it, as usual.");
       expect(prompt).toContain("A [GAP: ...] or [INFERRED: ...] marker is a note to the writer, not report text, so it may name a source.");
@@ -156,7 +184,9 @@ describe("the checks allow a marked inference", () => {
   it("the facts check never flags a marked inference for having no source, but still checks its figures", () => {
     for (const complete of [true, false]) {
       const instruction = factsMatchSourcesInstruction(complete);
-      expect(instruction).toContain("never flag it for having no source, but check a figure or a specific detail it states like any other.");
+      expect(instruction).toContain(
+        "never flag it for having no source, but check a figure or a specific detail it states like any other, and flag an event it states (a trial, test, result, finding or change of approach) that the sources do not describe."
+      );
       // Review round 1 (P3-8): and the marker's own words.
       expect(instruction).toContain("Check the marker's own words the same way: a figure in them, or what they say the sources say, must match the sources.");
     }
@@ -165,7 +195,9 @@ describe("the checks allow a marked inference", () => {
   it("QA does not count a marked inference as fabricated, and still flags an unmarked one", () => {
     for (const prompt of [buildQaSystemPrompt(), buildQaSystemPrompt({ ...NO_STYLE_OVERRIDES, reportSkeleton: true })]) {
       expect(prompt).toContain("- Are [GAP] placeholders used where information is missing?");
-      expect(prompt).toContain("do not count it as untraceable or fabricated. Flag an inference written as a stated fact, with no marker, as before.");
+      expect(prompt).toContain(
+        "do not count it as untraceable or fabricated, unless it states an event (a trial, test, result, finding or change of approach) the evidence does not describe, which a marker does not allow. Flag an inference written as a stated fact, with no marker, as before."
+      );
     }
   });
 
@@ -218,9 +250,26 @@ describe("compression keeps every marker", () => {
     // Each of two identical markers is judged at its own place.
     const two = `Alpha probes drifted at night in the cold room. ${MARK}\n\nBeta valves stuck after each long door opening. ${MARK}`;
     expect(inferredSentenceLoss(two, two)).toBeNull();
-    expect(inferredSentenceLoss(two, `Alpha probes drifted at night. ${MARK}\n\nThe door stayed open. ${MARK}`)).toBe(
+    expect(inferredSentenceLoss(two, `Alpha probes drifted at night. ${MARK}\n\nThe probes were replaced. ${MARK}`)).toBe(
       `dropped the sentence the marker ${MARK} belongs to`
     );
+  });
+
+  // Review round 2 (P3-3): a good squeeze passes, and a sentence is never split at "e.g.".
+  it("keeps a heavy but faithful squeeze, and still refuses a marker moved to a similar neighbour", () => {
+    const long = `The room was held at 2 C in every trial. Standard setpoint tables did not describe the warehouse's normal daily operating state for long dock door openings. ${MARK}`;
+    const squeezed = `The room was held at 2 C in every trial. Setpoint tables did not describe normal operation. ${MARK}`;
+    expect(inferredSentenceLoss(long, squeezed)).toBeNull();
+    // A neighbour that shares words with the marked sentence is still told apart.
+    const close = `The probe was read every ten seconds in the cold room. Readiness was first judged from single readings of the probe. ${MARK}`;
+    expect(inferredSentenceLoss(close, `The probe was read every ten seconds in the cold room. ${MARK}`)).toBe(
+      `dropped the sentence the marker ${MARK} belongs to`
+    );
+    expect(inferredSentenceLoss(close, `The probe was read every ten seconds. Readiness was judged from single probe readings. ${MARK}`)).toBeNull();
+    // "e.g." and "approx." end no sentence: the marked sentence is the whole one.
+    const abbreviated = `The room was held at 2 C. Loads varied, e.g. pallets of fish and approx. 3 t of ice, so the tables did not fit them. ${MARK}`;
+    expect(inferredSentenceLoss(abbreviated, `The room was held at 2 C. Loads varied, so the tables did not fit. ${MARK}`)).toBeNull();
+    expect(inferredSentenceLoss(abbreviated, `The room was held at 2 C. ${MARK}`)).toBe(`dropped the sentence the marker ${MARK} belongs to`);
   });
 
   it("reads a paragraph that ends on a marker as ending on a whole sentence", () => {

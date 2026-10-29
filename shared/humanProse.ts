@@ -160,10 +160,13 @@ No talk about sources:
  * indicated...", "The team found that..."), so reviewers hunt for what was
  * invented. Michael: "there's good inferences and there's bad ones ... maybe
  * it needs to be flagged". Tracy: "let it leave blanks, basically, if it's
- * really not there". A stated claim is written plainly; a reasonable
- * inference is written and marked; a claim with no basis is not written and
- * a gap takes its place. The marker is a note to the writer, like a gap, so
- * it may name the source; the sentence never does.
+ * really not there". A stated claim is written plainly; a consequence,
+ * cause or comparison the stated facts clearly imply is written and marked;
+ * a claim with no basis is not written and a gap takes its place. Review
+ * round 2: an event (a trial, result, finding or change of approach) is
+ * never inferred, marked or not: without evidence it is a gap. The marker
+ * is a note to the writer, like a gap, so it may name the source; the
+ * sentence never does.
  *
  * Locked, like the [GAP] rule beside it: sent in the shared writing rules of
  * every drafting request (Single draft, Compare, Step by step and a redraft,
@@ -176,20 +179,22 @@ No talk about sources:
 export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
 Every claim you write in a report Line is one of three kinds. Decide which before you write it.
 1. Stated: the evidence says it. Write it plainly.
-2. Inferred: the evidence does not say it, but it follows from what the evidence does say, and a careful reader of the evidence would agree. Write the sentence, then put a marker straight after it: [INFERRED: what it rests on, in plain words]. The marker tells the writer which sentence to check and why you thought it.
+2. Inferred: a consequence, a cause or a comparison that the stated facts clearly imply, and that a careful reader of the evidence would agree with. Write the sentence, then put a marker straight after it: [INFERRED: the stated facts it rests on, in plain words]. The marker tells the writer which sentence to check and why you thought it.
 3. Missing: nothing in the evidence supports it. Do not write it. Where the Line needs it, put a [GAP: what is needed] marker in its place.
-- Never write an inference as if the evidence stated it. A trial, a test, a result, a finding, a first approach, a change of approach, a cause or a comparison that the evidence does not describe is not stated: mark it as inferred, or leave a gap.
+- Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed.
+- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts. Write an inferred cause as likely, never as confirmed.
+- Never write an inference as if the evidence stated it: mark it.
 - An inference adds no specific detail of its own: no number, material, name, date, setting or test result. A detail you would have to invent is missing and gets a gap.
-- When a Line's instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding or a result, these three kinds still decide: mark a reasonable inference, or leave a gap. Never make it up to fill the shape.
-- Infer only what the evidence clearly points to. Most sentences should be stated; when in doubt, leave a gap.
+- When a Line's instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding or a result, leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it. Never make it up to fill the shape.
+- Most sentences should be stated. When in doubt, leave a gap.
 - One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
 - A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on, such as the client's answer or a test log. The sentence itself never names a source.
 - When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
-Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (it follows from two stated facts)
+Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
 Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
-Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a requirement is not evidence of what was done first: that step is missing, so leave a gap)
-Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials: an inference written as a stated fact)
-Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source; that belongs in the marker)
+Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)
+Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials, and the sentence is written as a stated fact)
+Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source, and states a first approach the evidence does not describe)
 Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)`;
 
 /**
