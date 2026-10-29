@@ -46,7 +46,7 @@ import { resolveGenerationStep } from "./lib/generationSteps";
 import { MODEL } from "../shared/generationModels";
 import { anthropicConfiguration, openRouterConfiguration } from "./lib/providerConfig";
 import { briefPreparationKey } from "./lib/briefPreparationKey";
-import { buildBriefUserMessage } from "./lib/briefRequest";
+import { briefRequestCharsUpperBound, briefSourcesFit, buildBriefUserMessage } from "./lib/briefRequest";
 import {
   preparationDay,
   preparationLimitRefusal,
@@ -721,7 +721,14 @@ async function runPreparationStart(
   // the call against $0.50 per project (or draft) and $5 per user per
   // firm day.
   const firmDay = firmDayNumber(now);
-  const reservedUsd = reservePreparationUsd(pricing, route.model, buildBriefUserMessage(fields).length);
+  // Phase D, step 1: the parts are chosen once, for the key. When the
+  // sources do not all fit, the reservation counts an upper bound on the
+  // request (the whole budget, every rule, frame and notice), rather than
+  // choosing the parts a second time inside this transaction (review).
+  const requestChars = briefSourcesFit(fields)
+    ? buildBriefUserMessage(fields).length
+    : briefRequestCharsUpperBound(fields);
+  const reservedUsd = reservePreparationUsd(pricing, route.model, requestChars);
   const refusal = preparationLimitRefusal(
     await preparationDay(ctx, { userId: preparation.triggeredBy, scope, firmDay }),
     reservedUsd

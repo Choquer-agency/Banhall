@@ -52,6 +52,9 @@ export async function briefInputsHash(
     // even for the same content (a client's copy of the document has no
     // rule). Without such a document the hash is exactly what it was.
     (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "");
+  // Phase D, step 1 (2026-10-28, sixth, review): no marker for a Brief
+  // chosen by relevance. A Brief made before is still reused for the same
+  // sources, writers' edits included; its quotes are all in the sources.
 
   // Return the hash of the concatenated hashes
   return await sha256(concatenated);

@@ -12,7 +12,8 @@
 // directive, no Node built-ins — because `convex/generations.ts` (a query)
 // imports the budget shape while the generation actions import the builder.
 
-import { endAtWordBoundary } from "../../shared/evidenceChoice";
+import { chooseEvidence, endAtWordBoundary, subjectOf } from "../../shared/evidenceChoice";
+import { chooseSettingsSource } from "../lib/settingsDocument";
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
 import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
@@ -694,6 +695,8 @@ export type SeedPromptSource = {
   contentHash: string;
   /** Links a transcript and its digest or fact pack; see preferFactSources. */
   transcriptId?: string;
+  /** Phase D, step 1: whose file it is, for the writer's notes that go in whole. */
+  uploaderRole?: string;
 };
 
 export type SeedPromptProjection = {
@@ -745,6 +748,14 @@ export type SeedTrustedContextInput = {
    * still shared by every role.
    */
   citationMode?: "offsets" | "facts";
+  /**
+   * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when the
+   * sources pass their allowance, send the parts that best match the Brief
+   * instead of cutting in frozen order. The Batch action sets it; a size
+   * check (dispatch) and the model evaluation leave it off, which refuses
+   * the same prompts, since nothing refused depends on the parts chosen.
+   */
+  chooseParts?: boolean;
 };
 
 /**
@@ -918,6 +929,12 @@ export type SeedPromptSourceReport = {
   includedBytes: number;
   included: boolean;
   truncated: boolean;
+  /**
+   * Phase D, step 1: for a source the relevance choice sent only in part
+   * or not at all, the ranges of its raw text that were sent (empty when
+   * none). Absent when it went in whole, or when no choice was made.
+   */
+  ranges?: Array<{ start: number; end: number }>;
 };
 
 const utf8 = new TextEncoder();
@@ -1142,7 +1159,15 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     }
     remaining -= omissionReserveBytes;
   }
-  for (const source of input.sources) {
+  const byRelevance =
+    input.chooseParts && omissionReserveBytes > 0
+      ? seedSourcesByRelevance(input.sources, input.brief, remaining, separatorBytes)
+      : null;
+  if (byRelevance) {
+    sourceBlocks.push(...byRelevance.blocks);
+    reports.push(...byRelevance.reports);
+  }
+  for (const source of byRelevance ? [] : input.sources) {
     const label = sourceLabel(source);
     const safe = neutralizeMarkers(source.content);
     const originalBytes = utf8Bytes(safe);
@@ -1251,6 +1276,164 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     assertSeedPromptWithinLimit(userMessage);
   }
   return { userMessage, parts: { shared, role }, promptBytes, sources: reports };
+}
+
+/** Room kept for a marker-like dash run lengthened across the seam of two joined parts. */
+const SEED_JOIN_MARGIN_BYTES = 2_048;
+
+/** The kinds sent whole by the relevance choice: the interviews and the writer's Storyline. */
+const SEED_WHOLE_KINDS: ReadonlySet<string> = new Set(["transcript", "transcript_digest", "transcript_facts", "writer_storyline"]);
+
+/** The Brief's own text, the subject of the Seed relevance choice: the same for every role. */
+function seedSubjectTexts(brief: unknown): string[] {
+  if (!brief || typeof brief !== "object") return [];
+  const record = brief as { storylineText?: unknown; entries?: unknown };
+  const texts: string[] = [];
+  if (typeof record.storylineText === "string") texts.push(record.storylineText);
+  if (Array.isArray(record.entries)) {
+    for (const entry of record.entries) {
+      if (!entry || typeof entry !== "object") continue;
+      const { text, exactExcerpt } = entry as { text?: unknown; exactExcerpt?: unknown };
+      if (typeof text === "string") texts.push(text);
+      if (typeof exactExcerpt === "string") texts.push(exactExcerpt);
+    }
+  }
+  return texts;
+}
+
+/**
+ * Phase D, step 1: the Seed source blocks when the sources pass their
+ * allowance and the caller chose relevance. The interviews, the writer's
+ * Storyline, the settings document and writer's notes an internal user
+ * uploaded go in whole (their start only, when the allowance runs out);
+ * every other source sends the parts that best match the Brief. Parts are
+ * chosen on the raw text (raw positions) and charged by the UTF-8 bytes of
+ * the text as sent (marker-neutralized); each source's block frame, join
+ * and longest notice are charged with its first part (or as it is, when it
+ * is empty). Joining two parts can lengthen a marker-like dash run across
+ * their seam; when the assembled blocks still pass `budgetBytes`, the
+ * choice is made again with that much less room (follow-up review), so the
+ * blocks fit. Pure: the same sources and Brief give the same blocks for
+ * every role.
+ */
+function seedSourcesByRelevance(
+  sources: readonly SeedPromptSource[],
+  brief: unknown,
+  budgetBytes: number,
+  separatorBytes: number
+): { blocks: string[]; reports: SeedPromptSourceReport[] } {
+  let room = budgetBytes;
+  for (let attempt = 0; ; attempt += 1) {
+    const built = seedSourcesWithin(sources, brief, room, separatorBytes);
+    const used = built.blocks.reduce((sum, block) => sum + utf8Bytes(block), 0) + separatorBytes * Math.max(0, built.blocks.length - 1);
+    if (used <= budgetBytes || attempt >= 3 || room <= 0) return built;
+    room -= used - budgetBytes + SEED_JOIN_MARGIN_BYTES;
+  }
+}
+
+/** One relevance choice within `budgetBytes`; see seedSourcesByRelevance. */
+function seedSourcesWithin(
+  sources: readonly SeedPromptSource[],
+  brief: unknown,
+  budgetBytes: number,
+  separatorBytes: number
+): { blocks: string[]; reports: SeedPromptSourceReport[] } {
+  const prompt = SEED_PROMPT_PROGRAM.user;
+  const settings = chooseSettingsSource(sources)?.source ?? null;
+  const mustBeWhole = (source: SeedPromptSource) =>
+    SEED_WHOLE_KINDS.has(source.kind) ||
+    source === settings ||
+    (source.label.startsWith("writer_notes:") && documentTrust("writer_notes", source.uploaderRole) === "internal");
+  const longest = "9".repeat(12);
+  const noticeBytes = Math.max(
+    utf8Bytes(`\n${prompt.truncation.prefix}${longest}${prompt.truncation.middle}`),
+    utf8Bytes(`\n${prompt.excerpts.noticeUnmatchedPrefix}${longest}${prompt.excerpts.noticeMiddle}${longest}${prompt.excerpts.noticeSuffix}`),
+    utf8Bytes(`\n${prompt.excerpts.noticePrefix}${longest}${prompt.excerpts.noticeMiddle}${longest}${prompt.excerpts.noticeSuffix}`)
+  );
+  // Each source's frame, join and longest notice are charged with its first
+  // part (a source that sends nothing is named in the omission block,
+  // reserved before). Parts are charged one by one; joining touching parts
+  // can lengthen a marker-like dash run across their seam, which the
+  // margin covers (Seeds review).
+  const sentSize = (text: string) => utf8Bytes(neutralizeMarkers(text));
+  const chosen = chooseEvidence({
+    rows: sources.map((source) => ({
+      text: source.content,
+      ...(mustBeWhole(source) ? { whole: true } : {}),
+      openCost: utf8Bytes(seedBlock(sourceLabel(source), "")) + separatorBytes + noticeBytes,
+    })),
+    subject: subjectOf(seedSubjectTexts(brief)),
+    budget: Math.max(0, budgetBytes - SEED_JOIN_MARGIN_BYTES),
+    size: sentSize,
+    excerptCost: utf8Bytes(prompt.excerpts.separator),
+  });
+  const blocks: string[] = [];
+  const reports: SeedPromptSourceReport[] = [];
+  sources.forEach((source, index) => {
+    const label = sourceLabel(source);
+    const originalBytes = sentSize(source.content);
+    const { ranges, whole, matched } = chosen[index]!;
+    if (whole || source.content.length === 0) {
+      blocks.push(seedBlock(label, neutralizeMarkers(source.content)));
+      reports.push({ sourceId: source.sourceId, originalBytes, includedBytes: originalBytes, included: true, truncated: false });
+      return;
+    }
+    if (ranges.length === 0) {
+      reports.push({ sourceId: source.sourceId, originalBytes, includedBytes: 0, included: false, truncated: originalBytes > 0, ranges: [] });
+      return;
+    }
+    const sent = ranges.map((range) => neutralizeMarkers(source.content.slice(range.start, range.end)));
+    const includedBytes = sent.reduce((sum, text) => sum + utf8Bytes(text), 0);
+    const prefix = ranges.length === 1 && ranges[0]!.start === 0;
+    const body = prefix
+      ? `${sent[0]}\n${prompt.truncation.prefix}${originalBytes - includedBytes}${prompt.truncation.middle}`
+      : `${sent.join(prompt.excerpts.separator)}\n${matched ? prompt.excerpts.noticePrefix : prompt.excerpts.noticeUnmatchedPrefix}${includedBytes}${prompt.excerpts.noticeMiddle}${originalBytes}${prompt.excerpts.noticeSuffix}`;
+    blocks.push(seedBlock(label, body));
+    reports.push({ sourceId: source.sourceId, originalBytes, includedBytes, included: true, truncated: true, ranges });
+  });
+  return { blocks, reports };
+}
+
+/**
+ * Phase D, step 1: each frozen source a Seed answer may cite only within
+ * part of its text, with what is citable: the ranges its prompt sent plus
+ * every span a Brief entry cites on it (the Seed prompt allows quoting a
+ * Brief entry's excerpt). Sources sent whole, or never weighed, are not
+ * listed and are checked as before.
+ */
+export function seedSentRanges(
+  reports: readonly SeedPromptSourceReport[],
+  briefEntries: ReadonlyArray<{
+    sourceId?: string | null;
+    sourceContentHash?: string | null;
+    startOffset?: number | null;
+    endOffset?: number | null;
+  }>,
+  /** Each source's content hash: a reused Brief's entries name an earlier draft's rows of the same text. */
+  contentHashOf: ReadonlyMap<string, string> = new Map()
+): Array<{ sourceId: string; ranges: Array<{ start: number; end: number }> }> {
+  return reports
+    .filter((report) => report.ranges !== undefined)
+    .map((report) => {
+      const hash = contentHashOf.get(report.sourceId);
+      const spans = briefEntries
+        .filter(
+          (entry) =>
+            (entry.sourceId === report.sourceId || (hash !== undefined && entry.sourceContentHash === hash)) &&
+            typeof entry.startOffset === "number" &&
+            typeof entry.endOffset === "number" &&
+            entry.endOffset > entry.startOffset
+        )
+        .map((entry) => ({ start: entry.startOffset!, end: entry.endOffset! }));
+      // Overlapping or touching ranges merge, so a span across them is held (review).
+      const merged: Array<{ start: number; end: number }> = [];
+      for (const range of [...report.ranges!, ...spans].sort((a, b) => a.start - b.start || a.end - b.end)) {
+        const last = merged.at(-1);
+        if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+        else merged.push({ ...range });
+      }
+      return { sourceId: report.sourceId, ranges: merged };
+    });
 }
 
 /** Assemble the complete two-message request under one shared byte limit. */

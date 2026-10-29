@@ -4,6 +4,7 @@ import {
   endAtWordBoundary,
   evidenceWords,
   foldForSearch,
+  maskOutside,
   nameSafeRange,
   partRange,
   scoreParts,
@@ -253,5 +254,40 @@ describe("review round 2 fixes (2026-10-28)", () => {
     const wrap = text.indexOf("\r\nRobotics");
     const range = partRange(text, 0, wrap);
     expect(text.slice(range.start, range.end)).not.toContain("Northern");
+  });
+});
+
+describe("Brief review fixes (2026-10-28)", () => {
+  it("keeps the first sentence of a part that starts after a paragraph ending in a period", () => {
+    for (const gap of ["\n\n", ". \n\n", "\r\n\r\n", "\n\n\n", "\r\n\r\n\r\n", "\n  \n  \n"]) {
+      // With and without a period before the blank lines (a heading has none).
+      const text = `${"The seal held at the plant. ".repeat(20)}Overview${gap.startsWith(".") ? "" : gap.length > 2 ? "" : "."}${gap}Zorbatron calibration failed first. ${"The pump drifted. ".repeat(20)}`;
+      const at = text.indexOf("Zorbatron");
+      const range = partRange(text, at, at + 500);
+      expect(range.start).toBe(at);
+    }
+  });
+
+  it("blanks everything outside the ranges and keeps every position", () => {
+    expect(maskOutside("abcdefgh", [{ start: 2, end: 4 }])).toBe("\u0000\u0000cd\u0000\u0000\u0000\u0000");
+    expect(maskOutside("abcdefgh", [{ start: 5, end: 7 }, { start: 0, end: 2 }])).toBe("ab\u0000\u0000\u0000fg\u0000");
+    expect(maskOutside("abcdefgh", [{ start: 1, end: 5 }, { start: 3, end: 6 }])).toBe("\u0000bcdef\u0000\u0000");
+    expect(maskOutside("abcdefgh", [])).toBe("\u0000".repeat(8));
+    expect(maskOutside("abcdefgh", [{ start: 0, end: 8 }])).toBe("abcdefgh");
+  });
+});
+
+describe("a row's opening cost (Seeds review, 2026-10-28)", () => {
+  it("charges a row's frame with its first part only, and nothing for a row that sends nothing", () => {
+    const rows = [
+      { text: "seal ".repeat(400), openCost: 300 },
+      { text: "pump ".repeat(400), openCost: 300 },
+    ];
+    // Each row is one 2,000-character part: room for one part and one frame (2,305), not two (4,610).
+    const chosen = chooseEvidence({ rows, subject: subjectOf(["seal"]), budget: 4_000, size: utf16Size, excerptCost: 5 });
+    const spent = (index: number) => chosen[index]!.ranges.reduce((sum, range) => sum + range.end - range.start, 0);
+    expect(spent(0)).toBeGreaterThan(0);
+    expect(spent(0)).toBeLessThanOrEqual(4_000 - 300 - 5);
+    expect(spent(1)).toBe(0);
   });
 });

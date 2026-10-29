@@ -4958,6 +4958,7 @@ This changes what one AI check reads and one sentence of its note, not a workflo
   - Windows line endings;
   - each subject text once;
   - "best match" only when a part matched.
+- **Review round 3:** Claude Opus 5.5 (requested high; it reported running at low), with the Brief's review, "ship after fixes": a part starting right after a paragraph that ends in a period still lost its first sentence (P2), since the period took one line break and left the blank line unmatched. Fixed: a sentence end takes every line break after it, and a run of blank lines counts as one paragraph end (follow-up review: a heading followed by two or more blank lines lost the next paragraph's first sentence).
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ### 2026-10-28 (sixth): The Brief reads the parts of every frozen file that best match the interviews (owner, Phase D step 1)
@@ -4967,21 +4968,25 @@ Under the owner's decision "2026-10-28 (fourth)", the second step that chooses i
 This changes what one AI request reads and how its quotes are found, not a workflow stage, transition or permission. No AI tool writes report prose.
 
 - **Rule.**
-  - When every source fits (each within 400,000 characters, all within 600,000), the request is exactly as before.
+  - When the sources fit (each counted up to 400,000 characters, all within 600,000), the request is exactly as before.
   - When they do not:
-    - The interviews (or their digests or fact packs), the settings document and writer's notes go in whole, in order. They are cut only at the per-source limit or where the total runs out, as before.
+    - The interviews (or their digests or fact packs), the settings document and writer's notes an internal user uploaded go in whole, in order. They are cut only at the per-source limit or where the total runs out, as before. A client's copy of writer's notes is treated like any other file, as the analysis and the facts check treat it.
     - Every other source sends the parts that best match the interviews and the writer's Storyline (`shared/evidenceChoice.ts`).
-    - A source sent in parts gets the parts joined by a "[...]" line and a notice: "[EXCERPTS: only the parts of this source that best match the interviews were sent, N of M characters; the text between them was left out.]"
+    - A source sent in parts gets the parts joined by a "[...]" line and a notice: "[EXCERPTS: only the parts of this source that best match the interviews were sent, N of M characters; the text between them was left out.]" When no part matched the interviews, the notice says "only parts of this source were sent". A file whose one chosen part is its own start gets the "[TRUNCATED: ...]" notice instead, as before.
+    - Files are frozen at 200,000 characters at most, so no file passes the per-source limit. Notices and block frames are not counted against the total, as before.
     - A source with no part sent is counted in the omitted notice, as before.
   - Every quote of the Brief is then searched for only in what the request sent, in place, so its position in the file is exact. Transcripts read through their digest or fact pack are searched as before.
   - The settings document's wording rule is added only when that document was sent, as before.
 - **Where.**
   - `briefMessageWithReport` and `BRIEF_EXCERPTS` in `convex/lib/briefRequest.ts`.
   - `briefEvidence` in `convex/ai/brief.ts`, which blanks the text not sent (`maskOutside`).
-  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared and reusable Briefs are made again.
+  - `BRIEF_DERIVATION_VERSION` 11 (`convex/lib/briefDerivationPolicy.ts`), so prepared Briefs are made again. The inputs hash a reusable Brief is found by is unchanged (`convex/lib/briefInputsHash.ts`).
+  - `runPreparationStart` (`convex/briefPreparations.ts`) chooses the parts once, for the key. When the sources do not all fit, its spend reservation counts an upper bound on the request (`briefRequestCharsUpperBound`: the whole budget, every rule, and each source's frame and notice).
 - **Known limits.**
   - The Brief still reads only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
   - The Brief's subject is the interviews and the Storyline: a file that matters for reasons the interviews never mention scores low.
+  - A Brief made before this change is still reused for a draft with the same sources, with the writer's edits, as Brief reuse works today. Its quotes are all in the sources, but it was chosen from the first files only. A new Brief reads by relevance when the sources change or the writer makes it again.
+  - The choice runs inside two mutations (a preparation's start and its adoption), where the key is computed. Measured locally in review: about 0.3 seconds for a 3.4 million character pool. Not yet measured on a deployment; the live check will.
   - Live check: with the rest of step 1, on the 51-file stress project.
 - **Tests:**
   - `convex/briefByRelevance.test.ts`:
@@ -4990,6 +4995,96 @@ This changes what one AI request reads and how its quotes are found, not a workf
     - a quote is cited at its place in the whole file;
     - a sentence never sent is not found.
   - Updated: `convex/ai/brief.sdk.test.ts` (the budget test) and `convex/briefWriterWording.test.ts` (the wording rule when the settings document has no room).
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - the paragraph-end edge (with entry "(fifth)");
+  - reusable Briefs, through the inputs hash;
+  - client writer's notes not trusted;
+  - one message per preparation;
+  - neutral notice wording;
+  - the wording of the fit rule;
+  - tests.
+
+  Left as written above: notices not counted, and no per-file limit beyond the 200,000 characters a file is frozen at.
+
+  Follow-up review, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - the reuse marker first added to the inputs hash is taken out, since it dropped writers' edited Briefs of large projects and could stop a Step by step draft caught at deploy; the limit is written above instead;
+  - the reservation is a real upper bound (200 files with long names passed the earlier allowance);
+  - runs of blank lines;
+  - wording and tests.
+- **Tests (round 1):** `convex/briefByRelevance.test.ts` also:
+  - writer's notes whole only when internal;
+  - the fit boundary at the total and one character over;
+  - the neutral notice;
+  - the inputs hash.
+
+  `shared/evidenceChoice.test.ts` also: the paragraph-end edge, and `maskOutside`.
+- **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
+
+### 2026-10-28 (seventh): Seeds read the parts of every frozen file that best match the Brief (owner, Phase D step 1)
+
+Under the owner's decision "2026-10-28 (fourth)", the third step that chooses its evidence by relevance (plan `docs/todos/phase-d-evidence-layer.md`, "Step 1, Seeds in detail", design reviewed). Before, a Seed request read the frozen sources in frozen order until its byte allowance ran out (about 530 KB), so on a large draft every step read the interviews and the first files only. Its citations were checked against every frozen row whole.
+
+This changes what one AI request reads and how its citations are checked, not a workflow stage, transition or permission. No AI tool writes report prose.
+
+- **Rule.**
+  - When the sources fit the allowance, the request is exactly as before, byte for byte.
+  - When they do not, the request is built in four parts:
+    - The interviews (or their fact packs or digests), the writer's Storyline, the settings document and writer's notes an internal user uploaded go in whole. Their start is cut only where the allowance runs out, as before.
+    - Every other source sends the parts that best match the Brief (its Storyline, each entry's text and quote).
+    - A source sent in parts shows them joined by "[...]" lines and the notice "[EXCERPTS: only the parts of this frozen source that best match the Brief were sent, N of M UTF-8 bytes; the text between them was left out.]", or "only parts of this frozen source were sent" when no part matched.
+    - A source with nothing sent is named in the omitted block, as before.
+  - The choice depends only on the frozen sources, the Brief version and generation-wide settings (writer settings, length target, guidance), the same for every role, every Batch and every path (first Batch, retry, Regenerate, Feedback, prefetch). So every step sends the same cached block.
+  - Parts are chosen on the raw text and charged by the bytes of the text as sent. Each source's frame and longest notice are charged with its first part (an empty source's frame as it is), and 2 KB is kept for marker-like dash runs lengthened where two parts join. When the assembled sources still pass their room, the choice is made again with that much less room, so they fit. A final check still refuses a prompt over the limit.
+- **Citations.**
+  - A source sent in part is citable only in what was sent and in the spans its Brief entries cite (the Seed prompt allows quoting a Brief entry's excerpt), a reused Brief's entries included, matched by the text's fingerprint. The rest of its text is blanked, positions kept, for the citation check in the Batch action and again in `completeAttempt`.
+  - An excerpt holding the blanking character (U+0000) is refused, for every source, here and in the Brief.
+  - The speaker check keeps each row's real text and looks for another place of the same words only in what was sent, in `completeAttempt` and in a prefetch's quote count.
+  - Sources sent whole, and sources no choice weighed, are checked as before.
+  - An action started before this change sends no ranges, and nothing is blanked.
+- **Where.**
+  - `seedSourcesByRelevance` and `seedSentRanges` in `convex/ai/trustedContext.ts` (asked for by `chooseParts`, set only by the Batch action in `convex/ai/seeds.ts`; dispatch's size check and the model evaluation leave it off).
+  - The new optional `sentRanges` on `completeAttempt` and `quoteRepairContext` (`convex/seedRuns.ts`).
+  - The speaker check's `sent` argument (`convex/lib/citationSpeakers.ts`).
+  - `uploaderRole` on the Seed sources (`convex/lib/seedSnapshotLoader.ts`).
+  - The Seed prompt's words (`convex/ai/promptDefinitions.ts`, version `seeds.2026-10-28.1`).
+- **Known limits.**
+  - Seeds still read only the draft's frozen pool (about 3 MiB). Filling the pool from every file is step 2.
+  - A Seed's offsets are relative to what the model read; the existing relocation search finds the excerpt's real place, nearest to the offset given.
+  - The record says "in part" for such a source (its sent bytes are the sum of its parts), not which ranges yet.
+  - In fact mode, a fact pack cut where the allowance runs out still lets every fact of that interview be cited, as before.
+  - A file whose stored text really holds U+0000 characters cannot be quoted across them. Models rarely copy such characters.
+  - Live check: with the rest of step 1, on the 51-file stress project.
+- **Tests:**
+  - `convex/seedByRelevance.test.ts`:
+    - a small draft is sent exactly as before;
+    - over the allowance, a late file's matching part is sent at its raw place, a dash run ahead of it included;
+    - two roles send the same shared block;
+    - randomized pools always fit;
+    - a Brief entry's span stays citable, a reused Brief's too;
+    - overlapping spans merge;
+    - internal writer's notes and the Storyline go in whole, a client's writer's notes in parts;
+    - an excerpt of blanked text is refused;
+    - a prefetch's check keeps the ranges of the rows it loaded;
+    - the speaker check moves a quote only to a place that was sent;
+    - the citation check keeps a sent quote at its real place and drops an unsent one.
+  - Updated: the Seed version pins in `convex/ai/promptScaffolds.test.ts` and the program hash in `convex/modelCatalog.test.ts`.
+- **Review:** Round 1, Claude Opus 5.5 (requested high; it reported running at low), "ship after fixes". Done:
+  - a prefetch's check no longer drops its ranges;
+  - a reused Brief's spans are matched by fingerprint;
+  - blanked-text excerpts are refused;
+  - frames are charged with a source's first part;
+  - the join margin;
+  - merged ranges;
+  - tests;
+  - this entry.
+
+  Left: a full convex-test of `completeAttempt` with ranges (its pieces are tested; the live run exercises it).
+
+  Follow-up review, Claude Opus 5.5 (requested high; it reported running at low), "ship", every finding P3. Done:
+  - an assembly over its room chooses again with less room;
+  - empty sources' frames are charged;
+  - comments and this entry match the code;
+  - the U+0000 refusal is recorded as applying to every source.
 - **Approval:** Product owner, 2026-10-28 (chat), the decision "2026-10-28 (fourth)".
 
 ### 2026-10-28 (seventh): The Assistant's suggestion cards: one card per Line, options, Review in the report, Undo bar, Accept all, the AI's questions and the shorten flow (owner)

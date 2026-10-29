@@ -557,6 +557,9 @@ function validatedProvenance(args: {
       !source ||
       !offsetsValid ||
       !generationValid ||
+      // Phase D, step 1 (Seeds review): text not sent is blanked with U+0000,
+      // so an excerpt holding it quotes nothing real.
+      citation.exactExcerpt.includes("\u0000") ||
       source.content.slice(citation.startOffset, citation.endOffset) !==
         citation.exactExcerpt
     ) {

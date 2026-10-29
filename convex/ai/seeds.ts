@@ -36,7 +36,9 @@ import {
   seedExperimentLinkIds,
   seedPromptProjection,
   seedResultLinkIds,
+  seedSentRanges,
 } from "./trustedContext";
+import { maskOutside } from "../../shared/evidenceChoice";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
   SeedContextLimitError,
@@ -128,6 +130,8 @@ const quoteRepairContextRef = makeFunctionReference<
   {
     batchId: Id<"seedBatches">;
     generationId: Id<"generations">;
+    /** Phase D, step 1: the sources sent only in part, and what was sent. */
+    sentRanges?: Array<{ sourceId: Id<"generationSources">; ranges: Array<{ start: number; end: number }> }>;
     seeds: Array<{
       provenance: Array<{
         sourceId: Id<"generationSources">;
@@ -156,11 +160,15 @@ async function quoteReview(
     seeds: readonly ValidatedSeedCandidate[];
     factMode: boolean;
     mode: SeedBatchMode;
+    sentRanges?: Array<{ sourceId: string; ranges: Array<{ start: number; end: number }> }>;
   }
 ): Promise<{ writerWaiting: boolean; issues: QuoteCheckIssue[] }> {
   const context = await ctx.runQuery(quoteRepairContextRef, {
     batchId: args.batchId,
     generationId: args.generationId,
+    ...(args.sentRanges && args.sentRanges.length > 0
+      ? { sentRanges: args.sentRanges.map((entry) => ({ sourceId: validatedId<"generationSources">(entry.sourceId), ranges: entry.ranges })) }
+      : {}),
     seeds: args.factMode
       ? []
       : args.seeds.map((seed) => ({
@@ -652,11 +660,34 @@ export const generateBatch = internalAction({
           content: source.content,
           contentHash: source.contentHash,
           ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+          ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
         })),
         projection: seedPromptProjection(claim.context, claim.batch.roleId, claim.uncertaintyRoots),
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
+        // Phase D, step 1: over the allowance, the parts that best match the Brief.
+        chooseParts: true,
       });
+      // Phase D, step 1: a source sent only in part is citable only in what
+      // was sent, plus the spans the Brief's entries cite on it; the rest
+      // of its text is blanked for every check of this answer, positions
+      // kept, and completeAttempt gets the same ranges.
+      const sentRanges = seedSentRanges(
+        request.sources,
+        claim.input.briefEntries,
+        new Map(claim.input.sources.map((source) => [source._id as string, source.contentHash]))
+      );
+      const sentBy = new Map(sentRanges.map((entry) => [entry.sourceId, entry.ranges]));
+      const sentOnly = (sourceId: string, content: string) => {
+        const ranges = sentBy.get(sourceId);
+        return ranges ? maskOutside(content, ranges) : content;
+      };
+      for (const source of sources) source.content = sentOnly(source.sourceId, source.content);
+      for (const source of factSources ?? []) {
+        if (source.kind === "project_document" || source.kind === "company_file") {
+          source.content = sentOnly(source.sourceId, source.content);
+        }
+      }
       // Owner decision 43: the batch was dispatched on its step's model;
       // the step's request settings come from the same frozen routing.
       const freeze = await registerGenerationModels(ctx, claim.batch.generationId);
@@ -691,6 +722,7 @@ export const generateBatch = internalAction({
           seeds,
           factMode,
           mode,
+          sentRanges,
         });
       const quoteRepair = () => {
         let firstIssues = 0;
@@ -797,6 +829,9 @@ export const generateBatch = internalAction({
         requestsMade,
         seeds,
         seedsDropped: output.dropped,
+        ...(sentRanges.length > 0
+          ? { sentRanges: sentRanges.map((entry) => ({ sourceId: validatedId<"generationSources">(entry.sourceId), ranges: entry.ranges })) }
+          : {}),
       });
       // Phase D (step 2): what this Batch's prompt carried of each frozen
       // row, once its Seeds were saved, by its step (review: a retried,

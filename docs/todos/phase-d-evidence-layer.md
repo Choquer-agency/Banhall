@@ -90,6 +90,41 @@ A project of any size, new or old: every step finds the evidence that matters to
 - **`fileFacts` follow the company.** They are registered with the project's erasure, and the company's ones follow company merges, removals and erasure.
 - **The Inputs band** shows, per file, what the pool holds and what each step read, for any number of files.
 
+## Step 1, Seeds in detail (2026-10-28, revised after review)
+
+Built so far in step 1: the shared chooser (`shared/evidenceChoice.ts`), the facts check (entry "(fifth)") and the Brief (entry "(sixth)").
+
+Design review: Claude Opus 5.5 (requested high; it reported running at low), "go with changes". The changes are in below.
+
+- **When it applies.** Only when the frozen sources pass the Seed source allowance (`buildSeedTrustedContext`, `convex/ai/trustedContext.ts`). Below it, every source is sent whole as today, byte for byte, so the cached block of small drafts is unchanged.
+- **One choice per Brief version, in the shared cached block.**
+  - The subject is the Brief's own text (Storyline, each entry's text and quote, the glossary terms).
+  - The allowance is already computed only from generation-stable inputs. Every path (first Batch, retry, Regenerate, Feedback, prefetch) goes through one builder, so every role sends the same shared block and the cache holds.
+- **What is sent.**
+  - The interviews (or their fact packs or digests), the writer's Storyline, the settings document and writer's notes an internal user uploaded go in whole (cut only where the allowance runs out, as today). The Seed sources gain `uploaderRole` for this, from the loader through the claim.
+  - Every other source sends the parts that best match.
+  - Parts are chosen on the raw text, so ranges are raw positions, and charged by the UTF-8 bytes of the text as sent (marker-neutralized), with every block's label, marker lines, notice and join counted before choosing. A randomized test checks the assembled prompt always fits.
+  - A source sent in parts shows its parts joined by "[...]" lines and a notice. No position lines: offsets were never trusted, and relocation finds the excerpt.
+  - A source with nothing sent is named in the omitted-sources block, as today.
+  - The new words sit only in the parts' block, never in the guidance, so small drafts are unchanged.
+- **Quotes found only in what was sent.**
+  - The sent view of a row is its chosen ranges plus every span a Brief entry cites on it, since the Seed prompt allows citing a Brief entry's quote. Rows the chooser never weighed (a transcript read through its digest or fact pack, the pack and digest rows) are searched as today.
+  - The action passes each source's sent ranges to `completeAttempt` and `quoteRepairContext` as an optional, shape-checked argument. A missing argument (an action started before deploy) means no mask, as today.
+  - `validateBatch` checks citations against rows with everything outside the sent view blanked (`maskOutside`, positions kept), in the action and in `completeAttempt`.
+  - The speaker check keeps each row's real text and only limits its search for another place of the same words to the sent view.
+  - Fact mode: documents get the same sent view; fact spans are unchanged.
+- **Inside a mutation.** `dispatchSeedAttempt` (also run from a writer's Approve) checks the prompt's size without choosing parts, since nothing it can refuse depends on which parts are chosen.
+- **The record.** A Batch's sent bytes are the sum of its parts', so "in part" follows. The ranges themselves come with the record's ranges piece.
+- **Tests.**
+  - Small drafts are byte for byte unchanged.
+  - Over the allowance: a fact in a late file is sent.
+  - Two roles of one draft send the same shared block.
+  - A citation found only in unsent text is refused, in the action and in `completeAttempt`.
+  - A citation of a Brief entry's quote outside the parts is accepted.
+  - A dash run before a chosen part keeps the positions right.
+  - The prompt always fits.
+- **Prompt version.** The Seed prompt version moves, with its pinned checks.
+
 ## Step 2 in detail
 
 - **A row's text.** A contributing file's row holds its chosen parts joined by a fixed separator, Word marks removed, and quote positions count within the row, not the file. A small parts map per row (row start and end, stored-text start and end, `textHash`) gives source links and the Inputs band their place in the file. One shared helper refuses a quote match that crosses a separator, and every checker uses it: the Brief's, the Seeds' (`seedContract.ts`), citations, reports, the facts check and `verifiedSourceMapping`. `truncated` and `originalLength` keep their meaning: the row holds part of a longer file.

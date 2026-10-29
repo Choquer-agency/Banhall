@@ -475,6 +475,8 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
     const ranges = sentRanges.get(s);
     return ranges ? { ...s, content: maskOutside(s.content, ranges) } : s;
   };
+  // A quote holding the blanking character quotes nothing real (Seeds review).
+  const blanked = (quote: string) => quote.includes("\u0000");
   const evidenceSources: FrozenSource<I>[] = sources
     .filter(
       (s) =>
@@ -511,7 +513,7 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
     }
     return citeQuote(documentSources, quote);
   };
-  return { sources, writerSource, factMode, evidenceSources, citeInFactMode };
+  return { sources, writerSource, factMode, evidenceSources, citeInFactMode, blanked };
 }
 
 /**
@@ -520,8 +522,9 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
  * only (decision 57).
  */
 export function briefQuoteLocator<I extends string>(adapter: BriefSourceAdapter<I>) {
-  const { factMode, evidenceSources, citeInFactMode } = briefEvidence(adapter);
+  const { factMode, evidenceSources, citeInFactMode, blanked } = briefEvidence(adapter);
   return async (quote: string, glossary: boolean): Promise<Citation<I> | null> => {
+    if (blanked(quote)) return null;
     if (factMode) return citeInFactMode(quote);
     let candidates = quoteOccurrences(
       evidenceSources,
@@ -564,7 +567,7 @@ export async function briefCandidatesFromOutput<I extends string>(
   adapter: BriefSourceAdapter<I>,
   output: BriefAgentOutput
 ): Promise<DerivedBriefCandidates<I>> {
-  const { writerSource, factMode, evidenceSources, citeInFactMode } = briefEvidence(adapter);
+  const { writerSource, factMode, evidenceSources, citeInFactMode, blanked } = briefEvidence(adapter);
 
   // Owner decision 25 (2026-09-25): a quote that is only the interviewer's
   // or another speaker's words never backs an entry. Each quote is cited at
@@ -617,6 +620,7 @@ export async function briefCandidatesFromOutput<I extends string>(
   const firstEvidence = (candidates: readonly Citation<I>[]): Citation<I> | null =>
     candidates.find((place) => speakerAt.get(place) !== "excluded") ?? null;
   const cite = (quote: string): Citation<I> | null => {
+    if (blanked(quote)) return null;
     if (factMode) return citeInFactMode(quote);
     const candidates = places.get(quote);
     return candidates ? firstEvidence(candidates) : citeQuote(evidenceSources, quote);

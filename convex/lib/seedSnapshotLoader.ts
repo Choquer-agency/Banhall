@@ -257,6 +257,7 @@ export type FrozenSeedActionInput = {
       | "originalLength"
       | "transcriptId"
       | "factSpans"
+      | "uploaderRole"
     >
   >;
   writerSettings: {
@@ -441,6 +442,9 @@ export async function loadFrozenSeedActionInput(
       // 2026-09-24 (transcript method): the verified spans behind each fact
       // id of a frozen pack, which a Seed citing a fact resolves to.
       ...(source.factSpans ? { factSpans: source.factSpans } : {}),
+      // Phase D, step 1: whose file it is (writer's notes go in whole only
+      // when an internal user uploaded them).
+      ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
     })),
     writerSettings: {
       profile: args.generation.writerSettings,
