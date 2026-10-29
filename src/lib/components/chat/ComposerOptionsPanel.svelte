@@ -81,10 +81,16 @@
       const printable = event.key.length === 1 && event.key !== " " && !event.isComposing;
       if (printable) event.preventDefault();
       onType(printable ? event.key : "");
-    } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= rows.length) {
+    } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= rows.length && !shortcut(event)) {
       event.preventDefault();
       void choose(Number(event.key) - 1);
     }
+  }
+
+  /** Ctrl, Cmd or Alt held (not AltGr): a shortcut, never a pick or a letter. */
+  function shortcut(event: KeyboardEvent): boolean {
+    const altGraph = event.getModifierState?.("AltGraph") ?? false;
+    return event.metaKey || ((event.ctrlKey || event.altKey) && !altGraph);
   }
 
   // Option types characters on a Mac; elsewhere Alt alone is a shortcut.

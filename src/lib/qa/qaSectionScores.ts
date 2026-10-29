@@ -170,9 +170,16 @@ export function qaTopIssues(
 export function chatQaIssues(input: {
   agentOutputs: unknown;
   qaDone: boolean;
-  current: boolean | null | undefined;
-  overrides?: ReadonlyMap<string, "deduction" | "warning" | null>;
+  /** `generations.getGenerationQaResult`: undefined while it loads. */
+  result: { status: string; current: boolean } | null | undefined;
+  /** `reviews.getMyQaItemFeedback`: undefined while it loads. */
+  overrides: ReadonlyArray<{ itemKey: string; overrideSeverity: "deduction" | "warning" | null }> | undefined;
+  overridesFailed?: boolean;
 }): QaTopIssue[] {
-  if (!input.qaDone || input.current !== true) return [];
-  return qaTopIssues(input.agentOutputs, input.overrides);
+  if (!input.qaDone || input.result?.status !== "done" || input.result.current !== true) return [];
+  // Held until the person's reclassifications answer, so an issue they made
+  // a warning never shows and then leaves; a failed read offers them all.
+  if (input.overrides === undefined && !input.overridesFailed) return [];
+  const overrides = new Map((input.overrides ?? []).map((row) => [row.itemKey, row.overrideSeverity]));
+  return qaTopIssues(input.agentOutputs, overrides);
 }

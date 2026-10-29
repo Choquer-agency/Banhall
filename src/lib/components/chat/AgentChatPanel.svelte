@@ -1451,7 +1451,9 @@
   const writerQuestion = $derived(openWriterQuestion(messages));
   const newChatOptions = $derived(startOptions(reportContent, qaIssues));
   const optionsPanel = $derived.by(() => {
-    if (!transcriptReady) return null;
+    // A conversation that could not load says so over a held message box;
+    // a pick there could not be sent.
+    if (!transcriptReady || threadsUnreadable || conversationUnreadable) return null;
     // Research being started or published blocks a send, as it blocks Send.
     if (isStreaming || awaitingReply || sending || pendingResearch || refiningProposal || researchStarting || publicationPending) return null;
     if (writerQuestion && selectedThreadId) {

@@ -1884,19 +1884,18 @@
   const qaResultQ = useQuery(api.generations.getGenerationQaResult, () =>
     qaState === "done" && generation ? { generationId: generation._id } : "skip"
   );
-  const qaFresh = $derived(qaState === "done" && qaResultQ.data?.current === true);
+  const qaFresh = $derived(qaState === "done" && qaResultQ.data?.status === "done" && qaResultQ.data.current === true);
   const qaOverridesQ = useQuery(api.reviews.getMyQaItemFeedback, () =>
     qaFresh && report ? { target: { reportId: report._id } } : "skip"
   );
   const chatQaIssueList = $derived(
-    qaOverridesQ.data === undefined && !qaOverridesQ.error
-      ? []
-      : chatQaIssues({
-          agentOutputs: generation?.agentOutputs ?? null,
-          qaDone: qaFresh,
-          current: qaResultQ.data?.current,
-          overrides: new Map((qaOverridesQ.data ?? []).map((row) => [row.itemKey, row.overrideSeverity])),
-        })
+    chatQaIssues({
+      agentOutputs: generation?.agentOutputs ?? null,
+      qaDone: qaState === "done",
+      result: qaResultQ.data,
+      overrides: qaOverridesQ.data,
+      overridesFailed: !!qaOverridesQ.error,
+    })
   );
   let qaSeenTick = $state(0);
   const qaSeen = $derived.by((): QaSeenState | null => {

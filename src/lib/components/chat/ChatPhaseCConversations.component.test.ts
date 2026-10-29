@@ -19,6 +19,7 @@ import {
   __setPaginatedRows,
   __setQueryData,
   __setQueryDataForArgs,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import type { TurnWebSearch } from "$lib/chat/webSources";
 import AgentChatPanel from "./AgentChatPanel.svelte";
@@ -492,6 +493,59 @@ describe("options above the message box", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
     await expect.element(composer()).toBeVisible();
+  });
+
+  it("keeps the message box where research was sent once it finishes, and offers Get started in a fresh conversation", async () => {
+    __setMutationResult("research:startResearch", "session-1");
+    const view = await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      pendingResearch: { from: 1, to: 20, text: "Kiln drying above 80 C warps birch.", context: "", preset: "vet" },
+    });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect.poll(() => __mutationCalls("research:startResearch").length).toBe(1);
+    await view.rerender({ pendingResearch: null });
+    // The research finishes: the hold ends.
+    __setQueryData("research:getSessionDetails", null);
+    __setQueryData("research:listSessions", [{ _id: "session-1", selectedText: "Kiln drying above 80 C warps birch.", instruction: "", preset: "vet", status: "completed", createdAt: 1 }]);
+    await expect.poll(() => page.getByRole("button", { name: "Send message", exact: true }).elements().length).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await expect.element(composer()).toBeVisible();
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+  });
+
+  it("shows no options over a conversation list that could not load", async () => {
+    // The list failed before any data (this file's setup seeds an empty one).
+    __setQueryData("chatV2:listThreads", undefined);
+    __setQueryError("chatV2:listThreads", new Error("Threads unavailable"));
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Your conversations could not load.");
+    await expect.element(composer()).toBeVisible();
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("shows no options over a conversation that could not load", async () => {
+    __setQueryData("chatV2:listThreads", THREADS);
+    __setQueryError("chatV2:listMessages", new Error("Thread unavailable"));
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByRole("alert")).toHaveTextContent("This conversation could not load.");
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("never picks an option on Ctrl, Cmd or Alt with a digit", async () => {
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    // Ctrl and Cmd are shortcuts: the panel stays and nothing is sent.
+    for (const modifier of ["Control", "Meta"]) await userEvent.keyboard(`{${modifier}>}1{/${modifier}}`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    // Alt is a shortcut outside a Mac and types on one (this browser says
+    // Mac): either way it never picks.
+    await userEvent.keyboard("{Alt>}1{/Alt}");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
   });
 
   it("offers Get started in a new conversation on a report with research sessions", async () => {

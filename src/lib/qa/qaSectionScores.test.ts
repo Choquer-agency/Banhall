@@ -134,11 +134,25 @@ describe("qaTopIssues", () => {
 
   it("offers QA issues only from a finished run whose result still describes the report", () => {
     const outputs = card({ "246": [{ text: "Advancement is vague.", severity: "deduction", deduction: 4 }] });
-    const base = { agentOutputs: outputs, qaDone: true, current: true };
+    const base = { agentOutputs: outputs, qaDone: true, result: { status: "done", current: true }, overrides: [] };
     expect(chatQaIssues(base)).toEqual([{ line: "246", text: "Advancement is vague." }]);
-    expect(chatQaIssues({ ...base, current: false })).toEqual([]);
-    expect(chatQaIssues({ ...base, current: undefined })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: { status: "done", current: false } })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: { status: "failed", current: true } })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: null })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: undefined })).toEqual([]);
     expect(chatQaIssues({ ...base, qaDone: false })).toEqual([]);
+  });
+
+  it("holds QA issues until the person's reclassifications answer, and offers them when that read fails", () => {
+    const outputs = card({ "246": [
+      { text: "Costliest.", severity: "deduction", deduction: 6 },
+      { text: "Next.", severity: "deduction", deduction: 2 },
+    ] });
+    const base = { agentOutputs: outputs, qaDone: true, result: { status: "done", current: true } };
+    expect(chatQaIssues({ ...base, overrides: undefined })).toEqual([]);
+    expect(chatQaIssues({ ...base, overrides: undefined, overridesFailed: true })).toEqual([{ line: "246", text: "Costliest." }]);
+    expect(chatQaIssues({ ...base, overrides: [{ itemKey: "issue:246:0", overrideSeverity: "warning" }] }))
+      .toEqual([{ line: "246", text: "Next." }]);
   });
 
   it("returns nothing without a readable scorecard or outside Lines 242 to 246", () => {
