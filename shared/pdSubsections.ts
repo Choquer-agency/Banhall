@@ -56,7 +56,7 @@ export const PD_SUBSECTIONS = [
     kind: "standard",
     title: "Technological limitations",
     objective:
-      "Explain the limitations in existing technological knowledge or standard practice that existed before a solution was chosen.",
+      "Name the standard approach a practitioner would use, what it does, and why it falls short here: the limitation in existing knowledge before a solution was chosen.",
   },
   {
     roleId: "technological_objective",
@@ -101,7 +101,7 @@ export const PD_SUBSECTIONS = [
     kind: "standard",
     title: "Hypothesis",
     objective:
-      "State a specific, testable hypothesis in if/then form, in under 20 words: the change and the outcome expected, or the knowledge sought, with a measure only where the sources give one. Put the reason or any test method in the Seed's second bullet.",
+      "State a specific, testable hypothesis in if/then form for one uncertainty the work addressed, in under 20 words: the change and the outcome expected, or the knowledge sought, with a measure only where the sources give one. Seeds may each take a different uncertainty, so one can be picked for each. Put the reason or any test method in the Seed's second bullet.",
   },
   {
     roleId: "experimentation",
@@ -188,7 +188,7 @@ export function pdSubsectionOutlineLabel(roleId: PdSubsectionRoleId): string {
 const PD_SUBSECTION_STEP_SUBTITLES: Record<PdSubsectionRoleId, string> = {
   company_context: "Who the claimant is and where the work happened.",
   goal_problem: "What the project set out to do, and what stood in the way.",
-  passive_limitations: "Where existing knowledge and standard practice fell short.",
+  passive_limitations: "The standard approach, what it does, and why it falls short here.",
   technological_objective: "The new knowledge sought, and the solution it was meant to enable.",
   active_uncertainties: "The open questions in the chosen approach, and why each outcome was uncertain.",
   prior_year_status: "For a continuing project: where it stood at last year's end, and what stayed uncertain.",

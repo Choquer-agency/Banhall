@@ -33,6 +33,8 @@ const CRA_OPENER_PATTERNS = [
   /^it\s+was\s+(determined|established)\s+that/i,
   /^the\s+(experimental|investigative)\s+work\s+(determined|established|revealed|demonstrated)\s+that/i,
   /^the\s+investigation\s+(established|determined|revealed|demonstrated)\s+that/i,
+  // 2026-10-29 (third), review round 1 (P3-6): item 1d's per-uncertainty opener.
+  /^in\s+addressing\s+the\s+uncertainty\s+(around|regarding|about|of)\b/i,
 ];
 
 function getFirstSentence(paragraph: string): string {

@@ -10,6 +10,15 @@ import {
   CHAT_EXPERIMENT_ORDER,
   CHAT_HYPOTHESIS_THEN,
   CHAT_LIMITS_AT_EXPORT,
+  CHAT_NOTHING_LEARNED,
+  CHAT_RETRY_WHEN,
+  QA_246_OPENING_NOTE,
+  QA_NOTHING_LEARNED_YET,
+  QA_WAIVED_OPENERS_NOTHING_LEARNED,
+  SECTION_242_GENERAL_PRACTICE_ALLOWED,
+  SECTION_246_KNOWLEDGE_FIRST_EXCEPTION,
+  SECTION_246_NOTHING_LEARNED_YET,
+  SECTION_246_SELF_CHECK_EXCEPTION,
   CHAT_STANDARD_APPROACH,
   QA_BECAUSE_SCAN_WORDS,
   QA_EXPERIMENT_ARC_CHECK,
@@ -131,6 +140,8 @@ export const PINNED_QA_EXPERIMENT_ARC = `- Does each experimentation paragraph c
 export const PINNED_QA_LIMITATIONS = `- IMPORTANT CLARIFICATION on knowledge vs product limitations: Phrases like "no documented methods existed for X", "no established approaches for X", "the knowledge required to X was insufficient", "the scientific basis for X had not been established" are ALL knowledge limitation language; they describe gaps in the field's understanding. A product limitation would be "the existing software could not do X" or "the tool failed to perform X"; it describes a specific product failing, not a gap in knowledge. Do NOT flag knowledge-gap language as product limitations.`;
 
 const PINNED_OBJECTIVES = {
+  passive_limitations:
+    "Explain the limitations in existing technological knowledge or standard practice that existed before a solution was chosen.",
   hypothesis:
     "State a specific, testable, and measurable hypothesis in if/then form, in under 20 words: the change and its measured outcome. Put any reason or test method in the Seed's second bullet.",
   experimentation:
@@ -174,8 +185,32 @@ export const HONEST_DRAFTING_SWAPS: ReadonlyArray<readonly [now: string, before:
   [CHAT_ADVANCEMENT_STATUS, "one per resolved uncertainty"],
   ["the specific technological advancements (one per uncertainty)", "the specific technological advancements (one per resolved uncertainty)"],
   ["the specific advancements (one per uncertainty)", "the specific advancements (one per resolved uncertainty)"],
+  // Review round 1 of the third amendment.
+  [SECTION_242_GENERAL_PRACTICE_ALLOWED, ""],
+  [SECTION_246_KNOWLEDGE_FIRST_EXCEPTION, ""],
+  [SECTION_246_SELF_CHECK_EXCEPTION, ""],
+  [SECTION_246_NOTHING_LEARNED_YET, ""],
+  [QA_WAIVED_OPENERS_NOTHING_LEARNED, ""],
+  [
+    '"Through systematic investigation, it was determined that...", "It was established that..." or "In addressing the uncertainty around [X], ..."',
+    '"Through systematic investigation, it was determined that..." or "It was established that..."',
+  ],
+  ["(each reports one uncertainty)", "(each reports one resolved uncertainty as knowledge gained)"],
+  ["the paragraphs that each report one uncertainty.", "the paragraphs that each report one resolved uncertainty as knowledge gained."],
+  [
+    QA_246_OPENING_NOTE,
+    "The opening paragraph of 246 SHOULD open by restating the technological objective. Do NOT apply the knowledge-first opening rule to it.",
+  ],
+  [CHAT_NOTHING_LEARNED, ""],
+  [
+    '"Through systematic investigation, it was determined that..." or "In addressing the uncertainty around..." (246, advancement paragraphs;',
+    '"Through systematic investigation, it was determined that..." (246, advancement paragraphs;',
+  ],
+  [`Only${CHAT_RETRY_WHEN},`, "Only if the result shows the Line still over a CRA limit,"],
+  [CHAT_RETRY_WHEN, " when its result shows the Line still over a CRA limit"],
   // Item 7: the limits apply at export.
   [CHAT_LIMITS_AT_EXPORT, " Neither is a guideline; a Line over either one cannot be filed."],
+  [objectiveOf("passive_limitations"), PINNED_OBJECTIVES.passive_limitations],
   [objectiveOf("hypothesis"), PINNED_OBJECTIVES.hypothesis],
   [objectiveOf("experimentation"), PINNED_OBJECTIVES.experimentation],
   [objectiveOf("specific_advancements"), PINNED_OBJECTIVES.specific_advancements],
@@ -189,6 +224,7 @@ export const HONEST_DRAFTING_ADDITIONS = {
   qaHonestGap: QA_HONEST_GAP_RULE,
   qaSourceItem: QA_SOURCE_EVIDENCE_ITEM,
   qaGapsOnce: QA_GAPS_ONCE,
+  qaNothingLearned: QA_NOTHING_LEARNED_YET,
 } as const;
 
 type AdditionName = keyof typeof HONEST_DRAFTING_ADDITIONS;
@@ -201,6 +237,7 @@ const NONE: HonestDraftingCounts = {
   qaHonestGap: 0,
   qaSourceItem: 0,
   qaGapsOnce: 0,
+  qaNothingLearned: 0,
 };
 
 /**
@@ -213,7 +250,7 @@ export const HONEST_DRAFTING_COUNTS = {
   selfCheck: { ...NONE, selfCheck: 1 },
   summarySelfCheck: { ...NONE, selfCheck: 1 },
   summarySelfCheckWithFacts: { ...NONE, selfCheck: 1, facts: 1 },
-  qa: { ...NONE, qaGoal: 1, qaHonestGap: 1, qaSourceItem: 1, qaGapsOnce: 1 },
+  qa: { ...NONE, qaGoal: 1, qaHonestGap: 1, qaSourceItem: 1, qaGapsOnce: 1, qaNothingLearned: 1 },
   compression: NONE,
   chat: NONE,
   analysis: NONE,

@@ -1179,9 +1179,14 @@ describe("prompt versions", () => {
     // Re-read after its item 7: the drafting allowance over the CRA limits,
     // the compression wording that names it and the Assistant's words on
     // the limits move on purpose; before it they were sha256:b501156e...
-    // and sha256:e828e9f7....
-    expect(await hashPromptProgram()).toBe("sha256:0ec90d5150e7c506938a64afaf2daa20011bed5ccdb6fcb0c9014d847aecc22e");
-    expect(await legacyPromptVersion()).toBe("sha256:ed39c6c19fc8014446c70a696cf69f18c409bb935f36917494ba14225e5db093");
+    // and sha256:e828e9f7.... Re-read after its review round 1: Line 246's
+    // paragraph with nothing learned yet, the general-practice scope, the
+    // pointer, Line 242's opening, the examples, QA's opener note and its
+    // unreadable-source line, the Assistant's retry rule, the gaps heading,
+    // two Seed objectives and the Seed version move on purpose; before it
+    // they were sha256:0ec90d51... and sha256:ed39c6c1....
+    expect(await hashPromptProgram()).toBe("sha256:316935b93f597ec3a38f9831048b628bca0457371d9efd07cbd150ff800fd0f6");
+    expect(await legacyPromptVersion()).toBe("sha256:3f48ba26dfc9efb7ae52c57be0cf9ed189e11b7f529c3afc937b910d9d1675f5");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

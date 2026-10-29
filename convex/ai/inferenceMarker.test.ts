@@ -53,7 +53,7 @@ describe("the three kinds rule", () => {
     );
     // The gap comes first wherever the instructions ask for what the evidence lacks.
     expect(RULES_EVIDENCE_KINDS).toContain(
-      "leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it. Never make it up to fill the shape."
+      "leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it (general practice in Line 242's limitations aside). Never make it up to fill the shape."
     );
     expect(RULES_EVIDENCE_KINDS).not.toContain("mark it as inferred, or leave a gap");
     expect(RULES_EVIDENCE_KINDS).not.toContain("mark a reasonable inference, or leave a gap");
@@ -131,10 +131,12 @@ describe("the three kinds rule", () => {
       expect(task.indexOf("## Self-check repair")).toBeGreaterThan(task.indexOf(SECTION_EVIDENCE_POINTER));
       expect(task.endsWith("# BRIEF")).toBe(true);
     }
+    // 2026-10-29 (third), review round 1 (P3-1): general practice in Line
+    // 242's limitations aside, and no longer about a required story.
     expect(SECTION_EVIDENCE_POINTER).toContain(
-      "the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe."
+      "the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it (general practice in Line 242's limitations aside), and never for an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe."
     );
-    expect(SECTION_EVIDENCE_POINTER).toContain("even where these instructions say a missing element will be flagged");
+    expect(SECTION_EVIDENCE_POINTER).not.toContain("even where these instructions say a missing element will be flagged");
     expect(findDashConnectors(SECTION_EVIDENCE_POINTER)).toEqual([]);
   });
 

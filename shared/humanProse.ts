@@ -186,6 +186,14 @@ No talk about sources:
  * right after them (SECTION_EVIDENCE_POINTER, convex/ai/prompts.ts) says
  * this rule decides where they ask for content the evidence does not give.
  */
+/**
+ * 2026-10-29 (third), review round 1 (P2-2): a general-practice marker
+ * covers the approach and what it generally does, never a fact about the
+ * project. Sent in RULES_EVIDENCE_KINDS and in Line 242's limitations rule.
+ */
+export const GENERAL_PRACTICE_SCOPE =
+  "The marker covers only what the approach is and generally does. Why it falls short here rests on stated facts about this project, or is a [GAP: ...]; never put a fact about this project, its conditions or its work in a general-practice sentence.";
+
 export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
 Every claim you write in a report Line is one of three kinds. Decide which before you write it.
 1. Stated: the evidence says it. Write it plainly.
@@ -195,23 +203,24 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 - [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, and for general practice as below. Write an inferred cause as likely, never as confirmed.
 - Never write an inference as if the evidence stated it: mark it.
 - An inference adds no specific detail of its own: no number, material, name, date, setting or test result. A detail you would have to invent is missing and gets a gap.
-- General practice is the one use of your own knowledge. In the limitations of standard practice, where the evidence names no standard approach, you may name a well-known standard approach and say what it is generally known to do, marked straight after the sentence with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Name it in general terms only, with no figure, product version or setting of your own, and never say or suggest that the company tried it unless the evidence says so.
+- General practice is the one use of your own knowledge. In the limitations of standard practice, where the evidence names no standard approach, you may name a well-known standard approach and say what it is generally known to do, marked straight after the sentence with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Name it in general terms only, with no figure, product version or setting of your own, and never say or suggest that the company tried it unless the evidence says so. ${GENERAL_PRACTICE_SCOPE}
 - An entry of the transcript analysis that begins "Implied, not stated:" is an inference, not a stated fact: write it as an inference and mark it, or leave it out.
-- When a Line's instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding or a result, leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it. Never make it up to fill the shape.
+- When a Line's instructions ask for something the evidence does not give, such as a step of an experiment, a result, a measure of success or a status, leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it (general practice in Line 242's limitations aside). Never make it up to fill the shape.
 - Most sentences should be stated. When in doubt, leave a gap.
 - One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
 - A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on, such as the client's answer or a test log. The sentence itself never names a source.
 - When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
 Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
 Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
-Good, where the evidence names no standard approach: "Cold-room controllers commonly hold temperature with setpoint tables and a feedback loop tuned for a closed room. [INFERRED: general practice, not in the source: confirm with the client which control methods the team knew of] Those tables assume the doors stay closed, and the warehouse's dock doors stay open for most of a shift." (general practice, marked, then the stated reason it falls short here)
+Good, where the evidence names no standard approach: "Cold-room controllers commonly hold temperature with a feedback loop tuned for a closed room. [INFERRED: general practice, not in the source: confirm with the client which control methods the team knew of] The warehouse's dock doors stay open for most of a shift, which a loop tuned for a closed room does not allow for." (general practice, marked, then a stated fact about the project as the reason it falls short)
 Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)
 Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a first approach is an event: a requirement is not a first approach, and the marker does not make it allowed: leave a gap)
 Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials, and the sentence is written as a stated fact)
 Bad: "The client's answer suggests readiness was first judged from single readings." (the sentence names its source, and states a first approach the evidence does not describe)
 Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)
 Bad: "No documented method existed for holding a cold room at its setpoint while its doors stay open." (names no standard approach and no reason it falls short: name the standard approach, what it does and why it falls short here)
-Bad: "The team first tried the standard setpoint tables. [INFERRED: general practice, not in the source: setpoint tables are the usual method]" (general practice is never something the company tried unless the evidence says so)`;
+Bad: "The team first tried the standard setpoint tables. [INFERRED: general practice, not in the source: setpoint tables are the usual method]" (general practice is never something the company tried unless the evidence says so)
+Bad: "Standard PID tuning assumes steady loads, and the company's lines switch products hourly. [INFERRED: general practice, not in the source: PID tuning is the usual method]" (a fact about this project inside a general-practice sentence: the marker does not cover it; state it in its own sentence only where the evidence gives it, or leave a gap)`;
 
 /**
  * 2026-09-30 (third): the Compliance Note instruction and the repair fix for

@@ -7,8 +7,14 @@ import {
   resolveEffectiveOverrides,
   type StyleOverrides,
 } from "../../shared/styleOverrides";
-import { GENERAL_FACTUAL_ARGUMENT_RULE, LOCKED_RULES, RULES_GENERAL, RULES_REPORT_SKELETON } from "../../shared/houseRules";
-import { RULES_EVIDENCE_KINDS, findDashConnectors } from "../../shared/humanProse";
+import {
+  GENERAL_FACTUAL_ARGUMENT_RULE,
+  LOCKED_RULES,
+  RULES_CRA_OPENERS,
+  RULES_GENERAL,
+  RULES_REPORT_SKELETON,
+} from "../../shared/houseRules";
+import { GENERAL_PRACTICE_SCOPE, RULES_EVIDENCE_KINDS, findDashConnectors } from "../../shared/humanProse";
 import { PD_SUBSECTIONS, pdSubsectionStepSubtitle } from "../../shared/pdSubsections";
 import {
   ANALYZER_IMPLIED_LABEL,
@@ -16,6 +22,15 @@ import {
   CHAT_ADVANCEMENT_STATUS,
   CHAT_EXPERIMENT_ORDER,
   CHAT_LIMITS_AT_EXPORT,
+  CHAT_NOTHING_LEARNED,
+  CHAT_RETRY_WHEN,
+  QA_246_OPENING_NOTE,
+  QA_NOTHING_LEARNED_YET,
+  QA_WAIVED_OPENERS_NOTHING_LEARNED,
+  SECTION_246_KNOWLEDGE_FIRST_EXCEPTION,
+  SECTION_246_NOTHING_LEARNED_YET,
+  SECTION_246_SELF_CHECK_EXCEPTION,
+  SECTION_EVIDENCE_POINTER,
   CHAT_HYPOTHESIS_THEN,
   CHAT_STANDARD_APPROACH,
   QA_EXPERIMENT_ARC_CHECK,
@@ -62,7 +77,7 @@ import {
 import { draftingLineLimits } from "../lib/writerLineCap";
 import { LOCKED_WITHIN_ALLOWANCE } from "../lib/selfCheckRules";
 import { factsMatchSourcesInstruction } from "./selfCheck";
-import { checkBannedWords, checkBecauseClauses } from "./qaChecks";
+import { checkBannedWords, checkBecauseClauses, checkCRAOpeners } from "./qaChecks";
 import { QA_REQUEST, qaSourceEvidenceBlock, runQAAgent } from "./qaAgent";
 import { draftedPriorSectionsBlock } from "./orderedGeneration";
 import { priorSectionsBlock } from "./iterative";
@@ -122,6 +137,16 @@ const NEW_TEXTS = {
   CHAT_ADVANCEMENT_STATUS,
   RULES_EVIDENCE_KINDS,
   RULES_REPORT_SKELETON,
+  GENERAL_PRACTICE_SCOPE,
+  SECTION_246_NOTHING_LEARNED_YET,
+  SECTION_246_KNOWLEDGE_FIRST_EXCEPTION,
+  SECTION_246_SELF_CHECK_EXCEPTION,
+  QA_NOTHING_LEARNED_YET,
+  QA_WAIVED_OPENERS_NOTHING_LEARNED,
+  QA_246_OPENING_NOTE,
+  CHAT_NOTHING_LEARNED,
+  CHAT_RETRY_WHEN,
+  SECTION_EVIDENCE_POINTER,
   gapsAsked: JSON.stringify(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.gapsAsked),
   sourceScaffold: JSON.stringify(QA_REQUEST.sourceScaffold),
 } as const;
@@ -455,6 +480,38 @@ describe("QA reads the source evidence (4)", () => {
     expect(withEvidence.replace(block, "")).toBe(without);
   });
 
+  // Review round 1: one unreadable frozen row no longer costs QA every source.
+  it("skips a frozen row whose text cannot be read, and names it as left out", async () => {
+    const s = await decisionFixture();
+    await s.t.run(async (ctx) => {
+      await ctx.db.insert("generationSources", {
+        generationId: s.generationId,
+        projectId: s.projectId,
+        kind: "project_document",
+        label: "scoping_notes:lost.md",
+        contentHash: "lost-hash",
+        textLength: 1200,
+        truncated: false,
+        originalLength: 1200,
+        capturedAt: 2,
+      });
+    });
+    const read = await s.t.query(internal.generations.getQaSourceEvidence, {
+      generationId: s.generationId,
+      subjectTexts: ["The work and its evidence."],
+    });
+    expect(read).toEqual({
+      documents: [{ label: "INTERVIEW TRANSCRIPT: Interview", content: "Evidence alpha supports the work." }],
+      leftOut: [],
+      budget: SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES,
+      unreadable: [{ label: "SCOPING NOTES: lost.md" }],
+    });
+    // QA is told it was left out because it could not be read, not for the budget.
+    expect(qaSourceEvidenceBlock(read)).toBe(
+      `${QA_REQUEST.sourceScaffold.heading}\n[INTERVIEW TRANSCRIPT: Interview]\nEvidence alpha supports the work.\n\nLeft out, as their text could not be read: SCOPING NOTES: lost.md.`
+    );
+  });
+
   it("reads the frozen sources the way the facts check does", async () => {
     const s = await decisionFixture();
     const read = await s.t.query(internal.generations.getQaSourceEvidence, {
@@ -587,13 +644,18 @@ describe("drafts may run over the CRA limits until export (7)", () => {
     expect(run.create).toHaveBeenCalledTimes(1);
     expect(fit).toEqual({ text: underCeiling, passes: 1, overLimit: false });
     expect(sectionMetrics(fit.text, "s246").overLimit).toBe(true);
-    // The pass aims at 85 percent of the ceiling, and says so after the CRA limits.
-    expect(compressionTargetWords("s246", "standard")).toBe(357);
-    expect(compressionTargetWords("s244", "standard")).toBe(714);
+    // The pass aims at the lower of the length budget and 85 percent of the
+    // ceiling, and names the ceiling after the CRA limits.
+    expect(compressionTargetWords("s246", "standard")).toBe(337);
+    expect(compressionTargetWords("s244", "standard")).toBe(673);
+    // Review round 1: a concise or full length choice still sets the aim, under the ceiling.
+    expect(compressionTargetWords("s246", "concise")).toBe(268);
+    expect(compressionTargetWords("s246", "full")).toBe(350);
+    expect(compressionTargetWords("s244", "full")).toBe(700);
     expect(finalCutTargetWords("s246", { words: 440, lines: 40 })).toBe(399);
     const params = (run.create.mock.calls[0] as unknown as [{ system: string; messages: Array<{ content: string }> }])[0];
     expect(params.messages[0]!.content).toContain(
-      "and at most 350 words, which it must meet before export. While drafting it may run up to 20 percent over them, to 60 lines and 420 words, and it is over that. Rewrite it to AT MOST 357 words"
+      "and at most 350 words, which it must meet before export. While drafting it may run up to 20 percent over them, to 60 lines and 420 words, and it is over that. Rewrite it to AT MOST 337 words"
     );
     expect(params.system).toContain(COMPRESSION_LIMITS_AT_EXPORT);
     expect(COMPRESSION_REQUEST.system).not.toContain("cannot be filed");
@@ -613,5 +675,108 @@ describe("drafts may run over the CRA limits until export (7)", () => {
     for (const text of [CHAT_LIMITS_AT_EXPORT, COMPRESSION_LIMITS_AT_EXPORT, LOCKED_WITHIN_ALLOWANCE]) {
       expect(findDashConnectors(text)).toEqual([]);
     }
+  });
+});
+
+describe("review round 1 of the third amendment", () => {
+  it("P2-1: Line 246 opens an uncertainty with nothing learned yet with its status and one gap, never an invented finding", () => {
+    for (const overrides of DEFAULT_BUILDS) {
+      const prompt = buildSection246Instructions(overrides);
+      expect(prompt).toContain(SECTION_246_NOTHING_LEARNED_YET);
+      expect(prompt).toContain(`Every paragraph must lead with knowledge or understanding gained${SECTION_246_KNOWLEDGE_FIRST_EXCEPTION}.`);
+      expect(prompt).toContain(`not the claim itself.${SECTION_246_SELF_CHECK_EXCEPTION}`);
+    }
+    expect(SECTION_246_NOTHING_LEARNED_YET).toContain("this opening rule does not apply to its paragraph: open it with the uncertainty and its status");
+    expect(SECTION_246_ADVANCEMENT_RULES).toContain(
+      'GOOD (the evidence reports nothing learned yet):\n"In addressing the uncertainty around holding the room within a degree while a door stays open, the work was still in progress at year end. [GAP: what has been learned about it so far]"'
+    );
+    for (const overrides of [NO_STYLE_OVERRIDES, SHIPPED_DEFAULT]) {
+      expect(buildSectionStructureRules(overrides)).toContain(`${CHAT_NOTHING_LEARNED})`);
+    }
+    for (const overrides of EVERY_BUILD) {
+      expect(buildQaSystemPrompt(overrides).split(QA_NOTHING_LEARNED_YET)).toHaveLength(2);
+    }
+    // The content check QA runs with the opening phrases waived (the shipped
+    // default) takes the same exception, and only there.
+    expect(buildQaSystemPrompt(SHIPPED_DEFAULT)).toContain(
+      `246 advancement paragraphs open with knowledge findings${QA_WAIVED_OPENERS_NOTHING_LEARNED}. Identify each by its content`
+    );
+    for (const overrides of EVERY_BUILD) {
+      const waived = overrides.openingClauses && !overrides.reportSkeleton;
+      expect(buildQaSystemPrompt(overrides).includes(QA_WAIVED_OPENERS_NOTHING_LEARNED)).toBe(Boolean(waived));
+    }
+  });
+
+  it("P2-2: a general-practice sentence holds no fact about the project, in the rule, Line 242 and QA", () => {
+    expect(GENERAL_PRACTICE_SCOPE).toBe(
+      "The marker covers only what the approach is and generally does. Why it falls short here rests on stated facts about this project, or is a [GAP: ...]; never put a fact about this project, its conditions or its work in a general-practice sentence."
+    );
+    expect(RULES_EVIDENCE_KINDS).toContain(GENERAL_PRACTICE_SCOPE);
+    expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(GENERAL_PRACTICE_SCOPE);
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      'Bad: "Standard PID tuning assumes steady loads, and the company\'s lines switch products hourly. [INFERRED: general practice, not in the source: PID tuning is the usual method]"'
+    );
+    expect(QA_STANDARD_APPROACH_CHECK).toContain(
+      "unless it says the company tried that practice and the evidence does not, or states a fact about this project the evidence does not give."
+    );
+  });
+
+  it("P3-1 and P3-2: the pointer and the rule name what the instructions still ask for, and allow general practice", () => {
+    expect(SECTION_EVIDENCE_POINTER).toContain("such as a step of an experiment, a result, a measure of success or a status");
+    expect(SECTION_EVIDENCE_POINTER).toContain("(general practice in Line 242's limitations aside)");
+    expect(SECTION_EVIDENCE_POINTER).not.toContain("an unexpected finding");
+    expect(SECTION_EVIDENCE_POINTER).not.toContain("will be flagged");
+    expect(RULES_EVIDENCE_KINDS).not.toContain("an unexpected finding");
+    expect(RULES_EVIDENCE_KINDS).toContain("(general practice in Line 242's limitations aside). Never make it up to fill the shape.");
+    for (const overrides of DEFAULT_BUILDS) {
+      expect(buildSection242Instructions(overrides)).toContain(
+        "Use ONLY the information provided (and well-known general practice, as the limitations rule below allows)."
+      );
+    }
+  });
+
+  it("P3-3 and P3-4: the examples say what evidence they assume, and general practice falls short on a stated project fact", () => {
+    expect(RULES_EVIDENCE_KINDS).toContain(
+      'Good, where the evidence names no standard approach: "Cold-room controllers commonly hold temperature with a feedback loop tuned for a closed room. [INFERRED: general practice, not in the source: confirm with the client which control methods the team knew of] The warehouse\'s dock doors stay open for most of a shift, which a loop tuned for a closed room does not allow for."'
+    );
+    expect(SECTION_244_EXPERIMENT_RULES).toContain("BAD (an invented finding and change, where the evidence is as in the second Good example):");
+    expect(SECTION_242_STANDARD_APPROACH_RULES).toContain("GOOD (the evidence names both approaches;");
+  });
+
+  it("P3-5 and P3-6: QA's 246 checks name one uncertainty, and the opener options accept item 1d's opening", () => {
+    for (const overrides of EVERY_BUILD) {
+      expect(buildQaSystemPrompt(overrides)).not.toContain("one resolved uncertainty");
+    }
+    expect(buildQaSystemPrompt()).toContain(`NOTE: ${QA_246_OPENING_NOTE}`);
+    expect(QA_246_OPENING_NOTE).toContain("SHOULD open with the advancement as knowledge gained in the field");
+    expect(checkCRAOpeners("Overall.\n\nIn addressing the uncertainty around door loads, the company gained knowledge that a fixed step lags.").results[0]?.passes).toBe(true);
+    expect(RULES_CRA_OPENERS).toContain('"Through systematic investigation, it was determined that..." or "In addressing the uncertainty around..."');
+    expect(buildSection246Instructions(NO_STYLE_OVERRIDES)).toContain('or "In addressing the uncertainty around [X], ..."');
+  });
+
+  it("P3-7: a Hypothesis Seed takes one uncertainty, and the limitations Seed names the standard approach", () => {
+    const objective = (roleId: string) => PD_SUBSECTIONS.find((role) => role.roleId === roleId)!.objective;
+    expect(objective("hypothesis")).toContain("for one uncertainty the work addressed, in under 20 words");
+    expect(objective("hypothesis")).toContain("so one can be picked for each");
+    expect(objective("passive_limitations")).toBe(
+      "Name the standard approach a practitioner would use, what it does, and why it falls short here: the limitation in existing knowledge before a solution was chosen."
+    );
+    expect(pdSubsectionStepSubtitle("passive_limitations")).toBe("The standard approach, what it does, and why it falls short here.");
+  });
+
+  it("plumbing P2: the Assistant sends a tighter card only when asked about length, or when an edit takes a Line over its drafting room", () => {
+    const prompt = buildChatSystemPromptV2();
+    expect(prompt.split(CHAT_RETRY_WHEN)).toHaveLength(4);
+    expect(prompt).not.toContain("when its result shows the Line still over a CRA limit.");
+    expect(prompt).not.toContain("Only if the result shows the Line still over a CRA limit");
+  });
+
+  it("plumbing P3: a redraft sends only the gap notes of a Line after it", () => {
+    const later = [{ section: "246" as const, text: "Later text. [GAP: how many trials ran]" }];
+    const block = draftedPriorSectionsBlock([], later);
+    expect(block).toBe(gapsAlreadyAskedBlock([{ title: "Line 246 (Advancement)", text: later[0]!.text }]));
+    expect(block).toContain("- Line 246 (Advancement): how many trials ran");
+    expect(block).not.toContain("Later text.");
+    expect(draftedPriorSectionsBlock([], [])).toBe("");
   });
 });

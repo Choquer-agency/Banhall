@@ -76,7 +76,7 @@ CRA auditors skim. The following phrases must appear near the START of their res
 - "The limitations to standard practice were..." (242, the limitations-of-standard-practice paragraph; must be the opening clause)
 - "The technological objective was to..." (242, the technological-objective paragraph; must be the opening clause)
 - "It was hypothesized that if..." (244, hypothesis paragraph; must be the opening clause)
-- "Through systematic investigation, it was determined that..." (246, advancement paragraphs; use as the opening of most advancement paragraphs)
+- "Through systematic investigation, it was determined that..." or "In addressing the uncertainty around..." (246, advancement paragraphs; use as the opening of most advancement paragraphs)
 These are signal phrases for CRA reviewers. They must be immediately visible, not embedded in subordinate clauses.`;
 
 // Waivable: bannedWords. The term list is GENERATED from the scrubber's own

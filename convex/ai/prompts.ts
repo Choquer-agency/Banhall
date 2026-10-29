@@ -45,6 +45,7 @@ import {
   RULES_BANNED_SELF_CHECK,
 } from "../../shared/houseRules";
 import {
+  GENERAL_PRACTICE_SCOPE,
   HUMAN_PROSE_FOR_OWN_WORDING,
   RULES_ANALYSIS_FIGURES,
   RULES_EVIDENCE_KINDS,
@@ -338,14 +339,15 @@ export function buildSectionSharedSystemPrompt(
 /**
  * 2026-10-29, review round 1 (P1-1): RULES_EVIDENCE_KINDS sits in the
  * system prompt, and each Line's instructions come later, in the user
- * message, where Line 244's required story still asks for every step. This
- * pointer, right after the Line instructions, says the rule decides there.
- * The Line instructions themselves are unchanged (owner approval pending).
- * Every draft, its Self-check repair and a redraft send it: they all build
- * their request here.
+ * message. This pointer, right after the Line instructions, says the rule
+ * decides there. Every draft, its Self-check repair and a redraft send it:
+ * they all build their request here. 2026-10-29 (third), review round 1
+ * (P3-1): the Line instructions now ask for each step only as far as the
+ * evidence goes ("2026-10-29 (third)"), so the pointer names what they still
+ * ask for, and allows general practice in Line 242's limitations.
  */
 export const SECTION_EVIDENCE_POINTER =
-  "\n\nWhere these instructions ask for something the evidence does not give, such as a step of the required story, an unexpected finding, a result or a measurable target, the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it, and never for an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe. Never invent it to complete the shape, even where these instructions say a missing element will be flagged.";
+  "\n\nWhere these instructions ask for something the evidence does not give, such as a step of an experiment, a result, a measure of success or a status, the STATED, INFERRED OR MISSING rule decides: leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it (general practice in Line 242's limitations aside), and never for an event (a trial, test, result, finding, first approach or change of approach) the evidence does not describe. Never invent it to complete the shape.";
 
 export const SECTION_DRAFT_SCAFFOLD = {
   sharedPrefix:
@@ -473,13 +475,13 @@ export const SECTION_242_STANDARD_APPROACH_RULES = `Every limitation must refere
 2. Give the specific reason each falls short for this problem (the BECAUSE): an input it lacks, a condition it does not support, a constraint it does not handle, or two methods that do not combine.
 3. Close with one sentence on what that means for available knowledge, tied to the approaches you named, such as that they did not provide a known method for what this project needed.
 
-Where the evidence names the standard approaches, write them as stated. Where it does not, you may name well-known standard practice from general knowledge, and mark each such sentence straight after it with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Never say or suggest that the company tried a standard approach unless the evidence says so. Facts about what existing systems do are fine as the reason; the limitation itself is what was not known.
+Where the evidence names the standard approaches, write them as stated. Where it does not, you may name well-known standard practice from general knowledge, and mark each such sentence straight after it with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Never say or suggest that the company tried a standard approach unless the evidence says so. ${GENERAL_PRACTICE_SCOPE} Facts about what existing systems do are fine as the reason; the limitation itself is what was not known.
 
 The uncertainty never rests on simply using a standard mechanism. The standard way to do something (for example, saving a controller's settings to disk so they survive a restart) is part of what was already known; the uncertainty sits where the standard approaches do not reach.
 
 Never write a bare "no documented methods existed for..." or "the knowledge required to [X] was insufficient": name what exists, and why it falls short here.
 
-GOOD (the standard approaches, what they do, why they fall short here, then what that means for knowledge):
+GOOD (the evidence names both approaches; the standard approaches, what they do, why they fall short here, then what that means for knowledge):
 "Standard plant classification trains image models on labelled photographs of mature specimens, and dual-spectrum imaging is established for field crops viewed from satellites and drones. Both work where plants look distinct and the light is steady. Early-stage ornamental species look alike, and greenhouse light changes through the day and from bench to bench, so neither approach could separate seedlings at bench level. These methods did not provide a known way to classify the growth stage of similar-looking species under changing greenhouse light."
 (This describes a knowledge gap tied to named approaches; what the field had not worked out.)
 
@@ -488,6 +490,10 @@ BAD: "No documented methods existed for multi-species growth stage classificatio
 
 WRONG: "Existing PG rated windows max out at PG45."
 RIGHT: "Conventional frame design methods, glass-to-frame thermal break calculations and structural load distribution models size a window for one performance grade at a time, and window systems designed with them stop at PG45. These methods do not account for the combined stress factors present at higher grades, so they gave no known way to design a frame that exceeds PG45."`;
+
+/** 2026-10-29 (third), review round 1 (P3-2): Line 242 may name well-known general practice. */
+export const SECTION_242_GENERAL_PRACTICE_ALLOWED =
+  " (and well-known general practice, as the limitations rule below allows)";
 
 /** 2026-10-29 (third): the cause may come first, as the firm's approved PDs put it. */
 export const SECTION_242_CAUSE_FIRST =
@@ -511,7 +517,7 @@ ${writerArchitectureBlock("Line 242", LINE_242_PURPOSE)}`;
   }
   return `You are an expert SR&ED report writer for a Canadian consulting firm. Your task is to draft Line 242 (Scientific or Technological Uncertainty) of an SR&ED project description report.
 
-You will receive structured analysis of an interview transcript. Use ONLY the information provided.
+You will receive structured analysis of an interview transcript. Use ONLY the information provided${SECTION_242_GENERAL_PRACTICE_ALLOWED}.
 
 ## Required Content (in this order)
 
@@ -646,7 +652,7 @@ GOOD (the evidence gives each step):
 GOOD (the evidence gives the work but not its outcome):
 "The team ran the controller with a 30-second step during loading shifts to see whether a shorter step followed the heat load of an open door. [GAP: what these runs showed, and what was changed after them]"
 
-BAD (an invented finding and change): "Trials then indicated that the shorter step overloaded the compressor, so the team added a rate limit." (the evidence describes no such result or change)
+BAD (an invented finding and change, where the evidence is as in the second Good example): "Trials then indicated that the shorter step overloaded the compressor, so the team added a rate limit." (the evidence describes no such result or change)
 
 BAD (a frame for each missing step): "The outcome of the early runs was [GAP: the outcome]. Changes made in response were [GAP: the changes]."`;
 
@@ -719,7 +725,7 @@ export function buildSection244SystemPrompt(
 export const SECTION_246_PROMPT_BRANCHES = {
   advancementOpening: {
     default:
-      'Most advancement paragraphs MUST open with "Through systematic investigation, it was determined that..." or "It was established that..."',
+      'Most advancement paragraphs MUST open with "Through systematic investigation, it was determined that...", "It was established that..." or "In addressing the uncertainty around [X], ..."',
     waived:
       'Every advancement paragraph MUST open with the knowledge finding itself; what was determined or established; in the writer\'s preferred phrasing (the default openers are "Through systematic investigation, it was determined that..." and "It was established that...").',
   },
@@ -750,6 +756,19 @@ export const SECTION_246_PROMPT_BRANCHES = {
 export const SECTION_246_KNOWLEDGE_LEADS =
   '"In addressing the uncertainty around [X], the company gained knowledge that...", "Through this investigation, it was established that...", "The experimental work showed that..."';
 
+/**
+ * 2026-10-29 (third), review round 1 (P2-1): with one paragraph per
+ * uncertainty, an uncertainty the evidence reports nothing learned for
+ * would otherwise get an invented finding to lead with. Its paragraph opens
+ * with the uncertainty and its status instead, then one gap.
+ */
+export const SECTION_246_NOTHING_LEARNED_YET =
+  ' Where the evidence reports nothing learned yet for an uncertainty, this opening rule does not apply to its paragraph: open it with the uncertainty and its status (for example, "In addressing the uncertainty around [X], the work was still in progress at year end."), then one [GAP: ...] for what has been learned.';
+export const SECTION_246_KNOWLEDGE_FIRST_EXCEPTION =
+  ", except a paragraph for an uncertainty where the evidence reports nothing learned yet, which opens with the uncertainty and its status";
+export const SECTION_246_SELF_CHECK_EXCEPTION =
+  " Where the evidence reports nothing learned yet for the uncertainty, the paragraph opens with the uncertainty and its status instead, then one [GAP: ...].";
+
 export const SECTION_246_OVERALL_ADVANCEMENT = `**ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
 Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]." Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, put one [GAP: ...] for the result. This ties back directly to Section 242.`;
 
@@ -768,6 +787,9 @@ BAD (a goal written as a result):
 
 BAD (a paragraph built from gap frames):
 "It was established that [GAP: what was learned]. This resolved the uncertainty regarding [GAP: which uncertainty]."
+
+GOOD (the evidence reports nothing learned yet):
+"In addressing the uncertainty around holding the room within a degree while a door stays open, the work was still in progress at year end. [GAP: what has been learned about it so far]"
 
 GOOD (the evidence does not give the result):
 "In addressing the uncertainty around holding the room at its setpoint with a door open, the company gained knowledge that a fixed control step cannot follow the heat load of an open door, and it redesigned the step to change with the measured load. [GAP: the recovery times measured with the redesigned step] Whether the redesigned step holds the room within a degree while a door stays open remains open."`;
@@ -796,9 +818,9 @@ ${writerArchitectureBlock("Line 246", LINE_246_PURPOSE)}`;
 You will receive structured analysis of an interview transcript. Use ONLY the information provided.
 
 CRITICAL RULE: KNOWLEDGE FIRST, CAPABILITIES SECOND.
-This is the single biggest quality gap to avoid. Section 246 describes "the WHY that was ultimately achieved"; meaning WHAT WAS LEARNED, not WHAT WAS BUILT. Every paragraph must lead with knowledge or understanding gained. The physical outcome is mentioned only AFTER the knowledge claim, as evidence.
+This is the single biggest quality gap to avoid. Section 246 describes "the WHY that was ultimately achieved"; meaning WHAT WAS LEARNED, not WHAT WAS BUILT. Every paragraph must lead with knowledge or understanding gained${SECTION_246_KNOWLEDGE_FIRST_EXCEPTION}. The physical outcome is mentioned only AFTER the knowledge claim, as evidence.
 
-SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH: After writing each advancement paragraph, re-read its FIRST SENTENCE. If the subject is a system, tool, product, or prototype ("The system achieved...", "The model demonstrated...", "The platform enabled..."), REWRITE it to lead with the knowledge finding instead (${SECTION_246_KNOWLEDGE_LEADS}). The physical system is EVIDENCE for the knowledge claim, not the claim itself.
+SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH: After writing each advancement paragraph, re-read its FIRST SENTENCE. If the subject is a system, tool, product, or prototype ("The system achieved...", "The model demonstrated...", "The platform enabled..."), REWRITE it to lead with the knowledge finding instead (${SECTION_246_KNOWLEDGE_LEADS}). The physical system is EVIDENCE for the knowledge claim, not the claim itself.${SECTION_246_SELF_CHECK_EXCEPTION}
 
 ## Required Content (in this order)
 
@@ -811,7 +833,7 @@ Each advancement paragraph addresses ONE specific technological uncertainty from
     overrides.openingClauses
       ? SECTION_246_PROMPT_BRANCHES.advancementOpening.waived
       : SECTION_246_PROMPT_BRANCHES.advancementOpening.default
-  }
+  }${SECTION_246_NOTHING_LEARNED_YET}
 
 ${SECTION_246_ADVANCEMENT_RULES}
 
@@ -949,7 +971,24 @@ export const QA_EXPERIMENT_ARC_CHECK = `- Does each experimentation paragraph te
 
 export const QA_STANDARD_APPROACH_CHECK = `- IMPORTANT CLARIFICATION on knowledge vs product limitations: the expected limitation names the standard approach a competent practitioner would use, says briefly what it does, gives the specific reason it falls short here (a missing input, an unsupported condition, a constraint it does not handle, two methods that do not combine), then says what that means for available knowledge, tied to those approaches. Facts about what existing systems do are fine as that reason: it is knowledge-limitation language. A product limitation is "the existing software could not do X" or "the tool failed to perform X" with no standard approach and no reason: a specific product failing, not a gap in knowledge. Do NOT flag the standard approach and its shortfall as a product limitation.
 - Flag a limitation that is only a bare claim ("no documented methods existed for X") with no standard approach named and no reason it falls short, and an uncertainty that rests on simply using a standard mechanism rather than on where the standard approaches do not reach.
-- A sentence that names general standard practice, marked [INFERRED: general practice, not in the source: ...], is allowed: do not count it as unsupported, unless it says the company tried that practice and the evidence does not.`;
+- A sentence that names general standard practice, marked [INFERRED: general practice, not in the source: ...], is allowed: do not count it as unsupported, unless it says the company tried that practice and the evidence does not, or states a fact about this project the evidence does not give.`;
+
+/**
+ * 2026-10-29 (third), review round 1: the opening of Line 246 follows item
+ * 1d (P3-6), and a paragraph with nothing learned yet is not a capability
+ * lead (P2-1).
+ */
+export const QA_246_OPENING_NOTE =
+  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field (or by restating the technological objective). Do NOT apply the advancement-paragraph opener rule to it.";
+export const QA_NOTHING_LEARNED_YET =
+  "\n- A paragraph for an uncertainty where the evidence reports nothing learned yet may open with the uncertainty and its status and hold one [GAP: ...]: that is not a capability lead, so do not flag or deduct it.";
+/**
+ * The same exception in the content check QA runs when the opening phrases
+ * are waived (the default, since the opener house rule is off for everyone),
+ * which otherwise asks every advancement paragraph to open with a finding.
+ */
+export const QA_WAIVED_OPENERS_NOTHING_LEARNED =
+  " (or, for an uncertainty where the evidence reports nothing learned yet, with the uncertainty and its status)";
 
 /** 2026-10-29 (third): the BECAUSE scan also accepts a cause given first with "given that". */
 export const QA_BECAUSE_SCAN_WORDS = 'for the words "because" or "given that" in';
@@ -976,12 +1015,12 @@ ${QA_LINE_242_OPENING_CHECK}
     heading: "### CRA Keyword Visibility Check\n",
     skeletonWaived: "",
     openingClausesWaived: `- WAIVED: this writer's profile waives the mandated literal opening clauses. Do NOT deduct points or flag issues for missing signal phrases ("The limitations to standard practice were...", "The technological objective was to...", "It was hypothesized that if...", "Through systematic investigation, it was determined that...").
-- Still verify the underlying CONTENT is present in the writer's own phrasing: 242 states the limitations of standard practice, 242 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings. Identify each by its content, not its position. Flag and deduct only when the content itself is missing.`,
+- Still verify the underlying CONTENT is present in the writer's own phrasing: 242 states the limitations of standard practice, 242 states the technological objective (knowledge sought + solution), the 244 hypothesis is in if/then form, and 246 advancement paragraphs open with knowledge findings${QA_WAIVED_OPENERS_NOTHING_LEARNED}. Identify each by its content, not its position. Flag and deduct only when the content itself is missing.`,
     default: `- Does "The limitations to standard practice were..." appear near the start of the 242 paragraph that states the limitations of standard practice (the passive uncertainties)? (Not buried mid-sentence) If not, flag and deduct 5 points from 242.
 - Does "The technological objective was to..." open the 242 paragraph that states the technological objective? If not, flag and deduct 5 points.
 - Does the hypothesis open with "It was hypothesized that if..."? If not, flag and deduct 5 points from 244.
-- FOR 246 ADVANCEMENT OPENERS: Use the pre-computed "CRA Opener Detection" results provided above. They were verified programmatically by parsing the first sentence of the paragraphs that follow the opening overall-advancement paragraph; trust each paragraph's PASS/FAIL, do not re-parse. Decide by content which scanned paragraphs are advancement paragraphs (each reports one resolved uncertainty as knowledge gained); a project-status or project-goal paragraph that was scanned is not an advancement paragraph and its result does not count. If most advancement paragraphs FAIL, deduct 5 points from 246.
-  NOTE: The opening paragraph of 246 SHOULD open by restating the technological objective. Do NOT apply the knowledge-first opening rule to it.`,
+- FOR 246 ADVANCEMENT OPENERS: Use the pre-computed "CRA Opener Detection" results provided above. They were verified programmatically by parsing the first sentence of the paragraphs that follow the opening overall-advancement paragraph; trust each paragraph's PASS/FAIL, do not re-parse. Decide by content which scanned paragraphs are advancement paragraphs (each reports one uncertainty); a project-status or project-goal paragraph that was scanned is not an advancement paragraph and its result does not count. If most advancement paragraphs FAIL, deduct 5 points from 246.
+  NOTE: ${QA_246_OPENING_NOTE}`,
   },
   firstPerson: {
     requested: `- The writer's preferences ASK for first-person plural ("we", "our"). Sentences about the team's actions, observations, interpretations, or expectations must use "we/our"; if the report never uses first person at all, flag once as "requested first person not applied" and deduct 3 points overall.`,
@@ -1061,9 +1100,9 @@ ${
 - Is the WHY-HOW-WHY sandwich maintained? (242 = WHY sought → 244 = HOW investigated → 246 = WHY achieved)
 
 ### Knowledge vs. Capability Check (Section 246 only)
-- This check applies ONLY to the advancement paragraphs of Section 246: the paragraphs that each report one resolved uncertainty as knowledge gained. Identify them by their content, not their position. The opening paragraph (overall advancement summary), the project-status/next-steps paragraph, and the closing project-goal paragraph are EXEMPT; the project-goal paragraph is EXPECTED to describe the physical outcome.
+- This check applies ONLY to the advancement paragraphs of Section 246: the paragraphs that each report one uncertainty. Identify them by their content, not their position. The opening paragraph (overall advancement summary), the project-status/next-steps paragraph, and the closing project-goal paragraph are EXEMPT; the project-goal paragraph is EXPECTED to describe the physical outcome.
 - For each advancement paragraph, identify whether the FIRST SENTENCE (all text up to the first period) describes knowledge gained or a system capability. Ignore all subsequent sentences; they may describe applications or capabilities and that is fine.
-- If any of these paragraphs leads with a capability/feature rather than knowledge, flag it and deduct 5 points.
+- If any of these paragraphs leads with a capability/feature rather than knowledge, flag it and deduct 5 points.${QA_NOTHING_LEARNED_YET}
 - "The system achieved..." = capability (BAD as a lead)
 - "It was determined that..." = knowledge (GOOD as a lead)
 - IMPORTANT CLARIFICATION: A sentence that opens with "It was determined that..." or "It was established that..." followed by a technical finding IS knowledge-focused, even if it mentions a specific technology. The test is whether the sentence reports what was LEARNED versus what was BUILT.
@@ -1314,6 +1353,8 @@ export const CHAT_HYPOTHESIS_THEN =
   "with a then-clause that names the expected outcome and its reason, or the knowledge sought, and a number only from the evidence";
 export const CHAT_EXPERIMENT_ORDER =
   "(each experiment in order: what was tried, what happened, what was changed next, and what was learned or stayed unresolved, only as far as the evidence shows), then the year-end status";
+export const CHAT_NOTHING_LEARNED =
+  "; one with nothing learned yet opens with the uncertainty and its status, then a gap";
 export const CHAT_ADVANCEMENT_STATUS =
   "one per uncertainty, with its status only as the evidence shows: resolved, resolved for the conditions tested, partially resolved or unresolved";
 
@@ -1358,9 +1399,9 @@ The report is built around three CRA lines. Each line covers its content roles i
   } → ${pdSubsectionRoleLabel("experimentation", "chat")} ${CHAT_EXPERIMENT_ORDER}.
 - **Line 246: Scientific/Technological Advancement**: ${pdSubsectionRoleLabel("overall_advancement", "chat")} → ${pdSubsectionRoleLabel("specific_advancements", "chat")} (${CHAT_ADVANCEMENT_STATUS}; ${
     openersWaived
-      ? "each opens with the knowledge finding; what was determined or established)"
-      : 'most open "Through systematic investigation, it was determined that..." or "It was determined that...")'
-  } → ${pdSubsectionRoleLabel("project_status", "chat")} → ${pdSubsectionRoleLabel("goal_improvements", "chat")}.
+      ? "each opens with the knowledge finding; what was determined or established"
+      : 'most open "Through systematic investigation, it was determined that..." or "It was determined that..."'
+  }${CHAT_NOTHING_LEARNED}) → ${pdSubsectionRoleLabel("project_status", "chat")} → ${pdSubsectionRoleLabel("goal_improvements", "chat")}.
 
 Passive uncertainties = gaps in general knowledge/standard practice. Active uncertainties = risks specific to this project's chosen approach. Never blur the two.`;
 }
