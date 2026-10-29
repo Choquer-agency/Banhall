@@ -4,14 +4,18 @@
    * 2026-10-28): the same 64px row as `ClientArea`'s, so nothing moves when
    * the page arrives. The title is "All projects", or the company named by
    * `?client=` once the company list knows it (a quiet block until then); the
-   * search is drawn but not yet usable.
+   * search is drawn but not yet usable, and New project shows while the
+   * sidebar is collapsed, as on the loaded header.
    */
   import { page } from "$app/state";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { IconSearch } from "$lib/components/icons";
+  import { resolve } from "$app/paths";
   import { CLIENT_PARAM } from "$lib/projects/clientList";
+  import { topBarPrimary } from "$lib/components/shell/topBar";
+  import { sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 
   const auth = useAuth();
   const clientsQ = useQuery(api.clients.listClients, () => (auth.isAuthenticated ? {} : "skip"));
@@ -39,4 +43,8 @@
       class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
     />
   </div>
+  {#if sectionSidebar.collapsed && sectionSidebar.mounted > 0}
+    <!-- As the loaded header: New project while the sidebar is collapsed. -->
+    <a href={resolve("/project/new")} data-top-bar-primary class={`${topBarPrimary} max-md:hidden`}>New project</a>
+  {/if}
 </div>

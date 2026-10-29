@@ -48,6 +48,7 @@
   import FrameCard from "$lib/components/workspace/FrameCard.svelte";
   import ProjectsSectionSidebar from "$lib/components/projects/ProjectsSectionSidebar.svelte";
   import ProjectsLoadingHeader from "$lib/components/projects/ProjectsLoadingHeader.svelte";
+  import { CLIENT_PARAM } from "$lib/projects/clientList";
   import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
   import { preloadOnProjectLinkIntent, preloadProjectPage } from "$lib/components/project/projectPageModules";
@@ -143,6 +144,11 @@
     if (displayedView) url.searchParams.set("view", displayedView);
     return `${resolve("/dashboard")}${url.search}`;
   });
+
+  // The rollout skeleton draws Home or Projects as the route will, phone
+  // layout included (the company list fills a phone until a company is chosen).
+  const skeletonHome = $derived(view === "my_work");
+  const skeletonPhoneList = $derived(!skeletonHome && !page.url.searchParams.get(CLIENT_PARAM));
 
   // Real typed navigation between the canonical routes: the rail renders
   // these as plain anchors (history entries, middle-click, copy-link all
@@ -260,13 +266,33 @@
       {#if displayedView === null}
         <!-- Neutral skeleton while the rollout decision loads: the card and
              its Projects sidebar, so neither Home nor Projects jumps. -->
-        <FrameCard class="flex-1" data-projects-work-surface>
+        {#if !skeletonHome}
+          <!-- A phone's Projects bar, as the loaded page draws it. -->
+          <PageTopBar
+            class="md:hidden"
+            title="Projects"
+            titleTag={skeletonPhoneList ? "h1" : "p"}
+            primaryAction={{ label: "New project", href: resolve("/project/new") }}
+            onOpenNavigation={() => (navigationOpen = true)}
+          />
+        {/if}
+        <FrameCard class="flex-1" data-projects-work-surface mainClass={skeletonPhoneList ? "max-md:hidden" : ""}>
           {#snippet sidebar()}
-            <ProjectsSectionSidebar current={view === "my_work" ? "home" : "projects"} homeHref={viewHref("my_work")} />
+            <ProjectsSectionSidebar
+              current={skeletonHome ? "home" : "projects"}
+              homeHref={viewHref("my_work")}
+              phone={skeletonPhoneList ? "full" : "hidden"}
+            />
           {/snippet}
           <div class="flex min-h-0 flex-1 flex-col" role="status" aria-label="Loading workspace">
-            {#if view === "my_work"}
-              <PageTopBar title="Home" sidebarToggle onOpenNavigation={() => (navigationOpen = true)} />
+            {#if skeletonHome}
+              <PageTopBar
+                title="Home"
+                sidebarToggle
+                primaryAction={{ label: "New project", href: resolve("/project/new") }}
+                primaryActionInSidebar
+                onOpenNavigation={() => (navigationOpen = true)}
+              />
             {:else}
               <ProjectsLoadingHeader />
             {/if}

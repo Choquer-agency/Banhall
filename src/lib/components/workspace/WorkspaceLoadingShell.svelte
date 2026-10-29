@@ -66,7 +66,6 @@
   const teamCanInvite = $derived(hasCapability(viewer.role, "invites.manage"));
   // Projects on a phone shows the company list itself until a company is chosen.
   const phoneList = $derived(layout === "projects" && !page.url.searchParams.get(CLIENT_PARAM));
-
   const displayedView = $derived<DashboardView | null>(
     layout === "home" ? "my_work" : layout === "projects" ? "all_projects" : null
   );
@@ -81,6 +80,17 @@
   // Home and Projects always draw the Projects sidebar; other pages follow the address.
   const section = $derived<FrameSection | null>(
     layout === "home" || layout === "projects" ? "projects" : layout === "project" ? null : frameSectionForPath(page.url.pathname)
+  );
+
+  // The page bar's main button, kept in place under the loaded bar's rule:
+  // shown below 768px and while the sidebar is collapsed (`primaryActionInSidebar`).
+  const newProject = { label: "New project", href: resolve("/project/new") };
+  const barAction = $derived(
+    layout === "home"
+      ? newProject
+      : section === "team" && teamAllowed && teamCanInvite
+        ? { label: "Invite people", disabled: true }
+        : null
   );
 
   const currentDashboardHref = $derived.by(() => {
@@ -137,7 +147,13 @@
       <!-- The Projects page: the phone bar below 768px, then the card with
            the Projects sidebar and the company header, as the page draws it. -->
       <div class="flex min-h-0 min-w-0 flex-col overflow-hidden max-lg:bg-surface">
-        <PageTopBar class="md:hidden" {title} titleTag={phoneList ? "h1" : "p"} onOpenNavigation={() => (navigationOpen = true)} />
+        <PageTopBar
+          class="md:hidden"
+          {title}
+          titleTag={phoneList ? "h1" : "p"}
+          primaryAction={newProject}
+          onOpenNavigation={() => (navigationOpen = true)}
+        />
         <FrameCard data-workspace-loading={layout} class="flex-1" sidebar={sectionSidebar} mainClass={phoneList ? "max-md:hidden" : ""}>
           <ProjectsLoadingHeader />
           <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -148,7 +164,13 @@
     {:else}
       <FrameCard data-workspace-loading={layout} sidebar={section ? sectionSidebar : undefined}>
         <!-- The same bar the loaded page draws: the title only (2026-10-19). -->
-        <PageTopBar {title} sidebarToggle={section !== null} onOpenNavigation={() => (navigationOpen = true)} />
+        <PageTopBar
+          {title}
+          sidebarToggle={section !== null}
+          primaryAction={barAction}
+          primaryActionInSidebar
+          onOpenNavigation={() => (navigationOpen = true)}
+        />
         <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
         </div>

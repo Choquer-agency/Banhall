@@ -11,6 +11,7 @@ import ProjectsPage from "../../../routes/projects/+page.svelte";
 import SettingsLayout from "../../../routes/settings/+layout.svelte";
 import AccountPage from "../../../routes/settings/account/+page.svelte";
 import LoadingShell from "./WorkspaceLoadingShell.svelte";
+import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 
 vi.mock("$lib/authClient", () => ({
   authClient: {
@@ -52,6 +53,7 @@ describe("round 2 loading shell", () => {
     __resetNavigation();
     __resetConvexStub();
     localStorage.clear();
+    reloadSectionSidebar();
     await browserPage.viewport(1440, 900);
   });
 
@@ -145,6 +147,40 @@ describe("round 2 loading shell", () => {
     await expect.poll(() => sidebar("team")).not.toBeNull();
     const invite = sidebar("team")!.querySelector<HTMLButtonElement>("[data-section-sidebar-action]")!;
     expect([invite.textContent?.trim(), invite.disabled]).toEqual(["Invite people", true]);
+  });
+
+  it("loading bars keep the page's main button under the loaded bar's rule: below 768px and while the sidebar is collapsed (review round 2, item 4)", async () => {
+    __setAuthState({ isLoading: false, isAuthenticated: true });
+    __setQueryData("users:getCurrentUser", { _id: "m", role: "manager", firstName: "Mo" });
+    const visibleButton = () => {
+      const button = document.querySelector<HTMLElement>("[data-page-top-bar]:not(.md\\:hidden) [data-top-bar-primary]");
+      return button && button.getBoundingClientRect().width > 0 ? button.textContent?.trim() : null;
+    };
+    // Team at 1440 with the sidebar open: the button is the sidebar's.
+    __setPageUrl("/team");
+    let view = await render(LoadingShell, { layout: "page", title: "Team" });
+    await expect.poll(() => sidebar("team")).not.toBeNull();
+    expect(visibleButton()).toBeNull();
+    view.unmount();
+    // Collapsed: the bar holds Invite people, drawn but not usable yet.
+    localStorage.setItem("banhall.sectionSidebar.v1", JSON.stringify({ collapsed: true }));
+    reloadSectionSidebar();
+    view = await render(LoadingShell, { layout: "page", title: "Team" });
+    await expect.poll(visibleButton).toBe("Invite people");
+    expect(document.querySelector<HTMLButtonElement>("[data-page-top-bar] [data-top-bar-primary]")!.disabled).toBe(true);
+    view.unmount();
+    // Projects, collapsed: the company header holds New project.
+    __setPageUrl("/projects");
+    view = await render(LoadingShell, { layout: "projects", title: "Projects" });
+    await expect.poll(() => document.querySelector("[data-client-header][data-loading] [data-top-bar-primary]")?.textContent?.trim()).toBe("New project");
+    view.unmount();
+    localStorage.clear();
+    reloadSectionSidebar();
+    // Home on a phone: the bar holds New project.
+    await browserPage.viewport(390, 844);
+    __setPageUrl("/my-work");
+    await render(LoadingShell, { layout: "home", title: "Home" });
+    await expect.poll(visibleButton).toBe("New project");
   });
 
   it("a project page loads in the card with no sidebar and the project bar's back button", async () => {
