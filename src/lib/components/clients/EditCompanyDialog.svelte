@@ -2,6 +2,10 @@
   /** The company as the page shows it when Edit company opens. */
   export type EditableCompany = {
     key: string;
+    /** The company row, or null for a company known only by its projects. */
+    clientId: string | null;
+    /** That row's last change, sent back so a stale dialog is refused. */
+    clientUpdatedAt: number | null;
     name: string;
     fiscalYearEndMonth?: number;
     fiscalYearEndDay?: number;
@@ -13,9 +17,9 @@
   // Edit company (2026-10-28; Managers and Admins, the people who merge
   // companies and archive company files). The one form dialog frame with
   // the New company fields: Name, Fiscal year end and Industry, filled from
-  // the company. Save sends the whole company with the name the dialog
-  // opened with, so a stale dialog cannot overwrite a rename made since
-  // (clients.updateCompany). A rename moves every project of the company to
+  // the company. Save sends the whole company with the company as the dialog
+  // opened it (its name, row and that row's last change), so a stale dialog
+  // never overwrites a change made since (clients.updateCompany). A rename moves every project of the company to
   // the new name; a name another company has is refused with "Merge them
   // instead". Each opening starts from the company as it is then.
   import { untrack } from "svelte";
@@ -25,6 +29,7 @@
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import FiscalYearEndPicker from "./FiscalYearEndPicker.svelte";
 
   let {
@@ -96,6 +101,8 @@
       const result = await updateCompany({
         key: opened.key,
         expectedName: opened.name,
+        expectedClientId: opened.clientId as Id<"clients"> | null,
+        expectedUpdatedAt: opened.clientUpdatedAt,
         name: name.trim(),
         ...(month && day ? { fiscalYearEndMonth: Number(month), fiscalYearEndDay: Number(day) } : {}),
         ...(industry ? { industry } : {}),
@@ -182,7 +189,14 @@
 
     <div class="flex flex-col gap-1.5" data-filled={industry ? "" : undefined}>
       <label for="edit-company-industry" class={formLabel}>Industry</label>
-      <IndustrySelect ariaLabel="Industry" id="edit-company-industry" bind:value={industry} canCreate={canAddIndustry} class={formSelect} />
+      <IndustrySelect
+        ariaLabel="Industry"
+        id="edit-company-industry"
+        bind:value={industry}
+        canCreate={canAddIndustry}
+        offer={opened?.industry ? [opened.industry] : []}
+        class={formSelect}
+      />
     </div>
   </div>
 </FormDialog>

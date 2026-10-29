@@ -40,21 +40,32 @@ export async function activeClientIdForName(
 /** Merges followed to find the company a merged one ended up in. */
 export const MERGE_CHAIN_HOPS = 10;
 
+/** Merge tombstones one key's old link reads to find the latest merge. */
+export const MERGED_KEY_READ_LIMIT = 20;
+
 /**
- * The newest merge tombstone that had this company key, or null (the company
- * page's old links, 2026-10-28). Index order within one key is creation
- * order, so the newest row wins when a name was merged away more than once.
+ * The most recently merged tombstone that had this company key, or null (the
+ * company page's old links, 2026-10-28). The index orders one key's rows by
+ * when the row was made, not when it was merged (a company renamed onto the
+ * key and merged later was made earlier), so the newest MERGED_KEY_READ_LIMIT
+ * rows are read and the latest merge among them wins. A key merged away more
+ * often than that may miss an older row's later merge.
  */
 export async function mergedClientForKey(
   ctx: Ctx,
   nameKey: string
 ): Promise<Doc<"clients"> | null> {
   if (nameKey === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
-  return await ctx.db
+  const rows = await ctx.db
     .query("clients")
     .withIndex("by_status_and_nameKey", (q) => q.eq("status", "merged").eq("nameKey", nameKey))
     .order("desc")
-    .first();
+    .take(MERGED_KEY_READ_LIMIT);
+  let latest: Doc<"clients"> | null = null;
+  for (const row of rows) {
+    if (!latest || (row.mergedAt ?? row.updatedAt) > (latest.mergedAt ?? latest.updatedAt)) latest = row;
+  }
+  return latest;
 }
 
 /**

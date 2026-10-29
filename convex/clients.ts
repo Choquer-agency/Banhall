@@ -864,11 +864,18 @@ function sameYearEnd(
   return client?.fiscalYearEndMonth === month && client?.fiscalYearEndDay === day;
 }
 
+/** Every stale Edit company dialog is refused with the same words. */
+const COMPANY_CHANGED =
+  "This company changed since you opened Edit company. Close and try again.";
+
 export const updateCompany = mutation({
   args: {
     key: v.string(),
-    /** The name the person saw when they opened Edit company. */
+    // The company as the dialog opened it: its name, its company row (null
+    // for a company known only by its projects) and that row's last change.
     expectedName: v.string(),
+    expectedClientId: v.union(v.id("clients"), v.null()),
+    expectedUpdatedAt: v.union(v.number(), v.null()),
     name: v.string(),
     // Absent means not set: the dialog always sends the whole company.
     fiscalYearEndMonth: v.optional(v.number()),
@@ -899,20 +906,23 @@ export const updateCompany = mutation({
       client: await activeClientForKey(ctx, args.key),
       company: await dashboardCompanyForKey(ctx, args.key),
     };
-    if (!keep.client && !keep.company) {
-      domainError(
-        "NOT_FOUND",
-        "This company was renamed or merged while you were editing. Open it again and make your change there."
-      );
+    // A stale dialog never overwrites a change made since it opened: the
+    // company left this key, its name changed, another company took the key
+    // (a new row), or its year end or industry changed (a newer row).
+    if (
+      (!keep.client && !keep.company) ||
+      sideName(keep) !== args.expectedName ||
+      (keep.client?._id ?? null) !== args.expectedClientId ||
+      (keep.client?.updatedAt ?? null) !== args.expectedUpdatedAt
+    ) {
+      domainError("STALE_REVISION", COMPANY_CHANGED);
     }
-    // A stale dialog never overwrites a rename made since it opened.
-    if (sideName(keep) !== args.expectedName) {
-      domainError(
-        "STALE_REVISION",
-        `This company was renamed to ${sideName(keep)} while you were editing. Open Edit company again.`
-      );
-    }
-    const industry = await validatedIndustry(ctx, args.industry);
+    // Only a changed industry is checked: the company's own, even one no
+    // project uses, is kept by whoever may edit the company.
+    const industry =
+      args.industry !== undefined && args.industry === keep.client?.industry
+        ? keep.client.industry
+        : await validatedIndustry(ctx, args.industry);
     const renames = name !== sideName(keep);
     const detailsChange =
       !sameYearEnd(keep.client, args.fiscalYearEndMonth, args.fiscalYearEndDay) ||
@@ -966,19 +976,22 @@ export const updateCompany = mutation({
         createdAt: now,
         updatedAt: now,
       }));
-    await ctx.db.patch(clientId, {
-      fiscalYearEndMonth: args.fiscalYearEndMonth,
-      fiscalYearEndDay: args.fiscalYearEndDay,
-      industry,
-      ...(formerNames ? { formerNames } : {}),
-      updatedAt: now,
-    });
     if (plan) {
       await applyCompanyMove(ctx, plan, clientId, now);
     } else if (!keep.client) {
       // The new row's projects point at it, a page now and the rest in steps.
       await linkKeyProjectsPage(ctx, keep.key, clientId, null);
     }
+    // Last, after the rename's own write: the details, and a last change
+    // always later than before, even within the same millisecond, so an
+    // older dialog's expectedUpdatedAt never matches again.
+    await ctx.db.patch(clientId, {
+      fiscalYearEndMonth: args.fiscalYearEndMonth,
+      fiscalYearEndDay: args.fiscalYearEndDay,
+      industry,
+      ...(formerNames ? { formerNames } : {}),
+      updatedAt: Math.max(now, (keep.client?.updatedAt ?? 0) + 1),
+    });
     return {
       clientId,
       key: plan?.keptKey ?? keep.key,
@@ -1013,6 +1026,8 @@ export const getCompanyPage = query({
       kind: v.literal("company"),
       key: v.string(),
       clientId: v.union(v.id("clients"), v.null()),
+      /** The company row's last change, which Edit company sends back (null with no row). */
+      clientUpdatedAt: v.union(v.number(), v.null()),
       name: v.string(),
       projectCount: v.number(),
       fiscalYearEndMonth: v.optional(v.number()),
@@ -1026,7 +1041,16 @@ export const getCompanyPage = query({
   handler: async (ctx, args) => {
     // D1: firm-wide read visibility for internal users.
     await requireInternalActor(ctx);
-    const entry = await clientEntryForKey(ctx, args.key);
+    const client = await activeClientForKey(ctx, args.key);
+    const projection = await dashboardCompanyForKey(ctx, args.key);
+    const entry =
+      args.key === DASHBOARD_UNNAMED_COMPANY_KEY
+        ? null
+        : client
+          ? clientEntry(client, projection)
+          : projection
+            ? companyEntry(projection)
+            : null;
     if (entry) {
       let mergedNote = null;
       if (args.mergedFrom !== undefined && entry.clientId !== null && args.mergedFrom !== args.key) {
@@ -1045,6 +1069,7 @@ export const getCompanyPage = query({
         kind: "company" as const,
         key: entry.key,
         clientId: entry.clientId,
+        clientUpdatedAt: client?.updatedAt ?? null,
         name: entry.name,
         projectCount: entry.projectCount,
         ...(entry.fiscalYearEndMonth !== undefined ? { fiscalYearEndMonth: entry.fiscalYearEndMonth } : {}),
