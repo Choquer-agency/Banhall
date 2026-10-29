@@ -114,10 +114,10 @@ describe("the length blocks under a writer's cap", () => {
 
 describe("the shortening passes under a writer's cap", () => {
   it("aim under the writer's cap with the Locked headroom, and as before without one", () => {
-    // 2026-10-29 (third, item 7): with no writer's cap, under the drafting
-    // ceiling (420 words for Line 246), not the length budget.
-    expect(compressionTargetWords("s246", "standard")).toBe(357);
-    expect(compressionTargetWords("s246", "standard", 1, undefined, null)).toBe(357);
+    // 2026-10-29 (third, item 7): with no writer's cap, the lower of the
+    // length budget and 85 percent of the drafting ceiling (review round 1).
+    expect(compressionTargetWords("s246", "standard")).toBe(337);
+    expect(compressionTargetWords("s246", "standard", 1, undefined, null)).toBe(337);
     expect(compressionTargetWords("s246", "standard", 1, undefined, CAP_260)).toBe(221);
     expect(compressionTargetWords("s246", "standard", 0.85, undefined, CAP_260)).toBe(188);
     expect(compressionTargetWords("s244", "standard", 1, undefined, { words: 520 })).toBe(442);

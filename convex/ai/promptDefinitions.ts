@@ -470,7 +470,9 @@ export const COMPRESSION_REQUEST = {
    * The share of the Locked word cap a compression aims for at most
    * (2026-09-28 second, full suite: 297 for Lines 242 and 246, 595 for Line 244).
    * 2026-10-29 (third, item 7): of the drafting ceiling instead, with no
-   * writer's cap (357 for Lines 242 and 246, 714 for Line 244).
+   * writer's cap (357 for Lines 242 and 246, 714 for Line 244), or the
+   * length budget where that is lower (review round 1: 337 and 673 for a
+   * standard draft).
    */
   capHeadroom: 0.85,
   /**

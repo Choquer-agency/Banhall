@@ -550,7 +550,7 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
     const support =
       "The dryer logs describe how each controller behaved through the season and how the engineers compared every alert with the operator notes.";
     // 2026-10-29 (third, item 7): over the 840-word drafting ceiling, and
-    // the fitted text over the pass's floor (60 percent of 714 words).
+    // the fitted text over the pass's floor (60 percent of 673 words).
     const long = [
       `${PLAN_P1} ${Array(15).fill(support).join(" ")}`,
       `${BASELINE_P2} ${KEPT_SENTENCE} ${Array(15).fill(support).join(" ")}`,
@@ -563,7 +563,7 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
     ].join("\n\n");
     expect(sectionMetrics(long, "s244").words).toBeGreaterThan(840);
     expect(sectionMetrics(fitted, "s244").overLimit).toBe(false);
-    expect(sectionMetrics(fitted, "s244").words).toBeGreaterThan(Math.floor(714 * 0.6));
+    expect(sectionMetrics(fitted, "s244").words).toBeGreaterThan(Math.floor(673 * 0.6));
     const sent = installFetch({
       draft: long,
       compressions: [fitted],

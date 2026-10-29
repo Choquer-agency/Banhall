@@ -158,13 +158,15 @@ export function compressionTargetWords(
   current?: { words: number; lines: number },
   writerCap: WriterLineCap | null = null
 ): number {
-  // 2026-10-29 (third, item 7): with no writer's cap, a pass runs only over
-  // the drafting ceiling and aims under it, never down to the export limit
-  // or the length budget.
+  // 2026-10-29 (third, item 7): a pass runs only over the drafting ceiling
+  // (or the writer's cap) and aims under it. Review round 1: it still aims
+  // at the writer's length choice where that is lower, so a writer who
+  // picked a concise draft gets one.
   const limits = draftingLineLimits(section, writerCap);
-  let words = writerCap
-    ? Math.min(wordBudget(section, target), Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom))
-    : Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom);
+  let words = Math.min(
+    wordBudget(section, target),
+    Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom)
+  );
   if (current && current.lines > limits.lineLimit) {
     words = Math.min(
       words,
