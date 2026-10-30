@@ -225,45 +225,57 @@ export function checkDashConnectors(
 // waived. A rerun's report sentences read "The materials do not report what
 // that testing showed.", "Testing was reported; individual runs are not
 // described." and "The client reports that...": notes to the writer, which
-// belong inside a [GAP: ...] or [INFERRED: ...] marker. Narrow on purpose:
-// a source noun right after "the" (or "these", "those") as the subject of a
-// reporting verb, "the client" with a reporting verb, or a reporting verb
-// in the passive at the end of a clause ("... are not described."). Text
-// inside a marker is a note already and is never read. "A client's
-// production databases", a vendor datasheet, published literature, "the
-// materials showed cracking", "the step responses" and "the source code"
-// are not notes.
+// belong inside a [GAP: ...] or [INFERRED: ...] marker. Narrow on purpose,
+// since a hit starts a repair: a document noun right after "the" (or
+// "these", "those") as the subject of a reporting verb, "the client" saying
+// or reporting that something is so, and "is not stated", "described" or
+// "reported" at the end of a clause. Text inside a marker is a note already
+// and is never read.
+//
+// Review round 1 (wording P1): good technical prose was flagged ("The
+// sources record every change...", "The client confirms each batch...",
+// "The responses indicated a lag...", "... is not documented.", "The
+// transcripts did not show speaker labels."). Bare "sources" and
+// "responses" are no longer document nouns (only source files and
+// documents, interview or written responses, and written answers are);
+// "the client" counts only for saying, stating, recalling, estimating or
+// mentioning, and for reporting or noting "that"; the passive ending is cut
+// to stated, described and reported; and the verbs that also name what a
+// system does (record, indicate, detail, show, provide, include, cover) are
+// left out. Notes in other words ("The Q&A file does not say...", "It is not
+// stated whether...") are left to the Self-check's and QA's rules.
 
 /** The reporting verbs, in the forms a note uses. */
 const REPORT_VERBS =
-  "say|says|said|state|states|stated|describe|describes|described|mention|mentions|mentioned|report|reports|reported|specify|specifies|specified|indicate|indicates|indicated|note|notes|noted|detail|details|detailed|explain|explains|explained|confirm|confirms|confirmed|record|records|recorded";
-/** Base forms after "do not": the reporting verbs, plus giving and showing for every noun but "materials". */
-const REPORT_BASES = "say|state|describe|mention|report|specify|indicate|note|detail|explain|confirm|record";
-const GIVE_BASES = "give|show|provide|include|cover";
+  "say|says|said|state|states|stated|describe|describes|described|mention|mentions|mentioned|report|reports|reported|note|notes|noted|explain|explains|explained|confirm|confirms|confirmed";
+/** Base forms after "do not". */
+const REPORT_BASES = "say|state|describe|mention|report|note|explain|specify|confirm";
 /** The words that may stand between "the" and the noun ("the written answers"). */
-const SOURCE_MODIFIER = "(?:(?:client's|client|written|interview|project|supplied|available)\\s+)?";
-/** Source nouns other than "materials", whose giving and showing are reporting too. */
+const SOURCE_MODIFIER = "(?:(?:client's|written|interview|project)\\s+)?";
+/** Document nouns other than "materials", which also "give" a fact or "give no" fact. */
 const SOURCE_NOUNS =
-  "(?:sources?|source\\s+(?:files?|documents?|texts?|materials?)|interviews?|interviewees?|transcripts?|answers?|responses?)";
+  `(?:(?:interview|written|client's)\\s+responses?|${SOURCE_MODIFIER}(?:source\\s+(?:files?|documents?|texts?|materials?)|interviews?|interviewees?|transcripts?|answers?))`;
 /** A participle after the noun that still names the same documents ("the materials provided"). */
 const SOURCE_PARTICIPLE = "(?:\\s+(?:provided|supplied|available|given|received))?";
 const NEGATION = "(?:(?:do|does|did)\\s+not|don't|doesn't|didn't)\\s+(?:(?:clearly|explicitly|directly|otherwise)\\s+)?";
+const MATERIALS = `${SOURCE_MODIFIER}materials`;
 
 const NOTE_PATTERNS: readonly RegExp[] = [
-  // "The materials do not report ...", "the answers do not give ...".
-  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES}|${GIVE_BASES})\\b`, "giu"),
-  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}materials${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES})\\b`, "giu"),
+  // "The interview does not describe ...", "the answers do not give ...".
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES}|give)\\b`, "giu"),
+  // "The materials do not report ...": for "materials" the reporting verbs only.
+  new RegExp(`\\b(?:the|these|those)\\s+${MATERIALS}${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES})\\b`, "giu"),
   // "The answers give no date.", "the materials give no status ...": for
   // "materials" only before a word for a fact, so "the materials give no
   // sign of fatigue" stays.
-  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave|provide|provides|provided|offer|offers|offered)\\s+no\\b`, "giu"),
-  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}materials${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave|provide|provides|provided)\\s+no\\s+(?:status|results?|dates?|figures?|details?|reasons?|outcomes?|information|account|description)\\b`, "giu"),
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave)\\s+no\\b`, "giu"),
+  new RegExp(`\\b(?:the|these|those)\\s+${MATERIALS}${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave|provide|provides|provided)\\s+no\\s+(?:status|results?|dates?|figures?|details?|reasons?|outcomes?|information|account|description)\\b`, "giu"),
   // "The transcript states ...", "the materials report ...".
-  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}(?:${SOURCE_NOUNS}|materials)${SOURCE_PARTICIPLE}\\s+(?:${REPORT_VERBS})\\b`, "giu"),
-  // "The client reports that ...", "the client did not say ...".
-  new RegExp(`\\bthe\\s+client\\s+(?:(?:${REPORT_VERBS}|recalls|recalled|estimates|estimated)\\b|${NEGATION}(?:${REPORT_BASES})\\b)`, "giu"),
+  new RegExp(`\\b(?:the|these|those)\\s+(?:${SOURCE_NOUNS}|${MATERIALS})${SOURCE_PARTICIPLE}\\s+(?:${REPORT_VERBS})\\b`, "giu"),
+  // "The client reports that ...", "the client said ...", "the client did not say ...".
+  new RegExp(`\\bthe\\s+client\\s+(?:(?:reports|reported|notes|noted)\\s+that\\b|(?:says|said|states|stated|recalls|recalled|estimates|estimated|mentioned)\\b|${NEGATION}(?:say|state|mention|report)\\b)`, "giu"),
   // "Individual runs are not described.", "Findings about it are not stated."
-  /\b(?:is|are|was|were)\s+not\s+(?:stated|described|reported|specified|documented|given)(?=\s*(?:[.;:!?)]|$))/giu,
+  /\b(?:is|are|was|were)\s+not\s+(?:stated|described|reported)(?=\s*(?:[.;:!?)]|$))/giu,
 ];
 
 export interface NoteToWriterHit {
