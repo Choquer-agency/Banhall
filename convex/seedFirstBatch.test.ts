@@ -15,6 +15,8 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import type { GenerationMessageParams } from "./ai/openrouterCore";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
+// A current model-derived Brief (review round 4, A1: earlier ones are not reused).
+import { BRIEF_DERIVATION_VERSION } from "./lib/briefDerivationPolicy";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -119,7 +121,7 @@ async function setup() {
     });
     const briefId = await ctx.db.insert("generationBriefs", {
       generationId, projectId, inputsHash: "frozen", version: 1, origin: "derived",
-      storylineText: "The team tested a control loop.", createdAt: 1,
+      storylineText: "The team tested a control loop.", derivationVersion: BRIEF_DERIVATION_VERSION, createdAt: 1,
     });
     return { userId, projectId, generationId, briefId };
   });

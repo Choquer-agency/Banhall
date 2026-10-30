@@ -204,9 +204,12 @@ describe("the derivation bundle", () => {
     expect({ version: BRIEF_DERIVATION_VERSION, maxQuotePlaces: MAX_QUOTE_PLACES, hash }).toEqual({
       // 11 (2026-10-28, sixth): over the budget, the request sends the parts
       // that best match the interviews, and quotes are found only in them.
-      version: 11,
+      // 12 (2026-10-30, review round 4, A1): the Storyline frames one main
+      // uncertainty as the shared problem, and a model-derived Brief made
+      // under an earlier version is no longer reused.
+      version: 12,
       maxQuotePlaces: 8,
-      hash: "b6a56d1b8d0ad007ab19f9cb1bab562e2d5e2e1ad51c9eeea613c8b543d61423",
+      hash: "e530dee593d14adce84dd03b94e7ea3bcc4bcc10d441881b93a11dcceefa0438",
     });
   });
 

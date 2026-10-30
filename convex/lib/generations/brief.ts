@@ -24,6 +24,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { validateCitation } from "../citations";
 import { citationSpeakerReader, type CitationSpeaker } from "../citationSpeakers";
 import { resolveFrozenSourceId } from "../seedRevisions";
+import { BRIEF_DERIVATION_VERSION } from "../briefDerivationPolicy";
 
 // ─── Story 1 (CAP-1/2/4): Generation Brief internal helpers ────────────────
 // The stage itself (`convex/ai/brief.ts:deriveOrReuseBrief`) is a plain
@@ -356,13 +357,25 @@ async function holdsNothing(ctx: { db: QueryCtx["db"] }, brief: Doc<"generationB
   return entry === null;
 }
 
+/**
+ * 2026-10-30 (review round 4, A1): whether a stored Brief may be reused under
+ * the current Brief rules. A Brief a writer shaped (a writer's Storyline, or
+ * any edit) is reused as before (CAP-4); a model-derived one only when it was
+ * made under the current derivation version, so a Storyline derived before
+ * the one-main-uncertainty rule is derived again for the same inputs.
+ */
+export function briefRulesCurrent(brief: Doc<"generationBriefs">): boolean {
+  const writerShaped = brief.origin !== "derived" || (brief.storylineOrigin !== undefined && brief.storylineOrigin !== "derived");
+  return writerShaped || (brief.derivationVersion ?? 0) >= BRIEF_DERIVATION_VERSION;
+}
+
 export async function reusableBriefForGeneration(
   ctx: { db: QueryCtx["db"] },
   generation: Doc<"generations">,
   inputsHash: string
 ) {
   const brief = await latestBriefForInputs(ctx, generation.projectId, inputsHash);
-  if (!brief) return null;
+  if (!brief || !briefRulesCurrent(brief)) return null;
   const scope = await briefEntryReadScope(ctx, generation, brief);
   // Preserve the historical legacy path: legacy-authored Briefs are reused by
   // parent row and an over-bound combined read remains optional/fail-open.
@@ -688,7 +701,9 @@ export async function persistDerivedBriefHandler(
     args.inputsHash
   );
   let compatibleReusable = false;
-  if (reusable) {
+  // 2026-10-30 (review round 4, A1): never fall back to a derived Brief made
+  // under earlier rules; the new one is published as the next version.
+  if (reusable && briefRulesCurrent(reusable)) {
     const reusableScope = await briefEntryReadScope(ctx, generation, reusable);
     compatibleReusable = reusableScope === "all" ||
       (await readBriefEntryRowsBounded(ctx, reusable._id, reusableScope)).kind ===
@@ -798,6 +813,7 @@ export async function persistDerivedBriefHandler(
     origin: args.origin,
     storylineText: args.storylineText,
     droppedEntryCount,
+    derivationVersion: BRIEF_DERIVATION_VERSION,
     createdAt: Date.now(),
   });
 

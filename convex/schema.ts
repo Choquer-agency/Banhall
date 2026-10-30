@@ -4226,6 +4226,11 @@ export default defineSchema({
     storylineOrigin: v.optional(
       v.union(v.literal("writer"), v.literal("derived"), v.literal("edited"))
     ),
+    // 2026-10-30 widen (review round 4, A1): the Brief derivation version a
+    // model-derived Brief was made under (BRIEF_DERIVATION_VERSION). Absent
+    // on Briefs made before; a derived Brief from an earlier version is not
+    // reused for the same inputs, while one a writer shaped still is.
+    derivationVersion: v.optional(v.number()),
     // 2026-09-26 widen (decision 65): a Brief adopted from a preparation
     // names it, its attempt, its key, the planning model it ran on and when
     // it finished. Usage stays on the preparation's own rows; adoption made

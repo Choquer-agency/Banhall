@@ -25,6 +25,8 @@ import { emptyContextRevision } from "./lib/seedRevisions";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
 import type { Id } from "./_generated/dataModel";
 import { selectDraftEvidence } from "./lib/intakeDrafts";
+// A current model-derived Brief (review round 4, A1: earlier ones are not reused).
+import { BRIEF_DERIVATION_VERSION } from "./lib/briefDerivationPolicy";
 
 const modules = import.meta.glob("./**/*.ts");
 const authId = "frozen-total-writer";
@@ -255,7 +257,8 @@ async function seedDraft(bytes: number) {
       });
     }
     const briefId = await ctx.db.insert("generationBriefs", {
-      generationId, projectId, inputsHash: "frozen", version: 1, origin: "derived", storylineText: "The team tested a seal.", createdAt: 1,
+      generationId, projectId, inputsHash: "frozen", version: 1, origin: "derived", storylineText: "The team tested a seal.",
+      derivationVersion: BRIEF_DERIVATION_VERSION, createdAt: 1,
     });
     return { generationId, projectId, briefId, transcriptSourceId };
   });
