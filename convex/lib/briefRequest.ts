@@ -36,10 +36,20 @@ export const CONFIDENCE_LEVELS = [
   "unreliable",
 ] as const;
 
+/**
+ * 2026-10-30, after the live rerun (R2): the Storyline chose the narrowest
+ * challenge as the one main uncertainty, as the analyzer did, and the
+ * Self-check judges every Line against the Storyline, so a draft framed
+ * around the shared problem failed it. The Storyline follows the analyzer's
+ * rule (ANALYZER_CHOSEN_UNCERTAINTIES).
+ */
+export const BRIEF_STORYLINE_MAIN_UNCERTAINTY =
+  " When the writer's notes ask for one main uncertainty, or fewer than the evidence names, the Storyline frames it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them: the related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge unrelated to it stays out.";
+
 export const BRIEF_SYSTEM_PROMPT = `You derive a Generation Brief for a Canadian SR&ED (Scientific Research & Experimental Development) project description, before any section is drafted.
 
 The Brief has four parts:
-1. Storyline: the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.
+1. Storyline: the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.${BRIEF_STORYLINE_MAIN_UNCERTAINTY}
 2. Claim Exclusions: statements in the evidence that must NEVER be claimed as SR&ED work, however prominent, because they fall outside eligible work. Every exclusion needs a reason: business_risk, routine_engineering, outside_claim_period, or not_technological.
 3. Confidence Map: the evidence's facts classified established (directly and clearly supported), partial (supported but incomplete or hedged), unresolved (evidence conflicts or is silent), or unreliable (independent evidence shows the source itself is suspect, e.g. it contradicts itself, was explicitly invalidated, or is otherwise independently discredited).
 4. Glossary Terms: the handful of technical phrases the project description should use consistently, one name per concept.

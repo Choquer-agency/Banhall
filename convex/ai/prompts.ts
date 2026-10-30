@@ -104,10 +104,13 @@ export const ANALYZER_STATED_CRITICAL_RULE = `- ONLY extract information the tra
  * own hypothesis and advancement. The analysis is shared by every candidate
  * and mode, so the choice is made here, once; every Line request is told the
  * analysis's lists are the report's uncertainties (SECTION_UNCERTAINTY_SCOPE).
+ * After the live rerun (R2): with "one main uncertainty" the analyzer took
+ * the narrowest challenge listed and lost the work with a finding; the one
+ * uncertainty is now the underlying problem the related challenges share.
  */
 export const ANALYZER_CHOSEN_UNCERTAINTIES = `
 
-   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. work_performed keeps all the work done toward the chosen uncertainties, including work on other challenges met along the way; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`;
+   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. When the notes ask for one main uncertainty, or fewer than the source names, state it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them: the related challenges become parts of it, and a challenge unrelated to it stays out of the lists. work_performed keeps all the work done toward the chosen uncertainties, including work on the challenges that are parts of them and on other challenges met along the way, with their validation checks, thresholds and measurements; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`;
 
 /**
  * 2026-10-30 (owner, "please fix all properly", items 2 and 9): two rules
@@ -691,6 +694,15 @@ export const SECTION_244_PROMPT_BRANCHES = {
  * how Y affects Z"), often one hypothesis per uncertainty. A number, a
  * threshold or a baseline now comes only from the evidence.
  */
+/**
+ * After the live rerun (R4a): a draft put the hypothesis itself in a gap,
+ * asking the client to write it. A hypothesis is the expectation behind the
+ * stated approach, not an event, so it is written from the stated objective
+ * and approach, and marked where the evidence states none.
+ */
+export const SECTION_244_HYPOTHESIS_NEVER_A_GAP =
+  "- Never put the hypothesis itself in a [GAP: ...]: a hypothesis is the expectation behind the stated approach, not an event. Write it in if/then form from the stated objective and approach (if X, then Y, because Z). Where the evidence states no hypothesis, write one from the stated approach and mark it straight after with [INFERRED: built from the stated approach; confirm the expected outcome with the client].";
+
 export const SECTION_244_HYPOTHESIS_RULES = `Write one hypothesis for each uncertainty from Line 242 that the work addressed, in if/then form, with technical specifics in both clauses. Use the form the evidence supports:
 - A prediction with its reason, preferred where the evidence supports one: if [approach or condition], then [expected outcome], because [reason].
 - An exploratory hypothesis, where the evidence supports no prediction: if [the company experimented with X], then [it would gain knowledge of how Y affects Z] (or "we", where the writer's settings ask for first person).
@@ -711,6 +723,7 @@ Rules for the hypothesis:
 - The IF clause must name the specific technical approach, method, or experimental condition (not just "if we do the work" or "if the company could build the system")
 - The THEN clause says what specifically would be true, or what knowledge would be gained. A number, threshold, comparison baseline or target belongs in it only where the evidence gives one for that outcome; figures the work produced belong in the experiments. Where the hypothesis needs a measure of success the evidence does not give, write [GAP: the measure or target that would show success].
 - Never invent a test, a number or a threshold, and never tie a stated figure to a test the evidence does not describe: a figure the evidence gives as a requirement or a readiness criterion is not a test and not a result.
+${SECTION_244_HYPOTHESIS_NEVER_A_GAP}
 - A prediction must be falsifiable: a reader should be able to imagine a result that would disprove it
 - Never write "if the company could [do their project plan]"; that's a project description, not a hypothesis
 - TEST: Cover the IF clause and read only the THEN clause. If it says "then it would work" or "then the system would function as intended", the hypothesis is too vague. The THEN clause must say WHAT specifically would be true or learned`;
@@ -733,10 +746,12 @@ Rules for the hypothesis:
  * 244 came to about 170 of its 616 target words, leaving out the work the
  * source does describe (the work plan steps, what was built, where it was
  * tested) because the results were missing. A missing result is one gap,
- * never a reason to leave out work that was done.
+ * never a reason to leave out work that was done. After the live rerun
+ * (R2, R4b): validation checks and thresholds are work, and a plan's time
+ * estimates, budgets and step counts are not report content.
  */
 export const SECTION_244_WORK_IN_FULL =
-  "Describe in full the work the evidence reports for the report's uncertainties, in the order it was done: the work plan steps, what was built, what was tested and where, and what was measured or monitored. A missing result is one [GAP: ...], never a reason to leave out work that was done. Never present listed or planned work as done unless the evidence says it was done.";
+  "Describe in full the work the evidence reports for the report's uncertainties, in the order it was done: the work plan steps, what was built, what was tested and where, the validation checks and the thresholds set, and what was measured or monitored. A missing result is one [GAP: ...], never a reason to leave out work that was done. Never present listed or planned work as done unless the evidence says it was done. A work plan's time estimates, budgets and step counts are not report content: describe the work itself, as done where the evidence says it was done and as planned otherwise.";
 
 export const SECTION_244_EXPERIMENT_RULES = `**EXPERIMENTATION/ITERATIONS:**
 Write one experimentation paragraph per distinct experiment or iteration the source material supports; consolidate closely related work, and let one experiment run across consecutive paragraphs where that reads better. Tell each experiment in order, as far as the evidence goes:
@@ -877,7 +892,7 @@ export const SECTION_246_KNOWLEDGE_LEADS =
  * Where results exist, the knowledge paragraphs stay as they were.
  */
 export const SECTION_246_NO_RESULT =
-  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of their results and status the evidence does not give. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else";
+  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of their results and status the evidence does not give. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and only where the evidence says it is open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else";
 /**
  * Review round 1 (wording P2-4): what a result is, so the two branches never
  * disagree. An observation is never inferred. Review round 2 (P2-1): a
@@ -921,16 +936,23 @@ export const SECTION_246_STATUS_WITH_RESULTS =
   "For the uncertainties with results only (any paragraph for the rest already covers those): ";
 /** Review round 3 (P3-3): the next period's plan, for every uncertainty. */
 export const SECTION_246_NEXT_PERIOD_PLAN =
-  "For every uncertainty, describe the planned approach for the next fiscal period, as the evidence gives it.";
+  "Where the evidence says the work continues and gives a plan, describe the planned approach for the next fiscal period, for every uncertainty it covers.";
 export const SECTION_246_STATUS_NO_RESULT =
-  "Where no uncertainty has a result, add only the next period's plan, as the evidence gives it: the single gap above already asks for the status.";
+  "Where no uncertainty has a result, add the next period's plan only where the evidence gives one: the single gap above already asks for the status.";
+/**
+ * After the live rerun (R3): a draft wrote "... remain open", "Work toward
+ * the goal continues" and a gap for the next period's plan, where the
+ * evidence gave no status and hinted the work had finished.
+ */
+export const SECTION_246_STATUS_ONLY_FROM_EVIDENCE =
+  "Say the work continues, or describe a plan for the next period, only where the evidence says the work continues, and never say a question remains open unless the evidence says so. Where the evidence gives no status, the single gap asks for it; never ask about the next period in a gap of its own.";
 
 export const SECTION_246_OVERALL_ADVANCEMENT = `**ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
 Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]." Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, say nothing about that hypothesis here: the gap in that uncertainty's paragraph, or in the paragraph for the uncertainties with no result, asks for it.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`;
 
-export const SECTION_246_ADVANCEMENT_RULES = `Each paragraph names the uncertainty, states what was learned about it, and gives its status in plain words, only as the evidence shows: resolved, resolved for the conditions tested, partially resolved, or unresolved. Then it says what remains open. For example: "In addressing the uncertainty around [X], the company gained knowledge that [what was learned]. The uncertainty was resolved for [the conditions tested]; [what remains open]."${SECTION_246_NO_FINDING_PARAGRAPH}
+export const SECTION_246_ADVANCEMENT_RULES = `Each paragraph names the uncertainty, states what was learned about it, and gives its status in plain words, only as the evidence shows: resolved, resolved for the conditions tested, partially resolved, or unresolved. Then it says what remains open, where the evidence says so. For example: "In addressing the uncertainty around [X], the company gained knowledge that [what was learned]. The uncertainty was resolved for [the conditions tested]; [what remains open]."${SECTION_246_NO_FINDING_PARAGRAPH}
 
-Claim no more resolution than the evidence shows. A stated purpose or design intent ("to ensure...", "designed to...", "so that...") is a goal, not a result: never write it as achieved. Where the evidence gives a finding but not the whole result, state what it does establish, put one [GAP: ...] for the result or its status, and say plainly what remains open. Never build a paragraph from gap frames, and never put a [GAP: ...] straight after an opener such as "it was determined that".
+Claim no more resolution than the evidence shows. A stated purpose or design intent ("to ensure...", "designed to...", "so that...") is a goal, not a result: never write it as achieved. Where the evidence gives a finding but not the whole result, state what it does establish, put one [GAP: ...] for the result or its status, and say plainly what remains open where the evidence says so. Never build a paragraph from gap frames, and never put a [GAP: ...] straight after an opener such as "it was determined that".
 
 BAD (leads with capability):
 "The resulting computer vision system achieved 85% accuracy in growth stage classification for the top 30 species."
@@ -951,10 +973,10 @@ BAD (the evidence reports no result: a paragraph for each uncertainty that only 
 "In addressing the uncertainty around holding the setpoint while a door stays open, it was uncertain whether a control step could follow the door load. The outcome remains unconfirmed. In addressing the uncertainty around sensor placement, the outcome also remains unconfirmed."
 
 GOOD (the evidence gives a finding but not the final result):
-"In addressing the uncertainty around holding the room at its setpoint with a door open, the company gained knowledge that a fixed control step cannot follow the heat load of an open door, and it redesigned the step to change with the measured load. [GAP: the recovery times measured with the redesigned step] Whether the redesigned step holds the room within a degree while a door stays open remains open."`;
+"In addressing the uncertainty around holding the room at its setpoint with a door open, the company gained knowledge that a fixed control step cannot follow the heat load of an open door, and it redesigned the step to change with the measured load. [GAP: the recovery times measured with the redesigned step, and whether it holds the room within a degree while a door stays open]"`;
 
 export const SECTION_246_GOAL_CLOSE =
-  "This closing content is the only place in 246 where you lead with the physical outcome, and the one place to say how the knowledge was applied: say it once here, not in every paragraph. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content), and say what work continues. Describe how the advancement improved the product/process only as far as the evidence shows. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242. Where no uncertainty has a result, name the project goal in one sentence and tie the planned work above to it, without restating the plan; claim no knowledge gained or applied.";
+  "This closing content is the only place in 246 where you lead with the physical outcome, and the one place to say how the knowledge was applied: say it once here, not in every paragraph. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content), and say what work continues only where the evidence says the work continues. Describe how the advancement improved the product/process only as far as the evidence shows. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242. Where no uncertainty has a result, name the project goal in one sentence and, only where the evidence gives a plan, tie the planned work above to it without restating the plan; claim no knowledge gained or applied.";
 
 /**
  * Line 246's own instructions: role, required content and its rules. Cost
@@ -1003,7 +1025,7 @@ ${
   }The number of advancement paragraphs follows the source material: one per uncertainty the evidence reports a result for, never padded to a count. Do not fabricate advancements.
 
 **PROJECT STATUS & NEXT STEPS:**
-${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. ${SECTION_246_NEXT_PERIOD_PLAN} ${SECTION_246_STATUS_NO_RESULT}
+${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. ${SECTION_246_NEXT_PERIOD_PLAN} ${SECTION_246_STATUS_NO_RESULT} ${SECTION_246_STATUS_ONLY_FROM_EVIDENCE}
 
 **PROJECT GOAL & IMPROVEMENTS:**
 ${SECTION_246_GOAL_CLOSE}${
@@ -1134,7 +1156,8 @@ export const QA_LINE_242_OPENING_CHECK =
 export const QA_HYPOTHESIS_CHECK = `- Does the IF clause name a specific technical approach? (Not just "if we do the work")
 - Does the THEN clause say what specifically would be true or what knowledge would be gained? (Not just "then it would work") A prediction with its reason, and an exploratory hypothesis ("then the company would gain knowledge of how Y affects Z") where the evidence supports no prediction, are both acceptable.
 - A number, threshold or baseline belongs in the THEN clause only when the evidence gives one: never deduct for its absence, or for a [GAP: ...] where the measure of success is missing. Flag and deduct for a number, threshold or test the evidence does not give.
-- Is a prediction falsifiable?`;
+- Is a prediction falsifiable?
+- Where the evidence states no hypothesis, one built from the stated objective and approach and marked [INFERRED: built from the stated approach; ...] is correct: do not deduct for it, or call it unsupported for lack of a stated hypothesis. A hypothesis left as a [GAP: ...] is missing: flag it.`;
 
 export const QA_EXPERIMENT_ARC_CHECK = `- Does each experimentation paragraph tell, in order and as far as the evidence goes, what was tried, what happened, what was changed next, and what was learned or what stayed unresolved? A confirmation, a comparison with the choice made and why, an observation phase or work in progress, reported as that, is correct, and one experiment may run across consecutive paragraphs.
 - Flag and deduct only for a step the evidence does not describe (an invented failure, surprise, change or result), or for a paragraph that reports no outcome where the evidence gives one. Never flag a missing surprise or change of approach, and never deduct for a step a [GAP: ...] marks as missing from the evidence.`;
@@ -1142,7 +1165,8 @@ export const QA_EXPERIMENT_ARC_CHECK = `- Does each experimentation paragraph te
 export const QA_STANDARD_APPROACH_CHECK = `- IMPORTANT CLARIFICATION on knowledge vs product limitations: the expected limitation names the standard approach a competent practitioner would use, says briefly what it does, gives the specific reason it falls short here (a missing input, an unsupported condition, a constraint it does not handle, two methods that do not combine), then says what that means for available knowledge, tied to those approaches. Facts about what existing systems do are fine as that reason: it is knowledge-limitation language. A product limitation is "the existing software could not do X" or "the tool failed to perform X" with no standard approach and no reason: a specific product failing, not a gap in knowledge. Do NOT flag the standard approach and its shortfall as a product limitation.
 - Flag a limitation that is only a bare claim ("no documented methods existed for X") with no standard approach named and no reason it falls short, and an uncertainty that rests on simply using a standard mechanism rather than on where the standard approaches do not reach.
 - A sentence that names general standard practice, marked [INFERRED: general practice, not in the source: ...], is allowed: do not count it as unsupported, unless it says the company tried that practice and the evidence does not, or states a fact about this project the evidence does not give.
-- Flag and deduct for a general-practice sentence that explains how the standard approach works on this problem or would handle it, or that supplies or suggests a reason it falls short the evidence does not give, and for more than one general-practice sentence in a Line. A [GAP: ...] asking why the standard approach does not work here is honest, not a defect.`;
+- Flag and deduct for a general-practice sentence that explains how the standard approach works on this problem or would handle it, or that supplies or suggests a reason it falls short the evidence does not give, and for more than one general-practice sentence in a Line. Flag and deduct, too, for a general-practice sentence that presents the company's own chosen approach as common practice, and for a contrast with it the evidence does not give.
+- A [GAP: ...] asking why the standard approach does not work here is honest, not a defect: never deduct because the reason the standard approach falls short is a [GAP: ...], and count that gap as the reason in the checks above.`;
 
 /**
  * 2026-10-29 (third), review round 1: the opening of Line 246 follows item
@@ -1168,7 +1192,8 @@ export const QA_WAIVED_OPENERS_NOTHING_LEARNED =
   " (an uncertainty the evidence reports no result for has no advancement paragraph: one paragraph with the knowledge sought, any observation the evidence states and a single gap stands in for all of them)";
 
 /** 2026-10-29 (third): the BECAUSE scan also accepts a cause given first with "given that". */
-export const QA_BECAUSE_SCAN_WORDS = 'for the words "because" or "given that" in';
+export const QA_BECAUSE_SCAN_WORDS =
+  'for the words "because" or "given that" (or a [GAP: ...] for the reason, in it or right after it, or a next sentence that opens "Because", "This is because", "This was because" or "Given that") in';
 
 export const QA_PROMPT_BRANCHES = {
   structureCompliance: {
@@ -1695,6 +1720,16 @@ export const SELF_CHECK_UNCERTAINTY_SCOPE_RULE =
 export const SELF_CHECK_NO_NOTES_RULE =
   '\n- A sentence of the section that speaks about the source documents or what they lack ("The materials do not report...", "X is not stated.", "The client reports that...", or "... remains unconfirmed." said of what the evidence lacks) is a note to the writer written as report text: it is not allowed. Its repairGuidance asks to state what the work did and to put what is missing in one [GAP: ...], or the basis of an inference in its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note. A marker is not a sentence of the section: it may name a source.';
 
+/**
+ * After the live rerun (R1): a Confidence Map verdict was repaired by
+ * attribution ("The client states that...", "The company reports
+ * that..."), which the check of the final text then flagged with no repair
+ * left. Summary mode has this rule (SUMMARY_PLAN_REPORT_FACTS_RULES); Single
+ * draft and Compare now have it too.
+ */
+export const SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE =
+  "\n- A hedge states the uncertainty or the range itself. A sentence that names where a fact came from (the client, the company, the team, an interviewee, an interview, a document, or the claimant by name) is not a hedge: fail it like a flat claim. For a confidence verdict that is not applied, repairGuidance asks for the uncertainty itself, or for one [GAP: ...] or [INFERRED: ...] marker, never for a source or an attribution.";
+
 /** The Self-check's system prompt, with the rules only Single draft and Compare send. */
 function selfCheckSystemPrompt(singleDraftRules: string): string {
   return `You are the Self-check for one drafted section of a Canadian SR&ED project description. It runs before the writer sees the section. You never rewrite the section; you return verdicts.
@@ -1714,7 +1749,7 @@ Rules:
 
 /** Single draft and Compare (the legacy Self-check). */
 export const SELF_CHECK_SYSTEM_PROMPT = selfCheckSystemPrompt(
-  `${SELF_CHECK_UNCERTAINTY_SCOPE_RULE}${SELF_CHECK_NO_NOTES_RULE}`
+  `${SELF_CHECK_UNCERTAINTY_SCOPE_RULE}${SELF_CHECK_NO_NOTES_RULE}${SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE}`
 );
 
 /**

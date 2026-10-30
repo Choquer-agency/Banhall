@@ -22,7 +22,7 @@ import { NOTE_MARKER_RE } from "../convex/lib/lineLimits";
  * and in the Seed wording rules.
  */
 export const ACRONYM_RULE =
-  "Write an acronym in capitals (PLC, HVAC, PVC) even where the source writes it in lowercase, except in a command, a file name, a code identifier or a term with its own standard casing (pH, kWh, gRPC, iOS).";
+  "Write an acronym in capitals (PLC, HVAC, CNC) even where the source writes it in lowercase, except in a command, a file name, a code identifier or a term with its own standard casing (pH, kWh, gRPC, iOS).";
 
 // Always-on. Not waivable: this is about not reading as AI-generated, which is
 // house policy rather than a style preference. It applies even when the
@@ -209,7 +209,7 @@ No talk about sources:
  * gap asks the client for it.
  */
 export const GENERAL_PRACTICE_SCOPE =
-  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write one [GAP: which standard approaches the team knew of, and why they fall short here] in its place.";
+  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. When the company's own approach is itself a standard mechanism, never present it as common practice that handles the problem: say what it does not handle here, from the evidence, or ask in the one gap, and never draw a contrast the evidence does not give. For any further limitation with no standard approach in the evidence, write one [GAP: which standard approaches the team knew of, and why they fall short here] in its place.";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", item 3): notes to the writer
@@ -227,10 +227,11 @@ export const RULES_NO_NOTES_IN_REPORT_TEXT =
 /**
  * 2026-10-30 (owner, "please fix all properly", small items): gaps asked
  * for facts the project record or the T661 form's other fields already
- * hold. Only these; every other missing fact is still a gap.
+ * hold. Only these; every other missing fact is still a gap. After the live
+ * rerun (R7): within a Line, each missing fact is asked once.
  */
 export const RULES_GAPS_NOT_FOR_RECORD_FACTS =
-  "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.";
+  "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.\n- Within a Line, ask each missing fact once: a paragraph holds at most one [GAP: ...], and a later gap never repeats what an earlier gap in the Line asks.";
 
 export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
 Every claim you write in a report Line is one of three kinds. Decide which before you write it.
@@ -238,7 +239,7 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 2. Inferred: a consequence, a cause or a comparison that the stated facts clearly imply, and that a careful reader of the evidence would agree with. Write the sentence, then put a marker straight after it: [INFERRED: the stated facts it rests on, in plain words]. The marker tells the writer which sentence to check and why you thought it.
 3. Missing: nothing in the evidence supports it. Do not write it. Where the Line needs it, put a [GAP: what is needed] marker in its place.
 - Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed.
-- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, and for general practice as below. Write an inferred cause as likely, never as confirmed.
+- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, for general practice as below, and for a hypothesis built from the stated approach where the evidence states none. Write an inferred cause as likely, never as confirmed.
 - Never write an inference as if the evidence stated it: mark it.
 - An inference adds no specific detail of its own: no number, material, name, date, setting or test result. A detail you would have to invent is missing and gets a gap.
 - General practice is the one use of your own knowledge. In the limitations of standard practice, where the evidence names no standard approach, you may name a well-known standard approach in one sentence, marked straight after it with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Name it in general terms only, with no figure, product version or setting of your own, and never say or suggest that the company tried it unless the evidence says so. ${GENERAL_PRACTICE_SCOPE}
