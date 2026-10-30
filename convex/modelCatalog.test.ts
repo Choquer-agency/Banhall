@@ -1208,9 +1208,13 @@ describe("prompt versions", () => {
     // definition, the shared paragraph's gap covering the hypotheses,
     // PROJECT STATUS's first branch, the goal close with no result, the
     // further-limitation gap and the report skeleton move on purpose; before
-    // it they were sha256:f8a27d21... and sha256:55a62e9a....
-    expect(await hashPromptProgram()).toBe("sha256:a72253a25b1862005cf884f5d8227ab04a1f8d45075a2e855b786ef934f68d27");
-    expect(await legacyPromptVersion()).toBe("sha256:05b3aa3ff39f41120e306c442e73004f861bba99d097e1a23cc783b0fa773cd5");
+    // it they were sha256:f8a27d21... and sha256:55a62e9a.... Re-read after
+    // its review round 3: the observation rule, the opening's hypothesis
+    // sentence, PROJECT STATUS's first branch and next period's plan, the
+    // goal close with no result and the shared gap move on purpose; before
+    // it they were sha256:a72253a2... and sha256:05b3aa3f....
+    expect(await hashPromptProgram()).toBe("sha256:afec5d93ad0ae5c2383f9a47c865cc3d9288ccee9cebcad74ba33dd5d63431c5");
+    expect(await legacyPromptVersion()).toBe("sha256:07fef1df472b1d4679e150ccbb5a8e68ab7bcb00fe823ba3293565a505dbe746");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

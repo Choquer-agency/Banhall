@@ -4,6 +4,7 @@ import {
   ANALYZER_GAPS_RULES,
   CLAIMANT_LINE,
   QA_NO_NOTES_IN_TEXT,
+  SECTION_246_NEXT_PERIOD_PLAN,
   SECTION_246_STATUS_NO_RESULT,
   SECTION_246_STATUS_WITH_RESULTS,
   SECTION_UNCERTAINTY_SCOPE,
@@ -57,9 +58,11 @@ export const ONE_UNCERTAINTY_SWAPS: ReadonlyArray<readonly [now: string, before:
     "the specific advancements (one per uncertainty the evidence reports a result for)",
     "the specific advancements (one per resolved uncertainty)",
   ],
-  // Review round 1 (wording P2-5): PROJECT STATUS's two branches.
+  // Review round 1 (wording P2-5): PROJECT STATUS's two branches; review
+  // round 3 (P3-3): the next period's plan for every uncertainty.
   [SECTION_246_STATUS_WITH_RESULTS, ""],
   [` ${SECTION_246_STATUS_NO_RESULT}`, ""],
+  [SECTION_246_NEXT_PERIOD_PLAN, "Describe the planned approach for the next fiscal period."],
 ];
 
 /** Each fixed text added to an existing one, taken out again after its count is checked. */

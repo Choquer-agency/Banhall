@@ -39,6 +39,7 @@ import {
   SECTION_246_ADVANCEMENT_RULES,
   SECTION_246_GOAL_CLOSE,
   SECTION_246_KNOWLEDGE_FIRST_EXCEPTION,
+  SECTION_246_NEXT_PERIOD_PLAN,
   SECTION_246_NO_FINDING_PARAGRAPH,
   SECTION_246_NO_RESULT,
   SECTION_246_NOTHING_LEARNED_YET,
@@ -132,6 +133,7 @@ const NEW_TEXTS = {
   SECTION_246_OVERALL_NOTHING_LEARNED,
   SECTION_246_STATUS_NO_RESULT,
   SECTION_246_STATUS_WITH_RESULTS,
+  SECTION_246_NEXT_PERIOD_PLAN,
   SECTION_246_RESULT_DEFINITION,
   CHAT_ADVANCEMENT_STATUS,
   SELF_CHECK_UNCERTAINTY_SCOPE_RULE,
@@ -466,20 +468,25 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
     // paragraphs or as the opening; (P2-4) only an observation the evidence
     // states, and what a result is.
     expect(SECTION_246_NO_RESULT).toBe(
-      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else"
+      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of their results and status the evidence does not give. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else"
     );
     expect(SECTION_246_RESULT_DEFINITION).toBe(
       // Review round 2 (P2-1): a conclusion, not a reading or an event.
-      "An uncertainty has a result when the evidence states something the work established about it, in whole or in part: a conclusion the evidence draws, not only a reading or event it records. That uncertainty gets its own paragraph. An observation that settles nothing on its own (a reading, a failure seen in one run) is not a result: it goes in the paragraph for the uncertainties with no result."
+      "An uncertainty has a result when the evidence states something the work established about it, in whole or in part: a conclusion the evidence draws, not only a reading or event it records. That uncertainty gets its own paragraph. An observation that settles nothing on its own (a reading, a failure seen in one run) does not by itself give an uncertainty a result: where that uncertainty has no other result, the observation goes in the paragraph for the uncertainties with no result."
     );
     // Review round 2 (P2-2): the shared paragraph's gap covers the hypotheses
     // of those uncertainties, and PROJECT STATUS covers only the others.
+    // Review round 3 (P3-3): the first branch, and the next period's plan for every uncertainty.
     expect(SECTION_246_STATUS_WITH_RESULTS).toBe(
-      "Where uncertainties have results, for those uncertainties only (the paragraph for the rest and its gap already cover them): "
+      "For the uncertainties with results only (any paragraph for the rest already covers those): "
+    );
+    expect(SECTION_246_NEXT_PERIOD_PLAN).toBe(
+      "For every uncertainty, describe the planned approach for the next fiscal period, as the evidence gives it."
     );
     // Review round 2 (P2-3): the close claims nothing learned where nothing was.
     expect(SECTION_246_GOAL_CLOSE).toContain(
-      "Where no uncertainty has a result, name the project goal and say what work continues toward it; claim no knowledge gained or applied."
+      // Review round 3 (P3-4): no second sentence that the work continues.
+      "Where no uncertainty has a result, name the project goal in one sentence and tie the planned work above to it, without restating the plan; claim no knowledge gained or applied."
     );
     expect(SECTION_246_NO_FINDING_PARAGRAPH).toBe(
       ` These paragraphs are for the uncertainties the evidence reports a result for. ${SECTION_246_RESULT_DEFINITION} Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`
@@ -488,10 +495,11 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
     expect(SECTION_246_ADVANCEMENT_RULES).toContain("Where the evidence gives a finding but not the whole result, state what it does establish");
     // (P2-5) the opening's no-result branch comes after its other sentences and replaces them.
     expect(SECTION_246_OVERALL_NOTHING_LEARNED).toBe(
-      " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for the results and status, which also covers the hypothesis and how far the objective was met."
+      " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of the results and status the evidence does not give, which also covers the hypothesis and how far the objective was met."
     );
     expect(SECTION_246_OVERALL_ADVANCEMENT).toContain(
-      `where it does not, put one [GAP: ...] for the result.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`
+      // Review round 3 (P2-2): the opening asks for no hypothesis result of its own.
+      `where it does not, say nothing about that hypothesis here: the gap in that uncertainty's paragraph, or in the paragraph for the uncertainties with no result, asks for it.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`
     );
     // The old per-paragraph exception and inferred findings are gone everywhere.
     for (const text of [SECTION_246_ADVANCEMENT_RULES, SECTION_246_NOTHING_LEARNED_YET, SECTION_246_KNOWLEDGE_FIRST_EXCEPTION, SECTION_246_SELF_CHECK_EXCEPTION, QA_NOTHING_LEARNED_YET, CHAT_NOTHING_LEARNED, RULES_REPORT_SKELETON]) {
@@ -512,7 +520,7 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
       expect(prompt).toContain(
         `**PROJECT STATUS & NEXT STEPS:**\n${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain.`
       );
-      expect(prompt).toContain(`Describe the planned approach for the next fiscal period. ${SECTION_246_STATUS_NO_RESULT}\n`);
+      expect(prompt).toContain(`${SECTION_246_NEXT_PERIOD_PLAN} ${SECTION_246_STATUS_NO_RESULT}\n`);
       expect(prompt).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242 that the evidence reports a result for):**");
       expect(prompt).toContain("one per uncertainty the evidence reports a result for, never padded to a count");
       expect(prompt).toContain("the specific technological advancements (one per uncertainty the evidence reports a result for)");
@@ -531,13 +539,13 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
     expect(QA_NOTHING_LEARNED_YET).toContain(
       "In the paragraph that covers the uncertainties with no result, flag more than one sentence on what remains open, and a repeat of Line 242's reasons for the uncertainty or of Line 244's work. Naming the uncertainty in a few words, as 'In addressing the uncertainty around X' does, is not a repeat."
     );
-    expect(QA_246_OPENING_NOTE).toContain("or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it.");
+    expect(QA_246_OPENING_NOTE).toContain("or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for whatever of the results and status the evidence does not give. Do NOT apply the advancement-paragraph opener rule to it.");
     expect(buildQaSystemPrompt()).toContain(QA_246_OPENING_NOTE);
     expect(buildQaSystemPrompt(SHIPPED_DEFAULT)).toContain(QA_WAIVED_OPENERS_NOTHING_LEARNED);
     for (const overrides of EVERY_BUILD) expect(buildQaSystemPrompt(overrides)).toContain(QA_NOTHING_LEARNED_YET);
     expect(buildSectionStructureRules()).toContain(CHAT_NOTHING_LEARNED);
     // Review round 2 (P3-6): with no result at all, the shared paragraph opens the Line.
-    expect(RULES_REPORT_SKELETON).toContain("the uncertainties with no result share one paragraph after them, or, when none has a result, that paragraph opens the Line in place of the overall advancement: what the work set out to learn, any observation the evidence states and a single gap for the results and status");
+    expect(RULES_REPORT_SKELETON).toContain("the uncertainties with no result share one paragraph after them, or, when none has a result, that paragraph opens the Line in place of the overall advancement: what the work set out to learn, any observation the evidence states and a single gap for whatever of the results and status the evidence does not give");
   });
 
   it("the opener scan leaves the opening paragraph, where the no-result content goes, unscanned", () => {
