@@ -877,15 +877,17 @@ export const SECTION_246_KNOWLEDGE_LEADS =
  * Where results exist, the knowledge paragraphs stay as they were.
  */
 export const SECTION_246_NO_RESULT =
-  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else";
+  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of their results and status the evidence does not give. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else";
 /**
  * Review round 1 (wording P2-4): what a result is, so the two branches never
- * disagree. A finding is an event: it is never inferred. Review round 2
- * (P2-1): a conclusion the evidence draws, not a reading or an event it
- * records, so the shared paragraph's observation has somewhere to go.
+ * disagree. An observation is never inferred. Review round 2 (P2-1): a
+ * conclusion the evidence draws, not a reading or an event it records, so
+ * the shared paragraph's observation has somewhere to go. Review round 3
+ * (P2-1): an observation goes there only for an uncertainty with no other
+ * result, so it is never lost or put under the wrong uncertainty.
  */
 export const SECTION_246_RESULT_DEFINITION =
-  "An uncertainty has a result when the evidence states something the work established about it, in whole or in part: a conclusion the evidence draws, not only a reading or event it records. That uncertainty gets its own paragraph. An observation that settles nothing on its own (a reading, a failure seen in one run) is not a result: it goes in the paragraph for the uncertainties with no result.";
+  "An uncertainty has a result when the evidence states something the work established about it, in whole or in part: a conclusion the evidence draws, not only a reading or event it records. That uncertainty gets its own paragraph. An observation that settles nothing on its own (a reading, a failure seen in one run) does not by itself give an uncertainty a result: where that uncertainty has no other result, the observation goes in the paragraph for the uncertainties with no result.";
 export const SECTION_246_NOTHING_LEARNED_YET =
   " Where the evidence reports no result for an uncertainty, this opening rule does not apply: it gets no advancement paragraph (see the rule for uncertainties with no result below).";
 export const SECTION_246_KNOWLEDGE_FIRST_EXCEPTION =
@@ -905,22 +907,26 @@ export const SECTION_246_NO_FINDING_PARAGRAPH =
  * sentences and says to write none of them.
  */
 export const SECTION_246_OVERALL_NOTHING_LEARNED =
-  " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for the results and status, which also covers the hypothesis and how far the objective was met.";
+  " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of the results and status the evidence does not give, which also covers the hypothesis and how far the objective was met.";
 
 /**
  * 2026-10-30, review round 1 (wording P2-5): PROJECT STATUS has two
  * branches. Where uncertainties have results, it explains what is still
  * open and why; where none has, the one gap already asks for the status.
  * Review round 2 (P2-2b): the first branch covers only the uncertainties
- * with results, so the rest are not asked about again.
+ * with results, so the rest are not asked about again. Review round 3
+ * (P3-3): the next period's plan is asked for every uncertainty.
  */
 export const SECTION_246_STATUS_WITH_RESULTS =
-  "Where uncertainties have results, for those uncertainties only (the paragraph for the rest and its gap already cover them): ";
+  "For the uncertainties with results only (any paragraph for the rest already covers those): ";
+/** Review round 3 (P3-3): the next period's plan, for every uncertainty. */
+export const SECTION_246_NEXT_PERIOD_PLAN =
+  "For every uncertainty, describe the planned approach for the next fiscal period, as the evidence gives it.";
 export const SECTION_246_STATUS_NO_RESULT =
   "Where no uncertainty has a result, add only the next period's plan, as the evidence gives it: the single gap above already asks for the status.";
 
 export const SECTION_246_OVERALL_ADVANCEMENT = `**ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
-Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]." Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, put one [GAP: ...] for the result.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`;
+Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]." Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, say nothing about that hypothesis here: the gap in that uncertainty's paragraph, or in the paragraph for the uncertainties with no result, asks for it.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`;
 
 export const SECTION_246_ADVANCEMENT_RULES = `Each paragraph names the uncertainty, states what was learned about it, and gives its status in plain words, only as the evidence shows: resolved, resolved for the conditions tested, partially resolved, or unresolved. Then it says what remains open. For example: "In addressing the uncertainty around [X], the company gained knowledge that [what was learned]. The uncertainty was resolved for [the conditions tested]; [what remains open]."${SECTION_246_NO_FINDING_PARAGRAPH}
 
@@ -948,7 +954,7 @@ GOOD (the evidence gives a finding but not the final result):
 "In addressing the uncertainty around holding the room at its setpoint with a door open, the company gained knowledge that a fixed control step cannot follow the heat load of an open door, and it redesigned the step to change with the measured load. [GAP: the recovery times measured with the redesigned step] Whether the redesigned step holds the room within a degree while a door stays open remains open."`;
 
 export const SECTION_246_GOAL_CLOSE =
-  "This closing content is the only place in 246 where you lead with the physical outcome, and the one place to say how the knowledge was applied: say it once here, not in every paragraph. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content), and say what work continues. Describe how the advancement improved the product/process only as far as the evidence shows. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242. Where no uncertainty has a result, name the project goal and say what work continues toward it; claim no knowledge gained or applied.";
+  "This closing content is the only place in 246 where you lead with the physical outcome, and the one place to say how the knowledge was applied: say it once here, not in every paragraph. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content), and say what work continues. Describe how the advancement improved the product/process only as far as the evidence shows. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242. Where no uncertainty has a result, name the project goal in one sentence and tie the planned work above to it, without restating the plan; claim no knowledge gained or applied.";
 
 /**
  * Line 246's own instructions: role, required content and its rules. Cost
@@ -997,7 +1003,7 @@ ${
   }The number of advancement paragraphs follows the source material: one per uncertainty the evidence reports a result for, never padded to a count. Do not fabricate advancements.
 
 **PROJECT STATUS & NEXT STEPS:**
-${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. Describe the planned approach for the next fiscal period. ${SECTION_246_STATUS_NO_RESULT}
+${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. ${SECTION_246_NEXT_PERIOD_PLAN} ${SECTION_246_STATUS_NO_RESULT}
 
 **PROJECT GOAL & IMPROVEMENTS:**
 ${SECTION_246_GOAL_CLOSE}${
@@ -1150,9 +1156,9 @@ export const QA_STANDARD_APPROACH_CHECK = `- IMPORTANT CLARIFICATION on knowledg
  * once. QA's notes say the same, and flag the repetition the rerun showed.
  */
 export const QA_246_OPENING_NOTE =
-  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it.";
+  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for whatever of the results and status the evidence does not give. Do NOT apply the advancement-paragraph opener rule to it.";
 export const QA_NOTHING_LEARNED_YET =
-  "\n- Where the evidence reports no result for an uncertainty, it gets no paragraph of its own: one paragraph covers every such uncertainty, with the knowledge sought, any observation the evidence states and a single [GAP: ...] for the results and status. That is not a capability lead or a missing advancement paragraph, so do not flag or deduct it. In the paragraph that covers the uncertainties with no result, flag more than one sentence on what remains open, and a repeat of Line 242's reasons for the uncertainty or of Line 244's work. Naming the uncertainty in a few words, as 'In addressing the uncertainty around X' does, is not a repeat.";
+  "\n- Where the evidence reports no result for an uncertainty, it gets no paragraph of its own: one paragraph covers every such uncertainty, with the knowledge sought, any observation the evidence states and a single [GAP: ...] for whatever of the results and status the evidence does not give. That is not a capability lead or a missing advancement paragraph, so do not flag or deduct it. In the paragraph that covers the uncertainties with no result, flag more than one sentence on what remains open, and a repeat of Line 242's reasons for the uncertainty or of Line 244's work. Naming the uncertainty in a few words, as 'In addressing the uncertainty around X' does, is not a repeat.";
 /**
  * The same exception in the content check QA runs when the opening phrases
  * are waived (the default, since the opener house rule is off for everyone),
