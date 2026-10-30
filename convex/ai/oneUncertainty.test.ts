@@ -37,6 +37,7 @@ import {
   SECTION_244_EXPERIMENT_RULES,
   SECTION_244_WORK_IN_FULL,
   SECTION_246_ADVANCEMENT_RULES,
+  SECTION_246_GOAL_CLOSE,
   SECTION_246_KNOWLEDGE_FIRST_EXCEPTION,
   SECTION_246_NO_FINDING_PARAGRAPH,
   SECTION_246_NO_RESULT,
@@ -425,7 +426,7 @@ describe("the claimant is named from the project record (item 2)", () => {
 describe("Line 242: the reason the standard approach falls short comes from the evidence (item 3)", () => {
   it("general practice only names the approach, once, and a gap asks for a missing reason", () => {
     expect(GENERAL_PRACTICE_SCOPE).toBe(
-      "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write [GAP: which standard approaches the team knew of]."
+      "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write one [GAP: which standard approaches the team knew of, and why they fall short here] in its place."
     );
     // Review round 1 (wording P3-9): step 1 agrees with the general-practice limits.
     expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(
@@ -465,10 +466,20 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
     // paragraphs or as the opening; (P2-4) only an observation the evidence
     // states, and what a result is.
     expect(SECTION_246_NO_RESULT).toBe(
-      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work"
+      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else"
     );
     expect(SECTION_246_RESULT_DEFINITION).toBe(
-      "An uncertainty has a result when the evidence states something the work showed about it, in whole or in part; that uncertainty gets its own paragraph."
+      // Review round 2 (P2-1): a conclusion, not a reading or an event.
+      "An uncertainty has a result when the evidence states something the work established about it, in whole or in part: a conclusion the evidence draws, not only a reading or event it records. That uncertainty gets its own paragraph. An observation that settles nothing on its own (a reading, a failure seen in one run) is not a result: it goes in the paragraph for the uncertainties with no result."
+    );
+    // Review round 2 (P2-2): the shared paragraph's gap covers the hypotheses
+    // of those uncertainties, and PROJECT STATUS covers only the others.
+    expect(SECTION_246_STATUS_WITH_RESULTS).toBe(
+      "Where uncertainties have results, for those uncertainties only (the paragraph for the rest and its gap already cover them): "
+    );
+    // Review round 2 (P2-3): the close claims nothing learned where nothing was.
+    expect(SECTION_246_GOAL_CLOSE).toContain(
+      "Where no uncertainty has a result, name the project goal and say what work continues toward it; claim no knowledge gained or applied."
     );
     expect(SECTION_246_NO_FINDING_PARAGRAPH).toBe(
       ` These paragraphs are for the uncertainties the evidence reports a result for. ${SECTION_246_RESULT_DEFINITION} Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`
@@ -525,7 +536,8 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
     expect(buildQaSystemPrompt(SHIPPED_DEFAULT)).toContain(QA_WAIVED_OPENERS_NOTHING_LEARNED);
     for (const overrides of EVERY_BUILD) expect(buildQaSystemPrompt(overrides)).toContain(QA_NOTHING_LEARNED_YET);
     expect(buildSectionStructureRules()).toContain(CHAT_NOTHING_LEARNED);
-    expect(RULES_REPORT_SKELETON).toContain("the uncertainties with no result share one paragraph after them: what the work set out to learn, any observation the evidence states and a single gap for the results and status");
+    // Review round 2 (P3-6): with no result at all, the shared paragraph opens the Line.
+    expect(RULES_REPORT_SKELETON).toContain("the uncertainties with no result share one paragraph after them, or, when none has a result, that paragraph opens the Line in place of the overall advancement: what the work set out to learn, any observation the evidence states and a single gap for the results and status");
   });
 
   it("the opener scan leaves the opening paragraph, where the no-result content goes, unscanned", () => {
@@ -609,7 +621,9 @@ describe("findNotesToWriter: the Locked deterministic check", () => {
       ["The interview responses do not describe the second run.", "The interview responses do not describe"],
       ["The client said the second line was rebuilt in May.", "The client said"],
       ["The client noted that the jams stopped after the change.", "The client noted that"],
-      ["The second run's result was not reported.", "was not reported"],
+      ["The second run's result was not reported.", "result was not reported"],
+      // Review round 2 (P3-4): "reported" after a word for what the work found.
+      ["The results of these runs were not reported.", "runs were not reported"],
     ];
     for (const [text, phrase] of notes) expect([text, findNotesToWriter(text).map((hit) => hit.phrase)]).toEqual([text, [phrase]]);
   });
@@ -650,6 +664,7 @@ describe("findNotesToWriter: the Locked deterministic check", () => {
       "The behaviour of the PLC scan cycle under a full I/O load is not documented.",
       "The order of alarms across the two PLCs is not specified.",
       "The default gain was not given for the second pump.",
+      "Before the change, dropped messages were not reported.",
       "The transcripts did not show speaker labels.",
       "The transcripts record each speaker turn with its start time.",
     ];

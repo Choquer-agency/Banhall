@@ -838,7 +838,7 @@ describe("review round 2 of the third amendment", () => {
   it("P3-D: the report skeleton takes the no-finding exception, and the locked length rule applies at export", () => {
     // 2026-10-30 (owner, item 3): an uncertainty with no result gets no paragraph.
     expect(RULES_REPORT_SKELETON).toContain(
-      "each with its status only as the evidence shows; the uncertainties with no result share one paragraph after them: what the work set out to learn, any observation the evidence states and a single gap for the results and status"
+      "each with its status only as the evidence shows; the uncertainties with no result share one paragraph after them, or, when none has a result, that paragraph opens the Line in place of the overall advancement: what the work set out to learn, any observation the evidence states and a single gap for the results and status"
     );
     const length = LOCKED_RULES.find((entry) => entry.title === "CRA form length limits");
     expect(length?.summary).toBe(
