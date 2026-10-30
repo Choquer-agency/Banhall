@@ -24,6 +24,7 @@ import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclu
 import { documentHasText } from "../documentText";
 import { MAX_FROZEN_SOURCE_ROWS, withCurrentCompanyFiles } from "../briefEvidence";
 import { hasCapability } from "../../../shared/capabilities";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
 export const getGenerationPlaceholdersArgs = { generationId: v.id("generations") };
@@ -153,6 +154,11 @@ export async function getGenerationInputHandler(
     // Owner decision 26: the frozen name map, for work that leaves the
     // app without a model call (the Brain query built from facts).
     placeholders: generation.placeholders ?? [],
+    // 2026-10-30 (owner, item 2): the claimant's name frozen at
+    // reservation, for the claimant line, when the frozen map hides it.
+    ...(claimantNameFor(generation.claimantName, generation.placeholders) !== undefined
+      ? { claimantName: claimantNameFor(generation.claimantName, generation.placeholders) }
+      : {}),
     digestIds: generation.digestIds,
     generationId: generation._id,
     projectId: project._id,

@@ -175,7 +175,9 @@ export const runReportQa = internalAction({
           calibration?.content,
           style.overrides,
           style.firstPerson,
-          sourceEvidence
+          sourceEvidence,
+          // 2026-10-30 (owner, item 2): the claimant line.
+          input.claimantName
         ),
         runChronologyAgent(
           clientFor("generation:post_chronology"),

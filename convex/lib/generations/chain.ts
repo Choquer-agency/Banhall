@@ -45,6 +45,7 @@ import { ORDERED_SECTION_TITLES } from "../../ai/promptDefinitions";
 import { settleCandidateRun } from "./candidates";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { getInternalProjectAccessOrNull } from "../auth";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 // ─── Story 2: ordered, ungated section chain (single/compare, AD-24) ─────────
 //
@@ -348,8 +349,13 @@ export async function orderedSectionClaim(
   // match_sources check alone). The action records it once the Line has
   // completed with its check answered (re-check: not at the claim).
   const runsFactsCheck = factsSourceDocuments !== undefined && plan.planChecks.some((check) => check.instruction === "match_sources");
+  // 2026-10-30 (owner, item 2): the claimant's name frozen at reservation,
+  // for the claimant line every draft and repair sends, when the
+  // generation's frozen map hides it.
+  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders);
   return {
     projectId: args.generation.projectId,
+    ...(claimantName !== undefined ? { claimantName } : {}),
     model: args.row.model,
     label: args.row.label,
     requestedBy: args.generation.requestedBy,

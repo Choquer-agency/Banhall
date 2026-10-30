@@ -71,6 +71,7 @@ import { restorableProjectStatus } from "./restoreStatus";
 import { userDisplayLabel } from "../teamRoster";
 import type { QueryCtx } from "../../_generated/server";
 import { copyRecoverySourceUses } from "./sourceUse";
+import { frozenClaimantName } from "../transcriptPlaceholders";
 
 /**
  * The user-safe summary of a project's active run (F6): who started it, which
@@ -561,6 +562,8 @@ export async function reserveGeneration(
     inputMode,
     ...(transcriptFacts ? { transcriptFacts: true } : {}),
     ...(placeholders.length > 0 ? { placeholders } : {}),
+    // 2026-10-30 (owner, item 2): the claimant's name, frozen with the map.
+    ...(frozenClaimantName(project.clientName) ? { claimantName: frozenClaimantName(project.clientName) } : {}),
     status: "reserved",
     // 2026-09-25: this generation's outputs live in generationArtifacts rows.
     outputsInArtifactsAt: now,
@@ -899,6 +902,8 @@ export async function retryFromSummaryHandler(
     // Summary recovery reads the same fact packs and placeholders.
     ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
     ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
+    // 2026-10-30: and the same claimant name, so recovery sends the same requests.
+    ...(failed.claimantName !== undefined ? { claimantName: failed.claimantName } : {}),
     ...(failed.companyFilesFrom ? { companyFilesFrom: failed.companyFilesFrom } : {}),
     ...(failed.companyFilesLeftOut ? { companyFilesLeftOut: failed.companyFilesLeftOut } : {}),
     status: "reserved",

@@ -11,7 +11,7 @@ import {
   TRANSCRIPT_PARSER_VERSION,
   transcriptSpeakerNames,
 } from "../../shared/transcriptParse";
-import { avoidTokenCollisions, buildPlaceholderMap, type PlaceholderMap } from "./deidentify";
+import { avoidTokenCollisions, buildPlaceholderMap, pseudonymize, type PlaceholderMap } from "./deidentify";
 import { frozenSlice, listSpeakerRows } from "./transcriptStructure";
 import { firmNames } from "./firmNames";
 
@@ -133,4 +133,35 @@ export async function placeholderMapFrom(
     phrases,
   });
   return avoidTokenCollisions(map, [...texts, ...labels, ...organizations, ...firms, ...phrases]);
+}
+
+/** The claimant's name as frozen on a generation: the record's company name, spaces folded. */
+export function frozenClaimantName(clientName: string | null | undefined): string | undefined {
+  const name = clientName?.trim().replace(/\s+/g, " ");
+  return name ? name : undefined;
+}
+
+/** A placeholder token, bracketed: what is left of a hidden name. */
+const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
+
+/**
+ * 2026-10-30 (owner, "please fix all properly", item 2): the claimant's name
+ * a generation's requests may carry in their claimant line (claimantLine in
+ * convex/ai/prompts.ts). It is the project record's company name, frozen on
+ * the generation at reservation with its placeholder map (Summary recovery
+ * copies both), so a later rename never changes a request. Owner decision
+ * 26: it is used only when that map hides all of it, or when the map is
+ * empty (an admin switched placeholders off, so names are sent as written).
+ * A generation reserved before this froze no name and sends no line.
+ */
+export function claimantNameFor(
+  frozenName: string | null | undefined,
+  placeholders: PlaceholderMap | undefined
+): string | undefined {
+  const name = frozenClaimantName(frozenName);
+  if (!name) return undefined;
+  const map = placeholders ?? [];
+  if (map.length === 0) return name;
+  // Hidden whole: no letter is left once the tokens are taken out.
+  return /\p{L}/u.test(pseudonymize(name, map).replace(PLACEHOLDER_TOKEN, "")) ? undefined : name;
 }

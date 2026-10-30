@@ -42,11 +42,14 @@ export async function runSection242Agent(
   styleOverrides?: StyleOverrides,
   // Story 1 (CAP-1/2/4): the stored Brief, rendered as an AD-11 data block.
   briefBlock: string = "",
-  contentPlanBlock: string = ""
+  contentPlanBlock: string = "",
+  // 2026-10-30 (owner, item 2): the project record's company name, for the claimant line.
+  claimantName?: string
 ): Promise<string> {
   const request = buildSectionDraftRequest({
     instructions: buildSection242Instructions(styleOverrides),
     analysisJson: JSON.stringify(analysis, null, SECTION_242_REQUEST.jsonIndentation),
+    ...(claimantName ? { claimantName } : {}),
     ...(styleOverrides ? { styleOverrides } : {}),
     brainExemplars,
     lengthBudget,

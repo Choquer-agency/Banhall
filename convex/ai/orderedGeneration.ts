@@ -101,6 +101,7 @@ import {
   settleGlossaryForWriterTerms,
   settleWriterSettingsVerdicts,
   SOURCE_TALK_KEY,
+  NOTES_TO_WRITER_KEY,
   type DeterministicSelfCheck,
   type ModelVerdict,
 } from "../lib/selfCheckRules";
@@ -1293,7 +1294,9 @@ export async function draftCheckedSection(input: {
         claim.planBlock
           ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget, writerCap)
           : claim.briefBlock,
-        claim.planBlock
+        claim.planBlock,
+        // 2026-10-30 (owner, item 2): the claimant line, in every draft and repair.
+        claim.claimantName
       ),
       styleOverrides.bannedWords
     );
@@ -1359,10 +1362,13 @@ export async function draftCheckedSection(input: {
   let keptFit: LimitFit = firstFit;
 
   const brief = claim.brief;
-  const check = (draft: string): DeterministicSelfCheck =>
+  // 2026-10-30: the check of the final text keeps the notes-to-the-writer
+  // row when the checked draft had one, so it says whether the repair fixed it.
+  const check = (draft: string, notesToWriterRow = false): DeterministicSelfCheck =>
     runDeterministicSelfCheck({
       section,
       text: draft,
+      ...(notesToWriterRow ? { notesToWriterRow } : {}),
       brief,
       profile: payload.orderedContext,
       isFirstInOrder: claim.isFirstInOrder,
@@ -1443,6 +1449,11 @@ export async function draftCheckedSection(input: {
     ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
     ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
     ...(sourceFacts !== undefined ? { sourceFacts } : {}),
+    // 2026-10-30 (owner, item 1): the report's uncertainties, chosen once
+    // for all three Lines. A signed-off plan sets the scope instead.
+    ...(planRun
+      ? {}
+      : { reportUncertainties: { passive: analysis.passive_uncertainties ?? [], active: analysis.active_uncertainties ?? [] } }),
   };
   // Phase D (step 2, re-check): whether the facts check read its sources,
   // so the caller records them only for a check that answered.
@@ -1590,6 +1601,11 @@ export async function draftCheckedSection(input: {
   const sourceTalkIssue = before.entries.find(
     (entry) => entry.key === SOURCE_TALK_KEY && entry.repairable && entry.row.outcome === "not_applied"
   )?.guidance;
+  // 2026-10-30: the notes-to-the-writer fix takes words out too, so it is
+  // never a Must keep line either.
+  const notesToWriterIssue = before.entries.find(
+    (entry) => entry.key === NOTES_TO_WRITER_KEY && entry.repairable && entry.row.outcome === "not_applied"
+  )?.guidance;
   // Round 5: a measured wording fix asks to change words, so, like the
   // source-talk fix, it is never a Must keep line of the repair's
   // compression; the wording guard keeps what it fixed.
@@ -1642,6 +1658,7 @@ export async function draftCheckedSection(input: {
             !leaveOutIssues.has(issue) &&
             !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
+            issue !== notesToWriterIssue &&
             !wordingIssues.has(issue) &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
@@ -1770,7 +1787,7 @@ export async function draftCheckedSection(input: {
           finalText = fit.text;
           repair.succeeded = true;
           keptFit = fit;
-          after = check(finalText);
+          after = check(finalText, before.entries.some((entry) => entry.key === NOTES_TO_WRITER_KEY));
         }
       } else {
         // An empty repair never replaces the draft it was meant to fix.
@@ -2377,7 +2394,9 @@ export const finalizeOrderedCandidate = internalAction({
               payload.qaCalibration,
               styleOverrides,
               detectFirstPersonPreference(payload.writerFlavor),
-              qaSourceEvidence
+              qaSourceEvidence,
+              // 2026-10-30 (owner, item 2): the claimant line.
+              input.claimantName
             )
           : Promise.resolve(null),
         seedRun

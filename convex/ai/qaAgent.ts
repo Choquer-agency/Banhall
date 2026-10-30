@@ -2,7 +2,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { GenerationClient } from "./openrouterCore";
-import { buildQaSystemPrompt } from "./prompts";
+import { buildQaSystemPrompt, claimantBlock } from "./prompts";
 import type { StyleOverrides } from "../../shared/styleOverrides";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import { runDeterministicChecks } from "./qaChecks";
@@ -181,7 +181,13 @@ export async function runQAAgent(
    * 2026-10-29 (third): the source evidence the drafts were written from
    * (getQaSourceEvidence). Absent, the request is as before.
    */
-  sourceEvidence?: FactsSourceDocuments | null
+  sourceEvidence?: FactsSourceDocuments | null,
+  /**
+   * 2026-10-30 (owner, item 2): the project record's company name. Its
+   * claimant line follows the pre-computed checks, so QA reads the name as
+   * supported. Absent, the request is as before.
+   */
+  claimantName?: string
 ): Promise<QAScorecard> {
   // Run deterministic checks first (waived house-style categories report
   // "WAIVED" rather than findings — see convex/ai/qaChecks.ts).
@@ -201,7 +207,7 @@ export async function runQAAgent(
 
   return await generateStructured<QAScorecard>(client, {
     system: buildQaSystemPrompt(styleOverrides, firstPersonRequested) + calibrationBlock,
-    user: `${QA_REQUEST.userScaffold.prefix}${preComputedChecks}${qaSourceEvidenceBlock(sourceEvidence)}${QA_REQUEST.userScaffold.analysisHeading}${JSON.stringify(analysis, null, QA_REQUEST.jsonIndentation)}${QA_REQUEST.userScaffold.section242Heading}${numberParagraphs(section242)}${QA_REQUEST.userScaffold.section244Heading}${numberParagraphs(section244)}${QA_REQUEST.userScaffold.section246Heading}${numberParagraphs(section246)}`,
+    user: `${QA_REQUEST.userScaffold.prefix}${preComputedChecks}${claimantBlock(claimantName)}${qaSourceEvidenceBlock(sourceEvidence)}${QA_REQUEST.userScaffold.analysisHeading}${JSON.stringify(analysis, null, QA_REQUEST.jsonIndentation)}${QA_REQUEST.userScaffold.section242Heading}${numberParagraphs(section242)}${QA_REQUEST.userScaffold.section244Heading}${numberParagraphs(section244)}${QA_REQUEST.userScaffold.section246Heading}${numberParagraphs(section246)}`,
     toolName: QA_REQUEST.toolName,
     description: QA_REQUEST.toolDescription,
     schema: QA_SCHEMA,

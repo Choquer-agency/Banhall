@@ -19,6 +19,7 @@ import {
   type MaterializedSeedSelection,
   type SeedContextSnapshot,
 } from "./seedRevisions";
+import { claimantNameFor } from "./transcriptPlaceholders";
 
 type SeedReadCtx = Pick<QueryCtx | MutationCtx, "db">;
 
@@ -266,6 +267,12 @@ export type FrozenSeedActionInput = {
     styleOverrides: Record<string, unknown>;
   };
   lengthTarget: "concise" | "standard" | "full";
+  /**
+   * 2026-10-30 (owner, item 2): the claimant's name frozen on the generation,
+   * for the Seed request's claimant line, when its frozen map hides it.
+   * Absent, the request is as before.
+   */
+  claimantName?: string;
 };
 
 export const MAX_SEED_BRIEF_ENTRY_ROWS = 500;
@@ -428,7 +435,10 @@ export async function loadFrozenSeedActionInput(
   }
   const style = frozenStyleProjection(settingsArtifact.content);
   const ownSourceId = ownSourceIdOf(sources);
+  // 2026-10-30 (owner, item 2): frozen at reservation, as the map is.
+  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders);
   return {
+    ...(claimantName !== undefined ? { claimantName } : {}),
     brief: {
       _id: brief._id,
       inputsHash: brief.inputsHash,

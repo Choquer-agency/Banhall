@@ -17,7 +17,7 @@ import { splitSearchPieces } from "../../shared/searchPieces";
 import { chooseSettingsSource } from "../lib/settingsDocument";
 import type { Id } from "../_generated/dataModel";
 import { buildTranscriptPromptText } from "../lib/transcripts";
-import { CONTEXT_INPUTS_GUIDANCE } from "./prompts";
+import { CONTEXT_INPUTS_GUIDANCE, claimantBlock, claimantLine } from "./prompts";
 import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE } from "../lib/companyEvidence";
 import { SEED_PROMPT_PROGRAM, WRITER_PREFERENCES_HEADING } from "./promptDefinitions";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
@@ -297,6 +297,12 @@ export interface TrustedContextInput {
   transcriptParts?: TrustedTranscriptPart[];
   documents?: ContextDoc[];
   budget?: ContextBudget;
+  /**
+   * 2026-10-30 (owner, item 2): the project record's company name. Its
+   * claimant line follows the transcript block; absent, the message is
+   * unchanged.
+   */
+  claimantName?: string;
 }
 
 /**
@@ -718,7 +724,7 @@ export function buildTrustedContext(input: TrustedContextInput): {
     : documents.length
       ? `${CONTEXT_SCAFFOLDS.contextHeading}${omittedMaterialsNotice(documents.length)}`
       : "";
-  const userMessage = `${head}${CONTEXT_SCAFFOLDS.guidancePrefix}${CONTEXT_INPUTS_GUIDANCE}${materials}`;
+  const userMessage = `${head}${claimantBlock(input.claimantName)}${CONTEXT_SCAFFOLDS.guidancePrefix}${CONTEXT_INPUTS_GUIDANCE}${materials}`;
 
   const includedChars = sources.reduce((n, s) => n + s.includedLength, 0);
   return {
@@ -831,6 +837,12 @@ export type SeedTrustedContextInput = {
    * the same prompts, since nothing refused depends on the parts chosen.
    */
   chooseParts?: boolean;
+  /**
+   * 2026-10-30 (owner, item 2): the project record's company name. Its
+   * claimant line follows the guidance, in the cached prefix every role of
+   * the generation shares; absent, the request is unchanged.
+   */
+  claimantName?: string;
 };
 
 /**
@@ -1119,6 +1131,8 @@ export function buildSeedTrustedContext(input: SeedTrustedContextInput): {
     `${input.citationMode === "facts" ? prompt.factGuidance : prompt.guidance}${
       seedWriterWordingApplies(input.writerSettings) ? prompt.writerWording : ""
     }`,
+    // 2026-10-30 (owner, item 2): the claimant line, generation-wide.
+    ...(claimantLine(input.claimantName) ? [claimantLine(input.claimantName)] : []),
     // Phase C: only when the draft froze a company file.
     ...(input.sources.some((source) => source.kind === "company_file") ? [COMPANY_FILES_NOTE] : []),
     seedBlock(prompt.blocks.brief, seedValue(input.brief)),

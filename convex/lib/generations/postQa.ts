@@ -31,6 +31,7 @@ import { isRedraftLive } from "./redraft";
 import { internal } from "../../_generated/api";
 import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 import { latestQaResult, qaResultIsCurrent, recordQaResult } from "../qaResults";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 /** Argument validators of generations.getPostQaAttempt. */
 export const getPostQaAttemptArgs = { generationId: v.id("generations") };
@@ -90,6 +91,9 @@ export async function getPostQaInputHandler(
   if (!report) return null;
   const capturedRef = await reportQaRef(report);
   const currentSections = extractReportSections(report.content);
+  // 2026-10-30 (owner, item 2): the claimant line's company name, frozen at reservation.
+  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders);
+  const claimant = claimantName !== undefined ? { claimantName } : {};
   if (!Object.values(currentSections).some(text => text.trim())) return null;
   if ((generation.candidateMode ?? "compare") === "iterative") {
     const [analysisRow, brainRow] = await Promise.all([
@@ -183,6 +187,7 @@ export async function getPostQaInputHandler(
       model: sections.s242.model || undefined,
       styleOverrides,
       ...(frozenQaInputs ? { frozenQaInputs } : {}),
+      ...claimant,
     };
   }
   // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
@@ -225,6 +230,7 @@ export async function getPostQaInputHandler(
         outputs.styleOverrides && typeof outputs.styleOverrides === "object"
           ? outputs.styleOverrides
           : undefined,
+      ...claimant,
     };
   } catch {
     return null;

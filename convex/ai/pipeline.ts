@@ -1036,11 +1036,14 @@ export function buildAnalyzerContext(input: {
     sourceId?: Id<"generationSources">;
   }>;
   contextBudget?: ContextBudget;
+  /** 2026-10-30 (owner, item 2): the claimant line's company name. */
+  claimantName?: string;
 }): { userMessage: string; report: TrustedContextReport } {
   return buildTrustedContext({
     transcriptParts: input.transcriptParts,
     documents: toContextDocs(input.contextDocs),
     budget: input.contextBudget ?? DEFAULT_CONTEXT_BUDGET,
+    ...(input.claimantName ? { claimantName: input.claimantName } : {}),
   });
 }
 
@@ -1313,7 +1316,10 @@ export async function runPipelineForModel(
   // 2026-10-29 (third), review round 1: reads the source evidence QA checks
   // the drafted Lines against (qaSourceEvidenceFor). Absent, QA reads the
   // analysis alone, as before.
-  loadQaSourceEvidence?: (sections: string[]) => Promise<FactsSourceDocuments | null>
+  loadQaSourceEvidence?: (sections: string[]) => Promise<FactsSourceDocuments | null>,
+  // 2026-10-30 (owner, item 2): the claimant line's company name, for the
+  // three drafts and QA. Absent, their requests are as before.
+  claimantName?: string
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -1339,9 +1345,9 @@ export async function runPipelineForModel(
       ? [qaCalibrationDigestId]
       : undefined;
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides, briefBlock),
-    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock),
-    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock),
+    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
+    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
+    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
   ]);
   // PSOS-49: a bannedWords waiver exempts this writer from the mechanical scrub.
   let section242 = scrubBannedWordsUnlessWaived(raw242, styleOverrides.bannedWords);
@@ -1371,7 +1377,7 @@ export async function runPipelineForModel(
     ? await loadQaSourceEvidence([section242, section244, section246])
     : undefined;
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor), qaSourceEvidence),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor), qaSourceEvidence, claimantName),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelFor("generation:chronology")),
   ]);
   if (qaSettled.status === "rejected") {
@@ -1950,7 +1956,8 @@ export const generateCandidate = internalAction({
           briefBlock,
           input.factQuotes,
           (callSite) => steps.route(callSite).model,
-          (sections) => qaSourceEvidenceFor(ctx, args.generationId, sections)
+          (sections) => qaSourceEvidenceFor(ctx, args.generationId, sections),
+          input.claimantName
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,

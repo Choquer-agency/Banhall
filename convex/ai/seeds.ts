@@ -667,6 +667,8 @@ export const generateBatch = internalAction({
         lengthTarget: claim.input.lengthTarget,
         // Phase D, step 1: over the allowance, the parts that best match the Brief.
         chooseParts: true,
+        // 2026-10-30 (owner, item 2): the claimant line.
+        ...(claim.input.claimantName ? { claimantName: claim.input.claimantName } : {}),
       });
       // Phase D, step 1: a source sent only in part is citable only in what
       // was sent, plus the spans the Brief's entries cite on it; the rest

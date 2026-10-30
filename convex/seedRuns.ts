@@ -404,6 +404,8 @@ export async function dispatchSeedAttempt(
       projection: seedPromptProjection(loaded.snapshot),
       writerSettings: frozen.writerSettings,
       lengthTarget: frozen.lengthTarget,
+      // 2026-10-30: the same claimant line the Batch will send.
+      ...(frozen.claimantName ? { claimantName: frozen.claimantName } : {}),
     });
   } catch (error) {
     if (error instanceof SeedContextLimitError) {

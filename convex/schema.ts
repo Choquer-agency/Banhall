@@ -1121,6 +1121,13 @@ export default defineSchema({
     placeholders: v.optional(
       placeholderMapValidator
     ),
+    // 2026-10-30 widen (owner, "please fix all properly", item 2): the
+    // project record's company name, frozen with the placeholder map, for
+    // the claimant line the analysis, every Line draft and repair, the Seeds
+    // and QA carry (claimantNameFor in lib/transcriptPlaceholders.ts).
+    // Summary recovery copies it. Absent on generations reserved before,
+    // which send no claimant line.
+    claimantName: v.optional(v.string()),
     status: v.union(
       v.literal("reserved"),
       v.literal("running"),

@@ -46,6 +46,7 @@ import { terminateSeedAttempts } from "../../seedRuns";
 import { bypassSeedEpisodes } from "../seedDecisionWrites";
 import { writeAgentOutputs } from "../generationOutputs";
 import { restorableProjectStatus } from "./restoreStatus";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 // ─── Iterative (section-by-section) generation lifecycle ─────────────────────
 //
@@ -371,8 +372,11 @@ export async function getIterativeSectionInputHandler(
     if (run?.status !== "approved" || !run.approvedText) return null;
     priorSections.push({ section, text: run.approvedText });
   }
+  // 2026-10-30 (owner, item 2): the claimant line's company name.
+  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders);
   return {
     analysis: analysisRow.content,
+    ...(claimantName !== undefined ? { claimantName } : {}),
     brainBlock,
     styleGuidance,
     draftStyleDigestId,
