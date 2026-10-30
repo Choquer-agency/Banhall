@@ -1369,6 +1369,7 @@ export async function draftCheckedSection(input: {
       section,
       text: draft,
       ...(notesToWriterRow ? { notesToWriterRow } : {}),
+      ...(claim.claimantName ? { claimantName: claim.claimantName } : {}),
       brief,
       profile: payload.orderedContext,
       isFirstInOrder: claim.isFirstInOrder,

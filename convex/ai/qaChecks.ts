@@ -101,22 +101,32 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
     /uncertainty\s+existed\s+(regarding|as\s+to|about)/gi,
   ];
 
-  // Find all uncertainty statements by splitting on sentences
-  const sentences = paragraphs.flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+/));
+  // Find all uncertainty statements by splitting on sentences, paragraph by
+  // paragraph, so the sentence after each one is known.
   const uncertaintySentences: Array<{ excerpt: string; hasBecause: boolean }> = [];
 
-  for (const sentence of sentences) {
-    const isUncertainty = uncertaintyMarkers.some((pattern) => {
-      pattern.lastIndex = 0;
-      return pattern.test(sentence);
-    });
-    if (isUncertainty) {
+  for (const paragraph of paragraphs) {
+    const sentences = paragraph.split(/(?<=[.!?])\s+/);
+    sentences.forEach((sentence, index) => {
+      const isUncertainty = uncertaintyMarkers.some((pattern) => {
+        pattern.lastIndex = 0;
+        return pattern.test(sentence);
+      });
+      if (!isUncertainty) return;
+      const next = sentences[index + 1] ?? "";
       uncertaintySentences.push({
         excerpt: sentence.slice(0, 100) + (sentence.length > 100 ? "..." : ""),
         // 2026-10-29 (third): a cause given first with "given that" counts too.
-        hasBecause: /\bbecause\b|\bgiven\s+that\b/i.test(sentence),
+        // After the live rerun (R6b): so does a [GAP: ...] for the reason, in
+        // the sentence or right after it, and a cause in the next sentence
+        // ("Because...", "This is because...", "This was because...",
+        // "Given that..."). The count of uncertainty statements is unchanged.
+        hasBecause:
+          /\bbecause\b|\bgiven\s+that\b/i.test(sentence) ||
+          /\[GAP:/i.test(sentence) ||
+          /^(?:\[GAP:|because\b|this\s+(?:is|was)\s+because\b|given\s+that\b)/i.test(next.trim()),
       });
-    }
+    });
   }
 
   return {
@@ -282,6 +292,31 @@ const NOTE_PATTERNS: readonly RegExp[] = [
   /\b(?:results?|findings?|outcomes?|status|runs?)\s+(?:is|are|was|were)\s+not\s+reported(?=\s*(?:[.;:!?)]|$))/giu,
 ];
 
+/**
+ * After the live rerun (R1): a repair hedged a fact by attribution ("The
+ * company reports that...", "The client states that..."). The company, the
+ * team, the interviewee, the claimant, a CLIENT placeholder or the
+ * claimant's own name reporting, stating, saying or noting "that" is a note
+ * to the writer. Only with "that": "The team reported the fault to the
+ * vendor" stays.
+ */
+const ATTRIBUTION_VERBS = "(?:reports|reported|states|stated|says|said|notes|noted)\\s+that\\b";
+const ATTRIBUTION_SUBJECTS = "(?:\\bthe\\s+(?:company|team|interviewee|claimant)|\\[CLIENT_\\d+(?:_[A-Z]+)?\\])";
+const ATTRIBUTION = new RegExp(`${ATTRIBUTION_SUBJECTS}\\s+${ATTRIBUTION_VERBS}`, "giu");
+const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|ulc|lp|llp)\.?$/i;
+
+/** The claimant's name and its short form (without a legal suffix) attributing a fact. */
+function claimantAttribution(claimantName: string | undefined): RegExp | null {
+  const name = claimantName?.trim().replace(/\s+/g, " ");
+  if (!name) return null;
+  const forms = [...new Set([name, name.replace(LEGAL_SUFFIX, "").trim()])].filter((form) => form.length >= 3);
+  if (forms.length === 0) return null;
+  const escaped = forms
+    .sort((left, right) => right.length - left.length)
+    .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})\\s+${ATTRIBUTION_VERBS}`, "giu");
+}
+
 export interface NoteToWriterHit {
   /** The words of the note, as they appear in the text. */
   phrase: string;
@@ -296,10 +331,11 @@ export interface NoteToWriterHit {
  * or [INFERRED: ...] marker is blanked first, so indices still point into
  * the text. Hits are in text order, one per position.
  */
-export function findNotesToWriter(rawText: string): NoteToWriterHit[] {
+export function findNotesToWriter(rawText: string, options: { claimantName?: string } = {}): NoteToWriterHit[] {
   const text = rawText.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
   const hits: NoteToWriterHit[] = [];
-  for (const pattern of NOTE_PATTERNS) {
+  const claimant = claimantAttribution(options.claimantName);
+  for (const pattern of [...NOTE_PATTERNS, ATTRIBUTION, ...(claimant ? [claimant] : [])]) {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
@@ -338,7 +374,9 @@ export interface SectionFinding {
 export function sectionDeterministicFindings(
   section: "s242" | "s244" | "s246",
   text: string,
-  overrides: StyleOverrides = NO_STYLE_OVERRIDES
+  overrides: StyleOverrides = NO_STYLE_OVERRIDES,
+  /** After the live rerun (R1): the claimant's name, for attribution to it. */
+  options: { claimantName?: string } = {}
 ): SectionFinding[] {
   const findings: SectionFinding[] = [];
   const sectionNumber = section.slice(1);
@@ -366,7 +404,7 @@ export function sectionDeterministicFindings(
   }
 
   // 2026-10-30: Locked, under every waiver.
-  for (const hit of findNotesToWriter(text)) {
+  for (const hit of findNotesToWriter(text, options)) {
     findings.push({
       check: "note_to_writer",
       message: `Note to the writer in report text ("${hit.phrase}"); put it in a [GAP: ...] or [INFERRED: ...] marker: ${hit.context}`,

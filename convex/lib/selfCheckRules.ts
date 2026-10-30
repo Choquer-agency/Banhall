@@ -369,6 +369,8 @@ export function runDeterministicSelfCheck(input: {
    * fixed it. A Line with no such note keeps its rows and requests as before.
    */
   notesToWriterRow?: boolean;
+  /** After the live rerun (R1): the claimant's name, so attribution to it is a note too. */
+  claimantName?: string;
   /**
    * 2026-10-04 (first), Round 5: the writer's wording rules code measures
    * (extractWriterWordingRules), when the Writer Profile applied. Absent or
@@ -880,7 +882,7 @@ export function runDeterministicSelfCheck(input: {
     ? paragraphs.map((paragraph) => findSourceTalk(paragraph, { subjectText: input.sourceTalk!.subjectText }))
     : [];
   const notes = paragraphs.flatMap((paragraph, index) =>
-    findNotesToWriter(paragraph)
+    findNotesToWriter(paragraph, input.claimantName ? { claimantName: input.claimantName } : {})
       .filter((hit) => !(sourceTalkAt[index] ?? []).some((talk) =>
         talk.index < hit.index + hit.phrase.length && hit.index < talk.index + talk.phrase.length))
       .map((hit) => ({ index, phrase: hit.phrase })));

@@ -914,7 +914,8 @@ export const generateSection = internalAction({
       const findings = sectionDeterministicFindings(
         args.section as IterativeSection,
         text,
-        styleOverrides
+        styleOverrides,
+        input.claimantName ? { claimantName: input.claimantName } : {}
       );
       await ctx.runMutation(internal.generations.completeSectionRun, {
         generationId: args.generationId,
