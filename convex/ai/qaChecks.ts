@@ -240,7 +240,8 @@ export function checkDashConnectors(
 // documents, interview or written responses, and written answers are);
 // "the client" counts only for saying, stating, recalling, estimating or
 // mentioning, and for reporting or noting "that"; the passive ending is cut
-// to stated, described and reported; and the verbs that also name what a
+// to stated and described, and (review round 2) "reported" only after a
+// result, finding, outcome, status or run; and the verbs that also name what a
 // system does (record, indicate, detail, show, provide, include, cover) are
 // left out. Notes in other words ("The Q&A file does not say...", "It is not
 // stated whether...") are left to the Self-check's and QA's rules.
@@ -275,7 +276,10 @@ const NOTE_PATTERNS: readonly RegExp[] = [
   // "The client reports that ...", "the client said ...", "the client did not say ...".
   new RegExp(`\\bthe\\s+client\\s+(?:(?:reports|reported|notes|noted)\\s+that\\b|(?:says|said|states|stated|recalls|recalled|estimates|estimated|mentioned)\\b|${NEGATION}(?:say|state|mention|report)\\b)`, "giu"),
   // "Individual runs are not described.", "Findings about it are not stated."
-  /\b(?:is|are|was|were)\s+not\s+(?:stated|described|reported)(?=\s*(?:[.;:!?)]|$))/giu,
+  /\b(?:is|are|was|were)\s+not\s+(?:stated|described)(?=\s*(?:[.;:!?)]|$))/giu,
+  // Review round 2 (P3-4): "reported" only after a word for what the work
+  // found, so "dropped messages were not reported" stays.
+  /\b(?:results?|findings?|outcomes?|status|runs?)\s+(?:is|are|was|were)\s+not\s+reported(?=\s*(?:[.;:!?)]|$))/giu,
 ];
 
 export interface NoteToWriterHit {
