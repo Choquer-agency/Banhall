@@ -156,8 +156,8 @@ export async function getGenerationInputHandler(
     placeholders: generation.placeholders ?? [],
     // 2026-10-30 (owner, item 2): the claimant's name frozen at
     // reservation, for the claimant line, when the frozen map hides it.
-    ...(claimantNameFor(generation.claimantName, generation.placeholders) !== undefined
-      ? { claimantName: claimantNameFor(generation.claimantName, generation.placeholders) }
+    ...(claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff) !== undefined
+      ? { claimantName: claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff) }
       : {}),
     digestIds: generation.digestIds,
     generationId: generation._id,

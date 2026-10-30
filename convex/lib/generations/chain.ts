@@ -352,7 +352,7 @@ export async function orderedSectionClaim(
   // 2026-10-30 (owner, item 2): the claimant's name frozen at reservation,
   // for the claimant line every draft and repair sends, when the
   // generation's frozen map hides it.
-  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders);
+  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders, args.generation.placeholdersOff);
   return {
     projectId: args.generation.projectId,
     ...(claimantName !== undefined ? { claimantName } : {}),

@@ -31,7 +31,7 @@ import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
 import { structureRebuildDue } from "../transcripts";
 import type { Doc, Id } from "../../_generated/dataModel";
-import { defaultModelId, transcriptFactsMode } from "../../appSettings";
+import { defaultModelId, transcriptFactsMode, transcriptPlaceholdersEnabled } from "../../appSettings";
 import { normalizeCraScienceCode } from "../../../shared/craScienceCodes";
 import {
   isPreviousYearDocument,
@@ -562,8 +562,10 @@ export async function reserveGeneration(
     inputMode,
     ...(transcriptFacts ? { transcriptFacts: true } : {}),
     ...(placeholders.length > 0 ? { placeholders } : {}),
-    // 2026-10-30 (owner, item 2): the claimant's name, frozen with the map.
+    // 2026-10-30 (owner, item 2): the claimant's name, frozen with the map
+    // and, review round 1 (P1-a), with the placeholder switch.
     ...(frozenClaimantName(project.clientName) ? { claimantName: frozenClaimantName(project.clientName) } : {}),
+    ...((await transcriptPlaceholdersEnabled(ctx)) ? {} : { placeholdersOff: true }),
     status: "reserved",
     // 2026-09-25: this generation's outputs live in generationArtifacts rows.
     outputsInArtifactsAt: now,
@@ -904,6 +906,7 @@ export async function retryFromSummaryHandler(
     ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
     // 2026-10-30: and the same claimant name, so recovery sends the same requests.
     ...(failed.claimantName !== undefined ? { claimantName: failed.claimantName } : {}),
+    ...(failed.placeholdersOff !== undefined ? { placeholdersOff: failed.placeholdersOff } : {}),
     ...(failed.companyFilesFrom ? { companyFilesFrom: failed.companyFilesFrom } : {}),
     ...(failed.companyFilesLeftOut ? { companyFilesLeftOut: failed.companyFilesLeftOut } : {}),
     status: "reserved",

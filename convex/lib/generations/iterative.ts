@@ -373,7 +373,7 @@ export async function getIterativeSectionInputHandler(
     priorSections.push({ section, text: run.approvedText });
   }
   // 2026-10-30 (owner, item 2): the claimant line's company name.
-  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders);
+  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff);
   return {
     analysis: analysisRow.content,
     ...(claimantName !== undefined ? { claimantName } : {}),

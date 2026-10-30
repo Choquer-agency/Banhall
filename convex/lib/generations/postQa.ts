@@ -92,7 +92,7 @@ export async function getPostQaInputHandler(
   const capturedRef = await reportQaRef(report);
   const currentSections = extractReportSections(report.content);
   // 2026-10-30 (owner, item 2): the claimant line's company name, frozen at reservation.
-  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders);
+  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff);
   const claimant = claimantName !== undefined ? { claimantName } : {};
   if (!Object.values(currentSections).some(text => text.trim())) return null;
   if ((generation.candidateMode ?? "compare") === "iterative") {

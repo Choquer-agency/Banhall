@@ -1128,6 +1128,11 @@ export default defineSchema({
     // Summary recovery copies it. Absent on generations reserved before,
     // which send no claimant line.
     claimantName: v.optional(v.string()),
+    // 2026-10-30 widen, review round 1 (P1-a): true when an admin had
+    // switched placeholders off at reservation, so names are sent as written.
+    // Frozen beside the map, since an empty map does not say the switch was
+    // off. Summary recovery copies it.
+    placeholdersOff: v.optional(v.boolean()),
     status: v.union(
       v.literal("reserved"),
       v.literal("running"),

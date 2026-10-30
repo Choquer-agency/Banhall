@@ -148,20 +148,26 @@ const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
  * 2026-10-30 (owner, "please fix all properly", item 2): the claimant's name
  * a generation's requests may carry in their claimant line (claimantLine in
  * convex/ai/prompts.ts). It is the project record's company name, frozen on
- * the generation at reservation with its placeholder map (Summary recovery
- * copies both), so a later rename never changes a request. Owner decision
- * 26: it is used only when that map hides all of it, or when the map is
- * empty (an admin switched placeholders off, so names are sent as written).
- * A generation reserved before this froze no name and sends no line.
+ * the generation at reservation with its placeholder map and the
+ * placeholder switch (Summary recovery copies all three), so a later rename
+ * never changes a request. A generation reserved before this froze no name
+ * and sends no line.
+ *
+ * Owner decision 26, review round 1 (P1-a): the name is sent as written only
+ * when the switch was off at reservation (`placeholdersOff`). Otherwise the
+ * frozen map must hide all of it: nothing but placeholders and spaces may be
+ * left, so a partly hidden "Quillmere 42" and a name too short for the map
+ * ("AB", which leaves the map empty) send no line. An empty map is never
+ * read as the switch being off.
  */
 export function claimantNameFor(
   frozenName: string | null | undefined,
-  placeholders: PlaceholderMap | undefined
+  placeholders: PlaceholderMap | undefined,
+  placeholdersOff: boolean | undefined
 ): string | undefined {
   const name = frozenClaimantName(frozenName);
   if (!name) return undefined;
-  const map = placeholders ?? [];
-  if (map.length === 0) return name;
-  // Hidden whole: no letter is left once the tokens are taken out.
-  return /\p{L}/u.test(pseudonymize(name, map).replace(PLACEHOLDER_TOKEN, "")) ? undefined : name;
+  if (placeholdersOff === true) return name;
+  const masked = pseudonymize(name, placeholders ?? []);
+  return masked.replace(PLACEHOLDER_TOKEN, "").trim() === "" ? name : undefined;
 }

@@ -436,7 +436,7 @@ export async function loadFrozenSeedActionInput(
   const style = frozenStyleProjection(settingsArtifact.content);
   const ownSourceId = ownSourceIdOf(sources);
   // 2026-10-30 (owner, item 2): frozen at reservation, as the map is.
-  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders);
+  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders, args.generation.placeholdersOff);
   return {
     ...(claimantName !== undefined ? { claimantName } : {}),
     brief: {
