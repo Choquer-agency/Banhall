@@ -1189,8 +1189,17 @@ describe("prompt versions", () => {
     // its opening and QA's note, the report skeleton, the locked length
     // summary and Line 242's general-practice line move on purpose; before
     // it they were sha256:316935b9... and sha256:3f48ba26....
-    expect(await hashPromptProgram()).toBe("sha256:e0daa1cede24523f98445d2ea6265f22c751761209b387e42610e6941b6dbcee");
-    expect(await legacyPromptVersion()).toBe("sha256:8d059f8409f49302dde67789ceeb38846a348442cb50dda450996485f37d7afa");
+    // Re-read after 2026-10-30 (one set of uncertainties, the claimant
+    // named, Lines 242 and 246 tightened, no notes in report text): the
+    // analyzer's chosen uncertainties, company line and gap rules, the
+    // claimant line, the drafts' scope rule, the Self-check's scope and
+    // notes rules and its uncertainty block, Line 242's general practice,
+    // Line 244's work in full, Line 246's rule for no result, QA's notes
+    // and Line 246 lines, the evidence and human prose rules and the Seed
+    // version move on purpose; before it they were sha256:e0daa1ce... and
+    // sha256:8d059f84....
+    expect(await hashPromptProgram()).toBe("sha256:2510d1dd01fc45708f3c6b6ba0aeeac483db5fc736bd68684285bedb754ea7fc");
+    expect(await legacyPromptVersion()).toBe("sha256:53813edf0154c25e9adae592f5359494f981be71635f1a46e8ee3a82d0c2ddc6");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

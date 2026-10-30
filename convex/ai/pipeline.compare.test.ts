@@ -18,6 +18,7 @@ import { draftWordTarget } from "../lib/lineLimits";
 import { withPinnedLine242Opening } from "../line242Opening.fixture";
 import { withoutInferenceMarker } from "../inferenceMarker.fixture";
 import { withoutHonestDrafting } from "../honestDrafting.fixture";
+import { withoutOneUncertainty } from "../oneUncertainty.fixture";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -207,7 +208,10 @@ function withoutDraftHeadroom(params: GenerationMessageParams): string {
 }
 
 async function completeRequestHash(params: GenerationMessageParams): Promise<string> {
-  const bytes = new TextEncoder().encode(withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(withoutDraftHeadroom(params)), "draft"), "draft"));
+  // 2026-10-30: this change's additions too (convex/oneUncertainty.fixture.ts), last.
+  const bytes = new TextEncoder().encode(
+    withoutOneUncertainty(withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(withoutDraftHeadroom(params)), "draft"), "draft"), "draft")
+  );
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))

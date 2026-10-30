@@ -30,6 +30,7 @@ import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSee
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { withoutInferenceMarker } from "./inferenceMarker.fixture";
 import { withoutHonestDrafting } from "./honestDrafting.fixture";
+import { withoutOneUncertainty } from "./oneUncertainty.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
 import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
@@ -328,18 +329,26 @@ async function requestHashes(
     // put back. 2026-10-29: so are the inference marker's rule and check
     // lines (convex/inferenceMarker.fixture.ts). 2026-10-29 (third): so
     // are the honest drafting rules (convex/honestDrafting.fixture.ts).
-    let json = withoutHonestDrafting(
-      withoutInferenceMarker(
-        withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))),
-        name === "text" ? "draft" : name === "submit_self_check" ? "summarySelfCheckWithFacts" : "none"
-      ),
+    // 2026-10-30: and this change's additions, the claimant line and the
+    // acronym sentence (convex/oneUncertainty.fixture.ts), last; a Seed
+    // request is told apart by its own heading.
+    const honestStage =
       name === "text"
         ? "draft"
         : name === "submit_self_check"
           ? "summarySelfCheckWithFacts"
           : name === "submit_transcript_analysis"
             ? "analysis"
-            : "none"
+            : "none";
+    let json = withoutOneUncertainty(
+      withoutHonestDrafting(
+        withoutInferenceMarker(
+          withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))),
+          name === "text" ? "draft" : name === "submit_self_check" ? "summarySelfCheckWithFacts" : "none"
+        ),
+        honestStage
+      ),
+      honestStage
     );
     if (name === "submit_seed_batch") {
       const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);

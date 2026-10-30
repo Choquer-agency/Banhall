@@ -43,6 +43,7 @@ import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSee
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { withoutInferenceMarkerJson, type InferenceMarkerStage } from "./inferenceMarker.fixture";
 import { withoutHonestDraftingJson, type HonestDraftingStage } from "./honestDrafting.fixture";
+import { withoutOneUncertaintyJson } from "./oneUncertainty.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
@@ -507,17 +508,23 @@ function honestStage(json: Record<string, unknown>, compressionPinned = true): H
 }
 /**
  * 2026-10-29 (third): the honest drafting rules are put back to before,
- * last, after the marker's lines are taken out.
+ * last, after the marker's lines are taken out. 2026-10-30: then this
+ * change's additions and its acronym sentence (convex/oneUncertainty.fixture.ts),
+ * with the honest drafting stages; a Seed request and a signed-off draft are
+ * told apart by their own text.
  */
 const asPinned = (json: Record<string, unknown>) =>
-  withoutHonestDraftingJson(
-    withoutInferenceMarkerJson(
-      withoutLine242Opening(
-        withPinnedCompressionAnswer(
-          withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
-        )
+  withoutOneUncertaintyJson(
+    withoutHonestDraftingJson(
+      withoutInferenceMarkerJson(
+        withoutLine242Opening(
+          withPinnedCompressionAnswer(
+            withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
+          )
+        ),
+        markerStage(json)
       ),
-      markerStage(json)
+      honestStage(json)
     ),
     honestStage(json)
   );
@@ -534,7 +541,8 @@ const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_se
 const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
 async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
   // 2026-10-26: captured before the judges' larger limit and streaming.
-  return (await stagesOf(sent.filter(isFinalTextCheck), (json) => withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json))), "selfCheck"), "selfCheck")))
+  return (await stagesOf(sent.filter(isFinalTextCheck), (json) =>
+    withoutOneUncertaintyJson(withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json))), "selfCheck"), "selfCheck"), "selfCheck")))
     .submit_self_check;
 }
 
@@ -1126,7 +1134,11 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent, (json) => withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))), markerStage(json, false)), honestStage(json, false)));
+    const now = await stagesOf(wire.sent, (json) =>
+      withoutOneUncertaintyJson(
+        withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))), markerStage(json, false)), honestStage(json, false)),
+        honestStage(json, false)
+      ));
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);

@@ -46,6 +46,7 @@ import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
 import { INFERENCE_MARKER_ADDITIONS, withoutInferenceMarker, type InferenceMarkerStage } from "./inferenceMarker.fixture";
 import { withoutHonestDrafting } from "./honestDrafting.fixture";
+import { withoutOneUncertainty } from "./oneUncertainty.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { streamWhenAsked } from "./anthropicSse.fixture";
 
@@ -314,7 +315,12 @@ async function hashesOf(asSent: Sent[], signedOff: boolean): Promise<{
   const sent = asSent.map((request) => {
     const stage: InferenceMarkerStage =
       request.stage === "selfCheck" ? (signedOff ? "summarySelfCheck" : "selfCheck") : "draft";
-    const body = withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(request.body), stage), stage);
+    // 2026-10-30: and this change's additions and its acronym sentence
+    // (convex/oneUncertainty.fixture.ts), last.
+    const body = withoutOneUncertainty(
+      withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(request.body), stage), stage),
+      stage
+    );
     return {
       ...request,
       body:
@@ -560,7 +566,9 @@ async function consistencyHash(): Promise<string> {
     )
   );
   expect(bodies).toHaveLength(1);
-  return await sha256Hex(JSON.stringify(bodies.map(withoutAnswerRoomOf20261026)));
+  // 2026-10-30: the acronym sentence in the human prose rules is put back
+  // (convex/oneUncertainty.fixture.ts); the consistency pass holds no addition.
+  return await sha256Hex(JSON.stringify(bodies.map((body) => withoutAnswerRoomOf20261026(withoutOneUncertainty(body, "none")))));
 }
 
 /**

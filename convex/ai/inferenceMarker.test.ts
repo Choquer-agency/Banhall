@@ -78,8 +78,10 @@ describe("the three kinds rule", () => {
     );
     // No Good example marks an event.
     // 2026-10-29 (third): a third Good example names general practice, marked.
+    // 2026-10-30: a fourth names it where the evidence gives no reason it
+    // falls short, so a gap asks for the reason.
     const goods = RULES_EVIDENCE_KINDS.split("\n").filter((line) => line.startsWith("Good"));
-    expect(goods).toHaveLength(3);
+    expect(goods).toHaveLength(4);
     for (const good of goods) expect(good).not.toMatch(/\b(?:trials?|tests?|tested|found|showed|indicated)\b/i);
     // The marker may name the source; the sentence may not.
     expect(RULES_EVIDENCE_KINDS).toContain("A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on");
