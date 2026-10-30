@@ -1219,9 +1219,15 @@ describe("prompt versions", () => {
     // Line 246's status only from the evidence, general practice for the
     // company's own approach, QA's gap and hypothesis lines, the BECAUSE scan
     // words, gaps once in a Line, the acronym examples and the Seed version move on purpose;
-    // before it they were sha256:afec5d93... and sha256:07fef1df....
-    expect(await hashPromptProgram()).toBe("sha256:6352e9e6651382d831f00652fc8cd17fcc9576b3af3f4d213f0708a94c374335");
-    expect(await legacyPromptVersion()).toBe("sha256:e0489c9616ee58564bdf84ce7ac05c48687db951907bcd6c58575028820bf9ec");
+    // before it they were sha256:afec5d93... and sha256:07fef1df.... Re-read
+    // after its review round 4: the BECAUSE scan words (a gap that asks why),
+    // the analyzer's and the Storyline's trigger and specific framing, Line
+    // 244's hypothesis form, gaps once in a Line, PROJECT STATUS's prefix and
+    // status rule, the goal close, the first Good example and the
+    // Self-check's attribution rule move on purpose; before it they were
+    // sha256:6352e9e6... and sha256:e0489c96....
+    expect(await hashPromptProgram()).toBe("sha256:11c95142d0f935a5ab46c25c637dbe6417126e201ef1e03583c0274614194e57");
+    expect(await legacyPromptVersion()).toBe("sha256:17d46e4522af908219c25592dc59b8dd61aba6b0674f23e0c88aaf88c6ec7e18");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

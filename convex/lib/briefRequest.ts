@@ -41,10 +41,12 @@ export const CONFIDENCE_LEVELS = [
  * challenge as the one main uncertainty, as the analyzer did, and the
  * Self-check judges every Line against the Storyline, so a draft framed
  * around the shared problem failed it. The Storyline follows the analyzer's
- * rule (ANALYZER_CHOSEN_UNCERTAINTIES).
+ * rule (ANALYZER_CHOSEN_UNCERTAINTIES). Review round 4 (wording P2-3): only
+ * when the notes give a count without naming which, and as specifically as
+ * the evidence allows, never as the project goal.
  */
 export const BRIEF_STORYLINE_MAIN_UNCERTAINTY =
-  " When the writer's notes ask for one main uncertainty, or fewer than the evidence names, the Storyline frames it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them: the related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge unrelated to it stays out.";
+  " When the writer's notes give only a count (for example \"one main uncertainty\") and do not name which, the Storyline frames it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them, stated as specifically as the evidence allows (the technical question, the conditions, why standard practice does not answer it), never as the project goal: the related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge unrelated to it stays out.";
 
 export const BRIEF_SYSTEM_PROMPT = `You derive a Generation Brief for a Canadian SR&ED (Scientific Research & Experimental Development) project description, before any section is drafted.
 

@@ -90,6 +90,44 @@ export interface BecauseClauseResult {
   }>;
 }
 
+/**
+ * Review round 4 (A2): sentence ends that are not abbreviations ("Acme Inc.",
+ * "e.g.", "No. 4") or initials ("J. Ortiz"), with a [GAP: ...] or
+ * [INFERRED: ...] marker read as one unit, so a full stop inside it never
+ * ends a sentence.
+ */
+const ABBREVIATION_END = /\b(?:inc|ltd|co|corp|e\.g|i\.e|etc|vs|no|nos|fig|dr|mr|mrs|ms|st|approx)\.$/i;
+const INITIAL_END = /(?:^|\s)\p{Lu}\.$/u;
+
+function sentencesOf(paragraph: string): string[] {
+  // Marker text never holds a sentence end: its punctuation is masked,
+  // keeping every index.
+  const masked = paragraph.replace(NOTE_MARKER_RE, (marker) => marker.replace(/[.!?]/g, "_"));
+  const sentences: string[] = [];
+  let start = 0;
+  const boundary = /[.!?](?=\s+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = boundary.exec(masked)) !== null) {
+    const end = match.index + 1;
+    const piece = masked.slice(start, end);
+    if (ABBREVIATION_END.test(piece) || INITIAL_END.test(piece)) continue;
+    sentences.push(paragraph.slice(start, end));
+    const rest = /\s+/y;
+    rest.lastIndex = end;
+    rest.exec(masked);
+    start = rest.lastIndex;
+  }
+  sentences.push(paragraph.slice(start));
+  return sentences.filter((sentence) => sentence.trim());
+}
+
+/**
+ * Review round 4 (wording P2-1): a [GAP: ...] stands in for the cause only
+ * when it asks for a reason.
+ */
+const REASON_GAP = /\[GAP:[^\]]*\b(?:why|reason|cause)/i;
+const NEXT_SENTENCE_CAUSE = /^(?:\[GAP:[^\]]*\b(?:why|reason|cause)|because\b|this\s+(?:is|was)\s+because\b|given\s+that\b)/i;
+
 export function checkBecauseClauses(section242Text: string): BecauseClauseResult {
   const paragraphs = section242Text.split(/\n\n+/).filter((p) => p.trim());
 
@@ -106,7 +144,7 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
   const uncertaintySentences: Array<{ excerpt: string; hasBecause: boolean }> = [];
 
   for (const paragraph of paragraphs) {
-    const sentences = paragraph.split(/(?<=[.!?])\s+/);
+    const sentences = sentencesOf(paragraph);
     sentences.forEach((sentence, index) => {
       const isUncertainty = uncertaintyMarkers.some((pattern) => {
         pattern.lastIndex = 0;
@@ -120,11 +158,12 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
         // After the live rerun (R6b): so does a [GAP: ...] for the reason, in
         // the sentence or right after it, and a cause in the next sentence
         // ("Because...", "This is because...", "This was because...",
-        // "Given that..."). The count of uncertainty statements is unchanged.
+        // "Given that..."). Review round 4: only a gap that asks why (P2-1),
+        // and sentence ends that skip abbreviations and markers (A2).
         hasBecause:
           /\bbecause\b|\bgiven\s+that\b/i.test(sentence) ||
-          /\[GAP:/i.test(sentence) ||
-          /^(?:\[GAP:|because\b|this\s+(?:is|was)\s+because\b|given\s+that\b)/i.test(next.trim()),
+          REASON_GAP.test(sentence) ||
+          NEXT_SENTENCE_CAUSE.test(next.trim()),
       });
     });
   }
@@ -301,20 +340,37 @@ const NOTE_PATTERNS: readonly RegExp[] = [
  * vendor" stays.
  */
 const ATTRIBUTION_VERBS = "(?:reports|reported|states|stated|says|said|notes|noted)\\s+that\\b";
-const ATTRIBUTION_SUBJECTS = "(?:\\bthe\\s+(?:company|team|interviewee|claimant)|\\[CLIENT_\\d+(?:_[A-Z]+)?\\])";
+const ATTRIBUTION_SUBJECTS = "(?:\\bthe\\s+(?:company|interviewee|claimant)|\\[CLIENT_\\d+(?:_[A-Z]+)?\\])";
 const ATTRIBUTION = new RegExp(`${ATTRIBUTION_SUBJECTS}\\s+${ATTRIBUTION_VERBS}`, "giu");
+/**
+ * Review round 4 (wording P2-2): the team only reporting or stating "that".
+ * "The team noted that the seal failed after 200 cycles" and "The team said
+ * that..." describe the work and stay.
+ */
+const TEAM_ATTRIBUTION = /\bthe\s+team\s+(?:reports|reported|states|stated)\s+that\b/giu;
 const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|ulc|lp|llp)\.?$/i;
 
-/** The claimant's name and its short form (without a legal suffix) attributing a fact. */
-function claimantAttribution(claimantName: string | undefined): RegExp | null {
+/**
+ * The claimant's name and its short form (without a legal suffix)
+ * attributing a fact. Review round 4 (A3): a short form ("AB" of "AB Ltd.")
+ * is kept, matched only as written (same case) between word edges, so
+ * "CAB reports that" and a lowercase "ab" never match it.
+ */
+function claimantAttribution(claimantName: string | undefined): RegExp[] {
   const name = claimantName?.trim().replace(/\s+/g, " ");
-  if (!name) return null;
-  const forms = [...new Set([name, name.replace(LEGAL_SUFFIX, "").trim()])].filter((form) => form.length >= 3);
-  if (forms.length === 0) return null;
-  const escaped = forms
-    .sort((left, right) => right.length - left.length)
-    .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
-  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})\\s+${ATTRIBUTION_VERBS}`, "giu");
+  if (!name) return [];
+  const forms = [...new Set([name, name.replace(LEGAL_SUFFIX, "").trim()])].filter((form) => form.length > 0);
+  const pattern = (list: string[], flags: string) => {
+    if (list.length === 0) return [];
+    const escaped = list
+      .sort((left, right) => right.length - left.length)
+      .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+    return [new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})\\s+${ATTRIBUTION_VERBS}`, flags)];
+  };
+  return [
+    ...pattern(forms.filter((form) => form.length >= 4), "giu"),
+    ...pattern(forms.filter((form) => form.length < 4), "gu"),
+  ];
 }
 
 export interface NoteToWriterHit {
@@ -334,8 +390,7 @@ export interface NoteToWriterHit {
 export function findNotesToWriter(rawText: string, options: { claimantName?: string } = {}): NoteToWriterHit[] {
   const text = rawText.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
   const hits: NoteToWriterHit[] = [];
-  const claimant = claimantAttribution(options.claimantName);
-  for (const pattern of [...NOTE_PATTERNS, ATTRIBUTION, ...(claimant ? [claimant] : [])]) {
+  for (const pattern of [...NOTE_PATTERNS, ATTRIBUTION, TEAM_ATTRIBUTION, ...claimantAttribution(options.claimantName)]) {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
