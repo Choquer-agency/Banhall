@@ -1589,10 +1589,13 @@ export async function draftCheckedSection(input: {
   );
   // Final re-check P2-C1 (lead decision, owner informed): what outranks the
   // Writer Profile: a signed-off plan issue (an item, a Skip, a leave-out,
-  // Rule B or C, a target or a fact) or a Locked Rule.
+  // Rule B or C, a target or a fact) or a Locked Rule. 2026-10-30, review
+  // round 1 (P1-b): every failed Locked row, read by its tier, so the notes
+  // to the writer check outranks a writer's required wording as the Locked
+  // caps do.
   const outranksWriterProfile =
     planIssues.length > 0 ||
-    before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied");
+    before.entries.some((entry) => entry.row.tier === "locked" && entry.repairable && entry.row.outcome === "not_applied");
   // Round 5 (Rule 12): the repair fixes a figure, a signed-off item or a
   // rule code measured (any plan issue, or any deterministic issue).
   const fixesMeasuredOrPlan =
@@ -1961,7 +1964,8 @@ export async function draftCheckedSection(input: {
   // text shows such an issue fixed: a signed-off plan check it was sent for
   // now applied, or the Locked row now held. Otherwise it is treated like
   // any other repair that breaks a writer's rule: not used, and the row
-  // says why.
+  // says why. 2026-10-30, review round 1 (P1-b): every Locked row, read by
+  // its tier, so a note to the writer the repair took out counts as fixed.
   const repairLosses = repair.succeeded && writerWording
     ? wordingLossDetails(text, finalText, writerWording, section)
     : [];
@@ -1972,9 +1976,9 @@ export async function draftCheckedSection(input: {
       if (first?.outcome !== "not_applied" || first.actionableRepair === false) return false;
       return planVerdictFor(coverage.verdicts, planCheck)?.outcome === "applied";
     });
-    const lockedFixed =
-      before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied") &&
-      after?.entries.some((entry) => entry.key === "locked" && entry.row.outcome === "applied") === true;
+    const lockedFixed = before.entries.some((entry) =>
+      entry.row.tier === "locked" && entry.repairable && entry.row.outcome === "not_applied" &&
+      after?.entries.some((later) => later.key === entry.key && later.row.outcome === "applied") === true);
     if (!planFixed && !lockedFixed) {
       console.warn(`generation:repair:${section}: a repair broke a writer's rule and fixed nothing that outranks it; the checked draft is kept`);
       finalText = text;
