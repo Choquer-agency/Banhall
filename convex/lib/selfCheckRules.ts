@@ -30,6 +30,7 @@ import {
   type GovernedTermState,
 } from "./writerPrecedence";
 import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
+import { findNotesToWriter, NOTES_TO_WRITER } from "../ai/qaChecks";
 import { capWithinLocked, ruleBearsOnLine } from "./writerLineCap";
 import {
   bannedRuleHits,
@@ -359,6 +360,15 @@ export function runDeterministicSelfCheck(input: {
    * and Compare keep their rows and requests.
    */
   sourceTalk?: { subjectText: readonly string[] };
+  /**
+   * 2026-10-30 (owner, "please fix all properly", item 3): the Locked check
+   * for notes to the writer in report text (findNotesToWriter) runs in every
+   * mode. Its row is added only when it finds one, or when `notesToWriterRow`
+   * is set: the check of the final text after a repair sets it when the
+   * checked draft had the row, so the row then says whether the repair
+   * fixed it. A Line with no such note keeps its rows and requests as before.
+   */
+  notesToWriterRow?: boolean;
   /**
    * 2026-10-04 (first), Round 5: the writer's wording rules code measures
    * (extractWriterWordingRules), when the Writer Profile applied. Absent or
@@ -861,6 +871,39 @@ export function runDeterministicSelfCheck(input: {
         sourceTalkRepairIssue(found)
       );
     }
+  }
+
+  // 2026-10-30: notes to the writer in report text, Locked. In a signed-off
+  // plan run a phrase the source-talk check already names is left to it,
+  // so one fix never asks for the same words twice.
+  const sourceTalkAt = input.sourceTalk
+    ? paragraphs.map((paragraph) => findSourceTalk(paragraph, { subjectText: input.sourceTalk!.subjectText }))
+    : [];
+  const notes = paragraphs.flatMap((paragraph, index) =>
+    findNotesToWriter(paragraph)
+      .filter((hit) => !(sourceTalkAt[index] ?? []).some((talk) =>
+        talk.index < hit.index + hit.phrase.length && hit.index < talk.index + talk.phrase.length))
+      .map((hit) => ({ index, phrase: hit.phrase })));
+  if (notes.length > 0) {
+    add(
+      NOTES_TO_WRITER_KEY,
+      {
+        instruction: NOTES_TO_WRITER.instruction,
+        paragraphIndex: notes[0]!.index,
+        outcome: "not_applied",
+        tier: "locked",
+        reason: `a note to the writer in ${sourceTalkPlaces(notes)}`,
+      },
+      true,
+      notesToWriterRepairIssue(notes)
+    );
+  } else if (input.notesToWriterRow) {
+    add(NOTES_TO_WRITER_KEY, {
+      instruction: NOTES_TO_WRITER.instruction,
+      outcome: "applied",
+      tier: "locked",
+      reason: NOTES_TO_WRITER.applied,
+    });
   }
 
   return { entries, glossaryCandidates, modelRules, paragraphs };
@@ -1385,6 +1428,22 @@ export function sourceTalkRepairIssue(found: ReadonlyArray<{ index: number; phra
     : `Paragraphs ${joinedList(paragraphs.map(String))}`;
   const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
   return `${where}: ${SOURCE_TALK.fix} (${phrases.join(", ")}). ${SOURCE_TALK.rule}`;
+}
+
+/** The deterministic entry key of the notes-to-the-writer check (2026-10-30). */
+export const NOTES_TO_WRITER_KEY = "notesToWriter";
+
+/**
+ * The repair fix for notes to the writer: the paragraphs, the words as
+ * written and the rule, in fixed words (NOTES_TO_WRITER in qaChecks.ts).
+ */
+export function notesToWriterRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where}: ${NOTES_TO_WRITER.fix} (${phrases.join(", ")}). ${NOTES_TO_WRITER.rule}`;
 }
 
 /**

@@ -15,6 +15,15 @@
 // The framework-free note marker regexes (gap and inferred), beside the CRA line math.
 import { NOTE_MARKER_RE } from "../convex/lib/lineLimits";
 
+/**
+ * 2026-10-30 (owner, "please fix all properly", small items): drafts copied
+ * lowercase acronyms from the source ("cdc", "wal", "pvc") into report prose,
+ * following the rule to use the client's own terms. Sent in RULES_HUMAN_PROSE
+ * and in the Seed wording rules.
+ */
+export const ACRONYM_RULE =
+  "Write an acronym in capitals (CDC, WAL, PVC) even where the source writes it in lowercase, except in a command, a file name or a code identifier.";
+
 // Always-on. Not waivable: this is about not reading as AI-generated, which is
 // house policy rather than a style preference. It applies even when the
 // sentence-construction rules are waived. Owner, 2026-09-23: every path that
@@ -37,7 +46,7 @@ Plain language:
 - Specific over vague: name the measurement, the material, the failure, the number. Words that carry no fact ("streamline", "optimize", "innovative", "robust") say nothing. (The scanned vocabulary is the BANNED WORDS list.)
 - Active voice when the actor is known ("the team ran three trials"), except where a mandated opener or the voice rules require another form.
 - Confident, not qualified: drop "very", "really", "quite", "somewhat", "essentially". A real uncertainty is stated plainly as an uncertainty, never softened and never oversold.
-- Use the client's own terms from the interview for their product, process and problem.
+- Use the client's own terms from the interview for their product, process and problem. ${ACRONYM_RULE}
 - Honest over sensational: no superlatives, no invented figures, no selling. This is a technical record, not marketing copy: no calls to action, rhetorical questions, jokes or benefit claims.
 - One idea per sentence. No exclamation marks. No filler openers.
 - Do not overcorrect into choppy fragments. Sentences still flow; you are removing a crutch, not the connective tissue.`;
@@ -48,7 +57,7 @@ Plain language:
 export const RULES_SEED_WORDING = `SEED WORDING (MANDATORY):
 - The plain hyphen "-" is the only dash: no em dash, en dash, horizontal bar, doubled hyphen, or hyphen with a space on each side. Where a pause is wanted, use a comma, a colon or a semicolon; never split a bullet into two sentences.
 - Ranges and paired names take the plain hyphen: 10-20, 2019-2024, Newton-Raphson.
-- Plain, specific words in the client's own terms: name the measurement, the material or the failure. No filler qualifiers ("very", "really"), no superlatives, no sales language, no exclamation marks.`;
+- Plain, specific words in the client's own terms: name the measurement, the material or the failure. No filler qualifiers ("very", "really"), no superlatives, no sales language, no exclamation marks. ${ACRONYM_RULE}`;
 
 /** "a, b or c". */
 function orList(words: readonly string[]): string {
@@ -190,9 +199,38 @@ No talk about sources:
  * 2026-10-29 (third), review round 1 (P2-2): a general-practice marker
  * covers the approach and what it generally does, never a fact about the
  * project. Sent in RULES_EVIDENCE_KINDS and in Line 242's limitations rule.
+ *
+ * 2026-10-30 (owner, "please fix all properly", item 3): a rerun's Line 242
+ * rested its limitation on marked general-practice sentences that explained
+ * how the standard approach handles the problem, which argues against the
+ * uncertainty, when the source gave no reason the standard approach falls
+ * short. General practice now only names the approach and where it is used,
+ * once in a Line; the reason it falls short comes from the evidence, or one
+ * gap asks the client for it.
  */
 export const GENERAL_PRACTICE_SCOPE =
-  "The marker covers only what the approach is and generally does. Why it falls short here rests on stated facts about this project, or is a [GAP: ...]; never put a fact about this project, its conditions or its work in a general-practice sentence.";
+  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line.";
+
+/**
+ * 2026-10-30 (owner, "please fix all properly", item 3): notes to the writer
+ * leaked into report sentences in a rerun of a writer's test ("The materials
+ * do not report what that testing showed.", "Findings about X are not
+ * stated.", "The client reports that...", a repeated "... remains
+ * unconfirmed."). A report sentence speaks about the work; what is missing
+ * goes in one gap and the basis of an inference in its marker. The
+ * deterministic check `findNotesToWriter` (convex/ai/qaChecks.ts) finds the
+ * clearest of them.
+ */
+export const RULES_NO_NOTES_IN_REPORT_TEXT =
+  '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker.';
+
+/**
+ * 2026-10-30 (owner, "please fix all properly", small items): gaps asked
+ * for facts the project record or the T661 form's other fields already
+ * hold. Only these; every other missing fact is still a gap.
+ */
+export const RULES_GAPS_NOT_FOR_RECORD_FACTS =
+  "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.";
 
 export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
 Every claim you write in a report Line is one of three kinds. Decide which before you write it.
@@ -203,16 +241,20 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 - [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, and for general practice as below. Write an inferred cause as likely, never as confirmed.
 - Never write an inference as if the evidence stated it: mark it.
 - An inference adds no specific detail of its own: no number, material, name, date, setting or test result. A detail you would have to invent is missing and gets a gap.
-- General practice is the one use of your own knowledge. In the limitations of standard practice, where the evidence names no standard approach, you may name a well-known standard approach and say what it is generally known to do, marked straight after the sentence with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Name it in general terms only, with no figure, product version or setting of your own, and never say or suggest that the company tried it unless the evidence says so. ${GENERAL_PRACTICE_SCOPE}
+- General practice is the one use of your own knowledge. In the limitations of standard practice, where the evidence names no standard approach, you may name a well-known standard approach in one sentence, marked straight after it with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Name it in general terms only, with no figure, product version or setting of your own, and never say or suggest that the company tried it unless the evidence says so. ${GENERAL_PRACTICE_SCOPE}
 - An entry of the transcript analysis that begins "Implied, not stated:" is an inference, not a stated fact: write it as an inference and mark it, or leave it out.
 - When a Line's instructions ask for something the evidence does not give, such as a step of an experiment, a result, a measure of success or a status, leave a [GAP: ...]; mark an inference only where the stated evidence clearly implies it (general practice in Line 242's limitations aside). Never make it up to fill the shape.
 - Most sentences should be stated. When in doubt, leave a gap.
+- A fact the evidence states takes no marker. Leave out a detail the argument does not need rather than infer it: an [INFERRED: ...] marker is for a claim the Line needs.
 - One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
 - A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on, such as the client's answer or a test log. The sentence itself never names a source.
+${RULES_NO_NOTES_IN_REPORT_TEXT}
+${RULES_GAPS_NOT_FOR_RECORD_FACTS}
 - When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
 Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
 Good, where the evidence gives the later work but not what came first: "The first approach was [GAP: what was tried first and why it fell short]. The team then held each sample for an hour before reading it."
 Good, where the evidence names no standard approach: "Cold-room controllers commonly hold temperature with a feedback loop tuned for a closed room. [INFERRED: general practice, not in the source: confirm with the client which control methods the team knew of] The warehouse's dock doors stay open for most of a shift, which a loop tuned for a closed room does not allow for." (general practice, marked, then a stated fact about the project as the reason it falls short)
+Good, where the evidence names no standard approach and gives no reason it falls short: "Cold-room controllers commonly hold temperature with a feedback loop. [INFERRED: general practice, not in the source: confirm with the client which control methods the team knew of] [GAP: why a standard feedback loop could not hold this warehouse's rooms at their setpoint]"
 Bad: "Initial trials showed single readings were unreliable. [INFERRED: the source stresses stability]" (a trial and its result are events the evidence does not describe; the marker does not make them allowed: leave a gap)
 Bad: "Readiness was first judged from single readings. [INFERRED: the source asks for stability over time]" (a first approach is an event: a requirement is not a first approach, and the marker does not make it allowed: leave a gap)
 Bad: "Trials then indicated that single readings were unreliable." (the evidence describes no trials, and the sentence is written as a stated fact)
@@ -220,7 +262,10 @@ Bad: "The client's answer suggests readiness was first judged from single readin
 Bad: "The first trials ran at 40 C. [INFERRED: the source mentions early trials]" (the temperature is a detail of its own: leave a gap for it)
 Bad: "No documented method existed for holding a cold room at its setpoint while its doors stay open." (names no standard approach and no reason it falls short: name the standard approach, what it does and why it falls short here)
 Bad: "The team first tried the standard setpoint tables. [INFERRED: general practice, not in the source: setpoint tables are the usual method]" (general practice is never something the company tried unless the evidence says so)
-Bad: "Standard PID tuning assumes steady loads, and the company's lines switch products hourly. [INFERRED: general practice, not in the source: PID tuning is the usual method]" (a fact about this project inside a general-practice sentence: the marker does not cover it; state it in its own sentence only where the evidence gives it, or leave a gap)`;
+Bad: "Standard PID tuning assumes steady loads, and the company's lines switch products hourly. [INFERRED: general practice, not in the source: PID tuning is the usual method]" (a fact about this project inside a general-practice sentence: the marker does not cover it; state it in its own sentence only where the evidence gives it, or leave a gap)
+Bad: "Standard feedback loops recover the setpoint after a door opens by raising compressor output until the room is back in range. [INFERRED: general practice, not in the source: the usual recovery method]" (explains how the standard approach would handle the problem, which argues against the uncertainty: name the approach, then give the reason it falls short from the evidence, or one gap asking for it)
+Bad: "The team ran the controller with a 30-second step during loading shifts. The materials do not report what these runs showed." (a note to the writer written as a report sentence: write "[GAP: what these runs showed]" in its place)
+Bad: "[GAP: the fiscal year, the project's start date and the hours spent]" (the project record and the form's other fields hold these: never ask for them)`;
 
 /**
  * 2026-09-30 (third): the Compliance Note instruction and the repair fix for

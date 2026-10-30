@@ -762,7 +762,27 @@ export type SelfCheckModelInput = {
    * plan checks hold that check, so every other request is unchanged.
    */
   sourceFacts?: SourceFacts;
+  /**
+   * 2026-10-30 (owner, item 1): the analysis's uncertainty lists, the
+   * report's uncertainties. Sent as the REPORT UNCERTAINTIES block in a
+   * Self-check with no signed-off plan, when they hold anything.
+   */
+  reportUncertainties?: { passive: readonly string[]; active: readonly string[] };
 };
+
+/** The REPORT UNCERTAINTIES block's body, or "" when the lists are empty. */
+export function reportUncertaintiesBody(lists: SelfCheckModelInput["reportUncertainties"]): string {
+  const scaffold = SELF_CHECK_REQUEST.reportUncertainties;
+  const items = (list: readonly string[] = []) =>
+    list.map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean).map((item) => `${scaffold.itemPrefix}${item}`);
+  const passive = items(lists?.passive);
+  const active = items(lists?.active);
+  if (passive.length === 0 && active.length === 0) return "";
+  return [
+    ...(passive.length > 0 ? [scaffold.passiveHeading, ...passive] : []),
+    ...(active.length > 0 ? [scaffold.activeHeading, ...active] : []),
+  ].join(scaffold.separator);
+}
 
 /** One frozen source document the facts check may read in full. */
 export type SourceDocument = FactsSourceDocument;
@@ -1077,6 +1097,11 @@ function buildSelfCheckDataMessage(
   });
   if (instructionLines.length > 0) {
     blocks.push(block("WRITER INSTRUCTIONS", instructionLines.join("\n\n")));
+  }
+  // 2026-10-30: the report's uncertainties, in a Self-check with no plan.
+  const uncertainties = hasSummaryPlan ? "" : reportUncertaintiesBody(input.reportUncertainties);
+  if (uncertainties) {
+    blocks.push(block(SELF_CHECK_REQUEST.reportUncertainties.blockLabel, uncertainties));
   }
   if (input.planChecks?.length) {
     // The whole Line's checks are the frozen ones; a batch sends its own

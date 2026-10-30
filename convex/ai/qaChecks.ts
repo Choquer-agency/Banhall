@@ -18,6 +18,7 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { findDashConnectors } from "../../shared/humanProse";
+import { NOTE_MARKER_RE } from "../lib/lineLimits";
 import { pdSubsectionRoleLabel } from "../../shared/pdSubsections";
 
 // ─── Check 1: CRA opener detection for 246 advancement paragraphs ───────────
@@ -219,8 +220,102 @@ export function checkDashConnectors(
   return { found };
 }
 
+// ─── Check 6: Notes to the writer in report text ────────────────────────────
+// 2026-10-30 (owner, "please fix all properly", item 3): Locked, never
+// waived. A rerun's report sentences read "The materials do not report what
+// that testing showed.", "Testing was reported; individual runs are not
+// described." and "The client reports that...": notes to the writer, which
+// belong inside a [GAP: ...] or [INFERRED: ...] marker. Narrow on purpose:
+// a source noun right after "the" (or "these", "those") as the subject of a
+// reporting verb, "the client" with a reporting verb, or a reporting verb
+// in the passive at the end of a clause ("... are not described."). Text
+// inside a marker is a note already and is never read. "A client's
+// production databases", a vendor datasheet, published literature, "the
+// materials showed cracking", "the step responses" and "the source code"
+// are not notes.
+
+/** The reporting verbs, in the forms a note uses. */
+const REPORT_VERBS =
+  "say|says|said|state|states|stated|describe|describes|described|mention|mentions|mentioned|report|reports|reported|specify|specifies|specified|indicate|indicates|indicated|note|notes|noted|detail|details|detailed|explain|explains|explained|confirm|confirms|confirmed|record|records|recorded";
+/** Base forms after "do not": the reporting verbs, plus giving and showing for every noun but "materials". */
+const REPORT_BASES = "say|state|describe|mention|report|specify|indicate|note|detail|explain|confirm|record";
+const GIVE_BASES = "give|show|provide|include|cover";
+/** The words that may stand between "the" and the noun ("the written answers"). */
+const SOURCE_MODIFIER = "(?:(?:client's|client|written|interview|project|supplied|available)\\s+)?";
+/** Source nouns other than "materials", whose giving and showing are reporting too. */
+const SOURCE_NOUNS =
+  "(?:sources?|source\\s+(?:files?|documents?|texts?|materials?)|interviews?|interviewees?|transcripts?|answers?|responses?)";
+/** A participle after the noun that still names the same documents ("the materials provided"). */
+const SOURCE_PARTICIPLE = "(?:\\s+(?:provided|supplied|available|given|received))?";
+const NEGATION = "(?:(?:do|does|did)\\s+not|don't|doesn't|didn't)\\s+(?:(?:clearly|explicitly|directly|otherwise)\\s+)?";
+
+const NOTE_PATTERNS: readonly RegExp[] = [
+  // "The materials do not report ...", "the answers do not give ...".
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES}|${GIVE_BASES})\\b`, "giu"),
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}materials${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES})\\b`, "giu"),
+  // "The answers give no date.", "the materials give no status ...": for
+  // "materials" only before a word for a fact, so "the materials give no
+  // sign of fatigue" stays.
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave|provide|provides|provided|offer|offers|offered)\\s+no\\b`, "giu"),
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}materials${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave|provide|provides|provided)\\s+no\\s+(?:status|results?|dates?|figures?|details?|reasons?|outcomes?|information|account|description)\\b`, "giu"),
+  // "The transcript states ...", "the materials report ...".
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_MODIFIER}(?:${SOURCE_NOUNS}|materials)${SOURCE_PARTICIPLE}\\s+(?:${REPORT_VERBS})\\b`, "giu"),
+  // "The client reports that ...", "the client did not say ...".
+  new RegExp(`\\bthe\\s+client\\s+(?:(?:${REPORT_VERBS}|recalls|recalled|estimates|estimated)\\b|${NEGATION}(?:${REPORT_BASES})\\b)`, "giu"),
+  // "Individual runs are not described.", "Findings about it are not stated."
+  /\b(?:is|are|was|were)\s+not\s+(?:stated|described|reported|specified|documented|given)(?=\s*(?:[.;:!?)]|$))/giu,
+];
+
+export interface NoteToWriterHit {
+  /** The words of the note, as they appear in the text. */
+  phrase: string;
+  index: number;
+  /** Short window around the hit for the writer or a judge to locate it. */
+  context: string;
+}
+
+/**
+ * Report sentences that are notes to the writer (2026-10-30): what the
+ * sources say or leave out, written as report text. Text inside a [GAP: ...]
+ * or [INFERRED: ...] marker is blanked first, so indices still point into
+ * the text. Hits are in text order, one per position.
+ */
+export function findNotesToWriter(rawText: string): NoteToWriterHit[] {
+  const text = rawText.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
+  const hits: NoteToWriterHit[] = [];
+  for (const pattern of NOTE_PATTERNS) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const start = Math.max(0, match.index - 30);
+      const end = Math.min(text.length, match.index + match[0].length + 30);
+      hits.push({
+        phrase: match[0],
+        index: match.index,
+        context: "..." + rawText.slice(start, end).replace(/\r?\n/g, " ") + "...",
+      });
+    }
+  }
+  hits.sort((left, right) => left.index - right.index || right.phrase.length - left.phrase.length);
+  const kept: NoteToWriterHit[] = [];
+  for (const hit of hits) {
+    const last = kept[kept.length - 1];
+    if (last && hit.index < last.index + last.phrase.length) continue;
+    kept.push(hit);
+  }
+  return kept;
+}
+
+/** The words of the Self-check row and the repair fix for notes to the writer. */
+export const NOTES_TO_WRITER = {
+  instruction: "Locked Rule: report text speaks about the work, never about the sources",
+  applied: "no notes to the writer found in the report text",
+  fix: "state what the work did, and put what is missing in one [GAP: ...] or the basis of an inference in its [INFERRED: ...] marker",
+  rule: "A report sentence never says what the materials, the sources, the interview, the transcript, the answers or the client report or leave out.",
+} as const;
+
 export interface SectionFinding {
-  check: "banned_word" | "because_clause" | "cra_opener" | "repetition" | "dash_connector";
+  check: "banned_word" | "because_clause" | "cra_opener" | "repetition" | "dash_connector" | "note_to_writer";
   message: string;
 }
 
@@ -251,6 +346,14 @@ export function sectionDeterministicFindings(
     findings.push({
       check: "dash_connector",
       message: `Dash used as punctuation ("${hit.token}"), reads as machine-written: ${hit.context}`,
+    });
+  }
+
+  // 2026-10-30: Locked, under every waiver.
+  for (const hit of findNotesToWriter(text)) {
+    findings.push({
+      check: "note_to_writer",
+      message: `Note to the writer in report text ("${hit.phrase}"); put it in a [GAP: ...] or [INFERRED: ...] marker: ${hit.context}`,
     });
   }
 
