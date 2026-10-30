@@ -209,7 +209,7 @@ No talk about sources:
  * gap asks the client for it.
  */
 export const GENERAL_PRACTICE_SCOPE =
-  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write [GAP: which standard approaches the team knew of].";
+  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write one [GAP: which standard approaches the team knew of, and why they fall short here] in its place.";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", item 3): notes to the writer

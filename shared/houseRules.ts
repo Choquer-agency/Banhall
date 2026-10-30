@@ -139,12 +139,13 @@ Do NOT skip this step. The word "novel" in particular appears frequently in AI-g
 // 2026-10-30 (owner, item 3): the shortfall's reason only from the evidence,
 // and an uncertainty with no result gets no paragraph of its own. Worded
 // without "sought": every word of these rules is public to the saved
-// preference check (convex/lib/savedPreferences.ts).
+// preference check (convex/lib/savedPreferences.ts). Review round 2 (P3-6):
+// with no result at all, the shared paragraph opens the Line.
 export const RULES_REPORT_SKELETON = `REPORT SKELETON (default architecture):
 Each line covers its content roles in the order given, in as many paragraphs as the material warrants; a role may share a paragraph with its neighbour or span more than one.
 - Line 242 (Scientific/Technological Uncertainty): company context → goal/problem → passive limitations of standard practice (the standard approaches, what they do and why they fall short here, the reason only from the evidence or else one gap asking for it) → technological objective → active uncertainties, each with its cause.
 - Line 244 (Work Performed): optional prior-year status → workplan → one hypothesis per uncertainty in if/then form (a prediction with its reason, or the knowledge to be gained; a number only from the evidence) → experimentation paragraphs, each telling what was tried, what happened and what was changed, as far as the evidence shows, and ending with what was learned or what stayed unresolved → the year-end status.
-- Line 246 (Scientific/Technological Advancement): overall advancement as knowledge gained in the field → knowledge-first advancement paragraphs (one per uncertainty the evidence reports a result for, each with its status only as the evidence shows; the uncertainties with no result share one paragraph after them: what the work set out to learn, any observation the evidence states and a single gap for the results and status) → project status and next steps → project-goal bookend, where the application is stated once.
+- Line 246 (Scientific/Technological Advancement): overall advancement as knowledge gained in the field → knowledge-first advancement paragraphs (one per uncertainty the evidence reports a result for, each with its status only as the evidence shows; the uncertainties with no result share one paragraph after them, or, when none has a result, that paragraph opens the Line in place of the overall advancement: what the work set out to learn, any observation the evidence states and a single gap for the results and status) → project status and next steps → project-goal bookend, where the application is stated once.
 - The WHY-HOW-WHY arc across the three lines; passive vs active uncertainties never blurred; advancements lead with what was LEARNED, not what was built.`;
 
 // ─── Display catalog for the admin House Rules page ─────────────────────────

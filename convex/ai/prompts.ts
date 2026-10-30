@@ -877,13 +877,15 @@ export const SECTION_246_KNOWLEDGE_LEADS =
  * Where results exist, the knowledge paragraphs stay as they were.
  */
 export const SECTION_246_NO_RESULT =
-  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work";
+  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else";
 /**
  * Review round 1 (wording P2-4): what a result is, so the two branches never
- * disagree. A finding is an event: it is never inferred.
+ * disagree. A finding is an event: it is never inferred. Review round 2
+ * (P2-1): a conclusion the evidence draws, not a reading or an event it
+ * records, so the shared paragraph's observation has somewhere to go.
  */
 export const SECTION_246_RESULT_DEFINITION =
-  "An uncertainty has a result when the evidence states something the work showed about it, in whole or in part; that uncertainty gets its own paragraph.";
+  "An uncertainty has a result when the evidence states something the work established about it, in whole or in part: a conclusion the evidence draws, not only a reading or event it records. That uncertainty gets its own paragraph. An observation that settles nothing on its own (a reading, a failure seen in one run) is not a result: it goes in the paragraph for the uncertainties with no result.";
 export const SECTION_246_NOTHING_LEARNED_YET =
   " Where the evidence reports no result for an uncertainty, this opening rule does not apply: it gets no advancement paragraph (see the rule for uncertainties with no result below).";
 export const SECTION_246_KNOWLEDGE_FIRST_EXCEPTION =
@@ -909,8 +911,11 @@ export const SECTION_246_OVERALL_NOTHING_LEARNED =
  * 2026-10-30, review round 1 (wording P2-5): PROJECT STATUS has two
  * branches. Where uncertainties have results, it explains what is still
  * open and why; where none has, the one gap already asks for the status.
+ * Review round 2 (P2-2b): the first branch covers only the uncertainties
+ * with results, so the rest are not asked about again.
  */
-export const SECTION_246_STATUS_WITH_RESULTS = "Where uncertainties have results: ";
+export const SECTION_246_STATUS_WITH_RESULTS =
+  "Where uncertainties have results, for those uncertainties only (the paragraph for the rest and its gap already cover them): ";
 export const SECTION_246_STATUS_NO_RESULT =
   "Where no uncertainty has a result, add only the next period's plan, as the evidence gives it: the single gap above already asks for the status.";
 
@@ -943,7 +948,7 @@ GOOD (the evidence gives a finding but not the final result):
 "In addressing the uncertainty around holding the room at its setpoint with a door open, the company gained knowledge that a fixed control step cannot follow the heat load of an open door, and it redesigned the step to change with the measured load. [GAP: the recovery times measured with the redesigned step] Whether the redesigned step holds the room within a degree while a door stays open remains open."`;
 
 export const SECTION_246_GOAL_CLOSE =
-  "This closing content is the only place in 246 where you lead with the physical outcome, and the one place to say how the knowledge was applied: say it once here, not in every paragraph. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content), and say what work continues. Describe how the advancement improved the product/process only as far as the evidence shows. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242.";
+  "This closing content is the only place in 246 where you lead with the physical outcome, and the one place to say how the knowledge was applied: say it once here, not in every paragraph. Connect the knowledge gained back to the original project goal stated in 242 (its goal/problem content), and say what work continues. Describe how the advancement improved the product/process only as far as the evidence shows. This should feel like the report coming full circle; the close of 246 echoes the project goal in 242. Where no uncertainty has a result, name the project goal and say what work continues toward it; claim no knowledge gained or applied.";
 
 /**
  * Line 246's own instructions: role, required content and its rules. Cost
