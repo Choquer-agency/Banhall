@@ -1212,9 +1212,16 @@ describe("prompt versions", () => {
     // its review round 3: the observation rule, the opening's hypothesis
     // sentence, PROJECT STATUS's first branch and next period's plan, the
     // goal close with no result and the shared gap move on purpose; before
-    // it they were sha256:a72253a2... and sha256:05b3aa3f....
-    expect(await hashPromptProgram()).toBe("sha256:afec5d93ad0ae5c2383f9a47c865cc3d9288ccee9cebcad74ba33dd5d63431c5");
-    expect(await legacyPromptVersion()).toBe("sha256:07fef1df472b1d4679e150ccbb5a8e68ab7bcb00fe823ba3293565a505dbe746");
+    // it they were sha256:a72253a2... and sha256:05b3aa3f.... Re-read
+    // after its live rerun fixes: the Self-check's and the repair's rule on
+    // attribution, the analyzer's and the Storyline's one underlying
+    // uncertainty, Line 244's validation work, plan estimates and hypothesis,
+    // Line 246's status only from the evidence, general practice for the
+    // company's own approach, QA's gap and hypothesis lines, the BECAUSE scan
+    // words, gaps once in a Line, the acronym examples and the Seed version move on purpose;
+    // before it they were sha256:afec5d93... and sha256:07fef1df....
+    expect(await hashPromptProgram()).toBe("sha256:6352e9e6651382d831f00652fc8cd17fcc9576b3af3f4d213f0708a94c374335");
+    expect(await legacyPromptVersion()).toBe("sha256:e0489c9616ee58564bdf84ce7ac05c48687db951907bcd6c58575028820bf9ec");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

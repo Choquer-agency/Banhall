@@ -6,12 +6,15 @@ import {
   QA_NO_NOTES_IN_TEXT,
   SECTION_246_NEXT_PERIOD_PLAN,
   SECTION_246_STATUS_NO_RESULT,
+  SECTION_246_STATUS_ONLY_FROM_EVIDENCE,
   SECTION_246_STATUS_WITH_RESULTS,
   SECTION_UNCERTAINTY_SCOPE,
+  SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE,
   SELF_CHECK_NO_NOTES_RULE,
   SELF_CHECK_UNCERTAINTY_SCOPE_RULE,
 } from "./ai/prompts";
-import { SEED_PROMPT_PROGRAM, SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
+import { REPAIR_NO_ATTRIBUTION_HEDGE, SEED_PROMPT_PROGRAM, SELF_CHECK_REQUEST } from "./ai/promptDefinitions";
+import { BRIEF_STORYLINE_MAIN_UNCERTAINTY, BRIEF_SYSTEM_PROMPT } from "./lib/briefRequest";
 import { FROZEN_SUMMARY_PLAN_SCAFFOLD } from "./lib/seedRevisions";
 
 /**
@@ -63,6 +66,8 @@ export const ONE_UNCERTAINTY_SWAPS: ReadonlyArray<readonly [now: string, before:
   [SECTION_246_STATUS_WITH_RESULTS, ""],
   [` ${SECTION_246_STATUS_NO_RESULT}`, ""],
   [SECTION_246_NEXT_PERIOD_PLAN, "Describe the planned approach for the next fiscal period."],
+  // After the live rerun (R3): the status only from the evidence.
+  [` ${SECTION_246_STATUS_ONLY_FROM_EVIDENCE}`, ""],
 ];
 
 /** Each fixed text added to an existing one, taken out again after its count is checked. */
@@ -73,6 +78,10 @@ export const ONE_UNCERTAINTY_ADDITIONS = {
   selfCheckScope: SELF_CHECK_UNCERTAINTY_SCOPE_RULE,
   selfCheckNotes: SELF_CHECK_NO_NOTES_RULE,
   qaNotes: QA_NO_NOTES_IN_TEXT,
+  // After the live rerun (R1, R2).
+  selfCheckAttribution: SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE,
+  repairHedge: REPAIR_NO_ATTRIBUTION_HEDGE,
+  briefStoryline: BRIEF_STORYLINE_MAIN_UNCERTAINTY,
 } as const;
 
 /** The blocks whose text is the project's own: at most one each. */
@@ -87,6 +96,9 @@ const NONE: OneUncertaintyCounts = {
   selfCheckScope: 0,
   selfCheckNotes: 0,
   qaNotes: 0,
+  selfCheckAttribution: 0,
+  repairHedge: 0,
+  briefStoryline: 0,
   claimant: 0,
   reportUncertainties: 0,
 };
@@ -94,14 +106,15 @@ const NONE: OneUncertaintyCounts = {
 /**
  * How many times each addition is in one request of each kind; for the two
  * blocks, the most it may hold. The stage names are the honest drafting
- * fixture's. A draft with a signed-off content plan ("planDraft") and a Seed
- * request ("seed") are told apart by their own text, so callers pass the
- * stages they already pass.
+ * fixture's. A draft with a signed-off content plan ("planDraft"), a Seed
+ * request ("seed") and a Brief request ("brief") are told apart by their own
+ * text, so callers pass the stages they already pass. A repair is a draft
+ * request with the repair block, which alone holds `repairHedge`.
  */
 export const ONE_UNCERTAINTY_COUNTS = {
   draft: { ...NONE, scope: 1, claimant: 1 },
   planDraft: { ...NONE, claimant: 1 },
-  selfCheck: { ...NONE, selfCheckScope: 1, selfCheckNotes: 1, reportUncertainties: 1 },
+  selfCheck: { ...NONE, selfCheckScope: 1, selfCheckNotes: 1, selfCheckAttribution: 1, reportUncertainties: 1 },
   summarySelfCheck: NONE,
   summarySelfCheckWithFacts: NONE,
   qa: { ...NONE, qaNotes: 1, claimant: 1 },
@@ -109,11 +122,15 @@ export const ONE_UNCERTAINTY_COUNTS = {
   chat: NONE,
   analysis: { ...NONE, analyzerChosen: 1, analyzerGaps: 1, claimant: 1 },
   seed: { ...NONE, claimant: 1 },
+  brief: { ...NONE, briefStoryline: 1 },
   none: NONE,
 } as const satisfies Record<string, OneUncertaintyCounts>;
 
 export type OneUncertaintyStage = keyof typeof ONE_UNCERTAINTY_COUNTS;
-type CallerStage = Exclude<OneUncertaintyStage, "planDraft" | "seed">;
+type CallerStage = Exclude<OneUncertaintyStage, "planDraft" | "seed" | "brief">;
+
+/** How a repair's own block opens: only a repair holds the repair hedge rule. */
+const REPAIR_BLOCK_HEADING = "## Self-check repair (high priority)";
 
 const BLOCKS: ReadonlySet<string> = new Set<BlockName>(["claimant", "reportUncertainties"]);
 const inJson = (text: string) => JSON.stringify(text).slice(1, -1);
@@ -141,6 +158,7 @@ function reportUncertaintiesPattern(form: (text: string) => string): RegExp {
 function refined(text: string, stage: CallerStage, form: (text: string) => string): OneUncertaintyStage {
   if (stage === "draft" && text.includes(form(FROZEN_SUMMARY_PLAN_SCAFFOLD.begin))) return "planDraft";
   if (stage === "none" && text.includes(form(SEED_PROMPT_PROGRAM.user.heading))) return "seed";
+  if (stage === "none" && text.includes(form(BRIEF_SYSTEM_PROMPT.slice(0, 40)))) return "brief";
   return stage;
 }
 
@@ -155,7 +173,8 @@ function countsIn(text: string, form: (text: string) => string): OneUncertaintyC
 function restore(text: string, callerStage: CallerStage, form: (text: string) => string): string {
   const stage = refined(text, callerStage, form);
   const found = countsIn(text, form);
-  const expected: OneUncertaintyCounts = ONE_UNCERTAINTY_COUNTS[stage];
+  const repair = (stage === "draft" || stage === "planDraft") && text.includes(form(REPAIR_BLOCK_HEADING));
+  const expected: OneUncertaintyCounts = { ...ONE_UNCERTAINTY_COUNTS[stage], ...(repair ? { repairHedge: 1 } : {}) };
   const wrong = (Object.keys(expected) as Array<keyof OneUncertaintyCounts>).filter((name) =>
     BLOCKS.has(name) ? found[name] > expected[name] : found[name] !== expected[name]
   );

@@ -13,6 +13,7 @@ import {
   buildSectionDraftRequest,
   buildSharedWritingRules,
   SECTION_EVIDENCE_POINTER,
+  SECTION_244_HYPOTHESIS_NEVER_A_GAP,
 } from "./prompts";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
 import { factsMatchSourcesInstruction } from "./selfCheck";
@@ -49,7 +50,8 @@ describe("the three kinds rule", () => {
       "- Events are never inferred. Write a trial, a test, a result, a finding, a first approach or a change of approach only where the evidence describes it. An event the evidence does not describe is missing: leave a [GAP: ...]. A marker does not make it allowed."
     );
     expect(RULES_EVIDENCE_KINDS).toContain(
-      "- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, and for general practice as below. Write an inferred cause as likely, never as confirmed."
+      // 2026-10-30, after the live rerun (R4a): and a hypothesis built from the stated approach.
+      "- [INFERRED: ...] is only for a consequence, a cause or a comparison drawn from stated facts, for general practice as below, and for a hypothesis built from the stated approach where the evidence states none. Write an inferred cause as likely, never as confirmed."
     );
     // The gap comes first wherever the instructions ask for what the evidence lacks.
     expect(RULES_EVIDENCE_KINDS).toContain(
@@ -164,9 +166,12 @@ describe("the three kinds rule", () => {
     // hold none of the marker's text.
     // 2026-10-29 (third): Line 242's limitations name the general practice
     // marker, and nothing else in the Line instructions holds one.
-    for (const instructions of [buildSection244Instructions(), buildSection246Instructions()]) {
-      expect(instructions).not.toContain("[INFERRED");
-    }
+    // 2026-10-30, after the live rerun (R4a): Line 244 names the marker for
+    // a hypothesis built from the stated approach, and only that one.
+    expect(buildSection246Instructions()).not.toContain("[INFERRED");
+    expect(buildSection244Instructions().match(/\[INFERRED[^\]]*\]/g)).toEqual([
+      "[INFERRED: built from the stated approach; confirm the expected outcome with the client]",
+    ]);
     expect(buildSection242Instructions().match(/\[INFERRED[^\]]*\]/g)).toEqual([
       "[INFERRED: general practice, not in the source: what the writer should confirm with the client]",
     ]);
@@ -320,7 +325,8 @@ describe("the pinned-request fixture", () => {
     });
     const body = JSON.stringify(request);
     expect(inferenceMarkerCounts(body)).toEqual(INFERENCE_MARKER_COUNTS.draft);
-    expect(withoutInferenceMarker(body, "draft")).not.toContain("INFERRED");
+    // 2026-10-30 (R4a): the hypothesis rule's marker is that amendment's, not this one's.
+    expect(withoutInferenceMarker(body, "draft").replace(JSON.stringify(SECTION_244_HYPOTHESIS_NEVER_A_GAP).slice(1, -1), "")).not.toContain("INFERRED");
     // A count other than the stage's is refused, so a moved or doubled addition is caught.
     expect(() => withoutInferenceMarker(body, "none")).toThrow(/holds the inference marker's additions/);
     expect(() => withoutInferenceMarker(body.replace(JSON.stringify(SECTION_EVIDENCE_POINTER).slice(1, -1), ""), "draft")).toThrow();

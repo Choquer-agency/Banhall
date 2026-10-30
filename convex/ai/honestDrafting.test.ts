@@ -371,7 +371,10 @@ describe("Line 242: the standard approach and why it falls short (3)", () => {
       const prompt = buildQaSystemPrompt(overrides);
       expect(prompt).toContain(QA_STANDARD_APPROACH_CHECK);
       expect(prompt).not.toContain('Phrases like "no documented methods existed for X", "no established approaches for X"');
-      expect(prompt).toContain('scanning for the words "because" or "given that" in each uncertainty statement');
+      // 2026-10-30, after the live rerun (R6b): and a gap or a cause in the next sentence.
+      expect(prompt).toContain(
+        'scanning for the words "because" or "given that" (or a [GAP: ...] for the reason, in it or right after it, or a next sentence that opens "Because", "This is because", "This was because" or "Given that") in each uncertainty statement'
+      );
     }
     expect(QA_STANDARD_APPROACH_CHECK).toContain('Flag a limitation that is only a bare claim ("no documented methods existed for X")');
     expect(QA_STANDARD_APPROACH_CHECK).toContain("marked [INFERRED: general practice, not in the source: ...], is allowed");

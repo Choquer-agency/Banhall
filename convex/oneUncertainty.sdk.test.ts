@@ -16,7 +16,7 @@ import { instrumentedAnthropic } from "./ai/instrument";
 import type { GenerationClient } from "./ai/openrouterCore";
 import { withPlaceholders } from "./ai/placeholderClient";
 import { draftCheckedSection } from "./ai/orderedGeneration";
-import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
+import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS, REPAIR_NO_ATTRIBUTION_HEDGE } from "./ai/promptDefinitions";
 import {
   CLAIMANT_LINE,
   SECTION_UNCERTAINTY_SCOPE,
@@ -265,6 +265,25 @@ describe("Single draft and Compare: the report's uncertainties, the claimant and
     expect(sent[0]!.shared.endsWith(`}\n\nCLAIMANT: [CLIENT_1]${CLAIMANT_LINE.rule}`)).toBe(true);
     for (const request of sent) expect(request.user).not.toContain("Quillmere");
     expect(result.draftText).toBe(`${COMPANY} ran the controller with a 30-second step during loading shifts. [GAP: what the runs showed]`);
+  });
+});
+
+// After the live rerun (R1): a repair hedged a fact by attributing it to the
+// claimant by name; the check now reads the claimant's name, and the repair
+// is told never to hedge that way.
+describe("an attribution to the claimant by name is repaired (real SDK, fetch stubbed)", () => {
+  it("finds it with the claim's name, and the repair carries the no-attribution rule", async () => {
+    const attributed = [
+      "The team ran the controller with a 30-second step during loading shifts at the warehouse.",
+      `${COMPANY} states that no vendor controller followed the door load.`,
+    ].join("\n\n");
+    const sent = installFetch({ draft: attributed, repair: REPAIRED_244, checks: [{ verdicts: [] }, { verdicts: [] }] });
+    const result = await draft("244", claimFor({ claimantName: COMPANY }));
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCheck"]);
+    expect(sent[2]!.user).toContain(`- Paragraph 2: ${NOTES_TO_WRITER.fix} ("${COMPANY} states that"). ${NOTES_TO_WRITER.rule}`);
+    expect(sent[2]!.user).toContain(REPAIR_NO_ATTRIBUTION_HEDGE);
+    expect(sent[0]!.user).not.toContain(REPAIR_NO_ATTRIBUTION_HEDGE);
+    expect(result.draftText).toBe(REPAIRED_244);
   });
 });
 

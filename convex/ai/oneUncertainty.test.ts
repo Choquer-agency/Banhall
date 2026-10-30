@@ -29,12 +29,15 @@ import {
   CLAIMANT_LINE,
   QA_246_OPENING_NOTE,
   QA_GAPS_ONCE,
+  QA_HYPOTHESIS_CHECK,
   QA_NO_NOTES_IN_TEXT,
   QA_NOTHING_LEARNED_YET,
   QA_STANDARD_APPROACH_CHECK,
   QA_WAIVED_OPENERS_NOTHING_LEARNED,
   SECTION_242_STANDARD_APPROACH_RULES,
   SECTION_244_EXPERIMENT_RULES,
+  SECTION_244_HYPOTHESIS_NEVER_A_GAP,
+  SECTION_244_HYPOTHESIS_RULES,
   SECTION_244_WORK_IN_FULL,
   SECTION_246_ADVANCEMENT_RULES,
   SECTION_246_GOAL_CLOSE,
@@ -49,8 +52,10 @@ import {
   SECTION_246_STATUS_NO_RESULT,
   SECTION_246_STATUS_WITH_RESULTS,
   SECTION_246_RESULT_DEFINITION,
+  SECTION_246_STATUS_ONLY_FROM_EVIDENCE,
   SECTION_EVIDENCE_POINTER,
   SECTION_UNCERTAINTY_SCOPE,
+  SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE,
   SELF_CHECK_NO_NOTES_RULE,
   SELF_CHECK_SYSTEM_PROMPT,
   SELF_CHECK_UNCERTAINTY_SCOPE_RULE,
@@ -66,11 +71,13 @@ import {
   claimantBlock,
   claimantLine,
 } from "./prompts";
-import { SELF_CHECK_REQUEST } from "./promptDefinitions";
+import { ORDERED_PROMPT_SCAFFOLDS, REPAIR_NO_ATTRIBUTION_HEDGE, SELF_CHECK_REQUEST } from "./promptDefinitions";
+import { BRIEF_STORYLINE_MAIN_UNCERTAINTY, BRIEF_SYSTEM_PROMPT } from "../lib/briefRequest";
 import { buildSelfCheckUserMessage, reportUncertaintiesBody, type SelfCheckModelInput } from "./selfCheck";
 import {
   NOTES_TO_WRITER,
   checkBannedWords,
+  checkBecauseClauses,
   checkCRAOpeners,
   findNotesToWriter,
   sectionDeterministicFindings,
@@ -147,6 +154,12 @@ const NEW_TEXTS = {
   CHAT_STANDARD_APPROACH,
   CHAT_NOTHING_LEARNED,
   RULES_REPORT_SKELETON,
+  SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE,
+  REPAIR_NO_ATTRIBUTION_HEDGE,
+  BRIEF_STORYLINE_MAIN_UNCERTAINTY,
+  SECTION_246_STATUS_ONLY_FROM_EVIDENCE,
+  SECTION_244_HYPOTHESIS_NEVER_A_GAP,
+  QA_HYPOTHESIS_CHECK,
   reportUncertainties: JSON.stringify(SELF_CHECK_REQUEST.reportUncertainties),
   notesToWriter: JSON.stringify(NOTES_TO_WRITER),
 } as const;
@@ -175,7 +188,7 @@ describe("one set of uncertainties for all three Lines (item 1)", () => {
     expect(ANALYZER_CHOSEN_UNCERTAINTIES).toBe(
       // Review round 1 (wording P2-7): the passive list keeps the limitations
       // behind the chosen uncertainties, and work_performed keeps all the work.
-      `\n\n   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. work_performed keeps all the work done toward the chosen uncertainties, including work on other challenges met along the way; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`
+      `\n\n   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. When the notes ask for one main uncertainty, or fewer than the source names, state it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them: the related challenges become parts of it, and a challenge unrelated to it stays out of the lists. work_performed keeps all the work done toward the chosen uncertainties, including work on the challenges that are parts of them and on other challenges met along the way, with their validation checks, thresholds and measurements; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`
     );
     expect(ANALYZER_SYSTEM_PROMPT.split(ANALYZER_CHOSEN_UNCERTAINTIES)).toHaveLength(2);
   });
@@ -428,7 +441,7 @@ describe("the claimant is named from the project record (item 2)", () => {
 describe("Line 242: the reason the standard approach falls short comes from the evidence (item 3)", () => {
   it("general practice only names the approach, once, and a gap asks for a missing reason", () => {
     expect(GENERAL_PRACTICE_SCOPE).toBe(
-      "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write one [GAP: which standard approaches the team knew of, and why they fall short here] in its place."
+      "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. When the company's own approach is itself a standard mechanism, never present it as common practice that handles the problem: say what it does not handle here, from the evidence, or ask in the one gap, and never draw a contrast the evidence does not give. For any further limitation with no standard approach in the evidence, write one [GAP: which standard approaches the team knew of, and why they fall short here] in its place."
     );
     // Review round 1 (wording P3-9): step 1 agrees with the general-practice limits.
     expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(
@@ -452,7 +465,7 @@ describe("Line 242: the reason the standard approach falls short comes from the 
 
   it("QA flags general practice that explains the approach or supplies a reason, and accepts the gap", () => {
     expect(QA_STANDARD_APPROACH_CHECK).toContain(
-      "- Flag and deduct for a general-practice sentence that explains how the standard approach works on this problem or would handle it, or that supplies or suggests a reason it falls short the evidence does not give, and for more than one general-practice sentence in a Line. A [GAP: ...] asking why the standard approach does not work here is honest, not a defect."
+      "- Flag and deduct for a general-practice sentence that explains how the standard approach works on this problem or would handle it, or that supplies or suggests a reason it falls short the evidence does not give, and for more than one general-practice sentence in a Line. Flag and deduct, too, for a general-practice sentence that presents the company's own chosen approach as common practice, and for a contrast with it the evidence does not give.\n- A [GAP: ...] asking why the standard approach does not work here is honest, not a defect: never deduct because the reason the standard approach falls short is a [GAP: ...], and count that gap as the reason in the checks above."
     );
     for (const overrides of EVERY_BUILD) expect(buildQaSystemPrompt(overrides)).toContain(QA_STANDARD_APPROACH_CHECK);
     expect(CHAT_STANDARD_APPROACH).toBe(": the standard approaches, what they do and why they fall short here, the reason only from the evidence or else one gap asking for it");
@@ -468,7 +481,7 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
     // paragraphs or as the opening; (P2-4) only an observation the evidence
     // states, and what a result is.
     expect(SECTION_246_NO_RESULT).toBe(
-      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of their results and status the evidence does not give. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else"
+      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for whatever of their results and status the evidence does not give. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and only where the evidence says it is open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work. Its single gap also covers those uncertainties' hypotheses, so the opening asks for them nowhere else"
     );
     expect(SECTION_246_RESULT_DEFINITION).toBe(
       // Review round 2 (P2-1): a conclusion, not a reading or an event.
@@ -481,12 +494,12 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
       "For the uncertainties with results only (any paragraph for the rest already covers those): "
     );
     expect(SECTION_246_NEXT_PERIOD_PLAN).toBe(
-      "For every uncertainty, describe the planned approach for the next fiscal period, as the evidence gives it."
+      "Where the evidence says the work continues and gives a plan, describe the planned approach for the next fiscal period, for every uncertainty it covers."
     );
     // Review round 2 (P2-3): the close claims nothing learned where nothing was.
     expect(SECTION_246_GOAL_CLOSE).toContain(
       // Review round 3 (P3-4): no second sentence that the work continues.
-      "Where no uncertainty has a result, name the project goal in one sentence and tie the planned work above to it, without restating the plan; claim no knowledge gained or applied."
+      "Where no uncertainty has a result, name the project goal in one sentence and, only where the evidence gives a plan, tie the planned work above to it without restating the plan; claim no knowledge gained or applied."
     );
     expect(SECTION_246_NO_FINDING_PARAGRAPH).toBe(
       ` These paragraphs are for the uncertainties the evidence reports a result for. ${SECTION_246_RESULT_DEFINITION} Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`
@@ -520,13 +533,13 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
       expect(prompt).toContain(
         `**PROJECT STATUS & NEXT STEPS:**\n${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain.`
       );
-      expect(prompt).toContain(`${SECTION_246_NEXT_PERIOD_PLAN} ${SECTION_246_STATUS_NO_RESULT}\n`);
+      expect(prompt).toContain(`${SECTION_246_NEXT_PERIOD_PLAN} ${SECTION_246_STATUS_NO_RESULT} ${SECTION_246_STATUS_ONLY_FROM_EVIDENCE}\n`);
       expect(prompt).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242 that the evidence reports a result for):**");
       expect(prompt).toContain("one per uncertainty the evidence reports a result for, never padded to a count");
       expect(prompt).toContain("the specific technological advancements (one per uncertainty the evidence reports a result for)");
     }
     expect(SECTION_246_STATUS_NO_RESULT).toBe(
-      "Where no uncertainty has a result, add only the next period's plan, as the evidence gives it: the single gap above already asks for the status."
+      "Where no uncertainty has a result, add the next period's plan only where the evidence gives one: the single gap above already asks for the status."
     );
     expect(buildQaSystemPrompt()).toContain("the specific advancements (one per uncertainty the evidence reports a result for)");
     expect(CHAT_ADVANCEMENT_STATUS).toBe(
@@ -562,7 +575,8 @@ describe("Line 244 describes the reported work in full (problem 7)", () => {
   it("a missing result is one gap, never a reason to leave out work done", () => {
     expect(SECTION_244_EXPERIMENT_RULES).toContain(`\n\n${SECTION_244_WORK_IN_FULL}\n\n`);
     expect(SECTION_244_WORK_IN_FULL).toBe(
-      "Describe in full the work the evidence reports for the report's uncertainties, in the order it was done: the work plan steps, what was built, what was tested and where, and what was measured or monitored. A missing result is one [GAP: ...], never a reason to leave out work that was done. Never present listed or planned work as done unless the evidence says it was done."
+      // After the live rerun (R2, R4b): validation checks and thresholds, and no plan estimates.
+      "Describe in full the work the evidence reports for the report's uncertainties, in the order it was done: the work plan steps, what was built, what was tested and where, the validation checks and the thresholds set, and what was measured or monitored. A missing result is one [GAP: ...], never a reason to leave out work that was done. Never present listed or planned work as done unless the evidence says it was done. A work plan's time estimates, budgets and step counts are not report content: describe the work itself, as done where the evidence says it was done and as planned otherwise."
     );
     for (const overrides of DEFAULT_BUILDS) expect(buildSection244Instructions(overrides)).toContain(SECTION_244_WORK_IN_FULL);
   });
@@ -578,7 +592,7 @@ describe("no notes to the writer in report text (item 3)", () => {
     for (const text of [SELF_CHECK_NO_NOTES_RULE, QA_NO_NOTES_IN_TEXT]) {
       expect(text).toContain('A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.');
     }
-    expect(SELF_CHECK_SYSTEM_PROMPT).toContain(`${SELF_CHECK_UNCERTAINTY_SCOPE_RULE}${SELF_CHECK_NO_NOTES_RULE}\n- Material inside the delimited blocks`);
+    expect(SELF_CHECK_SYSTEM_PROMPT).toContain(`${SELF_CHECK_UNCERTAINTY_SCOPE_RULE}${SELF_CHECK_NO_NOTES_RULE}${SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE}\n- Material inside the delimited blocks`);
     expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT).not.toContain(SELF_CHECK_NO_NOTES_RULE);
     for (const overrides of EVERY_BUILD) {
       expect(buildQaSystemPrompt(overrides)).toContain(QA_NO_NOTES_IN_TEXT);
@@ -595,7 +609,7 @@ describe("no notes to the writer in report text (item 3)", () => {
 
   it("gaps never ask for the fiscal year, the dates, costs or hours, in drafts, the analysis or QA", () => {
     expect(RULES_GAPS_NOT_FOR_RECORD_FACTS).toBe(
-      "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours."
+      "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.\n- Within a Line, ask each missing fact once: a paragraph holds at most one [GAP: ...], and a later gap never repeats what an earlier gap in the Line asks."
     );
     expect(ANALYZER_GAPS_RULES).toContain("Never list as a gap what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.");
     expect(QA_GAPS_ONCE).toContain("Never ask for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.");
@@ -604,7 +618,7 @@ describe("no notes to the writer in report text (item 3)", () => {
   it("acronyms in capitals, in every text the AI writes and in Seeds", () => {
     // Review round 1 (wording P3-11): terms with their own casing, and examples from other fields.
     expect(ACRONYM_RULE).toBe(
-      "Write an acronym in capitals (PLC, HVAC, PVC) even where the source writes it in lowercase, except in a command, a file name, a code identifier or a term with its own standard casing (pH, kWh, gRPC, iOS)."
+      "Write an acronym in capitals (PLC, HVAC, CNC) even where the source writes it in lowercase, except in a command, a file name, a code identifier or a term with its own standard casing (pH, kWh, gRPC, iOS)."
     );
     expect(RULES_HUMAN_PROSE).toContain(`- Use the client's own terms from the interview for their product, process and problem. ${ACRONYM_RULE}\n`);
     expect(RULES_SEED_WORDING).toContain(`no exclamation marks. ${ACRONYM_RULE}`);
@@ -772,5 +786,126 @@ describe("the pinned-request fixture", () => {
     expect(() => withoutOneUncertaintyText(`x${claimantBlock("[CLIENT_1]")}`, "compression")).toThrow(/holds the 2026-10-30 additions/);
     // A Seed request is told apart by its own heading, and may hold the line.
     expect(withoutOneUncertaintyText(`# SEED REQUEST\n\nguidance${claimantBlock("[CLIENT_1]")}`, "none")).toBe("# SEED REQUEST\n\nguidance");
+  });
+});
+
+// ─── After the live rerun (2026-10-30) ──────────────────────────────────────
+
+describe("after the live rerun: no hedge by attribution (R1)", () => {
+  it("the Single draft and Compare Self-check fails an attribution hedge, as Summary mode does; the repair is told the same", () => {
+    expect(SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE).toBe(
+      "\n- A hedge states the uncertainty or the range itself. A sentence that names where a fact came from (the client, the company, the team, an interviewee, an interview, a document, or the claimant by name) is not a hedge: fail it like a flat claim. For a confidence verdict that is not applied, repairGuidance asks for the uncertainty itself, or for one [GAP: ...] or [INFERRED: ...] marker, never for a source or an attribution."
+    );
+    expect(SELF_CHECK_SYSTEM_PROMPT.split(SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE)).toHaveLength(2);
+    expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT).not.toContain(SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE);
+    expect(REPAIR_NO_ATTRIBUTION_HEDGE).toBe(
+      ' Hedge by stating the uncertainty or the range itself, or leave one [GAP: ...]: never by attributing the fact to a source ("The client states that...", "The company reports that...").'
+    );
+    expect(ORDERED_PROMPT_SCAFFOLDS.repairGuidance.prefix).toContain(`never state it flatly.${REPAIR_NO_ATTRIBUTION_HEDGE} Return ONLY the revised section text.`);
+  });
+
+  it("the notes check finds the company, the team, the interviewee or the claimant attributing a fact with \"that\"", () => {
+    const name = "Quillmere Analytics Ltd.";
+    const notes: Array<[string, string]> = [
+      ["The company reports that no standard controller handled the load.", "The company reports that"],
+      ["The team stated that the jams stopped after the change.", "The team stated that"],
+      ["The interviewee said that two builds failed.", "The interviewee said that"],
+      ["Quillmere Analytics Ltd. states that no vendor tool fitted the line.", "Quillmere Analytics Ltd. states that"],
+      ["Quillmere Analytics notes that the second line ran faster.", "Quillmere Analytics notes that"],
+      ["[CLIENT_1] reported that the jam rate fell.", "[CLIENT_1] reported that"],
+    ];
+    for (const [text, phrase] of notes) {
+      expect([text, findNotesToWriter(text, { claimantName: name }).map((hit) => hit.phrase)]).toEqual([text, [phrase]]);
+    }
+    const clean = [
+      "The team reported the fault to the vendor.",
+      "The company states its tolerances on every order sheet.",
+      "The team noted the jam rate on each shift.",
+      "Quillmere Analytics Ltd. reported the fault to the vendor.",
+      "The supplier states that its sensors read to 0.1 degrees.",
+    ];
+    for (const text of clean) expect([text, findNotesToWriter(text, { claimantName: name })]).toEqual([text, []]);
+    // Without the name, the claimant's own name is not read; the generic subjects still are.
+    expect(findNotesToWriter("Quillmere Analytics Ltd. states that no vendor tool fitted the line.")).toEqual([]);
+    expect(sectionDeterministicFindings("s242", "Quillmere Analytics Ltd. states that no vendor tool fitted the line.", NO_STYLE_OVERRIDES, { claimantName: name })
+      .filter((finding) => finding.check === "note_to_writer")).toHaveLength(1);
+  });
+
+  it("the Self-check's Locked row reads the claimant's name", () => {
+    const profile = { profileState: "missing", categoryOutcomes: [], buildOrder: ["242", "244", "246"], selfCheckRules: [] } as unknown as OrderedProfileContext;
+    const before = runDeterministicSelfCheck({
+      section: "242",
+      text: "Quillmere Analytics Ltd. states that no vendor tool fitted the line.",
+      brief: null,
+      profile,
+      isFirstInOrder: true,
+      claimantName: "Quillmere Analytics Ltd.",
+    });
+    expect(before.entries.find((entry) => entry.key === NOTES_TO_WRITER_KEY)?.row.reason).toBe(
+      'a note to the writer in paragraph 1 ("Quillmere Analytics Ltd. states that")'
+    );
+  });
+});
+
+describe("after the live rerun: one underlying uncertainty, in the analysis and the Storyline (R2)", () => {
+  it("the Brief's Storyline frames the one main uncertainty as the shared problem", () => {
+    expect(BRIEF_STORYLINE_MAIN_UNCERTAINTY).toBe(
+      " When the writer's notes ask for one main uncertainty, or fewer than the evidence names, the Storyline frames it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them: the related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge unrelated to it stays out."
+    );
+    expect(BRIEF_SYSTEM_PROMPT).toContain(`with the exact supporting quote from the evidence.${BRIEF_STORYLINE_MAIN_UNCERTAINTY}\n2. Claim Exclusions:`);
+  });
+});
+
+describe("after the live rerun: Line 246 says the work continues only where the evidence does (R3)", () => {
+  it("in PROJECT STATUS, the shared paragraph, the advancement paragraphs and the goal close", () => {
+    expect(SECTION_246_STATUS_ONLY_FROM_EVIDENCE).toBe(
+      "Say the work continues, or describe a plan for the next period, only where the evidence says the work continues, and never say a question remains open unless the evidence says so. Where the evidence gives no status, the single gap asks for it; never ask about the next period in a gap of its own."
+    );
+    expect(SECTION_246_ADVANCEMENT_RULES).toContain("Then it says what remains open, where the evidence says so.");
+    expect(SECTION_246_ADVANCEMENT_RULES).toContain("and say plainly what remains open where the evidence says so.");
+    expect(SECTION_246_ADVANCEMENT_RULES).not.toContain("remains open.\"`");
+    expect(SECTION_246_GOAL_CLOSE).toContain("and say what work continues only where the evidence says the work continues.");
+  });
+});
+
+describe("after the live rerun: Line 244's hypothesis and work plan (R4)", () => {
+  it("never leaves the hypothesis as a gap, and builds a marked one from the stated approach; QA accepts it", () => {
+    expect(SECTION_244_HYPOTHESIS_NEVER_A_GAP).toBe(
+      "- Never put the hypothesis itself in a [GAP: ...]: a hypothesis is the expectation behind the stated approach, not an event. Write it in if/then form from the stated objective and approach (if X, then Y, because Z). Where the evidence states no hypothesis, write one from the stated approach and mark it straight after with [INFERRED: built from the stated approach; confirm the expected outcome with the client]."
+    );
+    expect(SECTION_244_HYPOTHESIS_RULES).toContain(SECTION_244_HYPOTHESIS_NEVER_A_GAP);
+    // The measure of success may still be a gap (2026-10-29, third, item 1c).
+    expect(SECTION_244_HYPOTHESIS_RULES).toContain("write [GAP: the measure or target that would show success]");
+    expect(RULES_EVIDENCE_KINDS).toContain("and for a hypothesis built from the stated approach where the evidence states none.");
+    expect(QA_HYPOTHESIS_CHECK).toContain(
+      "- Where the evidence states no hypothesis, one built from the stated objective and approach and marked [INFERRED: built from the stated approach; ...] is correct: do not deduct for it, or call it unsupported for lack of a stated hypothesis. A hypothesis left as a [GAP: ...] is missing: flag it."
+    );
+    for (const overrides of EVERY_BUILD) expect(buildQaSystemPrompt(overrides)).toContain(QA_HYPOTHESIS_CHECK);
+  });
+});
+
+describe("after the live rerun: the BECAUSE check reads a gap or a cause in the next sentence (R6b)", () => {
+  it("passes an uncertainty whose reason is a gap or the next sentence, and still fails one with neither", () => {
+    const text = [
+      "It was uncertain whether a fixed step could hold the line speed. [GAP: why the standard step falls short here]",
+      "It was uncertain whether the sensor could read through the film. This is because the film scatters the beam.",
+      "It was uncertain whether the jam rate would fall. Because the belts stretch, the gap between parts changes.",
+      "It was uncertain whether the labels would hold at low temperatures. Given that the rooms run at 2 degrees, the glue may set late.",
+      "It was uncertain whether the [GAP: which controller] could keep pace.",
+      "It was uncertain whether the line could run at full speed after a jam. The team ran three builds.",
+    ].join("\n\n");
+    expect(checkBecauseClauses(text).details.map((detail) => detail.hasBecause)).toEqual([true, true, true, true, true, false]);
+    // The count of uncertainty statements, which the report checks read, is unchanged.
+    expect(checkBecauseClauses(text).uncertaintyCount).toBe(6);
+    // A cause in another paragraph does not count.
+    expect(checkBecauseClauses("It was uncertain whether the line could run at full speed.\n\nBecause the belts stretch, parts drift.").withBecause).toBe(0);
+  });
+});
+
+describe("after the live rerun: QA never deducts the gap for the reason (R6a), and gaps once in a Line (R7)", () => {
+  it("says so", () => {
+    expect(QA_STANDARD_APPROACH_CHECK).toContain("never deduct because the reason the standard approach falls short is a [GAP: ...]");
+    expect(RULES_EVIDENCE_KINDS).toContain("- Within a Line, ask each missing fact once: a paragraph holds at most one [GAP: ...], and a later gap never repeats what an earlier gap in the Line asks.");
+    expect(GENERAL_PRACTICE_SCOPE).toContain("When the company's own approach is itself a standard mechanism, never present it as common practice that handles the problem");
   });
 });
