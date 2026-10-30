@@ -107,7 +107,7 @@ export const ANALYZER_STATED_CRITICAL_RULE = `- ONLY extract information the tra
  */
 export const ANALYZER_CHOSEN_UNCERTAINTIES = `
 
-   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the two lists cover exactly those. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. work_performed, advancements_achieved and remaining_uncertainties then cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`;
+   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. work_performed keeps all the work done toward the chosen uncertainties, including work on other challenges met along the way; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`;
 
 /**
  * 2026-10-30 (owner, "please fix all properly", items 2 and 9): two rules
@@ -380,7 +380,7 @@ export const SECTION_EVIDENCE_POINTER =
 /**
  * 2026-10-30 (owner, "please fix all properly", item 2): the claimant's name.
  * Every draft of a rerun named the wrong company: the customer's name from a
- * file title, an invented "Client Software Firm", or no one, because drafting
+ * file title, an invented name, or no one, because drafting
  * never received the claimant's name. The project record has it
  * (`projects.clientName`); every request that analyzes the source or writes
  * report prose about the company gets this one line, built from it. Under
@@ -393,7 +393,7 @@ export const CLAIMANT_LINE = {
   // On its own line after the name, so a name that ends in "Ltd." or
   // "Inc." needs no full stop of its own, as written or as its placeholder.
   rule:
-    "\nThis is the company that did the work and files this claim. Name it exactly as written here. Any other company the materials name, in a file name, a title or the text, is a customer, partner or supplier of the claimant, never the claimant: call it what the materials say it is, or leave it out.",
+    "\nThis is the company that did the work and files this claim. Name it exactly as written here. Any other company the materials name, in a file name, a title or the text, other than a short form, trade name or former name of this company, is a customer, partner or supplier of the claimant, never the claimant: call it what the materials say it is, or leave it out.",
   /** Every request puts the line after a blank line. */
   separator: "\n\n",
   runtimeSentinel: "{{runtime.claimantName}}",
@@ -559,7 +559,7 @@ Keep the opening short: the company sentence and the business goal take one or t
  * writer to confirm (RULES_EVIDENCE_KINDS).
  */
 export const SECTION_242_STANDARD_APPROACH_RULES = `Every limitation must reference the knowledge gap, not the tool gap. Write each one as the standard approach and where it falls short:
-1. Name the standard approach or approaches a competent practitioner would reach for first, and say briefly what each does well.
+1. Name the standard approach or approaches a competent practitioner would reach for first, and say briefly what each does well, as the evidence states it; for general practice, only what it is and where it is used.
 2. Give the specific reason each falls short for this problem (the BECAUSE), as the evidence gives it: an input it lacks, a condition it does not support, a constraint it does not handle, or two methods that do not combine. Where the evidence gives no reason, write one [GAP: why the standard approach does not work here] in its place, and ask the client rather than supply a reason.
 3. Close with one sentence on what that means for available knowledge, tied to the approaches you named, such as that they did not provide a known method for what this project needed.
 
@@ -877,41 +877,49 @@ export const SECTION_246_KNOWLEDGE_LEADS =
  * Where results exist, the knowledge paragraphs stay as they were.
  */
 export const SECTION_246_NO_RESULT =
-  "it gets no paragraph of its own. State the knowledge the work sought, then any finding the evidence does support (stated, or marked as an inference), then one [GAP: ...] for the results and status, once in the Line for every such uncertainty; when no uncertainty has a result, this is the opening paragraph. Write at most one sentence on what remains open, and never restate Line 242's uncertainty or Line 244's work";
+  "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work";
+/**
+ * Review round 1 (wording P2-4): what a result is, so the two branches never
+ * disagree. A finding is an event: it is never inferred.
+ */
+export const SECTION_246_RESULT_DEFINITION =
+  "An uncertainty has a result when the evidence states something the work showed about it, in whole or in part; that uncertainty gets its own paragraph.";
 export const SECTION_246_NOTHING_LEARNED_YET =
   " Where the evidence reports no result for an uncertainty, this opening rule does not apply: it gets no advancement paragraph (see the rule for uncertainties with no result below).";
 export const SECTION_246_KNOWLEDGE_FIRST_EXCEPTION =
-  ", except where the evidence reports no result for an uncertainty: it gets no paragraph of its own, and the Line states the knowledge sought, any finding the evidence supports and one [GAP: ...] instead";
+  ", except where the evidence reports no result for an uncertainty: it gets no paragraph of its own, and one paragraph states the knowledge sought, any observation the evidence states and a single [GAP: ...] instead";
 export const SECTION_246_SELF_CHECK_EXCEPTION =
   " An uncertainty the evidence reports no result for has no advancement paragraph: never write one that leads with a finding the evidence does not give.";
 /** The paragraph rules below say which uncertainties get a paragraph, and the rule for the rest. */
 export const SECTION_246_NO_FINDING_PARAGRAPH =
-  ` These paragraphs are for the uncertainties the evidence reports a result for. Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`;
+  ` These paragraphs are for the uncertainties the evidence reports a result for. ${SECTION_246_RESULT_DEFINITION} Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`;
 
 /**
  * 2026-10-29 (third), review round 2 (P3-B): the line's opening otherwise
  * claims knowledge gained even where the evidence reports none yet.
- * 2026-10-30: with no result, the opening is the knowledge sought, any
- * finding and the Line's one gap.
+ * 2026-10-30: with no result for any uncertainty, the opening is the
+ * paragraph SECTION_246_NO_RESULT describes, and its one gap is the only
+ * gap: review round 1 (wording P2-5) puts this after the opening's other
+ * sentences and says to write none of them.
  */
 export const SECTION_246_OVERALL_NOTHING_LEARNED =
-  " Where the evidence reports no result yet, open instead with the knowledge the work sought, then any finding the evidence supports, then one [GAP: ...] for the results and status: that one gap also covers the hypothesis and how far the objective was met, so the Line asks for them nowhere else.";
+  " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for the results and status, which also covers the hypothesis and how far the objective was met.";
 
 /**
- * 2026-10-30: with no result, the status the Line's one gap asks for is
- * not asked again under PROJECT STATUS.
+ * 2026-10-30, review round 1 (wording P2-5): PROJECT STATUS has two
+ * branches. Where uncertainties have results, it explains what is still
+ * open and why; where none has, the one gap already asks for the status.
  */
+export const SECTION_246_STATUS_WITH_RESULTS = "Where uncertainties have results: ";
 export const SECTION_246_STATUS_NO_RESULT =
-  "Where the evidence reports no result, the PROJECT STATUS content below adds only the next period's plan, as the evidence gives it: the one gap already asks for the status.";
+  "Where no uncertainty has a result, add only the next period's plan, as the evidence gives it: the single gap above already asks for the status.";
 
 export const SECTION_246_OVERALL_ADVANCEMENT = `**ADVANCEMENT TO SCIENCE/TECHNOLOGY:**
-Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]."${SECTION_246_OVERALL_NOTHING_LEARNED} Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, put one [GAP: ...] for the result. This ties back directly to Section 242.`;
+Open the line with the advancement as knowledge gained in the field, for example "The technological advancement achieved in the field of [field] was knowledge gained in methods for [what the work taught]." Then say how far the technological objective from Section 242 was met, only as far as the evidence shows. Say that a hypothesis held, failed or held in part only where the evidence reports the result; where it does not, put one [GAP: ...] for the result.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`;
 
 export const SECTION_246_ADVANCEMENT_RULES = `Each paragraph names the uncertainty, states what was learned about it, and gives its status in plain words, only as the evidence shows: resolved, resolved for the conditions tested, partially resolved, or unresolved. Then it says what remains open. For example: "In addressing the uncertainty around [X], the company gained knowledge that [what was learned]. The uncertainty was resolved for [the conditions tested]; [what remains open]."${SECTION_246_NO_FINDING_PARAGRAPH}
 
 Claim no more resolution than the evidence shows. A stated purpose or design intent ("to ensure...", "designed to...", "so that...") is a goal, not a result: never write it as achieved. Where the evidence gives a finding but not the whole result, state what it does establish, put one [GAP: ...] for the result or its status, and say plainly what remains open. Never build a paragraph from gap frames, and never put a [GAP: ...] straight after an opener such as "it was determined that".
-
-${SECTION_246_STATUS_NO_RESULT}
 
 BAD (leads with capability):
 "The resulting computer vision system achieved 85% accuracy in growth stage classification for the top 30 species."
@@ -925,8 +933,8 @@ BAD (a goal written as a result):
 BAD (a paragraph built from gap frames):
 "It was established that [GAP: what was learned]. This resolved the uncertainty regarding [GAP: which uncertainty]."
 
-GOOD (the evidence describes runs with one finding and reports no result yet; with no uncertainty resolved, this is the opening paragraph):
-"The work sought knowledge of how to hold a cold room within a degree of its setpoint while a dock door stays open. The first runs showed the room drifting up to 6 degrees above setpoint during long openings. [GAP: what the later runs showed, and where the work stood at year end]"
+GOOD (the evidence reports no result for any uncertainty, so this is the opening paragraph):
+"The work sought knowledge of how to hold a cold room within a degree of its setpoint while a dock door stays open. [GAP: what the runs with the shorter control step showed, and where the work stood at year end]"
 
 BAD (the evidence reports no result: a paragraph for each uncertainty that only says it is open, and Line 242 restated):
 "In addressing the uncertainty around holding the setpoint while a door stays open, it was uncertain whether a control step could follow the door load. The outcome remains unconfirmed. In addressing the uncertainty around sensor placement, the outcome also remains unconfirmed."
@@ -968,7 +976,7 @@ Line 246 must cover, in this order: ${pdSubsectionRoleList("s246", "draft")}. Us
 
 ${SECTION_246_OVERALL_ADVANCEMENT}
 
-**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242):**
+**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242 that the evidence reports a result for):**
 Each advancement paragraph addresses ONE specific technological uncertainty from 242 and describes the advancement. ${
     overrides.openingClauses
       ? SECTION_246_PROMPT_BRANCHES.advancementOpening.waived
@@ -981,10 +989,10 @@ ${
     overrides.repetitionCaps
       ? SECTION_246_PROMPT_BRANCHES.repetitionGuidance.waived
       : SECTION_246_PROMPT_BRANCHES.repetitionGuidance.default
-  }The number of advancement paragraphs follows the source material: one per uncertainty it supports, never padded to a count. Do not fabricate advancements.
+  }The number of advancement paragraphs follows the source material: one per uncertainty the evidence reports a result for, never padded to a count. Do not fabricate advancements.
 
 **PROJECT STATUS & NEXT STEPS:**
-Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. Describe the planned approach for the next fiscal period.
+${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain. Don't just list remaining work; explain the technical reason each item is still an open question. Describe the planned approach for the next fiscal period. ${SECTION_246_STATUS_NO_RESULT}
 
 **PROJECT GOAL & IMPROVEMENTS:**
 ${SECTION_246_GOAL_CLOSE}${
@@ -1092,7 +1100,7 @@ export const QA_GAPS_ONCE =
  * check flags a note to the writer written as a report sentence.
  */
 export const QA_NO_NOTES_IN_TEXT =
-  '\n- Flag and deduct for a note to the writer written as a report sentence: a sentence about the source documents or what they lack instead of the work, such as "The materials do not report...", "X is not stated.", "The client reports that..." or "... remains unconfirmed." said of what the evidence lacks. A note belongs inside a [GAP: ...] or [INFERRED: ...] marker. Quote the sentence.';
+  '\n- Flag and deduct for a note to the writer written as a report sentence: a sentence about the source documents or what they lack instead of the work, such as "The materials do not report...", "X is not stated.", "The client reports that..." or "... remains unconfirmed." said of what the evidence lacks. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note. A note belongs inside a [GAP: ...] or [INFERRED: ...] marker. Quote the sentence.';
 
 // ─── AGENT 5: QA & SCORING ──────────────────────────────────────────────────
 
@@ -1137,16 +1145,16 @@ export const QA_STANDARD_APPROACH_CHECK = `- IMPORTANT CLARIFICATION on knowledg
  * once. QA's notes say the same, and flag the repetition the rerun showed.
  */
 export const QA_246_OPENING_NOTE =
-  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports no result yet, with the knowledge the work sought, then any finding the evidence supports and one [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it.";
+  "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it.";
 export const QA_NOTHING_LEARNED_YET =
-  "\n- Where the evidence reports no result for an uncertainty, it gets no paragraph of its own: Line 246 states the knowledge sought, any finding the evidence supports and one [GAP: ...] for the results and status, once. That is not a capability lead or a missing advancement paragraph, so do not flag or deduct it. Flag a paragraph for each uncertainty that only says it is still open, more than one sentence on what remains open, and Line 242's uncertainty or Line 244's work restated in Line 246.";
+  "\n- Where the evidence reports no result for an uncertainty, it gets no paragraph of its own: one paragraph covers every such uncertainty, with the knowledge sought, any observation the evidence states and a single [GAP: ...] for the results and status. That is not a capability lead or a missing advancement paragraph, so do not flag or deduct it. In the paragraph that covers the uncertainties with no result, flag more than one sentence on what remains open, and a repeat of Line 242's reasons for the uncertainty or of Line 244's work. Naming the uncertainty in a few words, as 'In addressing the uncertainty around X' does, is not a repeat.";
 /**
  * The same exception in the content check QA runs when the opening phrases
  * are waived (the default, since the opener house rule is off for everyone),
  * which otherwise asks every advancement paragraph to open with a finding.
  */
 export const QA_WAIVED_OPENERS_NOTHING_LEARNED =
-  " (an uncertainty the evidence reports no result for has no advancement paragraph: the knowledge sought, any finding and one gap stand in for it)";
+  " (an uncertainty the evidence reports no result for has no advancement paragraph: one paragraph with the knowledge sought, any observation the evidence states and a single gap stands in for all of them)";
 
 /** 2026-10-29 (third): the BECAUSE scan also accepts a cause given first with "given that". */
 export const QA_BECAUSE_SCAN_WORDS = 'for the words "because" or "given that" in';
@@ -1512,9 +1520,9 @@ export const CHAT_HYPOTHESIS_THEN =
 export const CHAT_EXPERIMENT_ORDER =
   "(each experiment in order: what was tried, what happened, what was changed next, and what was learned or stayed unresolved, only as far as the evidence shows), then the year-end status";
 export const CHAT_NOTHING_LEARNED =
-  "; an uncertainty with no result gets no paragraph: the knowledge sought, any finding and one gap, once in the Line";
+  "; uncertainties with no result get no paragraph each: one paragraph after the others gives the knowledge sought, any observation the evidence states and a single gap";
 export const CHAT_ADVANCEMENT_STATUS =
-  "one per uncertainty, with its status only as the evidence shows: resolved, resolved for the conditions tested, partially resolved or unresolved";
+  "one per uncertainty with a result, with its status only as the evidence shows: resolved, resolved for the conditions tested, partially resolved or unresolved";
 
 /**
  * Condensed reminder of the SR&ED report skeleton so the chat assistant keeps
@@ -1674,7 +1682,7 @@ export const SELF_CHECK_UNCERTAINTY_SCOPE_RULE =
  * Compare only: Summary mode has its own.
  */
 export const SELF_CHECK_NO_NOTES_RULE =
-  '\n- A sentence of the section that speaks about the source documents or what they lack ("The materials do not report...", "X is not stated.", "The client reports that...", or "... remains unconfirmed." said of what the evidence lacks) is a note to the writer written as report text: it is not allowed. Its repairGuidance asks to state what the work did and to put what is missing in one [GAP: ...], or the basis of an inference in its [INFERRED: ...] marker. A marker is not a sentence of the section: it may name a source.';
+  '\n- A sentence of the section that speaks about the source documents or what they lack ("The materials do not report...", "X is not stated.", "The client reports that...", or "... remains unconfirmed." said of what the evidence lacks) is a note to the writer written as report text: it is not allowed. Its repairGuidance asks to state what the work did and to put what is missing in one [GAP: ...], or the basis of an inference in its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note. A marker is not a sentence of the section: it may name a source.';
 
 /** The Self-check's system prompt, with the rules only Single draft and Compare send. */
 function selfCheckSystemPrompt(singleDraftRules: string): string {

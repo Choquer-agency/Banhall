@@ -17,12 +17,12 @@ import { NOTE_MARKER_RE } from "../convex/lib/lineLimits";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", small items): drafts copied
- * lowercase acronyms from the source ("cdc", "wal", "pvc") into report prose,
+ * lowercase acronyms from the source into report prose,
  * following the rule to use the client's own terms. Sent in RULES_HUMAN_PROSE
  * and in the Seed wording rules.
  */
 export const ACRONYM_RULE =
-  "Write an acronym in capitals (CDC, WAL, PVC) even where the source writes it in lowercase, except in a command, a file name or a code identifier.";
+  "Write an acronym in capitals (PLC, HVAC, PVC) even where the source writes it in lowercase, except in a command, a file name, a code identifier or a term with its own standard casing (pH, kWh, gRPC, iOS).";
 
 // Always-on. Not waivable: this is about not reading as AI-generated, which is
 // house policy rather than a style preference. It applies even when the
@@ -209,7 +209,7 @@ No talk about sources:
  * gap asks the client for it.
  */
 export const GENERAL_PRACTICE_SCOPE =
-  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line.";
+  "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write [GAP: which standard approaches the team knew of].";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", item 3): notes to the writer
@@ -222,7 +222,7 @@ export const GENERAL_PRACTICE_SCOPE =
  * clearest of them.
  */
 export const RULES_NO_NOTES_IN_REPORT_TEXT =
-  '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker.';
+  '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.';
 
 /**
  * 2026-10-30 (owner, "please fix all properly", small items): gaps asked

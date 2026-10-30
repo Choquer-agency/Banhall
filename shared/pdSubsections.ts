@@ -297,10 +297,12 @@ const ROLE_LANGUAGE = {
     qaScan: "overall advancement",
   },
   specific_advancements: {
-    // 2026-10-29 (third): one per uncertainty, resolved or not.
+    // 2026-10-29 (third): one per uncertainty, resolved or not. 2026-10-30,
+    // review round 1: one per uncertainty the evidence reports a result for;
+    // the rest share one paragraph (SECTION_246_NO_RESULT).
     draft:
-      "the specific technological advancements (one per uncertainty)",
-    qa: "the specific advancements (one per uncertainty)",
+      "the specific technological advancements (one per uncertainty the evidence reports a result for)",
+    qa: "the specific advancements (one per uncertainty the evidence reports a result for)",
     chat: "specific advancements",
     qaScan: "specific advancements",
   },
