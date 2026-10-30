@@ -346,7 +346,8 @@ describe("Line 242: the standard approach and why it falls short (3)", () => {
       expect(prompt).toContain("Every limitation must reference the knowledge gap, not the tool gap.");
     }
     expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(
-      "1. Name the standard approach or approaches a competent practitioner would reach for first, and say briefly what each does well."
+      // 2026-10-30, review round 1 (wording P3-9): what each does well, as the evidence states it.
+      "1. Name the standard approach or approaches a competent practitioner would reach for first, and say briefly what each does well, as the evidence states it; for general practice, only what it is and where it is used."
     );
     expect(SECTION_242_STANDARD_APPROACH_RULES).toContain("[INFERRED: general practice, not in the source: what the writer should confirm with the client]");
     expect(SECTION_242_STANDARD_APPROACH_RULES).toContain("Never say or suggest that the company tried a standard approach unless the evidence says so.");
@@ -698,7 +699,7 @@ describe("review round 1 of the third amendment", () => {
     // no result gets no paragraph of its own (convex/ai/oneUncertainty.test.ts).
     expect(SECTION_246_NOTHING_LEARNED_YET).toContain("this opening rule does not apply: it gets no advancement paragraph");
     expect(SECTION_246_ADVANCEMENT_RULES).toContain(
-      "GOOD (the evidence describes runs with one finding and reports no result yet; with no uncertainty resolved, this is the opening paragraph):"
+      "GOOD (the evidence reports no result for any uncertainty, so this is the opening paragraph):"
     );
     for (const overrides of [NO_STYLE_OVERRIDES, SHIPPED_DEFAULT]) {
       expect(buildSectionStructureRules(overrides)).toContain(`${CHAT_NOTHING_LEARNED})`);
@@ -800,10 +801,10 @@ describe("review round 2 of the third amendment", () => {
     // uncertainty gets no paragraph; the Line states the knowledge sought,
     // any finding and one gap, once (SECTION_246_NO_RESULT, tested in
     // convex/ai/oneUncertainty.test.ts). Still no invented status anywhere.
-    expect(SECTION_246_NO_RESULT).toContain("then one [GAP: ...] for the results and status, once in the Line");
+    expect(SECTION_246_NO_RESULT).toContain("then a single [GAP: ...] that asks for the results and status of all of them");
     expect(SECTION_246_NOTHING_LEARNED_YET).toContain("Where the evidence reports no result for an uncertainty, this opening rule does not apply");
     expect(SECTION_246_SELF_CHECK_EXCEPTION).toContain("never write one that leads with a finding the evidence does not give");
-    expect(SECTION_246_KNOWLEDGE_FIRST_EXCEPTION).toContain("the Line states the knowledge sought, any finding the evidence supports and one [GAP: ...] instead");
+    expect(SECTION_246_KNOWLEDGE_FIRST_EXCEPTION).toContain("one paragraph states the knowledge sought, any observation the evidence states and a single [GAP: ...] instead");
     // No example status for the model to copy.
     expect(SECTION_246_NOTHING_LEARNED_YET).not.toContain("still in progress");
     // The paragraph rules ("states what was learned about it") take the same exception.
@@ -823,20 +824,21 @@ describe("review round 2 of the third amendment", () => {
   it("P3-B: the line opens by restating the objective where nothing has been learned yet, and QA's note agrees", () => {
     // 2026-10-30 (owner, item 3): the opening is the knowledge sought, any finding and the Line's one gap.
     expect(SECTION_246_OVERALL_NOTHING_LEARNED).toContain(
-      " Where the evidence reports no result yet, open instead with the knowledge the work sought, then any finding the evidence supports, then one [GAP: ...] for the results and status"
+      " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for the results and status"
     );
+    // 2026-10-30, review round 1 (wording P2-5): after the opening's other sentences, which it replaces.
     expect(SECTION_246_OVERALL_ADVANCEMENT).toContain(
-      `was knowledge gained in methods for [what the work taught]."${SECTION_246_OVERALL_NOTHING_LEARNED} Then say how far`
+      `put one [GAP: ...] for the result.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back`
     );
     expect(QA_246_OPENING_NOTE).toBe(
-      "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports no result yet, with the knowledge the work sought, then any finding the evidence supports and one [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it."
+      "The opening paragraph of 246 SHOULD open with the advancement as knowledge gained in the field, or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it."
     );
   });
 
   it("P3-D: the report skeleton takes the no-finding exception, and the locked length rule applies at export", () => {
     // 2026-10-30 (owner, item 3): an uncertainty with no result gets no paragraph.
     expect(RULES_REPORT_SKELETON).toContain(
-      "each with its status only as the evidence shows; an uncertainty with no result gets no paragraph: the Line states what the work set out to learn, any finding the evidence supports and one gap for the results and status, once"
+      "each with its status only as the evidence shows; the uncertainties with no result share one paragraph after them: what the work set out to learn, any observation the evidence states and a single gap for the results and status"
     );
     const length = LOCKED_RULES.find((entry) => entry.title === "CRA form length limits");
     expect(length?.summary).toBe(

@@ -4,6 +4,8 @@ import {
   ANALYZER_GAPS_RULES,
   CLAIMANT_LINE,
   QA_NO_NOTES_IN_TEXT,
+  SECTION_246_STATUS_NO_RESULT,
+  SECTION_246_STATUS_WITH_RESULTS,
   SECTION_UNCERTAINTY_SCOPE,
   SELF_CHECK_NO_NOTES_RULE,
   SELF_CHECK_UNCERTAINTY_SCOPE_RULE,
@@ -33,9 +35,31 @@ import { FROZEN_SUMMARY_PLAN_SCAFFOLD } from "./lib/seedRevisions";
  *    at most once, and never in a kind of request that does not send it.
  */
 
-/** Each changed text, as sent now and as sent before ("" for a text added inside another). */
+/**
+ * Each changed text, as sent now and as sent before ("" for a text added
+ * inside another). Review round 1 changed four texts the honest drafting
+ * fixture swaps by their 2026-10-29 (third) wording, which is no longer
+ * sent, so these swaps put back the wording from before that amendment.
+ */
 export const ONE_UNCERTAINTY_SWAPS: ReadonlyArray<readonly [now: string, before: string]> = [
   [` ${ACRONYM_RULE}`, ""],
+  // Review round 1 (wording P1-2): one advancement paragraph per uncertainty with a result.
+  [
+    "(one paragraph per uncertainty from 242 that the evidence reports a result for):**",
+    "(one paragraph per resolved uncertainty):**",
+  ],
+  ["one per uncertainty the evidence reports a result for, never padded", "one per advancement it supports, never padded"],
+  [
+    "the specific technological advancements (one per uncertainty the evidence reports a result for)",
+    "the specific technological advancements (one per resolved uncertainty)",
+  ],
+  [
+    "the specific advancements (one per uncertainty the evidence reports a result for)",
+    "the specific advancements (one per resolved uncertainty)",
+  ],
+  // Review round 1 (wording P2-5): PROJECT STATUS's two branches.
+  [SECTION_246_STATUS_WITH_RESULTS, ""],
+  [` ${SECTION_246_STATUS_NO_RESULT}`, ""],
 ];
 
 /** Each fixed text added to an existing one, taken out again after its count is checked. */

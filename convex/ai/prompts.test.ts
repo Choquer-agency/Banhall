@@ -719,12 +719,13 @@ describe("2026-09-15 re-tiering: no paragraph counts, openers off by default", (
 
       const s246 = buildSection246SystemPrompt(overrides);
       expect(s246).toContain(
-        "Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per uncertainty), project status and next steps, project goal and improvements."
+        // 2026-10-30, review round 1 (wording P1-2): one advancement per uncertainty with a result.
+        "Line 246 must cover, in this order: overall advancement to science/technology, the specific technological advancements (one per uncertainty the evidence reports a result for), project status and next steps, project goal and improvements."
       );
       expect(s246).toContain("KNOWLEDGE FIRST, CAPABILITIES SECOND");
       expect(s246).toContain("SELF-CHECK FOR EVERY ADVANCEMENT PARAGRAPH");
-      expect(s246).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242):**");
-      expect(s246).toContain("one per uncertainty it supports, never padded to a count");
+      expect(s246).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242 that the evidence reports a result for):**");
+      expect(s246).toContain("one per uncertainty the evidence reports a result for, never padded to a count");
       expect(s246).toContain("**PROJECT GOAL & IMPROVEMENTS:**");
     }
   });

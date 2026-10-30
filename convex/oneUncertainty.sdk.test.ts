@@ -80,12 +80,13 @@ const REPAIRED_244 = [
   "[GAP: what the runs with the 30-second step showed]",
 ].join("\n\n");
 
-function payload(summaryVersionId?: Id<"summaryVersions">): OrderedPayload {
+function payload(summaryVersionId?: Id<"summaryVersions">, writerFlavor?: string): OrderedPayload {
   return {
     analysis: JSON.stringify(ANALYSIS),
     brainExemplars: { analyzer: "", s242: "", s244: "", s246: "" },
+    ...(writerFlavor ? { writerFlavor } : {}),
     orderedContext: {
-      profileState: "missing",
+      profileState: writerFlavor ? "applied" : "missing",
       categoryOutcomes: [],
       buildOrder: ["242", "244", "246"],
       selfCheckRules: [],
@@ -191,7 +192,7 @@ function installFetch(script: { draft: string; repair?: string; checks: unknown[
 async function draft(
   section: SectionNumber,
   claim: ReturnType<typeof claimFor>,
-  options: { summaryVersionId?: Id<"summaryVersions">; placeholders?: PlaceholderMap } = {}
+  options: { summaryVersionId?: Id<"summaryVersions">; placeholders?: PlaceholderMap; writerFlavor?: string } = {}
 ) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
@@ -203,7 +204,7 @@ async function draft(
       },
       { modelFor: () => SONNET }
     );
-    return await draftCheckedSection({ claim, payload: payload(options.summaryVersionId), section, clientFor });
+    return await draftCheckedSection({ claim, payload: payload(options.summaryVersionId, options.writerFlavor), section, clientFor });
   });
 }
 
@@ -267,6 +268,39 @@ describe("Single draft and Compare: the report's uncertainties, the claimant and
   });
 });
 
+// Review round 1 (plumbing P1-b): the notes check is a Locked Rule, so a
+// writer's required wording never keeps a note in the report.
+describe("a Locked notes repair outranks the writer's wording (real SDK, fetch stubbed)", () => {
+  const SETTINGS =
+    "## Glossary\n\nUse these exact terms. Never use the alternatives listed after each one.\n\n- transcript: the text the speech app writes from a call. Never write caption log or text dump.\n";
+  const NOTED = [
+    "The app labelled each speaker turn in long calls.",
+    "The transcript states that the labels drifted after twenty minutes.",
+  ].join("\n\n");
+  const FIXED = [
+    "The app labelled each speaker turn in long calls.",
+    "[GAP: how the labels behaved after twenty minutes]",
+  ].join("\n\n");
+
+  it("uses the repair that takes the note out, though it drops the writer's required term", async () => {
+    const sent = installFetch({ draft: NOTED, repair: FIXED, checks: [{ verdicts: [] }, { verdicts: [] }] });
+    const result = await draft("244", claimFor(), { writerFlavor: SETTINGS });
+    expect(sent.map((request) => request.stage)).toEqual(["section", "selfCheck", "repair", "finalCheck"]);
+    expect(sent[2]!.user).toContain(`- Paragraph 2: ${NOTES_TO_WRITER.fix} ("The transcript states"). ${NOTES_TO_WRITER.rule}`);
+    expect(result.draftText).toBe(FIXED);
+    expect(result.notes.find((row) => row.instruction === NOTES_TO_WRITER.instruction)).toMatchObject({
+      outcome: "applied",
+      tier: "locked",
+      reason: `${NOTES_TO_WRITER.applied}; repaired`,
+      repaired: true,
+    });
+    // The writer's term row says the repair took it out, and why it was kept.
+    expect(result.notes.find((row) => row.instruction === "Writer's term: transcript")?.reason).toBe(
+      'no banned synonym of "transcript"; the repair, kept for what it fixed (which outranks the writer\'s settings), removed the last use of "transcript", the writer\'s term'
+    );
+  });
+});
+
 describe("Step by step: the signed-off plan sets the scope (real SDK, fetch stubbed)", () => {
   it("sends the claimant line but no scope rule, no scope or notes Self-check rule and no uncertainty lists", async () => {
     const plan = plan244();
@@ -284,14 +318,14 @@ describe("Step by step: the signed-off plan sets the scope (real SDK, fetch stub
 });
 
 describe("the claimant's name is frozen at reservation, with the placeholder map", () => {
-  async function setup(placeholders?: "off") {
+  async function setup(placeholders?: "off", clientName = `  ${COMPANY} `) {
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
     const ids = await t.run(async (ctx) => {
       const writerId = await ctx.db.insert("users", { authId: "qa-claimant-writer", role: "writer", firstName: "Wren", lastName: "Writer" });
       const projectId = await ctx.db.insert("projects", {
         title: "Cold room control",
-        clientName: `  ${COMPANY} `,
+        clientName,
         status: "draft",
         createdBy: writerId,
         ownerId: writerId,
@@ -330,6 +364,23 @@ describe("the claimant's name is frozen at reservation, with the placeholder map
     const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
     expect(generation?.placeholders).toBeUndefined();
     expect((await f.t.query(internal.generations.getGenerationInput, { generationId: f.generationId }))?.claimantName).toBe(COMPANY);
+  });
+
+  // Review round 1 (plumbing P1-a): an empty map is not the switch being off.
+  it("with placeholders on, a name too short to hide is frozen but never sent", async () => {
+    const f = await setup(undefined, "AB");
+    const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    expect(generation?.claimantName).toBe("AB");
+    expect(generation?.placeholdersOff).toBeUndefined();
+    expect(generation?.placeholders ?? []).toEqual([]);
+    expect((await f.t.query(internal.generations.getGenerationInput, { generationId: f.generationId }))?.claimantName).toBeUndefined();
+  });
+
+  it("with placeholders off, the switch is frozen and even a short name is sent as written", async () => {
+    const f = await setup("off", "AB");
+    const generation = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    expect(generation?.placeholdersOff).toBe(true);
+    expect((await f.t.query(internal.generations.getGenerationInput, { generationId: f.generationId }))?.claimantName).toBe("AB");
   });
 
   it("a generation reserved before froze no name and sends no claimant line", async () => {

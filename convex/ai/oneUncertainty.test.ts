@@ -23,6 +23,7 @@ import {
   ANALYZER_COMPANY_AND_GOAL_CATEGORIES,
   ANALYZER_GAPS_RULES,
   ANALYZER_SYSTEM_PROMPT,
+  CHAT_ADVANCEMENT_STATUS,
   CHAT_NOTHING_LEARNED,
   CHAT_STANDARD_APPROACH,
   CLAIMANT_LINE,
@@ -44,6 +45,8 @@ import {
   SECTION_246_OVERALL_NOTHING_LEARNED,
   SECTION_246_SELF_CHECK_EXCEPTION,
   SECTION_246_STATUS_NO_RESULT,
+  SECTION_246_STATUS_WITH_RESULTS,
+  SECTION_246_RESULT_DEFINITION,
   SECTION_EVIDENCE_POINTER,
   SECTION_UNCERTAINTY_SCOPE,
   SELF_CHECK_NO_NOTES_RULE,
@@ -127,6 +130,9 @@ const NEW_TEXTS = {
   SECTION_246_NO_FINDING_PARAGRAPH,
   SECTION_246_OVERALL_NOTHING_LEARNED,
   SECTION_246_STATUS_NO_RESULT,
+  SECTION_246_STATUS_WITH_RESULTS,
+  SECTION_246_RESULT_DEFINITION,
+  CHAT_ADVANCEMENT_STATUS,
   SELF_CHECK_UNCERTAINTY_SCOPE_RULE,
   SELF_CHECK_NO_NOTES_RULE,
   QA_STANDARD_APPROACH_CHECK,
@@ -164,7 +170,9 @@ describe("one set of uncertainties for all three Lines (item 1)", () => {
       `These describe challenges in achieving the technological objective.${ANALYZER_CHOSEN_UNCERTAINTIES}\n\n7. **technological_objective**`
     );
     expect(ANALYZER_CHOSEN_UNCERTAINTIES).toBe(
-      `\n\n   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the two lists cover exactly those. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. work_performed, advancements_achieved and remaining_uncertainties then cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`
+      // Review round 1 (wording P2-7): the passive list keeps the limitations
+      // behind the chosen uncertainties, and work_performed keeps all the work.
+      `\n\n   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a number, choose the ones the source gives the most evidence of investigation for. work_performed keeps all the work done toward the chosen uncertainties, including work on other challenges met along the way; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`
     );
     expect(ANALYZER_SYSTEM_PROMPT.split(ANALYZER_CHOSEN_UNCERTAINTIES)).toHaveLength(2);
   });
@@ -237,7 +245,7 @@ describe("one set of uncertainties for all three Lines (item 1)", () => {
 describe("the claimant is named from the project record (item 2)", () => {
   it("builds one line from the company name, and none without one", () => {
     expect(claimantLine(COMPANY)).toBe(
-      "CLAIMANT: Quillmere Analytics Ltd.\nThis is the company that did the work and files this claim. Name it exactly as written here. Any other company the materials name, in a file name, a title or the text, is a customer, partner or supplier of the claimant, never the claimant: call it what the materials say it is, or leave it out."
+      "CLAIMANT: Quillmere Analytics Ltd.\nThis is the company that did the work and files this claim. Name it exactly as written here. Any other company the materials name, in a file name, a title or the text, other than a short form, trade name or former name of this company, is a customer, partner or supplier of the claimant, never the claimant: call it what the materials say it is, or leave it out."
     );
     expect(claimantLine("Cedarline  Systems")).toBe(`CLAIMANT: Cedarline Systems${CLAIMANT_LINE.rule}`);
     for (const none of [undefined, null, "", "   "]) {
@@ -247,18 +255,53 @@ describe("the claimant is named from the project record (item 2)", () => {
     expect(claimantBlock(COMPANY)).toBe(`\n\n${claimantLine(COMPANY)}`);
   });
 
-  it("uses the record's name only when the run's frozen map hides all of it", () => {
+  it("uses the record's name only when the run's frozen map hides all of it, or placeholders were switched off", () => {
     const map = buildPlaceholderMap({ clientName: COMPANY, companies: [], people: [] });
-    expect(claimantNameFor(COMPANY, map)).toBe(COMPANY);
-    expect(claimantNameFor(` ${COMPANY} `, map)).toBe(COMPANY);
+    expect(claimantNameFor(COMPANY, map, undefined)).toBe(COMPANY);
+    expect(claimantNameFor(` ${COMPANY} `, map, undefined)).toBe(COMPANY);
     // Renamed after the map froze: the new name is not hidden, so no line.
-    expect(claimantNameFor("Quillmere Robotics Inc.", map)).toBeUndefined();
-    expect(claimantNameFor("Cedarline Systems", map)).toBeUndefined();
-    // Placeholders switched off: every name is sent as written.
-    expect(claimantNameFor(COMPANY, [])).toBe(COMPANY);
-    expect(claimantNameFor(COMPANY, undefined)).toBe(COMPANY);
-    expect(claimantNameFor("", map)).toBeUndefined();
-    expect(claimantNameFor(undefined, map)).toBeUndefined();
+    expect(claimantNameFor("Quillmere Robotics Inc.", map, undefined)).toBeUndefined();
+    expect(claimantNameFor("Cedarline Systems", map, undefined)).toBeUndefined();
+    // Placeholders switched off at reservation: every name is sent as written.
+    expect(claimantNameFor(COMPANY, [], true)).toBe(COMPANY);
+    expect(claimantNameFor(COMPANY, undefined, true)).toBe(COMPANY);
+    expect(claimantNameFor("", map, undefined)).toBeUndefined();
+    expect(claimantNameFor(undefined, map, true)).toBeUndefined();
+  });
+
+  // Review round 1 (plumbing P1-a): an empty map is not the switch being off,
+  // and what is left of a partly hidden name is not hidden.
+  it("never sends a name the map leaves empty or hides in part", () => {
+    const short = buildPlaceholderMap({ clientName: "AB", companies: [], people: [] });
+    expect(short).toEqual([]);
+    expect(claimantNameFor("AB", short, undefined)).toBeUndefined();
+    expect(claimantNameFor("AB", short, false)).toBeUndefined();
+    expect(claimantNameFor("AB", [], undefined)).toBeUndefined();
+    const part = buildPlaceholderMap({ clientName: "Quillmere", companies: [], people: [] });
+    expect(pseudonymize("Quillmere 42", part)).toBe("[CLIENT_1] 42");
+    expect(claimantNameFor("Quillmere 42", part, undefined)).toBeUndefined();
+    expect(claimantNameFor("Quillmere-42", part, undefined)).toBeUndefined();
+    expect(claimantNameFor("Quillmere", part, undefined)).toBe("Quillmere");
+  });
+
+  it("sends no claimant line to the provider for a name too short or partly hidden", async () => {
+    for (const [name, map] of [
+      ["AB", buildPlaceholderMap({ clientName: "AB", companies: [], people: [] })],
+      ["Quillmere 42", buildPlaceholderMap({ clientName: "Quillmere", companies: [], people: [] })],
+    ] as const) {
+      const sent: string[] = [];
+      const create = vi.fn(async (params: { system?: string; messages: Array<{ content: Array<{ text: string }> }> }) => {
+        sent.push(params.system ?? "", ...params.messages.flatMap((message) => message.content.map((block) => block.text)));
+        return { content: [{ type: "text", text: "Drafted." }], stop_reason: "end_turn" };
+      });
+      const client = withPlaceholders({ messages: { create } } as unknown as GenerationClient, map);
+      const analysis = { company_context: "A fictional maker of packaging lines" } as unknown as TranscriptAnalysis;
+      await runSection242Agent(client, analysis, "claude-sonnet-5", "", "", "", undefined, "", "", claimantNameFor(name, map, undefined));
+      const request = sent.join("\n");
+      expect(request).not.toContain(CLAIMANT_LINE.prefix);
+      expect(request).not.toMatch(/\bAB\b/);
+      expect(request).not.toMatch(/\b42\b/);
+    }
   });
 
   it("the analyzer reads it after the transcript block, and its company line names the claimant", () => {
@@ -339,7 +382,7 @@ describe("the claimant is named from the project record (item 2)", () => {
 
   it("reaches the model as its placeholder and comes back as the name, bare token too (decision 26)", async () => {
     const map = buildPlaceholderMap({ clientName: COMPANY, companies: ["Northbay Retail"], people: [] });
-    const name = claimantNameFor(COMPANY, map);
+    const name = claimantNameFor(COMPANY, map, undefined);
     expect(name).toBe(COMPANY);
     const line = claimantLine(name);
     expect(pseudonymize(line, map)).toBe(`CLAIMANT: [CLIENT_1]${CLAIMANT_LINE.rule}`);
@@ -347,19 +390,33 @@ describe("the claimant is named from the project record (item 2)", () => {
     const create = vi.fn(async (params: { system?: string; messages: Array<{ content: Array<{ text: string }> }> }) => {
       sent.push(params.system ?? "", ...params.messages.flatMap((message) => message.content.map((block) => block.text)));
       return {
-        content: [{ type: "text", text: "[CLIENT_1] is a software firm that builds data tools. CLIENT_1 hosts the systems of [CLIENT_2]." }],
+        content: [{ type: "text", text: "[CLIENT_1] is a maker of packaging lines. CLIENT_1 services the lines of [CLIENT_2]." }],
         stop_reason: "end_turn",
       };
     });
     const client = withPlaceholders({ messages: { create } } as unknown as GenerationClient, map);
-    const analysis = { company_context: "Northbay Retail order data" } as unknown as TranscriptAnalysis;
+    const analysis = { company_context: "Northbay Retail packaging lines" } as unknown as TranscriptAnalysis;
     const text = await runSection242Agent(client, analysis, "claude-sonnet-5", "", "", "", undefined, "", "", name);
     const request = sent.join("\n");
     expect(request).toContain(`CLAIMANT: [CLIENT_1]${CLAIMANT_LINE.rule}`);
     expect(request).not.toContain("Quillmere");
     expect(request).not.toContain("Northbay");
-    expect(text).toBe("Quillmere Analytics Ltd. is a software firm that builds data tools. Quillmere Analytics Ltd. hosts the systems of Northbay Retail.");
+    expect(text).toBe("Quillmere Analytics Ltd. is a maker of packaging lines. Quillmere Analytics Ltd. services the lines of Northbay Retail.");
     expect(restorePlaceholders("CLIENT_1", map)).toBe(COMPANY);
+  });
+
+  // Review round 1 (wording P2-8): the claimant's short forms are hidden as
+  // forms of the same placeholder, and the line says a short form, trade
+  // name or former name is this company, not another one.
+  it("hides and restores the claimant's short forms as forms of its own placeholder", () => {
+    expect(CLAIMANT_LINE.rule).toContain(
+      "Any other company the materials name, in a file name, a title or the text, other than a short form, trade name or former name of this company, is a customer, partner or supplier of the claimant"
+    );
+    const map = buildPlaceholderMap({ clientName: COMPANY, companies: ["Northbay Retail"], people: [] });
+    const text = "Quillmere Analytics Ltd. (Quillmere Analytics, or just Quillmere) runs packaging lines for Northbay Retail.";
+    const masked = pseudonymize(text, map);
+    expect(masked).toBe("[CLIENT_1] ([CLIENT_1_SHORT], or just [CLIENT_1_FIRST]) runs packaging lines for [CLIENT_2].");
+    expect(restorePlaceholders(masked, map)).toBe(text);
   });
 });
 
@@ -368,7 +425,11 @@ describe("the claimant is named from the project record (item 2)", () => {
 describe("Line 242: the reason the standard approach falls short comes from the evidence (item 3)", () => {
   it("general practice only names the approach, once, and a gap asks for a missing reason", () => {
     expect(GENERAL_PRACTICE_SCOPE).toBe(
-      "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line."
+      "The marker covers only what the approach is and where it is generally used. Never explain how it works on this kind of problem or how it would handle it: that argues against the uncertainty. Why it falls short here must come from stated facts about this project; where the evidence gives no reason, write one [GAP: why the standard approach does not work here] instead, never a general-practice sentence that supplies or suggests a reason. Never put a fact about this project, its conditions or its work in a general-practice sentence. Write at most one general-practice sentence in a Line. For any further limitation with no standard approach in the evidence, write [GAP: which standard approaches the team knew of]."
+    );
+    // Review round 1 (wording P3-9): step 1 agrees with the general-practice limits.
+    expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(
+      "1. Name the standard approach or approaches a competent practitioner would reach for first, and say briefly what each does well, as the evidence states it; for general practice, only what it is and where it is used."
     );
     for (const text of [RULES_EVIDENCE_KINDS, SECTION_242_STANDARD_APPROACH_RULES]) expect(text).toContain(GENERAL_PRACTICE_SCOPE);
     expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(
@@ -399,24 +460,36 @@ describe("Line 242: the reason the standard approach falls short comes from the 
 
 describe("Line 246: the knowledge sought, any finding and one gap where there is no result (item 3)", () => {
   it("an uncertainty with no result gets no paragraph, one gap for the Line, one sentence on what is open", () => {
+    // Review round 1 (wording P2-3): one paragraph for every such
+    // uncertainty, a single gap for all of them, after the advancement
+    // paragraphs or as the opening; (P2-4) only an observation the evidence
+    // states, and what a result is.
     expect(SECTION_246_NO_RESULT).toBe(
-      "it gets no paragraph of its own. State the knowledge the work sought, then any finding the evidence does support (stated, or marked as an inference), then one [GAP: ...] for the results and status, once in the Line for every such uncertainty; when no uncertainty has a result, this is the opening paragraph. Write at most one sentence on what remains open, and never restate Line 242's uncertainty or Line 244's work"
+      "it gets no paragraph of its own. Cover every such uncertainty together in one paragraph: the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] that asks for the results and status of all of them. Put that paragraph after the advancement paragraphs; when no uncertainty has a result, it is the opening paragraph. Write at most one sentence in it on what remains open, and do not repeat Line 242's reasons for the uncertainty or Line 244's work"
+    );
+    expect(SECTION_246_RESULT_DEFINITION).toBe(
+      "An uncertainty has a result when the evidence states something the work showed about it, in whole or in part; that uncertainty gets its own paragraph."
     );
     expect(SECTION_246_NO_FINDING_PARAGRAPH).toBe(
-      ` These paragraphs are for the uncertainties the evidence reports a result for. Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`
+      ` These paragraphs are for the uncertainties the evidence reports a result for. ${SECTION_246_RESULT_DEFINITION} Where the evidence reports no result for an uncertainty, ${SECTION_246_NO_RESULT}.`
     );
     expect(SECTION_246_ADVANCEMENT_RULES).toContain(SECTION_246_NO_FINDING_PARAGRAPH);
-    expect(SECTION_246_ADVANCEMENT_RULES).toContain(`\n\n${SECTION_246_STATUS_NO_RESULT}\n\n`);
     expect(SECTION_246_ADVANCEMENT_RULES).toContain("Where the evidence gives a finding but not the whole result, state what it does establish");
-    expect(SECTION_246_OVERALL_ADVANCEMENT).toContain(SECTION_246_OVERALL_NOTHING_LEARNED);
-    expect(SECTION_246_OVERALL_NOTHING_LEARNED).toContain("that one gap also covers the hypothesis and how far the objective was met, so the Line asks for them nowhere else");
-    // The old per-paragraph exception is gone everywhere.
+    // (P2-5) the opening's no-result branch comes after its other sentences and replaces them.
+    expect(SECTION_246_OVERALL_NOTHING_LEARNED).toBe(
+      " Where the evidence reports no result for any uncertainty, write none of the above: open instead with the knowledge the work sought, then any observation the evidence states, then a single [GAP: ...] for the results and status, which also covers the hypothesis and how far the objective was met."
+    );
+    expect(SECTION_246_OVERALL_ADVANCEMENT).toContain(
+      `where it does not, put one [GAP: ...] for the result.${SECTION_246_OVERALL_NOTHING_LEARNED} This ties back directly to Section 242.`
+    );
+    // The old per-paragraph exception and inferred findings are gone everywhere.
     for (const text of [SECTION_246_ADVANCEMENT_RULES, SECTION_246_NOTHING_LEARNED_YET, SECTION_246_KNOWLEDGE_FIRST_EXCEPTION, SECTION_246_SELF_CHECK_EXCEPTION, QA_NOTHING_LEARNED_YET, CHAT_NOTHING_LEARNED, RULES_REPORT_SKELETON]) {
       expect(text).not.toContain("opens with the uncertainty and its status");
+      expect(text).not.toContain("marked as an inference");
     }
-    expect(SECTION_246_ADVANCEMENT_RULES).not.toContain("the work was still in progress at year end. [GAP: what has been learned about it so far]");
+    expect(SECTION_246_ADVANCEMENT_RULES).not.toContain("The first runs showed");
     expect(SECTION_246_ADVANCEMENT_RULES).toContain(
-      'GOOD (the evidence describes runs with one finding and reports no result yet; with no uncertainty resolved, this is the opening paragraph):\n"The work sought knowledge of how to hold a cold room within a degree of its setpoint while a dock door stays open. The first runs showed the room drifting up to 6 degrees above setpoint during long openings. [GAP: what the later runs showed, and where the work stood at year end]"'
+      'GOOD (the evidence reports no result for any uncertainty, so this is the opening paragraph):\n"The work sought knowledge of how to hold a cold room within a degree of its setpoint while a dock door stays open. [GAP: what the runs with the shorter control step showed, and where the work stood at year end]"'
     );
     for (const overrides of DEFAULT_BUILDS) {
       const prompt = buildSection246Instructions(overrides);
@@ -424,17 +497,35 @@ describe("Line 246: the knowledge sought, any finding and one gap where there is
         expect(prompt).toContain(text);
       }
       expect(prompt.split(SECTION_246_NO_RESULT)).toHaveLength(2);
+      // (P2-5) PROJECT STATUS has a branch for each case; (P1-2) one paragraph per uncertainty with a result.
+      expect(prompt).toContain(
+        `**PROJECT STATUS & NEXT STEPS:**\n${SECTION_246_STATUS_WITH_RESULTS}Be specific about what is still unknown and WHY it remains uncertain.`
+      );
+      expect(prompt).toContain(`Describe the planned approach for the next fiscal period. ${SECTION_246_STATUS_NO_RESULT}\n`);
+      expect(prompt).toContain("**TECHNOLOGICAL ADVANCEMENTS (one paragraph per uncertainty from 242 that the evidence reports a result for):**");
+      expect(prompt).toContain("one per uncertainty the evidence reports a result for, never padded to a count");
+      expect(prompt).toContain("the specific technological advancements (one per uncertainty the evidence reports a result for)");
     }
+    expect(SECTION_246_STATUS_NO_RESULT).toBe(
+      "Where no uncertainty has a result, add only the next period's plan, as the evidence gives it: the single gap above already asks for the status."
+    );
+    expect(buildQaSystemPrompt()).toContain("the specific advancements (one per uncertainty the evidence reports a result for)");
+    expect(CHAT_ADVANCEMENT_STATUS).toBe(
+      "one per uncertainty with a result, with its status only as the evidence shows: resolved, resolved for the conditions tested, partially resolved or unresolved"
+    );
   });
 
   it("QA and the Assistant say the same, and QA flags the repetition", () => {
-    expect(QA_NOTHING_LEARNED_YET).toContain("Flag a paragraph for each uncertainty that only says it is still open, more than one sentence on what remains open, and Line 242's uncertainty or Line 244's work restated in Line 246.");
-    expect(QA_246_OPENING_NOTE).toContain("or, where the evidence reports no result yet, with the knowledge the work sought, then any finding the evidence supports and one [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it.");
+    // Review round 1 (wording P2-6): the flags are scoped to the shared paragraph.
+    expect(QA_NOTHING_LEARNED_YET).toContain(
+      "In the paragraph that covers the uncertainties with no result, flag more than one sentence on what remains open, and a repeat of Line 242's reasons for the uncertainty or of Line 244's work. Naming the uncertainty in a few words, as 'In addressing the uncertainty around X' does, is not a repeat."
+    );
+    expect(QA_246_OPENING_NOTE).toContain("or, where the evidence reports no result for any uncertainty, with the knowledge the work sought, then any observation the evidence states and a single [GAP: ...] for the results and status. Do NOT apply the advancement-paragraph opener rule to it.");
     expect(buildQaSystemPrompt()).toContain(QA_246_OPENING_NOTE);
     expect(buildQaSystemPrompt(SHIPPED_DEFAULT)).toContain(QA_WAIVED_OPENERS_NOTHING_LEARNED);
     for (const overrides of EVERY_BUILD) expect(buildQaSystemPrompt(overrides)).toContain(QA_NOTHING_LEARNED_YET);
     expect(buildSectionStructureRules()).toContain(CHAT_NOTHING_LEARNED);
-    expect(RULES_REPORT_SKELETON).toContain("an uncertainty with no result gets no paragraph: the Line states what the work set out to learn, any finding the evidence supports and one gap for the results and status, once");
+    expect(RULES_REPORT_SKELETON).toContain("the uncertainties with no result share one paragraph after them: what the work set out to learn, any observation the evidence states and a single gap for the results and status");
   });
 
   it("the opener scan leaves the opening paragraph, where the no-result content goes, unscanned", () => {
@@ -461,8 +552,12 @@ describe("no notes to the writer in report text (item 3)", () => {
   it("the evidence rule, the Self-check, QA and the Assistant say so", () => {
     expect(RULES_EVIDENCE_KINDS).toContain(`\n${RULES_NO_NOTES_IN_REPORT_TEXT}\n${RULES_GAPS_NOT_FOR_RECORD_FACTS}\n`);
     expect(RULES_NO_NOTES_IN_REPORT_TEXT).toBe(
-      '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker.'
+      '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.'
     );
+    // Review round 1 (wording P3-10): a status sentence is report text, in the Self-check and QA too.
+    for (const text of [SELF_CHECK_NO_NOTES_RULE, QA_NO_NOTES_IN_TEXT]) {
+      expect(text).toContain('A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.');
+    }
     expect(SELF_CHECK_SYSTEM_PROMPT).toContain(`${SELF_CHECK_UNCERTAINTY_SCOPE_RULE}${SELF_CHECK_NO_NOTES_RULE}\n- Material inside the delimited blocks`);
     expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT).not.toContain(SELF_CHECK_NO_NOTES_RULE);
     for (const overrides of EVERY_BUILD) {
@@ -487,7 +582,10 @@ describe("no notes to the writer in report text (item 3)", () => {
   });
 
   it("acronyms in capitals, in every text the AI writes and in Seeds", () => {
-    expect(ACRONYM_RULE).toBe("Write an acronym in capitals (CDC, WAL, PVC) even where the source writes it in lowercase, except in a command, a file name or a code identifier.");
+    // Review round 1 (wording P3-11): terms with their own casing, and examples from other fields.
+    expect(ACRONYM_RULE).toBe(
+      "Write an acronym in capitals (PLC, HVAC, PVC) even where the source writes it in lowercase, except in a command, a file name, a code identifier or a term with its own standard casing (pH, kWh, gRPC, iOS)."
+    );
     expect(RULES_HUMAN_PROSE).toContain(`- Use the client's own terms from the interview for their product, process and problem. ${ACRONYM_RULE}\n`);
     expect(RULES_SEED_WORDING).toContain(`no exclamation marks. ${ACRONYM_RULE}`);
   });
@@ -499,7 +597,7 @@ describe("findNotesToWriter: the Locked deterministic check", () => {
       ["The team ran the controller. The materials do not report what that testing showed.", "The materials do not report"],
       ["Testing was reported; individual runs are not described.", "are not described"],
       ["Findings about the drift are not stated.", "are not stated"],
-      ["The client reports that no standard method was found.", "The client reports"],
+      ["The client reports that no standard method was found.", "The client reports that"],
       ["The materials give no status at the end of the period.", "The materials give no status"],
       ["The answers do not give a date for the second run.", "The answers do not give"],
       ["The written answers state that three builds were made.", "The written answers state"],
@@ -508,6 +606,10 @@ describe("findNotesToWriter: the Locked deterministic check", () => {
       ["The source files do not mention a rollback.", "The source files do not mention"],
       ["The materials provided do not describe the setup.", "The materials provided do not describe"],
       ["The client did not say which alloy was used.", "The client did not say"],
+      ["The interview responses do not describe the second run.", "The interview responses do not describe"],
+      ["The client said the second line was rebuilt in May.", "The client said"],
+      ["The client noted that the jams stopped after the change.", "The client noted that"],
+      ["The second run's result was not reported.", "was not reported"],
     ];
     for (const [text, phrase] of notes) expect([text, findNotesToWriter(text).map((hit) => hit.phrase)]).toEqual([text, [phrase]]);
   });
@@ -517,8 +619,8 @@ describe("findNotesToWriter: the Locked deterministic check", () => {
       "The method is not described in published literature.",
       "Published studies report results for closed rooms only.",
       "The vendor datasheet does not state the limit for this alloy.",
-      "The company replicates a client's production databases to a standby site.",
-      "A client reported lag on its own database before the work began.",
+      "The company maintains a client's packaging lines at two plants.",
+      "A client reported a jam on its own packaging line before the work began.",
       "The materials showed cracking after 400 cycles.",
       "The materials do not show signs of corrosion.",
       "The materials give no sign of fatigue after 400 cycles.",
@@ -528,6 +630,28 @@ describe("findNotesToWriter: the Locked deterministic check", () => {
       "The drift was not measured during the first runs.",
       "The team ran three builds. [GAP: what the materials report about the third build]",
       "The rate held. [INFERRED: the transcript says the rate held in two runs]",
+    ];
+    for (const text of clean) expect([text, findNotesToWriter(text)]).toEqual([text, []]);
+  });
+
+  // Review round 1 (wording P1): good technical prose the first version
+  // flagged, in fictional domains (a message broker, a PLC, a speech app).
+  it("leaves technical prose about sources, clients, responses and specifications alone", () => {
+    const clean = [
+      "The sources do not provide a global ordering of messages across topics.",
+      "The sources record every message in their own commit logs.",
+      "The sources confirm each message before the broker stores it.",
+      "The responses state the valve position in percent.",
+      "The client confirms each batch before the broker advances its read position.",
+      "The client did not confirm the frame within the timeout.",
+      "The client records each reading before the PLC moves to its next scan.",
+      "The responses did not show any overshoot after the PLC was retuned.",
+      "The responses indicated a lag of two seconds at the second pump.",
+      "The behaviour of the PLC scan cycle under a full I/O load is not documented.",
+      "The order of alarms across the two PLCs is not specified.",
+      "The default gain was not given for the second pump.",
+      "The transcripts did not show speaker labels.",
+      "The transcripts record each speaker turn with its start time.",
     ];
     for (const text of clean) expect([text, findNotesToWriter(text)]).toEqual([text, []]);
   });

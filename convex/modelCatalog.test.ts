@@ -1197,9 +1197,16 @@ describe("prompt versions", () => {
     // Line 244's work in full, Line 246's rule for no result, QA's notes
     // and Line 246 lines, the evidence and human prose rules and the Seed
     // version move on purpose; before it they were sha256:e0daa1ce... and
-    // sha256:8d059f84....
-    expect(await hashPromptProgram()).toBe("sha256:2510d1dd01fc45708f3c6b6ba0aeeac483db5fc736bd68684285bedb754ea7fc");
-    expect(await legacyPromptVersion()).toBe("sha256:53813edf0154c25e9adae592f5359494f981be71635f1a46e8ee3a82d0c2ddc6");
+    // sha256:8d059f84.... Re-read after its review round 1: Line 246's
+    // shared paragraph for uncertainties with no result, its result
+    // definition, PROJECT STATUS's two branches and the count and role lists
+    // per uncertainty with a result, the analyzer's lists, the claimant
+    // line's short forms, Line 242's step 1 and further limitations, the
+    // status sentence in the notes rules, QA's scoped flags and the acronym
+    // rule move on purpose; before it they were sha256:2510d1dd... and
+    // sha256:53813edf....
+    expect(await hashPromptProgram()).toBe("sha256:f8a27d21d48bf74aec98085e8dcd478886a6aaf7684248fa846cfe98d13e3995");
+    expect(await legacyPromptVersion()).toBe("sha256:55a62e9a3ee41012d589a86a8883331cffb40e7bd55dfee3f1a8240ea47e48e1");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });
