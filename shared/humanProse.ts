@@ -231,7 +231,7 @@ export const RULES_NO_NOTES_IN_REPORT_TEXT =
  * rerun (R7): within a Line, each missing fact is asked once.
  */
 export const RULES_GAPS_NOT_FOR_RECORD_FACTS =
-  "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.\n- Within a Line, ask each missing fact once: a paragraph asks each missing fact once, and a later gap never repeats an earlier one.";
+  "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.\n- Within a Line, ask each missing fact once: one gap per missing fact, and a later gap never repeats what an earlier gap in the Line asks.";
 
 export const RULES_EVIDENCE_KINDS = `STATED, INFERRED OR MISSING (MANDATORY in the report text):
 Every claim you write in a report Line is one of three kinds. Decide which before you write it.

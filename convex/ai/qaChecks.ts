@@ -94,10 +94,15 @@ export interface BecauseClauseResult {
  * Review round 4 (A2): sentence ends that are not abbreviations ("Acme Inc.",
  * "e.g.", "No. 4") or initials ("J. Ortiz"), with a [GAP: ...] or
  * [INFERRED: ...] marker read as one unit, so a full stop inside it never
- * ends a sentence.
+ * ends a sentence. Review round 5 (P3-2): an abbreviation or a single capital
+ * still ends the sentence when a common sentence opener follows ("under load
+ * B. The rig ran...", "from Acme Inc. The team..."); "A" followed by a full
+ * stop is another initial ("J. A. Ortiz"), not an opener.
  */
 const ABBREVIATION_END = /\b(?:inc|ltd|co|corp|e\.g|i\.e|etc|vs|no|nos|fig|dr|mr|mrs|ms|st|approx)\.$/i;
 const INITIAL_END = /(?:^|\s)\p{Lu}\.$/u;
+const SENTENCE_OPENER =
+  /^\s+(?:The|This|These|Those|It|Its|A|An|Because|Given|We|Our|In|For|When|After|Before|During)\b(?!\.)/;
 
 function sentencesOf(paragraph: string): string[] {
   // Marker text never holds a sentence end: its punctuation is masked,
@@ -110,7 +115,7 @@ function sentencesOf(paragraph: string): string[] {
   while ((match = boundary.exec(masked)) !== null) {
     const end = match.index + 1;
     const piece = masked.slice(start, end);
-    if (ABBREVIATION_END.test(piece) || INITIAL_END.test(piece)) continue;
+    if ((ABBREVIATION_END.test(piece) || INITIAL_END.test(piece)) && !SENTENCE_OPENER.test(masked.slice(end))) continue;
     sentences.push(paragraph.slice(start, end));
     const rest = /\s+/y;
     rest.lastIndex = end;
@@ -123,10 +128,11 @@ function sentencesOf(paragraph: string): string[] {
 
 /**
  * Review round 4 (wording P2-1): a [GAP: ...] stands in for the cause only
- * when it asks for a reason.
+ * when it asks for a reason. Review round 5 (P3-3): whole words only, so "a
+ * reasonable cycle count" asks for no reason.
  */
-const REASON_GAP = /\[GAP:[^\]]*\b(?:why|reason|cause)/i;
-const NEXT_SENTENCE_CAUSE = /^(?:\[GAP:[^\]]*\b(?:why|reason|cause)|because\b|this\s+(?:is|was)\s+because\b|given\s+that\b)/i;
+const REASON_GAP = /\[GAP:[^\]]*\b(?:why|reasons?|caus(?:e|es|ed))\b/i;
+const NEXT_SENTENCE_CAUSE = /^(?:\[GAP:[^\]]*\b(?:why|reasons?|caus(?:e|es|ed))\b|because\b|this\s+(?:is|was)\s+because\b|given\s+that\b)/i;
 
 export function checkBecauseClauses(section242Text: string): BecauseClauseResult {
   const paragraphs = section242Text.split(/\n\n+/).filter((p) => p.trim());

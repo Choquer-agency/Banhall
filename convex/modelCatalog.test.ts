@@ -1225,9 +1225,13 @@ describe("prompt versions", () => {
     // 244's hypothesis form, gaps once in a Line, PROJECT STATUS's prefix and
     // status rule, the goal close, the first Good example and the
     // Self-check's attribution rule move on purpose; before it they were
-    // sha256:6352e9e6... and sha256:e0489c96....
-    expect(await hashPromptProgram()).toBe("sha256:11c95142d0f935a5ab46c25c637dbe6417126e201ef1e03583c0274614194e57");
-    expect(await legacyPromptVersion()).toBe("sha256:17d46e4522af908219c25592dc59b8dd61aba6b0674f23e0c88aaf88c6ec7e18");
+    // sha256:6352e9e6... and sha256:e0489c96.... Re-read after its review
+    // round 5: the Self-check's attribution rule (unresolved or unreliable
+    // only), the analyzer's and the Storyline's rule for each chosen
+    // uncertainty and gaps once in a Line move on purpose; before it they
+    // were sha256:11c95142... and sha256:17d46e45....
+    expect(await hashPromptProgram()).toBe("sha256:581fa26ac7e878de48ad703236edeec0313e454f87d662f1834908a10766cfa1");
+    expect(await legacyPromptVersion()).toBe("sha256:11b83359e0b314b83e63d02d063acd84543cdc64e06d49083574a527e66bf014");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

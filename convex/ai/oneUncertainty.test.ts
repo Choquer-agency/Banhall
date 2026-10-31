@@ -188,7 +188,7 @@ describe("one set of uncertainties for all three Lines (item 1)", () => {
     expect(ANALYZER_CHOSEN_UNCERTAINTIES).toBe(
       // Review round 1 (wording P2-7): the passive list keeps the limitations
       // behind the chosen uncertainties, and work_performed keeps all the work.
-      `\n\n   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a count (for example "one main uncertainty") and do not name which, choose the ones the source gives the most evidence of investigation for, and state each as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them: the related challenges become parts of it, and a challenge unrelated to it stays out of the lists. State it as specifically as the evidence allows (the technical question, the conditions, why standard practice does not answer it), never as the project goal. work_performed keeps all the work done toward the chosen uncertainties, including work on the challenges that are parts of them and on other challenges met along the way, with their validation checks, thresholds and measurements; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`
+      `\n\n   passive_uncertainties and active_uncertainties are the report's uncertainties, chosen here once for all three Lines. When the writer's notes say which uncertainties the report covers, or how many (for example "one main uncertainty"), the active list holds exactly those, and the passive list keeps the limitations of standard practice behind them. When the notes give only a count (for example "one main uncertainty") and do not name which, choose the ones the source gives the most evidence of investigation for, and state each as the underlying technological problem its related challenges share, not the narrowest of them (for a count of one, the one question the work set out to answer): its related challenges become parts of it, and a challenge related to no chosen uncertainty stays out of the lists. State each as specifically as the evidence allows (the technical question, the conditions, why standard practice does not answer it), never as the project goal. work_performed keeps all the work done toward the chosen uncertainties, including work on the challenges that are parts of them and on other challenges met along the way, with their validation checks, thresholds and measurements; advancements_achieved and remaining_uncertainties cover only the chosen uncertainties. Another technical challenge the source names may appear only as part of the work on a chosen uncertainty, never as an uncertainty of its own. With no such note, list every uncertainty the source supports.`
     );
     expect(ANALYZER_SYSTEM_PROMPT.split(ANALYZER_CHOSEN_UNCERTAINTIES)).toHaveLength(2);
   });
@@ -610,7 +610,7 @@ describe("no notes to the writer in report text (item 3)", () => {
 
   it("gaps never ask for the fiscal year, the dates, costs or hours, in drafts, the analysis or QA", () => {
     expect(RULES_GAPS_NOT_FOR_RECORD_FACTS).toBe(
-      "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.\n- Within a Line, ask each missing fact once: a paragraph asks each missing fact once, and a later gap never repeats an earlier one."
+      "- A [GAP: ...] never asks for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.\n- Within a Line, ask each missing fact once: one gap per missing fact, and a later gap never repeats what an earlier gap in the Line asks."
     );
     expect(ANALYZER_GAPS_RULES).toContain("Never list as a gap what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.");
     expect(QA_GAPS_ONCE).toContain("Never ask for what the project record or the T661 form's other fields hold: the fiscal year, the project's start or end date, costs or hours.");
@@ -795,8 +795,9 @@ describe("the pinned-request fixture", () => {
 describe("after the live rerun: no hedge by attribution (R1)", () => {
   it("the Single draft and Compare Self-check fails an attribution hedge, as Summary mode does; the repair is told the same", () => {
     expect(SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE).toBe(
-      // Review round 4 (wording P3-8): only for a fact that needs a hedge.
-      "\n- Where a fact needs a hedge (its Confidence Map entry is partial, unresolved or unreliable), the hedge states the uncertainty or the range itself. A sentence that names where such a fact came from (the client, the company, the team, an interviewee, an interview, a document, or the claimant by name) is not a hedge: fail it like a flat claim. For a confidence verdict that is not applied, repairGuidance asks for the uncertainty itself, or for one [GAP: ...] or [INFERRED: ...] marker, never for a source or an attribution."
+      // Review round 4 (wording P3-8): only for a fact that needs a hedge;
+      // review round 5 (P2-1): the same entries check 2 fails a flat claim for.
+      "\n- Where a fact needs a hedge (its Confidence Map entry is unresolved or unreliable), the hedge states the uncertainty or the range itself. A sentence that names where such a fact came from (the client, the company, the team, an interviewee, an interview, a document, or the claimant by name) is not a hedge: fail it like a flat claim. For a confidence verdict that is not applied, repairGuidance asks for the uncertainty itself, or for one [GAP: ...] or [INFERRED: ...] marker, never for a source or an attribution."
     );
     expect(SELF_CHECK_SYSTEM_PROMPT.split(SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE)).toHaveLength(2);
     expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT).not.toContain(SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE);
@@ -856,8 +857,9 @@ describe("after the live rerun: no hedge by attribution (R1)", () => {
 describe("after the live rerun: one underlying uncertainty, in the analysis and the Storyline (R2)", () => {
   it("the Brief's Storyline frames the one main uncertainty as the shared problem", () => {
     expect(BRIEF_STORYLINE_MAIN_UNCERTAINTY).toBe(
-      // Review round 4 (wording P2-3): a count without a name, and as specific as the evidence allows.
-      ' When the writer\'s notes give only a count (for example "one main uncertainty") and do not name which, the Storyline frames it as the underlying technological problem the related challenges share, the one question the work set out to answer, not the narrowest of them, stated as specifically as the evidence allows (the technical question, the conditions, why standard practice does not answer it), never as the project goal: the related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge unrelated to it stays out.'
+      // Review round 4 (wording P2-3): a count without a name, and as specific as the evidence allows;
+      // review round 5 (P3-4): each chosen uncertainty, "the one question" only for a count of one.
+      ' When the writer\'s notes give only a count (for example "one main uncertainty") and do not name which, the Storyline frames each chosen uncertainty as the underlying technological problem its related challenges share, not the narrowest of them (for a count of one, the one question the work set out to answer), stated as specifically as the evidence allows (the technical question, the conditions, why standard practice does not answer it), never as the project goal: its related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge related to no chosen uncertainty stays out.'
     );
     expect(BRIEF_SYSTEM_PROMPT).toContain(`with the exact supporting quote from the evidence.${BRIEF_STORYLINE_MAIN_UNCERTAINTY}\n2. Claim Exclusions:`);
   });
@@ -918,8 +920,8 @@ describe("after the live rerun: the BECAUSE check reads a gap or a cause in the 
 describe("after the live rerun: QA never deducts the gap for the reason (R6a), and gaps once in a Line (R7)", () => {
   it("says so", () => {
     expect(QA_STANDARD_APPROACH_CHECK).toContain("never deduct because the reason the standard approach falls short is a [GAP: ...]");
-    // Review round 4 (wording P3-5): no cap of one gap per paragraph.
-    expect(RULES_EVIDENCE_KINDS).toContain("- Within a Line, ask each missing fact once: a paragraph asks each missing fact once, and a later gap never repeats an earlier one.");
+    // Review round 4 (wording P3-5): no cap of one gap per paragraph; review round 5 (P3-5): said once.
+    expect(RULES_EVIDENCE_KINDS).toContain("- Within a Line, ask each missing fact once: one gap per missing fact, and a later gap never repeats what an earlier gap in the Line asks.");
     expect(RULES_EVIDENCE_KINDS).not.toContain("at most one [GAP: ...]");
     expect(GENERAL_PRACTICE_SCOPE).toContain("When the company's own approach is itself a standard mechanism, never present it as common practice that handles the problem");
   });
@@ -964,5 +966,32 @@ describe("review round 4: a short claimant name (A3)", () => {
     const shortWord = { claimantName: "IT Ltd." };
     expect(findNotesToWriter("IT states that the seal held.", shortWord).map((hit) => hit.phrase)).toEqual(["IT states that"]);
     expect(findNotesToWriter("The standard is plain: it states that a seal must hold for 200 cycles.", shortWord)).toEqual([]);
+  });
+});
+
+describe("review round 5", () => {
+  it("ends a sentence at a capital or an abbreviation when a sentence opener follows (P3-2)", () => {
+    const fail = [
+      "It was uncertain whether the loop held under load B. The rig ran at 40 C because the room was warm.",
+      "It was uncertain whether the controller could hold the speed set by Acme Inc. The team ran three builds. Because the belts stretch, the load varies.",
+      "It was uncertain whether the seals, gaskets, etc. would hold. The team ran three builds. Because the belts stretch, the load varies.",
+    ];
+    for (const text of fail) expect([text, checkBecauseClauses(text).details.map((detail) => detail.hasBecause)]).toEqual([text, [false]]);
+    const pass = [
+      "It was uncertain whether the controller supplied by Acme Inc. could hold the speed. Because the belts stretch, the load varies.",
+      "It was uncertain whether the design by J. A. Ortiz could hold the load. Because the frame flexes, the load shifts.",
+      "It was uncertain whether the loop held under load B. Because the rig ran warm, readings drifted.",
+    ];
+    for (const text of pass) expect([text, checkBecauseClauses(text).details.map((detail) => detail.hasBecause)]).toEqual([text, [true]]);
+  });
+
+  it("counts a gap as asking why only for the whole word (P3-3)", () => {
+    const text = [
+      "It was uncertain whether the seal could last [GAP: a reasonable cycle count] under door loads.",
+      "It was uncertain whether the seal could last under door loads. [GAP: a reasonable cycle count]",
+      "It was uncertain whether the seal could last under door loads [GAP: the reasons the standard gasket fails here].",
+      "It was uncertain whether the seal could last under door loads. [GAP: what caused the early failures]",
+    ].join("\n\n");
+    expect(checkBecauseClauses(text).details.map((detail) => detail.hasBecause)).toEqual([false, false, true, true]);
   });
 });
