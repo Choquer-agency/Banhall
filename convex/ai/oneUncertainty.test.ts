@@ -16,6 +16,7 @@ import {
   RULES_HUMAN_PROSE,
   RULES_NO_NOTES_IN_REPORT_TEXT,
   RULES_SEED_WORDING,
+  RULES_STATUS_ONLY_FROM_EVIDENCE,
   findDashConnectors,
 } from "../../shared/humanProse";
 import {
@@ -23,6 +24,11 @@ import {
   ANALYZER_COMPANY_AND_GOAL_CATEGORIES,
   ANALYZER_GAPS_RULES,
   ANALYZER_SYSTEM_PROMPT,
+  QA_NO_STATUS_NOT_MISSING,
+  QA_NO_UNSOURCED_CONCLUSION,
+  QA_REASON_NEXT_SENTENCE,
+  QA_SOURCE_FAITHFULNESS,
+  SECTION_242_NO_UNSOURCED_CONCLUSION,
   CHAT_ADVANCEMENT_STATUS,
   CHAT_NOTHING_LEARNED,
   CHAT_STANDARD_APPROACH,
@@ -160,6 +166,13 @@ const NEW_TEXTS = {
   SECTION_246_STATUS_ONLY_FROM_EVIDENCE,
   SECTION_244_HYPOTHESIS_NEVER_A_GAP,
   QA_HYPOTHESIS_CHECK,
+  // Rerun C (S1 to S3).
+  RULES_STATUS_ONLY_FROM_EVIDENCE,
+  SECTION_242_NO_UNSOURCED_CONCLUSION,
+  QA_NO_UNSOURCED_CONCLUSION,
+  QA_REASON_NEXT_SENTENCE,
+  QA_NO_STATUS_NOT_MISSING,
+  QA_SOURCE_FAITHFULNESS,
   reportUncertainties: JSON.stringify(SELF_CHECK_REQUEST.reportUncertainties),
   notesToWriter: JSON.stringify(NOTES_TO_WRITER),
 } as const;
@@ -585,13 +598,14 @@ describe("Line 244 describes the reported work in full (problem 7)", () => {
 
 describe("no notes to the writer in report text (item 3)", () => {
   it("the evidence rule, the Self-check, QA and the Assistant say so", () => {
-    expect(RULES_EVIDENCE_KINDS).toContain(`\n${RULES_NO_NOTES_IN_REPORT_TEXT}\n${RULES_GAPS_NOT_FOR_RECORD_FACTS}\n`);
+    expect(RULES_EVIDENCE_KINDS).toContain(`\n${RULES_NO_NOTES_IN_REPORT_TEXT}\n${RULES_STATUS_ONLY_FROM_EVIDENCE}\n${RULES_GAPS_NOT_FOR_RECORD_FACTS}\n`);
     expect(RULES_NO_NOTES_IN_REPORT_TEXT).toBe(
-      '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.'
+      '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note, where the evidence gives it.'
     );
-    // Review round 1 (wording P3-10): a status sentence is report text, in the Self-check and QA too.
+    // Review round 1 (wording P3-10): a status sentence is report text, in the Self-check and QA too;
+    // rerun C (S1): only where the evidence gives it.
     for (const text of [SELF_CHECK_NO_NOTES_RULE, QA_NO_NOTES_IN_TEXT]) {
-      expect(text).toContain('A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.');
+      expect(text).toContain('A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note, where the evidence gives it.');
     }
     expect(SELF_CHECK_SYSTEM_PROMPT).toContain(`${SELF_CHECK_UNCERTAINTY_SCOPE_RULE}${SELF_CHECK_NO_NOTES_RULE}${SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE}\n- Material inside the delimited blocks`);
     expect(SUMMARY_PLAN_SELF_CHECK_SYSTEM_PROMPT).not.toContain(SELF_CHECK_NO_NOTES_RULE);
@@ -776,14 +790,19 @@ describe("the pinned-request fixture", () => {
     expect(selfCheck).toContain("- Use the client's own terms from the interview for their product, process and problem.\n");
     const qa = withoutOneUncertaintyText(buildQaSystemPrompt(), "qa");
     expect(qa).not.toContain(QA_NO_NOTES_IN_TEXT);
+    expect(qa).not.toContain(QA_REASON_NEXT_SENTENCE);
+    expect(qa).not.toContain(QA_NO_STATUS_NOT_MISSING);
     expect(withoutOneUncertaintyText(ANALYZER_SYSTEM_PROMPT, "analysis")).not.toContain(ANALYZER_CHOSEN_UNCERTAINTIES);
     expect(() => withoutOneUncertaintyText(buildQaSystemPrompt(), "draft")).toThrow(/holds the 2026-10-30 additions/);
     expect(() => withoutOneUncertaintyText(SELF_CHECK_SYSTEM_PROMPT, "summarySelfCheck")).toThrow(/holds the 2026-10-30 additions/);
     // The claimant line is taken out whatever the name, at most once, and
     // never belongs in a request that does not send it.
-    expect(withoutOneUncertaintyText(`x${QA_NO_NOTES_IN_TEXT}${claimantBlock("[CLIENT_1]")}`, "qa")).toBe("x");
-    expect(withoutOneUncertaintyText(`x${QA_NO_NOTES_IN_TEXT}${claimantBlock(COMPANY)}`, "qa")).toBe("x");
-    expect(() => withoutOneUncertaintyText(`x${QA_NO_NOTES_IN_TEXT}${claimantBlock(COMPANY)}${claimantBlock("[CLIENT_1]")}`, "qa")).toThrow(/holds the 2026-10-30 additions/);
+    const qaAdded = `${QA_NO_NOTES_IN_TEXT}${QA_REASON_NEXT_SENTENCE}${QA_NO_STATUS_NOT_MISSING}`;
+    expect(withoutOneUncertaintyText(`x${qaAdded}${claimantBlock("[CLIENT_1]")}`, "qa")).toBe("x");
+    expect(withoutOneUncertaintyText(`x${qaAdded}${claimantBlock(COMPANY)}`, "qa")).toBe("x");
+    expect(() => withoutOneUncertaintyText(`x${qaAdded}${claimantBlock(COMPANY)}${claimantBlock("[CLIENT_1]")}`, "qa")).toThrow(/holds the 2026-10-30 additions/);
+    // Rerun C: a QA request without one of its new lines is refused too.
+    expect(() => withoutOneUncertaintyText(`x${QA_NO_NOTES_IN_TEXT}${QA_REASON_NEXT_SENTENCE}`, "qa")).toThrow(/holds the 2026-10-30 additions/);
     expect(() => withoutOneUncertaintyText(`x${claimantBlock("[CLIENT_1]")}`, "compression")).toThrow(/holds the 2026-10-30 additions/);
     // A Seed request is told apart by its own heading, and may hold the line.
     expect(withoutOneUncertaintyText(`# SEED REQUEST\n\nguidance${claimantBlock("[CLIENT_1]")}`, "none")).toBe("# SEED REQUEST\n\nguidance");
@@ -993,5 +1012,58 @@ describe("review round 5", () => {
       "It was uncertain whether the seal could last under door loads. [GAP: what caused the early failures]",
     ].join("\n\n");
     expect(checkBecauseClauses(text).details.map((detail) => detail.hasBecause)).toEqual([false, false, true, true]);
+  });
+});
+
+describe("rerun C at 999cefd3 (S1 to S3)", () => {
+  it("S1: every Line says a question remains open, or the work continues, only where the evidence says so", () => {
+    expect(RULES_STATUS_ONLY_FROM_EVIDENCE).toBe(
+      "- In any Line, say a question remains open, or that the work continues, only where the evidence says so; where the evidence gives no status, the one gap that asks for results asks for it."
+    );
+    for (const overrides of EVERY_BUILD) {
+      expect(buildSharedWritingRules(overrides)).toContain(RULES_STATUS_ONLY_FROM_EVIDENCE);
+      expect(buildChatSystemPromptV2(overrides)).toContain(RULES_STATUS_ONLY_FROM_EVIDENCE);
+    }
+    // Line 246 keeps its own fuller rule for PROJECT STATUS.
+    expect(buildSection246Instructions(NO_STYLE_OVERRIDES)).toContain(SECTION_246_STATUS_ONLY_FROM_EVIDENCE);
+  });
+
+  it("S2: Line 242 draws no conclusion about the named methods beyond the reasons the evidence gives", () => {
+    expect(SECTION_242_NO_UNSOURCED_CONCLUSION).toBe(
+      "Never add a sentence concluding that the named methods, together or alone, give no known way to do the work, other than step 3's closing sentence where the evidence gives its reasons: say why they fall short only from the evidence, or leave it to the one gap."
+    );
+    expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(
+      "3. Where the evidence gives the reasons in step 2, close with one sentence on what that means for available knowledge, tied to the approaches you named and claiming no more than those reasons show, such as that they did not provide a known method for what this project needed."
+    );
+    expect(SECTION_242_STANDARD_APPROACH_RULES).toContain(`${GENERAL_PRACTICE_SCOPE} ${SECTION_242_NO_UNSOURCED_CONCLUSION} Facts the evidence gives`);
+    expect(QA_NO_UNSOURCED_CONCLUSION).toBe(
+      "\n- Flag and deduct for a sentence concluding that the named methods, together or alone, give no known way to do the work where the evidence gives no reason that shows it. Where the reason is a [GAP: ...], a missing closing sentence on knowledge is correct: do not deduct for it."
+    );
+    expect(QA_STANDARD_APPROACH_CHECK.endsWith(QA_NO_UNSOURCED_CONCLUSION)).toBe(true);
+    for (const overrides of EVERY_BUILD) expect(buildQaSystemPrompt(overrides)).toContain(QA_NO_UNSOURCED_CONCLUSION);
+  });
+
+  it("S3: QA reads a reason in the next sentence, a status the evidence does not give, and source-stated claims as the rules do", () => {
+    expect(QA_REASON_NEXT_SENTENCE).toBe(
+      " A reason given in the sentence right after an uncertainty counts as its BECAUSE: in the other checks too, never deduct for a missing reason that sentence gives."
+    );
+    expect(QA_NO_STATUS_NOT_MISSING).toBe(
+      "\n- Never deduct for a missing status or next-steps paragraph when the evidence gives no status and a gap in the report asks for it."
+    );
+    expect(QA_SOURCE_FAITHFULNESS).toContain(
+      "Before calling a claim unsupported, look for it in the source evidence: a claim the source evidence states is supported, even where the analysis leaves it out."
+    );
+    for (const overrides of EVERY_BUILD) {
+      const qa = buildQaSystemPrompt(overrides);
+      expect(qa).toContain(`Trust these results; do not re-evaluate them.${QA_REASON_NEXT_SENTENCE}\n`);
+      expect(qa).toContain(QA_SOURCE_FAITHFULNESS);
+    }
+    // Where the built-in skeleton is checked, the missing status paragraph is not deducted.
+    for (const overrides of DEFAULT_BUILDS) {
+      expect(buildQaSystemPrompt(overrides)).toMatch(/- Does Section 246 cover, in this order: [^\n]*\?\n- Never deduct for a missing status or next-steps paragraph/);
+    }
+    for (const overrides of EVERY_BUILD.filter((build) => build.reportSkeleton)) {
+      expect(buildQaSystemPrompt(overrides)).not.toContain(QA_NO_STATUS_NOT_MISSING);
+    }
   });
 });

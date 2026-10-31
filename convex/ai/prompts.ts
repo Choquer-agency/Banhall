@@ -544,6 +544,15 @@ BAD opening (starts on technical detail and states the goal as a technical probl
 Keep the opening short: the company sentence and the business goal take one or two sentences together. Everything after them is technical and SR&ED focused.`;
 
 /**
+ * 2026-10-30, rerun C (S2): a limitations paragraph ended "Together, these
+ * methods gave no known way to ...", a conclusion the source does not draw,
+ * though one of the methods it named does part of the work. Step 3's closing
+ * sentence now rests only on reasons the evidence gives.
+ */
+export const SECTION_242_NO_UNSOURCED_CONCLUSION =
+  "Never add a sentence concluding that the named methods, together or alone, give no known way to do the work, other than step 3's closing sentence where the evidence gives its reasons: say why they fall short only from the evidence, or leave it to the one gap.";
+
+/**
  * 2026-10-30 (owner, "please fix all properly", item 3): the reason the
  * standard approach falls short comes from the evidence, or one gap asks
  * the client for it; general practice only names the approach, once in a
@@ -566,9 +575,9 @@ Keep the opening short: the company sentence and the business goal take one or t
 export const SECTION_242_STANDARD_APPROACH_RULES = `Every limitation must reference the knowledge gap, not the tool gap. Write each one as the standard approach and where it falls short:
 1. Name the standard approach or approaches a competent practitioner would reach for first, and say briefly what each does well, as the evidence states it; for general practice, only what it is and where it is used.
 2. Give the specific reason each falls short for this problem (the BECAUSE), as the evidence gives it: an input it lacks, a condition it does not support, a constraint it does not handle, or two methods that do not combine. Where the evidence gives no reason, write one [GAP: why the standard approach does not work here] in its place, and ask the client rather than supply a reason.
-3. Close with one sentence on what that means for available knowledge, tied to the approaches you named, such as that they did not provide a known method for what this project needed.
+3. Where the evidence gives the reasons in step 2, close with one sentence on what that means for available knowledge, tied to the approaches you named and claiming no more than those reasons show, such as that they did not provide a known method for what this project needed.
 
-Where the evidence names the standard approaches, write them as stated. Where it does not, you may name well-known standard practice from general knowledge in one sentence, marked straight after it with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Never say or suggest that the company tried a standard approach unless the evidence says so. ${GENERAL_PRACTICE_SCOPE} Facts the evidence gives about what existing systems do are fine as the reason; the limitation itself is what was not known.
+Where the evidence names the standard approaches, write them as stated. Where it does not, you may name well-known standard practice from general knowledge in one sentence, marked straight after it with [INFERRED: general practice, not in the source: what the writer should confirm with the client]. Never say or suggest that the company tried a standard approach unless the evidence says so. ${GENERAL_PRACTICE_SCOPE} ${SECTION_242_NO_UNSOURCED_CONCLUSION} Facts the evidence gives about what existing systems do are fine as the reason; the limitation itself is what was not known.
 
 The uncertainty never rests on simply using a standard mechanism. The standard way to do something (for example, saving a controller's settings to disk so they survive a restart) is part of what was already known; the uncertainty sits where the standard approaches do not reach.
 
@@ -1120,7 +1129,7 @@ export const QA_SOURCE_EVIDENCE_ITEM =
 
 /** QA's Faithfulness check reads the source evidence first. */
 export const QA_SOURCE_FAITHFULNESS =
-  "- Check each claim against the source evidence first, then the transcript analysis. A claim the source evidence states is supported even where the analysis leaves it out. Where the source evidence holds only parts of the sources, a claim it does not cover may still rest on the analysis.\n- Are there any claims not traceable to the source evidence or the transcript analysis?";
+  "- Check each claim against the source evidence first, then the transcript analysis. Before calling a claim unsupported, look for it in the source evidence: a claim the source evidence states is supported, even where the analysis leaves it out. Where the source evidence holds only parts of the sources, a claim it does not cover may still rest on the analysis.\n- Are there any claims not traceable to the source evidence or the transcript analysis?";
 
 /**
  * QA's follow-up questions: each asked once. 2026-10-30 (owner, small
@@ -1135,7 +1144,7 @@ export const QA_GAPS_ONCE =
  * check flags a note to the writer written as a report sentence.
  */
 export const QA_NO_NOTES_IN_TEXT =
-  '\n- Flag and deduct for a note to the writer written as a report sentence: a sentence about the source documents or what they lack instead of the work, such as "The materials do not report...", "X is not stated.", "The client reports that..." or "... remains unconfirmed." said of what the evidence lacks. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note. A note belongs inside a [GAP: ...] or [INFERRED: ...] marker. Quote the sentence.';
+  '\n- Flag and deduct for a note to the writer written as a report sentence: a sentence about the source documents or what they lack instead of the work, such as "The materials do not report...", "X is not stated.", "The client reports that..." or "... remains unconfirmed." said of what the evidence lacks. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note, where the evidence gives it. A note belongs inside a [GAP: ...] or [INFERRED: ...] marker. Quote the sentence.';
 
 // ─── AGENT 5: QA & SCORING ──────────────────────────────────────────────────
 
@@ -1164,11 +1173,15 @@ export const QA_HYPOTHESIS_CHECK = `- Does the IF clause name a specific technic
 export const QA_EXPERIMENT_ARC_CHECK = `- Does each experimentation paragraph tell, in order and as far as the evidence goes, what was tried, what happened, what was changed next, and what was learned or what stayed unresolved? A confirmation, a comparison with the choice made and why, an observation phase or work in progress, reported as that, is correct, and one experiment may run across consecutive paragraphs.
 - Flag and deduct only for a step the evidence does not describe (an invented failure, surprise, change or result), or for a paragraph that reports no outcome where the evidence gives one. Never flag a missing surprise or change of approach, and never deduct for a step a [GAP: ...] marks as missing from the evidence.`;
 
+/** 2026-10-30, rerun C (S2): QA follows SECTION_242_NO_UNSOURCED_CONCLUSION. */
+export const QA_NO_UNSOURCED_CONCLUSION =
+  "\n- Flag and deduct for a sentence concluding that the named methods, together or alone, give no known way to do the work where the evidence gives no reason that shows it. Where the reason is a [GAP: ...], a missing closing sentence on knowledge is correct: do not deduct for it.";
+
 export const QA_STANDARD_APPROACH_CHECK = `- IMPORTANT CLARIFICATION on knowledge vs product limitations: the expected limitation names the standard approach a competent practitioner would use, says briefly what it does, gives the specific reason it falls short here (a missing input, an unsupported condition, a constraint it does not handle, two methods that do not combine), then says what that means for available knowledge, tied to those approaches. Facts about what existing systems do are fine as that reason: it is knowledge-limitation language. A product limitation is "the existing software could not do X" or "the tool failed to perform X" with no standard approach and no reason: a specific product failing, not a gap in knowledge. Do NOT flag the standard approach and its shortfall as a product limitation.
 - Flag a limitation that is only a bare claim ("no documented methods existed for X") with no standard approach named and no reason it falls short, and an uncertainty that rests on simply using a standard mechanism rather than on where the standard approaches do not reach.
 - A sentence that names general standard practice, marked [INFERRED: general practice, not in the source: ...], is allowed: do not count it as unsupported, unless it says the company tried that practice and the evidence does not, or states a fact about this project the evidence does not give.
 - Flag and deduct for a general-practice sentence that explains how the standard approach works on this problem or would handle it, or that supplies or suggests a reason it falls short the evidence does not give, and for more than one general-practice sentence in a Line. Flag and deduct, too, for a general-practice sentence that presents the company's own chosen approach as common practice, and for a contrast with it the evidence does not give.
-- A [GAP: ...] asking why the standard approach does not work here is honest, not a defect: never deduct because the reason the standard approach falls short is a [GAP: ...], and count that gap as the reason in the checks above.`;
+- A [GAP: ...] asking why the standard approach does not work here is honest, not a defect: never deduct because the reason the standard approach falls short is a [GAP: ...], and count that gap as the reason in the checks above.${QA_NO_UNSOURCED_CONCLUSION}`;
 
 /**
  * 2026-10-29 (third), review round 1: the opening of Line 246 follows item
@@ -1193,9 +1206,25 @@ export const QA_NOTHING_LEARNED_YET =
 export const QA_WAIVED_OPENERS_NOTHING_LEARNED =
   " (an uncertainty the evidence reports no result for has no advancement paragraph: one paragraph with the knowledge sought, any observation the evidence states and a single gap stands in for all of them)";
 
+/**
+ * 2026-10-30, rerun C (S3a): QA took 8 points for "supplies no reason" where
+ * the next sentence gave it. Like the BECAUSE scan, the other checks read
+ * the next sentence's reason as the uncertainty's.
+ */
+export const QA_REASON_NEXT_SENTENCE =
+  " A reason given in the sentence right after an uncertainty counts as its BECAUSE: in the other checks too, never deduct for a missing reason that sentence gives.";
+
 /** 2026-10-29 (third): the BECAUSE scan also accepts a cause given first with "given that". */
 export const QA_BECAUSE_SCAN_WORDS =
   'for the words "because" or "given that" (or a [GAP: ...] that asks why, in it or right after it, or a next sentence that opens "Because", "This is because", "This was because" or "Given that") in';
+
+/**
+ * 2026-10-30, rerun C (S3b): QA took 6 points for a Line 246 with no status
+ * or next-steps paragraph, which the rules forbid where the evidence gives
+ * no status (SECTION_246_STATUS_ONLY_FROM_EVIDENCE).
+ */
+export const QA_NO_STATUS_NOT_MISSING =
+  "\n- Never deduct for a missing status or next-steps paragraph when the evidence gives no status and a gap in the report asks for it.";
 
 export const QA_PROMPT_BRANCHES = {
   structureCompliance: {
@@ -1204,7 +1233,7 @@ export const QA_PROMPT_BRANCHES = {
 - Does Section 242 cover, in this order: ${pdSubsectionRoleList("s242", "qa")}?
 ${QA_LINE_242_OPENING_CHECK}
 - Does Section 244 cover, in this order: ${pdSubsectionRoleList("s244", "qa")}?
-- Does Section 246 cover, in this order: ${pdSubsectionRoleList("s246", "qa")}?
+- Does Section 246 cover, in this order: ${pdSubsectionRoleList("s246", "qa")}?${QA_NO_STATUS_NOT_MISSING}
 - Identify each role by its content, not by its position; the [P#] markers exist for reporting only.`,
     skeletonWaived: `### Structure Compliance: WAIVED
 - This writer's profile replaces the built-in section skeleton with their own settings document. Paragraph counts, paragraph roles, ordering, mandated opening phrases, and the default framing conventions do NOT apply. Do NOT flag or deduct for a section having more, fewer, or differently arranged paragraphs than the default skeleton, for consolidated or split paragraphs, or for the absence of signal phrases.
@@ -1323,7 +1352,7 @@ ${QA_HYPOTHESIS_CHECK}
 - Does the passive-uncertainties content (the limitations of standard practice) describe knowledge limitations (what the field doesn't know)?
 - Does the active-uncertainties content describe approach-specific uncertainties (what's risky about their chosen solution)?
 - Identify both by content, not by paragraph number. If the passive-uncertainties content contains product/tool limitations instead of knowledge limitations, flag it.
-- FOR BECAUSE CLAUSES throughout 242: Use the pre-computed "BECAUSE Clause Detection" results provided above. These were verified programmatically by scanning ${QA_BECAUSE_SCAN_WORDS} each uncertainty statement. Trust these results; do not re-evaluate them.
+- FOR BECAUSE CLAUSES throughout 242: Use the pre-computed "BECAUSE Clause Detection" results provided above. These were verified programmatically by scanning ${QA_BECAUSE_SCAN_WORDS} each uncertainty statement. Trust these results; do not re-evaluate them.${QA_REASON_NEXT_SENTENCE}
 ${QA_STANDARD_APPROACH_CHECK}
 
 ### Experimentation Narrative Arc Check (Section 244 only)
@@ -1720,7 +1749,7 @@ export const SELF_CHECK_UNCERTAINTY_SCOPE_RULE =
  * Compare only: Summary mode has its own.
  */
 export const SELF_CHECK_NO_NOTES_RULE =
-  '\n- A sentence of the section that speaks about the source documents or what they lack ("The materials do not report...", "X is not stated.", "The client reports that...", or "... remains unconfirmed." said of what the evidence lacks) is a note to the writer written as report text: it is not allowed. Its repairGuidance asks to state what the work did and to put what is missing in one [GAP: ...], or the basis of an inference in its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note. A marker is not a sentence of the section: it may name a source.';
+  '\n- A sentence of the section that speaks about the source documents or what they lack ("The materials do not report...", "X is not stated.", "The client reports that...", or "... remains unconfirmed." said of what the evidence lacks) is a note to the writer written as report text: it is not allowed. Its repairGuidance asks to state what the work did and to put what is missing in one [GAP: ...], or the basis of an inference in its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note, where the evidence gives it. A marker is not a sentence of the section: it may name a source.';
 
 /**
  * After the live rerun (R1): a Confidence Map verdict was repaired by

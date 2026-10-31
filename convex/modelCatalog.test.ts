@@ -1228,10 +1228,14 @@ describe("prompt versions", () => {
     // sha256:6352e9e6... and sha256:e0489c96.... Re-read after its review
     // round 5: the Self-check's attribution rule (unresolved or unreliable
     // only), the analyzer's and the Storyline's rule for each chosen
-    // uncertainty and gaps once in a Line move on purpose; before it they
-    // were sha256:11c95142... and sha256:17d46e45....
-    expect(await hashPromptProgram()).toBe("sha256:581fa26ac7e878de48ad703236edeec0313e454f87d662f1834908a10766cfa1");
-    expect(await legacyPromptVersion()).toBe("sha256:11b83359e0b314b83e63d02d063acd84543cdc64e06d49083574a527e66bf014");
+    // uncertainty and gaps once in a Line move on purpose, and with them,
+    // after rerun C, the status rule every Line gets, Line 242's closing
+    // sentence on knowledge and QA's lines on the next sentence's reason, a
+    // status the evidence does not give, the named methods' conclusion and
+    // source-stated claims; before it they were sha256:11c95142... and
+    // sha256:17d46e45....
+    expect(await hashPromptProgram()).toBe("sha256:b6b137cbae657421efc1a7d806dd6c406de1bf9c4a12e7808dc9e9f9418efe76");
+    expect(await legacyPromptVersion()).toBe("sha256:6210a5152c48eb88163fa79b156f0df82b2e87bc42e594eae4f7ec422e04a817");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

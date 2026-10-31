@@ -4,6 +4,8 @@ import {
   ANALYZER_GAPS_RULES,
   CLAIMANT_LINE,
   QA_NO_NOTES_IN_TEXT,
+  QA_NO_STATUS_NOT_MISSING,
+  QA_REASON_NEXT_SENTENCE,
   SECTION_246_NEXT_PERIOD_PLAN,
   SECTION_246_STATUS_NO_RESULT,
   SECTION_246_STATUS_ONLY_FROM_EVIDENCE,
@@ -82,6 +84,10 @@ export const ONE_UNCERTAINTY_ADDITIONS = {
   selfCheckAttribution: SELF_CHECK_NO_ATTRIBUTION_HEDGE_RULE,
   repairHedge: REPAIR_NO_ATTRIBUTION_HEDGE,
   briefStoryline: BRIEF_STORYLINE_MAIN_UNCERTAINTY,
+  // Rerun C (S3a, S3b): QA reads a reason in the next sentence, and a status
+  // the evidence does not give is not missing.
+  qaReasonNextSentence: QA_REASON_NEXT_SENTENCE,
+  qaNoStatus: QA_NO_STATUS_NOT_MISSING,
 } as const;
 
 /** The blocks whose text is the project's own: at most one each. */
@@ -99,6 +105,8 @@ const NONE: OneUncertaintyCounts = {
   selfCheckAttribution: 0,
   repairHedge: 0,
   briefStoryline: 0,
+  qaReasonNextSentence: 0,
+  qaNoStatus: 0,
   claimant: 0,
   reportUncertainties: 0,
 };
@@ -117,7 +125,7 @@ export const ONE_UNCERTAINTY_COUNTS = {
   selfCheck: { ...NONE, selfCheckScope: 1, selfCheckNotes: 1, selfCheckAttribution: 1, reportUncertainties: 1 },
   summarySelfCheck: NONE,
   summarySelfCheckWithFacts: NONE,
-  qa: { ...NONE, qaNotes: 1, claimant: 1 },
+  qa: { ...NONE, qaNotes: 1, qaReasonNextSentence: 1, qaNoStatus: 1, claimant: 1 },
   compression: NONE,
   chat: NONE,
   analysis: { ...NONE, analyzerChosen: 1, analyzerGaps: 1, claimant: 1 },

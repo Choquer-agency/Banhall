@@ -222,7 +222,16 @@ export const GENERAL_PRACTICE_SCOPE =
  * clearest of them.
  */
 export const RULES_NO_NOTES_IN_REPORT_TEXT =
-  '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note.';
+  '- Report sentences speak about the work, never about the source documents or what they lack. Never write a note to the writer as a report sentence, such as "The materials do not report what that testing showed.", "The results are not stated.", "Individual runs are not described.", "The client reports that no standard method was found." or "... remains unconfirmed." said of what the evidence lacks. What is missing goes inside one [GAP: ...]; the basis of an inference goes inside its [INFERRED: ...] marker. A status sentence about the work ("remains open", "was unresolved at year end") is report text, not a note, where the evidence gives it.';
+
+/**
+ * 2026-10-30, rerun C (S1): a Line 244 said "... remains open." twice where
+ * the source gave no status, since Line 246's status rule
+ * (SECTION_246_STATUS_ONLY_FROM_EVIDENCE) reached no other Line. Every Line
+ * gets the core of it here.
+ */
+export const RULES_STATUS_ONLY_FROM_EVIDENCE =
+  "- In any Line, say a question remains open, or that the work continues, only where the evidence says so; where the evidence gives no status, the one gap that asks for results asks for it.";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", small items): gaps asked
@@ -250,6 +259,7 @@ Every claim you write in a report Line is one of three kinds. Decide which befor
 - One marker for each inferred sentence, right after that sentence, in the same paragraph. Write the marker in plain words, with no square brackets inside it.
 - A marker is a note to the writer, like a gap: it may say which part of the evidence the inference rests on, such as the client's answer or a test log. The sentence itself never names a source.
 ${RULES_NO_NOTES_IN_REPORT_TEXT}
+${RULES_STATUS_ONLY_FROM_EVIDENCE}
 ${RULES_GAPS_NOT_FOR_RECORD_FACTS}
 - When you revise text that holds [GAP: ...] or [INFERRED: ...] markers, keep each one with the sentence it belongs to, unless the evidence now states that claim or the writer asks you to remove it.
 Good: "Standard setpoint tables did not describe the warehouse's normal operating state. [INFERRED: the source says the tables assume a closed room and that the dock doors stay open for most of a shift]" (a consequence of two stated facts)
