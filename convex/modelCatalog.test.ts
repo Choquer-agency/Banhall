@@ -1233,9 +1233,13 @@ describe("prompt versions", () => {
     // sentence on knowledge and QA's lines on the next sentence's reason, a
     // status the evidence does not give, the named methods' conclusion and
     // source-stated claims; before it they were sha256:11c95142... and
-    // sha256:17d46e45....
-    expect(await hashPromptProgram()).toBe("sha256:b6b137cbae657421efc1a7d806dd6c406de1bf9c4a12e7808dc9e9f9418efe76");
-    expect(await legacyPromptVersion()).toBe("sha256:6210a5152c48eb88163fa79b156f0df82b2e87bc42e594eae4f7ec422e04a817");
+    // sha256:17d46e45.... Re-read after its review round 6: Line 244's
+    // year-end close, the Assistant's outline and the skeleton (the status
+    // only where the evidence gives it), the status rule's ending and QA's
+    // line on the next sentence's reason move on purpose; before it they
+    // were sha256:b6b137cb... and sha256:6210a515....
+    expect(await hashPromptProgram()).toBe("sha256:583428e91384b485b6220bf7c8d7e94e7ad59e55315b3f041db9e50265e78f9e");
+    expect(await legacyPromptVersion()).toBe("sha256:f7f54caf8fdaaaffa13b454d94fb75896cd76d302afe597c405d1c65d041bcfe");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

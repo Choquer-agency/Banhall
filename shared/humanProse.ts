@@ -228,10 +228,11 @@ export const RULES_NO_NOTES_IN_REPORT_TEXT =
  * 2026-10-30, rerun C (S1): a Line 244 said "... remains open." twice where
  * the source gave no status, since Line 246's status rule
  * (SECTION_246_STATUS_ONLY_FROM_EVIDENCE) reached no other Line. Every Line
- * gets the core of it here.
+ * gets the core of it here. Review round 6 (P3-2): a Line may hold no gap
+ * for the results, so it asks for no status gap of its own.
  */
 export const RULES_STATUS_ONLY_FROM_EVIDENCE =
-  "- In any Line, say a question remains open, or that the work continues, only where the evidence says so; where the evidence gives no status, the one gap that asks for results asks for it.";
+  "- In any Line, say a question remains open, or that the work continues, only where the evidence says so; where it gives no status, write none, and add no gap for the status alone (a gap that asks for the results covers it).";
 
 /**
  * 2026-10-30 (owner, "please fix all properly", small items): gaps asked

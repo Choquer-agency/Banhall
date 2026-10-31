@@ -788,9 +788,14 @@ BAD (an invented finding and change, where the evidence is as in the second Good
 
 BAD (a frame for each missing step): "The outcome of the early runs was [GAP: the outcome]. Changes made in response were [GAP: the changes]."`;
 
-/** 2026-10-29 (third): every one of the firm's approved PDs closes Line 244 with the year-end status. */
+/**
+ * 2026-10-29 (third): every one of the firm's approved PDs closes Line 244
+ * with the year-end status. 2026-10-30, review round 6 (P2-1): only where
+ * the evidence gives it; the unconditional close produced rerun C's "...
+ * remains open." in Line 244.
+ */
 export const SECTION_244_YEAR_END_CLOSE =
-  "Close Line 244 with where the work stood at the end of the fiscal year, as the evidence gives it.";
+  "Close Line 244 with where the work stood at the end of the fiscal year, only where the evidence gives it; where it gives none, end with the last experiment, and write no status sentence and no gap for it alone.";
 
 /**
  * Line 244's own instructions: role, required content and its rules. Cost
@@ -1209,10 +1214,11 @@ export const QA_WAIVED_OPENERS_NOTHING_LEARNED =
 /**
  * 2026-10-30, rerun C (S3a): QA took 8 points for "supplies no reason" where
  * the next sentence gave it. Like the BECAUSE scan, the other checks read
- * the next sentence's reason as the uncertainty's.
+ * the next sentence's reason as the uncertainty's. Review round 6 (P3-3):
+ * worded so it never overturns the computed result.
  */
 export const QA_REASON_NEXT_SENTENCE =
-  " A reason given in the sentence right after an uncertainty counts as its BECAUSE: in the other checks too, never deduct for a missing reason that sentence gives.";
+  " The detection already counts a next sentence that opens with those words. Outside that detection, a reason given in the sentence right after an uncertainty, in any words, counts as its BECAUSE: never deduct in another check for a missing reason that sentence gives.";
 
 /** 2026-10-29 (third): the BECAUSE scan also accepts a cause given first with "given that". */
 export const QA_BECAUSE_SCAN_WORDS =
@@ -1585,7 +1591,7 @@ export const CHAT_STANDARD_APPROACH = ": the standard approaches, what they do a
 export const CHAT_HYPOTHESIS_THEN =
   "with a then-clause that names the expected outcome and its reason, or the knowledge sought, and a number only from the evidence";
 export const CHAT_EXPERIMENT_ORDER =
-  "(each experiment in order: what was tried, what happened, what was changed next, and what was learned or stayed unresolved, only as far as the evidence shows), then the year-end status";
+  "(each experiment in order: what was tried, what happened, what was changed next, and what was learned or stayed unresolved, only as far as the evidence shows), then the year-end status, only where the evidence gives it";
 export const CHAT_NOTHING_LEARNED =
   "; uncertainties with no result get no paragraph each: one paragraph after the others gives the knowledge sought, any observation the evidence states and a single gap";
 export const CHAT_ADVANCEMENT_STATUS =

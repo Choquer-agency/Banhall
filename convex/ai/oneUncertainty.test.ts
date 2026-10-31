@@ -24,6 +24,8 @@ import {
   ANALYZER_COMPANY_AND_GOAL_CATEGORIES,
   ANALYZER_GAPS_RULES,
   ANALYZER_SYSTEM_PROMPT,
+  CHAT_EXPERIMENT_ORDER,
+  SECTION_244_YEAR_END_CLOSE,
   QA_NO_STATUS_NOT_MISSING,
   QA_NO_UNSOURCED_CONCLUSION,
   QA_REASON_NEXT_SENTENCE,
@@ -173,6 +175,9 @@ const NEW_TEXTS = {
   QA_REASON_NEXT_SENTENCE,
   QA_NO_STATUS_NOT_MISSING,
   QA_SOURCE_FAITHFULNESS,
+  // Review round 6.
+  SECTION_244_YEAR_END_CLOSE,
+  CHAT_EXPERIMENT_ORDER,
   reportUncertainties: JSON.stringify(SELF_CHECK_REQUEST.reportUncertainties),
   notesToWriter: JSON.stringify(NOTES_TO_WRITER),
 } as const;
@@ -1018,7 +1023,8 @@ describe("review round 5", () => {
 describe("rerun C at 999cefd3 (S1 to S3)", () => {
   it("S1: every Line says a question remains open, or the work continues, only where the evidence says so", () => {
     expect(RULES_STATUS_ONLY_FROM_EVIDENCE).toBe(
-      "- In any Line, say a question remains open, or that the work continues, only where the evidence says so; where the evidence gives no status, the one gap that asks for results asks for it."
+      // Review round 6 (P3-2): a Line may hold no gap for the results.
+      "- In any Line, say a question remains open, or that the work continues, only where the evidence says so; where it gives no status, write none, and add no gap for the status alone (a gap that asks for the results covers it)."
     );
     for (const overrides of EVERY_BUILD) {
       expect(buildSharedWritingRules(overrides)).toContain(RULES_STATUS_ONLY_FROM_EVIDENCE);
@@ -1045,7 +1051,8 @@ describe("rerun C at 999cefd3 (S1 to S3)", () => {
 
   it("S3: QA reads a reason in the next sentence, a status the evidence does not give, and source-stated claims as the rules do", () => {
     expect(QA_REASON_NEXT_SENTENCE).toBe(
-      " A reason given in the sentence right after an uncertainty counts as its BECAUSE: in the other checks too, never deduct for a missing reason that sentence gives."
+      // Review round 6 (P3-3): it never overturns the computed result.
+      " The detection already counts a next sentence that opens with those words. Outside that detection, a reason given in the sentence right after an uncertainty, in any words, counts as its BECAUSE: never deduct in another check for a missing reason that sentence gives."
     );
     expect(QA_NO_STATUS_NOT_MISSING).toBe(
       "\n- Never deduct for a missing status or next-steps paragraph when the evidence gives no status and a gap in the report asks for it."
@@ -1065,5 +1072,25 @@ describe("rerun C at 999cefd3 (S1 to S3)", () => {
     for (const overrides of EVERY_BUILD.filter((build) => build.reportSkeleton)) {
       expect(buildQaSystemPrompt(overrides)).not.toContain(QA_NO_STATUS_NOT_MISSING);
     }
+  });
+});
+
+describe("review round 6", () => {
+  it("Line 244, the Assistant and the skeleton ask for the year-end status only where the evidence gives it (P2-1)", () => {
+    expect(SECTION_244_YEAR_END_CLOSE).toBe(
+      "Close Line 244 with where the work stood at the end of the fiscal year, only where the evidence gives it; where it gives none, end with the last experiment, and write no status sentence and no gap for it alone."
+    );
+    for (const overrides of DEFAULT_BUILDS) expect(buildSection244Instructions(overrides)).toContain(SECTION_244_YEAR_END_CLOSE);
+    expect(CHAT_EXPERIMENT_ORDER.endsWith("), then the year-end status, only where the evidence gives it")).toBe(true);
+    for (const overrides of DEFAULT_BUILDS) expect(buildChatSystemPromptV2(overrides)).toContain(CHAT_EXPERIMENT_ORDER);
+    expect(RULES_REPORT_SKELETON).toContain("and ending with what was learned or what stayed unresolved → the year-end status, where the evidence gives it.\n");
+  });
+
+  it("a hyphenated word after an abbreviation is not a sentence opener (P3-4)", () => {
+    const text = "It was uncertain whether the A-frame mount, e.g. A-frame rigs, could hold because of vibration.";
+    expect(checkBecauseClauses(text).details.map((detail) => detail.hasBecause)).toEqual([true]);
+    // An opener that is a whole word still ends the sentence.
+    const split = "It was uncertain whether the frame held, e.g. A frame of steel. It shook because of vibration.";
+    expect(checkBecauseClauses(split).details.map((detail) => detail.hasBecause)).toEqual([false]);
   });
 });

@@ -97,12 +97,13 @@ export interface BecauseClauseResult {
  * ends a sentence. Review round 5 (P3-2): an abbreviation or a single capital
  * still ends the sentence when a common sentence opener follows ("under load
  * B. The rig ran...", "from Acme Inc. The team..."); "A" followed by a full
- * stop is another initial ("J. A. Ortiz"), not an opener.
+ * stop is another initial ("J. A. Ortiz"), and a word joined by a hyphen
+ * ("A-frame") is not an opener either (review round 6, P3-4).
  */
 const ABBREVIATION_END = /\b(?:inc|ltd|co|corp|e\.g|i\.e|etc|vs|no|nos|fig|dr|mr|mrs|ms|st|approx)\.$/i;
 const INITIAL_END = /(?:^|\s)\p{Lu}\.$/u;
 const SENTENCE_OPENER =
-  /^\s+(?:The|This|These|Those|It|Its|A|An|Because|Given|We|Our|In|For|When|After|Before|During)\b(?!\.)/;
+  /^\s+(?:The|This|These|Those|It|Its|A|An|Because|Given|We|Our|In|For|When|After|Before|During)\b(?![.\-])/;
 
 function sentencesOf(paragraph: string): string[] {
   // Marker text never holds a sentence end: its punctuation is masked,
