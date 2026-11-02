@@ -574,3 +574,28 @@ describe("claim records do not pile up on autosave", () => {
     expect(await f.t.run((ctx) => ctx.db.get(f.provenanceId))).not.toBeNull();
   });
 });
+
+describe("export refuses a Line over its CRA limit (owner, 2026-11-02)", () => {
+  it("a manager's override may run a Line long, but the server never authorizes its export", async () => {
+    const f = await setup();
+    const long = Array.from({ length: 12 }, (_, index) =>
+      `Trial ${index + 1} ran the alloy through forty cold fatigue cycles at three loads, and the team logged the crack length after each cycle to compare the grain sizes.`
+    ).join(" ");
+    const longer = Array.from({ length: 5 }, () => long).join(" ");
+    await f.writer.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: doc(P242, longer, P246),
+      expectedRevisionNumber: 0,
+    });
+    const { report } = await reportAndProvenance(f);
+    await expect(
+      f.writer.mutation(api.reports.authorizeExport, {
+        reportId: f.reportId,
+        expectedRevisionNumber: report.revisionNumber ?? 0,
+        expectedContentHash: await sha256(report.content),
+      })
+    ).rejects.toThrow(/Line 244 is over the CRA limit \(\d+ of 100 form lines, \d+ of 700 words\)\. Shorten it before export, or the CRA form will cut it off\./);
+    const exports = await f.t.run((ctx) => ctx.db.query("reportExports").collect());
+    expect(exports).toEqual([]);
+  });
+});

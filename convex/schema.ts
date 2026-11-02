@@ -2139,6 +2139,32 @@ export default defineSchema({
     appliedChangeId: v.optional(v.id("chatProposalAppliedChanges")),
     undoneAt: v.optional(v.number()),
     undoneBy: v.optional(v.id("users")),
+    // 2026-11-02 (client meeting, rule overrides; shared/ruleOverride.ts):
+    // the house rules, template rules or CRA limits this card goes against,
+    // named by the Assistant because the writer explicitly asked for the
+    // change. Only a holder of `report.overrideRules` applies such a card, and
+    // only after confirming these names. Absent on every other card.
+    rulesBroken: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit")),
+          name: v.string(),
+          reason: v.string(),
+        })
+      )
+    ),
+    // One entry per confirmed apply of a rule-breaking card: who, when and
+    // which rules. Appended, never rewritten, so an Undo and a second apply
+    // keep the first record for audit.
+    ruleOverrides: v.optional(
+      v.array(
+        v.object({
+          userId: v.id("users"),
+          at: v.number(),
+          rules: v.array(v.string()),
+        })
+      )
+    ),
   })
     .index("by_agentThreadId", ["agentThreadId"])
     // Exact per-turn proposal reads for chatV2.listProposals, which joins

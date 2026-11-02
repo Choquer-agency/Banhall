@@ -1401,17 +1401,17 @@ describe("project metadata edit scope (owner decision 2026-09-15)", () => {
 
 describe("getProjectEditAccess mirrors the metadata edit gate", () => {
   test.each([
-    ["the owner", "owner", true],
-    ["a manager", "manager", true],
-    ["an admin", "admin", true],
-    ["another writer with no handoff", "writer", false],
-    ["a roleless user", "roleless", false],
-  ] as const)("%s → canEditDetails %s", async (_label, actor, expected) => {
+    ["the owner", "owner", true, false],
+    ["a manager", "manager", true, true],
+    ["an admin", "admin", true, true],
+    ["another writer with no handoff", "writer", false, false],
+    ["a roleless user", "roleless", false, false],
+  ] as const)("%s → canEditDetails %s, canOverrideRules %s", async (_label, actor, expected, override) => {
     const { t, projectId } = await setup();
 
     await expect(
       asActor(t, actor).query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: expected });
+    ).resolves.toEqual({ canEditDetails: expected, canOverrideRules: override });
   });
 
   test("an assigned collaborator (open work item) may edit", async () => {
@@ -1420,7 +1420,7 @@ describe("getProjectEditAccess mirrors the metadata edit gate", () => {
 
     await expect(
       asActor(t, "writer").query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: true });
+    ).resolves.toEqual({ canEditDetails: true, canOverrideRules: false });
   });
 
   test("a closed work item does not make a writer a collaborator", async () => {
@@ -1429,7 +1429,7 @@ describe("getProjectEditAccess mirrors the metadata edit gate", () => {
 
     await expect(
       asActor(t, "writer").query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: false });
+    ).resolves.toEqual({ canEditDetails: false, canOverrideRules: false });
   });
 
   test("an anonymous caller gets false, not an error", async () => {
@@ -1437,7 +1437,7 @@ describe("getProjectEditAccess mirrors the metadata edit gate", () => {
 
     await expect(
       t.query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: false });
+    ).resolves.toEqual({ canEditDetails: false, canOverrideRules: false });
   });
 });
 

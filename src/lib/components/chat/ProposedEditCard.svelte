@@ -3,6 +3,12 @@
   import { DropdownMenu } from "bits-ui";
   import { diffWords } from "$lib/diff";
   import { userErrorMessage } from "$lib/errors";
+  import {
+    RULE_OVERRIDE_MANAGER_ONLY,
+    brokenRuleLabel,
+    describeBrokenRules,
+    type BrokenRule,
+  } from "../../../../shared/ruleOverride";
 
   /**
    * Owner 2026-10-28 (Paper rows 32 to 36): one suggestion card per Line.
@@ -32,6 +38,14 @@
      * "loading" hides those actions without a note; "denied" says why.
      */
     applyAccess?: "allowed" | "loading" | "denied";
+    /**
+     * 2026-11-02 (rule overrides): the rules this change goes against, and
+     * whether the viewer may apply it anyway (Managers and Admins). Without
+     * that right the card names the rules and says a manager can apply it.
+     */
+    ruleConflict?: { rules: BrokenRule[]; canOverride: boolean } | null;
+    /** On an accepted card applied against rules, the note naming them. */
+    overriddenNote?: string | null;
     /** This card is the one under review. */
     reviewing?: boolean;
     /** The report shows the marks and the review bar; else the card does. */
@@ -61,6 +75,8 @@
     state: editState,
     appliedOption,
     applyAccess = "allowed",
+    ruleConflict = null,
+    overriddenNote = null,
     reviewing = false,
     reviewInReport = false,
     option = 0,
@@ -79,7 +95,11 @@
   const componentId = $props.id();
   const bodyId = `${componentId}-body`;
   const canAct = $derived(applyAccess === "allowed");
-  const onEditWording = $derived(canAct && option === 0 ? editWordingHandler : undefined);
+  // A card against a rule waits for a manager: others may read and dismiss
+  // it, but not review, reword or accept it.
+  const managerOnly = $derived(ruleConflict !== null && !ruleConflict.canOverride);
+  const canApply = $derived(canAct && !managerOnly);
+  const onEditWording = $derived(canApply && option === 0 ? editWordingHandler : undefined);
   const optionCount = $derived(Math.max(1, options.length));
   const title = $derived(line ? `Line ${line}` : "Suggested edit");
   const shownOption = $derived(editState === "applied" ? (appliedOption ?? 0) : option);
@@ -193,6 +213,19 @@
   </div>
 {/snippet}
 
+{#snippet conflictNotice()}
+  {#if ruleConflict}
+    <div class="flex flex-col gap-1.5 rounded-lg border border-warning-line bg-warning-surface px-3 py-2.5" data-rule-conflict>
+      <p class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-warning-ink">{describeBrokenRules(ruleConflict.rules)}</p>
+      <ul class="flex flex-col gap-1">
+        {#each ruleConflict.rules as rule (rule.name)}
+          <li class="text-xs leading-[calc(4/3)] text-warning-body"><span class="sr-only">{brokenRuleLabel(rule)}: </span>{rule.reason}</li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
+{/snippet}
+
 {#snippet moreMenu()}
   {#if editState !== "rejected" && (onEditWording || onRefine || (onReject && canAct) || wordingText)}
     <DropdownMenu.Root>
@@ -254,6 +287,9 @@
     {#if open}
       <div id={bodyId} class="border-t border-primary-line px-3.5 pb-3.5 pt-3">
         {@render wording(shownWording)}
+        {#if overriddenNote}
+          <p class="mt-2 text-xs leading-[calc(4/3)] text-warning-ink" data-rule-override-applied>{overriddenNote}</p>
+        {/if}
       </div>
       {#if (onUndo && canAct) || wordingText}
         <div class="flex h-11 items-center gap-2 border-t border-line-soft pl-2 pr-2">
@@ -303,8 +339,13 @@
           {#if optionCount > 1}
             <span class="text-xs leading-[calc(4/3)] text-ink-muted" data-proposed-edit-options>{optionCount} options</span>
           {/if}
+          {#if ruleConflict}
+            <span class="text-xs leading-[calc(4/3)] text-warning-ink-muted" data-rule-conflict-flag>
+              {ruleConflict.rules.length > 1 ? `Goes against ${ruleConflict.rules.length} rules` : "Goes against a rule"}
+            </span>
+          {/if}
         </div>
-        {#if canAct}
+        {#if canApply}
           <button type="button" class="inline-flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-xs font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark pointer-coarse:min-h-11"
             onclick={onReview} data-proposed-edit-review>Review</button>
         {/if}
@@ -322,6 +363,7 @@
         {@render toggle("the suggestion")}
       </div>
       <div id={bodyId} class="flex flex-col gap-2 border-t border-line-soft px-3.5 py-3">
+        {@render conflictNotice()}
         {#if editing}
           {#each editedWording as text, index (index)}
             <label class="block">
@@ -385,6 +427,8 @@
           <span class="flex-1"></span>
           {#if applyAccess === "denied"}
             <p class="pr-1.5 text-xs leading-[calc(4/3)] text-ink-muted" data-apply-unavailable>Only people who can edit this report can accept suggestions.</p>
+          {:else if canAct && managerOnly}
+            <p class="pr-1.5 text-xs leading-[calc(4/3)] text-ink-muted" data-apply-manager-only>{RULE_OVERRIDE_MANAGER_ONLY}</p>
           {:else if canAct && reviewing}
             <button type="button" class="inline-flex h-7 items-center rounded-[0.4375rem] border border-line bg-white px-2.5 text-xs font-medium leading-[calc(4/3)] text-ink hover:bg-gray-50 disabled:opacity-50 pointer-coarse:min-h-11"
               onclick={onStopReview} disabled={accepting} data-proposed-edit-stop-review>Stop review</button>

@@ -1168,8 +1168,13 @@
       // errors — show them in the validation dialog, not a raw toast.
       const code = userErrorCode(error);
       if (code === "EVIDENCE_REQUIRED" || code === "INVALID_INPUT") {
-        const label =
-          code === "INVALID_INPUT" ? "Science code" : "Filing readiness";
+        // 2026-11-02: a Line over its CRA limit is refused by the server too.
+        const labelFor = (message: string) =>
+          message.includes("over the CRA limit")
+            ? "CRA limit"
+            : code === "INVALID_INPUT"
+              ? "Science code"
+              : "Filing readiness";
         exportValidation = {
           errors: userErrorMessage(error, "The export is blocked.")
             .split("\n")
@@ -1177,7 +1182,7 @@
             .map((message) => ({
               severity: "error" as const,
               field: "filing_readiness",
-              label,
+              label: labelFor(message),
               message,
             })),
           warnings: [],

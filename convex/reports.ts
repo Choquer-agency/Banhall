@@ -23,6 +23,7 @@ import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { reportSectionMetrics } from "../src/lib/reportSections";
 export const getLatestReport = query({
   args: {
     projectId: v.id("projects"),
@@ -351,6 +352,25 @@ export const preflightExport = query({
  * Authorize only the immutable revision that passed preflight. This is the
  * final filing-readiness gate and must run immediately before DOCX generation.
  */
+const CRA_LINE_LABELS = { s242: "Line 242", s244: "Line 244", s246: "Line 246" } as const;
+
+/** Each Line over its CRA form limit, in plain words; empty when all fit. */
+export function craLimitMessages(content: string): string[] {
+  const metrics = reportSectionMetrics(content);
+  const messages: string[] = [];
+  for (const key of ["s242", "s244", "s246"] as const) {
+    const m = metrics[key];
+    if (!m.overLimit) continue;
+    const parts: string[] = [];
+    if (m.lines > m.limit) parts.push(`${m.lines} of ${m.limit} form lines`);
+    if (m.words > m.wordCap) parts.push(`${m.words} of ${m.wordCap} words`);
+    messages.push(
+      `${CRA_LINE_LABELS[key]} is over the CRA limit (${parts.join(", ")}). Shorten it before export, or the CRA form will cut it off.`
+    );
+  }
+  return messages;
+}
+
 export const authorizeExport = mutation({
   args: {
     reportId: v.id("reports"),
@@ -380,6 +400,12 @@ export const authorizeExport = mutation({
         "A valid CRA T4088 line 206 field-of-science code is required for export"
       );
     }
+    // 2026-11-02 (owner): a manager may apply an Assistant change that runs a
+    // Line past its CRA limit (report.overrideRules), but the filing form
+    // cannot hold it: the export dialog already refuses, and the server
+    // refuses too, so no download ever loses lines or words.
+    const overLimit = craLimitMessages(report.content);
+    if (overLimit.length > 0) domainError("INVALID_INPUT", overLimit.join("\n"));
     await requireFilingReady(ctx, project, {
       ...report,
       contentHash,

@@ -7,7 +7,13 @@
   import NothingToApplyCard from "./NothingToApplyCard.svelte";
   import ProposalChecklist from "./ProposalChecklist.svelte";
   import { useProposalSection } from "$lib/chat/proposalSection";
-  import { useAssistantCards, type ReviewPair } from "$lib/chat/assistantCards.svelte";
+  import { AcceptCancelled, useAssistantCards, type ReviewPair } from "$lib/chat/assistantCards.svelte";
+  import {
+    RULE_OVERRIDE_MANAGER_ONLY,
+    appliedAgainstRules,
+    brokenRuleNames,
+  } from "../../../../shared/ruleOverride";
+  import RuleOverrideDialog from "./RuleOverrideDialog.svelte";
   import { proposedTextChanges } from "$lib/diff";
   import { PROPOSAL_UNDO_CONFLICT_TEXT, proposalUndoErrorMessage } from "$lib/chat/chatRefusals";
   import { userErrorMessage } from "$lib/errors";
@@ -47,6 +53,39 @@
       ? "loading"
       : editAccessQ.data.canEditDetails ? "allowed" : "denied"
   );
+  // 2026-11-02 (rule overrides): a card that goes against a rule is applied
+  // only by someone with `report.overrideRules` (Managers and Admins), after
+  // confirming the rules by name. The server checks both again.
+  const rulesBroken = $derived(proposal.rulesBroken ?? []);
+  const ruleConflict = $derived(
+    rulesBroken.length
+      ? {
+          rules: rulesBroken,
+          canOverride: editAccessQ.data?.canOverrideRules === true,
+        }
+      : null
+  );
+  const overriddenNote = $derived(
+    proposal.state === "applied" && proposal.ruleOverrides?.length && rulesBroken.length
+      ? appliedAgainstRules(rulesBroken)
+      : null
+  );
+  let overrideOpen = $state(false);
+  let settleOverride: ((confirmed: boolean) => void) | null = null;
+  function confirmOverride(): Promise<boolean> {
+    settleOverride?.(false);
+    overrideOpen = true;
+    return new Promise((resolve) => {
+      settleOverride = resolve;
+    });
+  }
+  function closeOverride(confirmed: boolean) {
+    const settle = settleOverride;
+    settleOverride = null;
+    settle?.(confirmed);
+  }
+  // A card that leaves mid-question cancels it, so a review never waits on it.
+  $effect(() => () => closeOverride(false));
   const bulk = $derived(proposal.kind === "replacements" && proposal.requireUniqueTargets === true);
   const everyMatch = $derived(proposal.kind === "replacements" && proposal.requireUniqueTargets !== true);
   const sectionOf = useProposalSection();
@@ -82,10 +121,17 @@
   }
 
   async function accept(chosen: number) {
+    let overrideRules: string[] | undefined;
+    if (rulesBroken.length) {
+      if (!ruleConflict?.canOverride) throw new Error(RULE_OVERRIDE_MANAGER_ONLY);
+      if (!(await confirmOverride())) throw new AcceptCancelled();
+      overrideRules = brokenRuleNames(rulesBroken);
+    }
     await onBeforeApply?.();
     const result = await applyProposal({
       proposalId: proposal._id,
       ...(optionCount > 1 ? { option: chosen } : {}),
+      ...(overrideRules ? { overrideRules } : {}),
     });
     if (!result.applied) throw new Error(result.reason);
     cards?.accepted([
@@ -102,7 +148,7 @@
         try {
           await accept(chosen);
         } catch (error) {
-          fail(error, "This suggestion could not be accepted. Try again.");
+          if (!(error instanceof AcceptCancelled)) fail(error, "This suggestion could not be accepted. Try again.");
           throw error;
         }
       };
@@ -134,7 +180,7 @@
       await accept(option);
       localReviewing = false;
     } catch (error) {
-      fail(error, "This suggestion could not be accepted. Try again.");
+      if (!(error instanceof AcceptCancelled)) fail(error, "This suggestion could not be accepted. Try again.");
     } finally {
       accepting = false;
     }
@@ -176,6 +222,8 @@
   state={proposal.state}
   appliedOption={proposal.appliedOption}
   {applyAccess}
+  {ruleConflict}
+  {overriddenNote}
   {reviewing}
   reviewInReport={review !== null}
   {option}
@@ -201,13 +249,26 @@
         replacements: pairs.map((pair, index) => ({ find: pair.find, replaceWith: wording[index] ?? pair.replaceWith })),
       });
     }
-    await accept(0);
+    try {
+      await accept(0);
+    } catch (error) {
+      // The new wording is saved; cancelling the override only skips the apply.
+      if (!(error instanceof AcceptCancelled)) throw error;
+    }
   }}
   onRefine={onRefine ? () => onRefine(proposal) : undefined}
   error={cardError}
 />
 {#if bulk}
   <ProposalChecklist proposalId={proposal._id} variant="disclosure" />
+{/if}
+{#if rulesBroken.length}
+  <RuleOverrideDialog
+    bind:open={overrideOpen}
+    rules={rulesBroken}
+    onConfirm={() => closeOverride(true)}
+    onCancel={() => closeOverride(false)}
+  />
 {/if}
 </div>
 {/if}

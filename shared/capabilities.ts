@@ -6,6 +6,9 @@ export const CAPABILITIES = [
   "project.transferOwnership",
   "project.setStage",
   "report.editProse",
+  // 2026-11-02 (client meeting): apply a chat card that goes against a house
+  // rule, the template or a CRA limit, after confirming those rules.
+  "report.overrideRules",
   "workItem.create",
   "workItem.completeOwn",
   "workItem.completeOthers",
@@ -61,6 +64,7 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "project.transferOwnership": own,
     "project.setStage": own,
     "report.editProse": own,
+    "report.overrideRules": none,
     "workItem.create": own,
     "workItem.completeOwn": own,
     "workItem.completeOthers": none,
@@ -88,6 +92,9 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "project.transferOwnership": all,
     "project.setStage": all,
     "report.editProse": all,
+    // 2026-11-02 (owner): "all the managers should have the ability to
+    // override the template, the house rules".
+    "report.overrideRules": all,
     "workItem.create": all,
     "workItem.completeOwn": own,
     "workItem.completeOthers": all,
@@ -130,6 +137,7 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
       },
     },
     "report.editProse": none,
+    "report.overrideRules": none,
     "workItem.create": {
       level: "none",
       planned: { level: "own", note: "Financial work items only." },
@@ -185,6 +193,7 @@ export const CAPABILITY_GROUPS = [
       "project.transferOwnership",
       "project.setStage",
       "report.editProse",
+      "report.overrideRules",
       "pipeline.view",
     ],
   },
