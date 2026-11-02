@@ -10182,6 +10182,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       summaryVersionId: signed.summaryVersionId,
       // Capability only; the stage gate is getOutline.canEdit.
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: { draftMs: expect.any(Number), stepByStepMs: null },
     });
     expect(newer).toEqual({
       _id: newerId,
@@ -10189,6 +10191,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "initializing",
       summaryVersionId: null,
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: null,
     });
     // The project's latest read model now describes the newer run, so the
     // older view above is that generation's own row and never "latest".
@@ -10271,6 +10275,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "draftFailed",
       summaryVersionId: signed.summaryVersionId,
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: null,
     });
     expect(recovery).toEqual({
       _id: recoveryId,
@@ -10278,6 +10284,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "drafting",
       summaryVersionId: signed.summaryVersionId,
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: null,
     });
 
     const recovered = await s.writer.query(getSummaryRef, {
@@ -10444,6 +10452,7 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "closed",
       summaryVersionId: null,
       seedCanEdit: true,
+      draftTiming: null,
     });
     expect(closed.iterative).toMatchObject({
       gatedWorkflow: "seeds",
@@ -10503,6 +10512,7 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "drafting",
       summaryVersionId: signed.summaryVersionId,
       seedCanEdit: true,
+      draftTiming: null,
     });
     expect(drafting.iterative).toMatchObject({ gatedWorkflow: "seeds", seedPhase: "drafting" });
   });

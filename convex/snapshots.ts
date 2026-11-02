@@ -13,6 +13,10 @@ import {
 } from "./lib/snapshots";
 import { domainError } from "./lib/contracts";
 import { noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
+import { draftTimingOf, type DraftTiming } from "./lib/generations/draftTiming";
+
+/** Distinct AI drafts the version history times (see listSnapshots). */
+const MAX_TIMED_DRAFTS = 25;
 
 const MILESTONE_LABELS: Record<string, string> = {
   R0: "R0 draft",
@@ -70,6 +74,22 @@ export const listSnapshots = query({
         reportVersions.set(report._id, report.version);
       }
     }
+    // 2026-11-02: how long each listed AI draft took. Only "generated"
+    // snapshots name a draft; each generation is read once, and at most
+    // MAX_TIMED_DRAFTS of them, so the list stays bounded.
+    const draftTimings = new Map<Id<"generations">, DraftTiming | null>();
+    for (const snapshot of snapshots) {
+      const generationId = snapshot.generationId;
+      if (snapshot.reason !== "generated" || !generationId || draftTimings.has(generationId)) continue;
+      if (draftTimings.size >= MAX_TIMED_DRAFTS) break;
+      const generation = await ctx.db.get(generationId);
+      draftTimings.set(
+        generationId,
+        generation && generation.projectId === currentReport.projectId
+          ? await draftTimingOf(ctx, generation)
+          : null
+      );
+    }
     const rows = await Promise.all(
       snapshots.map(async (snapshot) => {
         const reportVersion = reportVersions.get(snapshot.reportId);
@@ -91,6 +111,10 @@ export const listSnapshots = query({
           provenanceStatus: provenance?.status ?? "unavailable_legacy",
           researchSessionId: snapshot.researchSessionId ?? null,
           researchSourceCount: snapshot.researchSourceCount ?? 0,
+          draftTiming:
+            snapshot.reason === "generated" && snapshot.generationId
+              ? (draftTimings.get(snapshot.generationId) ?? null)
+              : null,
         };
       })
     );

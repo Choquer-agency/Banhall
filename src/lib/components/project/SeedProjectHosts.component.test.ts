@@ -268,8 +268,8 @@ function seedHostQueries() {
 }
 
 /** The Summary entry: the preview page's Summary tab, or the current page's
- * header Summary action. Both carry this id (owner decision 2026-09-28 sixth:
- * no workspace "Review summary" button). */
+ * header Summary action. Both carry this id (no workspace "Review summary"
+ * button). Since 2026-11-02 it is open while steps remain. */
 const summaryEntry = () => document.getElementById("seed-summary-tab") as HTMLButtonElement | null;
 async function openSummary() {
   await expect.poll(() => summaryEntry()?.disabled).toBe(false);
@@ -441,43 +441,59 @@ describe("Seed project hosts", () => {
     await assertConnectedJourney(PreviewProjectPage);
   });
 
-  async function assertLockedDeepLink(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
-    // Owner decision 2026-09-28 (sixth): a Summary URL while a step is not
-    // done opens the Plan instead, and the refused URL is replaced so Back
-    // never returns to it.
+  /** The workspace's step pane for `roleId`, so its heading can take focus. */
+  function stepSubsection(roleId: string) {
+    return {
+      ...hostSubsection("batch-host-1"),
+      roleId,
+      items: hostSubsection().items.map((item) => ({ ...item, roleId })),
+    };
+  }
+
+  async function assertOpenDeepLink(Component: typeof CurrentProjectPage | typeof PreviewProjectPage) {
+    // 2026-11-02 (client request, replacing owner decision 2026-09-28
+    // sixth): a Summary URL while a step is not done opens the Summary, with
+    // that step marked and a way back to it.
     __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
     __setPageUrl("/project/project-seed-host?view=summary");
     const browserUrl = new URL(window.location.href);
     browserUrl.searchParams.set("view", "summary");
     window.history.replaceState({}, "", browserUrl);
     const mounted = await render(Component, {});
-    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
-    expect(__navigationCalls).toContainEqual({ kind: "replaceState", url: "/project/project-seed-host" });
-    expect(__navigationCalls.filter((call) => call.kind === "pushState")).toEqual([]);
-    const entry = summaryEntry()!;
-    expect(entry.disabled).toBe(true);
-    expect(entry.title).toBe("Available when every step is done");
-    expect(document.getElementById(entry.getAttribute("aria-describedby")!)?.textContent).toBe("Available when every step is done");
+    await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+    expect(__navigationCalls.filter((call) => call.kind === "replaceState")).toEqual([]);
+    await expect.poll(() => document.querySelector("[data-summary-open-steps]")?.textContent ?? "").toContain(
+      "1 step is not done yet, so this Summary is not complete."
+    );
+    const marker = document.querySelector<HTMLElement>('[data-summary-open-step="goal_problem"]');
+    expect(marker?.textContent).toContain("Not done yet");
+    expect(document.querySelectorAll("[data-summary-open-step]")).toHaveLength(1);
+    // Sign-off stays blocked, and says why.
+    const signOff = browserPage.getByRole("button", { name: "Sign off and generate PD", exact: true });
+    await expect.element(signOff).toBeDisabled();
+    expect(document.getElementById((signOff.element() as HTMLElement).getAttribute("aria-describedby")!)?.textContent).toBe(
+      ". Finish every step to sign off."
+    );
 
-    // Browser history back to the Summary URL is refused the same way.
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // "Go to this step" returns to the plan on that step, with focus on it.
+    __setQueryData("seeds:getSubsection", stepSubsection("goal_problem"));
+    await browserPage.getByRole("button", { name: `Go to ${PD_SUBSECTIONS.find((role) => role.roleId === "goal_problem")!.title}`, exact: true }).click();
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "pushState", url: "/project/project-seed-host?step=goal_problem" });
+    await expect.poll(() => document.activeElement?.id).toBe("seed-title-goal_problem");
     mounted.unmount();
   }
 
-  it("opens the Plan for a Summary URL while a step is not done in the current host", async () => {
-    await assertLockedDeepLink(CurrentProjectPage);
+  it("opens the Summary for a Summary URL while a step is not done in the current host", async () => {
+    await assertOpenDeepLink(CurrentProjectPage);
   });
 
-  it("opens the Plan for a Summary URL while a step is not done in the preview host", async () => {
-    await assertLockedDeepLink(PreviewProjectPage);
+  it("opens the Summary for a Summary URL while a step is not done in the preview host", async () => {
+    await assertOpenDeepLink(PreviewProjectPage);
   });
 
-  it("locks the preview Summary tab until every step is done, with no Review summary button", async () => {
-    __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
+  it("opens the preview Summary tab before every step is done and says how many are open, with no Review summary button", async () => {
+    __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem", "company_context"] }));
     await render(PreviewProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
     expect(browserPage.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
@@ -486,36 +502,29 @@ describe("Seed project hosts", () => {
     expect(tab.id).toBe("seed-summary-tab");
     expect(document.querySelectorAll("#seed-signed-off-summary-trigger")).toHaveLength(0);
 
-    // Locked: greyed and disabled like the Report tab, not focusable, not
-    // clickable, and it says why.
-    const report = document.querySelector<HTMLButtonElement>('[data-panel-tab="report"]')!;
-    expect(tab.disabled).toBe(true);
-    expect(report.disabled).toBe(true);
-    expect(tab.className).toBe(report.className);
-    expect(tab.title).toBe("Available when every step is done");
-    expect(document.getElementById(tab.getAttribute("aria-describedby")!)?.textContent).toBe("Available when every step is done");
-    expect(tab.textContent).not.toContain("Ready");
-    tab.focus();
-    expect(document.activeElement).not.toBe(tab);
-    tab.click();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
-    expect(__navigationCalls).toEqual([]);
-
-    // Every step done: the tab unlocks and opens the Summary.
-    __setQueryData("seeds:getOutline", hostOutline());
-    await expect.poll(() => tab.disabled).toBe(false);
+    // Open, not locked: it names the open steps in its status and its name.
+    await expect.poll(() => tab.textContent?.replace(/\s+/g, " ").trim()).toBe("Summary 2 open");
+    expect(tab.disabled).toBe(false);
     expect(tab.hasAttribute("title")).toBe(false);
-    expect(tab.hasAttribute("aria-describedby")).toBe(false);
-    expect(tab.textContent).toContain("Ready");
+    expect(tab.getAttribute("aria-label")).toBe("Summary, 2 steps not done yet");
+    // The Report tab stays locked until the draft exists.
+    expect(document.querySelector<HTMLButtonElement>('[data-panel-tab="report"]')!.disabled).toBe(true);
 
-    // Opened from the tab: leaving the Summary returns focus to the tab.
+    // Opened from the tab: the review marks both steps, sign-off waits, and
+    // leaving the Summary returns focus to the tab.
     tab.focus();
     await userEvent.keyboard("{Enter}");
     await expect.poll(() => document.activeElement?.id).toBe("summary-review-title");
+    await expect.poll(() => document.querySelectorAll("[data-summary-open-step]").length).toBe(2);
+    await expect.element(browserPage.getByRole("button", { name: "Sign off and generate PD", exact: true })).toBeDisabled();
     await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
     await expect.poll(() => document.activeElement?.id).toBe("seed-summary-tab");
+
+    // Every step done: the status reads Ready and the name is plain again.
+    __setQueryData("seeds:getOutline", hostOutline());
+    await expect.poll(() => tab.textContent).toContain("Ready");
+    expect(tab.hasAttribute("aria-label")).toBe(false);
   });
 
   it("still takes the writer to the Summary after the last step is approved in the preview host", async () => {
@@ -540,7 +549,8 @@ describe("Seed project hosts", () => {
     __setMutationResult("seeds:approve", new Promise((resolve) => { finishApproval = resolve; }));
     await render(PreviewProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    expect(summaryEntry()!.disabled).toBe(true);
+    expect(summaryEntry()!.disabled).toBe(false);
+    await expect.poll(() => summaryEntry()?.textContent).toContain("1 open");
 
     await browserPage.getByRole("button", { name: "Approve and continue", exact: true }).click();
     expect(__mutationCalls("seeds:approve")).toEqual([expect.objectContaining({ roleId: lastRoleId })]);
@@ -550,15 +560,18 @@ describe("Seed project hosts", () => {
     finishApproval?.(null);
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
     expect(__navigationCalls).toContainEqual({ kind: "pushState", url: "/project/project-seed-host?view=summary" });
-    expect(summaryEntry()!.disabled).toBe(false);
+    expect(summaryEntry()!.textContent).toContain("Ready");
   });
 
-  it("locks the Summary again while a reopened step is not done and unlocks it once the step is confirmed", async () => {
+  it("keeps the Summary open while a reopened step is not done, marks it, and clears the mark once the step is confirmed", async () => {
     await render(PreviewProjectPage, {});
     await openSummary();
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+    expect(document.querySelector("[data-summary-open-step]")).toBeNull();
 
-    // A step reopened and changed: it is not done again.
+    // A step reopened and changed: it is not done again. The Summary stays
+    // on screen and marks it; nothing navigates away.
+    const navigations = __navigationCalls.length;
     const reopened = hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] });
     __setQueryData("seeds:getOutline", {
       ...reopened,
@@ -566,20 +579,19 @@ describe("Seed project hosts", () => {
         row.roleId === "goal_problem" ? { ...row, state: "in_progress", approvedAt: 1_700_000_000_000 } : { ...row, state: "approved" }
       ),
     });
-    await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    expect(browserPage.getByRole("heading", { name: "Summary review", exact: true }).elements()).toHaveLength(0);
-    expect(__navigationCalls.at(-1)).toEqual({ kind: "replaceState", url: "/project/project-seed-host" });
-    await expect.poll(() => summaryEntry()?.disabled).toBe(true);
-    // Focus leaves the locked Summary for the Plan tab, not the page body.
-    await expect.poll(() => document.activeElement?.id).toBe("seed-plan-tab");
-
-    // Confirmed: every step is done again and the tab opens the Summary.
-    __setQueryData("seeds:getOutline", hostOutline());
-    await openSummary();
+    await expect.poll(() => document.querySelector('[data-summary-open-step="goal_problem"]')).not.toBeNull();
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+    expect(__navigationCalls).toHaveLength(navigations);
+    expect(summaryEntry()?.disabled).toBe(false);
+    await expect.poll(() => summaryEntry()?.textContent).toContain("1 open");
+
+    // Confirmed: every step is done again and the mark goes.
+    __setQueryData("seeds:getOutline", hostOutline());
+    await expect.poll(() => document.querySelector("[data-summary-open-step]")).toBeNull();
+    expect(document.querySelector("[data-summary-open-steps]")).toBeNull();
   });
 
-  it("unlocks the Summary tab once Keep all leaves every step done (review P3 k)", async () => {
+  it("marks the Summary tab Ready once Keep all leaves every step done (review P3 k)", async () => {
     const marked = hostOutline({ ready: false, complete: true, blockingRoleIds: ["passive_limitations", "technological_objective"] });
     __setQueryData("seeds:getOutline", {
       ...marked,
@@ -595,7 +607,7 @@ describe("Seed project hosts", () => {
     __setMutationResult("seeds:keep", new Promise((resolve) => { answer = resolve; }));
     await render(PreviewProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
-    expect(summaryEntry()!.disabled).toBe(true);
+    await expect.poll(() => summaryEntry()?.textContent).toContain("2 open");
     await browserPage.getByRole("button", { name: "Keep all", exact: true }).click();
     expect(__mutationCalls("seeds:keep")).toEqual([
       { generationId: "generation-seed-host", roleId: "goal_problem", expectedSeedStageVersion: 4, scope: "later" },
@@ -603,21 +615,26 @@ describe("Seed project hosts", () => {
     // As in Convex, the live Outline is ready before the answer lands.
     __setQueryData("seeds:getOutline", lastStepOutline("goal_problem", true));
     answer?.({ seedStageVersion: 5, kept: ["passive_limitations", "technological_objective"], needsAttention: [] });
-    await expect.poll(() => summaryEntry()?.disabled).toBe(false);
+    await expect.poll(() => summaryEntry()?.textContent).toContain("Ready");
     await openSummary();
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
   });
 
-  it("offers the current host's Summary action only once every step is done", async () => {
+  it("offers the current host's Summary action before every step is done and says how many are open", async () => {
     __setQueryData("seeds:getOutline", hostOutline({ ready: false, complete: true, blockingRoleIds: ["goal_problem"] }));
     await render(CurrentProjectPage, {});
     await expect.element(browserPage.getByLabelText("Seed workspace")).toBeVisible();
     expect(browserPage.getByRole("button", { name: "Review summary" }).elements()).toHaveLength(0);
-    await expect.poll(() => summaryEntry()?.disabled).toBe(true);
-    expect(summaryEntry()!.title).toBe("Available when every step is done");
-    __setQueryData("seeds:getOutline", hostOutline());
+    await expect.poll(() => summaryEntry()?.getAttribute("aria-label")).toBe("Summary, 1 step not done yet");
+    expect(summaryEntry()!.disabled).toBe(false);
+    expect(summaryEntry()!.textContent?.replace(/\s+/g, " ").trim()).toBe("Summary1 open");
     await openSummary();
     await expect.element(browserPage.getByRole("heading", { name: "Summary review", exact: true })).toBeVisible();
+    await expect.poll(() => document.querySelector('[data-summary-open-step="goal_problem"]')).not.toBeNull();
+    await browserPage.getByRole("button", { name: "Back to plan", exact: true }).click();
+    __setQueryData("seeds:getOutline", hostOutline());
+    await expect.poll(() => summaryEntry()?.textContent).toContain("Ready");
+    expect(summaryEntry()!.hasAttribute("aria-label")).toBe(false);
   });
 
   it("removes every Seed mutation control from read-only initialization, workspace, and recovery", async () => {
@@ -752,6 +769,67 @@ describe("Seed project hosts", () => {
     ["current", CurrentProjectPage],
     ["preview", PreviewProjectPage],
   ] as const;
+
+  // 2026-11-02 (client request): how long the report's draft took.
+  it.each(HOSTS)("shows how long the report's draft took in the %s host, and nothing for an old draft", async (_host, Page) => {
+    const reportContent = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Timed report." }] }],
+    });
+    __setQueryData("reports:getLatestReport", {
+      _id: "report-timed",
+      projectId: "project-seed-host",
+      generationId: "generation-timed",
+      content: reportContent,
+      version: 1,
+      revisionNumber: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    __setQueryData("generations:getLatestGeneration", {
+      _id: "generation-timed",
+      status: "completed",
+      candidateMode: "iterative",
+      gatedWorkflow: "seeds",
+      seedPhase: "completed",
+      summaryVersionId: "summary-timed",
+    });
+    __setQueryData("generations:getGenerationSeedView", {
+      _id: "generation-timed",
+      gatedWorkflow: "seeds",
+      seedPhase: "completed",
+      summaryVersionId: "summary-timed",
+      seedCanEdit: true,
+      draftTiming: { draftMs: 9 * 60_000, stepByStepMs: 65 * 60_000 },
+    });
+    await render(Page, {});
+    await expect.element(browserPage.getByText("Timed report.", { exact: true })).toBeVisible();
+    const timing = () => document.querySelector<HTMLElement>("[data-report-draft-timing]");
+    await expect.poll(() => timing()?.textContent).toBe("Step by step took 1 h 5 min, then 9 min to draft");
+    expect(timing()?.textContent).not.toMatch(/[\u2013\u2014]/);
+
+    // A single or compare draft reads as one time.
+    __setQueryData("generations:getGenerationSeedView", {
+      _id: "generation-timed",
+      gatedWorkflow: undefined,
+      seedPhase: undefined,
+      summaryVersionId: null,
+      seedCanEdit: true,
+      draftTiming: { draftMs: 12 * 60_000, stepByStepMs: null },
+    });
+    await expect.poll(() => timing()?.textContent).toBe("Drafted in 12 min");
+
+    // An old draft without the stamps shows nothing at all.
+    __setQueryData("generations:getGenerationSeedView", {
+      _id: "generation-timed",
+      gatedWorkflow: undefined,
+      seedPhase: undefined,
+      summaryVersionId: null,
+      seedCanEdit: true,
+      draftTiming: null,
+    });
+    await expect.poll(() => timing()).toBeNull();
+  });
 
   function oneTranscript() {
     __setQueryData("generations:getLatestGeneration", null);

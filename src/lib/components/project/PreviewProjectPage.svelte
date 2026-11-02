@@ -35,6 +35,7 @@
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
+    focusSeedStepHeading,
     focusSummaryReturnTrigger,
     SEED_PLAN_TAB_ID,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
@@ -112,6 +113,7 @@
   } from "$lib/exportValidation";
   import type { ReportNote } from "$lib/reportSections";
   import { userErrorCode, userErrorMessage, userErrorReason } from "$lib/errors";
+  import { draftTimingText } from "$lib/draftTiming";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
@@ -169,6 +171,12 @@
     auth.isAuthenticated && reportQ.data?.generationId
       ? { generationId: reportQ.data.generationId }
       : "skip"
+  );
+  // 2026-11-02: "Drafted in 12 min" for the report's own draft, or nothing.
+  const reportDraftTiming = $derived(
+    reportGenerationQ.data && reportGenerationQ.data._id === reportQ.data?.generationId
+      ? draftTimingText(reportGenerationQ.data.draftTiming)
+      : ""
   );
   const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated ? { projectId } : "skip"
@@ -1291,19 +1299,17 @@
   );
   // Every step is done by the rule sign-off uses (the server's readiness).
   const planReady = $derived(Boolean(seeding && seedOutline?.readiness?.ready));
-  // Owner decision 2026-09-28 (sixth): while seeding, the Summary opens only
-  // once every step is done. A Summary URL or state refused by a current
-  // Outline read opens the Plan instead; until that read arrives the Summary
-  // tab stays disabled and a Summary URL waits (the review loads the same read).
-  const seedSummaryLocked = $derived(seeding && !planReady);
-  const seedSummaryRefused = $derived(seeding && !!seedOutline && !seedOutline.readiness?.ready);
-  $effect(() => {
-    if (!seedSummaryRefused || !seedSummaryRequested) return;
-    untrack(() => setSeedSummary(false, "replace"));
-  });
+  // 2026-11-02 (client request, replacing owner decision 2026-09-28 sixth):
+  // the Summary opens at any time while seeding. Steps not done yet are shown
+  // as such there, each with a way back to it; sign-off still needs every
+  // step done (the review and the server both check readiness).
+  const seedOpenStepCount = $derived(
+    seeding && seedOutline?.readiness && !seedOutline.readiness.ready && seedOutline.readiness.complete
+      ? new Set(seedOutline.readiness.blockingRoleIds).size
+      : 0
+  );
   const seedSummaryOpen = $derived(
     seedSummaryRequested &&
-      !seedSummaryRefused &&
       (isSeedWorkflow ||
         (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
   );
@@ -1320,7 +1326,7 @@
   );
   const showSeedSummary = $derived(
     seedSummaryRequested &&
-      ((seeding && !seedSummaryRefused) ||
+      (seeding ||
         (!showIterativeStepper &&
           generation?.status !== "awaiting_selection" &&
           !(isSeedWorkflow &&
@@ -1385,6 +1391,12 @@
   // resolves.
   let seedSummaryWasShown = false;
   let seedSignOffAccepted = false;
+  // The step a Summary "Go to this step" link asked for: leaving the Summary
+  // focuses that step's heading instead of the Summary tab.
+  let seedStepFocusRoleId: string | null = null;
+  // The step that link opens, kept here as well as in the URL so the plan
+  // opens on it however the URL read updates.
+  let seedRequestedStep = $state<string | null>(null);
   // A5/A7: this host's lifetime fences every deferred Seed operation below. A
   // response or callback arriving after the host was destroyed changes no
   // URL, Summary state or focus.
@@ -1400,6 +1412,8 @@
   let seedFocusToken = 0;
   function scheduleSeedFocus(transition: "return" | "drafting") {
     const token = ++seedFocusToken;
+    const stepRoleId = seedStepFocusRoleId;
+    seedStepFocusRoleId = null;
     const owner = {
       projectId: String(projectId),
       userId: user?._id ?? "anonymous",
@@ -1418,7 +1432,16 @@
         // coincides with it.
         focusGenerationProgress();
       } else if (transition === "return" && !showSeedSummary) {
-        focusSummaryReturnTrigger();
+        if (!stepRoleId) {
+          focusSummaryReturnTrigger();
+          return;
+        }
+        void focusSeedStepHeading(
+          stepRoleId,
+          () => !hostDisposed && token === seedFocusToken && showSeedWorkspace
+        ).then((focused) => {
+          if (!focused && !hostDisposed && token === seedFocusToken) focusSummaryReturnTrigger();
+        });
       }
     });
   }
@@ -1500,14 +1523,28 @@
   );
   const openTranscript = $derived(openTranscriptQ.data);
 
-  /** A refused Summary is replaced rather than pushed, so Back never
-   * returns to a Summary that is still locked. */
+  /** Opens or leaves the Summary. Opening drops an earlier `?step=` deep
+   * link, so returning to the plan shows the step the writer was last on. */
   function setSeedSummary(open: boolean, history: "push" | "replace" = "push") {
     const url = new URL(page.url);
-    if (open) url.searchParams.set("view", "summary");
-    else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
+    if (open) {
+      url.searchParams.set("view", "summary");
+      url.searchParams.delete("step");
+      seedRequestedStep = null;
+    } else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
     (history === "replace" ? replaceState : pushState)(`${url.pathname}${url.search}`, {});
     seedSummaryRequested = open;
+  }
+
+  /** A Summary "Go to this step" link: back to the plan, on that step. */
+  function openSeedStep(roleId: string) {
+    const url = new URL(page.url);
+    url.searchParams.delete("view");
+    url.searchParams.set("step", roleId);
+    seedStepFocusRoleId = roleId;
+    seedRequestedStep = roleId;
+    pushState(`${url.pathname}${url.search}`, {});
+    seedSummaryRequested = false;
   }
 
   // The report surface and its actions (Export, Send for review, the top-bar
@@ -1830,14 +1867,19 @@
         id: "summary",
         label: "Summary",
         done: seedSignedOff,
-        status: planReady ? "Ready" : null,
+        // 2026-11-02: open while steps remain, and it says how many.
+        status: planReady ? "Ready" : seedOpenStepCount > 0 ? `${seedOpenStepCount} open` : null,
         disabled: seeding
-          ? seedSummaryLocked
+          ? false
           : !(signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
-        disabledReason: seeding ? "Available when every step is done" : undefined,
         ...(signedOffSummaryAvailable
           ? { triggerId: SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID, ariaLabel: "Signed-off Summary" }
-          : { triggerId: SEED_SUMMARY_TAB_ID }),
+          : {
+              triggerId: SEED_SUMMARY_TAB_ID,
+              ...(seedOpenStepCount > 0
+                ? { ariaLabel: `Summary, ${seedOpenStepCount} ${seedOpenStepCount === 1 ? "step" : "steps"} not done yet` }
+                : {}),
+            }),
       },
       { id: "report", label: "Report", disabled: seeding },
       sources,
@@ -1855,7 +1897,6 @@
     }
     sourcesOpen = false;
     if (id === "summary") {
-      if (seedSummaryLocked) return;
       if (!showSeedSummary && !showSeedRecovery) setSeedSummary(true);
       return;
     }
@@ -1980,7 +2021,11 @@
 </script>
 
 <svelte:window
-  onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
+  onpopstate={() => {
+    const url = new URL(window.location.href);
+    seedSummaryRequested = url.searchParams.get("view") === "summary";
+    seedRequestedStep = url.searchParams.get("step");
+  }}
   onkeydown={(e) => {
     // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
     // and the Assistant stays open while its composer holds unsent text.
@@ -2372,7 +2417,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
-            requestedRoleId={page.url.searchParams.get("step")}
+            requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
             hostVisible={mainPaneVisible && !sourcesOpen}
             onOpenSummary={() => setSeedSummary(true)}
           >
@@ -2408,6 +2453,7 @@
             readOnly={seedSummaryOwner.seedPhase !== "seeding"}
             focusHeadingOnMount
             onClose={() => setSeedSummary(false)}
+            onOpenStep={openSeedStep}
             onSignedOff={completeSeedSignOff}
           />
         {/key}
@@ -2475,6 +2521,10 @@
               <h2 data-report-title class="mb-0.5 text-display font-normal">
                 {project.title}
               </h2>
+              {#if reportDraftTiming}
+                <!-- 2026-11-02: how long this draft took, for anyone who can see the project. -->
+                <p class="mt-1 text-[0.8125rem] leading-[calc(20/13)] text-ink-muted" data-report-draft-timing>{reportDraftTiming}</p>
+              {/if}
               {#if notDraftedSections.length > 0}
                 <!-- A stopped Step-by-step draft (FR-43, owner decision 20). -->
                 <div class="mt-6">

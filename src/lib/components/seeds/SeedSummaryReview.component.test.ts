@@ -193,6 +193,98 @@ const persistenceNotice = () => document.querySelector<HTMLElement>("[data-summa
 const outlineAlert = () => document.querySelector<HTMLElement>("[data-summary-outline-error]");
 
 describe("Seed Summary Review", () => {
+  // 2026-11-02 (client request): the Summary opens before every step is
+  // done. Open steps are marked, each links back, and sign-off stays off.
+  function openStepsOutline() {
+    const base = outline(false);
+    return {
+      ...base,
+      readiness: {
+        ready: false,
+        complete: true,
+        blockingRoleIds: ["goal_problem", "experimentation"],
+        blockers: [
+          { code: "REQUIRED_ROLE_UNDECIDED", roleId: "goal_problem", message: "Goal / Problem must be approved" },
+          { code: "ROLE_STALE", roleId: "experimentation", message: "Experimentation must be reconciled" },
+        ],
+      },
+    };
+  }
+
+  it("marks the steps not done yet, links each one back, and keeps sign-off off with a plain reason", async () => {
+    __setQueryData("seeds:getOutline", openStepsOutline());
+    __setQueryData("seeds:getSummary", onePage([
+      item("seed-a", "company_context", "The company designed adaptive controls."),
+      item("seed-b", "experimentation", "Three load-band experiments refined the controller."),
+    ]));
+    const onOpenStep = vi.fn();
+    const { container } = await render(SeedSummaryReview, {
+      generationId,
+      userId: "writer-1",
+      onClose: vi.fn(),
+      onOpenStep,
+    });
+    container.style.width = "1000px";
+    container.style.height = "800px";
+    await expect.element(page.getByText("The company designed adaptive controls.", { exact: true })).toBeVisible();
+
+    const notice = () => container.querySelector<HTMLElement>("[data-summary-open-steps]");
+    await expect.poll(() => notice()?.textContent ?? "").toContain("2 steps are not done yet, so this Summary is not complete.");
+    expect(notice()?.getAttribute("role")).toBe("status");
+    expect(notice()?.textContent).toContain("You can sign off once every step is done.");
+
+    const goal = container.querySelector<HTMLElement>('[data-summary-open-step="goal_problem"]')!;
+    expect(goal.textContent).toContain("Not done yet");
+    expect(container.querySelector('[data-summary-role-empty="goal_problem"]')?.textContent).toBe("Nothing picked yet.");
+    // Approved but changed since: it needs another look, not a decision.
+    expect(container.querySelector('[data-summary-open-step="experimentation"]')?.textContent).toContain("Needs another look");
+    expect(container.querySelector('[data-summary-open-step="company_context"]')).toBeNull();
+    // A step that is done and has nothing picked still reads as before.
+    expect(container.querySelector('[data-summary-role-empty="technological_objective"]')?.textContent).toBe("No selected items.");
+
+    // Sign-off stays off, says why, and the footer counts the open steps.
+    await expect.element(signOffButton()).toBeDisabled();
+    const describedBy = (signOffButton().element() as HTMLElement).getAttribute("aria-describedby");
+    expect(document.getElementById(describedBy!)?.textContent).toBe(". Finish every step to sign off.");
+    expect(container.querySelector("[data-summary-readiness=blocked]")?.textContent).toContain("2 steps still open. Finish every step to sign off.");
+
+    const goalTitle = PD_SUBSECTIONS.find((role) => role.roleId === "goal_problem")!.title;
+    container.querySelector<HTMLElement>(".overflow-y-auto")!.scrollTop = 0;
+    await page.getByRole("region", { name: "Summary review" }).screenshot({
+      path: await captures.path("summary-review-open-steps"),
+    });
+    await page.getByRole("button", { name: `Go to ${goalTitle}`, exact: true }).click();
+    expect(onOpenStep).toHaveBeenCalledWith("goal_problem");
+    expect(__mutationCalls("generations:signOffSeedStage")).toEqual([]);
+
+    // Every step done: the marks and the notice go, and sign-off returns.
+    __setQueryData("seeds:getOutline", outline());
+    await expect.poll(() => container.querySelector("[data-summary-open-step]")).toBeNull();
+    expect(notice()).toBeNull();
+    await expect.element(signOffButton()).toBeEnabled();
+    expect((signOffButton().element() as HTMLElement).hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("marks open steps without a link when the host offers no way back, and marks none on a signed-off Summary", async () => {
+    __setQueryData("seeds:getOutline", openStepsOutline());
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "The company designed adaptive controls.")]));
+    const mounted = await render(SeedSummaryReview, { generationId, userId: "writer-1", onClose: vi.fn() });
+    await expect.poll(() => document.querySelectorAll("[data-summary-open-step]").length).toBe(2);
+    expect(document.querySelector("[data-summary-go-to-step]")).toBeNull();
+    mounted.unmount();
+
+    document.body.innerHTML = "";
+    __setQueryData("seeds:getSummary", onePage([item("seed-a", "company_context", "The company designed adaptive controls.")], {
+      frozen: true,
+      summaryVersionId: versionId,
+      summaryVersion: 1,
+    }));
+    await render(SeedSummaryReview, { generationId, userId: "writer-1", versionId, readOnly: true, onClose: vi.fn(), onOpenStep: vi.fn() });
+    await expect.element(page.getByText("The company designed adaptive controls.", { exact: true })).toBeVisible();
+    expect(document.querySelector("[data-summary-open-step]")).toBeNull();
+    expect(document.querySelector("[data-summary-open-steps]")).toBeNull();
+  });
+
   it("loads every page before enabling sign-off, shows frozen settings, edits with a version fence, and signs off only the reloaded current version", async () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSummary", firstPage());

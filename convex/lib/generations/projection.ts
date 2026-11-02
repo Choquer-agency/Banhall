@@ -17,6 +17,7 @@ import { getReportEditAccessOrNull } from "../roleCapabilities";
 import { readGenerationProgress } from "../generationProgress";
 import { seedModelById } from "../../../shared/generationModels";
 import { readAgentOutputs } from "../generationOutputs";
+import { draftTimingOf } from "./draftTiming";
 
 // ─── Generation status helpers ───────────────────────────────────────────────
 // ACTIVE_GENERATION_STATUSES (the project stays fenced on the generation and
@@ -220,6 +221,9 @@ export async function getGenerationSeedViewHandler(
     seedCanEdit:
       gatedWorkflow === "seeds" &&
       (await getReportEditAccessOrNull(ctx, generation.projectId)) !== null,
+    // 2026-11-02: how long this finished draft took, for anyone who can see
+    // the project. Null while it runs and for rows without the stamps.
+    draftTiming: await draftTimingOf(ctx, generation),
   };
 }
 
