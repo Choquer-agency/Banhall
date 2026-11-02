@@ -296,11 +296,12 @@ export async function draftWebBackgroundOutcome(
     );
     const queries = guarded.kept.slice(0, DRAFT_WEB_MAX_QUERIES);
     const droppedQueries = guarded.dropped.length;
-    if (queries.length === 0) return outcome({ status: "no_queries", ...empty, droppedQueries });
+    const dropped = droppedQueries > 0 ? { droppedReasons: guarded.dropped } : {};
+    if (queries.length === 0) return outcome({ status: "no_queries", ...empty, droppedQueries, ...dropped });
 
     const timeoutMs = Math.min(DRAFT_WEB_SEARCH_TIMEOUT_MS, left());
     if (timeoutMs < Math.min(5_000, budget / 4)) {
-      return outcome({ status: "timed_out", ...empty, droppedQueries, reason: "No time was left for the searches." });
+      return outcome({ status: "timed_out", ...empty, droppedQueries, ...dropped, reason: "No time was left for the searches." });
     }
     const settled = await Promise.all(
       queries.map(async (query): Promise<DraftWebResult> => {
@@ -316,6 +317,7 @@ export async function draftWebBackgroundOutcome(
         queries: queries.map(({ query, kind }) => ({ query, kind, status: "failed" as const })),
         sources: [],
         droppedQueries,
+        ...dropped,
         cached: false,
         reason: "No search returned a usable answer with a source.",
       });
@@ -330,7 +332,7 @@ export async function draftWebBackgroundOutcome(
     } catch (error) {
       console.error("draft web background cache save failed", safeErrorDetails(error));
     }
-    return outcome(usedRecord(settled, queries, droppedQueries, false), settled);
+    return outcome({ ...usedRecord(settled, queries, droppedQueries, false), ...dropped }, settled);
   } catch (error) {
     console.error("draft web background failed", safeErrorDetails(error));
     return outcome({ status: "failed", ...empty, reason: "The web lookup hit an error." });

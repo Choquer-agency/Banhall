@@ -48,6 +48,20 @@ export const draftWebBackgroundRecordValidator = v.object({
   ),
   sources: v.array(numberedDraftWebSourceValidator),
   droppedQueries: v.number(),
+  // Why each dropped query was dropped (codes only, never its text).
+  droppedReasons: v.optional(
+    v.array(
+      v.union(
+        v.literal("names"),
+        v.literal("placeholder"),
+        v.literal("figure"),
+        v.literal("too_long"),
+        v.literal("empty"),
+        v.literal("duplicate"),
+        v.literal("over_limit")
+      )
+    )
+  ),
   cached: v.boolean(),
   reason: v.optional(v.string()),
 });

@@ -249,8 +249,10 @@ export type DraftWebBackgroundRecord = {
   queries: Array<{ query: string; kind: DraftWebQueryKind; status: "ok" | "failed" }>;
   /** Sources given to the drafter, numbered as the block numbers them. */
   sources: NumberedDraftWebSource[];
-  /** Queries the guard dropped, by reason (never their text). */
+  /** How many queries the guard dropped. */
   droppedQueries: number;
+  /** Why each was dropped (codes only, never the query's text). */
+  droppedReasons?: DroppedQueryReason[];
   /** True when the results came from this project's cache, with no new search. */
   cached: boolean;
   /** A short plain reason when the step failed or ran out of time. */

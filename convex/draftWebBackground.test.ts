@@ -34,7 +34,7 @@ afterEach(() => {
 
 const SOURCES = "Interviewer: What did you build?\n\nTobin Vasquez-Hale: A Selenium crawler for Quillmere Analytics, fed by PostgreSQL CDC.";
 
-async function setup(options: { requested?: boolean } = {}) {
+async function setup(options: { requested?: boolean | "unset" } = {}) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
@@ -58,13 +58,14 @@ async function setup(options: { requested?: boolean } = {}) {
       startedAt: 1,
       requestedBy: writerId,
       placeholders: [{ token: "[CLIENT_1]", value: "Quillmere Analytics Inc." }],
-      ...(options.requested === undefined ? {} : { webBackgroundRequested: options.requested }),
+      ...(options.requested === "unset" ? {} : { webBackgroundRequested: options.requested ?? true }),
     });
     return { writerId, projectId, generationId };
   });
+  type Call = (ref: unknown, args: unknown) => Promise<unknown>;
   const ctx = {
-    runQuery: ((ref: unknown, args: unknown) => t.query(ref as never, args as never)) as never,
-    runMutation: ((ref: unknown, args: unknown) => t.mutation(ref as never, args as never)) as never,
+    runQuery: ((ref: unknown, args: unknown) => (t.query as unknown as Call)(ref, args)) as never,
+    runMutation: ((ref: unknown, args: unknown) => (t.mutation as unknown as Call)(ref, args)) as never,
   };
   return { t, ctx, ...ids };
 }
@@ -119,6 +120,7 @@ describe("public background before drafting", () => {
       expect(query).not.toMatch(/Quillmere|Tobin|Vasquez|Brennecke|Shelfwatch|CLIENT_/i);
     }
     expect(outcome.record.droppedQueries).toBe(2);
+    expect(outcome.record.droppedReasons).toEqual(["names", "placeholder"]);
     expect(outcome.record.queries.map((query) => query.status)).toEqual(["ok", "ok"]);
     expect(outcome.record.sources.map((source) => source.n)).toEqual([1, 2]);
     expect(outcome.block).toContain(PUBLIC_BACKGROUND_LABEL);
@@ -149,6 +151,15 @@ describe("public background before drafting", () => {
       answers: "",
       record: { status: "off_for_run", queries: [], sources: [], droppedQueries: 0, cached: false },
     });
+    expect(fake.writes()).toBe(0);
+    expect(fake.searched).toEqual([]);
+  });
+
+  it("does nothing for a draft started before public background (no choice recorded)", async () => {
+    const f = await setup({ requested: "unset" });
+    const fake = fakeDeps();
+    const outcome = await run(f, fake.deps);
+    expect(outcome.record.status).toBe("off_for_run");
     expect(fake.writes()).toBe(0);
     expect(fake.searched).toEqual([]);
   });

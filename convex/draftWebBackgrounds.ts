@@ -89,7 +89,10 @@ export const webBackgroundContext = internalQuery({
     const projectMap = await projectPlaceholderMap(ctx, project, await listProjectTranscripts(ctx, project._id));
     const placeholders = [...projectMap, ...(generation.placeholders ?? [])];
     return {
-      requested: generation.webBackgroundRequested !== false,
+      // Only a draft started with the choice recorded looks anything up: a
+      // generation from before public background (no field) sends exactly
+      // the requests it always did.
+      requested: generation.webBackgroundRequested === true,
       identity: { placeholders, knownNames: webSearchKnownNames(project, placeholders) },
     };
   },

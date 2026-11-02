@@ -909,6 +909,8 @@ export async function retryFromSummaryHandler(
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
     projectId: failed.projectId,
+    // A recovery keeps the writer's public background choice.
+    ...(failed.webBackgroundRequested !== undefined ? { webBackgroundRequested: failed.webBackgroundRequested } : {}),
     transcriptId: failed.transcriptId,
     transcriptIds: failed.transcriptIds,
     inputMode: failed.inputMode,
@@ -1162,6 +1164,10 @@ export async function retryFailedCandidatesHandler(
     generation.excludedSources,
     false
   );
+  // A recovery keeps the writer's public background choice.
+  if (generation.webBackgroundRequested !== undefined) {
+    await ctx.db.patch(retryId, { webBackgroundRequested: generation.webBackgroundRequested });
+  }
   for (const candidate of successfulCandidates) {
     const candidateId = await ctx.db.insert("reportCandidates", {
       projectId: candidate.projectId,
