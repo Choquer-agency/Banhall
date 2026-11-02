@@ -263,5 +263,10 @@ export const orderedPayloadValidator = v.object({
   summaryVersionId: v.optional(v.id("summaryVersions")),
   // Seeds freeze the already-resolved style guidance at initialization.
   frozenStyleGuidance: v.optional(v.string()),
+  // 2026-11-02 (proposed): the public background block every Line reads
+  // (empty or absent: none), and its answers for the Self-check's
+  // web-only detail check. Absent on payloads made before.
+  webBackground: v.optional(v.string()),
+  webBackgroundAnswers: v.optional(v.string()),
 });
 export type OrderedPayload = Infer<typeof orderedPayloadValidator>;

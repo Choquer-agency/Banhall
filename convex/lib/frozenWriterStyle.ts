@@ -79,13 +79,21 @@ export function brainBlocksArtifactContent(
  */
 export function brainBlocksFromWriterStyle(
   blocks: FrozenBrainBlocks,
-  writerStyleContent: string
+  writerStyleContent: string,
+  /** 2026-11-02 (proposed): the public background block and its answers, when any. */
+  webBackground?: { block: string; answers: string }
 ): string {
   const parsed: unknown = JSON.parse(writerStyleContent);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Frozen writer style is malformed");
   }
-  return JSON.stringify({ blocks, ...(parsed as Record<string, unknown>) });
+  return JSON.stringify({
+    blocks,
+    ...(parsed as Record<string, unknown>),
+    ...(webBackground?.block
+      ? { webBackground: webBackground.block, webBackgroundAnswers: webBackground.answers }
+      : {}),
+  });
 }
 
 /** Brain blocks as the background step hands them over: four strings. */

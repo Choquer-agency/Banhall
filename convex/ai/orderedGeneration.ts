@@ -102,6 +102,7 @@ import {
   settleWriterSettingsVerdicts,
   SOURCE_TALK_KEY,
   NOTES_TO_WRITER_KEY,
+  WEB_ONLY_KEY,
   type DeterministicSelfCheck,
   type ModelVerdict,
 } from "../lib/selfCheckRules";
@@ -1296,7 +1297,9 @@ export async function draftCheckedSection(input: {
           : claim.briefBlock,
         claim.planBlock,
         // 2026-10-30 (owner, item 2): the claimant line, in every draft and repair.
-        claim.claimantName
+        claim.claimantName,
+        // 2026-11-02 (proposed): public background, in every draft and repair.
+        payload.webBackground ?? ""
       ),
       styleOverrides.bannedWords
     );
@@ -1364,11 +1367,20 @@ export async function draftCheckedSection(input: {
   const brief = claim.brief;
   // 2026-10-30: the check of the final text keeps the notes-to-the-writer
   // row when the checked draft had one, so it says whether the repair fixed it.
-  const check = (draft: string, notesToWriterRow = false): DeterministicSelfCheck =>
+  // 2026-11-02 (proposed): with public background, the evidence the drafter
+  // read, for the web-only detail check.
+  const webOnly = payload.webBackgroundAnswers?.trim()
+    ? {
+        answers: payload.webBackgroundAnswers,
+        evidence: [payload.analysis, claim.briefBlock, claim.planBlock ?? "", reportFacts, decisions, answers242].join("\n"),
+      }
+    : undefined;
+  const check = (draft: string, notesToWriterRow = false, webOnlyRow = false): DeterministicSelfCheck =>
     runDeterministicSelfCheck({
       section,
       text: draft,
       ...(notesToWriterRow ? { notesToWriterRow } : {}),
+      ...(webOnly ? { webOnly, ...(webOnlyRow ? { webOnlyRow } : {}) } : {}),
       ...(claim.claimantName ? { claimantName: claim.claimantName } : {}),
       brief,
       profile: payload.orderedContext,
@@ -1610,6 +1622,10 @@ export async function draftCheckedSection(input: {
   const notesToWriterIssue = before.entries.find(
     (entry) => entry.key === NOTES_TO_WRITER_KEY && entry.repairable && entry.row.outcome === "not_applied"
   )?.guidance;
+  // 2026-11-02 (proposed): the web-only fix takes words out too.
+  const webOnlyIssue = before.entries.find(
+    (entry) => entry.key === WEB_ONLY_KEY && entry.repairable && entry.row.outcome === "not_applied"
+  )?.guidance;
   // Round 5: a measured wording fix asks to change words, so, like the
   // source-talk fix, it is never a Must keep line of the repair's
   // compression; the wording guard keeps what it fixed.
@@ -1663,6 +1679,7 @@ export async function draftCheckedSection(input: {
             !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
             issue !== notesToWriterIssue &&
+            issue !== webOnlyIssue &&
             !wordingIssues.has(issue) &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
@@ -1791,7 +1808,11 @@ export async function draftCheckedSection(input: {
           finalText = fit.text;
           repair.succeeded = true;
           keptFit = fit;
-          after = check(finalText, before.entries.some((entry) => entry.key === NOTES_TO_WRITER_KEY));
+          after = check(
+            finalText,
+            before.entries.some((entry) => entry.key === NOTES_TO_WRITER_KEY),
+            before.entries.some((entry) => entry.key === WEB_ONLY_KEY)
+          );
         }
       } else {
         // An empty repair never replaces the draft it was meant to fix.

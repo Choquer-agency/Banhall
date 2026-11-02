@@ -669,6 +669,10 @@ export const requestGenerationArgs = {
   writerSuppliedStoryline: v.optional(v.string()),
   // Decision 56: files unticked in the start dialog are left out of this run.
   ...excludedIdsArgs,
+  // 2026-11-02 (proposed): "Look up public background" in the start
+  // dialog. Absent means on (an older browser), as the tick defaults to on;
+  // the deployment setting still decides whether anything is searched.
+  webBackground: v.optional(v.boolean()),
 };
 
 /** Handler of generations.requestGeneration. */
@@ -696,7 +700,7 @@ export async function requestGenerationHandler(
   }
   const candidateMode = args.candidateMode ?? "compare";
   const excludedSources = await validatedExcludedSources(ctx, project._id, args, { checkProjectRows: false });
-  return await reserveGeneration(
+  const generationId = await reserveGeneration(
     ctx,
     project,
     user._id,
@@ -714,6 +718,9 @@ export async function requestGenerationHandler(
     true,
     true
   );
+  // Same transaction as the reservation, so the scheduled run reads it.
+  await ctx.db.patch(generationId, { webBackgroundRequested: args.webBackground !== false });
+  return generationId;
 }
 
 /** Argument validators of generations.retryGeneration. */
@@ -746,7 +753,7 @@ export async function retryGenerationHandler(
   const movedLines = comparePair
     ? compareRetryProgress(moved, comparePair.pair, new Set(comparePair.pair))
     : movedBackProgress(moved);
-  return await reserveGeneration(
+  const retryId = await reserveGeneration(
     ctx,
     project,
     user._id,
@@ -767,6 +774,11 @@ export async function retryGenerationHandler(
     ["Generation request reserved.", ...movedLines],
     failed.excludedSources
   );
+  // A retry keeps the writer's public background choice.
+  if (failed.webBackgroundRequested !== undefined) {
+    await ctx.db.patch(retryId, { webBackgroundRequested: failed.webBackgroundRequested });
+  }
+  return retryId;
 }
 
 /** Argument validators of generations.retryFromSummary. */

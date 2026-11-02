@@ -27,6 +27,10 @@ import { styleOverridesValidator } from "./lib/styleOverrides";
 import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
 import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
+import {
+  draftWebBackgroundRecordValidator,
+  draftWebResultValidator,
+} from "./lib/draftWebBackgroundValidators";
 import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
   sectionMetricsValidator,
@@ -1293,6 +1297,13 @@ export default defineSchema({
     // The Haiku-extracted retrieval brief (JSON) behind the section queries —
     // kept for retrieval-quality evals.
     brainRetrievalBrief: v.optional(v.string()),
+    // 2026-11-02 (proposed): public background from the web. The writer's
+    // choice at start ("Look up public background", absent = on), and what
+    // the step did: the queries sent (no names), the sources given to the
+    // drafter, or why nothing was used. The block text itself is carried to
+    // the drafter with the Brain blocks (`saveIterativeArtifacts`).
+    webBackgroundRequested: v.optional(v.boolean()),
+    webBackground: v.optional(draftWebBackgroundRecordValidator),
     // Story 1 (CAP-1/2/4): the generation's Brief (Storyline, Claim Exclusions,
     // Confidence Map, Glossary Terms). Optional; keyed to inputs via inputsHash
     // so identical inputs reuse the same Brief.
@@ -2237,6 +2248,20 @@ export default defineSchema({
     // Review R2 P3-3: a conversation's newest searches first (creation time).
     .index("by_agentThreadId", ["agentThreadId"])
     .index("by_projectId", ["projectId"]),
+
+  // 2026-11-02 (proposed): public background for drafting, cached per
+  // project and source fingerprint so a rerun on the same sources does not
+  // search again. Only searches that returned something are cached. Holds
+  // the queries as sent (no names, see convex/ai/draftWebBackground.ts), the
+  // public answers and their sources. Erased with the project.
+  draftWebBackgrounds: defineTable({
+    projectId: v.id("projects"),
+    fingerprint: v.string(),
+    version: v.string(),
+    results: v.array(draftWebResultValidator),
+    droppedQueries: v.number(),
+    createdAt: v.number(),
+  }).index("by_projectId_and_fingerprint", ["projectId", "fingerprint"]),
 
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),

@@ -71,6 +71,15 @@
 
   export const NOTHING_TICKED_MESSAGE = "Tick at least one transcript or current file.";
 
+  /** 2026-11-02 (proposed): the per-run choices beside the files. */
+  export type StartRunOptions = { webBackground: boolean };
+
+  /** The public background tick (drafts only, when the deployment offers it). */
+  export const WEB_BACKGROUND_COPY = {
+    label: "Look up public background",
+    line: "Searches the web for what the named technologies are and how they are usually done. No names or project details are sent.",
+  } as const;
+
   /** F6: a run already going on this project (user-safe fields only). */
   export type ActiveRun = {
     generationId: string;
@@ -158,6 +167,7 @@
     onOpenActiveRun,
     onSelectionChange,
     initialExcluded = [],
+    offerWebBackground = false,
   }: {
     open?: boolean;
     mode: StartRunMode;
@@ -169,7 +179,8 @@
     blockingMessage?: string | null;
     /** A problem the current selection causes (the previous-year rule). */
     validate?: (excluded: StartRunExcluded) => string | null;
-    onConfirm: (excluded: StartRunExcluded) => void;
+    /** `options` is the run's own choices (absent from older hosts' reading: on). */
+    onConfirm: (excluded: StartRunExcluded, options: StartRunOptions) => void;
     onCancel?: () => void;
     returnFocus?: () => HTMLElement | null | undefined;
     /** F6: a run already going on this project; the start waits for it. */
@@ -187,7 +198,15 @@
      * brought back). Every other file starts ticked.
      */
     initialExcluded?: string[];
+    /**
+     * 2026-11-02 (proposed): show "Look up public background", ticked when
+     * it opens. Only for a draft, and only when the deployment looks it up.
+     */
+    offerWebBackground?: boolean;
   } = $props();
+
+  let lookUpBackground = $state(true);
+  const showWebBackground = $derived(offerWebBackground && mode !== "review");
 
   const unticked = new SvelteSet<string>();
   let confirmedClose = false;
@@ -225,6 +244,7 @@
     const isOpen = open;
     untrack(() => {
       if (isOpen && !wasOpen) {
+        lookUpBackground = true;
         unticked.clear();
         for (const id of initialExcluded) unticked.add(id);
       }
@@ -262,7 +282,7 @@
   function confirm() {
     if (problem || busy || activeRun) return;
     confirmedClose = true;
-    onConfirm(copyExcluded(excluded));
+    onConfirm(copyExcluded(excluded), { webBackground: showWebBackground ? lookUpBackground : true });
   }
 </script>
 
@@ -271,6 +291,7 @@
   onOpenChange={(isOpen) => {
     if (isOpen) {
       confirmedClose = false;
+      lookUpBackground = true;
       unticked.clear();
       for (const id of initialExcluded) unticked.add(id);
     } else if (!confirmedClose) {
@@ -376,6 +397,27 @@
                 {/each}
               </ul>
 
+              {#if showWebBackground}
+                <label data-start-run-web-background class="flex shrink-0 items-start gap-3 px-7 pt-3.5">
+                  <Checkbox.Root
+                    checked={lookUpBackground}
+                    onCheckedChange={(next) => (lookUpBackground = next === true)}
+                    data-start-run-web-check
+                    aria-describedby={`${cancelId}-web-line`}
+                    class="mt-px inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-[0.3125rem] border-[1.5px] text-white transition-colors duration-150 ease-out motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:border-fir data-[state=checked]:bg-fir data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400"
+                  >
+                    {#snippet children({ checked })}
+                      {#if checked}
+                        <IconCheck size={11} strokeWidth={3.2} />
+                      {/if}
+                    {/snippet}
+                  </Checkbox.Root>
+                  <span class="flex min-w-0 flex-col">
+                    <span class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{WEB_BACKGROUND_COPY.label}</span>
+                    <span id={`${cancelId}-web-line`} class="text-xs leading-[calc(17/12)] text-ink-muted">{WEB_BACKGROUND_COPY.line}</span>
+                  </span>
+                </label>
+              {/if}
               {#if anyTickedReading}
                 <div class="flex items-start gap-2 px-7 pt-2.5" data-start-run-reading-note>
                   <span class="aurora-spin mt-0.5 size-3.5 shrink-0 rounded-full border-2 border-[var(--aurora-track)] border-t-ink-muted" aria-hidden="true"></span>

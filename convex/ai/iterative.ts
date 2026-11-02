@@ -1,5 +1,8 @@
 "use node";
 
+import { draftWebBackgroundDeps, runDraftWebBackground } from "./draftWebBackgroundRun";
+import { DRAFT_WEB_QUERIES_CALL_SITE } from "./draftWebBackground";
+
 // Iterative (section-by-section) PD generation.
 //
 // The writer's workflow: analyzer + Brain retrieval run ONCE (frozen as
@@ -482,6 +485,26 @@ export const prepareSeedDraftingInputs = internalAction({
         },
       });
       if (!(await stillCurrent())) return null;
+      // 2026-11-02 (proposed): public background from the web, beside the
+      // analysis; never throws, and the draft continues without it.
+      const webBackgroundStage = runDraftWebBackground(ctx, {
+        generationId: genId,
+        projectId,
+        sources: analyzerContext.userMessage,
+        deps: draftWebBackgroundDeps(ctx, {
+          queriesClient: clientForModel(ctx, briefModel, {
+            callSite: DRAFT_WEB_QUERIES_CALL_SITE,
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: genId },
+          }),
+          queriesModel: briefModel,
+          projectId,
+          generationId: genId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        }),
+        log,
+      });
       // Owner decision 43: the analysis runs on the frozen planning model.
       const analyzerRoute = resolveGenerationStep({ freeze, step: "analyzer", writerModel: model.id });
       analyzerModel = analyzerRoute.model;
@@ -503,10 +526,14 @@ export const prepareSeedDraftingInputs = internalAction({
         }
       );
       await recordAnalyzerUse(ctx, genId, analyzerContext.report);
+      const webBackground = await webBackgroundStage;
       await ctx.runMutation(internal.generations.completeDraftingInputs, {
         ...attemptArgs,
         analysis: JSON.stringify(analysis),
         brainBlocks: JSON.stringify(brainBlocks),
+        ...(webBackground.block
+          ? { webBackground: webBackground.block, webBackgroundAnswers: webBackground.answers }
+          : {}),
         ...(brainProvenance ? { brainProvenance } : {}),
       });
     } catch (error) {

@@ -168,6 +168,13 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "chatProposals", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Chat parity Phase B: the report chat's web search records (queries and sources).
   { table: "chatWebSearches", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-11-02 (proposed): drafting's public background cache (queries, public answers, sources).
+  {
+    table: "draftWebBackgrounds",
+    field: "projectId",
+    disposition: "delete",
+    index: "by_projectId_and_fingerprint",
+  },
   {
     table: "agentChatThreads",
     field: "projectId",

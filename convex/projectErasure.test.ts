@@ -365,6 +365,14 @@ async function seedProjectRows(
       projectId, reportId, agentThreadId, promptMessageId: "p1", query: "q", status: "ok",
       sources: [{ n: 1, url: "https://example.org/", title: "t", domain: "example.org" }], createdAt: now,
     });
+    // 2026-11-02 (proposed): drafting's public background cache.
+    await ctx.db.insert("draftWebBackgrounds", {
+      projectId, fingerprint: "f", version: "v", droppedQueries: 0, createdAt: now,
+      results: [{
+        query: "q", kind: "technology", status: "ok", answer: "a",
+        sources: [{ url: "https://example.org/", title: "t", domain: "example.org" }],
+      }],
+    });
     const documentId = await ctx.db.insert("projectDocuments", {
       projectId, fileName: "doc.txt", fileType: "txt", content: "doc", storageId, source: "upload", uploadedBy: "u", createdAt: now,
     });

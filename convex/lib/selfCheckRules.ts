@@ -30,7 +30,7 @@ import {
   type GovernedTermState,
 } from "./writerPrecedence";
 import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
-import { findNotesToWriter, NOTES_TO_WRITER } from "../ai/qaChecks";
+import { findNotesToWriter, findWebOnlyDetails, NOTES_TO_WRITER, WEB_ONLY_DETAIL } from "../ai/qaChecks";
 import { capWithinLocked, ruleBearsOnLine } from "./writerLineCap";
 import {
   bannedRuleHits,
@@ -371,6 +371,16 @@ export function runDeterministicSelfCheck(input: {
   notesToWriterRow?: boolean;
   /** After the live rerun (R1): the claimant's name, so attribution to it is a note too. */
   claimantName?: string;
+  /**
+   * 2026-11-02 (proposed): when the draft read public background, its
+   * answers and the evidence the drafter read (analysis, Brief, plan). A
+   * sentence that states a figure or name found only in the answers gets a
+   * Locked row and goes to the repair (findWebOnlyDetails). Absent: no such
+   * check and no row, so a draft without background keeps its rows.
+   */
+  webOnly?: { answers: string; evidence: string };
+  /** The final text's check keeps the row when the checked draft had one. */
+  webOnlyRow?: boolean;
   /**
    * 2026-10-04 (first), Round 5: the writer's wording rules code measures
    * (extractWriterWordingRules), when the Writer Profile applied. Absent or
@@ -908,7 +918,50 @@ export function runDeterministicSelfCheck(input: {
     });
   }
 
+  if (input.webOnly) {
+    const webOnly = paragraphs.flatMap((paragraph, index) =>
+      findWebOnlyDetails(paragraph, input.webOnly!.answers, input.webOnly!.evidence).map((hit) => ({
+        index,
+        phrase: hit.phrase,
+      }))
+    );
+    if (webOnly.length > 0) {
+      add(
+        WEB_ONLY_KEY,
+        {
+          instruction: WEB_ONLY_DETAIL.instruction,
+          paragraphIndex: webOnly[0]!.index,
+          outcome: "not_applied",
+          tier: "locked",
+          reason: `a detail found only in the public background in ${sourceTalkPlaces(webOnly)}`,
+        },
+        true,
+        webOnlyRepairIssue(webOnly)
+      );
+    } else if (input.webOnlyRow) {
+      add(WEB_ONLY_KEY, {
+        instruction: WEB_ONLY_DETAIL.instruction,
+        outcome: "applied",
+        tier: "locked",
+        reason: WEB_ONLY_DETAIL.applied,
+      });
+    }
+  }
+
   return { entries, glossaryCandidates, modelRules, paragraphs };
+}
+
+/** 2026-11-02 (proposed): the deterministic entry key of the web-only detail check. */
+export const WEB_ONLY_KEY = "webOnlyDetail";
+
+/** The repair fix for a web-only detail: the paragraphs, the details and the rule. */
+export function webOnlyRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where} states as a fact about the work a detail found only in the public background (${phrases.join(", ")}): ${WEB_ONLY_DETAIL.fix}. ${WEB_ONLY_DETAIL.rule}`;
 }
 
 /**

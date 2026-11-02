@@ -65,6 +65,7 @@
     activeRunFromError,
     type ActiveRun,
     type StartRunExcluded,
+    type StartRunOptions,
     type StartRunSource,
   } from "$lib/components/generation/StartRunDialog.svelte";
   import { parsePdFilename } from "../../../../shared/pdFilename";
@@ -1289,8 +1290,16 @@
     return after.previousYearMessage;
   }
 
-  function confirmStart(excluded: StartRunExcluded) {
+  // 2026-11-02 (proposed): "Look up public background" for this run (on
+  // unless the writer unticks it), offered when the deployment looks it up.
+  let startWebBackground = true;
+  const webBackgroundQ = useQuery(api.generations.webBackgroundAvailable, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+
+  function confirmStart(excluded: StartRunExcluded, options?: StartRunOptions) {
     startOpen = false;
+    startWebBackground = options?.webBackground !== false;
     restoredExclusion = [];
     void commit(excluded);
   }
@@ -1718,6 +1727,7 @@
       // The writer's choices, kept for a start that finishes after the page.
       const choices = {
         candidateMode,
+        ...(startWebBackground ? {} : { webBackground: false }),
         ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
         ...(candidateMode === "compare"
           ? (() => {
@@ -2061,6 +2071,7 @@
               : {}),
             ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
             ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+            ...(startWebBackground ? {} : { webBackground: false }),
           });
           markStartReserved();
         });
@@ -3314,6 +3325,7 @@
         busy={committing}
         validate={validateExcluded}
         onConfirm={confirmStart}
+        offerWebBackground={webBackgroundQ.data === true}
         onCancel={() => {
           restoredExclusion = [];
           onDialogSelection({ transcriptIds: [], documentIds: [] });

@@ -1,6 +1,8 @@
 "use node";
 
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { draftWebBackgroundDeps, runDraftWebBackground } from "./draftWebBackgroundRun";
+import { DRAFT_WEB_QUERIES_CALL_SITE } from "./draftWebBackground";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
@@ -1522,6 +1524,8 @@ export const generateReport = internalAction({
     // The Brief while it runs beside the analysis: a failure elsewhere
     // still waits for it before the action ends (its stage never throws).
     let pendingBrief: Promise<void> | undefined;
+    // Never rejects; awaited on failure too, so its record is written.
+    let pendingWebBackground: Promise<unknown> | undefined;
 
     try {
       const scienceCode = normalizeCraScienceCode(input.scienceCode);
@@ -1646,6 +1650,30 @@ export const generateReport = internalAction({
         log,
       });
 
+      // 2026-11-02 (proposed): public background from the web, beside the
+      // analysis. It reads the analyzer's bounded input (names hidden by the
+      // query client), never throws, and the draft continues without it
+      // whatever happens (convex/ai/draftWebBackgroundRun.ts).
+      const webBackgroundStage = runDraftWebBackground(ctx, {
+        generationId: genId,
+        projectId,
+        sources: analyzerContext.userMessage,
+        deps: draftWebBackgroundDeps(ctx, {
+          queriesClient: clientForModel(ctx, retrievalBriefModel, {
+            callSite: DRAFT_WEB_QUERIES_CALL_SITE,
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: genId },
+          }),
+          queriesModel: retrievalBriefModel,
+          projectId,
+          generationId: genId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        }),
+        log,
+      });
+      pendingWebBackground = webBackgroundStage;
+
       // BNH-21: estimate generation time up front so the UI can show a
       // countdown + progress bar. Scales with input volume (transcript +
       // context docs); candidates now run in parallel, so wall-clock ≈ one
@@ -1751,6 +1779,11 @@ export const generateReport = internalAction({
       );
       await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       const serializedAnalysis = JSON.stringify(analysis);
+      const webBackground = await webBackgroundStage;
+      pendingWebBackground = undefined;
+      const webFields = webBackground.block
+        ? { webBackground: webBackground.block, webBackgroundAnswers: webBackground.answers }
+        : {};
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,
         analysis: serializedAnalysis,
@@ -1759,6 +1792,7 @@ export const generateReport = internalAction({
           styleGuidance: buildStyleGuidance(draftStyle, writerFlavor, styleOverrides ?? NO_STYLE_OVERRIDES),
           ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
           styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
+          ...webFields,
         }),
       });
 
@@ -1790,6 +1824,7 @@ export const generateReport = internalAction({
             generationId: genId,
             brainExemplars: brainBlocks,
             analysis: serializedAnalysis,
+            ...webFields,
             // Retained for legacy analyzer fallback compatibility; shared
             // analysis already reflects this recorded frozen-context budget.
             contextBudget: analyzerContext.report.budget,
@@ -1818,6 +1853,7 @@ export const generateReport = internalAction({
       // inputs) inside this action's deadline rather than being cut off,
       // even when failGeneration itself throws (review r2 P3).
       await pendingBrief;
+      await pendingWebBackground;
     }
   },
 });
@@ -1848,6 +1884,10 @@ export const generateCandidate = internalAction({
     // Story 2: the ordered profile context generateReport read once; absent
     // for ghost runs and for candidates queued before this field existed.
     orderedContext: v.optional(orderedProfileContextValidator),
+    // 2026-11-02 (proposed): the public background block and its answers
+    // (for the Self-check), when the step found any.
+    webBackground: v.optional(v.string()),
+    webBackgroundAnswers: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // The action's deadline bounds every provider request (actionDeadline.ts).
@@ -1927,6 +1967,9 @@ export const generateCandidate = internalAction({
             ...(args.writerFlavor && args.savedPreferenceTexts ? { savedPreferenceTexts: args.savedPreferenceTexts } : {}),
             ...(args.styleOverrides ? { styleOverrides: args.styleOverrides } : {}),
             orderedContext,
+            ...(args.webBackground
+              ? { webBackground: args.webBackground, webBackgroundAnswers: args.webBackgroundAnswers ?? "" }
+              : {}),
           },
         });
         return;
