@@ -17,6 +17,10 @@
                                          fills Not drafted Sections); comments stay.
     commentRanges?: CommentRange[]     — comment highlight decorations (re-resolved by text).
     onHoverComment?: (id|null) => void — hover over a comment highlight.
+    evidenceView?: boolean = false     - the Evidence view is on (the page remembers it).
+    onEvidenceViewChange?: (on) => void - shows the Evidence view switch and its key.
+    evidenceClaims?: EvidenceClaim[] | null - the revision's claim record; null when it
+                                         has none, undefined while it loads.
 
   Exported methods — parents `bind:this` the component instance and call these
   (implements WriterEditorHandle from ./types):
@@ -667,11 +671,18 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
   import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
   import { reportNoteRange } from "$lib/components/editor/inferenceNotes";
+  import {
+    evidenceAt,
+    evidenceSummary,
+    setEvidenceView,
+    type EvidenceClaim,
+  } from "$lib/components/editor/evidenceView";
+  import Switch from "$lib/components/ui/Switch.svelte";
   import type { ReportNote } from "$lib/reportSections";
   import EditorToolbar from "$lib/components/editor/EditorToolbar.svelte";
   import SlashCommandMenu from "$lib/components/editor/SlashCommandMenu.svelte";
@@ -692,6 +703,9 @@
     presentation = "classic",
     onAskShorten,
     shorteningLine = null,
+    evidenceView = false,
+    onEvidenceViewChange,
+    evidenceClaims,
   }: {
     content: string;
     onUpdate?: (json: string) => void | Promise<void>;
@@ -722,6 +736,16 @@
     onAskShorten?: (line: string, overBy: string) => void;
     /** F2: the Line the Assistant is shortening; its pill reads "Shortening". */
     shorteningLine?: string | null;
+    /**
+     * Client request 2026-11-02: the Evidence view colours sentences linked
+     * to a source green and inferred or unsupported ones red, without
+     * changing the text. The page owns the choice (remembered per user).
+     */
+    evidenceView?: boolean;
+    /** Given: the editor shows the Evidence view switch and, while on, its key. */
+    onEvidenceViewChange?: (on: boolean) => void;
+    /** The revision's claim record: null when it has none, undefined while it loads. */
+    evidenceClaims?: readonly EvidenceClaim[] | null;
   } = $props();
   // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
   const reading = presentation === "reading";
@@ -908,6 +932,59 @@
     const next = canEdit;
     if (!ed || ed.isEditable === next) return;
     ed.setEditable(next, false);
+  });
+
+  // Why the sentence under the pointer, or else at the cursor, has its colour.
+  let evidenceRevision = $state(0);
+  // The Evidence view: hand the switch and the claim record to its plugin.
+  // Drawing only; the document and autosave never see it.
+  $effect(() => {
+    const ed = editor;
+    if (!ed) return;
+    setEvidenceView(ed.view, { enabled: evidenceView, claims: evidenceClaims ?? null });
+    // The status line reads the plugin's new counts.
+    untrack(() => (evidenceRevision += 1));
+  });
+  let evidenceHover = $state<string | null>(null);
+  $effect(() => {
+    const ed = editor;
+    if (!ed || !evidenceView) return;
+    const bump = () => (evidenceRevision += 1);
+    const over = (event: MouseEvent) => {
+      const marked = (event.target as HTMLElement | null)?.closest?.("[data-evidence]");
+      evidenceHover = marked?.getAttribute("title") ?? null;
+    };
+    const leave = () => (evidenceHover = null);
+    const dom = ed.view.dom;
+    ed.on("transaction", bump);
+    ed.on("focus", bump);
+    ed.on("blur", bump);
+    dom.addEventListener("mouseover", over);
+    dom.addEventListener("mouseleave", leave);
+    return () => {
+      ed.off("transaction", bump);
+      ed.off("focus", bump);
+      ed.off("blur", bump);
+      dom.removeEventListener("mouseover", over);
+      dom.removeEventListener("mouseleave", leave);
+      evidenceHover = null;
+    };
+  });
+  const evidenceStatus = $derived.by(() => {
+    void evidenceRevision;
+    if (!editor || !evidenceView) return "";
+    if (evidenceClaims === undefined) return "Loading the claim record...";
+    // The cursor counts only once the writer is in the report.
+    const atCursor = editor.isFocused ? evidenceAt(editor.state, editor.state.selection.from)?.reason : undefined;
+    const why = evidenceHover ?? atCursor;
+    if (why) return why;
+    const { counts } = evidenceSummary(editor.state);
+    const sentences = (count: number) => `${count} ${count === 1 ? "sentence" : "sentences"}`;
+    const inferredOnly = evidenceClaims === null;
+    const found = inferredOnly
+      ? `This version has no claim record, so only sentences with an [INFERRED] note are coloured: ${sentences(counts.unsupported)}.`
+      : `${sentences(counts.supported)} linked to a source, ${sentences(counts.unsupported)} inferred or not backed.`;
+    return `${found} Point at a coloured sentence, or put the cursor in one, to see why.`;
   });
 
   // Apply external content changes (see lastContent/outstandingSaves above).
@@ -1519,6 +1596,35 @@
         onClose={() => (slashMenu.isOpen = false)}
         position={slashMenu.position}
       />
+    {/if}
+
+    {#if onEvidenceViewChange}
+      <!-- Evidence view (client request 2026-11-02): the switch, and while
+           on, its key and why the sentence at hand has its colour. -->
+      <div class="sticky top-0 z-20 mb-4 border-b border-line-soft bg-surface py-2 font-sans" data-evidence-toolbar>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label class="inline-flex min-h-8 cursor-pointer items-center gap-2 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">
+            <Switch checked={evidenceView} label="Evidence view" onCheckedChange={(on) => onEvidenceViewChange?.(on)} />
+            Evidence view
+          </label>
+          {#if evidenceView}
+            <ul class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-[calc(4/3)] text-ink-secondary" aria-label="Evidence view key" data-evidence-legend>
+              <li class="inline-flex items-center gap-1.5" data-evidence-key="supported">
+                <span class="evidence-swatch evidence-swatch--supported" aria-hidden="true"></span>
+                Linked to a source (solid underline)
+              </li>
+              <li class="inline-flex items-center gap-1.5" data-evidence-key="unsupported">
+                <span class="evidence-swatch evidence-swatch--unsupported" aria-hidden="true"></span>
+                Inferred or not backed (dashed underline)
+              </li>
+              <li class="text-ink-muted" data-evidence-key="plain">Plain: no source data to check</li>
+            </ul>
+          {/if}
+        </div>
+        {#if evidenceView}
+          <p class="mt-1.5 text-xs leading-[calc(4/3)] text-ink-muted" aria-live="polite" data-evidence-status>{evidenceStatus}</p>
+        {/if}
+      </div>
     {/if}
 
     <!-- The editor itself -->

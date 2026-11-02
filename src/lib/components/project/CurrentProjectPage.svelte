@@ -29,6 +29,7 @@
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
+  import { useEvidenceView } from "$lib/components/editor/evidenceViewSource.svelte";
   import type {
     CommentRange,
     ResearchSelection,
@@ -236,6 +237,9 @@
           (documentsQ.data ?? []).some((doc) => !doc.archived && doc.sizeChars > 0)))
   );
   const user = $derived(userQ.data);
+  // Evidence view (client request 2026-11-02): off by default, remembered
+  // per person; the claim record is read only while it is on.
+  const evidence = useEvidenceView(() => ({ reportId: report?._id, userId: user?._id }));
   // Same authority as publishForReview: project.setStage (the current
   // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
@@ -1789,6 +1793,9 @@
                 editable={true}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
+                evidenceView={evidence.on}
+                onEvidenceViewChange={evidence.set}
+                evidenceClaims={evidence.claims}
               />
 
               <!-- Supporting panels (QA moved to the right rail — BNH-47) -->

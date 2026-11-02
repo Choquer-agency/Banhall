@@ -45,7 +45,7 @@ type Range = { from: number; to: number };
  * A text block's text with each character's document position. An inline
  * leaf (a hard break) reads as a line break, as export reads it.
  */
-function blockText(node: PMNode, pos: number): { text: string; positions: number[] } {
+export function blockText(node: PMNode, pos: number): { text: string; positions: number[] } {
   let text = "";
   const positions: number[] = [];
   node.forEach((child, offset) => {
