@@ -89,6 +89,33 @@ describe("a card that goes against a rule", () => {
     await expect.poll(() => cards.lastAccepted).toEqual([{ proposalId: "card-override", line: "244" }]);
   });
 
+  it("says Export stays blocked when the card goes past a CRA limit, and only then (owner, 2026-11-02)", async () => {
+    const craRules = [
+      { kind: "cra_limit" as const, name: "Line 244 word cap", reason: "The writer asked to keep the full test list." },
+    ];
+    await mount([overrideCard({ rulesBroken: craRules })], false);
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: "Accept", exact: true }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect
+      .element(
+        dialog.getByText(
+          "Export stays blocked until the Line fits the CRA limit again, because the CRA form would cut off the extra lines or words."
+        )
+      )
+      .toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect.element(dialog).not.toBeInTheDocument();
+  });
+
+  it("names no Export block for a house rule", async () => {
+    await mount([overrideCard()], false);
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await page.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect.element(page.getByRole("alertdialog")).toBeVisible();
+    expect(document.querySelector("[data-rule-override-export-note]")).toBeNull();
+  });
+
   it("Cancel applies nothing and shows no error", async () => {
     await mount([overrideCard()], false);
     await page.getByRole("button", { name: "Review", exact: true }).click();

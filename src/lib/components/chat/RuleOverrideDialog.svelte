@@ -4,7 +4,13 @@
   // this confirmation names those rules. The server checks the same names
   // (`chatV2.applyProposal`); Cancel applies nothing.
   import { AlertDialog } from "bits-ui";
-  import { brokenRuleLabel, describeBrokenRules, type BrokenRule } from "../../../../shared/ruleOverride";
+  import {
+    CRA_LIMIT_EXPORT_NOTE,
+    breaksCraLimit,
+    brokenRuleLabel,
+    describeBrokenRules,
+    type BrokenRule,
+  } from "../../../../shared/ruleOverride";
 
   let {
     open = $bindable(false),
@@ -57,6 +63,9 @@
           </li>
         {/each}
       </ul>
+      {#if breaksCraLimit(rules)}
+        <p class="px-6 pt-3 text-xs leading-[calc(4/3)] text-warning-body" data-rule-override-export-note>{CRA_LIMIT_EXPORT_NOTE}</p>
+      {/if}
       <p class="px-6 pt-3 text-xs leading-[calc(4/3)] text-ink-muted">Your name is kept with this change.</p>
       <div class="flex items-center justify-end gap-2 px-6 pt-5 pb-5">
         <AlertDialog.Cancel

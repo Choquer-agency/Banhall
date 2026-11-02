@@ -64,6 +64,19 @@ export function appliedAgainstRules(rules: ReadonlyArray<Pick<BrokenRule, "kind"
   return `Applied against ${joinList(rules.map(brokenRuleLabel))}.`;
 }
 
+/**
+ * 2026-11-02 (owner): a Line may go past its CRA limit by override, but
+ * Export refuses it (the CRA form would cut it off), so the confirmation
+ * says so before the manager applies it.
+ */
+export const CRA_LIMIT_EXPORT_NOTE =
+  "Export stays blocked until the Line fits the CRA limit again, because the CRA form would cut off the extra lines or words.";
+
+/** Whether a card's rules include a CRA limit. */
+export function breaksCraLimit(rules: ReadonlyArray<Pick<BrokenRule, "kind">>): boolean {
+  return rules.some((rule) => rule.kind === "cra_limit");
+}
+
 /** The rule names a confirmation must carry, in the card's order. */
 export function brokenRuleNames(rules: ReadonlyArray<Pick<BrokenRule, "name">>): string[] {
   return rules.map((rule) => rule.name.trim());
