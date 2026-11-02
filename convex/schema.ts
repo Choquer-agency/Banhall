@@ -1085,6 +1085,17 @@ export default defineSchema({
     generatedAt: v.number(),
   }).index("by_projectId", ["projectId"]),
 
+  // 2026-11-02: a writer's private star on a project (the Projects page's
+  // Starred view and the star on cards and the project top bar). One row per
+  // person and project; it goes with the project (PROJECT_SCOPED_TABLES).
+  projectStars: defineTable({
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    createdAt: v.number(),
+  })
+    .index("by_projectId_and_userId", ["projectId", "userId"])
+    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+
   reportViews: defineTable({
     projectId: v.id("projects"),
     viewerName: v.string(),

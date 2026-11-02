@@ -5,7 +5,8 @@
    * 4). Each item is a 64px column, a 40 by 36 tile (radius 10) over a 12/16
    * label; the active tile takes `frame-tile`, its label ink at 500, its icon
    * the active duotone. Projects, Companies and Team (team.view), the spacer,
-   * then Admin (settings.configure) and Settings. Every choice reads the
+   * then What's new (everyone, 2026-11-02, with the bell's unseen dot), Admin
+   * (settings.configure) and Settings. Every choice reads the
    * effective viewer, so View as hides what the role cannot open. Below
    * 1024px the shell hides it; the drawer keeps today's rail.
    */
@@ -16,7 +17,7 @@
   import { api } from "../../../../convex/_generated/api";
   import { ADMIN_LANDING_PATH } from "$lib/dashboard/adminRoutes";
   import { companiesPath } from "$lib/companies/companies";
-  import { canSeeAdmin, frameRailItems, selectedFrameRailItem, type FrameRailItem } from "$lib/shell/navigation";
+  import { canSeeAdmin, frameRailItems, selectedFrameRailItem, whatsNewLabel, type FrameRailItem } from "$lib/shell/navigation";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
   import FrameIcon from "./FrameIcon.svelte";
 
@@ -28,6 +29,9 @@
   const attentionQ = useQuery(api.adminAttention.getAttention, () =>
     auth.isAuthenticated && canSeeAdmin(viewer) ? {} : "skip"
   );
+  // The same read as the global bar's bell (one shared subscription), so the
+  // rail's What's new dot and the bell's dot come and go together.
+  const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
 
   const items = $derived(
     frameRailItems(
@@ -37,10 +41,11 @@
         // The Companies section (2026-10-28): All companies.
         companiesHref: companiesPath(resolve("/")),
         teamHref: `${resolve("/")}team`,
+        changelogHref: resolve("/changelog"),
         adminHref: resolve(ADMIN_LANDING_PATH as "/"),
         settingsHref: resolve("/settings"),
       },
-      { adminAttention: attentionQ.data?.total ?? 0 }
+      { adminAttention: attentionQ.data?.total ?? 0, unseenChangelog: unseenQ.data ?? 0 }
     )
   );
   const selected = $derived(selectedFrameRailItem(page.url.pathname));
@@ -55,7 +60,11 @@
     href={item.href}
     data-rail-item={item.id}
     aria-current={active ? "page" : undefined}
-    aria-label={item.attention ? `${item.label}, needs a look` : undefined}
+    aria-label={item.attention
+      ? `${item.label}, needs a look`
+      : item.id === "changelog" && (item.unseen ?? 0) > 0
+        ? whatsNewLabel(item.unseen ?? 0)
+        : undefined}
     class={`group flex w-16 shrink-0 flex-col items-center gap-1 rounded-[0.625rem] ${focusRing}`}
   >
     <span
@@ -65,6 +74,10 @@
       }`}
     >
       <FrameIcon name={item.id} {active} />
+      {#if (item.unseen ?? 0) > 0}
+        <!-- The bell's unseen dot (primary), at the Admin dot's place. -->
+        <span data-rail-unseen aria-hidden="true" class="absolute right-1.5 top-1 size-[0.4375rem] rounded-full border-[1.5px] border-frame bg-primary"></span>
+      {/if}
       {#if item.attention}
         <span data-rail-attention aria-hidden="true" class="absolute right-1.5 top-1 size-[0.4375rem] rounded-full border-[1.5px] border-frame bg-stale-dot"></span>
       {/if}

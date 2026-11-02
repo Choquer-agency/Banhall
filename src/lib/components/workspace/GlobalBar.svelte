@@ -11,6 +11,7 @@
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
+  import { whatsNewLabel } from "$lib/shell/navigation";
   import BanhallLogo from "$lib/components/ui/BanhallLogo.svelte";
   import IdentityMenu from "$lib/components/shell/IdentityMenu.svelte";
   import { roleAvatarTone } from "$lib/components/ui/avatarTone";
@@ -50,7 +51,7 @@
     <a
       href={resolve("/changelog")}
       data-global-bar-bell
-      aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
+      aria-label={whatsNewLabel(unseen)}
       class={`relative flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-ink-secondary transition-colors hover:bg-frame-tile hover:text-ink ${focusRing} motion-reduce:transition-none`}
     >
       <FrameIcon name="bell" />

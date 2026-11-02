@@ -1,7 +1,9 @@
 <!--
   The Projects section sidebar (the page frame, owner 2026-10-28; Paper S9),
   shared by Projects and Home. "Projects" with its collapse button, the New
-  project button, Home and All projects (with the project count), then the
+  project button, Home, All projects (with the project count) and Starred
+  (the person's starred projects, with their count on Projects; 2026-11-02),
+  then the
   Companies group: a search button that opens "Find a company" (case and
   accents ignored) and every company with its project count. Rows are links
   (`?client=<key>`), so they open in a new tab; on Projects the host turns a
@@ -44,6 +46,10 @@
     onToggleMerge = undefined,
     onMerge = undefined,
     onRetry,
+    starredHref = null,
+    starredActive = false,
+    starredCount = null,
+    onSelectStarred = undefined,
   }: {
     clients: ClientEntry[];
     truncated?: boolean;
@@ -72,6 +78,13 @@
     onToggleMerge?: (key: string) => void;
     onMerge?: () => void;
     onRetry: () => void;
+    /** The Starred row's link; null draws no row. */
+    starredHref?: string | null;
+    starredActive?: boolean;
+    /** How many projects the person has starred, when known. */
+    starredCount?: string | null;
+    /** A plain click on Starred (Projects' soft navigation). */
+    onSelectStarred?: () => void;
   } = $props();
 
   const showNewClient = $derived(canCreate && onNewClient !== undefined);
@@ -99,12 +112,24 @@
       href={hrefFor(null)}
       label="All projects"
       data-client-row="all"
-      active={current === "projects" && selectedKey === null}
+      active={current === "projects" && selectedKey === null && !starredActive}
       count={totalLabel}
       onnavigate={select(null)}
     >
       {#snippet icon()}<FrameIcon name="all-projects" />{/snippet}
     </SectionSidebarLink>
+    {#if starredHref}
+      <SectionSidebarLink
+        href={starredHref}
+        label="Starred"
+        data-client-row="starred"
+        active={current === "projects" && starredActive}
+        count={starredCount}
+        onnavigate={onSelectStarred}
+      >
+        {#snippet icon()}<FrameIcon name="star" />{/snippet}
+      </SectionSidebarLink>
+    {/if}
   </nav>
 
   <CompanyListGroup

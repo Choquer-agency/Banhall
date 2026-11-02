@@ -193,6 +193,8 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "comments", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "commenters", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportViews", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-11-02: each person's private star on the project.
+  { table: "projectStars", field: "projectId", disposition: "delete", index: "by_projectId_and_userId" },
   { table: "reportSnapshots", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportExports", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportProvenance", field: "projectId", disposition: "delete", index: "by_projectId" },

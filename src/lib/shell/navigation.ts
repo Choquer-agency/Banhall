@@ -164,12 +164,13 @@ export function selectedRailItem(url: { pathname: string; search: string }): Rai
 /**
  * The page frame's fixed labelled rail (owner, 2026-10-28; Paper S9, S11):
  * Projects, Companies and Team (team.view) at the top, then after the spacer
- * Admin (settings.configure) and Settings. No Home, search, What's new or
- * developer rows: Home sits in the Projects sidebar, What's new behind the
- * global bar's bell, and Alerts and Feature requests at the foot of the
- * Admin sidebar. The drawer below 1024px keeps `railGroups`.
+ * What's new (every signed-in person, 2026-11-02, client request), Admin
+ * (settings.configure) and Settings. No Home, search or developer rows: Home
+ * sits in the Projects sidebar, and Alerts and Feature requests at the foot
+ * of the Admin sidebar. What's new keeps the global bar's bell too; both
+ * show the same unseen state. The drawer below 1024px keeps `railGroups`.
  */
-export type FrameRailItemId = "projects" | "companies" | "team" | "admin" | "settings";
+export type FrameRailItemId = "projects" | "companies" | "team" | "changelog" | "admin" | "settings";
 
 export type FrameRailItem = {
   id: FrameRailItemId;
@@ -177,27 +178,37 @@ export type FrameRailItem = {
   href: string;
   /** Amber attention dot (Admin). */
   attention?: boolean;
+  /** Unseen updates (What's new): the primary dot, as on the bell. */
+  unseen?: number;
 };
 
 export type FrameRailHrefs = {
   projectsHref: string;
   companiesHref: string;
   teamHref: string;
+  changelogHref: string;
   adminHref: string;
   settingsHref: string;
 };
 
+/** The What's new link's accessible name, shared by the bell and the rail. */
+export function whatsNewLabel(unseen: number): string {
+  return unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new";
+}
+
 export function frameRailItems(
   viewer: RailViewer,
   hrefs: FrameRailHrefs,
-  badges: { adminAttention: number }
+  badges: { adminAttention: number; unseenChangelog?: number }
 ): { top: FrameRailItem[]; bottom: FrameRailItem[] } {
   const top: FrameRailItem[] = [
     { id: "projects", label: "Projects", href: hrefs.projectsHref },
     { id: "companies", label: "Companies", href: hrefs.companiesHref },
   ];
   if (canViewTeam(viewer.role)) top.push({ id: "team", label: "Team", href: hrefs.teamHref });
-  const bottom: FrameRailItem[] = [];
+  const bottom: FrameRailItem[] = [
+    { id: "changelog", label: "What's new", href: hrefs.changelogHref, unseen: Math.max(0, badges.unseenChangelog ?? 0) },
+  ];
   if (canSeeAdmin(viewer)) {
     bottom.push({ id: "admin", label: "Admin", href: hrefs.adminHref, attention: badges.adminAttention > 0 });
   }
@@ -214,6 +225,7 @@ function under(pathname: string, prefix: string) {
  * Projects; Alerts and Feature requests under Admin, whose sidebar lists
  * them. Companies is selected on All companies and every company page
  * (2026-10-28); a company chosen on the Projects page stays under Projects.
+ * What's new is selected on its page (2026-11-02).
  */
 export function selectedFrameRailItem(pathname: string): FrameRailItemId | null {
   if (pathname === "/" || under(pathname, "/my-work") || under(pathname, "/projects") || under(pathname, "/project")) {
@@ -222,6 +234,7 @@ export function selectedFrameRailItem(pathname: string): FrameRailItemId | null 
   if (under(pathname, "/companies")) return "companies";
   if (under(pathname, "/team")) return "team";
   if (under(pathname, "/admin") || under(pathname, "/alerts") || under(pathname, "/requests")) return "admin";
+  if (under(pathname, "/changelog")) return "changelog";
   if (under(pathname, "/settings")) return "settings";
   return null;
 }

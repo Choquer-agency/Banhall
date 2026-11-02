@@ -2046,6 +2046,7 @@
            right, the rest in the More menu. -->
       <ProjectTopBar
         title={project.title}
+        projectId={project._id}
         projectsHref={workspaceHref("/projects")}
         onOpenNavigation={() => (navigationOpen = true)}
         moreItems={topBarMoreItems}

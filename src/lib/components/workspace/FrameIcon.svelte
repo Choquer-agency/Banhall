@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type FrameRailIconName = "projects" | "companies" | "team" | "admin" | "settings";
+  export type FrameRailIconName = "projects" | "companies" | "team" | "changelog" | "admin" | "settings";
   export type FrameIconName =
     | FrameRailIconName
     | "bell"
@@ -9,6 +9,7 @@
     | "home"
     | "all-projects"
     | "all-companies"
+    | "star"
     | "arrow-up-right"
     | "people"
     | "mail"
@@ -24,6 +25,7 @@
     projects: 20,
     companies: 20,
     team: 20,
+    changelog: 20,
     admin: 20,
     settings: 20,
     bell: 17,
@@ -33,6 +35,7 @@
     home: 16,
     "all-projects": 16,
     "all-companies": 16,
+    star: 16,
     "arrow-up-right": 16,
     people: 16,
     mail: 16,
@@ -44,7 +47,7 @@
     keyboard: 16,
   };
 
-  export const RAIL_ICON_NAMES: readonly FrameRailIconName[] = ["projects", "companies", "team", "admin", "settings"];
+  export const RAIL_ICON_NAMES: readonly FrameRailIconName[] = ["projects", "companies", "team", "changelog", "admin", "settings"];
 </script>
 
 <script lang="ts">
@@ -73,6 +76,7 @@
       name === "home" ||
       name === "all-projects" ||
       name === "all-companies" ||
+      name === "star" ||
       name === "people" ||
       name === "mail" ||
       name === "keyboard"
@@ -120,6 +124,13 @@
   {:else if name === "team"}
     <path stroke="none" class={light} d="M16.5 4.5a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM15.2 12.6a5.6 5.6 0 0 1 6.8 5.4v1.5a1 1 0 0 1-1 1h-3.4a8 8 0 0 0-2.4-7.9z" />
     <path stroke="none" class={dark} d="M9 4a3.8 3.8 0 1 1 0 7.6A3.8 3.8 0 0 1 9 4zM2 19.4a7 6.4 0 0 1 14 0v.6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" />
+  {:else if name === "changelog"}
+    <!-- What's new (2026-11-02): a megaphone in the rail's duotone, the
+         body dark and the handle and sound light. No board drawing; it
+         follows the rail icons' rules. -->
+    <path stroke="none" class={dark} d="M3 10a2 2 0 0 1 2-2h3.2l7.6-4.3A1.2 1.2 0 0 1 17.6 4.7v14.6a1.2 1.2 0 0 1-1.8 1L8.2 16H5a2 2 0 0 1-2-2z" />
+    <path stroke="none" class={light} d="M7.4 16h3.2l1.1 3.9a1.2 1.2 0 0 1-1.15 1.5H9.3a1.2 1.2 0 0 1-1.15-.87z" />
+    <path stroke="none" class={light} d="M19.4 9.2a2.9 2.9 0 0 1 0 5.6z" />
   {:else if name === "admin"}
     <path stroke="none" class={dark} d="M12 2.3l7.6 3v5.6c0 4.9-3.2 8.9-7.6 10.7-4.4-1.8-7.6-5.8-7.6-10.7V5.3z" />
     <path stroke="none" class={light} d="M12 2.3v19.3c4.4-1.8 7.6-5.8 7.6-10.7V5.3z" />
@@ -155,6 +166,9 @@
     <!-- The Companies sidebar's All companies row (2026-10-28), the outline
          building of the earlier rail. -->
     <path d="M4 20V6l7-3v17M11 9h8v11M7 9h1M7 13h1M15 13h1M15 16h1" />
+  {:else if name === "star"}
+    <!-- The Projects sidebar's Starred row (2026-11-02), an outline star. -->
+    <path d="M12 3.6l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.6l-5.1 2.7 1-5.7-4.1-4 5.7-.8z" />
   {:else if name === "arrow-up-right"}
     <!-- Paper S9: the arrow beside a company's name that opens its page. -->
     <path d="M7 17L17 7M9 7h8v8" />

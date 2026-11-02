@@ -7,6 +7,7 @@ import {
   frameSectionForPath,
   railGroups,
   selectedFrameRailItem,
+  whatsNewLabel,
   selectedRailItem,
   type RailViewer,
 } from "./navigation";
@@ -168,6 +169,7 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
     projectsHref: "/projects",
     companiesHref: "/companies",
     teamHref: "/team",
+    changelogHref: "/changelog",
     adminHref: "/admin/house-rules",
     settingsHref: "/settings",
   };
@@ -178,28 +180,40 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
   const developerConsultant = { role: "writer", isOwner: false, isDeveloper: true } as const;
   const developerAdmin = { role: "admin", isOwner: false, isDeveloper: true } as const;
 
-  it("Projects, Companies and Team (team.view) at the top; Admin (settings.configure) and Settings at the foot", () => {
-    expect(labels(consultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
-    expect(labels(manager)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["Settings"] });
-    expect(labels(admin)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["Admin", "Settings"] });
-    expect(labels({ role: null, isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
+  it("Projects, Companies and Team (team.view) at the top; What's new, Admin (settings.configure) and Settings at the foot", () => {
+    expect(labels(consultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["What's new", "Settings"] });
+    expect(labels(manager)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["What's new", "Settings"] });
+    expect(labels(admin)).toEqual({ top: ["Projects", "Companies", "Team"], bottom: ["What's new", "Admin", "Settings"] });
+    expect(labels({ role: null, isOwner: false, isDeveloper: false })).toEqual({ top: ["Projects", "Companies"], bottom: ["What's new", "Settings"] });
   });
 
-  it("has no Home, search, What's new, Assistant or developer rows, whatever the flags", () => {
+  it("has no Home, search, Assistant or developer rows, whatever the flags", () => {
     for (const viewer of [developerConsultant, developerAdmin]) {
       const all = Object.values(labels(viewer)).flat();
       expect(all).not.toContain("Home");
-      expect(all).not.toContain("What's new");
       expect(all).not.toContain("Assistant");
       expect(all).not.toContain("Alerts");
       expect(all).not.toContain("Feature requests");
     }
-    expect(labels(developerConsultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["Settings"] });
+    expect(labels(developerConsultant)).toEqual({ top: ["Projects", "Companies"], bottom: ["What's new", "Settings"] });
+  });
+
+  it("What's new (2026-11-02) carries the unseen count for the bell's dot", () => {
+    expect(frameRailItems(consultant, frameHrefs, { adminAttention: 0 }).bottom[0]).toEqual({
+      id: "changelog",
+      label: "What's new",
+      href: "/changelog",
+      unseen: 0,
+    });
+    expect(frameRailItems(consultant, frameHrefs, { adminAttention: 0, unseenChangelog: 4 }).bottom[0].unseen).toBe(4);
+    expect(whatsNewLabel(0)).toBe("What's new");
+    expect(whatsNewLabel(1)).toBe("What's new, 1 new update");
+    expect(whatsNewLabel(4)).toBe("What's new, 4 new updates");
   });
 
   it("puts the attention dot on Admin only when something needs a look", () => {
-    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0 }).bottom[0].attention).toBe(false);
-    expect(frameRailItems(admin, frameHrefs, { adminAttention: 2 }).bottom[0]).toEqual({
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 0 }).bottom[1].attention).toBe(false);
+    expect(frameRailItems(admin, frameHrefs, { adminAttention: 2 }).bottom[1]).toEqual({
       id: "admin",
       label: "Admin",
       href: "/admin/house-rules",
@@ -222,7 +236,7 @@ describe("frameRailItems: the page frame's fixed labelled rail (owner, 2026-10-2
       ["/alerts", "admin"],
       ["/requests", "admin"],
       ["/settings/writing", "settings"],
-      ["/changelog", null],
+      ["/changelog", "changelog"],
       ["/projects-archive", null],
       ["/teams", null],
     ];

@@ -12,6 +12,9 @@
 
   `flush` (Reading the interview, H3 and H4): only the phone keeps the More
   dots there (H4); F2 and H3 show none.
+
+  Star (2026-11-02): with `projectId`, the person's private star sits right
+  after the title (`ProjectStarButton`, 30px, 44px on touch screens).
 -->
 <script lang="ts" module>
   export type TopBarMoreItem = {
@@ -35,7 +38,10 @@
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../../convex/_generated/api";
+  import type { Id } from "../../../../../convex/_generated/dataModel";
+  import { whatsNewLabel } from "$lib/shell/navigation";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import ProjectStarButton from "$lib/components/projects/ProjectStarButton.svelte";
 
   let {
     title,
@@ -46,6 +52,7 @@
     actions,
     moreItems = [],
     flush = false,
+    projectId = null,
   }: {
     title: string;
     projectsHref: string;
@@ -59,11 +66,16 @@
     moreItems?: TopBarMoreItem[];
     /** Reading the interview (H3, H4): More on a phone only. */
     flush?: boolean;
+    /** The project, for the star after the title; none without it. */
+    projectId?: string | null;
   } = $props();
 
   const auth = useAuth();
   const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
   const unseen = $derived(unseenQ.data ?? 0);
+  const starQ = useQuery(api.projects.isProjectStarred, () =>
+    auth.isAuthenticated && projectId ? { projectId: projectId as Id<"projects"> } : "skip"
+  );
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
@@ -146,13 +158,16 @@
         class={`rounded-sm transition-colors hover:text-ink ${focusRing}`}
       >Projects</a><span aria-hidden="true">{" /"}</span></span>
     <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[1.375]">{title}</h1>
+    {#if projectId && starQ.data !== undefined}
+      <ProjectStarButton {projectId} projectTitle={title} starred={starQ.data} variant="bar" class="-ml-1" />
+    {/if}
   </div>
   <div class="flex shrink-0 items-center gap-1.5">
     {@render status?.()}
     <a
       href={resolve("/changelog")}
       data-top-bar-bell
-      aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
+      aria-label={whatsNewLabel(unseen)}
       class={`relative max-sm:hidden lg:hidden ${iconButton}`}
     >
       <IconBell size={16} strokeWidth={1.5} />
