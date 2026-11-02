@@ -292,7 +292,8 @@ export async function draftWebBackgroundOutcome(
     }
     const guarded = guardDraftWebQueries(
       raw.filter((item): item is { query: unknown; kind?: unknown } => Boolean(item) && typeof item === "object"),
-      context.identity
+      context.identity,
+      input.sources
     );
     const queries = guarded.kept.slice(0, DRAFT_WEB_MAX_QUERIES);
     const droppedQueries = guarded.dropped.length;

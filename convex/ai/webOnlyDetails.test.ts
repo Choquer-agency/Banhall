@@ -36,7 +36,15 @@ describe("findWebOnlyDetails", () => {
     expect(findWebOnlyDetails("The team replicated order tables from PostgreSQL over 14 nights.", ANSWERS, EVIDENCE)).toEqual([]);
   });
 
-  it("ignores a capitalized word that opens a sentence, single digits, and CRA", () => {
+  it("finds a name that opens the sentence and a single digit (review round 1)", () => {
+    const answers = `${ANSWERS} A common setup runs 3 replicas behind a load balancer.`;
+    expect(findWebOnlyDetails("Debezium was used by our team.", answers, EVIDENCE).map((hit) => hit.phrase)).toEqual(["Debezium"]);
+    expect(findWebOnlyDetails("We ran 3 replicas.", answers, EVIDENCE).map((hit) => hit.phrase)).toEqual(["3"]);
+    // A number the evidence writes in words counts as stated.
+    expect(findWebOnlyDetails("We ran 3 replicas.", answers, `${EVIDENCE} They ran three replicas.`)).toEqual([]);
+  });
+
+  it("ignores an ordinary opener, a figure the background lacks, and CRA", () => {
     expect(findWebOnlyDetails("Replication slots were set up. CRA wording aside, 3 regions ran.", ANSWERS, EVIDENCE)).toEqual([]);
   });
 

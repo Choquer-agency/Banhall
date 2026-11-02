@@ -53,6 +53,9 @@ export const draftWebBackgroundRecordValidator = v.object({
     v.array(
       v.union(
         v.literal("names"),
+        v.literal("unknown_name"),
+        v.literal("claimant"),
+        v.literal("source_text"),
         v.literal("placeholder"),
         v.literal("figure"),
         v.literal("too_long"),

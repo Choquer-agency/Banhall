@@ -71,6 +71,8 @@ describe("claimEvidence", () => {
   it("leaves a paragraph with no claim, or a sourceless claim that needs review, plain", () => {
     expect(claimEvidence(null)).toBeNull();
     expect(claimEvidence(claim({ claimText: "x" }))).toBeNull();
+    // Review round 1: green needs a linked quote, so an approval alone stays plain.
+    expect(claimEvidence(claim({ claimText: "x", state: "approved" }))).toBeNull();
   });
 
   it("colours a linked claim green and says it is not checked yet, with the quote", () => {
@@ -159,10 +161,10 @@ describe("matchClaims", () => {
     expect(matched).toEqual([null]);
   });
 
-  it("matches a claim text the record cut short to the paragraph it starts", () => {
+  it("never matches a claim text the record cut short, so added text is not coloured as sourced (review round 1)", () => {
     const long = "a".repeat(4_100);
     const matched = matchClaims([{ section: "242", text: long }], [claim({ claimText: long.slice(0, 4_000) })]);
-    expect(matched[0]?.claimId).toBe("242-1");
+    expect(matched[0]).toBeNull();
   });
 });
 

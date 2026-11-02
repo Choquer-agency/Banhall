@@ -20,6 +20,7 @@
  * words.
  */
 import { sha256 } from "../lib/contracts";
+import { PUBLIC_TECH_TERMS } from "../../shared/publicTechTerms";
 import { RULES_PUBLIC_BACKGROUND, PUBLIC_BACKGROUND_LABEL } from "../../shared/humanProse";
 import {
   CHAT_WEB_SEARCH_MAX_QUERY_CHARS,
@@ -81,6 +82,9 @@ export type DraftWebQuery = { query: string; kind: DraftWebQueryKind };
 
 export type DroppedQueryReason =
   | "names"
+  | "unknown_name"
+  | "claimant"
+  | "source_text"
   | "placeholder"
   | "figure"
   | "too_long"
@@ -94,6 +98,67 @@ export type DroppedQueryReason =
  * name a technology or a form and stay.
  */
 const FIGURE = /(?<![\p{L}\p{N}.])[$€£]?\d[\d,.]*\s?%?(?![\p{L}\p{N}])/u;
+/** A figure written out in words: "forty milliseconds", "two hundred", "ten percent". */
+const WRITTEN_FIGURE =
+  /(?<![\p{L}])(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|hundreds|thousand|thousands|million|millions|billion|billions|dozen|dozens|percent|per cent)(?![\p{L}])/iu;
+/**
+ * A statement about the claimant rather than a question about public
+ * practice: first person, "proprietary", "in-house", "the client".
+ */
+const CLAIMANT_WORDS =
+  /(?<![\p{L}])(?:we|our|ours|us|i|my|me|mine|proprietary|in-house|inhouse|claimant|claimant's|the client|client's|the company's|our team)(?![\p{L}])/iu;
+/** Consecutive words a query may share with the sources before it counts as copied text. */
+const SOURCE_RUN_WORDS = 6;
+
+/** "SR&ED" and "R&D" are one word each, as the public terms list them. */
+function joinAmpersandTerms(text: string): string {
+  return text.replace(/SR\s*&\s*ED/giu, "SRED").replace(/R\s*&\s*D/gu, "RnD");
+}
+
+function wordTokens(text: string): string[] {
+  return joinAmpersandTerms(text)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+}
+
+/**
+ * What the sources tell the guard (review round 1): every run of
+ * SOURCE_RUN_WORDS words they hold, and the words that read like names in
+ * them. A word reads like a name when it is joined with an inner capital
+ * ("ZephyrForge"), or is capitalised somewhere other than at the start of a
+ * sentence or line and never appears in lower case. Exported for tests.
+ */
+export function sourceProfile(sources: string): { runs: Set<string>; names: Set<string> } {
+  const tokens = wordTokens(sources);
+  const runs = new Set<string>();
+  for (let i = 0; i + SOURCE_RUN_WORDS <= tokens.length; i += 1) runs.add(tokens.slice(i, i + SOURCE_RUN_WORDS).join(" "));
+  const lower = new Set<string>();
+  const capitalised = new Set<string>();
+  const joined = new Set<string>();
+  const raw = joinAmpersandTerms(sources).normalize("NFKD").replace(/[\u0300-\u036f]/gu, "");
+  const pattern = /[\p{L}\p{N}]+/gu;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(raw))) {
+    const word = match[0];
+    const key = word.toLowerCase();
+    if (/\p{Ll}\p{Lu}/u.test(word)) joined.add(key);
+    if (!/^\p{Lu}/u.test(word)) {
+      if (/^\p{Ll}/u.test(word)) lower.add(key);
+      continue;
+    }
+    // Capitalised: a name unless it opens a sentence, a line, a label or a list item.
+    const before = raw.slice(Math.max(0, match.index - 3), match.index);
+    const opensSentence = match.index === 0 || /(?:^|[.!?:;\n\r\-\u2022*"(]\s*)$/u.test(before) || /\n\s*$/u.test(before);
+    if (!opensSentence) capitalised.add(key);
+  }
+  const names = new Set<string>(joined);
+  for (const key of capitalised) if (!lower.has(key)) names.add(key);
+  return { runs, names };
+}
+
 /** Any bracket or a bare placeholder-like word: nothing of the kind is sent. */
 const PLACEHOLDER_LIKE = /[[\]{}<>]|(?<![\p{L}\p{N}])(?:CLIENT|PERSON|FIRM)_\d+/u;
 
@@ -109,7 +174,11 @@ function words(text: string): string[] {
  *   links, addresses, the project's titles, every name of the placeholder
  *   map and the project record, run-together and possessive forms, products
  *   beside the client) removed anything from it, or left nothing (`names`);
- * - it holds a figure (`figure`);
+ * - it holds a figure, in digits or in words (`figure`);
+ * - it speaks for the claimant: first person, "proprietary", "in-house" (`claimant`);
+ * - it repeats SOURCE_RUN_WORDS words in a row from the sources (`source_text`);
+ * - it holds a word that reads like a name in the sources, or one joined
+ *   with an inner capital, that is not a listed public term (`unknown_name`);
  * - it has more than DRAFT_WEB_MAX_QUERY_WORDS words or
  *   CHAT_WEB_SEARCH_MAX_QUERY_CHARS characters (`too_long`).
  * Then repeats go (`duplicate`), at most one CRA query is kept, and at most
@@ -118,11 +187,14 @@ function words(text: string): string[] {
  */
 export function guardDraftWebQueries(
   raw: ReadonlyArray<{ query: unknown; kind?: unknown }>,
-  identity: WebSearchIdentity
+  identity: WebSearchIdentity,
+  /** The de-identified sources the queries were written from. */
+  sources = ""
 ): { kept: DraftWebQuery[]; dropped: DroppedQueryReason[] } {
   const kept: DraftWebQuery[] = [];
   const dropped: DroppedQueryReason[] = [];
   const seen = new Set<string>();
+  const profile = sourceProfile(sources);
   for (const item of raw) {
     const text = typeof item.query === "string" ? item.query.replace(/\s+/gu, " ").trim() : "";
     const kind: DraftWebQueryKind = item.kind === "cra" ? "cra" : "technology";
@@ -143,8 +215,33 @@ export function guardDraftWebQueries(
       dropped.push("names");
       continue;
     }
-    if (FIGURE.test(prepared.query)) {
+    if (FIGURE.test(prepared.query) || WRITTEN_FIGURE.test(prepared.query)) {
       dropped.push("figure");
+      continue;
+    }
+    if (CLAIMANT_WORDS.test(prepared.query)) {
+      dropped.push("claimant");
+      continue;
+    }
+    const queryWords = wordTokens(prepared.query);
+    let copied = false;
+    for (let i = 0; i + SOURCE_RUN_WORDS <= queryWords.length && !copied; i += 1) {
+      copied = profile.runs.has(queryWords.slice(i, i + SOURCE_RUN_WORDS).join(" "));
+    }
+    if (copied) {
+      dropped.push("source_text");
+      continue;
+    }
+    // A word that reads like a name, in the sources or joined in the query,
+    // is sent only when it names something public (PUBLIC_TECH_TERMS).
+    const joinedInQuery = (joinAmpersandTerms(prepared.query).match(/[\p{L}\p{N}]+/gu) ?? [])
+      .filter((word) => /\p{Ll}\p{Lu}/u.test(word))
+      .map((word) => word.toLowerCase());
+    const unknown = [...queryWords.filter((word) => profile.names.has(word)), ...joinedInQuery].some(
+      (word) => !PUBLIC_TECH_TERMS.has(word)
+    );
+    if (unknown) {
+      dropped.push("unknown_name");
       continue;
     }
     const key = prepared.query.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();

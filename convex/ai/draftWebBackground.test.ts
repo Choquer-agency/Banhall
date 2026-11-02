@@ -6,6 +6,7 @@ import {
   draftWebSources,
   formatDraftWebBackgroundBlock,
   guardDraftWebQueries,
+  sourceProfile,
   numberDraftWebResults,
   type DraftWebResult,
 } from "./draftWebBackground";
@@ -132,6 +133,59 @@ describe("guardDraftWebQueries: what may leave Banhall", () => {
     ]);
     expect(kept).toHaveLength(DRAFT_WEB_MAX_QUERIES);
     expect(dropped).toEqual(["empty", "too_long", "duplicate", "over_limit", "over_limit"]);
+  });
+
+  // Review round 1 (gpt-6-astra, 2026-11-02): a name only an uploaded file
+  // holds, a figure in words, or a sentence from the sources never leaves.
+  const SOURCES = [
+    "Client: Our ZephyrForge controller reads the Selenium logs from Hartwell Freight, the customer.",
+    "We developed a proprietary adaptive calibration algorithm for the scanner.",
+    "The scanner runs on an Arm Cortex-M4 and uses a Kalman filter. Laser line data is noisy.",
+    "What did you do that could qualify for SR&ED? The PostgreSQL replicas lagged.",
+  ].join("\n");
+
+  it("drops a query with a name that only the sources hold, and keeps listed public technologies", () => {
+    const { kept, dropped } = guardDraftWebQueries(
+      [
+        { query: "ZephyrForge calibration limitations" },
+        { query: "zephyrforge calibration limitations" },
+        { query: "Freight scheduling for Hartwell" },
+        { query: "SmartCalib tuning for scanners" },
+        { query: "How do Kalman filters smooth laser line data?" },
+        { query: "Selenium log parsing on Arm Cortex-M4 controllers" },
+      ],
+      identity,
+      SOURCES
+    );
+    expect(dropped).toEqual(["unknown_name", "unknown_name", "unknown_name", "unknown_name"]);
+    expect(kept.map((query) => query.query)).toEqual([
+      "How do Kalman filters smooth laser line data?",
+      "Selenium log parsing on Arm Cortex-M4 controllers",
+    ]);
+  });
+
+  it("drops a figure written in words, a claimant statement and a sentence copied from the sources", () => {
+    const { kept, dropped } = guardDraftWebQueries(
+      [
+        { query: "latency under forty milliseconds calibration" },
+        { query: "We developed a proprietary adaptive calibration algorithm" },
+        { query: "adaptive calibration algorithm for the scanner limits" },
+        { query: "a proprietary adaptive calibration approach" },
+        { query: "How does CRA define SR&ED standard practice?", kind: "cra" },
+      ],
+      identity,
+      SOURCES
+    );
+    expect(dropped).toEqual(["figure", "claimant", "source_text", "claimant"]);
+    expect(kept.map((query) => query.query)).toEqual(["How does CRA define SR&ED standard practice?"]);
+  });
+
+  it("reads a word as a name only when the sources never write it in lower case", () => {
+    const profile = sourceProfile("The Line was long. A line scanner reads the line. Talk to Priya at Larkspur.");
+    expect(profile.names.has("line")).toBe(false);
+    expect(profile.names.has("larkspur")).toBe(true);
+    expect(profile.names.has("priya")).toBe(true);
+    expect(profile.names.has("the")).toBe(false);
   });
 
   it("sends the folded form, with accents removed", () => {

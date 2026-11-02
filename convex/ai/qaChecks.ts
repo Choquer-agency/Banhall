@@ -444,10 +444,17 @@ function normalizedFigure(figure: string): string {
   return figure.replace(/,/g, "").replace(/\s+/g, "").toLowerCase();
 }
 
+/** Small numbers written as words in the evidence count as the same figure (review round 1). */
+const NUMBER_WORDS: Record<string, string> = {
+  one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+  eleven: "11", twelve: "12", twenty: "20", thirty: "30", forty: "40", fifty: "50", hundred: "100",
+};
+
 /**
  * 2026-11-02 (proposed): a sentence that states as a plain fact a detail
- * found only in the public background block. A detail is a figure (two or
- * more digits, a decimal or a percentage) or a name-like word (a word with
+ * found only in the public background block. A detail is a figure (any
+ * number in digits; the evidence's small numbers in words count as written)
+ * or a name-like word (a word with
  * a capital inside it or a digit, like "PostgreSQL" or "S3", or a
  * capitalized word that does not open the sentence, like "Debezium"). It is
  * a hit when the background's answers hold it and the evidence the drafter
@@ -462,6 +469,11 @@ export function findWebOnlyDetails(paragraph: string, answers: string, evidence:
   const evidenceFigures = new Set(
     (evidence.match(/\d[\d,]*(?:\.\d+)?\s?%?/g) ?? []).map(normalizedFigure)
   );
+  for (const word of evidenceLower.match(/\p{L}+/gu) ?? []) {
+    const digits = NUMBER_WORDS[word];
+    if (digits) evidenceFigures.add(digits);
+  }
+  const answersLowerWords = new Set((answers.match(/\p{L}[\p{L}\p{N}]*/gu) ?? []).filter((word) => /^\p{Ll}/u.test(word)));
   const answerFigures = new Set(
     (answers.match(/\d[\d,]*(?:\.\d+)?\s?%?/g) ?? []).map(normalizedFigure)
   );
@@ -488,8 +500,6 @@ export function findWebOnlyDetails(paragraph: string, answers: string, evidence:
     const firstWord = /[\p{L}\p{N}]/u.exec(text)?.index ?? 0;
     for (const figure of text.matchAll(/(?<![\p{L}\p{N}.])\d[\d,]*(?:\.\d+)?\s?%?(?![\p{L}\p{N}])/gu)) {
       const raw = figure[0].trim();
-      const digits = raw.replace(/\D/g, "");
-      if (digits.length < 2 && !raw.includes(".") && !raw.includes("%")) continue;
       const key = normalizedFigure(raw);
       if (answerFigures.has(key) && !evidenceFigures.has(key)) {
         hits.push({ phrase: raw, index: piece.index + (figure.index ?? 0) });
@@ -498,10 +508,13 @@ export function findWebOnlyDetails(paragraph: string, answers: string, evidence:
     for (const word of text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}.+#-]*[\p{L}\p{N}+#]/gu)) {
       const value = word[0];
       const at = word.index ?? 0;
+      // A capitalised word opening the sentence counts too when the answers
+      // never write it in lower case ("Debezium was used"), so an ordinary
+      // opener ("Testing showed") is left alone (review round 1).
       const nameLike =
         /\p{Ll}\p{Lu}/u.test(value) ||
         (/\p{L}/u.test(value) && /\d/u.test(value)) ||
-        (/^\p{Lu}/u.test(value) && at !== firstWord);
+        (/^\p{Lu}/u.test(value) && (at !== firstWord || !answersLowerWords.has(value.toLowerCase())));
       if (!nameLike || value.length < 3 || WEB_ONLY_IGNORED.has(value.toLowerCase())) continue;
       if (answerWords.has(value) && !evidenceLower.includes(value.toLowerCase())) {
         hits.push({ phrase: value, index: piece.index + at });

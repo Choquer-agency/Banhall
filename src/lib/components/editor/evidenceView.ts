@@ -64,8 +64,6 @@ export type EvidenceBasis =
   | "checked"
   /** The paragraph is linked to a source quote nobody has checked yet. */
   | "linked"
-  /** A reviewer approved the paragraph, with no quote linked. */
-  | "approved"
   /** An [INFERRED: ...] marker follows the sentence. */
   | "marker"
   /** The claim record marks the paragraph unsupported. */
@@ -91,8 +89,6 @@ export const EVIDENCE_CLASS: Record<EvidenceKind, string> = {
 /** How long typing must pause before the colours are worked out again. */
 export const EVIDENCE_REBUILD_DELAY_MS = 300;
 
-/** Claim texts are stored cut to this length (MAX_CLAIM_TEXT_LENGTH). */
-const STORED_CLAIM_TEXT_LIMIT = 4_000;
 
 /** Words a sentence may end on that are not its end (as the compression check reads them). */
 const ABBREVIATION_END = /(?:^|[^A-Za-z])(?:e\.g|i\.e|approx|etc|vs|cf|ca|fig|no|nos|dr|mr|mrs|ms|st)\.$/i;
@@ -171,9 +167,11 @@ export function claimEvidence(claim: EvidenceClaim | null): Pick<EvidenceSpan, "
     };
   }
   if (claim.state === "approved") {
+    // Review round 1: green means a source quote is linked, so an approved
+    // claim with no quote stays plain.
     return claim.sources.length > 0
       ? { kind: "supported", basis: "checked", reason: `Source checked by a reviewer: ${quoteLabel(claim.sources)}` }
-      : { kind: "supported", basis: "approved", reason: "Approved by a reviewer. No source quote is linked." };
+      : null;
   }
   if (claim.sources.length > 0) {
     return {
@@ -231,28 +229,25 @@ export type EvidenceParagraph = { section: EvidenceClaim["section"] | null; text
 /**
  * The claim each paragraph carries, by exact wording within its Line (spaces
  * evened out), in order, so two paragraphs with the same words each take
- * their own claim. A claim text the record cut short matches a paragraph
- * that starts with it. Null where no claim has the paragraph's wording.
+ * their own claim. A claim text the record cut short matches nothing.
+ * Null where no claim has the paragraph's wording.
  */
 export function matchClaims(paragraphs: readonly EvidenceParagraph[], claims: readonly EvidenceClaim[]): Array<EvidenceClaim | null> {
   const byText = new Map<string, EvidenceClaim[]>();
-  const cut: EvidenceClaim[] = [];
   for (const claim of claims) {
     const key = `${claim.section}\u0000${normalize(claim.claimText)}`;
     const queue = byText.get(key);
     if (queue) queue.push(claim);
     else byText.set(key, [claim]);
-    if (claim.claimText.length >= STORED_CLAIM_TEXT_LIMIT) cut.push(claim);
   }
   const used = new Set<EvidenceClaim>();
   return paragraphs.map(({ section, text }) => {
     if (!section) return null;
     const words = normalize(text);
     if (!words) return null;
-    const exact = byText.get(`${section}\u0000${words}`)?.find((claim) => !used.has(claim));
-    const claim =
-      exact ??
-      cut.find((candidate) => !used.has(candidate) && candidate.section === section && words.startsWith(normalize(candidate.claimText)));
+    // Review round 1: exact wording only. A claim cut at the stored limit
+    // matches nothing, so text added after its stored part never inherits it.
+    const claim = byText.get(`${section}\u0000${words}`)?.find((candidate) => !used.has(candidate));
     if (!claim) return null;
     used.add(claim);
     return claim;
