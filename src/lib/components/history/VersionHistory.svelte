@@ -8,6 +8,7 @@
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { buildMilestoneOptions } from "./milestones";
+  import { draftTimingText } from "$lib/draftTiming";
 
   /**
    * Version history modal (bits-ui Dialog).
@@ -323,6 +324,10 @@
                   Report v{s.reportVersion}{s.isCurrentReport ? " · current" : ""}
                   · {s.label ?? REASON_LABELS[s.reason] ?? s.reason}
                 </p>
+                {#if draftTimingText(s.draftTiming)}
+                  <!-- 2026-11-02: how long this AI draft took. -->
+                  <p class="mt-0.5 text-xs text-gray-500" data-history-draft-timing>{draftTimingText(s.draftTiming)}</p>
+                {/if}
                 {#if s.researchSessionId}
                   <p class="mt-1 text-[0.6875rem] font-medium text-primary">
                     Research-backed · {s.researchSourceCount} source{s.researchSourceCount === 1 ? "" : "s"}
