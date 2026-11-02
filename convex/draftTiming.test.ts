@@ -178,6 +178,19 @@ describe("draftTimingOf", () => {
   });
 });
 
+describe("draftTimingOf with placeholder stamps", () => {
+  it("never counts from a placeholder stamp, such as a start of 1", async () => {
+    const s = await setup();
+    const single = await s.generation({ candidateMode: "single", startedAt: 1, completedAt: T0 });
+    expect(await s.timing(single)).toBeNull();
+    const seeds = await s.generation({ candidateMode: "iterative", gatedWorkflow: "seeds", startedAt: 1, completedAt: T0 + 5 * MIN });
+    const summaryVersionId = await s.signOff(seeds, T0);
+    await s.t.run(async (ctx) => ctx.db.patch(seeds, { summaryVersionId }));
+    // The drafting part is real; the Step by step part is not shown.
+    expect(await s.timing(seeds)).toEqual({ draftMs: 5 * MIN, stepByStepMs: null });
+  });
+});
+
 describe("draft timing on the project page and in version history", () => {
   it("returns the report's draft timing to a project reader", async () => {
     const s = await setup();

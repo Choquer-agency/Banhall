@@ -30,9 +30,14 @@ export type DraftTiming = {
 /** Candidate runs a generation can hold (compare pairs and their retries). */
 const MAX_CANDIDATE_RUNS = 10;
 
+/** Before any real draft (2024-01-01 UTC): a stamp this early is a
+ * placeholder, never a time the page should count from. */
+const EARLIEST_REAL_STAMP = Date.UTC(2024, 0, 1);
+
 function span(from: number | undefined, to: number | undefined): number | null {
   if (typeof from !== "number" || typeof to !== "number") return null;
   if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  if (from < EARLIEST_REAL_STAMP || to < EARLIEST_REAL_STAMP) return null;
   const ms = to - from;
   return ms > 0 ? ms : null;
 }
