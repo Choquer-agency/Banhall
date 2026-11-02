@@ -22,6 +22,8 @@ deep-fir app bar, and a single lagoon accent. Quiet everywhere, loud once.
 | `primary-wash` | `#F1FAF9` | Interactive hover fill on light surfaces |
 | `gap-bg` / `gap-text` | `#FEF3C7` / `#92400E` | Report [GAP:] highlights only |
 | `inferred-bg` / `inferred-text` | `#D5F3F1` / `#065F5B` | Report [INFERRED:] highlights only (an inference for the writer to check) |
+| `evidence-supported-bg` / `evidence-supported-line` | `#E4F5E9` / `#15803D` | Evidence view only: a sentence linked to a source (tint plus solid underline) |
+| `evidence-unsupported-bg` / `evidence-unsupported-line` | `#FCE8E8` / `#B91C1C` | Evidence view only: a sentence the AI inferred or the claim record marks unsupported (tint plus dashed underline) |
 
 **Neutral ramp** — Tailwind's `gray-*` is *remapped* to teal-cast values so
 every neutral in the app shares the brand hue. Hierarchy:
@@ -1654,3 +1656,12 @@ Owner direction 2026-10-28 (Paper "Assistant + report, exploration", rows 16 B, 
 - **Options panel** (`ComposerOptionsPanel.svelte`): primary-wash frame with the AI mark and its label ("Assistant needs you" or "Get started"), numbered rows, "Something else…" as a text field, Skip esc and Select return.
 - **Header.** Plain conversation title, a clock button for Chat history, a pencil for a new conversation.
 - **Limit pill** (`.report-limit-pill`, `.report-limit-chip`): a red "35 words over" pill at the right of a Section label, opening the limit popover; "Shortening" with a spinner while the Assistant works on that Line.
+
+## Evidence view (2026-11-02)
+
+Client request: a review aid in the report editor, off by default. The switch sits in a sticky row at the top of the report (`Editor.svelte`, `data-evidence-toolbar`, the `sm` Switch at 13/18 500). While on, the row shows a key and one muted 12px line that says why the sentence under the pointer, or at the cursor, has its colour.
+
+- **Marks** (`.evidence-supported`, `.evidence-unsupported` in `layout.css`, drawn by `src/lib/components/editor/evidenceView.ts`). A tint behind the words and a 0.125em underline: solid for linked to a source, dashed for inferred or not backed, so the two never rely on colour alone. The words keep the report ink (14:1 or more on either tint); the underlines are 4.4:1 and 5.5:1 on their tints. The dark workspace scope retints all four tokens (ink 10:1 or more, underlines 4.6:1 or more).
+- **Never on the chips.** `[GAP: ...]` and `[INFERRED: ...]` chips keep their own look; the colour stops at their edges.
+- **Key samples** (`.evidence-swatch--supported`, `.evidence-swatch--unsupported`): a 24x14 tint with the matching 2px bottom border.
+

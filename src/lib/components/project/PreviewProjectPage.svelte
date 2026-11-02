@@ -54,6 +54,7 @@
   import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
   import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
   import Editor from "$lib/components/editor/Editor.svelte";
+  import { useEvidenceView } from "$lib/components/editor/evidenceViewSource.svelte";
   import type {
     CommentRange,
     ResearchSelection,
@@ -401,6 +402,9 @@
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const user = $derived(userQ.data);
+  // Evidence view (client request 2026-11-02): off by default, remembered
+  // per person; the claim record is read only while it is on.
+  const evidence = useEvidenceView(() => ({ reportId: report?._id, userId: user?._id }));
   let deleteDialogOpen = $state(false);
   // The project the open dialog names and deletes, captured together when
   // it opens: the page is reused across project routes, so the route's id
@@ -2561,6 +2565,9 @@
                 readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
+                evidenceView={evidence.on}
+                onEvidenceViewChange={evidence.set}
+                evidenceClaims={evidence.claims}
                 presentation="reading"
               />
 
