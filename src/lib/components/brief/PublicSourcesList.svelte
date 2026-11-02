@@ -1,7 +1,7 @@
 <script lang="ts" module>
   /** The record a draft keeps of its public background (`generations.getWebBackground`). */
   export type WebBackgroundRecord = {
-    status: "used" | "off_for_run" | "off_for_deployment" | "no_queries" | "failed" | "timed_out";
+    status: "used" | "off_for_run" | "not_requested" | "off_for_deployment" | "no_queries" | "failed" | "timed_out";
     queries: Array<{ query: string; kind: "technology" | "cra"; status: "ok" | "failed" }>;
     sources: Array<{ n: number; url: string; title: string; domain: string }>;
     droppedQueries: number;
@@ -40,7 +40,7 @@
   const searched = $derived(record.queries.map((query) => query.query).join("; "));
 </script>
 
-{#if record.status !== "off_for_deployment"}
+{#if record.status !== "off_for_deployment" && record.status !== "not_requested"}
   <section class="border-t border-line-soft" data-public-sources aria-labelledby="public-sources-title">
     <div class="flex min-h-11 items-center gap-2 bg-gray-50 px-4 py-2">
       <h3 id="public-sources-title" class="m-0 text-label font-normal">{PUBLIC_SOURCES_COPY.title}</h3>
