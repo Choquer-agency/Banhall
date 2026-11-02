@@ -158,12 +158,10 @@ describe("public background before drafting", () => {
   it("keeps a project's newest ten sets of searches (review round 2)", async () => {
     const f = await setup();
     for (let index = 0; index < 12; index += 1) {
-      await f.t.mutation(draftWebBackgroundRefs.saveCachedBackground as never, {
-        projectId: f.projectId,
-        fingerprint: `fingerprint-${index}`,
-        results: [],
-        droppedQueries: 0,
-      } as never);
+      await (f.t.mutation as unknown as (ref: unknown, args: unknown) => Promise<unknown>)(
+        draftWebBackgroundRefs.saveCachedBackground,
+        { projectId: f.projectId, fingerprint: `fingerprint-${index}`, results: [], droppedQueries: 0 }
+      );
     }
     const rows = await f.t.run((ctx) => ctx.db.query("draftWebBackgrounds").collect());
     expect(rows).toHaveLength(10);
