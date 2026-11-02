@@ -43,6 +43,7 @@
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
+    focusSeedStepHeading,
     focusSummaryReturnTrigger,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
     SEED_SUMMARY_TAB_ID,
@@ -80,6 +81,7 @@
   } from "$lib/exportValidation";
   import type { ReportNote } from "$lib/reportSections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
+  import { draftTimingText } from "$lib/draftTiming";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
@@ -123,6 +125,12 @@
     auth.isAuthenticated && reportQ.data?.generationId
       ? { generationId: reportQ.data.generationId }
       : "skip"
+  );
+  // 2026-11-02: "Drafted in 12 min" for the report's own draft, or nothing.
+  const reportDraftTiming = $derived(
+    reportGenerationQ.data && reportGenerationQ.data._id === reportQ.data?.generationId
+      ? draftTimingText(reportGenerationQ.data.draftTiming)
+      : ""
   );
   const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated ? { projectId } : "skip"
@@ -1099,8 +1107,10 @@
   $effect(() => {
     seedSummaryRequested = page.url.searchParams.get("view") === "summary";
   });
-  // Owner decision 2026-09-28 (sixth): while seeding, a Summary URL or state
-  // refused by a current Outline read (a step not done) opens the Plan.
+  // 2026-11-02 (client request, replacing owner decision 2026-09-28 sixth):
+  // the Summary opens at any time while seeding. Steps not done yet are shown
+  // as such there, each with a way back to it; sign-off still needs every
+  // step done (the review and the server both check readiness).
   const seeding = $derived(isSeedWorkflow && generation?.seedPhase === "seeding");
   const seedOutlineQ = useQuery(seedsApi.getOutline, () =>
     auth.isAuthenticated && seeding && generation ? { generationId: generation._id } : "skip"
@@ -1109,14 +1119,13 @@
     seedOutlineQ.data && seedOutlineQ.data.generationId === generation?._id ? seedOutlineQ.data : undefined
   );
   const seedPlanReady = $derived(Boolean(seeding && seedOutline?.readiness?.ready));
-  const seedSummaryRefused = $derived(seeding && !!seedOutline && !seedOutline.readiness?.ready);
-  $effect(() => {
-    if (!seedSummaryRefused || !seedSummaryRequested) return;
-    untrack(() => setSeedSummary(false, "replace"));
-  });
+  const seedOpenStepCount = $derived(
+    seeding && seedOutline?.readiness && !seedOutline.readiness.ready && seedOutline.readiness.complete
+      ? new Set(seedOutline.readiness.blockingRoleIds).size
+      : 0
+  );
   const seedSummaryOpen = $derived(
     seedSummaryRequested &&
-      !seedSummaryRefused &&
       (isSeedWorkflow ||
         (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
   );
@@ -1133,7 +1142,7 @@
   );
   const showSeedSummary = $derived(
     seedSummaryRequested &&
-      ((seeding && !seedSummaryRefused) ||
+      (seeding ||
         (!showIterativeStepper &&
           generation?.status !== "awaiting_selection" &&
           !(isSeedWorkflow &&
@@ -1181,8 +1190,16 @@
   // callback never focuses a replacement page, and a newer transition
   // supersedes an older one still waiting to render.
   let seedFocusToken = 0;
+  // The step a Summary "Go to this step" link asked for: leaving the Summary
+  // focuses that step's heading instead of the Summary button.
+  let seedStepFocusRoleId: string | null = null;
+  // The step that link opens, kept here as well as in the URL so the plan
+  // opens on it however the URL read updates.
+  let seedRequestedStep = $state<string | null>(null);
   function scheduleSeedFocus(transition: "return" | "drafting") {
     const token = ++seedFocusToken;
+    const stepRoleId = seedStepFocusRoleId;
+    seedStepFocusRoleId = null;
     const owner = {
       projectId: String(projectId),
       userId: user?._id ?? "anonymous",
@@ -1201,7 +1218,16 @@
         // coincides with it.
         focusGenerationProgress();
       } else if (transition === "return" && !showSeedSummary) {
-        focusSummaryReturnTrigger();
+        if (!stepRoleId) {
+          focusSummaryReturnTrigger();
+          return;
+        }
+        void focusSeedStepHeading(
+          stepRoleId,
+          () => !hostDisposed && token === seedFocusToken && showSeedWorkspace
+        ).then((focused) => {
+          if (!focused && !hostDisposed && token === seedFocusToken) focusSummaryReturnTrigger();
+        });
       }
     });
   }
@@ -1249,12 +1275,28 @@
       project?.mode !== "review"
   );
 
+  /** Opens or leaves the Summary. Opening drops an earlier `?step=` deep
+   * link, so returning to the plan shows the step the writer was last on. */
   function setSeedSummary(open: boolean, history: "push" | "replace" = "push") {
     const url = new URL(page.url);
-    if (open) url.searchParams.set("view", "summary");
-    else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
+    if (open) {
+      url.searchParams.set("view", "summary");
+      url.searchParams.delete("step");
+      seedRequestedStep = null;
+    } else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
     (history === "replace" ? replaceState : pushState)(`${url.pathname}${url.search}`, {});
     seedSummaryRequested = open;
+  }
+
+  /** A Summary "Go to this step" link: back to the plan, on that step. */
+  function openSeedStep(roleId: string) {
+    const url = new URL(page.url);
+    url.searchParams.delete("view");
+    url.searchParams.set("step", roleId);
+    seedStepFocusRoleId = roleId;
+    seedRequestedStep = roleId;
+    pushState(`${url.pathname}${url.search}`, {});
+    seedSummaryRequested = false;
   }
 
   // Story 4: the Brief's three reads. ONE generation id feeds every Brief
@@ -1312,7 +1354,11 @@
 </script>
 
 <svelte:window
-  onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
+  onpopstate={() => {
+    const url = new URL(window.location.href);
+    seedSummaryRequested = url.searchParams.get("view") === "summary";
+    seedRequestedStep = url.searchParams.get("step");
+  }}
   onkeydown={(e) => {
     // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
     // and the Assistant stays open while its composer holds unsent text.
@@ -1435,6 +1481,13 @@
               })}
             </p>
           </div>
+          {#if reportDraftTiming}
+            <!-- 2026-11-02: how long this draft took, for anyone who can see the project. -->
+            <div>
+              <span class="text-label block">Draft time</span>
+              <p class="mt-1 text-gray-800" data-report-draft-timing>{reportDraftTiming}</p>
+            </div>
+          {/if}
           <div>
             <span class="text-label block">Fiscal year-end</span>
             <FiscalYearField
@@ -1527,22 +1580,20 @@
           </button>
         {/if}
         {#if showSeedWorkspace}
-          <!-- This host has no tabs: its Summary entry sits here, locked like
-               the preview host's Summary tab until every step is done. -->
+          <!-- This host has no tabs: its Summary entry sits here. Like the
+               preview host's Summary tab it opens at any time (2026-11-02)
+               and says how many steps are not done yet. -->
           <button
             type="button"
             id={SEED_SUMMARY_TAB_ID}
-            disabled={!seedPlanReady}
-            title={seedPlanReady ? undefined : "Available when every step is done"}
-            aria-describedby={seedPlanReady ? undefined : "seed-summary-locked-reason"}
+            aria-label={seedOpenStepCount > 0
+              ? `Summary, ${seedOpenStepCount} ${seedOpenStepCount === 1 ? "step" : "steps"} not done yet`
+              : undefined}
             onclick={() => setSeedSummary(true)}
-            class="px-2 text-xs text-gray-600 transition-colors hover:text-gray-900 disabled:cursor-default disabled:opacity-50"
+            class="px-2 text-xs text-gray-600 transition-colors hover:text-gray-900"
           >
-            Summary
+            Summary{#if seedPlanReady}<span class="ml-1.5 rounded bg-primary-wash px-1.5 text-[0.6875rem] leading-[calc(16/11)] text-primary-selected">Ready</span>{:else if seedOpenStepCount > 0}<span class="ml-1.5 rounded bg-primary-wash px-1.5 text-[0.6875rem] leading-[calc(16/11)] text-primary-selected">{seedOpenStepCount} open</span>{/if}
           </button>
-          {#if !seedPlanReady}
-            <span id="seed-summary-locked-reason" class="sr-only">Available when every step is done</span>
-          {/if}
         {/if}
         {#if report && !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting}
             {#if reportGenerationQ.data?.gatedWorkflow === "seeds" && reportGenerationQ.data.summaryVersionId}
@@ -1704,6 +1755,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
+            requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
             onOpenSummary={() => setSeedSummary(true)}
           />
         {/key}
@@ -1720,6 +1772,7 @@
             readOnly={seedSummaryOwner.seedPhase !== "seeding"}
             focusHeadingOnMount
             onClose={() => setSeedSummary(false)}
+            onOpenStep={openSeedStep}
             onSignedOff={completeSeedSignOff}
           />
         {/key}
