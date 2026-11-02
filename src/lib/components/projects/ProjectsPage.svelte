@@ -3,9 +3,14 @@
   merge, and the Projects page redesign"; Paper W1, V1, V4, W5, W6; the page
   frame of 2026-10-28, Paper S9). The white card holds the Projects section
   sidebar (Home, All projects and every company, `ClientList`) and the
-  selected company on the right, each with its own scroll. `?client=<companyKey>` selects a client; no
-  param shows All clients. Choosing a client is a soft navigation that adds a
-  history entry, so back and forward move between clients.
+  selected company on the right, each with its own scroll. `?client=<companyKey>` selects a client,
+  `?scope=all` shows All projects and `?scope=starred` the person's starred
+  projects. A bare `/projects` (2026-11-02, client request) opens the
+  company this person viewed last, remembered in this browser per person,
+  and falls back to All projects when there is none or it is gone or merged
+  away; the address then names the company (a replace, not a new history
+  entry). Choosing a client is a soft navigation that adds a history entry,
+  so back and forward move between clients.
 
   Below `md` the client list fills the width; choosing a client (or All
   clients) shows the client area with a back link.
@@ -35,8 +40,13 @@
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
   import { canCreateProjects } from "$lib/workspace/projectDuplicate";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
-  import { clientHref, clientKeyFromUrl, type ClientEntry } from "$lib/projects/clientList";
-  import { pruneRecentCompanies, rememberRecentCompany } from "$lib/workspace/recentCompanies";
+  import { clientHref, projectsViewFromUrl, starredHref, type ClientEntry } from "$lib/projects/clientList";
+  import {
+    companyLanding,
+    lastViewedCompany,
+    pruneRecentCompanies,
+    rememberRecentCompany,
+  } from "$lib/workspace/recentCompanies";
 
   let {
     initialSearch = "",
@@ -86,13 +96,38 @@
   const canSelect = $derived(role === "writer" || role === "manager" || role === "admin");
 
   const clients = $derived((clientsQ.data?.clients ?? []) as ClientEntry[]);
-  const selectedKey = $derived(clientKeyFromUrl(page.url));
+  const view = $derived(projectsViewFromUrl(page.url));
+
+  // The landing (2026-11-02): a bare /projects opens the company viewed
+  // last. Read again on every navigation, since viewing a company changes it.
+  const remembered = $derived.by(() => {
+    void page.url.href;
+    return viewer?._id ? lastViewedCompany(viewer._id) : null;
+  });
+  const landing = $derived(
+    view.kind === "all" && !view.explicit
+      ? companyLanding(remembered, {
+          data: clientsQ.data?.clients,
+          failed: Boolean(clientsQ.error),
+        })
+      : null
+  );
+  $effect(() => {
+    if (landing?.kind !== "company") return;
+    // The address names the company, in place of the bare landing.
+    void goto(clientHref(page.url, landing.key), { replaceState: true, keepFocus: true, noScroll: true });
+  });
+
+  const starred = $derived(view.kind === "starred");
+  const selectedKey = $derived(
+    view.kind === "client" ? view.key : landing && landing.kind !== "all" ? landing.key : null
+  );
   /** Names learned from New client and merges, until the list catches up. */
   const knownNames = new SvelteMap<string, string>();
   const selectedClient = $derived.by(() => {
     if (selectedKey === null) return null;
     const entry = clients.find((client) => client.key === selectedKey);
-    const known = knownNames.get(selectedKey) ?? null;
+    const known = knownNames.get(selectedKey) ?? (landing && landing.kind !== "all" ? landing.name : null);
     // Gone from a complete, loaded list (merged, or an old link).
     const missing =
       !entry && known === null && clientsQ.data !== undefined && !clientsQ.data.truncated;
@@ -114,9 +149,14 @@
     pruneRecentCompanies(userId, new Map(data.clients.map((client) => [client.key, client.name])));
   });
 
-  // Small screens: the area shows once a client, or All clients, is chosen.
+  // Starred: the person's starred projects (one bounded read, shared with
+  // the cards' stars), and their count beside the sidebar row.
+  const starsQ = useQuery(api.dashboard.listStarredProjects, () => (auth.isAuthenticated ? {} : "skip"));
+  const starredCount = $derived(starsQ.data ? String(starsQ.data.length) : null);
+
+  // Small screens: the area shows once a client, All clients or Starred is chosen.
   let mobileAll = $state(false);
-  const areaOnMobile = $derived(selectedKey !== null || mobileAll);
+  const areaOnMobile = $derived(selectedKey !== null || starred || mobileAll);
 
   // Home's search handoff seeds only the first client area shown.
   let navigated = $state(false);
@@ -128,9 +168,15 @@
     void goto(clientHref(page.url, key), { keepFocus: true, noScroll: true });
   }
 
+  function selectStarred() {
+    navigated = true;
+    mobileAll = false;
+    void goto(starredHref(page.url), { keepFocus: true, noScroll: true });
+  }
+
   function backToList() {
     mobileAll = false;
-    if (selectedKey !== null) void goto(clientHref(page.url, null), { keepFocus: true, noScroll: true });
+    if (selectedKey !== null || starred) void goto(clientHref(page.url, null), { keepFocus: true, noScroll: true });
   }
 
   // Retry remounts the failed subscription. Changing client does not remount
@@ -250,6 +296,10 @@
         onToggleMerge={toggleMerge}
         onMerge={() => (mergeOpen = true)}
         onRetry={() => { clientsAttempt += 1; void retryClients(); }}
+        starredHref={starredHref(page.url)}
+        starredActive={starred}
+        {starredCount}
+        onSelectStarred={selectStarred}
       />
     {/key}
   {/snippet}
@@ -259,6 +309,7 @@
       <ClientArea
         bind:this={area}
         client={selectedClient}
+        starredView={starred}
         initialSearch={searchSeed}
         {canCreate}
         canDuplicate={canCreate}
@@ -274,7 +325,9 @@
         onBack={backToList}
         {onOpenNavigation}
         backLabel="Projects"
-        countLabel={selectedKey === null
+        countLabel={starred
+          ? starredCount
+          : selectedKey === null
           ? totalLabel
           : (() => {
               const count = clients.find((client) => client.key === selectedKey)?.projectCount;

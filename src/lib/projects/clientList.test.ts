@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   addToSelection,
   clientHref,
+  projectsViewFromUrl,
+  starredHref,
   clientKeyFromUrl,
   defaultKeepKey,
   filterClients,
@@ -24,7 +26,9 @@ describe("client URL state", () => {
   it("sets and clears the param, keeping the others", () => {
     const url = new URL("http://x/projects?layout=list&client=old");
     expect(clientHref(url, "acme inc")).toBe("/projects?layout=list&client=acme+inc");
-    expect(clientHref(url, null)).toBe("/projects?layout=list");
+    // All projects is named on purpose, so a reload never lands elsewhere.
+    expect(clientHref(url, null)).toBe("/projects?layout=list&scope=all");
+    expect(clientHref(new URL("http://x/projects?scope=starred"), "acme")).toBe("/projects?client=acme");
     expect(clientKeyFromUrl(new URL(clientHref(url, "café & co"), "http://x"))).toBe("café & co");
   });
 
@@ -88,5 +92,27 @@ describe("merge copy", () => {
     expect(mergeCollisionText({ fiscalYear: null, projectNumber: "a", titles: ["A", "B", "C"] })).toBe(
       "Project number A appears 3 times among projects with no fiscal year: A, B, C. Change one after the merge."
     );
+  });
+});
+
+describe("projectsViewFromUrl (2026-11-02)", () => {
+  const view = (search: string) => projectsViewFromUrl(new URL(`http://x/projects${search}`));
+
+  it("reads a company, Starred, All projects on purpose, or a bare landing", () => {
+    expect(view("?client=acme")).toEqual({ kind: "client", key: "acme" });
+    expect(view("?scope=starred")).toEqual({ kind: "starred" });
+    expect(view("?scope=all")).toEqual({ kind: "all", explicit: true });
+    expect(view("")).toEqual({ kind: "all", explicit: false });
+    expect(view("?layout=list")).toEqual({ kind: "all", explicit: false });
+    expect(view("?scope=other")).toEqual({ kind: "all", explicit: false });
+  });
+
+  it("a company in the address always wins", () => {
+    expect(view("?scope=all&client=acme")).toEqual({ kind: "client", key: "acme" });
+    expect(view("?scope=starred&client=acme")).toEqual({ kind: "client", key: "acme" });
+  });
+
+  it("links to Starred keep the other params", () => {
+    expect(starredHref(new URL("http://x/projects?layout=list&client=acme"))).toBe("/projects?layout=list&scope=starred");
   });
 });

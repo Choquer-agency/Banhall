@@ -21,15 +21,21 @@
   screen: a project that leaves the visible set drops out of the selection.
   Edit details and bulk edit go through the host's callbacks (the host
   opens its dialogs).
+
+  Stars (2026-11-02): every card carries the viewer's private star, read
+  from `dashboard.listStarredProjects` (at most 200, one read). With
+  `starredView` the area is "Starred": those projects, most recently
+  starred first, each card naming its company; the search filters them in
+  place.
 -->
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { resolve } from "$app/paths";
-  import { usePaginatedQuery } from "convex-svelte";
+  import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { DASHBOARD_PROJECT_PAGE_SIZE } from "../../../../shared/dashboardProjection";
+  import { DASHBOARD_PROJECT_PAGE_SIZE, normalizeDashboardText } from "../../../../shared/dashboardProjection";
   import ProjectCard from "./ProjectCard.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
@@ -74,6 +80,7 @@
     countLabel = null,
     embedded = false,
     focusFallback = undefined,
+    starredView = false,
   }: {
     /**
      * The selected client; null for All clients. `name` is null until known.
@@ -110,6 +117,8 @@
      * active tab or its page title.
      */
     focusFallback?: () => HTMLElement | null;
+    /** The person's starred projects instead of a company or All projects (`client` is null). */
+    starredView?: boolean;
   } = $props();
 
   const auth = useAuth();
@@ -127,6 +136,7 @@
     return () => clearTimeout(timer);
   });
 
+  const starred = $derived(starredView && !client);
   const companyQ = usePaginatedQuery(
     api.dashboard.listCompanyProjects,
     () => (auth.isAuthenticated && client && !q ? { companyKey: client.key } : "skip"),
@@ -134,19 +144,39 @@
   );
   const recentQ = usePaginatedQuery(
     api.dashboard.listFlatProjects,
-    () => (auth.isAuthenticated && !client && !q ? { sortBy: "updated" as const } : "skip"),
+    () => (auth.isAuthenticated && !client && !starred && !q ? { sortBy: "updated" as const } : "skip"),
     { initialNumItems: PAGE }
   );
   const searchQ = usePaginatedQuery(
     api.dashboard.searchProjects,
     () =>
-      auth.isAuthenticated && q
+      auth.isAuthenticated && q && !starred
         ? { search: q, ...(client ? { companyKey: client.key } : {}) }
         : "skip",
     { initialNumItems: PAGE }
   );
+  // The viewer's stars: the star on every card, and the Starred view itself.
+  const starsQ = useQuery(api.dashboard.listStarredProjects, () => (auth.isAuthenticated ? {} : "skip"));
+  const starredRows = $derived((starsQ.data ?? undefined) as DashboardProjectionRow[] | undefined);
+  const starredIds = $derived(starredRows ? new Set(starredRows.map((row) => row._id)) : null);
+  /** The Starred view as a list read: one bounded page, filtered in place by the search. */
+  const starredList = $derived.by(() => {
+    const rows = starredRows ?? [];
+    const needle = normalizeDashboardText(q);
+    const results = needle
+      ? rows.filter((row) =>
+          normalizeDashboardText(`${row.title} ${row.clientName ?? ""} ${row.projectNumber ?? ""}`).includes(needle)
+        )
+      : rows;
+    return {
+      results,
+      status: (starredRows === undefined ? "LoadingFirstPage" : "Exhausted") as "LoadingFirstPage" | "Exhausted",
+      error: starsQ.error,
+      loadMore: (_count: number) => {},
+    };
+  });
 
-  const activeQ = $derived(q ? searchQ : client ? companyQ : recentQ);
+  const activeQ = $derived(starred ? starredList : q ? searchQ : client ? companyQ : recentQ);
   const raw = $derived(activeQ.results as unknown as DashboardProjectionRow[]);
   const tableRows = $derived(new Map(raw.map((source) => [source._id, toProjectsTableRow(source)])));
   const loadingFirst = $derived(activeQ.status === "LoadingFirstPage" && !activeQ.error);
@@ -158,7 +188,9 @@
   const displayName = $derived(
     client
       ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? (client.missing ? "Company not found" : client.key))
-      : "All projects"
+      : starred
+        ? "Starred"
+        : "All projects"
   );
   const searchLabel = $derived("Search projects");
   // Paper S9: a named company's title leads to its company page; the
@@ -320,11 +352,12 @@
     q = "";
   }
 
-  // Another client (or All clients): start from its unfiltered projects,
-  // out of select mode.
-  let shownKey = untrack(() => client?.key ?? null);
+  // Another client (or All clients, or Starred): start from its unfiltered
+  // projects, out of select mode.
+  const viewKey = (key: string | null, isStarred: boolean) => (key !== null ? `client:${key}` : isStarred ? "starred" : "all");
+  let shownKey = untrack(() => viewKey(client?.key ?? null, starred));
   $effect(() => {
-    const key = client?.key ?? null;
+    const key = viewKey(client?.key ?? null, starred);
     if (key === shownKey) return;
     shownKey = key;
     untrack(() => {
@@ -364,6 +397,7 @@
       selected={selected.has(source._id)}
       selectionActive={selecting}
       onToggleSelect={() => toggle(source)}
+      starred={starredIds ? starredIds.has(source._id) : null}
     >
       {#snippet actions()}
         <ProjectCardMenu
@@ -425,7 +459,7 @@
   </section>
 {/snippet}
 
-<section aria-label={displayName} class="relative flex min-h-0 min-w-0 flex-1 flex-col" data-client-area={client?.key ?? "all"}>
+<section aria-label={displayName} class="relative flex min-h-0 min-w-0 flex-1 flex-col" data-client-area={client?.key ?? (starred ? "starred" : "all")}>
   <!-- The page top bar (Paper S9, 2026-10-28): 64px inside the card, the
        company name at 22/28 500 with its muted 15/20 project count and the
        300px search on the right, 32px in from the sidebar on a desktop. On
@@ -573,6 +607,22 @@
       {#each groups as group, index (group.key)}
         {@render fiscalGroup(group, index === 0)}
       {/each}
+    {:else if starred && raw.length === 0}
+      <div class="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-line px-6 py-[4.5rem] text-center" data-starred-empty>
+        <p class="text-base leading-[1.5] font-medium text-ink">No starred projects yet</p>
+        <p class="max-w-[26.25rem] text-[0.9375rem] leading-[calc(22/15)] text-ink-secondary">Star the projects you are working on and they will show up here. Only you see your stars.</p>
+      </div>
+    {:else if starred}
+      <section aria-label="Starred projects" data-starred-projects>
+        {#if selecting}
+          <div class="flex items-baseline gap-3 pb-3.5">{@render selectAllButton(raw, "Select all")}</div>
+        {/if}
+        <ul class={grid}>
+          {#each raw as source (source._id)}
+            {@render card(source, true, true)}
+          {/each}
+        </ul>
+      </section>
     {:else if raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
         <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">No projects yet.</p>

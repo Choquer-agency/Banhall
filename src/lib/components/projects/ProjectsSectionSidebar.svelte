@@ -14,7 +14,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import ClientList from "./ClientList.svelte";
-  import { CLIENT_PARAM, type ClientEntry } from "$lib/projects/clientList";
+  import { CLIENT_PARAM, SCOPE_PARAM, projectsViewFromUrl, type ClientEntry } from "$lib/projects/clientList";
 
   let {
     current,
@@ -42,11 +42,14 @@
   const totalLabel = $derived(
     facetsQ.data ? `${facetsQ.data.total}${facetsQ.data.truncated ? "+" : ""}` : null
   );
-  const selectedKey = $derived(current === "projects" ? page.url.searchParams.get(CLIENT_PARAM) || null : null);
+  const view = $derived(projectsViewFromUrl(page.url));
+  const selectedKey = $derived(current === "projects" && view.kind === "client" ? view.key : null);
 
+  // All projects and Starred are named on purpose (2026-11-02): a bare
+  // /projects lands on the company the person viewed last.
   function hrefFor(key: string | null) {
     const base = resolve("/projects");
-    return key === null ? base : `${base}?${new URLSearchParams({ [CLIENT_PARAM]: key }).toString()}`;
+    return `${base}?${new URLSearchParams(key === null ? { [SCOPE_PARAM]: "all" } : { [CLIENT_PARAM]: key }).toString()}`;
   }
 </script>
 
@@ -62,5 +65,7 @@
   {homeAvailable}
   {hrefFor}
   {phone}
+  starredHref={`${resolve("/projects")}?${SCOPE_PARAM}=starred`}
+  starredActive={current === "projects" && view.kind === "starred"}
   onRetry={() => void retry()}
 />

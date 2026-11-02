@@ -9,6 +9,7 @@
     | "home"
     | "all-projects"
     | "all-companies"
+    | "star"
     | "arrow-up-right"
     | "people"
     | "mail"
@@ -34,6 +35,7 @@
     home: 16,
     "all-projects": 16,
     "all-companies": 16,
+    star: 16,
     "arrow-up-right": 16,
     people: 16,
     mail: 16,
@@ -74,6 +76,7 @@
       name === "home" ||
       name === "all-projects" ||
       name === "all-companies" ||
+      name === "star" ||
       name === "people" ||
       name === "mail" ||
       name === "keyboard"
@@ -163,6 +166,9 @@
     <!-- The Companies sidebar's All companies row (2026-10-28), the outline
          building of the earlier rail. -->
     <path d="M4 20V6l7-3v17M11 9h8v11M7 9h1M7 13h1M15 13h1M15 16h1" />
+  {:else if name === "star"}
+    <!-- The Projects sidebar's Starred row (2026-11-02), an outline star. -->
+    <path d="M12 3.6l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.6l-5.1 2.7 1-5.7-4.1-4 5.7-.8z" />
   {:else if name === "arrow-up-right"}
     <!-- Paper S9: the arrow beside a company's name that opens its page. -->
     <path d="M7 17L17 7M9 7h8v8" />

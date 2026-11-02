@@ -5,6 +5,7 @@ import { board } from "$lib/test/boardScale";
 import ProjectsPage from "./ProjectsPage.svelte";
 import { page as appPage, __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+import { rememberRecentCompany } from "$lib/workspace/recentCompanies";
 import {
   __activeQueryArgs,
   __isQueryActive,
@@ -133,7 +134,9 @@ describe("Projects page client list", () => {
 
     await userEvent.click(row("all")!);
     await expect.poll(() => text(title())).toBe("All projects");
-    expect(appPage.url.search).toBe("");
+    // All projects is named on purpose (2026-11-02), so a reload stays there.
+    expect(appPage.url.search).toBe("?scope=all");
+    expect(row("all")?.getAttribute("href")).toBe("/projects?scope=all");
   });
 
   it("notes a cut list quietly at the end", async () => {
@@ -539,10 +542,10 @@ describe("Projects page client area", () => {
     expect(document.querySelector("[data-client-new-project]")).toBeNull();
     expect(text(title())).toBe("Company not found");
     const back = document.querySelector<HTMLAnchorElement>("[data-client-missing-back]")!;
-    expect(back.getAttribute("href")).toBe("/projects");
+    expect(back.getAttribute("href")).toBe("/projects?scope=all");
     await userEvent.click(back);
     await expect.poll(() => text(title())).toBe("All projects");
-    expect(appPage.url.search).toBe("");
+    expect(appPage.url.search).toBe("?scope=all");
   });
 
   it("still says a listed client has no projects yet", async () => {
@@ -679,6 +682,141 @@ describe("Small screens", () => {
     expect(text(back.element())).toBe("Projects");
     await userEvent.click(back);
     await expect.poll(() => list.offsetParent).not.toBeNull();
-    expect(appPage.url.search).toBe("");
+    expect(appPage.url.search).toBe("?scope=all");
+  });
+});
+
+describe("Landing on the company viewed last (2026-11-02)", () => {
+  it("opens the company this person viewed last, replacing the bare address", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    rememberRecentCompany("u-1", { key: "acuity insights", name: "Acuity Insights" });
+    rememberRecentCompany("u-1", { key: "cedarline systems", name: "Cedarline Systems" });
+    await mount("/projects");
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("cedarline systems");
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "goto", url: "/projects?client=cedarline+systems" });
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    expect(row("cedarline systems")?.getAttribute("aria-current")).toBe("page");
+    expect(row("all")?.getAttribute("aria-current")).toBeNull();
+    // All projects stays one click away.
+    await userEvent.click(row("all")!);
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(appPage.url.search).toBe("?scope=all");
+  });
+
+  it("keeps another person's last company out of the landing", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    rememberRecentCompany("u-2", { key: "cedarline systems", name: "Cedarline Systems" });
+    await mount("/projects");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(__navigationCalls).toEqual([]);
+  });
+
+  it("falls back to All projects when the company is gone or was merged away", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    rememberRecentCompany("u-1", { key: "old merged co", name: "Old Merged Co" });
+    await mount("/projects");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(__navigationCalls).toEqual([]);
+    expect(row("all")?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("shows the remembered company while the company list loads", async () => {
+    __setQueryData("clients:listClients", undefined);
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    rememberRecentCompany("u-1", { key: "cedarline systems", name: "Cedarline Systems" });
+    await mount("/projects");
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([]);
+    __setQueryData("clients:listClients", { clients: CLIENTS, truncated: false });
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("cedarline systems");
+  });
+
+  it("an explicit address always wins: All projects, Starred or another company", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    __setQueryData("dashboard:listStarredProjects", []);
+    rememberRecentCompany("u-1", { key: "cedarline systems", name: "Cedarline Systems" });
+    for (const [url, expected] of [
+      ["/projects?scope=all", "All projects"],
+      ["/projects?scope=starred", "Starred"],
+      ["/projects?client=acuity+insights", "Acuity Insights"],
+    ] as const) {
+      __resetNavigation();
+      const screen = await mount(url);
+      await expect.poll(() => text(title())).toBe(expected);
+      expect(__navigationCalls).toEqual([]);
+      screen.unmount();
+    }
+  });
+});
+
+describe("Stars on the Projects page (2026-11-02)", () => {
+  const STARRED = [
+    project("p5", { title: "High-efficiency pump control", projectNumber: "5", fiscalYearEnd: day("2026-09-30") }),
+    project("x2", { title: "Coil sensing", clientName: "Acuity Insights", dashboardCompanyKey: "acuity insights" }),
+  ];
+  const star = (id: string) => document.querySelector<HTMLButtonElement>(`[data-project-star="${id}"]`);
+
+  it("puts the viewer's star on every card, pressed where starred, and saves a toggle", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    __setQueryData("dashboard:listStarredProjects", STARRED);
+    __setMutationResult("projects:setProjectStar", { starred: true });
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => star("p4")).not.toBeNull();
+    expect(star("p5")!.getAttribute("aria-pressed")).toBe("true");
+    expect(star("p4")!.getAttribute("aria-pressed")).toBe("false");
+    expect(star("p4")!.getAttribute("aria-label")).toBe("Star Adaptive cold storage controls");
+    expect(star("p4")!.getAttribute("title")).toBe("Star project");
+    expect(star("p5")!.getAttribute("title")).toBe("Unstar project");
+    // A starred card shows its star at rest; an unstarred one waits for hover or focus.
+    expect(getComputedStyle(star("p5")!).opacity).toBe("1");
+    expect(getComputedStyle(star("p4")!).opacity).toBe("0");
+
+    await userEvent.click(star("p4")!);
+    await expect.poll(() => __mutationCalls("projects:setProjectStar")).toEqual([{ projectId: "p4", starred: true }]);
+    // The click stars the project; it does not open it.
+    expect(__navigationCalls).toEqual([]);
+    await userEvent.click(star("p5")!);
+    await expect.poll(() => __mutationCalls("projects:setProjectStar").at(-1)).toEqual({ projectId: "p5", starred: false });
+  });
+
+  it("lists Starred in the sidebar with its count and opens the starred projects, each naming its company", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    __setQueryData("dashboard:listStarredProjects", STARRED);
+    await mount("/projects?scope=all");
+    await expect.poll(() => row("starred")).not.toBeNull();
+    expect(text(row("starred"))).toBe("Starred 2");
+    expect(row("starred")!.getAttribute("href")).toBe("/projects?scope=starred");
+    await userEvent.click(row("starred")!);
+    await expect.poll(() => text(title())).toBe("Starred");
+    expect(appPage.url.search).toBe("?scope=starred");
+    expect(row("starred")!.getAttribute("aria-current")).toBe("page");
+    expect(row("all")!.getAttribute("aria-current")).toBeNull();
+    expect(text(document.querySelector("[data-client-count]"))).toBe("2 projects");
+    const titles = [...document.querySelectorAll("[data-starred-projects] [data-recent-title]")].map((node) => text(node));
+    expect(titles).toEqual(["High-efficiency pump control", "Coil sensing"]);
+    const companies = [...document.querySelectorAll('[data-starred-projects] [data-card-field="client"]')].map((node) => text(node));
+    expect(companies).toEqual(["Cedarline Systems", "Acuity Insights"]);
+    // No All projects or search reads while Starred is open.
+    expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([]);
+  });
+
+  it("filters the starred projects in place with the search", async () => {
+    __setQueryData("dashboard:listStarredProjects", STARRED);
+    await mount("/projects?scope=starred");
+    await expect.poll(() => document.querySelectorAll("[data-starred-projects] [data-recent-title]").length).toBe(2);
+    await userEvent.fill(page.getByRole("searchbox", { name: "Search projects" }), "acuity");
+    await expect.poll(() => text(document.querySelector("#projects-search-results"))).toBe("1 project matches");
+    expect(__activeQueryArgs("dashboard:searchProjects")).toEqual([]);
+  });
+
+  it("says when nothing is starred yet", async () => {
+    __setQueryData("dashboard:listStarredProjects", []);
+    await mount("/projects?scope=starred");
+    await expect.poll(() => text(document.querySelector("[data-starred-empty]"))).toBe(
+      "No starred projects yet Star the projects you are working on and they will show up here. Only you see your stars."
+    );
+    expect(text(row("starred"))).toBe("Starred 0");
+    expect(text(document.body)).not.toMatch(DASHES);
   });
 });

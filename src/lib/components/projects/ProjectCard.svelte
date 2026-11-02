@@ -11,6 +11,10 @@
   moves. It shows on hover, on keyboard focus and on touch screens. Once
   anything on the page is ticked (`selectionActive`), every card shows it
   and a click anywhere on the card toggles it.
+
+  Star (2026-11-02): the person's private star sits before the "..." menu
+  (`ProjectStarButton`); while selecting, a starred card keeps a plain
+  filled star and the button steps aside like the menu.
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
@@ -20,6 +24,8 @@
   import { WORKFLOW_STAGE_TONES, isPausedStage, type StageTone } from "$lib/workflow/stagePresentation";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import { cardStatusLine, longDate } from "$lib/projects/projectCard";
+  import { StarIcon } from "phosphor-svelte";
+  import ProjectStarButton from "./ProjectStarButton.svelte";
 
   let {
     row,
@@ -32,6 +38,7 @@
     selected = false,
     selectionActive = false,
     onToggleSelect = undefined,
+    starred = null,
   }: {
     row: ProjectsTableRow;
     /** Created and updated stamps, shown as full dates. */
@@ -47,6 +54,8 @@
     selected?: boolean;
     selectionActive?: boolean;
     onToggleSelect?: () => void;
+    /** The viewer's star; null draws none (stars not loaded or not offered). */
+    starred?: boolean | null;
   } = $props();
 
   // One color per stage tone: the band, its dot and label, and the 1px
@@ -122,6 +131,18 @@
     <span class="flex-1"></span>
     {#if row.projectNumber}
       <span data-card-project-number class="shrink-0 font-mono text-xs leading-[calc(4/3)] text-ink-muted"><span class="sr-only">Project number </span>#{row.projectNumber}</span>
+    {/if}
+    {#if starred !== null}
+      {#if selectionActive}
+        {#if starred}
+          <span data-card-starred class="flex size-6 shrink-0 items-center justify-center text-primary-selected">
+            <StarIcon size="0.875rem" weight="fill" aria-hidden="true" />
+            <span class="sr-only">Starred</span>
+          </span>
+        {/if}
+      {:else}
+        <ProjectStarButton projectId={row.id} projectTitle={row.title} {starred} />
+      {/if}
     {/if}
     {#if actions && !selectionActive}
       {@render actions()}

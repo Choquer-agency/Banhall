@@ -85,6 +85,38 @@ export function pruneRecentCompanies(userId: string | null | undefined, current:
 export function recentCompanyHref(projectsHref: string, key: string): string {
   const [path, query = ""] = projectsHref.split("?");
   const params = new URLSearchParams(query);
+  params.delete("scope");
   params.set("client", key);
   return `${path}?${params.toString()}`;
+}
+
+/**
+ * The company the Projects page lands on (2026-11-02, client request): the
+ * one this person viewed last, the first of their recent companies.
+ */
+export function lastViewedCompany(userId: string | null | undefined): RecentCompany | null {
+  return loadRecentCompanies(userId)[0] ?? null;
+}
+
+export type CompanyLanding =
+  /** Open this company. */
+  | { kind: "company"; key: string; name: string }
+  /** The company list is still loading: show the remembered company meanwhile. */
+  | { kind: "pending"; key: string; name: string }
+  /** Stay on All projects. */
+  | { kind: "all" };
+
+/**
+ * Where a bare `/projects` lands. With no remembered company, or one the
+ * loaded company list no longer holds (deleted, or merged into another), it
+ * is All projects; a company list that failed to load also falls back.
+ */
+export function companyLanding(
+  remembered: RecentCompany | null,
+  clients: { data: readonly { key: string; name: string }[] | undefined; failed: boolean }
+): CompanyLanding {
+  if (!remembered || clients.failed) return { kind: "all" };
+  if (clients.data === undefined) return { kind: "pending", key: remembered.key, name: remembered.name };
+  const entry = clients.data.find((client) => client.key === remembered.key);
+  return entry ? { kind: "company", key: entry.key, name: entry.name } : { kind: "all" };
 }

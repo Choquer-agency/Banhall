@@ -19,17 +19,56 @@ export type ClientEntry = {
   projectCount: number;
 };
 
+/**
+ * `?scope=all` names All projects on purpose and `?scope=starred` the
+ * person's starred projects (2026-11-02). A bare `/projects` is a landing:
+ * the page opens the company the person last viewed, or All projects when
+ * there is none. `?client=` always wins over `?scope=`.
+ */
+export const SCOPE_PARAM = "scope";
+
+export type ProjectsView =
+  | { kind: "client"; key: string }
+  | { kind: "starred" }
+  /** `explicit`: the address asks for All projects (`?scope=all`). */
+  | { kind: "all"; explicit: boolean };
+
 /** The selected client's key from the URL, or null for All clients. */
 export function clientKeyFromUrl(url: URL): string | null {
   const value = url.searchParams.get(CLIENT_PARAM);
   return value && value.trim() ? value : null;
 }
 
-/** Path and query for the same page with `key` selected (null: All clients). */
+/** What the Projects page shows for this address. */
+export function projectsViewFromUrl(url: URL): ProjectsView {
+  const key = clientKeyFromUrl(url);
+  if (key !== null) return { kind: "client", key };
+  const scope = url.searchParams.get(SCOPE_PARAM);
+  if (scope === "starred") return { kind: "starred" };
+  return { kind: "all", explicit: scope === "all" };
+}
+
+/**
+ * Path and query for the same page with `key` selected. `null` is All
+ * projects, named on purpose (`?scope=all`) so it never lands elsewhere.
+ */
 export function clientHref(url: URL, key: string | null): string {
   const next = new URL(url);
-  if (key === null) next.searchParams.delete(CLIENT_PARAM);
-  else next.searchParams.set(CLIENT_PARAM, key);
+  if (key === null) {
+    next.searchParams.delete(CLIENT_PARAM);
+    next.searchParams.set(SCOPE_PARAM, "all");
+  } else {
+    next.searchParams.delete(SCOPE_PARAM);
+    next.searchParams.set(CLIENT_PARAM, key);
+  }
+  return `${next.pathname}${next.search}`;
+}
+
+/** Path and query for the same page showing the starred projects. */
+export function starredHref(url: URL): string {
+  const next = new URL(url);
+  next.searchParams.delete(CLIENT_PARAM);
+  next.searchParams.set(SCOPE_PARAM, "starred");
   return `${next.pathname}${next.search}`;
 }
 
