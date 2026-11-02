@@ -28,6 +28,13 @@ type CopyResult = {
   /** F2 review: originals whose bytes could not be read; their files or transcripts came without one. */
   originalsNotCopied: number;
   /**
+   * Greptile review (2026-11-02): the new project's files marked "could not
+   * copy" (changed or removed in the original meanwhile, given up after two
+   * failed steps, or already so in the original). They hold no text, so the
+   * duplicate wizard starts no draft or PD review and names them.
+   */
+  filesNotCopied: Array<{ documentId: Id<"projectDocuments">; fileName: string }>;
+  /**
    * F2 review: the copy goes on after this action (it ran out of time, or
    * another runner holds it); the receipt lists the rows made so far, and
    * the files still being copied show so in the new project.
@@ -252,6 +259,7 @@ export async function copyProjectContentBetween(
     reportCopied: outcome.reportId !== undefined,
     previousYearReportCopied: outcome.previousYearReportId !== undefined,
     originalsNotCopied: outcome.originalsNotCopied,
+    filesNotCopied: outcome.filesNotCopied,
     ...(outcome.status !== "done" ? { stillCopying: true as const } : {}),
   };
 }

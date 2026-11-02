@@ -119,7 +119,7 @@ describe("a project copy, file by file (F2)", () => {
       toProjectId: s.toProjectId,
     });
     expect(result.documentsCopied).toBe(60);
-    expect(result).toMatchObject({ originalsNotCopied: 0 });
+    expect(result).toMatchObject({ originalsNotCopied: 0, filesNotCopied: [] });
     expect(result.stillCopying).toBeUndefined();
     expect(result.documents.map((row) => row.sourceId)).toEqual(s.sourceIds);
     const copies = await s.copies();
@@ -227,6 +227,13 @@ describe("a project copy, file by file (F2)", () => {
     expect(listed.filter((row) => row.copyState === "could_not_copy")).toHaveLength(2);
     expect(await s.job(plan.jobId)).toMatchObject({ status: "done", filesCopied: 1, filesFailed: 2 });
     expect(await s.t.run((ctx) => projectCopyInProgress(ctx, s.toProjectId))).toBe(false);
+    // Greptile review (2026-11-02): the copy's result names both, so the wizard starts nothing.
+    const outcome = await s.t.query(internal.projects.projectCopyOutcome, { jobId: plan.jobId });
+    expect(outcome?.filesNotCopied.map((file) => [file.fileName, file.documentId])).toEqual([
+      ["notes-1.txt", byName.get("notes-1.txt")!._id],
+      ["notes-2.txt", byName.get("notes-2.txt")!._id],
+    ]);
+    expect(outcome?.documents).toHaveLength(3);
   });
 
   it("leaves a file replaced while it was pending as the writer replaced it", async () => {
@@ -277,6 +284,9 @@ describe("a project copy, file by file (F2)", () => {
     const states = (await s.copies(s.thirdProjectId)).map((copy) => [copy.fileName, copy.textCopyState ?? "copied"]);
     expect(states).toEqual([["notes-0.txt", "copied"], ["notes-1.txt", "failed"]]);
     expect(await s.job(second.jobId)).toMatchObject({ status: "done", filesCopied: 1 });
+    // Greptile review (2026-11-02): named from the rows, though the job counted no failure.
+    const outcome = await s.t.query(internal.projects.projectCopyOutcome, { jobId: second.jobId });
+    expect(outcome?.filesNotCopied.map((file) => file.fileName)).toEqual(["notes-1.txt"]);
   });
 
   it("checks a long leave-out list of large older files page by page, within Convex's limits, and refuses a file from another project", async () => {
@@ -389,7 +399,8 @@ describe("a project copy, file by file (F2)", () => {
       fromProjectId: s.fromProjectId, toProjectId: s.toProjectId,
     });
     expect(reads).toBe(3);
-    expect(result).toMatchObject({ documentsCopied: 1, filesCopied: 0, originalsNotCopied: 1 });
+    // An unreadable original leaves the file's text copied: it is not "could not copy".
+    expect(result).toMatchObject({ documentsCopied: 1, filesCopied: 0, originalsNotCopied: 1, filesNotCopied: [] });
     const [copy] = await s.copies();
     expect(copy?.storageId).toBeUndefined();
     expect(await textOf(s, copy!._id)).toBe("Notes with a broken original.");

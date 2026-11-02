@@ -2145,23 +2145,30 @@ const COPY_RECEIPT_MAX = 5_000;
 
 // F2 review: what a copy did, read from what it wrote, so the result is the
 // same whichever runner finished the work: the job's status and counts and,
-// as the receipt, each copied file and the original it came from.
+// as the receipt, each copied file and the original it came from. Greptile
+// review (2026-11-02): it also names the copied files marked "could not
+// copy", read from the rows rather than the job's count, so a file that
+// was already "could not copy" in the original is named too.
 export const projectCopyOutcome = internalQuery({
   args: { jobId: v.id("projectCopyJobs") },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
     if (!job) return null;
     const documents: Array<{ sourceId: Id<"projectDocuments">; documentId: Id<"projectDocuments"> }> = [];
+    const filesNotCopied: Array<{ documentId: Id<"projectDocuments">; fileName: string }> = [];
     for await (const doc of ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", job.toProjectId))) {
-      if (doc.copiedFromDocumentId) documents.push({ sourceId: doc.copiedFromDocumentId, documentId: doc._id });
+      if (!doc.copiedFromDocumentId) continue;
+      documents.push({ sourceId: doc.copiedFromDocumentId, documentId: doc._id });
+      if (doc.textCopyState === "failed") filesNotCopied.push({ documentId: doc._id, fileName: doc.fileName });
       if (documents.length >= COPY_RECEIPT_MAX) break;
     }
     return {
       status: job.status,
       stopReason: job.stopReason ?? null,
       documents,
+      filesNotCopied,
       evidenceCopied: job.evidenceCopied,
       pdReviewsCopied: job.pdReviewsCopied,
       originalsAttached: job.originalsAttached ?? 0,

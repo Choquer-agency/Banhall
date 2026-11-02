@@ -1496,6 +1496,23 @@
   }
 
   /**
+   * Greptile review (2026-11-02): copied files marked "could not copy" hold
+   * no text. Names them (three, then how many more) and, when the wizard
+   * held back the draft or PD review it would have started, says so.
+   */
+  function notCopiedMessage(names: string[], startHeld: boolean) {
+    const one = names.length === 1;
+    const shown = names.length > 3 ? [...names.slice(0, 3), `${names.length - 3} more`] : names;
+    const list = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown[0];
+    const message = `${one ? "1 file" : `${names.length} files`} could not be copied from ${copySourceTitle} and ${
+      one ? "holds" : "hold"
+    } no text here: ${list}.`;
+    const addAgain = `Add ${one ? "it" : "them"} again on the project page if you need ${one ? "it" : "them"}`;
+    if (!startHeld) return `${message} ${addAgain}.`;
+    return `${message} Nothing was started. ${addAgain}, then start the ${mode === "review" ? "PD review" : "draft"} there.`;
+  }
+
+  /**
    * Saves supporting documents the old way, one by one, once the project
    * exists: every file on the path without an intake draft, and on the
    * draft path only a file the draft could not take or one still being read
@@ -1865,6 +1882,9 @@
     // F2 review: a copy too long for its action goes on after it; the
     // project's files are still arriving, so nothing is started here.
     let copyStillRunning = false;
+    // Greptile review (2026-11-02): copied files marked "could not copy"
+    // hold no text, so nothing is started here either and they are named.
+    let notCopied: string[] = [];
     // The writer's own files saved so far, by ownUploadNames' names.
     const savedOwn: string[] = [];
     try {
@@ -1933,6 +1953,7 @@
             ...(sendPreviousYearReport ? { previousYearReport: true } : {}),
           });
           if (copied?.stillCopying) copyStillRunning = true;
+          notCopied = (copied?.filesNotCopied ?? []).map((file) => file.fileName);
           if ([...leftOut].some((key) => key.startsWith("c:"))) {
             // The copy's exact receipt: each source file's new row, so two
             // files with the same name and category never swap.
@@ -2011,7 +2032,7 @@
           toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
         extractionLifetime.signal.throwIfAborted();
-        if (!copyFailed && !copyStillRunning) {
+        if (!copyFailed && !copyStillRunning && !notCopied.length) {
           progress = "Starting PD review...";
           limited = await startUnlessLimited(() =>
             startPdReview({
@@ -2022,7 +2043,7 @@
             })
           );
         }
-      } else if (copyFailed || copyStillRunning || (fromProjectId && !generateAfterDuplicate)) {
+      } else if (copyFailed || copyStillRunning || notCopied.length || (fromProjectId && !generateAfterDuplicate)) {
         progress = "Opening duplicate...";
       } else {
         extractionLifetime.signal.throwIfAborted();
@@ -2066,6 +2087,11 @@
           mode === "review"
             ? "The project is saved, but its files are still being copied. When they are, start the PD review from the project page."
             : "The project is saved, but its files are still being copied. When they are, start the draft from the project page."
+        );
+      }
+      if (notCopied.length) {
+        toast.warning(
+          notCopiedMessage(notCopied, !copyStillRunning && Boolean((mode === "review" && pdDoc) || generateAfterDuplicate))
         );
       }
       if (limited) noteRefusedStart(limited);
