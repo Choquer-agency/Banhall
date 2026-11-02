@@ -35,7 +35,7 @@ describe("rule override wording", () => {
       RULE_OVERRIDE_CONFIRM_MESSAGE,
       describeBrokenRules([firstPerson, order, cap]),
     ]) {
-      expect(text).not.toMatch(/[–—]/);
+      expect(text).not.toMatch(/[\u2013\u2014]/);
       expect(findDashConnectors(text)).toEqual([]);
     }
   });
