@@ -16,9 +16,10 @@ const USERS = {
   developerConsultant: { _id: "u-dc", firstName: "Dev", lastName: "Writer", role: "writer", isDeveloper: true },
 } as const;
 
-function seed(user: keyof typeof USERS, attention = 0) {
+function seed(user: keyof typeof USERS, attention = 0, unseen = 0) {
   __setQueryData("users:getCurrentUser", { imageUrl: null, ...USERS[user] });
   __setQueryData("adminAttention:getAttention", { total: attention, ingestionFailed: attention });
+  __setQueryData("changelog:unseenCount", unseen);
 }
 
 const nav = () => document.querySelector<HTMLElement>("[data-frame-rail]")!;
@@ -35,23 +36,49 @@ describe("FrameRail", () => {
     await page.viewport(1440, 900);
   });
 
-  it("a Consultant gets Projects and Companies, the spacer, then Settings", async () => {
+  it("a Consultant gets Projects and Companies, the spacer, then What's new and Settings", async () => {
     seed("consultant");
     await render(FrameRail, { projectsHref: "/projects" });
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "What's new", "Settings"]);
     expect(__isQueryActive("adminAttention:getAttention")).toBe(false);
-    // No Home, search, What's new, Assistant or developer rows.
-    expect(nav().textContent).not.toMatch(/Home|Search|What's new|Assistant|Alerts|Feature requests/);
+    // No Home, search, Assistant or developer rows.
+    expect(nav().textContent).not.toMatch(/Home|Search|Assistant|Alerts|Feature requests/);
+  });
+
+  it("What's new (2026-11-02) sits at the foot for everyone and shows the bell's unseen dot", async () => {
+    seed("consultant", 0, 3);
+    __setPageUrl("/projects");
+    await render(FrameRail, { projectsHref: "/projects" });
+    await expect.poll(() => item("changelog")).not.toBeNull();
+    const whatsNew = item("changelog")!;
+    expect(whatsNew.getAttribute("href")).toBe("/changelog");
+    // The same accessible name as the bell.
+    expect(whatsNew.getAttribute("aria-label")).toBe("What's new, 3 new updates");
+    expect(whatsNew.querySelector("[data-rail-unseen]")).not.toBeNull();
+    expect(whatsNew.querySelector('[data-frame-icon="changelog"]')).not.toBeNull();
+    // Below the spacer, above Settings.
+    nav().style.height = "800px";
+    const spacer = nav().querySelector<HTMLElement>("[data-rail-spacer]")!;
+    expect(whatsNew.getBoundingClientRect().top).toBeGreaterThan(spacer.getBoundingClientRect().top);
+    expect(whatsNew.getBoundingClientRect().bottom).toBeLessThanOrEqual(item("settings")!.getBoundingClientRect().top);
+    // Seen: the dot and the count leave the name, as on the bell.
+    __setQueryData("changelog:unseenCount", 0);
+    await expect.poll(() => whatsNew.querySelector("[data-rail-unseen]")).toBeNull();
+    expect(whatsNew.getAttribute("aria-label")).toBeNull();
+    expect(whatsNew.textContent?.trim()).toBe("What's new");
+    // Selected on its own page.
+    __setPageUrl("/changelog");
+    await expect.poll(() => whatsNew.getAttribute("aria-current")).toBe("page");
   });
 
   it("a Manager adds Team; an Admin adds Team and Admin at the foot", async () => {
     seed("manager");
     const view = await render(FrameRail, { projectsHref: "/projects" });
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "What's new", "Settings"]);
     view.unmount();
     seed("admin", 1);
     await render(FrameRail, { projectsHref: "/projects" });
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "Admin", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "What's new", "Admin", "Settings"]);
     await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("admin")!.getAttribute("aria-label")).toBe("Admin, needs a look");
     expect(item("team")!.getAttribute("href")).toBe("/team");
@@ -83,16 +110,16 @@ describe("FrameRail", () => {
   it("a developer Consultant gets no Admin and no developer rows (they sit in the Admin sidebar)", async () => {
     seed("developerConsultant");
     await render(FrameRail, { projectsHref: "/projects" });
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "What's new", "Settings"]);
   });
 
   it("View as shows the viewed role's rail", async () => {
     seed("developerAdmin");
     viewAs.enter("consultant");
     await render(FrameRail, { projectsHref: "/projects" });
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "What's new", "Settings"]);
     viewAs.exit();
-    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "Admin", "Settings"]);
+    await expect.poll(labels).toEqual(["Projects", "Companies", "Team", "What's new", "Admin", "Settings"]);
   });
 
   it("S9 values: 80px wide, 10 8 14 padding, 6px apart; 64px items with a 40 by 36 tile over a 12/16 label", async () => {
@@ -152,7 +179,7 @@ describe("FrameRail", () => {
       ["/alerts", "admin"],
       ["/requests", "admin"],
       ["/settings/account", "settings"],
-      ["/changelog", null],
+      ["/changelog", "changelog"],
       ["/projects-archive", null],
     ] as const) {
       __setPageUrl(url);

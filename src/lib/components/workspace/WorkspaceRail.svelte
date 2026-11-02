@@ -3,7 +3,7 @@
   import { page } from "$app/state";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { IconChevronDown, IconLightbulb, IconShield, IconWarning } from "$lib/components/icons";
+  import { IconChevronDown, IconLightbulb, IconMegaphone, IconShield, IconWarning } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
   import { displayName } from "$lib/displayName";
   import { roleAvatarTone } from "$lib/components/ui/avatarTone";
@@ -18,6 +18,7 @@
     canSeeAlerts,
     railGroups,
     selectedRailItem,
+    whatsNewLabel,
     type RailItem,
     type RailItemId,
   } from "$lib/shell/navigation";
@@ -60,6 +61,8 @@
   const attentionQ = useQuery(api.adminAttention.getAttention, () =>
     auth.isAuthenticated && canSeeAdmin(viewer) ? {} : "skip"
   );
+  // What's new's count: the bell's read (one shared subscription).
+  const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
   // Rail v3 counts beside Projects and Companies, only on the Projects page,
   // where the page already holds these two reads (Convex shares one
   // subscription). Elsewhere the rail adds no reads (Home's cost rule).
@@ -104,18 +107,16 @@
         changelogHref: resolve("/changelog"),
         settingsHref: resolve("/settings"),
       },
-      { unseenChangelog: 0, openAlerts: openAlertsQ.data ?? 0, adminAttention: attention.total }
+      { unseenChangelog: unseenQ.data ?? 0, openAlerts: openAlertsQ.data ?? 0, adminAttention: attention.total }
     )
   );
   // Rail v3 draws no group labels: Home, Projects and Companies at the top,
-  // the rest of the role's rows at the foot. What's new leaves the rail; the
-  // top bar bell keeps it one click away on every screen.
+  // the rest of the role's rows at the foot. What's new is back in the rail
+  // for everyone (2026-11-02, client request), above Settings, with its
+  // unseen count; the bell keeps it one click away as well.
   const topItems = $derived(groups.find((group) => group.id === "workspace")?.items ?? []);
   const bottomItems = $derived(
-    groups
-      .filter((group) => group.id !== "workspace")
-      .flatMap((group) => group.items)
-      .filter((item) => item.id !== "changelog")
+    groups.filter((group) => group.id !== "workspace").flatMap((group) => group.items)
   );
 
   // Recent companies: the companies this person last opened on the Projects
@@ -173,7 +174,7 @@
     settings: "settings",
   };
   // No Rail v3 drawing for these; the round 2 icons at the v3 size and stroke.
-  const OTHER_ICONS = { admin: IconShield, alerts: IconWarning, requests: IconLightbulb } as const;
+  const OTHER_ICONS = { admin: IconShield, alerts: IconWarning, requests: IconLightbulb, changelog: IconMegaphone } as const;
 </script>
 
 <!--
@@ -211,6 +212,7 @@
     data-rail-item={item.id}
     href={item.href}
     aria-current={isSelected ? "page" : undefined}
+    aria-label={item.id === "changelog" && item.badge ? whatsNewLabel(item.badge.count) : undefined}
     aria-disabled={disabled ? "true" : undefined}
     onclick={(event) => {
       if (disabled) {

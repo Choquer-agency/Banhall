@@ -85,13 +85,16 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     vi.mocked(clearAllOutboxes).mockClear();
   });
 
-  it("a Consultant gets Home, Projects and Companies, then Settings, with no group labels and no What's new", async () => {
+  it("a Consultant gets Home, Projects and Companies, then What's new and Settings, with no group labels", async () => {
     seed("consultant", { unseen: 2 });
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["What's new 2", "Settings"] });
     expect(nav().querySelector("[data-rail-group-label]")).toBeNull();
-    expect(item("changelog")).toBeNull();
-    expect(nav().textContent).not.toContain("What's new");
+    // What's new is back for everyone (2026-11-02), with the bell's unseen count.
+    const whatsNew = item("changelog")!;
+    expect(whatsNew.getAttribute("href")).toBe("/changelog");
+    expect(whatsNew.getAttribute("aria-label")).toBe("What's new, 2 new updates");
+    expect(whatsNew.querySelector("[data-rail-badge='primary']")?.textContent).toBe("2");
     expect(nav().textContent).not.toContain("Flag issue");
     // Board header: the 22px fir B tile and "Banhall" at 16/500.
     const tile = nav().querySelector<HTMLElement>("[data-rail-brand-tile]")!;
@@ -233,14 +236,14 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
   it("a Manager gets Team above Settings", async () => {
     seed("manager");
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "What's new", "Settings"] });
     expect(__isQueryActive("adminAttention:getAttention")).toBe(false);
   });
 
   it.each(["admin", "owner"] as const)("%s gets Team, Admin with the attention dot, and Settings", async (user) => {
     seed(user, { failed: 1 });
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "What's new", "Settings"] });
     await expect.poll(() => item("admin")!.querySelector("[data-rail-attention]")).not.toBeNull();
     expect(item("admin")!.querySelector("[data-rail-attention]")!.className).toContain("bg-stale-dot");
     expect(item("team")!.getAttribute("href")).toBe("/team");
@@ -252,7 +255,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     await mount(baseProps());
     await expect.poll(railRows).toEqual({
       top: ["Home", "Projects", "Companies"],
-      bottom: ["Team", "Admin", "Alerts 4", "Feature requests", "Settings"],
+      bottom: ["Team", "Admin", "Alerts 4", "Feature requests", "What's new", "Settings"],
     });
     expect(item("alerts")!.querySelector("[data-rail-badge]")!.className).toContain("bg-danger");
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Developer");
@@ -261,7 +264,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
   it("decision 49: a developer without ops.viewAlerts gets Feature requests only and no Alerts subscription", async () => {
     seed("developerConsultant", { openAlerts: 4 });
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Feature requests", "Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Feature requests", "What's new", "Settings"] });
     expect(__isQueryActive("errorReports:openCount")).toBe(false);
   });
 
@@ -408,10 +411,10 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
   });
 
   it.each([
-    ["consultant", ["Settings"], "Viewing as Consultant"],
-    ["manager", ["Team", "Settings"], "Viewing as Manager"],
-    ["admin", ["Team", "Admin", "Settings"], "Viewing as Admin"],
-    ["owner", ["Team", "Admin", "Settings"], "Viewing as Owner"],
+    ["consultant", ["What's new", "Settings"], "Viewing as Consultant"],
+    ["manager", ["Team", "What's new", "Settings"], "Viewing as Manager"],
+    ["admin", ["Team", "Admin", "What's new", "Settings"], "Viewing as Admin"],
+    ["owner", ["Team", "Admin", "What's new", "Settings"], "Viewing as Owner"],
   ] as const)("D3: viewing as %s shows that role's rail and names the role under the person", async (role, bottom, label) => {
     seed("developerAdmin", { openAlerts: 2 });
     viewAs.enter(role);
@@ -425,7 +428,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     sessionStorage.setItem("banhall.viewAs.v1", "consultant");
     viewAs.reload();
     await mount(baseProps());
-    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "Settings"] });
+    await expect.poll(railRows).toEqual({ top: ["Home", "Projects", "Companies"], bottom: ["Team", "Admin", "What's new", "Settings"] });
     expect(nav().querySelector("[data-rail-identity-role]")?.textContent).toBe("Admin");
   });
 
@@ -435,7 +438,7 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
     await expect.poll(() => item("admin")).not.toBeNull();
     (nav().querySelector('a[aria-label="Banhall home"]') as HTMLElement).focus();
     const reached: string[] = [];
-    for (let step = 0; step < 8; step += 1) {
+    for (let step = 0; step < 9; step += 1) {
       await userEvent.keyboard("{Tab}");
       const active = document.activeElement as HTMLElement;
       reached.push(
@@ -449,6 +452,6 @@ describe("WorkspaceRail, the drawer (Rail v3)", () => {
                 : "?")
       );
     }
-    expect(reached).toEqual(["search", "home", "projects", "companies", "team", "admin", "settings", "identity"]);
+    expect(reached).toEqual(["search", "home", "projects", "companies", "team", "admin", "changelog", "settings", "identity"]);
   });
 });

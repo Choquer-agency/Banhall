@@ -35,6 +35,7 @@
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../../convex/_generated/api";
+  import { whatsNewLabel } from "$lib/shell/navigation";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
 
   let {
@@ -152,7 +153,7 @@
     <a
       href={resolve("/changelog")}
       data-top-bar-bell
-      aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
+      aria-label={whatsNewLabel(unseen)}
       class={`relative max-sm:hidden lg:hidden ${iconButton}`}
     >
       <IconBell size={16} strokeWidth={1.5} />
