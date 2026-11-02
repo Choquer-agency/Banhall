@@ -49,6 +49,7 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
+import { breaksRulesSchema, brokenRulesToolNote } from "../lib/ruleOverrideSchema";
 import { editPassages } from "../lib/passageEdits";
 import {
   CHAT_CACHE_CONTROL,
@@ -130,12 +131,16 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         .describe(
           "Optional: up to two other complete versions of newText for the same targetText, shown as Option 2 and Option 3. Same paragraph rules as newText. Only for an edit inside one Line; leave it out when there is one right answer."
         ),
+      breaksRules: breaksRulesSchema,
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
       const passages = editPassages(input.targetText, input.newText);
       if (!passages.ok) return `Proposal NOT created: ${passages.reason} Retry the edit tool once.`;
-      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived);
+      // 2026-11-02: a change the writer asked for against the rules keeps its
+      // wording; a manager confirms it before it is applied.
+      const overriding = (input.breaksRules?.length ?? 0) > 0;
+      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived || overriding);
       const [single] = passages.pairs;
       // Owner 2026-10-28: Option 2 and Option 3, each a passage set.
       const alternatives: Array<{ replacements: Array<{ find: string; replaceWith: string }> }> = [];
@@ -151,6 +156,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         toolCallId: options.toolCallId,
         promptMessageId: proposalPromptMessageId(ctx),
         ...(alternatives.length ? { alternatives } : {}),
+        ...(overriding ? { rulesBroken: input.breaksRules } : {}),
         ...(passages.pairs.length === 1
           ? { kind: "edit" as const, targetText: single.find, newText: scrub(single.replaceWith) }
           : {
@@ -164,7 +170,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
       if (result.ok) {
         const lengths = result.lengths ? ` ${result.lengths}` : "";
         const options = alternatives.length ? ` with ${alternatives.length + 1} options` : "";
-        return `Edit proposed. The writer now sees ${cardCount(result.proposalIds)}${options}.${lengths}`;
+        return `Edit proposed. The writer now sees ${cardCount(result.proposalIds)}${options}.${brokenRulesToolNote(input.breaksRules)}${lengths}`;
       }
       // A stopped turn is not a recoverable tool error: telling the model to
       // retry would have it work against the writer's explicit stop.
@@ -189,9 +195,11 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
           })
         )
         .min(1),
+      breaksRules: breaksRulesSchema,
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
+      const overriding = (input.breaksRules?.length ?? 0) > 0;
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
         agentThreadId: ctx.threadId,
         toolCallId: options.toolCallId,
@@ -201,13 +209,14 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
           find: r.find,
           replaceWith: scrubBannedWordsUnlessWaived(
             r.replaceWith,
-            bannedWordsWaived
+            bannedWordsWaived || overriding
           ),
         })),
+        ...(overriding ? { rulesBroken: input.breaksRules } : {}),
       });
       if (result.ok) {
         const lengths = result.lengths ? ` ${result.lengths}` : "";
-        return `Replacement set proposed. The writer now sees ${cardCount(result.proposalIds)}.${lengths}`;
+        return `Replacement set proposed. The writer now sees ${cardCount(result.proposalIds)}.${brokenRulesToolNote(input.breaksRules)}${lengths}`;
       }
       if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
       return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
@@ -535,6 +544,9 @@ export async function runProposeBulkEdits(
 ): Promise<string> {
   if (!ctx.threadId) throw new Error("No thread in tool context");
   const fingerprints = await listedFingerprints(ctx, options.messages ?? []);
+  // 2026-11-02: an explicitly requested change against the rules keeps its
+  // wording; a manager confirms it before it is applied.
+  const overriding = (input.breaksRules?.length ?? 0) > 0;
   const result = await ctx.runMutation(internal.chatV2.saveProposal, {
     agentThreadId: ctx.threadId,
     toolCallId: options.toolCallId,
@@ -545,9 +557,10 @@ export async function runProposeBulkEdits(
       find: edit.targetText,
       replaceWith: scrubBannedWordsUnlessWaived(
         edit.newText,
-        options.bannedWordsWaived
+        options.bannedWordsWaived || overriding
       ),
     })),
+    ...(overriding ? { rulesBroken: input.breaksRules } : {}),
     items: completionReportItems(input.findings).map((item) => {
       const fingerprint = fingerprints.get(item.itemId);
       return fingerprint ? { ...item, fingerprint } : item;
@@ -572,7 +585,7 @@ export async function runProposeBulkEdits(
   const cards = (result.proposalIds?.length ?? 1) > 1
     ? `, as ${cardCount(result.proposalIds)}. The cards show the writer their Completion Report checklists`
     : ". The card shows the writer its Completion Report checklist";
-  return `Coordinated revision proposed for writer review, not applied${cards}, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.${lengths}`;
+  return `Coordinated revision proposed for writer review, not applied${cards}, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.${brokenRulesToolNote(input.breaksRules)}${lengths}`;
 }
 
 const deviationInventory = createTool({

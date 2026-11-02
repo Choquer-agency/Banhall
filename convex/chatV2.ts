@@ -30,7 +30,15 @@ import {
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
 import { withCurrentCompanyFiles } from "./lib/briefEvidence";
-import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { hasCapability, requireReportEditAccess } from "./lib/roleCapabilities";
+import {
+  RULE_OVERRIDE_CONFIRM_MESSAGE,
+  RULE_OVERRIDE_NOT_ALLOWED_MESSAGE,
+  brokenRuleNames,
+  describeBrokenRules,
+  normalizeBrokenRules,
+  overrideConfirmationMatches,
+} from "../shared/ruleOverride";
 import { provenanceForEdit } from "./lib/editProvenance";
 import {
   documentHasText,
@@ -1176,7 +1184,8 @@ async function markAppliedWithRecord(
   ctx: MutationCtx,
   proposal: Doc<"chatProposals">,
   change: AppliedChange | undefined,
-  appliedOption?: number
+  appliedOption?: number,
+  override?: { userId: Id<"users">; at: number; rules: string[] }
 ): Promise<void> {
   if (proposal.appliedChangeId !== undefined) {
     const leftover = await ctx.db.get(proposal.appliedChangeId);
@@ -1189,7 +1198,38 @@ async function markAppliedWithRecord(
         ...change,
       })
     : undefined;
-  await ctx.db.patch(proposal._id, { state: "applied", appliedChangeId, appliedOption });
+  await ctx.db.patch(proposal._id, {
+    state: "applied",
+    appliedChangeId,
+    appliedOption,
+    // Appended, never rewritten: an Undo and a second apply keep the first.
+    ...(override ? { ruleOverrides: [...(proposal.ruleOverrides ?? []), override] } : {}),
+  });
+}
+
+/**
+ * 2026-11-02 (client meeting, rule overrides): a card that goes against a
+ * house rule, the template or a CRA limit is applied only by a holder of
+ * `report.overrideRules` (Managers and Admins) who confirmed those rules by
+ * name. Re-checked here on every apply path, never trusted from the client.
+ * Returns the confirmed rule names, or null for a card that breaks no rule.
+ */
+function requireRuleOverride(
+  proposal: Doc<"chatProposals">,
+  applier: Doc<"users">,
+  confirmed: ReadonlyArray<string> | undefined
+): string[] | null {
+  const rules = proposal.rulesBroken ?? [];
+  if (rules.length === 0) return null;
+  if (!hasCapability(applier.role, "report.overrideRules")) {
+    domainError("NOT_AUTHORIZED", `${RULE_OVERRIDE_NOT_ALLOWED_MESSAGE} ${describeBrokenRules(rules)}`, {
+      capability: "report.overrideRules",
+    });
+  }
+  if (!overrideConfirmationMatches(rules, confirmed)) {
+    domainError("INVALID_INPUT", `${RULE_OVERRIDE_CONFIRM_MESSAGE} ${describeBrokenRules(rules)}`);
+  }
+  return brokenRuleNames(rules);
 }
 
 export const applyProposal = mutation({
@@ -1197,6 +1237,9 @@ export const applyProposal = mutation({
     proposalId: v.id("chatProposals"),
     // Owner 2026-10-28: which version to apply, 0 for Option 1 (the default).
     option: v.optional(v.number()),
+    // 2026-11-02: the rule names the person confirmed, for a card that goes
+    // against a rule. Ignored for a card that breaks none.
+    overrideRules: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
@@ -1230,6 +1273,7 @@ export const applyProposal = mutation({
           : "This suggestion is no longer available to apply."
       );
     }
+    const overriddenRules = requireRuleOverride(proposal, applier, args.overrideRules);
     const report = await ctx.db.get(proposal.reportId);
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
@@ -1251,22 +1295,25 @@ export const applyProposal = mutation({
     // banned-words waiver, but threads are shared per report — text entering
     // the report must also pass the APPLYING user's policy. Re-scrubbing an
     // already-clean proposal is a no-op (the scrub is idempotent); a waived
-    // applier keeps the proposal verbatim.
-    try {
-      const style = await getEffectiveWriterStyle(ctx, applier._id);
-      if (!style.styleOverrides.bannedWords) {
+    // applier keeps the proposal verbatim. A confirmed rule override keeps it
+    // verbatim too: the person approved this exact wording against the rules.
+    if (!overriddenRules) {
+      try {
+        const style = await getEffectiveWriterStyle(ctx, applier._id);
+        if (!style.styleOverrides.bannedWords) {
+          pairs = pairs.map((pair) => ({
+            ...pair,
+            replaceWith: scrubBannedWords(pair.replaceWith),
+          }));
+        }
+      } catch (err) {
+        // Policy lookup must never block an apply; default to scrubbing.
+        console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
         pairs = pairs.map((pair) => ({
           ...pair,
           replaceWith: scrubBannedWords(pair.replaceWith),
         }));
       }
-    } catch (err) {
-      // Policy lookup must never block an apply; default to scrubbing.
-      console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
-      pairs = pairs.map((pair) => ({
-        ...pair,
-        replaceWith: scrubBannedWords(pair.replaceWith),
-      }));
     }
 
     let parsed: unknown;
@@ -1385,7 +1432,13 @@ export const applyProposal = mutation({
           appliedAt: now,
           appliedBy: applier._id,
         });
-    await markAppliedWithRecord(ctx, proposal, appliedChange, alternatives.length ? option : undefined);
+    await markAppliedWithRecord(
+      ctx,
+      proposal,
+      appliedChange,
+      alternatives.length ? option : undefined,
+      overriddenRules ? { userId: applier._id, at: now, rules: overriddenRules } : undefined
+    );
     await recordChatApplySize(ctx, proposal, report._id, applier._id);
     await pruneSnapshots(ctx, report._id);
 
@@ -1463,6 +1516,8 @@ export const markProposalApplied = mutation({
     proposalId: v.id("chatProposals"),
     content: v.string(),
     expectedRevisionNumber: v.number(),
+    // 2026-11-02: as `applyProposal`, for a card that goes against a rule.
+    overrideRules: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
@@ -1504,6 +1559,7 @@ export const markProposalApplied = mutation({
           : "This suggestion is no longer available to apply."
       );
     }
+    const overriddenRules = requireRuleOverride(proposal, user, args.overrideRules);
     assertEditorDocument(args.content);
     const revisionNumber = report.revisionNumber ?? 0;
     if (args.expectedRevisionNumber !== revisionNumber) {
@@ -1542,7 +1598,13 @@ export const markProposalApplied = mutation({
           // Review R2 P3-1: only the runs this card's pairs touched.
           touchedBy: proposalPairs(proposal),
         });
-    await markAppliedWithRecord(ctx, proposal, appliedChange);
+    await markAppliedWithRecord(
+      ctx,
+      proposal,
+      appliedChange,
+      undefined,
+      overriddenRules ? { userId: user._id, at: now, rules: overriddenRules } : undefined
+    );
     await recordChatApplySize(ctx, proposal, report._id, user._id);
     await pruneSnapshots(ctx, report._id);
 
@@ -2538,6 +2600,17 @@ export const saveProposal = internalMutation({
         })
       )
     ),
+    // 2026-11-02 (rule overrides): the rules this edit goes against, named by
+    // the Assistant because the writer explicitly asked for the change.
+    rulesBroken: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit")),
+          name: v.string(),
+          reason: v.string(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -2689,6 +2762,17 @@ export const saveProposal = internalMutation({
       args.references = references;
     }
 
+    // 2026-11-02 (rule overrides): only an edit a person applies can go
+    // against a rule; a highlight or a record of findings changes nothing.
+    const brokenRules = normalizeBrokenRules(args.rulesBroken);
+    if (!brokenRules.ok) return { ok: false as const, reason: brokenRules.reason };
+    if (brokenRules.rules.length && (recordOnly || args.kind === "references")) {
+      return {
+        ok: false as const,
+        reason: "Only an edit can go against a rule. Leave breaksRules out of a revision with no edits.",
+      };
+    }
+
     // CAP-12/CAP-13: every Completion Report item must name a paragraph the
     // CURRENT report actually has. Checked before the parent insert, so a bad
     // anchor writes neither the proposal nor a single item row, and the reason
@@ -2766,6 +2850,8 @@ export const saveProposal = internalMutation({
         requireUniqueTargets: args.requireUniqueTargets,
         section: group.line,
         alternatives: alternatives.length ? alternatives : undefined,
+        // Every card of a split edit carries the rules the whole edit names.
+        rulesBroken: brokenRules.rules.length ? brokenRules.rules : undefined,
         // Highlights and record-only revisions have no state machine: nothing
         // for a human to apply or reject, so they are terminal on creation.
         state: args.kind === "references" || recordOnly ? "applied" : "pending",
@@ -3439,6 +3525,10 @@ export const getChatContextV2 = internalQuery({
         candidate:
           p.newText ??
           (p.replacements ? p.replacements.map((r) => r.replaceWith).join(" | ") : ""),
+        // 2026-11-02: an applied override is kept, never re-flagged.
+        ...(p.state === "applied" && p.ruleOverrides?.length
+          ? { overriddenRules: p.ruleOverrides[p.ruleOverrides.length - 1].rules }
+          : {}),
       }));
 
     const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);

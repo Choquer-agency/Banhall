@@ -2,6 +2,7 @@ import { v, type Infer } from "convex/values";
 import { z } from "zod";
 import type { Id } from "../_generated/dataModel";
 import { sectionParagraphs } from "./tiptapReport";
+import { breaksRulesSchema } from "./ruleOverrideSchema";
 
 /**
  * Story 5 (CAP-13, AD-28): the Completion Report contract.
@@ -271,6 +272,9 @@ export const bulkEditInputSchema = z
       .array(completionReportFindingSchema)
       .min(1)
       .max(MAX_COMPLETION_REPORT_FINDINGS),
+    // 2026-11-02 (rule overrides): every rule the edits go against, when the
+    // writer explicitly asked for them anyway.
+    breaksRules: breaksRulesSchema,
   })
   .superRefine((input, ctx) => {
     const message = coverageIssue(input);

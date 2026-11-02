@@ -11,6 +11,17 @@
  */
 import { getContext, setContext } from "svelte";
 
+/**
+ * 2026-11-02 (rule overrides): thrown by a card's accept when the person
+ * cancels the rule override confirmation. Not a failure: no error is shown.
+ */
+export class AcceptCancelled extends Error {
+  constructor() {
+    super("");
+    this.name = "AcceptCancelled";
+  }
+}
+
 export type ReviewPair = { find: string; replaceWith: string };
 
 export type ReviewTarget = {
@@ -84,6 +95,9 @@ export class ReviewSession {
       if (this.target === target) this.stop();
       return true;
     } catch (error) {
+      // The person backed out (a rule override they did not confirm): the
+      // review stays open and nothing is wrong.
+      if (error instanceof AcceptCancelled) return false;
       this.error = error instanceof Error && error.message ? error.message : "This suggestion could not be accepted. Try again.";
       return false;
     } finally {

@@ -8,7 +8,11 @@ import {
   buildQaSystemPrompt,
   buildSectionStructureRules,
   buildChatSystemPromptV2,
+  CHAT_BULK_OVERRIDE_SENTENCE,
+  CHAT_COMPARE_OVERRIDE_CLAUSE,
   CHAT_EVIDENCE_GUIDANCE,
+  CHAT_RULE_OVERRIDE_RULES,
+  CHAT_RULES_DEFAULT_LINE,
   waivedCategoryLabels,
 } from "./prompts";
 import {
@@ -551,7 +555,11 @@ describe("chat prompt: tools, Completion Report and the converge guard", () => {
   it("carries the CAP-15 rule: paragraphs, never a score, and Locked breaches conflicting", () => {
     expect(prompt).toContain("Report differences per paragraph as x- items");
     expect(prompt).toContain("NEVER answer with a similarity score, a percentage or a grade");
-    expect(prompt).toContain("is reported conflicting with the rule named and an alternative offered, never applied");
+    // 2026-11-02 (rule overrides): conflicting by default, proposed anyway on
+    // an explicit request, with the rule named.
+    expect(prompt).toContain(
+      "is reported conflicting with the rule named and an alternative offered, unless the writer explicitly asks for that difference anyway: then propose it with the rule in breaksRules."
+    );
   });
 
   it("states that the read-only branch beats the plain-question branch", () => {
@@ -878,3 +886,64 @@ describe("the analyzer keeps figures with their group and adds no qualifier (202
     expect(ANALYZER_REQUEST.shorterRetryNote).toContain("give at most 8 experiments or iterations");
   });
 });
+
+/**
+ * 2026-11-02 (client meeting, rule overrides): a senior writer asked the
+ * Assistant to make the draft match the transcript and it refused. The rules
+ * stay the default; an explicit request is proposed with the rules it breaks
+ * named, and a manager confirms before it is applied.
+ */
+describe("chat prompt: a change the writer asks for against a rule", () => {
+  const prompt = buildChatSystemPromptV2();
+
+  it("no longer says the report must obey the standard even when the writer asks", () => {
+    expect(prompt).not.toContain("MUST still obey");
+    expect(prompt).not.toContain("Even if the writer says");
+    expect(prompt).toContain(CHAT_RULES_DEFAULT_LINE);
+  });
+
+  it("proposes an explicit request with breaksRules instead of refusing, and names the rule", () => {
+    expect(prompt).toContain(CHAT_RULE_OVERRIDE_RULES);
+    expect(CHAT_RULE_OVERRIDE_RULES).toContain("do not refuse and do not quietly water it down");
+    expect(CHAT_RULE_OVERRIDE_RULES).toContain("list every rule it goes against in breaksRules");
+    expect(CHAT_RULE_OVERRIDE_RULES).toContain("says plainly, in one sentence, which rule the change goes against");
+    expect(CHAT_RULE_OVERRIDE_RULES).toContain("make it match the transcript");
+  });
+
+  it("keeps the rules without an explicit request, and never allows a made-up fact", () => {
+    expect(CHAT_RULE_OVERRIDE_RULES).toContain(
+      "Without such a request, follow every rule exactly and leave breaksRules out"
+    );
+    expect(CHAT_RULE_OVERRIDE_RULES).toContain("never make up a fact, a number or an event, whoever asks");
+    // The lane rule against invented facts is untouched.
+    expect(prompt).toContain("NEVER invent facts, technical details, metrics, or events");
+  });
+
+  it("tells the bulk tool to resolve an overridden item by its edit", () => {
+    expect(prompt).toContain(CHAT_BULK_OVERRIDE_SENTENCE);
+  });
+
+  it("keeps the rule text in every waiver combination", () => {
+    for (const overrides of [NO_STYLE_OVERRIDES, ALL_WAIVED_FOR_OVERRIDES]) {
+      const text = buildChatSystemPromptV2(overrides);
+      expect(text).toContain(CHAT_RULE_OVERRIDE_RULES);
+      expect(text).toContain(CHAT_RULES_DEFAULT_LINE);
+    }
+  });
+
+  it("follows the plain-prose rules: no em or en dashes", () => {
+    for (const text of [
+      CHAT_RULE_OVERRIDE_RULES,
+      CHAT_RULES_DEFAULT_LINE,
+      CHAT_BULK_OVERRIDE_SENTENCE,
+      CHAT_COMPARE_OVERRIDE_CLAUSE,
+    ]) {
+      expect(text).not.toMatch(/[\u2013\u2014]/);
+      expect(findDashConnectors(text)).toEqual([]);
+    }
+  });
+});
+
+const ALL_WAIVED_FOR_OVERRIDES: StyleOverrides = normalizeStyleOverrides(
+  Object.fromEntries(STYLE_OVERRIDE_KEYS.map((key) => [key, true]))
+);

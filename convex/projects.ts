@@ -42,6 +42,7 @@ import { effectiveProjectType } from "../shared/projectTypes";
 import {
   getEffectiveCapabilityLevel,
   getReportEditAccessOrNull,
+  hasCapability,
   requireCapability,
   requireProjectMetadataAccess,
 } from "./lib/roleCapabilities";
@@ -837,9 +838,13 @@ export const getDuplicateSourceReport = query({
 export const getProjectEditAccess = query({
   args: { projectId: v.id("projects") },
   handler: async (ctx, args) => {
+    const access = await getReportEditAccessOrNull(ctx, args.projectId);
     return {
-      canEditDetails:
-        (await getReportEditAccessOrNull(ctx, args.projectId)) !== null,
+      canEditDetails: access !== null,
+      // 2026-11-02 (rule overrides): may apply a chat card that goes against
+      // a rule. `chatV2.applyProposal` re-checks it; this only shapes the card.
+      canOverrideRules:
+        access !== null && hasCapability(access.user.role, "report.overrideRules"),
     };
   },
 });

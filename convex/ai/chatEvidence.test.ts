@@ -27,6 +27,7 @@ import { CHAT_WRITER_MESSAGE_LABEL,
 import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
 import { withoutInferenceMarkerText } from "../inferenceMarker.fixture";
 import { withoutHonestDraftingText } from "../honestDrafting.fixture";
+import { withoutRuleOverrideText } from "../ruleOverride.fixture";
 import { withoutOneUncertaintyText } from "../oneUncertainty.fixture";
 import {
   ANALYZER_CATEGORY_LABELS,
@@ -1367,9 +1368,11 @@ describe("the published style lesson set in chat (Phase E, E2b)", () => {
   // 2026-10-29 (owner): the inference marker's rule block and its two chat
   // lines are taken out (convex/inferenceMarker.fixture.ts); every other
   // byte is still the pinned one.
+  // 2026-11-02: rule overrides moved the Assistant's rules text
+  // (convex/ruleOverride.fixture.ts); every other byte is still the pinned one.
   it("sends the same system text as before E2b when no set is published (pinned at a0e3c1d4)", () => {
     const hash = (text: string) =>
-      createHash("sha256").update(withoutOneUncertaintyText(withoutHonestDraftingText(withoutInferenceMarkerText(text, "chat"), "chat"), "chat")).digest("hex");
+      createHash("sha256").update(withoutRuleOverrideText(withoutOneUncertaintyText(withoutHonestDraftingText(withoutInferenceMarkerText(text, "chat"), "chat"), "chat"))).digest("hex");
     for (const empty of [null, undefined, "   "]) {
       expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("52c9b254f8a976ed2772098a605c787c228cff3bc71c55e5ec0fcffa47c1d73b");
       expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("c45ea1e3eb6580e1e833ef3b677038f244338b059eadf6247791efcf46dffe33");

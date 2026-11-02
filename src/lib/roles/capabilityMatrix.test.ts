@@ -19,6 +19,8 @@ const expected: Record<Capability, Record<CapabilityRole, CapabilityLevel>> = {
   "project.transferOwnership": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "project.setStage": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "report.editProse": { writer: "own", manager: "all", admin: "all", financial: "none" },
+  // 2026-11-02 (client meeting): rule overrides on chat cards.
+  "report.overrideRules": { writer: "none", manager: "all", admin: "all", financial: "none" },
   "workItem.create": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "workItem.completeOwn": { writer: "own", manager: "own", admin: "all", financial: "none" },
   "workItem.completeOthers": { writer: "none", manager: "all", admin: "all", financial: "none" },

@@ -199,6 +199,12 @@ export interface ChatEvidenceDecision {
   state: "pending" | "applied" | "rejected" | "stale";
   target: string;
   candidate: string;
+  /**
+   * 2026-11-02 (rule overrides): on an applied card a manager applied against
+   * named rules, those rules. Absent otherwise, so other decisions keep their
+   * bytes.
+   */
+  overriddenRules?: string[];
 }
 
 /**
@@ -666,8 +672,18 @@ export function analysisTextFrom(agentOutputs: string | null): string {
 
 /** One decision as the model reads it. Dash free, per house prose rules. */
 function decisionText(decision: ChatEvidenceDecision, index: number): string {
-  return `[Edit ${index + 1}: ${decision.state.toUpperCase()}]\nCanonical target from report: ${decision.target}\nCandidate replacement: ${decision.candidate}`;
+  const override = decision.overriddenRules?.length
+    ? `\n${CHAT_OVERRIDE_DECISION_NOTE} ${decision.overriddenRules.map((rule) => JSON.stringify(rule)).join(", ")}.`
+    : "";
+  return `[Edit ${index + 1}: ${decision.state.toUpperCase()}]\nCanonical target from report: ${decision.target}\nCandidate replacement: ${decision.candidate}${override}`;
 }
+
+/**
+ * 2026-11-02 (rule overrides): what the model reads under an applied card a
+ * manager applied against named rules, so it neither re-flags nor reverts it.
+ */
+export const CHAT_OVERRIDE_DECISION_NOTE =
+  "A manager applied this edit against these rules on purpose. Keep it: do not propose undoing it or list it as a problem to fix unless the writer asks. Rules:";
 
 export function decisionsTextFrom(decisions: ChatEvidenceDecision[]): string {
   return decisions.map(decisionText).join("\n\n");

@@ -109,8 +109,12 @@
   const lineOf = (proposal: Proposal) =>
     proposal.section ?? sectionOf(proposal.targetText ?? proposal.replacements?.[0]?.find);
   const waiting = $derived(editNodes.filter((node) => node.proposal.state === "pending"));
+  // 2026-11-02 (rule overrides): a card against a rule is confirmed on its
+  // own, so a reply holding one offers no Accept all.
   const trayKeys = $derived(
-    canEdit && waiting.length >= 2 && waiting.every((node) => !node.proposal.alternatives?.length)
+    canEdit &&
+      waiting.length >= 2 &&
+      waiting.every((node) => !node.proposal.alternatives?.length && !node.proposal.rulesBroken?.length)
       ? new Set(waiting.map((node) => node.key))
       : new Set<string>()
   );
