@@ -44,7 +44,9 @@ export async function runSection244Agent(
   briefBlock: string = "",
   contentPlanBlock: string = "",
   // 2026-10-30 (owner, item 2): the project record's company name, for the claimant line.
-  claimantName?: string
+  claimantName?: string,
+  // 2026-11-02 (proposed): the public background block ("" when none).
+  webBackground: string = ""
 ): Promise<string> {
   const request = buildSectionDraftRequest({
     instructions: buildSection244Instructions(styleOverrides),
@@ -56,6 +58,7 @@ export async function runSection244Agent(
     styleGuidance,
     contentPlanBlock,
     briefBlock,
+    ...(webBackground ? { webBackground } : {}),
   });
   const response = await client.messages.create({
     model,

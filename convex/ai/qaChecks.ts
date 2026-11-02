@@ -428,6 +428,98 @@ export const NOTES_TO_WRITER = {
   rule: "A report sentence never says what the materials, the sources, the interview, the transcript, the answers or the client report or leave out.",
 } as const;
 
+// ─── Public background: a detail found only in the web block ─────────────────
+
+/** Capitalized words that are never a detail of their own. */
+const WEB_ONLY_IGNORED = new Set(["cra", "sr&ed", "canada", "canadian", "the", "this", "these", "that", "its"]);
+
+export interface WebOnlyHit {
+  /** The detail as written in the Line. */
+  phrase: string;
+  /** Character offset in the paragraph. */
+  index: number;
+}
+
+function normalizedFigure(figure: string): string {
+  return figure.replace(/,/g, "").replace(/\s+/g, "").toLowerCase();
+}
+
+/**
+ * 2026-11-02 (proposed): a sentence that states as a plain fact a detail
+ * found only in the public background block. A detail is a figure (two or
+ * more digits, a decimal or a percentage) or a name-like word (a word with
+ * a capital inside it or a digit, like "PostgreSQL" or "S3", or a
+ * capitalized word that does not open the sentence, like "Debezium"). It is
+ * a hit when the background's answers hold it and the evidence the drafter
+ * read (analysis, Brief, plan) does not. A sentence followed by an
+ * [INFERRED: ...] marker is general practice and is not checked, nor is the
+ * text inside a marker. Deterministic and cheap; it finds the clearest
+ * leaks only, never a paraphrase.
+ */
+export function findWebOnlyDetails(paragraph: string, answers: string, evidence: string): WebOnlyHit[] {
+  if (!answers.trim()) return [];
+  const evidenceLower = evidence.toLowerCase();
+  const evidenceFigures = new Set(
+    (evidence.match(/\d[\d,]*(?:\.\d+)?\s?%?/g) ?? []).map(normalizedFigure)
+  );
+  const answerFigures = new Set(
+    (answers.match(/\d[\d,]*(?:\.\d+)?\s?%?/g) ?? []).map(normalizedFigure)
+  );
+  const answerWords = new Set(answers.match(/[\p{L}\p{N}][\p{L}\p{N}.+#-]*[\p{L}\p{N}+#]|[\p{L}\p{N}]/gu) ?? []);
+  const hits: WebOnlyHit[] = [];
+  // Sentences with their offsets. Full stops inside markers are masked
+  // first, so a marker never ends a sentence; a marker written after a
+  // sentence's full stop opens the next piece.
+  const masked = paragraph.replace(NOTE_MARKER_RE, (marker) => marker.replace(/[.!?]/g, "_"));
+  const pieces: Array<{ text: string; index: number }> = [];
+  let start = 0;
+  for (const end of masked.matchAll(/[.!?]+(?=\s|$)/gu)) {
+    const stop = (end.index ?? 0) + end[0].length;
+    pieces.push({ text: masked.slice(start, stop), index: start });
+    start = stop;
+  }
+  if (start < masked.length) pieces.push({ text: masked.slice(start), index: start });
+  pieces.forEach((piece, at) => {
+    const next = pieces[at + 1]?.text.trimStart() ?? "";
+    // A marker inside the sentence, or opening the next piece, marks it.
+    if (/\[INFERRED:/iu.test(piece.text.replace(/^\s*\[INFERRED:[^\]]*\]/iu, "")) || /^\[INFERRED:/iu.test(next)) return;
+    // Text inside a marker is a note to the writer, never checked.
+    const text = piece.text.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
+    const firstWord = /[\p{L}\p{N}]/u.exec(text)?.index ?? 0;
+    for (const figure of text.matchAll(/(?<![\p{L}\p{N}.])\d[\d,]*(?:\.\d+)?\s?%?(?![\p{L}\p{N}])/gu)) {
+      const raw = figure[0].trim();
+      const digits = raw.replace(/\D/g, "");
+      if (digits.length < 2 && !raw.includes(".") && !raw.includes("%")) continue;
+      const key = normalizedFigure(raw);
+      if (answerFigures.has(key) && !evidenceFigures.has(key)) {
+        hits.push({ phrase: raw, index: piece.index + (figure.index ?? 0) });
+      }
+    }
+    for (const word of text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}.+#-]*[\p{L}\p{N}+#]/gu)) {
+      const value = word[0];
+      const at = word.index ?? 0;
+      const nameLike =
+        /\p{Ll}\p{Lu}/u.test(value) ||
+        (/\p{L}/u.test(value) && /\d/u.test(value)) ||
+        (/^\p{Lu}/u.test(value) && at !== firstWord);
+      if (!nameLike || value.length < 3 || WEB_ONLY_IGNORED.has(value.toLowerCase())) continue;
+      if (answerWords.has(value) && !evidenceLower.includes(value.toLowerCase())) {
+        hits.push({ phrase: value, index: piece.index + at });
+      }
+    }
+  });
+  hits.sort((left, right) => left.index - right.index);
+  return hits;
+}
+
+/** The words of the Self-check row and the repair fix for a web-only detail. */
+export const WEB_ONLY_DETAIL = {
+  instruction: "Locked Rule: public background is never a fact about the claimant",
+  applied: "no detail found only in the public background",
+  fix: "remove the detail, or write the sentence as general practice with an [INFERRED: general practice, public source W1: ...] marker naming its source, or put a [GAP: ...] where the Line needs the fact",
+  rule: "The public background explains terms and standard practice only. A figure, tool, product or setting found only there is never a fact about what the company did, used or found.",
+} as const;
+
 export interface SectionFinding {
   check: "banned_word" | "because_clause" | "cra_opener" | "repetition" | "dash_connector" | "note_to_writer";
   message: string;

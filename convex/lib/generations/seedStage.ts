@@ -267,6 +267,9 @@ export type FrozenBrainArtifact = {
   writerFlavor?: string;
   savedPreferenceTexts?: string[];
   styleOverrides?: OrderedPayload["styleOverrides"];
+  /** 2026-11-02 (proposed): the public background block and its answers. */
+  webBackground?: string;
+  webBackgroundAnswers?: string;
 };
 
 export function parseFrozenBrainArtifact(content: string): FrozenBrainArtifact {
@@ -333,6 +336,12 @@ export async function frozenOrderedPayload(
     orderedContext: artifact.orderedContext,
     frozenStyleGuidance: artifact.styleGuidance,
     summaryVersionId,
+    ...(typeof artifact.webBackground === "string" && artifact.webBackground
+      ? {
+          webBackground: artifact.webBackground,
+          webBackgroundAnswers: typeof artifact.webBackgroundAnswers === "string" ? artifact.webBackgroundAnswers : "",
+        }
+      : {}),
   };
 }
 

@@ -470,6 +470,13 @@ export function buildSectionDraftRequest(args: {
   styleGuidance: string;
   contentPlanBlock: string;
   briefBlock: string;
+  /**
+   * 2026-11-02 (proposed): the public background block, its rules first
+   * (RULES_PUBLIC_BACKGROUND). In the shared, cached part, after the
+   * claimant line: the same for all three Lines of a draft. Absent, the
+   * request is byte for byte what it was.
+   */
+  webBackground?: string;
 }): {
   system: string;
   messages: Array<{
@@ -481,7 +488,7 @@ export function buildSectionDraftRequest(args: {
     }>;
   }>;
 } {
-  const shared = `${SECTION_DRAFT_SCAFFOLD.sharedPrefix}${args.analysisJson}${claimantBlock(args.claimantName)}`;
+  const shared = `${SECTION_DRAFT_SCAFFOLD.sharedPrefix}${args.analysisJson}${claimantBlock(args.claimantName)}${args.webBackground ?? ""}`;
   const scope = args.contentPlanBlock ? "" : SECTION_DRAFT_SCAFFOLD.uncertaintyScope;
   const task = `${SECTION_DRAFT_SCAFFOLD.taskHeading}${args.instructions}${SECTION_DRAFT_SCAFFOLD.evidenceKindsPointer}${scope}${args.brainExemplars}${args.lengthBudget}${args.styleGuidance}${args.contentPlanBlock}${args.briefBlock}`;
   return {

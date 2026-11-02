@@ -31,7 +31,9 @@ import {
   retryFailedCandidatesHandler,
   activeRunSummary,
 } from "./lib/generations/reservation";
-import { getInternalProjectAccessOrNull } from "./lib/auth";
+import { getCurrentUserOrNull, getInternalProjectAccessOrNull } from "./lib/auth";
+import { deploymentDraftWebBackgroundOn } from "./lib/draftWebBackgroundSetting";
+import { draftWebBackgroundRecordValidator } from "./lib/draftWebBackgroundValidators";
 import {
   adoptPreparedBriefArgs,
   adoptPreparedBriefHandler,
@@ -1239,4 +1241,35 @@ export const backfillGenerationOutputs = internalMutation({
 export const getGenerationQaResult = query({
   args: getGenerationQaResultArgs,
   handler: getGenerationQaResultHandler,
+});
+
+/**
+ * 2026-11-02 (proposed): whether the start dialog offers "Look up public
+ * background" (the deployment setting, convex/lib/draftWebBackgroundSetting.ts).
+ * Says nothing else about the deployment. False when signed out.
+ */
+export const webBackgroundAvailable = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx): Promise<boolean> => {
+    if (!(await getCurrentUserOrNull(ctx))) return false;
+    return deploymentDraftWebBackgroundOn();
+  },
+});
+
+/**
+ * 2026-11-02 (proposed): what public background a draft used, for the
+ * writer: the queries as sent (no names) and the sources given to the
+ * drafter, or why none were. Never the answers. Null for a draft with no
+ * record (made before) or a viewer without access.
+ */
+export const getWebBackground = query({
+  args: { generationId: v.id("generations") },
+  returns: v.union(v.null(), draftWebBackgroundRecordValidator),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation?.webBackground) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
+    return generation.webBackground;
+  },
 });

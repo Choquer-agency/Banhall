@@ -887,13 +887,18 @@ describe("the step table and its resolver (owner decision 43)", () => {
       post_qa: "postQa",
       post_chronology: "postChronology",
       retrieval_brief: null,
+      // 2026-11-02: the public background queries use the frozen retrieval
+      // brief model, as the retrieval brief does.
+      web_background_queries: null,
+      // The search itself runs on the chat web search model.
+      web_background_search: null,
       condense: null,
       facts: null,
       settings: null,
     });
     // Every other slot is a seed, Section, repair, compression or Self-check slot.
     for (const [slot, step] of Object.entries(routed)) {
-      if (["retrieval_brief", "condense", "facts", "settings"].includes(slot)) continue;
+      if (["retrieval_brief", "web_background_queries", "web_background_search", "condense", "facts", "settings"].includes(slot)) continue;
       expect(step, slot).not.toBeNull();
     }
     expect(generationStepOf("chat")).toBeNull();

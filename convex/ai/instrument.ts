@@ -145,6 +145,11 @@ export const GENERATION_CALL_SLOTS = [
   // most once per transcript text and FACTS_VERSION.
   "facts",
   "brief",
+  // 2026-11-02 (proposed): public background for drafting, at most once per
+  // generation (none on a cache hit): one call writes the queries, then up
+  // to three searches.
+  "web_background_queries",
+  "web_background_search",
   // Story 3 (CAP-8): the settings-document style classifier, at most once
   // per (projectId, contentHash); a cache hit makes no call.
   "settings",

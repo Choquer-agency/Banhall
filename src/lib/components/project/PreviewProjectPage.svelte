@@ -125,7 +125,7 @@
     type GenerationModeId,
   } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
-  import StartRunDialog, { type StartRunExcluded } from "$lib/components/generation/StartRunDialog.svelte";
+  import StartRunDialog, { type StartRunExcluded, type StartRunOptions } from "$lib/components/generation/StartRunDialog.svelte";
   import {
     projectStartProblem,
     projectStartSources,
@@ -961,6 +961,12 @@
   let startTrigger: HTMLElement | null = null;
   const NOTHING_LEFT_OUT: StartRunExcluded = { transcriptIds: [], documentIds: [] };
   let startExcluded: StartRunExcluded = NOTHING_LEFT_OUT;
+  // 2026-11-02 (proposed): "Look up public background" for this run (on
+  // unless the writer unticks it), offered when the deployment looks it up.
+  let startWebBackground = true;
+  const webBackgroundQ = useQuery(api.generations.webBackgroundAvailable, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
   // Phase C: the company's files a draft can read, for its own group.
   const companyFilesQ = useQuery(api.companyFiles.listForProject, () =>
     auth.isAuthenticated ? { projectId } : "skip"
@@ -984,9 +990,10 @@
     startOpen = true;
   }
 
-  function confirmStart(excluded: StartRunExcluded) {
+  function confirmStart(excluded: StartRunExcluded, options?: StartRunOptions) {
     startOpen = false;
     startExcluded = excluded;
+    startWebBackground = options?.webBackground !== false;
     if (requiresRegenerationConfirmation) {
       confirmRegenerate = startSource;
       return;
@@ -1047,6 +1054,7 @@
             })()
           : {}),
         ...(force ? { confirmRegeneration: true } : {}),
+        ...(startWebBackground ? {} : { webBackground: false }),
       });
     } catch (error) {
       generationError = userErrorMessage(
@@ -3054,6 +3062,7 @@
       models={startModels}
       validate={(excluded) => projectStartProblem(excluded, transcriptsQ.data ?? [], documentsQ.data ?? [])}
       onConfirm={confirmStart}
+      offerWebBackground={webBackgroundQ.data === true}
       onCancel={() => startSelection.cancel()}
       onSelectionChange={(excluded) => {
         // Only a Step-by-step run waits on a head start (review P3-5).
