@@ -38,6 +38,7 @@ import {
   userDisplayLabel,
 } from "./lib/teamRoster";
 import { domainError, projectTypeValidator, sha256 } from "./lib/contracts";
+import { MAX_PROJECT_STARS, PROJECT_STAR_LIMIT_MESSAGE } from "../shared/projectStars";
 import { effectiveProjectType } from "../shared/projectTypes";
 import {
   getEffectiveCapabilityLevel,
@@ -841,6 +842,72 @@ export const getProjectEditAccess = query({
       canEditDetails:
         (await getReportEditAccessOrNull(ctx, args.projectId)) !== null,
     };
+  },
+});
+
+/**
+ * Project stars (2026-11-02): a person's private flag on the projects they
+ * are working on. Starring needs the same internal access as reading the
+ * project (`requireInternalProjectAccess`); unstarring a project that is
+ * being deleted is allowed, since it only removes the caller's own row. A
+ * star is never read for anyone but its owner. At most `MAX_PROJECT_STARS`
+ * per person. Setting the state the row already has is a no-op, so a double
+ * click or a retry cannot add a second row.
+ */
+export const setProjectStar = mutation({
+  args: { projectId: v.id("projects"), starred: v.boolean() },
+  returns: v.object({ starred: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { user } = await requireInternalProjectAccess(ctx, args.projectId, {
+      allowDeleting: !args.starred,
+    });
+    const existing = await ctx.db
+      .query("projectStars")
+      .withIndex("by_projectId_and_userId", (q) =>
+        q.eq("projectId", args.projectId).eq("userId", user._id)
+      )
+      .unique();
+    if (!args.starred) {
+      if (existing) await ctx.db.delete(existing._id);
+      return { starred: false };
+    }
+    if (existing) return { starred: true };
+    const current = await ctx.db
+      .query("projectStars")
+      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", user._id))
+      .take(MAX_PROJECT_STARS);
+    if (current.length >= MAX_PROJECT_STARS) {
+      domainError("INVALID_STATE", PROJECT_STAR_LIMIT_MESSAGE, {
+        maxStars: MAX_PROJECT_STARS,
+      });
+    }
+    await ctx.db.insert("projectStars", {
+      userId: user._id,
+      projectId: args.projectId,
+      createdAt: Date.now(),
+    });
+    return { starred: true };
+  },
+});
+
+/**
+ * Whether the caller has starred this project (the project top bar). An
+ * outsider, a roleless user, an anonymous caller or a project being deleted
+ * reads `false`, never an error.
+ */
+export const isProjectStarred = query({
+  args: { projectId: v.id("projects") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
+    if (!access) return false;
+    const star = await ctx.db
+      .query("projectStars")
+      .withIndex("by_projectId_and_userId", (q) =>
+        q.eq("projectId", args.projectId).eq("userId", access.user._id)
+      )
+      .unique();
+    return star !== null;
   },
 });
 

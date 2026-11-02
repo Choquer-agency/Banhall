@@ -340,6 +340,8 @@ async function seedProjectRows(
     });
     await ctx.db.insert("commenters", { projectId, name: "n", color: "#000", createdAt: now });
     await ctx.db.insert("reportViews", { projectId, viewerName: "v", viewerType: "writer", viewedAt: now });
+    // 2026-11-02: a person's private star goes with the project.
+    await ctx.db.insert("projectStars", { userId, projectId, createdAt: now });
     const uploadId = await ctx.db.insert("financialUploads", { projectId, fileName: "t.csv", fileType: "timesheet", content: "c", createdAt: now });
     await ctx.db.insert("timesheetEntries", {
       projectId, uploadId, personName: "p", date: "2026-01-01", hours: 1, description: "d", sredEligible: true, confidence: "high", source: "s",
