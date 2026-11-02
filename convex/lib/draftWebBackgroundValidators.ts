@@ -34,6 +34,7 @@ export const draftWebBackgroundRecordValidator = v.object({
   status: v.union(
     v.literal("used"),
     v.literal("off_for_run"),
+    v.literal("not_requested"),
     v.literal("off_for_deployment"),
     v.literal("no_queries"),
     v.literal("failed"),

@@ -109,6 +109,7 @@
       ? companyLanding(remembered, {
           data: clientsQ.data?.clients,
           failed: Boolean(clientsQ.error),
+          truncated: clientsQ.data?.truncated ?? false,
         })
       : null
   );

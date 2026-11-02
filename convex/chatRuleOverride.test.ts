@@ -147,6 +147,23 @@ describe("applying a card that goes against a rule", () => {
     expect(row?.ruleOverrides).toBeUndefined();
   });
 
+  it("a writer cannot reword the card either, and a manager can (review round 2)", async () => {
+    const s = await setup();
+    const refused = await failure(() =>
+      s.writer.mutation(api.chatV2.updateProposalWording, { proposalId: s.overrideId, newText: "We changed it anyway." })
+    );
+    expect(refused.code).toBe("NOT_AUTHORIZED");
+    const row = await s.t.run(async (ctx) => await ctx.db.get(s.overrideId));
+    expect(row?.newText).not.toBe("We changed it anyway.");
+    await s.manager.mutation(api.chatV2.updateProposalWording, {
+      proposalId: s.overrideId,
+      newText: "The company ran the trials at three set points.",
+    });
+    expect((await s.t.run(async (ctx) => await ctx.db.get(s.overrideId)))?.newText).toBe(
+      "The company ran the trials at three set points."
+    );
+  });
+
   it("a manager without the confirmation, or with the wrong rules, is refused", async () => {
     const s = await setup();
     for (const overrideRules of [undefined, [], ["Banned words"], ["First person", "First person"], ["First person", "Line 244 word cap"]]) {

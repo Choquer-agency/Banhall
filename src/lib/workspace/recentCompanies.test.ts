@@ -113,6 +113,8 @@ describe("the Projects landing (2026-11-02)", () => {
   it("falls back to All projects with no company, a company that is gone or merged, or a failed list", () => {
     expect(companyLanding(null, { data: [cedar], failed: false })).toEqual({ kind: "all" });
     expect(companyLanding(alder, { data: [cedar, delta], failed: false })).toEqual({ kind: "all" });
+    // Review round 2: past the end of a cut-off list, it still opens.
+    expect(companyLanding(alder, { data: [cedar, delta], failed: false, truncated: true })).toEqual({ kind: "company", ...alder });
     expect(companyLanding(cedar, { data: undefined, failed: true })).toEqual({ kind: "all" });
   });
 

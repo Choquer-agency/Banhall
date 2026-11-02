@@ -15,6 +15,9 @@ import {
 import { DRAFT_WEB_BACKGROUND_VERSION } from "./ai/draftWebBackground";
 import { isProjectDeleting } from "./lib/projectDeletion";
 
+/** The sets of searches one project keeps (one per version of its sources). */
+export const DRAFT_WEB_CACHE_ROWS = 10;
+
 /** A cached set of searches for these sources, or null. */
 export const getCachedBackground = internalQuery({
   args: { projectId: v.id("projects"), fingerprint: v.string() },
@@ -65,6 +68,15 @@ export const saveCachedBackground = internalMutation({
       droppedQueries: args.droppedQueries,
       createdAt: Date.now(),
     });
+    // Review round 2 (Opus 5.5): a project keeps its newest
+    // DRAFT_WEB_CACHE_ROWS sets of searches, one per version of its sources.
+    // Each save adds one row, so a bounded read finds every older one.
+    const rows = await ctx.db
+      .query("draftWebBackgrounds")
+      .withIndex("by_projectId_and_fingerprint", (q) => q.eq("projectId", args.projectId))
+      .take(DRAFT_WEB_CACHE_ROWS * 3);
+    rows.sort((left, right) => right.createdAt - left.createdAt || right._creationTime - left._creationTime);
+    for (const row of rows.slice(DRAFT_WEB_CACHE_ROWS)) await ctx.db.delete(row._id);
     return null;
   },
 });
@@ -81,7 +93,7 @@ export const webBackgroundContext = internalQuery({
   handler: async (
     ctx,
     args
-  ): Promise<{ requested: boolean; identity: WebSearchIdentity } | null> => {
+  ): Promise<{ requested: boolean | null; identity: WebSearchIdentity } | null> => {
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return null;
     const project = await ctx.db.get(generation.projectId);
@@ -92,7 +104,8 @@ export const webBackgroundContext = internalQuery({
       // Only a draft started with the choice recorded looks anything up: a
       // generation from before public background (no field) sends exactly
       // the requests it always did.
-      requested: generation.webBackgroundRequested === true,
+      // (null: no choice recorded, so nothing is recorded either.)
+      requested: generation.webBackgroundRequested ?? null,
       identity: { placeholders, knownNames: webSearchKnownNames(project, placeholders) },
     };
   },

@@ -7,6 +7,7 @@ import {
   formatDraftWebBackgroundBlock,
   guardDraftWebQueries,
   sourceProfile,
+  withoutIdentitySentences,
   numberDraftWebResults,
   type DraftWebResult,
 } from "./draftWebBackground";
@@ -178,6 +179,36 @@ describe("guardDraftWebQueries: what may leave Banhall", () => {
     );
     expect(dropped).toEqual(["figure", "claimant", "source_text", "claimant"]);
     expect(kept.map((query) => query.query)).toEqual(["How does CRA define SR&ED standard practice?"]);
+  });
+
+  it("drops a figure with a unit or a suffix, and keeps public names that start with a digit (review round 2)", () => {
+    const { kept, dropped } = guardDraftWebQueries(
+      [
+        { query: "crawler for 40k retailer pages" },
+        { query: "latency under 200ms for scanners" },
+        { query: "10x faster ingestion methods" },
+        { query: "3D point cloud registration methods" },
+        { query: "5G network slicing for robots" },
+      ],
+      identity,
+      SOURCES
+    );
+    expect(dropped).toEqual(["figure", "figure", "figure"]);
+    expect(kept.map((query) => query.query)).toEqual(["3D point cloud registration methods", "5G network slicing for robots"]);
+  });
+
+  it("leaves out answer sentences that name the client or a person before drafting (review round 2)", () => {
+    const answers = [
+      {
+        query: "q",
+        kind: "technology" as const,
+        status: "ok" as const,
+        answer: "Seam trackers use laser triangulation. Quillmere Analytics sells a crawler [1]. CLIENT_1 is mentioned. Tobin Vasquez-Hale wrote about it. Vasquez-Hale says more.",
+        sources: [],
+      },
+    ];
+    const [shown] = withoutIdentitySentences(answers as never, identity);
+    expect(shown.answer).toBe("Seam trackers use laser triangulation.");
   });
 
   it("reads a word as a name only when the sources never write it in lower case", () => {

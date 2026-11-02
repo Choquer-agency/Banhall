@@ -245,7 +245,7 @@ describe("Seed Summary Review", () => {
     // Sign-off stays off, says why, and the footer counts the open steps.
     await expect.element(signOffButton()).toBeDisabled();
     const describedBy = (signOffButton().element() as HTMLElement).getAttribute("aria-describedby");
-    expect(document.getElementById(describedBy!)?.textContent).toBe(". Finish every step to sign off.");
+    expect(document.getElementById(describedBy!)?.textContent).toBe("Finish every step to sign off.");
     expect(container.querySelector("[data-summary-readiness=blocked]")?.textContent).toContain("2 steps still open. Finish every step to sign off.");
 
     const goalTitle = PD_SUBSECTIONS.find((role) => role.roleId === "goal_problem")!.title;

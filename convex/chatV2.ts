@@ -1640,6 +1640,14 @@ export const updateProposalWording = mutation({
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "A highlight suggestion has no wording to edit.");
     }
+    // Review round 2 (Opus 5.5): a card that goes against a rule is applied
+    // with its wording kept as is, so only someone who may apply it may
+    // reword it.
+    if ((proposal.rulesBroken?.length ?? 0) > 0 && !hasCapability(user.role, "report.overrideRules")) {
+      domainError("NOT_AUTHORIZED", `${RULE_OVERRIDE_NOT_ALLOWED_MESSAGE} ${describeBrokenRules(proposal.rulesBroken ?? [])}`, {
+        capability: "report.overrideRules",
+      });
+    }
 
     const originalText = proposalPairs(proposal)
       .map((pair) => pair.replaceWith)

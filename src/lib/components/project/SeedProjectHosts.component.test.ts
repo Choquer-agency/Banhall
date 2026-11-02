@@ -472,7 +472,7 @@ describe("Seed project hosts", () => {
     const signOff = browserPage.getByRole("button", { name: "Sign off and generate PD", exact: true });
     await expect.element(signOff).toBeDisabled();
     expect(document.getElementById((signOff.element() as HTMLElement).getAttribute("aria-describedby")!)?.textContent).toBe(
-      ". Finish every step to sign off."
+      "Finish every step to sign off."
     );
 
     // "Go to this step" returns to the plan on that step, with focus on it.

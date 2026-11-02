@@ -155,11 +155,28 @@ describe("public background before drafting", () => {
     expect(fake.searched).toEqual([]);
   });
 
+  it("keeps a project's newest ten sets of searches (review round 2)", async () => {
+    const f = await setup();
+    for (let index = 0; index < 12; index += 1) {
+      await f.t.mutation(draftWebBackgroundRefs.saveCachedBackground as never, {
+        projectId: f.projectId,
+        fingerprint: `fingerprint-${index}`,
+        results: [],
+        droppedQueries: 0,
+      } as never);
+    }
+    const rows = await f.t.run((ctx) => ctx.db.query("draftWebBackgrounds").collect());
+    expect(rows).toHaveLength(10);
+    expect(rows.map((row) => row.fingerprint).sort()).not.toContain("fingerprint-0");
+  });
+
   it("does nothing for a draft started before public background (no choice recorded)", async () => {
     const f = await setup({ requested: "unset" });
     const fake = fakeDeps();
     const outcome = await run(f, fake.deps);
-    expect(outcome.record.status).toBe("off_for_run");
+    // Review round 2: it is not "turned off by the writer", and nothing is recorded.
+    expect(outcome.record.status).toBe("not_requested");
+    expect((await f.t.run((ctx) => ctx.db.get(f.generationId)))?.webBackground).toBeUndefined();
     expect(fake.writes()).toBe(0);
     expect(fake.searched).toEqual([]);
   });

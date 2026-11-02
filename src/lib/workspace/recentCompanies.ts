@@ -109,14 +109,18 @@ export type CompanyLanding =
 /**
  * Where a bare `/projects` lands. With no remembered company, or one the
  * loaded company list no longer holds (deleted, or merged into another), it
- * is All projects; a company list that failed to load also falls back.
+ * is All projects; a company list that failed to load also falls back. A
+ * company past the end of a cut-off list still opens.
  */
 export function companyLanding(
   remembered: RecentCompany | null,
-  clients: { data: readonly { key: string; name: string }[] | undefined; failed: boolean }
+  clients: { data: readonly { key: string; name: string }[] | undefined; failed: boolean; truncated?: boolean }
 ): CompanyLanding {
   if (!remembered || clients.failed) return { kind: "all" };
   if (clients.data === undefined) return { kind: "pending", key: remembered.key, name: remembered.name };
   const entry = clients.data.find((client) => client.key === remembered.key);
-  return entry ? { kind: "company", key: entry.key, name: entry.name } : { kind: "all" };
+  if (entry) return { kind: "company", key: entry.key, name: entry.name };
+  // Review round 2: a cut-off list may simply not reach the company, so it
+  // still opens; only a complete list proves it gone.
+  return clients.truncated ? { kind: "company", key: remembered.key, name: remembered.name } : { kind: "all" };
 }

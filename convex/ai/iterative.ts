@@ -439,6 +439,9 @@ export const prepareSeedDraftingInputs = internalAction({
     // whether the next attempt asks for a shorter analysis.
     let analyzerModel: string | undefined;
     let sawCutOff = false;
+    // Review round 2 (Opus 5.5): the web lookup runs beside the analysis; a
+    // failed analysis still waits for it, so its record and cache land.
+    let pendingWebBackground: Promise<unknown> | undefined;
     try {
       // Model catalog: routing and output budgets read the frozen models.
       const freeze = await registerGenerationModels(ctx, args.generationId);
@@ -505,6 +508,7 @@ export const prepareSeedDraftingInputs = internalAction({
         }),
         log,
       });
+      pendingWebBackground = webBackgroundStage;
       // Owner decision 43: the analysis runs on the frozen planning model.
       const analyzerRoute = resolveGenerationStep({ freeze, step: "analyzer", writerModel: model.id });
       analyzerModel = analyzerRoute.model;
@@ -541,6 +545,7 @@ export const prepareSeedDraftingInputs = internalAction({
       const code = draftingInputsFailureCode(error);
       const shorterAnalysis = draftingInputsNeedShorterAnalysis({ code, sawCutOff, analyzerModel });
       console.error("drafting inputs failed for generation", args.generationId, code);
+      await pendingWebBackground?.catch(() => undefined);
       await ctx.runMutation(internal.generations.failDraftingInputs, {
         ...attemptArgs,
         code,

@@ -30,6 +30,7 @@ import {
   buildChatWebSearchRequest,
   cleanWebSource,
   type CleanWebSource,
+  type WebSearchIdentity,
 } from "./chatWebSearch";
 import {
   DRAFT_WEB_BUDGET_MS,
@@ -51,6 +52,7 @@ import {
   type DraftWebBackgroundRecord,
   type DraftWebQuery,
   type DraftWebResult,
+  withoutIdentitySentences,
 } from "./draftWebBackground";
 import { deploymentDraftWebBackgroundOn } from "../lib/draftWebBackgroundSetting";
 
@@ -181,9 +183,14 @@ export function draftWebBackgroundDeps(
   };
 }
 
-function outcome(record: DraftWebBackgroundRecord, results: readonly DraftWebResult[] = []): DraftWebBackgroundOutcome {
+function outcome(
+  record: DraftWebBackgroundRecord,
+  results: readonly DraftWebResult[] = [],
+  identity?: WebSearchIdentity
+): DraftWebBackgroundOutcome {
   if (record.status !== "used") return { block: "", answers: "", record };
-  return { block: formatDraftWebBackgroundBlock(results), answers: draftWebAnswersText(results), record };
+  const shown = identity ? withoutIdentitySentences(results, identity) : results;
+  return { block: formatDraftWebBackgroundBlock(shown), answers: draftWebAnswersText(shown), record };
 }
 
 function usedRecord(
@@ -222,6 +229,8 @@ export async function runDraftWebBackground(
   }
 ): Promise<DraftWebBackgroundOutcome> {
   const result = await draftWebBackgroundOutcome(ctx, input);
+  // A draft started before public background records nothing and logs nothing.
+  if (result.record.status === "not_requested") return result;
   try {
     await ctx.runMutation(draftWebBackgroundRefs.recordWebBackground, {
       generationId: input.generationId,
@@ -262,6 +271,7 @@ export async function draftWebBackgroundOutcome(
       generationId: input.generationId,
     });
     if (!context) return outcome({ status: "failed", ...empty, reason: "The project could not be read." });
+    if (context.requested === null) return outcome({ status: "not_requested", ...empty });
     if (!context.requested) return outcome({ status: "off_for_run", ...empty });
     if (!(input.deploymentOn ?? deploymentDraftWebBackgroundOn())) {
       return outcome({ status: "off_for_deployment", ...empty });
@@ -277,7 +287,7 @@ export async function draftWebBackgroundOutcome(
         query: result.query,
         kind: result.kind,
       }));
-      return outcome(usedRecord(cached.results, queries, cached.droppedQueries, true), cached.results);
+      return outcome(usedRecord(cached.results, queries, cached.droppedQueries, true), cached.results, context.identity);
     }
 
     let raw: unknown[];
@@ -333,7 +343,7 @@ export async function draftWebBackgroundOutcome(
     } catch (error) {
       console.error("draft web background cache save failed", safeErrorDetails(error));
     }
-    return outcome({ ...usedRecord(settled, queries, droppedQueries, false), ...dropped }, settled);
+    return outcome({ ...usedRecord(settled, queries, droppedQueries, false), ...dropped }, settled, context.identity);
   } catch (error) {
     console.error("draft web background failed", safeErrorDetails(error));
     return outcome({ status: "failed", ...empty, reason: "The web lookup hit an error." });

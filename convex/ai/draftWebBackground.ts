@@ -98,6 +98,22 @@ export type DroppedQueryReason =
  * name a technology or a form and stay.
  */
 const FIGURE = /(?<![\p{L}\p{N}.])[$€£]?\d[\d,.]*\s?%?(?![\p{L}\p{N}])/u;
+/**
+ * Review round 2 (Opus 5.5): a word that starts with a digit is a figure
+ * with a unit or a suffix ("40k", "200ms", "10x"), unless it is one of a few
+ * public names that start with a digit. Digits after letters (H.264, IPv6,
+ * S3) still name a technology.
+ */
+const DIGIT_FIRST_WORD = /(?<![\p{L}\p{N}.])\d[\p{L}\p{N}]*/gu;
+const DIGIT_FIRST_PUBLIC = new Set(["1d", "2d", "3d", "4d", "2fa", "3g", "4g", "5g", "6g", "4k", "8k", "360"]);
+
+function holdsDigitFirstFigure(text: string): boolean {
+  for (const match of text.matchAll(DIGIT_FIRST_WORD)) {
+    if (!DIGIT_FIRST_PUBLIC.has(match[0].toLowerCase())) return true;
+  }
+  return false;
+}
+
 /** A figure written out in words: "forty milliseconds", "two hundred", "ten percent". */
 const WRITTEN_FIGURE =
   /(?<![\p{L}])(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|hundreds|thousand|thousands|million|millions|billion|billions|dozen|dozens|percent|per cent)(?![\p{L}])/iu;
@@ -159,6 +175,8 @@ export function sourceProfile(sources: string): { runs: Set<string>; names: Set<
   return { runs, names };
 }
 
+/** A placeholder token inside web text (answers may hold citation brackets, so brackets alone do not count). */
+const PLACEHOLDER_TOKEN_IN_TEXT = /(?<![\p{L}\p{N}])(?:CLIENT|PERSON|FIRM)_\d+/u;
 /** Any bracket or a bare placeholder-like word: nothing of the kind is sent. */
 const PLACEHOLDER_LIKE = /[[\]{}<>]|(?<![\p{L}\p{N}])(?:CLIENT|PERSON|FIRM)_\d+/u;
 
@@ -215,7 +233,7 @@ export function guardDraftWebQueries(
       dropped.push("names");
       continue;
     }
-    if (FIGURE.test(prepared.query) || WRITTEN_FIGURE.test(prepared.query)) {
+    if (FIGURE.test(prepared.query) || WRITTEN_FIGURE.test(prepared.query) || holdsDigitFirstFigure(prepared.query)) {
       dropped.push("figure");
       continue;
     }
@@ -331,6 +349,8 @@ export type DraftWebBackgroundStatus =
   | "used"
   /** The writer turned it off for this draft. */
   | "off_for_run"
+  /** A draft started before public background: no choice was recorded, nothing is recorded either. */
+  | "not_requested"
   /** The deployment turned it off, or has no search key. */
   | "off_for_deployment"
   /** No query survived the guard (or the model wrote none). */
@@ -438,6 +458,52 @@ export function formatDraftWebBackgroundBlock(results: readonly DraftWebResult[]
  */
 export async function draftWebFingerprint(sources: string): Promise<string> {
   return await sha256(`${DRAFT_WEB_BACKGROUND_VERSION}|${sources}`);
+}
+
+/**
+ * Review round 2 (Opus 5.5): a public page can be about the claimant itself.
+ * Every answer sentence that names the project's client, a person, a title
+ * or a placeholder is left out before the block is built, so the drafter
+ * never reads a public claim about this company as background. Names are
+ * matched whole, case-insensitively, plus the first word of each
+ * organization name and each person's last name (4 letters or more).
+ */
+export function withoutIdentitySentences(
+  results: readonly DraftWebResult[],
+  identity: WebSearchIdentity
+): DraftWebResult[] {
+  const names = new Set<string>();
+  const add = (name: string | undefined) => {
+    const value = name?.trim().toLowerCase();
+    if (value && value.length >= 3) names.add(value);
+  };
+  for (const entry of identity.placeholders) add(entry.value);
+  for (const name of [...identity.knownNames.organizations, ...identity.knownNames.titles]) {
+    add(name);
+    const first = name.trim().split(/\s+/u)[0]?.replace(/[^\p{L}\p{N}]+/gu, "");
+    if (first && first.length >= 4) add(first);
+  }
+  for (const name of identity.knownNames.people) {
+    add(name);
+    const last = name.trim().split(/\s+/u).at(-1);
+    if (last && last.length >= 4) add(last);
+  }
+  const escaped = [...names].map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (escaped.length === 0) {
+    return results.map((result) => ({
+      ...result,
+      answer: (result.answer.match(/[^.!?]+[.!?]*\s*/gu) ?? [result.answer])
+        .filter((sentence) => !PLACEHOLDER_TOKEN_IN_TEXT.test(sentence))
+        .join("")
+        .trim(),
+    }));
+  }
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`, "iu");
+  return results.map((result) => {
+    const sentences = result.answer.match(/[^.!?]+[.!?]*\s*/gu) ?? [result.answer];
+    const kept = sentences.filter((sentence) => !pattern.test(sentence) && !PLACEHOLDER_TOKEN_IN_TEXT.test(sentence));
+    return { ...result, answer: kept.join("").trim() };
+  });
 }
 
 /** Words of the block the Self-check compares a Line with (see `findWebOnlyDetails`). */

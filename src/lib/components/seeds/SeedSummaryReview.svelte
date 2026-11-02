@@ -1216,7 +1216,7 @@
           <!-- A status only: each open step links back from its own row
                above (2026-11-02). -->
           <p class="text-[0.875rem] leading-[calc(10/7)] font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>
-            {stepLabel}<span class="font-normal text-ink-muted" id="summary-signoff-blocked-reason">. Finish every step to sign off.</span>
+            {stepLabel}. <span class="font-normal text-ink-muted" id="summary-signoff-blocked-reason">Finish every step to sign off.</span>
           </p>
         </div>
       {/if}

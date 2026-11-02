@@ -348,10 +348,6 @@ export const preflightExport = query({
   },
 });
 
-/**
- * Authorize only the immutable revision that passed preflight. This is the
- * final filing-readiness gate and must run immediately before DOCX generation.
- */
 const CRA_LINE_LABELS = { s242: "Line 242", s244: "Line 244", s246: "Line 246" } as const;
 
 /** Each Line over its CRA form limit, in plain words; empty when all fit. */
@@ -371,6 +367,10 @@ export function craLimitMessages(content: string): string[] {
   return messages;
 }
 
+/**
+ * Authorize only the immutable revision that passed preflight. This is the
+ * final filing-readiness gate and must run immediately before DOCX generation.
+ */
 export const authorizeExport = mutation({
   args: {
     reportId: v.id("reports"),
