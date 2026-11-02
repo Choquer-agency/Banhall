@@ -123,7 +123,7 @@
       month !== openedMonth ||
       day !== openedDay ||
       industry !== (opened.industry ?? "") ||
-      // "hatchbetter.com" for a stored "https://hatchbetter.com" is no change.
+      // "quillmere.com" for a stored "https://quillmere.com" is no change.
       (normalizeCompanyWebsite(website) ?? website.trim()) !== (opened.website ?? "")
     );
   });

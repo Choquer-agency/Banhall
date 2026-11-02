@@ -914,12 +914,12 @@ describe("Edit company (Managers and Admins)", () => {
     await expect.poll(() => save().disabled).toBe(true);
     await userEvent.fill(field, "not a website");
     await userEvent.click(page.getByRole("textbox", { name: "Name" }));
-    await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe("Enter a website like hatchbetter.com.");
+    await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe("Enter a website like example.com.");
     expect(save().disabled).toBe(true);
     await userEvent.fill(field, "cedarline.ca:8080");
     await userEvent.click(page.getByRole("textbox", { name: "Name" }));
     await expect.poll(() => text(document.querySelector("[data-company-website-error]"))).toBe(
-      "Enter the website without a port number, like hatchbetter.com."
+      "Enter the website without a port number, like example.com."
     );
     expect(save().disabled).toBe(true);
     await userEvent.fill(field, "cedarline.com");

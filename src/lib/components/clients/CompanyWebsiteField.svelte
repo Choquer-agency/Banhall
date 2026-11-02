@@ -2,9 +2,9 @@
   /**
    * A company's website, optional (owner, 2026-10-29), in New company and
    * Edit company: the dialog frame's field styles, a short line on what
-   * happens with it, and "Enter a website like hatchbetter.com." (or, for a
+   * happens with it, and "Enter a website like example.com." (or, for a
    * port other than the usual one, "Enter the website without a port
-   * number, like hatchbetter.com.") once the field is left holding
+   * number, like example.com.") once the field is left holding
    * something that is not a usable website. The host checks `invalid`
    * before it saves; the server checks again.
    */
@@ -41,7 +41,7 @@
     autocomplete="url"
     spellcheck="false"
     maxlength={500}
-    placeholder="hatchbetter.com"
+    placeholder="example.com"
     data-company-website-field
     aria-invalid={left && invalid ? "true" : undefined}
     aria-describedby={`${id}-helper`}

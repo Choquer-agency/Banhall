@@ -22,7 +22,7 @@ import {
 
 const PUBLIC = "93.184.216.34";
 
-function html(body: string, title = "Hatch Better") {
+function html(body: string, title = "Quillmere Analytics") {
   return `<!doctype html><html><head><title>${title}</title><style>.x{color:red}</style><script>var secret = 1;</script></head><body>${body}</body></html>`;
 }
 
@@ -129,7 +129,7 @@ describe("what may be fetched", () => {
     }
   );
 
-  it.each([["ftp://hatchbetter.com"], ["https://hatchbetter.com:8080"], ["https://user:pw@hatchbetter.com"]])(
+  it.each([["ftp://quillmere.com"], ["https://quillmere.com:8080"], ["https://user:pw@quillmere.com"]])(
     "refuses %s (scheme, port or credentials)",
     async (address) => {
       const s = site({});
@@ -141,59 +141,59 @@ describe("what may be fetched", () => {
   it("checks every redirect: one into the metadata address is refused without fetching it", async () => {
     const s = site(
       {
-        "https://hatchbetter.com/": page("", { status: 302, location: "http://169.254.169.254/latest/meta-data" }),
+        "https://quillmere.com/": page("", { status: 302, location: "http://169.254.169.254/latest/meta-data" }),
       },
       {}
     );
-    s.deps.lookup = vi.fn(async (hostname: string) => (hostname === "hatchbetter.com" ? [PUBLIC] : [hostname]));
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.notAllowed });
-    expect(s.fetched).toEqual(["https://hatchbetter.com/"]);
+    s.deps.lookup = vi.fn(async (hostname: string) => (hostname === "quillmere.com" ? [PUBLIC] : [hostname]));
+    expect(await readWebsite("https://quillmere.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.notAllowed });
+    expect(s.fetched).toEqual(["https://quillmere.com/"]);
   });
 
   it("checks a redirect to a name that resolves privately", async () => {
     const s = site(
-      { "https://hatchbetter.com/": page("", { status: 301, location: "https://evil.example.com/" }) },
+      { "https://quillmere.com/": page("", { status: 301, location: "https://evil.example.com/" }) },
       { "evil.example.com": ["10.9.8.7"] }
     );
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.notAllowed });
-    expect(s.fetched).toEqual(["https://hatchbetter.com/"]);
+    expect(await readWebsite("https://quillmere.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.notAllowed });
+    expect(s.fetched).toEqual(["https://quillmere.com/"]);
   });
 
   it("follows up to 3 redirects and refuses a fourth", async () => {
     const hops = (count: number) =>
       Object.fromEntries(
         Array.from({ length: count }, (_, index) => [
-          `https://hatchbetter.com/${index === 0 ? "" : `hop${index}`}`,
+          `https://quillmere.com/${index === 0 ? "" : `hop${index}`}`,
           page("", { status: 302, location: `/hop${index + 1}` }),
         ])
       );
-    const three = site({ ...hops(3), "https://hatchbetter.com/hop3": page(html("<main><p>Arrived.</p></main>")) });
-    const ok = await readWebsite("https://hatchbetter.com", three.deps);
-    expect(ok).toMatchObject({ ok: true, pages: ["https://hatchbetter.com/hop3"] });
+    const three = site({ ...hops(3), "https://quillmere.com/hop3": page(html("<main><p>Arrived.</p></main>")) });
+    const ok = await readWebsite("https://quillmere.com", three.deps);
+    expect(ok).toMatchObject({ ok: true, pages: ["https://quillmere.com/hop3"] });
 
-    const four = site({ ...hops(4), "https://hatchbetter.com/hop4": page(html("<p>Too far.</p>")) });
-    expect(await readWebsite("https://hatchbetter.com", four.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.redirects });
+    const four = site({ ...hops(4), "https://quillmere.com/hop4": page(html("<p>Too far.</p>")) });
+    expect(await readWebsite("https://quillmere.com", four.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.redirects });
     expect(four.fetched).toHaveLength(4);
   });
 });
 
 describe("the limits", () => {
   it("reads the first 2 MB of a page over 2 MB instead of refusing it", async () => {
-    const s = site({ "https://hatchbetter.com/": page(html("<p>Big but readable.</p>"), { tooLarge: true }) });
-    const result = await readWebsite("https://hatchbetter.com", s.deps);
+    const s = site({ "https://quillmere.com/": page(html("<p>Big but readable.</p>"), { tooLarge: true }) });
+    const result = await readWebsite("https://quillmere.com", s.deps);
     expect(result).toMatchObject({ ok: true });
     expect(result.ok && result.text).toContain("Big but readable.");
     expect(s.deps.fetchPage).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ maxBytes: 2 * 1024 * 1024 }));
   });
 
   it.each([["application/pdf"], ["text/plain"], ["application/json"], [null]])("refuses %s (text/html only)", async (type) => {
-    const s = site({ "https://hatchbetter.com/": page("%PDF-1.4", { contentType: type }) });
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.notHtml });
+    const s = site({ "https://quillmere.com/": page("%PDF-1.4", { contentType: type }) });
+    expect(await readWebsite("https://quillmere.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.notHtml });
   });
 
   it("refuses an error answer", async () => {
-    const s = site({ "https://hatchbetter.com/": page("Not found", { status: 404 }) });
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.status });
+    const s = site({ "https://quillmere.com/": page("Not found", { status: 404 }) });
+    expect(await readWebsite("https://quillmere.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.status });
   });
 
   it("gives the whole read one 10 second deadline", async () => {
@@ -203,7 +203,7 @@ describe("the limits", () => {
       s.clock.now += 10_001;
       throw new Error("timeout");
     });
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
+    expect(await readWebsite("https://quillmere.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
   });
 
   it("races the first lookup against the time left: a name that never resolves times out", async () => {
@@ -211,7 +211,7 @@ describe("the limits", () => {
     s.deps.lookup = vi.fn(() => new Promise<string[]>(() => {}));
     const started = Date.now();
     s.deps.now = () => Date.now();
-    expect(await readWebsite("https://hatchbetter.com", s.deps, { timeoutMs: 150 })).toEqual({
+    expect(await readWebsite("https://quillmere.com", s.deps, { timeoutMs: 150 })).toEqual({
       ok: false,
       reason: WEBSITE_READ_REASONS.timeout,
     });
@@ -226,73 +226,73 @@ describe("the limits", () => {
     });
     expect(await readWebsite("https://nowhere.example.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.unreachable });
     const t = site({});
-    expect(await readWebsite("https://hatchbetter.com", t.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.unreachable });
+    expect(await readWebsite("https://quillmere.com", t.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.unreachable });
   });
 });
 
 describe("the text", () => {
   it("reads the home page and its about page, without scripts, styles or navigation", async () => {
     const s = site({
-      "https://hatchbetter.com/": page(
+      "https://quillmere.com/": page(
         html(
           `<header><nav><a href="/pricing">Pricing</a><a href="/about-us">About us</a></nav></header>
-           <main><h1>Hatch Better</h1><p>We build incubators for poultry farms &amp; hatcheries.</p></main>
-           <footer>© 2026 Hatch Better. <a href="/privacy">Privacy</a></footer>`
+           <main><h1>Quillmere Analytics</h1><p>We build incubators for poultry farms &amp; hatcheries.</p></main>
+           <footer>© 2026 Quillmere Analytics. <a href="/privacy">Privacy</a></footer>`
         )
       ),
-      "https://hatchbetter.com/about-us": page(html("<main><h1>About</h1><p>Founded in 2019 in Guelph.</p></main>", "About Hatch Better")),
+      "https://quillmere.com/about-us": page(html("<main><h1>About</h1><p>Founded in 2019 in Guelph.</p></main>", "About Quillmere Analytics")),
     });
-    const result = await readWebsite("https://hatchbetter.com", s.deps);
-    expect(result).toMatchObject({ ok: true, title: "Hatch Better", pages: ["https://hatchbetter.com/", "https://hatchbetter.com/about-us"] });
+    const result = await readWebsite("https://quillmere.com", s.deps);
+    expect(result).toMatchObject({ ok: true, title: "Quillmere Analytics", pages: ["https://quillmere.com/", "https://quillmere.com/about-us"] });
     if (!result.ok) throw new Error("expected a read");
     expect(result.text).toContain("We build incubators for poultry farms & hatcheries.");
     expect(result.text).toContain("Founded in 2019 in Guelph.");
-    expect(result.text).toContain("# About Hatch Better");
+    expect(result.text).toContain("# About Quillmere Analytics");
     expect(result.text).not.toMatch(/secret|color:red|Pricing|Privacy|© 2026/);
-    expect(s.fetched).toEqual(["https://hatchbetter.com/", "https://hatchbetter.com/about-us"]);
+    expect(s.fetched).toEqual(["https://quillmere.com/", "https://quillmere.com/about-us"]);
   });
 
   it("keeps the home page when the about page fails, and reads at most one about page", async () => {
     const s = site({
-      "https://hatchbetter.com/": page(html('<p>Home text.</p><a href="/about">About</a><a href="/about/team">About the team</a>')),
+      "https://quillmere.com/": page(html('<p>Home text.</p><a href="/about">About</a><a href="/about/team">About the team</a>')),
     });
-    const result = await readWebsite("https://hatchbetter.com", s.deps);
-    expect(result).toMatchObject({ ok: true, pages: ["https://hatchbetter.com/"] });
-    expect(s.fetched).toEqual(["https://hatchbetter.com/", "https://hatchbetter.com/about"]);
+    const result = await readWebsite("https://quillmere.com", s.deps);
+    expect(result).toMatchObject({ ok: true, pages: ["https://quillmere.com/"] });
+    expect(s.fetched).toEqual(["https://quillmere.com/", "https://quillmere.com/about"]);
   });
 
   it("ignores an about link on another site", () => {
-    const base = new URL("https://hatchbetter.com/");
+    const base = new URL("https://quillmere.com/");
     expect(findAboutLink('<a href="https://other.com/about">About</a>', base)).toBeNull();
-    expect(findAboutLink('<a href="https://www.hatchbetter.com/company">About us</a>', base)?.toString()).toBe(
-      "https://www.hatchbetter.com/company"
+    expect(findAboutLink('<a href="https://www.quillmere.com/company">About us</a>', base)?.toString()).toBe(
+      "https://www.quillmere.com/company"
     );
-    expect(findAboutLink('<a href="mailto:about@hatchbetter.com">About</a>', base)).toBeNull();
+    expect(findAboutLink('<a href="mailto:about@quillmere.com">About</a>', base)).toBeNull();
   });
 
   it("cuts the text at about 50,000 characters, and says so when a page has none", async () => {
-    const long = site({ "https://hatchbetter.com/": page(html(`<p>${"word ".repeat(20_000)}</p>`)) });
-    const result = await readWebsite("https://hatchbetter.com", long.deps);
+    const long = site({ "https://quillmere.com/": page(html(`<p>${"word ".repeat(20_000)}</p>`)) });
+    const result = await readWebsite("https://quillmere.com", long.deps);
     expect(result.ok && result.text.length).toBe(WEBSITE_MAX_TEXT_CHARS);
-    const empty = site({ "https://hatchbetter.com/": page(html("<script>only()</script>")) });
-    expect(await readWebsite("https://hatchbetter.com", empty.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.empty });
+    const empty = site({ "https://quillmere.com/": page(html("<script>only()</script>")) });
+    expect(await readWebsite("https://quillmere.com", empty.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.empty });
   });
 
   it("keeps an ASP.NET page that sits in one form, leaving out only its controls", () => {
     const page = html(
       `<form method="post" action="./"><input type="hidden" name="__VIEWSTATE" value="dGhpcyBpcyBzZWNyZXQ=">
-       <main><h1>Hatch Better</h1><p>Incubators for poultry farms.</p></main>
+       <main><h1>Quillmere Analytics</h1><p>Incubators for poultry farms.</p></main>
        <select><option>English</option><option>Français</option></select><button>Search</button><textarea>notes</textarea></form>`
     );
     const text = htmlToText(page);
-    expect(text).toBe("Hatch Better\nIncubators for poultry farms.");
+    expect(text).toBe("Quillmere Analytics\nIncubators for poultry farms.");
   });
 
   it("keeps a header's own text and leaves out only the navigation inside it, and still reads links in the navigation", () => {
     const page = parseHtml(
-      html(`<header><p>Hatch Better: incubators since 2019</p><nav><a href="/about-us">About us</a><a href="/shop">Shop</a></nav></header><main><p>Body.</p></main>`)
+      html(`<header><p>Quillmere Analytics: incubators since 2019</p><nav><a href="/about-us">About us</a><a href="/shop">Shop</a></nav></header><main><p>Body.</p></main>`)
     );
-    expect(page.text).toBe("Hatch Better: incubators since 2019\nBody.");
+    expect(page.text).toBe("Quillmere Analytics: incubators since 2019\nBody.");
     expect(page.links.map((link) => [link.href, link.text])).toEqual([
       ["/about-us", "About us"],
       ["/shop", "Shop"],
@@ -324,8 +324,8 @@ describe("the text", () => {
   });
 
   it("reads a heavy page whole: its text after 600 KB of inline script (Wix, Shopify, Elementor)", () => {
-    const heavy = html(`<script>window.__DATA__ = ${JSON.stringify("x".repeat(600 * 1024))};</script><main><p>Hatch Better builds incubators.</p></main>`);
-    expect(htmlToText(heavy)).toBe("Hatch Better builds incubators.");
+    const heavy = html(`<script>window.__DATA__ = ${JSON.stringify("x".repeat(600 * 1024))};</script><main><p>Quillmere Analytics builds incubators.</p></main>`);
+    expect(htmlToText(heavy)).toBe("Quillmere Analytics builds incubators.");
   });
 
   it("parses at most 2 MB of a page", () => {
@@ -334,16 +334,16 @@ describe("the text", () => {
   });
 
   it("a whole read of a 2 MB page of < finishes in time, the lone < kept as text", async () => {
-    const s = site({ "https://hatchbetter.com/": page("<".repeat(2 * 1024 * 1024)) });
+    const s = site({ "https://quillmere.com/": page("<".repeat(2 * 1024 * 1024)) });
     const started = performance.now();
-    const result = await readWebsite("https://hatchbetter.com", s.deps);
+    const result = await readWebsite("https://quillmere.com", s.deps);
     expect(performance.now() - started).toBeLessThan(2_000);
     // Lone "<" characters are text, not tags.
     expect(result.ok).toBe(true);
   });
 
   it("checks the deadline after parsing", async () => {
-    const s = site({ "https://hatchbetter.com/": page(html("<p>Text.</p>")) });
+    const s = site({ "https://quillmere.com/": page(html("<p>Text.</p>")) });
     const fetchPage = s.deps.fetchPage;
     s.deps.fetchPage = vi.fn(async (url: URL, options: { timeoutMs: number; maxBytes: number }) => {
       const answer = await fetchPage(url, options);
@@ -351,7 +351,7 @@ describe("the text", () => {
       s.clock.now += 10_001;
       return answer;
     });
-    expect(await readWebsite("https://hatchbetter.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
+    expect(await readWebsite("https://quillmere.com", s.deps)).toEqual({ ok: false, reason: WEBSITE_READ_REASONS.timeout });
   });
 
   it("does not end a tag at a > inside a quoted attribute", () => {
@@ -359,10 +359,10 @@ describe("the text", () => {
   });
 
   it("ends a head nobody closed at the first element a head cannot hold", () => {
-    expect(htmlToText(`<html><head><title>Hatch Better</title><meta charset="utf-8"><h1>Incubators</h1><p>Since 2019.</p>`)).toBe(
+    expect(htmlToText(`<html><head><title>Quillmere Analytics</title><meta charset="utf-8"><h1>Incubators</h1><p>Since 2019.</p>`)).toBe(
       "Incubators\nSince 2019."
     );
-    expect(htmlTitle(`<head><title>Hatch Better</title><div>Body</div>`)).toBe("Hatch Better");
+    expect(htmlTitle(`<head><title>Quillmere Analytics</title><div>Body</div>`)).toBe("Quillmere Analytics");
     // Text alone ends it too.
     expect(htmlToText(`<head><meta charset="utf-8">Plain text page`)).toBe("Plain text page");
   });
@@ -392,8 +392,8 @@ describe("the text", () => {
     // A raw lone surrogate in the page is replaced too.
     expect(parseHtml("<p>Raw \ud800 here</p><title>T\udc00</title>").text).toBe("Raw \ufffd here");
     // The 50,000 character cut never splits an emoji.
-    const s = site({ "https://hatchbetter.com/": page2(html(`<p>${"\u{1F600}".repeat(30_000)}</p>`)) });
-    const result = await readWebsite("https://hatchbetter.com", s.deps);
+    const s = site({ "https://quillmere.com/": page2(html(`<p>${"\u{1F600}".repeat(30_000)}</p>`)) });
+    const result = await readWebsite("https://quillmere.com", s.deps);
     if (!result.ok) throw new Error("expected a read");
     expect(result.text.length).toBeLessThanOrEqual(WEBSITE_MAX_TEXT_CHARS);
     const last = result.text.charCodeAt(result.text.length - 1);
@@ -401,7 +401,7 @@ describe("the text", () => {
   });
 
   it("picks the surest about page, document order only breaking ties", () => {
-    const base = new URL("https://hatchbetter.com/");
+    const base = new URL("https://quillmere.com/");
     const pick = (links: string) => findAboutLink(`<body>${links}</body>`, base)?.pathname ?? null;
     expect(
       pick(

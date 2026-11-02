@@ -6,16 +6,16 @@
  * Stored as a normalized absolute http(s) address: https:// added when no
  * scheme is given, the host lowercased (the URL parser does it), no user or
  * password, no fragment, and no trailing slash. Shown as its host only, a
- * leading "www." dropped ("hatchbetter.com").
+ * leading "www." dropped ("quillmere.com").
  */
 
 /** Longest address accepted, after normalizing. */
 export const COMPANY_WEBSITE_MAX_LENGTH = 500;
 
 /** The error a website that cannot be used gets. */
-export const COMPANY_WEBSITE_INVALID = "Enter a website like hatchbetter.com.";
+export const COMPANY_WEBSITE_INVALID = "Enter a website like example.com.";
 /** A website with a port the reader does not use (only the usual http and https ports). */
-export const COMPANY_WEBSITE_PORT = "Enter the website without a port number, like hatchbetter.com.";
+export const COMPANY_WEBSITE_PORT = "Enter the website without a port number, like example.com.";
 
 /**
  * The address to store for what the person typed, or null when it is not a
@@ -28,7 +28,7 @@ export function normalizeCompanyWebsite(raw: string): string | null {
 
 /**
  * What is wrong with a typed website, or null when it is usable (or empty,
- * which means no website): "Enter a website like hatchbetter.com.", or the
+ * which means no website): "Enter a website like example.com.", or the
  * port message for an address with a port other than the usual one.
  */
 export function companyWebsiteProblem(raw: string): string | null {
@@ -40,7 +40,7 @@ function checkCompanyWebsite(raw: string): { url: string; problem: null } | { ur
   const refused = { url: null, problem: COMPANY_WEBSITE_INVALID } as const;
   const typed = raw.trim();
   if (!typed || /\s/.test(typed)) return refused;
-  // "hatchbetter.com:8080" names no scheme; "https://" goes first.
+  // "quillmere.com:8080" names no scheme; "https://" goes first.
   const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(typed) || /^(mailto|javascript|data|tel|file):/i.test(typed) ? typed : `https://${typed}`;
   let url: URL;
   try {
@@ -54,7 +54,7 @@ function checkCompanyWebsite(raw: string): { url: string; problem: null } | { ur
   if (url.port) return { url: null, problem: COMPANY_WEBSITE_PORT };
   const host = url.hostname;
   // A website has a name with a dot and a top-level part of letters
-  // ("hatchbetter.com"), not a bare word or an address with no name.
+  // ("quillmere.com"), not a bare word or an address with no name.
   const labels = host.split(".");
   if (labels.length < 2 || labels.some((label) => !label)) return refused;
   const top = labels[labels.length - 1]!;
@@ -67,7 +67,7 @@ function checkCompanyWebsite(raw: string): { url: string; problem: null } | { ur
   return { url: text, problem: null };
 }
 
-/** The host to show for a stored address ("hatchbetter.com"), or the address itself if it does not parse. */
+/** The host to show for a stored address ("quillmere.com"), or the address itself if it does not parse. */
 export function companyWebsiteHost(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
@@ -76,7 +76,7 @@ export function companyWebsiteHost(url: string): string {
   }
 }
 
-/** The company file a website's text is saved as ("Website: hatchbetter.com"). */
+/** The company file a website's text is saved as ("Website: quillmere.com"). */
 export function companyWebsiteFileName(url: string): string {
   return `Website: ${companyWebsiteHost(url)}`;
 }

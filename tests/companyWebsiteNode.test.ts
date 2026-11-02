@@ -201,10 +201,10 @@ describe("decodeBody", () => {
   });
 
   it("reads a <meta> naming UTF-16 as UTF-8, and x-user-defined as windows-1252 (the WHATWG pre-scan rule)", () => {
-    const ascii = '<meta charset="utf-16"><p>Hatch Better caf\u00c3\u00a9</p>';
+    const ascii = '<meta charset="utf-16"><p>Quillmere Analytics caf\u00c3\u00a9</p>';
     for (const label of ["utf-16", "UTF-16LE", "utf-16be", "ucs-2"]) {
       expect(decodeBody(Buffer.from(ascii.replace("utf-16", label), "latin1"), "text/html")).toBe(
-        `<meta charset="${label}"><p>Hatch Better café</p>`
+        `<meta charset="${label}"><p>Quillmere Analytics café</p>`
       );
     }
     expect(decodeBody(Buffer.from('<meta charset="x-user-defined"><p>\u0080 caf\u00e9</p>', "latin1"), null)).toContain("\u20ac café");
@@ -226,7 +226,7 @@ describe("guardedLookup", () => {
 
   it("hands back a public address", async () => {
     const lookup = guardedLookup(resolveTo("93.184.216.34"));
-    const answer = await new Promise<unknown[]>((resolve) => lookup("hatchbetter.com", {}, (...args) => resolve(args)));
+    const answer = await new Promise<unknown[]>((resolve) => lookup("quillmere.com", {}, (...args) => resolve(args)));
     expect(answer).toEqual([null, "93.184.216.34", 4]);
   });
 });

@@ -82,7 +82,7 @@ async function finishRead(s: Setup, clientId: Id<"clients">, result: { ok: true;
   const args = job.args[0] as { clientId: Id<"clients">; url: string; requestedAt: number; userId: Id<"users"> };
   await s.t.mutation(internal.companyWebsite.finishWebsiteRead, {
     ...args,
-    result: result.ok ? { ok: true, text: result.text, title: "Hatch Better", pages: [args.url] } : result,
+    result: result.ok ? { ok: true, text: result.text, title: "Quillmere Analytics", pages: [args.url] } : result,
   });
 }
 
@@ -95,53 +95,53 @@ async function expiries(s: Setup) {
 describe("saving a website", () => {
   it("New company stores it normalized and asks for a read; anyone who may create projects may add it", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: " HatchBetter.com/ " });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: " Quillmere.com/ " });
     expect(await client(s, made.clientId)).toMatchObject({
-      website: "https://hatchbetter.com",
-      websiteRead: { url: "https://hatchbetter.com", status: "reading" },
+      website: "https://quillmere.com",
+      websiteRead: { url: "https://quillmere.com", status: "reading" },
     });
     const reads = await scheduledReads(s);
     expect(reads).toHaveLength(1);
-    expect(reads[0]!.args[0]).toMatchObject({ clientId: made.clientId, url: "https://hatchbetter.com", userId: s.writerId });
+    expect(reads[0]!.args[0]).toMatchObject({ clientId: made.clientId, url: "https://quillmere.com", userId: s.writerId });
     // The page shows it and the read under way.
-    expect(await s.writer.query(api.clients.getCompanyPage, { key: "hatch better" })).toMatchObject({
-      website: "https://hatchbetter.com",
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "quillmere analytics" })).toMatchObject({
+      website: "https://quillmere.com",
       websiteRead: { status: "reading" },
     });
   });
 
   it("refuses a website that cannot be used, with a plain message, and saves nothing", async () => {
     const s = await setup();
-    for (const website of ["not a website", "localhost", "ftp://hatchbetter.com"]) {
-      await expect(s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website })).rejects.toMatchObject({
-        data: { code: "INVALID_INPUT", message: "Enter a website like hatchbetter.com." },
+    for (const website of ["not a website", "localhost", "ftp://quillmere.com"]) {
+      await expect(s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website })).rejects.toMatchObject({
+        data: { code: "INVALID_INPUT", message: "Enter a website like example.com." },
       });
     }
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "  " });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "  " });
     expect((await client(s, made.clientId))?.website).toBeUndefined();
     expect(await scheduledReads(s)).toEqual([]);
   });
 
   it("Edit company changes it (Managers and Admins only) through the same stale check", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better" });
-    const before = await opened(s, "hatch better");
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics" });
+    const before = await opened(s, "quillmere analytics");
     await expect(
-      s.writer.mutation(api.clients.updateCompany, { ...before, website: "hatchbetter.com" })
+      s.writer.mutation(api.clients.updateCompany, { ...before, website: "quillmere.com" })
     ).rejects.toMatchObject({ data: { code: "NOT_AUTHORIZED" } });
-    await s.manager.mutation(api.clients.updateCompany, { ...before, website: "hatchbetter.com" });
-    expect(await client(s, made.clientId)).toMatchObject({ website: "https://hatchbetter.com", websiteRead: { status: "reading" } });
+    await s.manager.mutation(api.clients.updateCompany, { ...before, website: "quillmere.com" });
+    expect(await client(s, made.clientId)).toMatchObject({ website: "https://quillmere.com", websiteRead: { status: "reading" } });
     // A dialog opened before that change is refused.
     await expect(
       s.manager.mutation(api.clients.updateCompany, { ...before, website: "other.com" })
     ).rejects.toMatchObject({ data: { code: "STALE_REVISION" } });
     // An unchanged website asks for no new read.
-    const now = await opened(s, "hatch better");
-    await s.manager.mutation(api.clients.updateCompany, { ...now, website: "https://hatchbetter.com", industry: "software" });
+    const now = await opened(s, "quillmere analytics");
+    await s.manager.mutation(api.clients.updateCompany, { ...now, website: "https://quillmere.com", industry: "software" });
     expect(await scheduledReads(s)).toHaveLength(1);
     await expect(
-      s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "nope" })
-    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT", message: "Enter a website like hatchbetter.com." } });
+      s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "nope" })
+    ).rejects.toMatchObject({ data: { code: "INVALID_INPUT", message: "Enter a website like example.com." } });
   });
 
   it.each([
@@ -149,46 +149,46 @@ describe("saving a website", () => {
     ["a failed read", { ok: false as const, reason: "it could not be reached." }],
   ])("%s does not move the company's last change, so an open dialog still saves", async (_label, result) => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
-    const dialog = await opened(s, "hatch better");
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
+    const dialog = await opened(s, "quillmere analytics");
     const before = (await client(s, made.clientId))!.updatedAt;
     await finishRead(s, made.clientId, result);
     expect((await client(s, made.clientId))!.updatedAt).toBe(before);
     await expect(
-      s.manager.mutation(api.clients.updateCompany, { ...dialog, website: "hatchbetter.com", industry: "manufacturing" })
-    ).resolves.toMatchObject({ key: "hatch better" });
+      s.manager.mutation(api.clients.updateCompany, { ...dialog, website: "quillmere.com", industry: "manufacturing" })
+    ).resolves.toMatchObject({ key: "quillmere analytics" });
   });
 
   it("an absent website leaves it as it is; an empty one removes it", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     // An older tab that sends no website at all.
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), industry: "software" });
-    expect(await client(s, made.clientId)).toMatchObject({ website: "https://hatchbetter.com", industry: "software" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), industry: "software" });
+    expect(await client(s, made.clientId)).toMatchObject({ website: "https://quillmere.com", industry: "software" });
     expect(await scheduledReads(s)).toHaveLength(1);
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "", industry: "software" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "", industry: "software" });
     expect((await client(s, made.clientId))?.website).toBeUndefined();
   });
 
   it("refuses a port other than the usual one with its own words", async () => {
     const s = await setup();
     await expect(
-      s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com:8080" })
+      s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com:8080" })
     ).rejects.toMatchObject({
-      data: { code: "INVALID_INPUT", message: "Enter the website without a port number, like hatchbetter.com." },
+      data: { code: "INVALID_INPUT", message: "Enter the website without a port number, like example.com." },
     });
   });
 
   it("each person asks for at most 20 reads an hour; past it the read fails plainly and the save stands", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics" });
     for (let i = 0; i < 20; i++) {
-      await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: `hatch${i}.com` });
+      await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: `quillmere${i}.com` });
     }
     expect(await scheduledReads(s)).toHaveLength(20);
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "hatch-last.com" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "quillmere-last.com" });
     expect(await client(s, made.clientId)).toMatchObject({
-      website: "https://hatch-last.com",
+      website: "https://quillmere-last.com",
       websiteRead: { status: "failed", reason: WEBSITE_READ_RATE_LIMITED },
     });
     expect(await scheduledReads(s)).toHaveLength(20);
@@ -201,12 +201,12 @@ describe("saving a website", () => {
 describe("a finished read", () => {
   it("saves the text as a company file named for the site, logged as an add", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
-    await finishRead(s, made.clientId, { ok: true, text: "# Hatch Better\nWe build incubators for poultry farms." });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
+    await finishRead(s, made.clientId, { ok: true, text: "# Quillmere Analytics\nWe build incubators for poultry farms." });
     const files = await companyFiles(s, made.clientId);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatchObject({
-      fileName: "Website: hatchbetter.com",
+      fileName: "Website: quillmere.com",
       fileType: "txt",
       category: "background",
       processingStatus: "ready",
@@ -218,38 +218,38 @@ describe("a finished read", () => {
     });
     expect(files[0]!.archived).toBeUndefined();
     expect(await client(s, made.clientId)).toMatchObject({
-      websiteRead: { status: "read", url: "https://hatchbetter.com" },
+      websiteRead: { status: "read", url: "https://quillmere.com" },
       websiteFileId: files[0]!._id,
     });
-    expect(await events(s, made.clientId)).toEqual([["add", "Website: hatchbetter.com"]]);
+    expect(await events(s, made.clientId)).toEqual([["add", "Website: quillmere.com"]]);
     // The Files tab lists it with its text.
     const listed = await s.writer.query(api.companyFiles.listCompanyFiles, { clientId: made.clientId });
-    expect(listed.files.map((file) => file.fileName)).toEqual(["Website: hatchbetter.com"]);
+    expect(listed.files.map((file) => file.fileName)).toEqual(["Website: quillmere.com"]);
   });
 
   it("a new website replaces the old website file, archiving it", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await finishRead(s, made.clientId, { ok: true, text: "Old site text." });
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "hatchbetter.ca" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "quillmere.ca" });
     expect(await scheduledReads(s)).toHaveLength(2);
     await finishRead(s, made.clientId, { ok: true, text: "New site text." });
     const files = await companyFiles(s, made.clientId);
     const byName = Object.fromEntries(files.map((file) => [file.fileName, file.archived === true]));
-    expect(byName).toEqual({ "Website: hatchbetter.com": true, "Website: hatchbetter.ca": false });
+    expect(byName).toEqual({ "Website: quillmere.com": true, "Website: quillmere.ca": false });
     expect(await events(s, made.clientId)).toEqual([
-      ["add", "Website: hatchbetter.com"],
-      ["add", "Website: hatchbetter.ca"],
-      ["archive", "Website: hatchbetter.com"],
+      ["add", "Website: quillmere.com"],
+      ["add", "Website: quillmere.ca"],
+      ["archive", "Website: quillmere.com"],
     ]);
   });
 
   it("the same text read again keeps the file it already has", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await finishRead(s, made.clientId, { ok: true, text: "Same text." });
     await s.t.run(async (ctx) => {
-      await ctx.db.patch(made.clientId, { websiteRead: { url: "https://hatchbetter.com", status: "reading", requestedAt: 99 } });
+      await ctx.db.patch(made.clientId, { websiteRead: { url: "https://quillmere.com", status: "reading", requestedAt: 99 } });
     });
     await finishRead(s, made.clientId, { ok: true, text: "Same text." });
     expect(await companyFiles(s, made.clientId)).toHaveLength(1);
@@ -273,9 +273,9 @@ describe("a finished read", () => {
 
   it("a read still not finished after two minutes fails as unreachable, archiving the old address's file", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await finishRead(s, made.clientId, { ok: true, text: "Old text." });
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "hatchbetter.ca" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "quillmere.ca" });
     const checks = await expiries(s);
     expect(checks).toHaveLength(2);
     const latest = checks.at(-1)!;
@@ -284,17 +284,17 @@ describe("a finished read", () => {
     // The read never came back.
     await s.t.mutation(internal.companyWebsite.expireWebsiteRead, args);
     expect(await client(s, made.clientId)).toMatchObject({
-      websiteRead: { url: "https://hatchbetter.ca", status: "failed", reason: "it could not be reached." },
+      websiteRead: { url: "https://quillmere.ca", status: "failed", reason: "it could not be reached." },
     });
     expect((await companyFiles(s, made.clientId))[0]).toMatchObject({ archived: true });
     // The first read's check, long finished, changes nothing.
     await s.t.mutation(internal.companyWebsite.expireWebsiteRead, checks[0]!.args[0] as typeof args);
-    expect((await client(s, made.clientId))?.websiteRead).toMatchObject({ status: "failed", url: "https://hatchbetter.ca" });
+    expect((await client(s, made.clientId))?.websiteRead).toMatchObject({ status: "failed", url: "https://quillmere.ca" });
   });
 
   it("a read that comes back after its check marked it failed is still saved", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await s.t.mutation(internal.companyWebsite.expireWebsiteRead, (await expiries(s))[0]!.args[0] as never);
     expect(await client(s, made.clientId)).toMatchObject({ websiteRead: { status: "failed" } });
     // The slow read finishes after all: its text is better than nothing.
@@ -306,7 +306,7 @@ describe("a finished read", () => {
 
   it("a read that finished before its check is left alone", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await finishRead(s, made.clientId, { ok: true, text: "Text." });
     await s.t.mutation(internal.companyWebsite.expireWebsiteRead, (await expiries(s))[0]!.args[0] as never);
     expect(await client(s, made.clientId)).toMatchObject({ websiteRead: { status: "read" } });
@@ -315,58 +315,58 @@ describe("a finished read", () => {
 
   it("a merge archives the merged company's website file, since its website does not come along", async () => {
     const s = await setup();
-    const kept = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better" });
-    const merged = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better Inc", website: "hatchbetterinc.com" });
+    const kept = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics" });
+    const merged = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics Inc", website: "quillmereinc.com" });
     await finishRead(s, merged.clientId, { ok: true, text: "Inc site." });
-    await s.manager.mutation(api.clients.mergeClients, { keepKey: "hatch better", mergeKeys: ["hatch better inc"] });
+    await s.manager.mutation(api.clients.mergeClients, { keepKey: "quillmere analytics", mergeKeys: ["quillmere analytics inc"] });
     const files = await companyFiles(s, kept.clientId);
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatchObject({ fileName: "Website: hatchbetterinc.com", archived: true });
-    expect((await events(s, kept.clientId)).at(-1)).toEqual(["archive", "Website: hatchbetterinc.com"]);
+    expect(files[0]).toMatchObject({ fileName: "Website: quillmereinc.com", archived: true });
+    expect((await events(s, kept.clientId)).at(-1)).toEqual(["archive", "Website: quillmereinc.com"]);
   });
 
   it("a failed read keeps a plain reason and no file, and the save it followed stands", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await finishRead(s, made.clientId, { ok: false, reason: "it did not answer within 10 seconds." });
     expect(await companyFiles(s, made.clientId)).toEqual([]);
     expect(await client(s, made.clientId)).toMatchObject({
-      website: "https://hatchbetter.com",
+      website: "https://quillmere.com",
       websiteRead: { status: "failed", reason: "it did not answer within 10 seconds." },
     });
-    expect(await s.writer.query(api.clients.getCompanyPage, { key: "hatch better" })).toMatchObject({
+    expect(await s.writer.query(api.clients.getCompanyPage, { key: "quillmere analytics" })).toMatchObject({
       websiteRead: { status: "failed", reason: "it did not answer within 10 seconds." },
     });
   });
 
   it("drops a read that is no longer the company's latest", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     const first = (await client(s, made.clientId))!.websiteRead!;
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "hatchbetter.ca" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "quillmere.ca" });
     // The read of the old address finishes late.
     await s.t.mutation(internal.companyWebsite.finishWebsiteRead, {
       clientId: made.clientId,
-      url: "https://hatchbetter.com",
+      url: "https://quillmere.com",
       requestedAt: first.requestedAt,
       userId: s.managerId,
       result: { ok: true, text: "Old.", title: null, pages: [] },
     });
     expect(await companyFiles(s, made.clientId)).toEqual([]);
-    expect(await client(s, made.clientId)).toMatchObject({ websiteRead: { url: "https://hatchbetter.ca", status: "reading" } });
+    expect(await client(s, made.clientId)).toMatchObject({ websiteRead: { url: "https://quillmere.ca", status: "reading" } });
   });
 
   it("removing the website archives its file and clears the read", async () => {
     const s = await setup();
-    const made = await s.writer.mutation(api.clients.createClient, { name: "Hatch Better", website: "hatchbetter.com" });
+    const made = await s.writer.mutation(api.clients.createClient, { name: "Quillmere Analytics", website: "quillmere.com" });
     await finishRead(s, made.clientId, { ok: true, text: "Site text." });
-    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "hatch better")), website: "" });
+    await s.manager.mutation(api.clients.updateCompany, { ...(await opened(s, "quillmere analytics")), website: "" });
     const row = await client(s, made.clientId);
     expect(row?.website).toBeUndefined();
     expect(row?.websiteRead).toBeUndefined();
     expect(row?.websiteFileId).toBeUndefined();
     expect((await companyFiles(s, made.clientId))[0]).toMatchObject({ archived: true });
-    expect((await events(s, made.clientId)).at(-1)).toEqual(["archive", "Website: hatchbetter.com"]);
+    expect((await events(s, made.clientId)).at(-1)).toEqual(["archive", "Website: quillmere.com"]);
   });
 
   it("a company known only by its projects gets its row with the website", async () => {

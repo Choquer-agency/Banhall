@@ -9,14 +9,14 @@ import {
 
 describe("normalizeCompanyWebsite", () => {
   it.each([
-    ["hatchbetter.com", "https://hatchbetter.com"],
-    ["  HatchBetter.COM/  ", "https://hatchbetter.com"],
-    ["https://www.HatchBetter.com/", "https://www.hatchbetter.com"],
-    ["http://hatchbetter.com/about/", "http://hatchbetter.com/about"],
-    ["hatchbetter.com/About-Us", "https://hatchbetter.com/About-Us"],
-    ["https://hatchbetter.com/?lang=en", "https://hatchbetter.com/?lang=en"],
-    ["https://hatchbetter.com/#team", "https://hatchbetter.com"],
-    ["https://hatchbetter.com:443/", "https://hatchbetter.com"],
+    ["quillmere.com", "https://quillmere.com"],
+    ["  Quillmere.COM/  ", "https://quillmere.com"],
+    ["https://www.Quillmere.com/", "https://www.quillmere.com"],
+    ["http://quillmere.com/about/", "http://quillmere.com/about"],
+    ["quillmere.com/About-Us", "https://quillmere.com/About-Us"],
+    ["https://quillmere.com/?lang=en", "https://quillmere.com/?lang=en"],
+    ["https://quillmere.com/#team", "https://quillmere.com"],
+    ["https://quillmere.com:443/", "https://quillmere.com"],
     ["société.ca", "https://xn--socit-esab.ca"],
   ])("%s is stored as %s", (typed, stored) => {
     expect(normalizeCompanyWebsite(typed)).toBe(stored);
@@ -25,14 +25,14 @@ describe("normalizeCompanyWebsite", () => {
   it.each([
     [""],
     ["   "],
-    ["hatch better.com"],
+    ["quillmere analytics.com"],
     ["localhost"],
-    ["hatchbetter"],
-    ["ftp://hatchbetter.com"],
+    ["quillmere"],
+    ["ftp://quillmere.com"],
     ["javascript:alert(1)"],
-    ["mailto:info@hatchbetter.com"],
-    ["https://user:secret@hatchbetter.com"],
-    ["https://hatchbetter.c0m"],
+    ["mailto:info@quillmere.com"],
+    ["https://user:secret@quillmere.com"],
+    ["https://quillmere.c0m"],
     ["https://.com"],
     ["http://127.0.0.1"],
   ])("refuses %s", (typed) => {
@@ -40,18 +40,18 @@ describe("normalizeCompanyWebsite", () => {
   });
 
   it("refuses an address longer than the limit", () => {
-    expect(normalizeCompanyWebsite(`hatchbetter.com/${"a".repeat(COMPANY_WEBSITE_MAX_LENGTH)}`)).toBeNull();
+    expect(normalizeCompanyWebsite(`quillmere.com/${"a".repeat(COMPANY_WEBSITE_MAX_LENGTH)}`)).toBeNull();
   });
 });
 
 describe("companyWebsiteProblem", () => {
   it("says what is wrong, with its own words for a port", () => {
     expect(companyWebsiteProblem("")).toBeNull();
-    expect(companyWebsiteProblem("hatchbetter.com")).toBeNull();
-    expect(companyWebsiteProblem("https://hatchbetter.com:443")).toBeNull();
-    expect(companyWebsiteProblem("hatch better")).toBe("Enter a website like hatchbetter.com.");
-    for (const typed of ["hatchbetter.com:8080", "https://hatchbetter.com:8443/about", "http://hatchbetter.com:443"]) {
-      expect(companyWebsiteProblem(typed)).toBe("Enter the website without a port number, like hatchbetter.com.");
+    expect(companyWebsiteProblem("quillmere.com")).toBeNull();
+    expect(companyWebsiteProblem("https://quillmere.com:443")).toBeNull();
+    expect(companyWebsiteProblem("quillmere analytics")).toBe("Enter a website like example.com.");
+    for (const typed of ["quillmere.com:8080", "https://quillmere.com:8443/about", "http://quillmere.com:443"]) {
+      expect(companyWebsiteProblem(typed)).toBe("Enter the website without a port number, like example.com.");
       expect(normalizeCompanyWebsite(typed)).toBeNull();
     }
   });
@@ -59,8 +59,8 @@ describe("companyWebsiteProblem", () => {
 
 describe("companyWebsiteHost and the file name", () => {
   it("shows the host only, without www.", () => {
-    expect(companyWebsiteHost("https://www.hatchbetter.com/about")).toBe("hatchbetter.com");
-    expect(companyWebsiteHost("https://shop.hatchbetter.com")).toBe("shop.hatchbetter.com");
-    expect(companyWebsiteFileName("https://hatchbetter.com")).toBe("Website: hatchbetter.com");
+    expect(companyWebsiteHost("https://www.quillmere.com/about")).toBe("quillmere.com");
+    expect(companyWebsiteHost("https://shop.quillmere.com")).toBe("shop.quillmere.com");
+    expect(companyWebsiteFileName("https://quillmere.com")).toBe("Website: quillmere.com");
   });
 });
