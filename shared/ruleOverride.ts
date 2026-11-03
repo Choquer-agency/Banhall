@@ -12,6 +12,7 @@
  * Pure and framework-free, so the server, the tool and the card share one
  * wording and one confirmation rule.
  */
+import { isBannedTerm } from "./bannedWords";
 
 export const BROKEN_RULE_KINDS = ["house_rule", "template", "cra_limit", "banned_words"] as const;
 export type BrokenRuleKind = (typeof BROKEN_RULE_KINDS)[number];
@@ -106,9 +107,28 @@ export function rulesNeedManager(rules: ReadonlyArray<Pick<BrokenRule, "kind">>)
   return rules.some((rule) => MANAGER_RULE_KINDS.has(rule.kind));
 }
 
-/** Whether a card names an approved banned word, so the banned-word scrub leaves it. */
-export function approvesBannedWords(rules: ReadonlyArray<Pick<BrokenRule, "kind">> | undefined): boolean {
-  return (rules ?? []).some((rule) => rule.kind === "banned_words");
+/** The word a banned_words rule names: "Banned word: novel" and "'novel'" are "novel". */
+export function bannedWordOf(rule: Pick<BrokenRule, "name">): string {
+  return rule.name
+    .replace(KIND_PREFIX.banned_words, "")
+    .trim()
+    .replace(/^["'\u2018\u201c]+|["'\u2019\u201d]+$/gu, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * The banned words a card approves (review 2026-11-03): only these stay when
+ * the scrub runs, so another banned word in the same card is still scrubbed.
+ */
+export function approvedBannedTerms(rules: ReadonlyArray<Pick<BrokenRule, "kind" | "name">> | undefined): string[] {
+  return (rules ?? []).filter((rule) => rule.kind === "banned_words").map(bannedWordOf).filter(Boolean);
+}
+
+/** A banned_words rule that names no word on the banned list, or null. */
+export function unlistedBannedWord(rules: ReadonlyArray<Pick<BrokenRule, "kind" | "name">>): string | null {
+  const rule = rules.find((entry) => entry.kind === "banned_words" && !isBannedTerm(bannedWordOf(entry)));
+  return rule ? rule.name : null;
 }
 
 /**
@@ -118,10 +138,16 @@ export function approvesBannedWords(rules: ReadonlyArray<Pick<BrokenRule, "kind"
  * opens with a dash, an asterisk, a bullet sign, or a number or letter with
  * a full stop or bracket counts as a list line.
  */
-const LIST_LINE = /(?:^|\n)[^\S\n]*(?:[-*\u2022\u2023\u25e6\u25aa\u25cf\u2043]|\d{1,3}[.)]|[a-zA-Z][)])[^\S\n]+\S/u;
+const LIST_LINE = /(?:^|\n)[^\S\n]*(?:[-*\u2022\u2023\u25e6\u25aa\u25cf\u2043]|\d{1,3}[.)]|\(\d{1,3}\)|[a-zA-Z][)]|\([a-zA-Z]\))[^\S\n]+\S/u;
+/**
+ * A letter or a small Roman numeral with a full stop ("A. First", "ii. Next")
+ * also starts a list item, but "A. Smith" can open a line of prose, so these
+ * count only when at least two lines start that way (review 2026-11-03).
+ */
+const LETTER_ITEM = /(?:^|\n)[^\S\n]*(?:[a-zA-Z]|[ivxIVX]{1,4})\.[^\S\n]+\S/gu;
 
 export function holdsListLines(text: string): boolean {
-  return LIST_LINE.test(text) || /\u2022/u.test(text);
+  return LIST_LINE.test(text) || /\u2022/u.test(text) || (text.match(LETTER_ITEM) ?? []).length >= 2;
 }
 
 export const LIST_NOT_ALLOWED_MESSAGE =

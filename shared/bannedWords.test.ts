@@ -6,6 +6,7 @@ import {
   SCAN_ONLY_TERMS,
   bannedTermPattern,
   scrubBannedWords,
+  isBannedTerm,
 } from "./bannedWords";
 
 describe("replacement table round-trips", () => {
@@ -225,5 +226,20 @@ describe("scan list", () => {
     expect("a cutting-edger").not.toMatch(bannedTermPattern("cutting-edge"));
     expect("paved  the\nway forward").toMatch(bannedTermPattern("paved the way"));
     expect("transformation").not.toMatch(bannedTermPattern("transform"));
+  });
+});
+
+describe("a kept word (review 2026-11-03)", () => {
+  it("keeps only the approved word and scrubs every other banned word", () => {
+    expect(scrubBannedWords("A novel, cutting-edge method. Furthermore, it worked.", ["Novel"])).toBe(
+      "A novel, advanced method. It worked."
+    );
+    expect(scrubBannedWords("A novel method.", [])).toBe("A new method.");
+  });
+
+  it("knows which terms are on the list", () => {
+    expect(isBannedTerm("Novel")).toBe(true);
+    expect(isBannedTerm("transform")).toBe(true);
+    expect(isBannedTerm("everything")).toBe(false);
   });
 });

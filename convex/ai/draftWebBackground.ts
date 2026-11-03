@@ -152,14 +152,18 @@ function wordTokens(text: string): string[] {
  * SOURCE_RUN_WORDS words they hold, and the words that read like names in
  * them. A word reads like a name when it is joined with an inner capital
  * ("ZephyrForge"), or is capitalised somewhere other than at the start of a
- * sentence or line and never appears in lower case. Exported for tests.
+ * sentence or line at least as often as it appears in lower case. Review
+ * 2026-11-03: a speech transcript writes a code name in lower case now and
+ * then ("Zephyr ... zephyr was slow"), so one lower-case use no longer makes
+ * it a common word; a word mostly written in lower case ("the Lift 3 lobby",
+ * "the lift") still does. Exported for tests.
  */
 export function sourceProfile(sources: string): { runs: Set<string>; names: Set<string> } {
   const tokens = wordTokens(sources);
   const runs = new Set<string>();
   for (let i = 0; i + SOURCE_RUN_WORDS <= tokens.length; i += 1) runs.add(tokens.slice(i, i + SOURCE_RUN_WORDS).join(" "));
-  const lower = new Set<string>();
-  const capitalised = new Set<string>();
+  const lower = new Map<string, number>();
+  const capitalised = new Map<string, number>();
   const joined = new Set<string>();
   const raw = joinAmpersandTerms(sources).normalize("NFKD").replace(/[\u0300-\u036f]/gu, "");
   const pattern = /[\p{L}\p{N}]+/gu;
@@ -169,16 +173,16 @@ export function sourceProfile(sources: string): { runs: Set<string>; names: Set<
     const key = word.toLowerCase();
     if (/\p{Ll}\p{Lu}/u.test(word)) joined.add(key);
     if (!/^\p{Lu}/u.test(word)) {
-      if (/^\p{Ll}/u.test(word)) lower.add(key);
+      if (/^\p{Ll}/u.test(word)) lower.set(key, (lower.get(key) ?? 0) + 1);
       continue;
     }
     // Capitalised: a name unless it opens a sentence, a line, a label or a list item.
     const before = raw.slice(Math.max(0, match.index - 3), match.index);
     const opensSentence = match.index === 0 || /(?:^|[.!?:;\n\r\-\u2022*"(]\s*)$/u.test(before) || /\n\s*$/u.test(before);
-    if (!opensSentence) capitalised.add(key);
+    if (!opensSentence) capitalised.set(key, (capitalised.get(key) ?? 0) + 1);
   }
   const names = new Set<string>(joined);
-  for (const key of capitalised) if (!lower.has(key)) names.add(key);
+  for (const [key, count] of capitalised) if (count >= (lower.get(key) ?? 0)) names.add(key);
   return { runs, names };
 }
 

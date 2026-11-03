@@ -38,7 +38,8 @@ import {
   describeBrokenRules,
   normalizeBrokenRules,
   rulesNeedManager,
-  approvesBannedWords,
+  approvedBannedTerms,
+  unlistedBannedWord,
   holdsListLines,
   LIST_NOT_ALLOWED_MESSAGE,
   overrideConfirmationMatches,
@@ -1301,26 +1302,26 @@ export const applyProposal = mutation({
     // banned-words waiver, but threads are shared per report — text entering
     // the report must also pass the APPLYING user's policy. Re-scrubbing an
     // already-clean proposal is a no-op (the scrub is idempotent); a waived
-    // applier keeps the proposal verbatim. A confirmed override that approved
-    // a banned word keeps it too (owner, 2026-11-02 second); any other
-    // override is still scrubbed.
-    if (!(overriddenRules && approvesBannedWords(proposal.rulesBroken))) {
-      try {
-        const style = await getEffectiveWriterStyle(ctx, applier._id);
-        if (!style.styleOverrides.bannedWords) {
-          pairs = pairs.map((pair) => ({
-            ...pair,
-            replaceWith: scrubBannedWords(pair.replaceWith),
-          }));
-        }
-      } catch (err) {
-        // Policy lookup must never block an apply; default to scrubbing.
-        console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
+    // applier keeps the proposal verbatim. A confirmed override keeps only the
+    // banned words it approved by name (owner, 2026-11-02 second; review
+    // 2026-11-03): every other banned word, including one a rewording added,
+    // is still scrubbed.
+    const keepTerms = overriddenRules ? approvedBannedTerms(proposal.rulesBroken) : [];
+    try {
+      const style = await getEffectiveWriterStyle(ctx, applier._id);
+      if (!style.styleOverrides.bannedWords) {
         pairs = pairs.map((pair) => ({
           ...pair,
-          replaceWith: scrubBannedWords(pair.replaceWith),
+          replaceWith: scrubBannedWords(pair.replaceWith, keepTerms),
         }));
       }
+    } catch (err) {
+      // Policy lookup must never block an apply; default to scrubbing.
+      console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
+      pairs = pairs.map((pair) => ({
+        ...pair,
+        replaceWith: scrubBannedWords(pair.replaceWith, keepTerms),
+      }));
     }
 
     let parsed: unknown;
@@ -2796,6 +2797,15 @@ export const saveProposal = internalMutation({
     // against a rule; a highlight or a record of findings changes nothing.
     const brokenRules = normalizeBrokenRules(args.rulesBroken);
     if (!brokenRules.ok) return { ok: false as const, reason: brokenRules.reason };
+    // Review 2026-11-03: a banned_words rule names one word from the banned
+    // list, so the kind cannot switch off the scrub for anything else.
+    const unlisted = unlistedBannedWord(brokenRules.rules);
+    if (unlisted !== null) {
+      return {
+        ok: false as const,
+        reason: `"${unlisted}" is not on the banned words list. Name the one banned word the writer approved, such as "novel", or use another kind.`,
+      };
+    }
     if (brokenRules.rules.length && (recordOnly || args.kind === "references")) {
       return {
         ok: false as const,

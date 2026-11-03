@@ -136,6 +136,14 @@ describe("guardDraftWebQueries: what may leave Banhall", () => {
     expect(dropped).toEqual(["empty", "too_long", "duplicate", "over_limit", "over_limit"]);
   });
 
+  it("treats a word capitalised mid-sentence as a name unless the sources mostly write it in lower case (review 2026-11-03)", () => {
+    const sources = "The team at BrindleWorks built Brindle. brindle was slow. We put a Lift 3 sensor by the lift, the lift and the lift.";
+    const brindle = guardDraftWebQueries([{ query: "How does Brindle sensor fusion handle drift?" }], identity, sources);
+    expect(brindle.dropped).toEqual(["unknown_name"]);
+    const lift = guardDraftWebQueries([{ query: "How do robots predict lift wait times?" }], identity, sources);
+    expect(lift.kept).toHaveLength(1);
+  });
+
   it("keeps a query a few words past the twelve the writer is asked for (lab run 2026-11-03)", () => {
     const query = "What are the standard approaches to predicting lift wait times for mobile robot fleets?";
     expect(query.split(" ").length).toBe(14);

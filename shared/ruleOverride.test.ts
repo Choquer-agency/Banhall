@@ -5,7 +5,10 @@ import {
   RULE_OVERRIDE_MANAGER_ONLY,
   RULE_OVERRIDE_NOT_ALLOWED_MESSAGE,
   appliedAgainstRules,
+  approvedBannedTerms,
+  bannedWordOf,
   brokenRuleLabel,
+  unlistedBannedWord,
   describeBrokenRules,
   normalizeBrokenRules,
   rulesNeedManager,
@@ -89,10 +92,17 @@ describe("owner, 2026-11-02 (second): who confirms, and lists", () => {
   });
 
   it("finds bullet and numbered list lines, and leaves ordinary prose and hyphens alone", () => {
-    for (const text of ["- one\n- two", "Tests:\n* load", "\u2022 load", "1. Load\n2. Heat", "a) load", "Intro\n  3) heat"]) {
+    for (const text of [
+      "- one\n- two", "Tests:\n* load", "\u2022 load", "1. Load\n2. Heat", "a) load", "Intro\n  3) heat",
+      // Review 2026-11-03: lettered, Roman and bracketed items.
+      "A. First point\nB. Second point", "a. first\nb. second", "(1) first\n(2) second", "(a) first", "i. first\nii. second",
+    ]) {
       expect(holdsListLines(text), text).toBe(true);
     }
-    for (const text of ["A low-temperature test - at minus forty - held.", "Line 244 ran 3 trials.", "The team ran 2. Then it stopped.", "One\n---\nTwo"]) {
+    for (const text of [
+      "A low-temperature test - at minus forty - held.", "Line 244 ran 3 trials.", "The team ran 2. Then it stopped.", "One\n---\nTwo",
+      "A. Smith led the trials.", "The rig (a) held and (b) failed.",
+    ]) {
       expect(holdsListLines(text), text).toBe(false);
     }
   });
@@ -107,5 +117,25 @@ describe("brokenRuleLabel", () => {
     // Only the rule's own kind, and only before a colon or a spaced hyphen.
     expect(brokenRuleLabel({ kind: "template", name: "Template-based opener" })).toBe('the template rule "Template-based opener"');
     expect(brokenRuleLabel({ kind: "house_rule", name: "Banned words: plain English" })).toBe('the house rule "Banned words: plain English"');
+  });
+});
+
+describe("approved banned words (review 2026-11-03)", () => {
+  it("reads the one word each banned_words rule names", () => {
+    expect(bannedWordOf({ name: "Banned word: Novel" })).toBe("novel");
+    expect(bannedWordOf({ name: "\u201ccutting-edge\u201d" })).toBe("cutting-edge");
+    expect(
+      approvedBannedTerms([
+        { kind: "banned_words", name: "novel" },
+        { kind: "template", name: "Required opener" },
+      ])
+    ).toEqual(["novel"]);
+    expect(approvedBannedTerms(undefined)).toEqual([]);
+  });
+
+  it("names a banned_words rule whose word is not on the list", () => {
+    expect(unlistedBannedWord([{ kind: "banned_words", name: "novel" }])).toBeNull();
+    expect(unlistedBannedWord([{ kind: "banned_words", name: "Everything on the list" }])).toBe("Everything on the list");
+    expect(unlistedBannedWord([{ kind: "house_rule", name: "Everything on the list" }])).toBeNull();
   });
 });

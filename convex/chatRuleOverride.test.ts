@@ -167,6 +167,32 @@ describe("applying a card that goes against a rule", () => {
     expect(await reportText(s.t, s.reportId)).toContain("The team tested a novel alloy under load.");
   });
 
+  it("keeps only the banned word the card approved; another banned word in it, or added by a rewording, is scrubbed (review 2026-11-03)", async () => {
+    const s = await setup();
+    const word = await s.t.run(async (ctx) =>
+      ctx.db.insert("chatProposals", {
+        agentThreadId: "ro-thread",
+        projectId: s.projectId,
+        reportId: s.reportId,
+        kind: "edit" as const,
+        requireUniqueTarget: true,
+        state: "pending" as const,
+        createdAt: Date.now(),
+        targetText: "The team tested the alloy under load.",
+        newText: "The team tested a novel alloy under load.",
+        rulesBroken: [{ kind: "banned_words" as const, name: "Banned word: novel", reason: "The writer asked for this word and said yes." }],
+      })
+    );
+    await s.writer.mutation(api.chatV2.updateProposalWording, {
+      proposalId: word,
+      newText: "The team tested a novel, cutting-edge alloy under load.",
+    });
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: word, overrideRules: ["Banned word: novel"] });
+    const text = await reportText(s.t, s.reportId);
+    expect(text).toContain("The team tested a novel, advanced alloy under load.");
+    expect(text).not.toContain("cutting-edge");
+  });
+
   it("refuses a card or a rewording that holds a bullet or numbered list, whoever asks (owner, 2026-11-02 second)", async () => {
     const s = await setup();
     const refused = await failure(() =>
@@ -353,6 +379,16 @@ describe("saving a card that goes against a rule", () => {
       rulesBroken: [{ kind: "house_rule", name: "First person", reason: "  " }],
     });
     expect(noReason).toMatchObject({ ok: false });
+    // Review 2026-11-03: a banned_words rule names one listed word.
+    const unlisted = await s.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "ro-thread",
+      kind: "edit",
+      targetText: "The company measured the coating.",
+      newText: "The company measured the coating twice.",
+      rulesBroken: [{ kind: "banned_words", name: "All banned words", reason: "The writer said yes." }],
+    });
+    expect(unlisted).toMatchObject({ ok: false });
+    expect(unlisted.ok ? "" : unlisted.reason).toContain("is not on the banned words list");
   });
 });
 

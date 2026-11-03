@@ -180,14 +180,19 @@ function deleteTerm(text: string, term: string): string {
  * missed. Case-preserving, whole-word, punctuation-safe; output is stable
  * under re-scrubbing (no substitute or deletion artifact is itself banned).
  */
-export function scrubBannedWords(text: string): string {
+export function scrubBannedWords(text: string, keep: readonly string[] = []): string {
+  // 2026-11-02 (owner, second; review 2026-11-03): a word the writer asked
+  // for by name and confirmed stays; every other banned word is still scrubbed.
+  const kept = new Set(keep.map((term) => term.trim().toLowerCase()));
   let result = text;
   for (const [term, replacement] of BANNED_REPLACEMENTS) {
+    if (kept.has(term)) continue;
     result = result.replace(bannedTermPattern(term), (matched) =>
       preserveCase(matched, replacement)
     );
   }
   for (const term of BANNED_DELETIONS) {
+    if (kept.has(term)) continue;
     result = deleteTerm(result, term);
   }
   // Deletion artifacts: space left before punctuation, doubled spaces.
@@ -205,7 +210,18 @@ export function scrubBannedWords(text: string): string {
  */
 export function scrubBannedWordsUnlessWaived(
   text: string,
-  bannedWordsWaived: boolean
+  bannedWordsWaived: boolean,
+  keep: readonly string[] = []
 ): string {
-  return bannedWordsWaived ? text : scrubBannedWords(text);
+  return bannedWordsWaived ? text : scrubBannedWords(text, keep);
+}
+
+/** Whether a term is on the banned list (scrubbed or scan-only), in any case. */
+export function isBannedTerm(term: string): boolean {
+  const wanted = term.trim().toLowerCase().replace(/\s+/g, " ");
+  return (
+    BANNED_REPLACEMENTS.some(([banned]) => banned === wanted) ||
+    BANNED_DELETIONS.includes(wanted) ||
+    SCAN_ONLY_TERMS.includes(wanted)
+  );
 }

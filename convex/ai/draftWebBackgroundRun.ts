@@ -190,7 +190,14 @@ function outcome(
 ): DraftWebBackgroundOutcome {
   if (record.status !== "used") return { block: "", answers: "", record };
   const shown = identity ? withoutIdentitySentences(results, identity) : results;
-  return { block: formatDraftWebBackgroundBlock(shown), answers: draftWebAnswersText(shown), record };
+  // Review 2026-11-03: the sources listed in the Brief rail are numbered from
+  // the answers the drafter reads, so W1 in a draft is W1 in the rail even
+  // when the identity filter emptied an answer.
+  return {
+    block: formatDraftWebBackgroundBlock(shown),
+    answers: draftWebAnswersText(shown),
+    record: { ...record, sources: draftWebSources(numberDraftWebResults(shown)) },
+  };
 }
 
 function usedRecord(

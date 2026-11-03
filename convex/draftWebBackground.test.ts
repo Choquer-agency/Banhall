@@ -128,6 +128,23 @@ describe("public background before drafting", () => {
     expect(outcome.answers).toContain("Debezium");
   });
 
+  it("numbers the rail's sources from the answers the drafter reads (review 2026-11-03)", async () => {
+    const f = await setup();
+    const fake = fakeDeps({
+      search: async (query) =>
+        query.startsWith("How does log-based")
+          ? { answer: "Quillmere Analytics built a crawler.", sources: [{ url: "https://news.example.org/a", title: "News", domain: "news.example.org" }] }
+          : { answer: "CRA describes standard practice in its guidance.", sources: [{ url: "https://cra.example.org/b", title: "CRA page", domain: "cra.example.org" }] },
+    });
+    const outcome = await run(f, fake.deps);
+    expect(outcome.record.status).toBe("used");
+    // The first answer only named the client, so the drafter never read it:
+    // the CRA page is W1 in the draft and source 1 in the rail.
+    expect(outcome.block).not.toContain("Quillmere");
+    expect(outcome.block).toContain("W1 CRA page (cra.example.org)");
+    expect(outcome.record.sources).toEqual([expect.objectContaining({ n: 1, domain: "cra.example.org" })]);
+  });
+
   it("reuses the saved searches for the same sources, with no new model call or search", async () => {
     const f = await setup();
     const first = fakeDeps();

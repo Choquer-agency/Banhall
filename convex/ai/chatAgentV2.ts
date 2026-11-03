@@ -50,7 +50,7 @@ import {
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
 import { breaksRulesSchema, brokenRulesToolNote } from "../lib/ruleOverrideSchema";
-import { approvesBannedWords } from "../../shared/ruleOverride";
+import { approvedBannedTerms } from "../../shared/ruleOverride";
 import { editPassages } from "../lib/passageEdits";
 import {
   CHAT_CACHE_CONTROL,
@@ -142,7 +142,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
       // confirmed before it is applied. Banned words are still scrubbed unless
       // the writer approved that word (kind banned_words; owner, second).
       const overriding = (input.breaksRules?.length ?? 0) > 0;
-      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived || approvesBannedWords(input.breaksRules));
+      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived, approvedBannedTerms(input.breaksRules));
       const [single] = passages.pairs;
       // Owner 2026-10-28: Option 2 and Option 3, each a passage set.
       const alternatives: Array<{ replacements: Array<{ find: string; replaceWith: string }> }> = [];
@@ -209,10 +209,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
         kind: "replacements",
         replacements: input.replacements.map((r) => ({
           find: r.find,
-          replaceWith: scrubBannedWordsUnlessWaived(
-            r.replaceWith,
-            bannedWordsWaived || approvesBannedWords(input.breaksRules)
-          ),
+          replaceWith: scrubBannedWordsUnlessWaived(r.replaceWith, bannedWordsWaived, approvedBannedTerms(input.breaksRules)),
         })),
         ...(overriding ? { rulesBroken: input.breaksRules } : {}),
       });
@@ -557,10 +554,7 @@ export async function runProposeBulkEdits(
     requireUniqueTargets: true,
     replacements: input.edits.map((edit) => ({
       find: edit.targetText,
-      replaceWith: scrubBannedWordsUnlessWaived(
-        edit.newText,
-        options.bannedWordsWaived || approvesBannedWords(input.breaksRules)
-      ),
+      replaceWith: scrubBannedWordsUnlessWaived(edit.newText, options.bannedWordsWaived, approvedBannedTerms(input.breaksRules)),
     })),
     ...(overriding ? { rulesBroken: input.breaksRules } : {}),
     items: completionReportItems(input.findings).map((item) => {
