@@ -157,11 +157,13 @@
 
   // Small screens: the area shows once a client, All clients or Starred is
   // chosen, or the address names All projects (a reload of ?scope=all; Greptile,
-  // PR #30). Back shows the list again, whatever the address says.
+  // PR #30). Back shows the list again, for the address it led to only, so
+  // the browser's Back button to a company shows that company again.
   let mobileAll = $state(false);
-  let mobileList = $state(false);
+  let mobileListAt = $state<string | null>(null);
   const areaOnMobile = $derived(
-    !mobileList && (selectedKey !== null || starred || mobileAll || (view.kind === "all" && view.explicit))
+    mobileListAt !== page.url.search &&
+      (selectedKey !== null || starred || mobileAll || (view.kind === "all" && view.explicit))
   );
 
   // Home's search handoff seeds only the first client area shown.
@@ -171,21 +173,22 @@
   function selectClient(key: string | null) {
     navigated = true;
     mobileAll = key === null;
-    mobileList = false;
+    mobileListAt = null;
     void goto(clientHref(page.url, key), { keepFocus: true, noScroll: true });
   }
 
   function selectStarred() {
     navigated = true;
     mobileAll = false;
-    mobileList = false;
+    mobileListAt = null;
     void goto(starredHref(page.url), { keepFocus: true, noScroll: true });
   }
 
   function backToList() {
     mobileAll = false;
-    mobileList = true;
-    if (selectedKey !== null || starred) void goto(clientHref(page.url, null), { keepFocus: true, noScroll: true });
+    const target = selectedKey !== null || starred ? clientHref(page.url, null) : null;
+    mobileListAt = target === null ? page.url.search : new URL(target, page.url).search;
+    if (target !== null) void goto(target, { keepFocus: true, noScroll: true });
   }
 
   // Retry remounts the failed subscription. Changing client does not remount
@@ -224,7 +227,7 @@
     endMerge();
     navigated = true;
     mobileAll = false;
-    mobileList = false;
+    mobileListAt = null;
     // The dialog unmounts as the list updates, so focus would fall to the
     // page body: put it on the kept client's row, or on the client title.
     // On small screens the list is hidden, so only a visible target counts.

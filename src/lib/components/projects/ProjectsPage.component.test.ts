@@ -685,6 +685,20 @@ describe("Small screens", () => {
     expect(appPage.url.search).toBe("?scope=all");
   });
 
+  it("shows the company again when the browser goes back after the back link (Greptile, PR #30)", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems", {}, 600);
+    const area = () => document.querySelector<HTMLElement>("[data-client-area]");
+    const list = () => document.querySelector<HTMLElement>('[data-section-sidebar-slot="projects"]');
+    await expect.poll(() => area()?.offsetParent ?? null).not.toBeNull();
+    await userEvent.click(page.elementLocator(document.querySelector<HTMLElement>("[data-client-back]")!));
+    await expect.poll(() => list()?.offsetParent ?? null).not.toBeNull();
+    // The browser's Back button: the company's address returns.
+    __setPageUrl("/projects?client=cedarline+systems");
+    await expect.poll(() => area()?.offsetParent ?? null).not.toBeNull();
+    expect(list()?.offsetParent ?? null).toBeNull();
+  });
+
   it("shows All projects on a reload of ?scope=all, and the back link still returns to the list (Greptile, PR #30)", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     await mount("/projects?scope=all", {}, 600);
