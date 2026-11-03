@@ -82,6 +82,7 @@ On the Convex deployment (dashboard, Settings, Environment Variables, or `npx co
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Only for origins beyond the built-in `https://banhall.vercel.app`. |
 | `AUTH_PROXY_SECRET` | Set, at least 32 characters, the same value as on Vercel. Set it on Vercel first (below), then here. |
 | `BRAIN_CONTEXTUAL`, `AA_API_KEY`, `MS_*`, `INGEST_API_KEY` | Only if the feature is used. |
+| `DRAFT_WEB_BACKGROUND` | Public background in drafting (2026-11-02). Unset means on wherever `OPENROUTER_API_KEY` is set: before each draft, one small model call writes up to 3 name-free web searches, run on OpenRouter. Set `off` to ship with it disabled and turn it on later; the start dialog's tick then disappears. |
 
 The billing fallback (decision 64) sends Anthropic calls through OpenRouter whenever direct Anthropic refuses them for billing, so the OpenRouter account must be ready for Anthropic traffic even while `ANTHROPIC_TRANSPORT` is `direct`:
 
@@ -117,7 +118,12 @@ npx convex env list
 npx convex deploy
 ```
 
-**Check:** the command ends with the deployed URL and no schema errors. In the dashboard, Functions lists `transcripts:backfillTranscriptStructure` and the four backfills of step 7.
+**Check:** the command ends with the deployed URL and no schema errors. In the dashboard, Functions lists `transcripts:backfillTranscriptStructure` and the four backfills of step 7, and, from the 2026-11-02 meeting follow-ups, `projects:setProjectStar`, `projects:isProjectStarred`, `dashboard:listStarredProjects`, `generations:webBackgroundAvailable`, `generations:getWebBackground` and the `draftWebBackgrounds` functions. That release adds two tables (`projectStars`, `draftWebBackgrounds`) and optional fields only, so it needs no backfill of its own.
+
+**Until step 9 is done** the old app runs on the new functions. Two things differ in that window, so go straight on to step 9 once these checks pass, and never merge (step 9) before this deploy, since the new app calls functions the old backend lacks:
+
+- An Assistant card marked as going against a rule cannot be accepted from the old app: it asks to confirm the rules, which the old app cannot do.
+- A draft started from the old app looks up public background (when it is on), although the old start dialog shows no tick for it.
 
 ### 7. Run the phase 4 backfills
 
@@ -179,7 +185,8 @@ Sign in on the production URL, then:
 6. **Chat:** ask the report chat one question; it answers.
 7. **Admin pages:** `/admin/models` loads with today's refresh, and `/admin/learning` shows Learning health.
 8. **Crons:** in the dashboard, Schedules, Cron Jobs lists "recover stale report generations", "recover stale PD reviews", "recover stale post-QA passes" (every 10 minutes), "recover stale chat turns" (every 2 minutes), "reconcile stalled oversight rebuilds", "resume stalled My work backfills" (every 5 minutes), and the daily "refresh QA calibration digest", "refresh draft style digest", "refresh model catalog", "release unreferenced files" and "prune old error reports".
-9. **Logs:** the Convex logs show no new errors in the first 15 minutes. In particular, after the sign-in in item 1 there is no error starting "AUTH_PROXY_SECRET"; if there is one, the secret is missing or too short on Convex (step 5). A different value on Vercel is not logged, so copy both from the same source.
+9. **Meeting follow-ups (2026-11-02):** star a project and find it under Starred and in the project's top bar; open What's new from the rail and see its dot clear; turn on the Evidence view in a report; as a Writer, ask the Assistant to write a Line in the first person and see "A manager can apply this change", then accept it as a Manager after confirming the rule; type Line 244 past its limit and see Export refused with the counts; after a Single draft, the Brief rail lists its public sources (or says why there are none); version history shows how long the draft took.
+10. **Logs:** the Convex logs show no new errors in the first 15 minutes. In particular, after the sign-in in item 1 there is no error starting "AUTH_PROXY_SECRET"; if there is one, the secret is missing or too short on Convex (step 5). A different value on Vercel is not logged, so copy both from the same source.
 
 **Check:** every item passes. If one fails, roll back (below).
 
@@ -188,4 +195,6 @@ Sign in on the production URL, then:
 - **App:** in Vercel, promote the previous production deployment.
 - **Convex functions:** check out the previous release commit, run `npm ci`, then `npx convex deploy`. The phase 4 schema only widened, so older code still reads the data, but generations created after the release show no progress log or QA scorecard under the older code (`docs/product-domain.md`, "2026-09-25 (second)", Rollback).
 - **Transport:** if `ANTHROPIC_TRANSPORT` was switched to `openrouter`, set it back to `direct`.
+- **Meeting follow-ups (2026-11-02):** older code ignores the new tables and fields, so `projectStars` and `draftWebBackgrounds` rows survive a rollback harmlessly. Cards marked as going against a rule cannot be accepted by the older app.
+- **After merging:** run `npx convex dev` once against a development deployment and commit the regenerated `convex/_generated/api.d.ts`; the public background code calls its own functions by name until then (`convex/ai/draftWebBackgroundRun.ts`).
 - **Data:** restore from the step 4 export only as a last resort, with `npx convex import --replace-all banhall-before-release.zip`; it drops everything written since the export.

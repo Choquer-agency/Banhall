@@ -390,6 +390,31 @@ function paragraphsFor(original: PMNode, pair: ReplacePair): PMNode[] {
     );
 }
 
+/**
+ * Final review 2026-11-03: a passage set marks each target before it writes
+ * the new text, so a paragraph an added paragraph leaves unchanged comes back
+ * as plain text. Put the original top-level paragraph back (its marks and gap
+ * highlights) wherever the new doc holds one with exactly its text that a
+ * paragraph pair left in place.
+ */
+export function keepUnchangedParagraphs(original: PMNode, updated: PMNode, pairs: ReplacePair[]): PMNode {
+  const kept = new Set(
+    pairs
+      .filter((pair) => PARAGRAPH_BREAK.test(pair.replaceWith) && changesParagraphs(original, pair))
+      .map((pair) => normalizeForMatch(pair.find).trim().toLowerCase())
+  );
+  if (kept.size === 0) return updated;
+  const originals = ((original.content as PMNode[] | undefined) ?? []).filter(
+    (block) => block.type === "paragraph" && kept.has(normalizeForMatch(blockText(block)).trim().toLowerCase())
+  );
+  const content = ((updated.content as PMNode[] | undefined) ?? []).map((block) => {
+    if (block.type !== "paragraph") return block;
+    const match = originals.find((source) => sameText(blockText(source), blockText(block)));
+    return match ?? block;
+  });
+  return { ...updated, content };
+}
+
 /** A paragraph's whole text, hard breaks as line breaks, as the matcher reads it. */
 function blockText(node: PMNode): string {
   const children = (node.content as PMNode[] | undefined) ?? [];
@@ -419,7 +444,13 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[], options: Re
   // below, and a split or an added paragraph never goes inline. An empty
   // replacement inside a paragraph still deletes that text, as before.
   const paragraphs = options.paragraphs === true;
-  const inlinePairs = paragraphs ? pairs.filter((pair) => !PARAGRAPH_BREAK.test(pair.replaceWith)) : pairs;
+  // Final review (Fable) 2026-11-03: a pair that removes a whole top-level
+  // paragraph acts only there. Run inline too, it would also delete that
+  // text from a merged paragraph another pair just wrote.
+  const structural = paragraphs ? new Set(pairs.filter((pair) => changesParagraphs(doc, pair))) : new Set<ReplacePair>();
+  const inlinePairs = paragraphs
+    ? pairs.filter((pair) => !PARAGRAPH_BREAK.test(pair.replaceWith) && !structural.has(pair))
+    : pairs;
   const guarded = protectedHeadings(doc);
   let skippedInHeadings = 0;
   let skippedInTitle = 0;
@@ -456,13 +487,15 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[], options: Re
         const r = replaceInText(child.text);
         perNode += r.count;
         return r.text === child.text ? child : { ...child, text: r.text };
-      });
+      }).filter((child) => !(child.type === "text" && child.text === ""));
+      // Final review 2026-11-03: an empty text node is invalid, and the editor
+      // would load a blank document; an emptied paragraph keeps no content.
       // Across the block's original text: finds matches that span nodes.
       const joined = children.map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n")).join("");
       const whole = replaceInText(joined);
       if (whole.count > perNode) {
         count += whole.count;
-        return { ...node, content: [{ type: "text", text: whole.text }] };
+        return { ...node, content: whole.text ? [{ type: "text", text: whole.text }] : [] };
       }
       count += perNode;
       return perNode > 0 ? { ...node, content: replaced } : node;

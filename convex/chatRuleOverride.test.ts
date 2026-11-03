@@ -197,6 +197,27 @@ describe("applying a card that goes against a rule", () => {
     expect(text).toContain("The company measured the new coating.");
   });
 
+  it("keeps the writer's banned word when a merge moves it between paragraphs (final review 2026-11-03)", async () => {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      const report = await ctx.db.get(s.reportId);
+      await ctx.db.patch(s.reportId, { content: report!.content.replace("measured the coating", "measured the novel coating") });
+    });
+    const saved = await s.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "ro-thread",
+      kind: "replacements",
+      requireUniqueTargets: true,
+      replacements: [
+        { find: "The team tested the alloy under load.", replaceWith: "The team tested the alloy under load and measured the novel coating." },
+        { find: "The company measured the novel coating.", replaceWith: "" },
+      ],
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId });
+    expect(await reportText(s.t, s.reportId)).toContain("measured the novel coating.");
+  });
+
   it("keeps only the banned word the card approved; another banned word in it, or added by a rewording, is scrubbed (review 2026-11-03)", async () => {
     const s = await setup();
     const word = await s.t.run(async (ctx) =>

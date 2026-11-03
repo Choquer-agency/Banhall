@@ -2,6 +2,7 @@ import {
   PARAGRAPH_BREAK,
   applyReplacements,
   changesParagraphs,
+  keepUnchangedParagraphs,
   type ReplaceOptions,
   headingEditRefusal,
   normalizeForMatch,
@@ -62,7 +63,8 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[], options: Re
   if (restored.count !== pairs.length || markedPairs.some((pair) => text.includes(pair.replaceWith))) {
     return { ok: false, reason: "The report changed where this suggestion applies. Ask the assistant to make it again." };
   }
-  return { ok: true, doc: restored.doc, count: restored.count };
+  const doc_ = options.paragraphs ? keepUnchangedParagraphs(doc, restored.doc, pairs) : restored.doc;
+  return { ok: true, doc: doc_, count: restored.count };
 }
 
 /**

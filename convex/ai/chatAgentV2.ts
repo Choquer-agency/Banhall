@@ -143,9 +143,11 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
       // confirmed before it is applied. Banned words are still scrubbed unless
       // the writer approved that word (kind banned_words; owner, second).
       const overriding = (input.breaksRules?.length ?? 0) > 0;
-      // 2026-11-03 (owner, option C): a banned word the passage already holds stays.
-      const scrub = (text: string, find: string) =>
-        scrubBannedWordsUnlessWaived(text, bannedWordsWaived, [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(find)]);
+      // 2026-11-03 (owner, option C): a banned word the passage already holds
+      // stays. Paragraphs pair by position, so a merge or a removed paragraph
+      // moves text between pairs: the whole target decides (final review).
+      const keep = [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(input.targetText)];
+      const scrub = (text: string, _find: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived, keep);
       const [single] = passages.pairs;
       // Owner 2026-10-28: Option 2 and Option 3, each a passage set.
       const alternatives: Array<{ replacements: Array<{ find: string; replaceWith: string }> }> = [];

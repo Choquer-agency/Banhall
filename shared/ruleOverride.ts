@@ -146,8 +146,22 @@ const LIST_LINE = /(?:^|\n)[^\S\n]*(?:[-*\u2022\u2023\u25e6\u25aa\u25cf\u2043]|\
  */
 const LETTER_ITEM = /(?:^|\n)[^\S\n]*(?:[a-zA-Z]|[ivxIVX]{1,4})\.[^\S\n]+\S/gu;
 
+const ROMAN: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+
+/** Whether two item markers follow each other: A then B, or ii then iii. */
+function nextMarker(a: string, b: string): boolean {
+  const ra = ROMAN[a.toLowerCase()];
+  const rb = ROMAN[b.toLowerCase()];
+  if (ra !== undefined && rb !== undefined && rb === ra + 1) return true;
+  return a.length === 1 && b.length === 1 && b.charCodeAt(0) === a.charCodeAt(0) + 1;
+}
+
 export function holdsListLines(text: string): boolean {
-  return LIST_LINE.test(text) || /\u2022/u.test(text) || (text.match(LETTER_ITEM) ?? []).length >= 2;
+  if (LIST_LINE.test(text) || /\u2022/u.test(text)) return true;
+  // Final review 2026-11-03: two lines starting "J. Smith" and "K. Lee" are
+  // prose; a list starts at A., a. or i. and the next marker follows it.
+  const markers = [...text.matchAll(LETTER_ITEM)].map((m) => m[0].trim().split(".")[0]);
+  return markers.some((marker, i) => i > 0 && /^[aAiI]$/.test(markers[i - 1]) && nextMarker(markers[i - 1], marker));
 }
 
 export const LIST_NOT_ALLOWED_MESSAGE =

@@ -101,7 +101,7 @@ describe("owner, 2026-11-02 (second): who confirms, and lists", () => {
     }
     for (const text of [
       "A low-temperature test - at minus forty - held.", "Line 244 ran 3 trials.", "The team ran 2. Then it stopped.", "One\n---\nTwo",
-      "A. Smith led the trials.", "The rig (a) held and (b) failed.",
+      "A. Smith led the trials.", "The rig (a) held and (b) failed.", "J. Smith ran the rig.\n\nK. Lee measured it.",
     ]) {
       expect(holdsListLines(text), text).toBe(false);
     }

@@ -20,6 +20,7 @@ import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
+import { bannedTermsIn } from "../shared/bannedWords";
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { listProjectTranscripts } from "./lib/transcripts";
@@ -815,9 +816,11 @@ export const saveReviewResult = internalMutation({
     } catch (err) {
       console.error("writer profile fetch failed for research scrub", err);
     }
+    // 2026-11-03 (owner, option C): a banned word the selection already holds stays.
     const proposedText = scrubBannedWordsUnlessWaived(
       args.proposedText,
-      bannedWordsWaived
+      bannedWordsWaived,
+      bannedTermsIn(session.selectedText)
     ).trim();
     let proposalId = session.proposalId;
     if (proposedText && proposedText !== session.selectedText.trim()) {

@@ -159,6 +159,39 @@ describe("editPassages", () => {
     expect(texts(off.doc)).toHaveLength(3);
   });
 
+  it("never leaves an empty text node, and a passage set keeps an unchanged paragraph's marks (final review 2026-11-03)", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Beta. " }, { type: "text", text: "[GAP: when]", marks: [{ type: "highlight" }] }] },
+        { type: "paragraph", content: [{ type: "text", text: "Gamma." }] },
+        { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Item A." }] }] }] },
+      ],
+    };
+    const on = { paragraphs: true };
+    expect(JSON.stringify(applyReplacements(doc, [{ find: "Item A.", replaceWith: "" }], on).doc)).not.toContain('"text":""');
+    const set = applyPassageEdits(doc, [
+      { find: "Beta. [GAP: when]", replaceWith: "Beta. [GAP: when]\n\nDelta." },
+      { find: "Gamma.", replaceWith: "Gamma, reworded." },
+    ], on);
+    expect(set.ok && (set.doc.content as unknown[])[0]).toBe(doc.content[0]);
+  });
+
+  it("merges through the direct path without deleting the merged text (final review 2026-11-03)", () => {
+    const doc = {
+      type: "doc",
+      content: ["Alpha one.", "Beta two.", "Gamma three."].map((text) => ({ type: "paragraph", content: [{ type: "text", text }] })),
+    };
+    const merged = applyReplacements(doc, [
+      { find: "Alpha one.", replaceWith: "Alpha one. Beta two." },
+      { find: "Beta two.", replaceWith: "" },
+    ], { paragraphs: true });
+    expect((merged.doc.content as Array<{ content: Array<{ text: string }> }>).map((p) => p.content[0].text)).toEqual([
+      "Alpha one. Beta two.",
+      "Gamma three.",
+    ]);
+  });
+
   it("refuses a passage set whose paragraph change no longer lands, leaving no marker behind (review 2026-11-03)", () => {
     const doc = {
       type: "doc",

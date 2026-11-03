@@ -1318,12 +1318,18 @@ export const applyProposal = mutation({
     // is still scrubbed, except one the replaced passage already held
     // (owner, 2026-11-03, option C).
     const keepTerms = overriddenRules ? approvedBannedTerms(proposal.rulesBroken) : [];
+    // A card's passages move text between pairs (a merge, a removed
+    // paragraph), so for an edit or a passage set every target counts; a
+    // multi-instance find/replace keeps each pair to its own target.
+    const wholeCard = proposal.kind === "edit" || proposal.requireUniqueTargets === true || alternative !== undefined;
+    const cardTerms = wholeCard ? bannedTermsIn(pairs.map((pair) => pair.find).join("\n")) : [];
+    const keepFor = (pair: { find: string }) => [...keepTerms, ...(wholeCard ? cardTerms : bannedTermsIn(pair.find))];
     try {
       const style = await getEffectiveWriterStyle(ctx, applier._id);
       if (!style.styleOverrides.bannedWords) {
         pairs = pairs.map((pair) => ({
           ...pair,
-          replaceWith: scrubBannedWords(pair.replaceWith, [...keepTerms, ...bannedTermsIn(pair.find)]),
+          replaceWith: scrubBannedWords(pair.replaceWith, keepFor(pair)),
         }));
       }
     } catch (err) {
@@ -1331,7 +1337,7 @@ export const applyProposal = mutation({
       console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
       pairs = pairs.map((pair) => ({
         ...pair,
-        replaceWith: scrubBannedWords(pair.replaceWith, [...keepTerms, ...bannedTermsIn(pair.find)]),
+        replaceWith: scrubBannedWords(pair.replaceWith, keepFor(pair)),
       }));
     }
 

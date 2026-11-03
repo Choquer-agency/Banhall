@@ -28,7 +28,7 @@ const PREFIX = "Release eval - ";
 const ROLES = ["admin", "manager", "writer"];
 
 const argv = process.argv.slice(2);
-const BOOLEAN_FLAGS = new Set(["--no-wait", "--json", "--web", "--allow-prod-source", "--confirm-regeneration", "--new-thread", "--until-seeds"]);
+const BOOLEAN_FLAGS = new Set(["--no-wait", "--json", "--web", "--confirm-regeneration", "--new-thread", "--until-seeds"]);
 const VALUE_FLAGS = new Set([
   "--target", "--port", "--cap", "--key-source", "--team", "--convex-project", "--draft-web-background", "--as", "--source", "--title",
   "--client", "--industry", "--interviewee", "--label", "--fiscal-year-end", "--timeout-min", "--mode", "--web-background", "--model",
@@ -217,8 +217,8 @@ function keySourceDir() {
     const deployment = ((fs.readFileSync(file, "utf8").match(/^CONVEX_DEPLOYMENT=([^\s#]+)/m) ?? [])[1] ?? "").replace(/^["']|["']$/g, "");
     if (!deployment) continue;
     if (deployment.startsWith("local:")) continue;
-    if (deployment.startsWith("prod:") && !flag("--allow-prod-source")) {
-      throw new Error(`${dir} points at a production deployment; pass --allow-prod-source to read its keys.`);
+    if (deployment.startsWith("prod:")) {
+      throw new Error(`${dir} points at a production deployment; the lab never reads production keys. Pass --key-source with a checkout on a dev deployment.`);
     }
     return { dir, deployment };
   }
