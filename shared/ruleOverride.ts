@@ -2,9 +2,10 @@
  * Rule overrides (client meeting, 2026-11-02). House rules, the template and
  * the CRA limits stay the default. When the writer explicitly asks for a
  * change that goes against one, the Assistant proposes it anyway and names
- * each rule it breaks (`chatProposals.rulesBroken`). A Manager or an Admin
- * (`report.overrideRules`) applies such a card only after confirming those
- * rules by name; the server re-checks both and records the override on the
+ * each rule it breaks (`chatProposals.rulesBroken`). The person applying it
+ * confirms those rules by name: anyone who may edit the report for a
+ * template rule or an approved banned word, a Manager or an Admin
+ * (`report.overrideRules`) for a house rule or a CRA limit; the server re-checks both and records the override on the
  * card (`chatProposals.ruleOverrides`). Agents still propose and humans still
  * apply.
  *
@@ -12,7 +13,7 @@
  * wording and one confirmation rule.
  */
 
-export const BROKEN_RULE_KINDS = ["house_rule", "template", "cra_limit"] as const;
+export const BROKEN_RULE_KINDS = ["house_rule", "template", "cra_limit", "banned_words"] as const;
 export type BrokenRuleKind = (typeof BROKEN_RULE_KINDS)[number];
 
 export type BrokenRule = {
@@ -41,6 +42,7 @@ const KIND_LABEL: Record<BrokenRuleKind, string> = {
   house_rule: "the house rule",
   template: "the template rule",
   cra_limit: "the CRA limit",
+  banned_words: "the banned word",
 };
 
 /** "the house rule "First person"". */
@@ -76,6 +78,40 @@ export const CRA_LIMIT_EXPORT_NOTE =
 export function breaksCraLimit(rules: ReadonlyArray<Pick<BrokenRule, "kind">>): boolean {
   return rules.some((rule) => rule.kind === "cra_limit");
 }
+
+/**
+ * Owner, 2026-11-02 (second): the template is a guide, so a writer confirms
+ * a template change or an approved banned word themselves. A house rule
+ * (voice, sentence length, repetition) and a CRA limit still need a
+ * Manager or an Admin (`report.overrideRules`).
+ */
+export const MANAGER_RULE_KINDS: ReadonlySet<BrokenRuleKind> = new Set(["house_rule", "cra_limit"]);
+
+/** Whether applying a card with these rules needs `report.overrideRules`. */
+export function rulesNeedManager(rules: ReadonlyArray<Pick<BrokenRule, "kind">>): boolean {
+  return rules.some((rule) => MANAGER_RULE_KINDS.has(rule.kind));
+}
+
+/** Whether a card names an approved banned word, so the banned-word scrub leaves it. */
+export function approvesBannedWords(rules: ReadonlyArray<Pick<BrokenRule, "kind">> | undefined): boolean {
+  return (rules ?? []).some((rule) => rule.kind === "banned_words");
+}
+
+/**
+ * Owner, 2026-11-02 (second): bullet points and numbered lists never go in
+ * report text, whoever asks: the CRA form takes plain paragraphs, and a list
+ * would show its dashes and numbers and use a form line each. A line that
+ * opens with a dash, an asterisk, a bullet sign, or a number or letter with
+ * a full stop or bracket counts as a list line.
+ */
+const LIST_LINE = /(?:^|\n)[^\S\n]*(?:[-*\u2022\u2023\u25e6\u25aa\u25cf\u2043]|\d{1,3}[.)]|[a-zA-Z][)])[^\S\n]+\S/u;
+
+export function holdsListLines(text: string): boolean {
+  return LIST_LINE.test(text) || /\u2022/u.test(text);
+}
+
+export const LIST_NOT_ALLOWED_MESSAGE =
+  "Bullet points and numbered lists cannot go in the report, because the CRA form takes plain paragraphs only. Ask for the same points written as sentences.";
 
 /** The rule names a confirmation must carry, in the card's order. */
 export function brokenRuleNames(rules: ReadonlyArray<Pick<BrokenRule, "name">>): string[] {

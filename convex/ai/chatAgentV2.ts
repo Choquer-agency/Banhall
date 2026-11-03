@@ -50,6 +50,7 @@ import {
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
 import { breaksRulesSchema, brokenRulesToolNote } from "../lib/ruleOverrideSchema";
+import { approvesBannedWords } from "../../shared/ruleOverride";
 import { editPassages } from "../lib/passageEdits";
 import {
   CHAT_CACHE_CONTROL,
@@ -137,10 +138,11 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
       if (!ctx.threadId) throw new Error("No thread in tool context");
       const passages = editPassages(input.targetText, input.newText);
       if (!passages.ok) return `Proposal NOT created: ${passages.reason} Retry the edit tool once.`;
-      // 2026-11-02: a change the writer asked for against the rules keeps its
-      // wording; a manager confirms it before it is applied.
+      // 2026-11-02: a change the writer asked for against the rules is
+      // confirmed before it is applied. Banned words are still scrubbed unless
+      // the writer approved that word (kind banned_words; owner, second).
       const overriding = (input.breaksRules?.length ?? 0) > 0;
-      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived || overriding);
+      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived || approvesBannedWords(input.breaksRules));
       const [single] = passages.pairs;
       // Owner 2026-10-28: Option 2 and Option 3, each a passage set.
       const alternatives: Array<{ replacements: Array<{ find: string; replaceWith: string }> }> = [];
@@ -209,7 +211,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
           find: r.find,
           replaceWith: scrubBannedWordsUnlessWaived(
             r.replaceWith,
-            bannedWordsWaived || overriding
+            bannedWordsWaived || approvesBannedWords(input.breaksRules)
           ),
         })),
         ...(overriding ? { rulesBroken: input.breaksRules } : {}),
@@ -557,7 +559,7 @@ export async function runProposeBulkEdits(
       find: edit.targetText,
       replaceWith: scrubBannedWordsUnlessWaived(
         edit.newText,
-        options.bannedWordsWaived || overriding
+        options.bannedWordsWaived || approvesBannedWords(input.breaksRules)
       ),
     })),
     ...(overriding ? { rulesBroken: input.breaksRules } : {}),

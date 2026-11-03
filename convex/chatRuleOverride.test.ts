@@ -115,13 +115,68 @@ describe("applying a card that goes against a rule", () => {
     });
     expect(result.applied).toBe(true);
     const content = await reportText(s.t, s.reportId);
-    // Verbatim: no banned-word scrub on a confirmed override.
-    expect(content).toContain("The company tested a novel alloy under load.");
+    // Owner, 2026-11-02 (second): a house-rule override is still scrubbed of
+    // banned words; only an approved banned word stays.
+    expect(content).not.toContain("novel alloy");
+    expect(content).toContain("The company tested a");
     const row = await s.t.run(async (ctx) => await ctx.db.get(s.overrideId));
     expect(row?.state).toBe("applied");
     expect(row?.ruleOverrides).toHaveLength(1);
     expect(row?.ruleOverrides?.[0]).toMatchObject({ userId: s.managerId, rules: ["First person"] });
     expect(typeof row?.ruleOverrides?.[0].at).toBe("number");
+  });
+
+  it("a writer confirms a template rule or an approved banned word themselves, and the word stays (owner, 2026-11-02 second)", async () => {
+    const s = await setup();
+    const ids = await s.t.run(async (ctx) => {
+      const base = {
+        agentThreadId: "ro-thread",
+        projectId: s.projectId,
+        reportId: s.reportId,
+        kind: "edit" as const,
+        requireUniqueTarget: true,
+        state: "pending" as const,
+        createdAt: Date.now(),
+      };
+      const template = await ctx.db.insert("chatProposals", {
+        ...base,
+        targetText: "The company measured the coating.",
+        newText: "The company measured the coating at three loads.",
+        rulesBroken: [{ kind: "template" as const, name: "No single-sentence paragraphs", reason: "The writer wants this point on its own." }],
+      });
+      return { template };
+    });
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: ids.template, overrideRules: ["No single-sentence paragraphs"] });
+    expect(await reportText(s.t, s.reportId)).toContain("The company measured the coating at three loads.");
+    // An approved banned word: the writer confirms and the word is kept.
+    const word = await s.t.run(async (ctx) =>
+      ctx.db.insert("chatProposals", {
+        agentThreadId: "ro-thread",
+        projectId: s.projectId,
+        reportId: s.reportId,
+        kind: "edit" as const,
+        requireUniqueTarget: true,
+        state: "pending" as const,
+        createdAt: Date.now(),
+        targetText: "The team tested the alloy under load.",
+        newText: "The team tested a novel alloy under load.",
+        rulesBroken: [{ kind: "banned_words" as const, name: "novel", reason: "The writer asked for this word and said yes." }],
+      })
+    );
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: word, overrideRules: ["novel"] });
+    expect(await reportText(s.t, s.reportId)).toContain("The team tested a novel alloy under load.");
+  });
+
+  it("refuses a card or a rewording that holds a bullet or numbered list, whoever asks (owner, 2026-11-02 second)", async () => {
+    const s = await setup();
+    const refused = await failure(() =>
+      s.manager.mutation(api.chatV2.updateProposalWording, {
+        proposalId: s.overrideId,
+        newText: "The company tested:\n- the alloy under load\n- the coating",
+      })
+    );
+    expect(refused.code).toBe("INVALID_INPUT");
+    expect(refused.message).toContain("Bullet points and numbered lists cannot go in the report");
   });
 
   it("an admin may apply it too", async () => {

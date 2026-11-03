@@ -37,6 +37,10 @@ import {
   brokenRuleNames,
   describeBrokenRules,
   normalizeBrokenRules,
+  rulesNeedManager,
+  approvesBannedWords,
+  holdsListLines,
+  LIST_NOT_ALLOWED_MESSAGE,
   overrideConfirmationMatches,
 } from "../shared/ruleOverride";
 import { provenanceForEdit } from "./lib/editProvenance";
@@ -1221,7 +1225,9 @@ function requireRuleOverride(
 ): string[] | null {
   const rules = proposal.rulesBroken ?? [];
   if (rules.length === 0) return null;
-  if (!hasCapability(applier.role, "report.overrideRules")) {
+  // Owner, 2026-11-02 (second): a template rule or an approved banned word
+  // is the writer's call; a house rule or a CRA limit needs a manager.
+  if (rulesNeedManager(rules) && !hasCapability(applier.role, "report.overrideRules")) {
     domainError("NOT_AUTHORIZED", `${RULE_OVERRIDE_NOT_ALLOWED_MESSAGE} ${describeBrokenRules(rules)}`, {
       capability: "report.overrideRules",
     });
@@ -1295,9 +1301,10 @@ export const applyProposal = mutation({
     // banned-words waiver, but threads are shared per report — text entering
     // the report must also pass the APPLYING user's policy. Re-scrubbing an
     // already-clean proposal is a no-op (the scrub is idempotent); a waived
-    // applier keeps the proposal verbatim. A confirmed rule override keeps it
-    // verbatim too: the person approved this exact wording against the rules.
-    if (!overriddenRules) {
+    // applier keeps the proposal verbatim. A confirmed override that approved
+    // a banned word keeps it too (owner, 2026-11-02 second); any other
+    // override is still scrubbed.
+    if (!(overriddenRules && approvesBannedWords(proposal.rulesBroken))) {
       try {
         const style = await getEffectiveWriterStyle(ctx, applier._id);
         if (!style.styleOverrides.bannedWords) {
@@ -1643,7 +1650,7 @@ export const updateProposalWording = mutation({
     // Review round 2 (Opus 5.5): a card that goes against a rule is applied
     // with its wording kept as is, so only someone who may apply it may
     // reword it.
-    if ((proposal.rulesBroken?.length ?? 0) > 0 && !hasCapability(user.role, "report.overrideRules")) {
+    if (rulesNeedManager(proposal.rulesBroken ?? []) && !hasCapability(user.role, "report.overrideRules")) {
       domainError("NOT_AUTHORIZED", `${RULE_OVERRIDE_NOT_ALLOWED_MESSAGE} ${describeBrokenRules(proposal.rulesBroken ?? [])}`, {
         capability: "report.overrideRules",
       });
@@ -1687,6 +1694,10 @@ export const updateProposalWording = mutation({
     }
 
     if (editedText === originalText) return { updated: false as const };
+    // Owner, 2026-11-02 (second): no list enters report text, reworded or not.
+    if ([patch.newText ?? "", ...(patch.replacements ?? []).map((pair) => pair.replaceWith)].some(holdsListLines)) {
+      domainError("INVALID_INPUT", LIST_NOT_ALLOWED_MESSAGE);
+    }
     const now = Date.now();
     await ctx.db.patch(proposal._id, {
       ...patch,
@@ -2613,7 +2624,7 @@ export const saveProposal = internalMutation({
     rulesBroken: v.optional(
       v.array(
         v.object({
-          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit")),
+          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit"), v.literal("banned_words")),
           name: v.string(),
           reason: v.string(),
         })
@@ -2768,6 +2779,17 @@ export const saveProposal = internalMutation({
         };
       }
       args.references = references;
+    }
+
+    // Owner, 2026-11-02 (second): no list ever enters report text, whoever
+    // asks, because the CRA form takes plain paragraphs only.
+    const proposedTexts = [
+      ...(args.newText !== undefined ? [args.newText] : []),
+      ...(args.replacements ?? []).map((pair) => pair.replaceWith),
+      ...(args.alternatives ?? []).flatMap((option) => option.replacements.map((pair) => pair.replaceWith)),
+    ];
+    if (proposedTexts.some(holdsListLines)) {
+      return { ok: false as const, reason: LIST_NOT_ALLOWED_MESSAGE };
     }
 
     // 2026-11-02 (rule overrides): only an edit a person applies can go

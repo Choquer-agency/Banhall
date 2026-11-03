@@ -12,6 +12,7 @@
     RULE_OVERRIDE_MANAGER_ONLY,
     appliedAgainstRules,
     brokenRuleNames,
+    rulesNeedManager,
   } from "../../../../shared/ruleOverride";
   import RuleOverrideDialog from "./RuleOverrideDialog.svelte";
   import { proposedTextChanges } from "$lib/diff";
@@ -61,7 +62,9 @@
     rulesBroken.length
       ? {
           rules: rulesBroken,
-          canOverride: editAccessQ.data?.canOverrideRules === true,
+          // A template rule or an approved banned word is the writer's call
+          // (owner, 2026-11-02 second); a house rule or a CRA limit needs a manager.
+          canOverride: editAccessQ.data?.canOverrideRules === true || !rulesNeedManager(rulesBroken),
         }
       : null
   );

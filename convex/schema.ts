@@ -2158,7 +2158,7 @@ export default defineSchema({
     rulesBroken: v.optional(
       v.array(
         v.object({
-          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit")),
+          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit"), v.literal("banned_words")),
           name: v.string(),
           reason: v.string(),
         })

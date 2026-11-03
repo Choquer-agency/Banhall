@@ -7,6 +7,8 @@ import {
   appliedAgainstRules,
   describeBrokenRules,
   normalizeBrokenRules,
+  rulesNeedManager,
+  holdsListLines,
   overrideConfirmationMatches,
   type BrokenRule,
 } from "./ruleOverride";
@@ -76,3 +78,22 @@ describe("normalizing what the model sent", () => {
     expect(normalizeBrokenRules(undefined)).toEqual({ ok: true, rules: [] });
   });
 });
+
+describe("owner, 2026-11-02 (second): who confirms, and lists", () => {
+  it("needs a manager for a house rule or a CRA limit, not for a template rule or an approved banned word", () => {
+    expect(rulesNeedManager([{ kind: "template" }])).toBe(false);
+    expect(rulesNeedManager([{ kind: "banned_words" }])).toBe(false);
+    expect(rulesNeedManager([{ kind: "template" }, { kind: "house_rule" }])).toBe(true);
+    expect(rulesNeedManager([{ kind: "cra_limit" }])).toBe(true);
+  });
+
+  it("finds bullet and numbered list lines, and leaves ordinary prose and hyphens alone", () => {
+    for (const text of ["- one\n- two", "Tests:\n* load", "\u2022 load", "1. Load\n2. Heat", "a) load", "Intro\n  3) heat"]) {
+      expect(holdsListLines(text), text).toBe(true);
+    }
+    for (const text of ["A low-temperature test - at minus forty - held.", "Line 244 ran 3 trials.", "The team ran 2. Then it stopped.", "One\n---\nTwo"]) {
+      expect(holdsListLines(text), text).toBe(false);
+    }
+  });
+});
+
