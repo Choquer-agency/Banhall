@@ -143,6 +143,24 @@ const CASES = [
     },
   },
   {
+    name: "banned-word-kept",
+    why: "Owner 2026-11-03 (option C): a banned word the writer approved stays when a later card rewrites its passage. Runs after banned-word.",
+    run: (p) => {
+      const had = /novel/i.test(reportText(p));
+      const turn = lab("chat", p, "Tighten the paragraph in Line 244 about the 15-second entry rule.", "--new-thread");
+      const card = turn.proposals?.[0];
+      const applied = card ? apply(card) : null;
+      return {
+        turn,
+        checks: [
+          ["the report held the approved word first", had],
+          ["the writer applied the tightening", applied?.applied === true],
+          ["the approved word is still there", /novel/i.test(reportText(p))],
+        ],
+      };
+    },
+  },
+  {
     name: "bullets",
     why: "Owner: bullet points and numbered lists never go in the report, whoever asks.",
     run: (p) => {

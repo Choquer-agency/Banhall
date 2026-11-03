@@ -5778,6 +5778,17 @@ Owner approval 2026-11-03, in chat, after choosing not to adopt Vercel's Eve: "s
 
 **The Assistant test set** (`scripts/lab/assistant-suite.mjs`, MCP `lab_assistant_suite`). On the lab's blank local copy, with a fictional project drafted once, it runs nine cases and checks what the app stored (cards, their rules, the report): a template opener change the writer applies; a one-sentence paragraph marked as a template rule; a banned word asked about once, then kept after yes; a bullet list refused with no card; a paragraph added; two paragraphs merged; a made-up 40 percent figure never stated as fact (a gap note asking for its source passes); first person marked as a house rule that a writer may not apply and a manager may; and export refused over Line 244's CRA limit. First run 2026-11-03: 9 of 9 after one check was corrected (the Assistant had put the figure in a gap note, which the first check counted), about $1.40 in all.
 
+### 2026-11-03 (second): A banned word already in a passage stays when a card rewrites it (owner)
+
+Owner approval 2026-11-03, in chat, on option C of three ("yes do that"). Before, a writer's yes to a banned word ("2026-11-02", second message) covered one card: a later card that rewrote the same sentence, in any conversation, scrubbed the word again, and the writer had to approve it again or retype it.
+
+- A card keeps a banned word that the passage it replaces already holds (`bannedTermsIn` on each pair's target, added to the scrub's keep list at tool time and at apply time). It does not need the word's approval record: a banned word already in the report was put there by the writer, by typing it or by approving a card.
+- Using a banned word anywhere new still needs the writer's yes on that card (kind `banned_words`), and every other banned word is still scrubbed. The Assistant's rules say the same (`CHAT_RULE_OVERRIDE_RULES`): keep such a word, do not ask again and do not list it in breaksRules.
+- No stored field changes; drafting is unchanged (a new draft still scrubs every banned word unless the writer's profile waives them).
+- The Assistant test set gains a case: after the banned word is approved and applied, a later "tighten that paragraph" keeps it.
+
+**Long Assistant jobs, measured, not built.** The owner asked to measure before building steps that cannot time out. Live data, last 30 days, counts and timings only (no text read): 6 Assistant replies (100 since July) from 2 people; the longest took 2.8 minutes against a 9-minute limit; 2 failures on 2026-10-07, both near 2.5 minutes, so not the time limit. A reply that runs out of time after saving a card already carries on by itself (Phase B chains); only one that runs out before any card asks the writer to try again. Not built; measure again two to three weeks after this release, when the newer Assistant is live.
+
 ## Amendment process
 
 A change to vocabulary, an invariant, a transition edge, or a decision above requires:

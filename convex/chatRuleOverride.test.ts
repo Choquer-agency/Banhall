@@ -167,6 +167,36 @@ describe("applying a card that goes against a rule", () => {
     expect(await reportText(s.t, s.reportId)).toContain("The team tested a novel alloy under load.");
   });
 
+  it("keeps a banned word the replaced passage already held, and still scrubs one added somewhere new (owner, 2026-11-03, option C)", async () => {
+    const s = await setup();
+    const insert = (targetText: string, newText: string) =>
+      s.t.run(async (ctx) =>
+        ctx.db.insert("chatProposals", {
+          agentThreadId: "ro-thread",
+          projectId: s.projectId,
+          reportId: s.reportId,
+          kind: "edit" as const,
+          requireUniqueTarget: true,
+          state: "pending" as const,
+          createdAt: Date.now(),
+          targetText,
+          newText,
+        })
+      );
+    // The writer approved "novel" earlier; the report holds it.
+    await s.t.run(async (ctx) => {
+      const report = await ctx.db.get(s.reportId);
+      await ctx.db.patch(s.reportId, { content: report!.content.replace("tested the alloy", "tested a novel alloy") });
+    });
+    const tighten = await insert("The team tested a novel alloy under load.", "The team load-tested a novel alloy.");
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: tighten });
+    const added = await insert("The company measured the coating.", "The company measured the novel coating.");
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: added });
+    const text = await reportText(s.t, s.reportId);
+    expect(text).toContain("The team load-tested a novel alloy.");
+    expect(text).toContain("The company measured the new coating.");
+  });
+
   it("keeps only the banned word the card approved; another banned word in it, or added by a rewording, is scrubbed (review 2026-11-03)", async () => {
     const s = await setup();
     const word = await s.t.run(async (ctx) =>

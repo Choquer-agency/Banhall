@@ -216,6 +216,18 @@ export function scrubBannedWordsUnlessWaived(
   return bannedWordsWaived ? text : scrubBannedWords(text, keep);
 }
 
+/**
+ * The scrubbed banned terms a text already holds, lower case (2026-11-03,
+ * owner option C): a card that rewrites a passage keeps the banned words
+ * that passage already had, as the writer left them; one it adds somewhere
+ * new is still scrubbed unless the writer approved it on that card.
+ */
+export function bannedTermsIn(text: string): string[] {
+  return [...BANNED_REPLACEMENTS.map(([term]) => term), ...BANNED_DELETIONS].filter((term) =>
+    bannedTermPattern(term).test(text)
+  );
+}
+
 /** Whether a term is on the banned list (scrubbed or scan-only), in any case. */
 export function isBannedTerm(term: string): boolean {
   const wanted = term.trim().toLowerCase().replace(/\s+/g, " ");

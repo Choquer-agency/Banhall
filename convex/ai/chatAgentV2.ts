@@ -51,6 +51,7 @@ import {
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
 import { breaksRulesSchema, brokenRulesToolNote } from "../lib/ruleOverrideSchema";
 import { approvedBannedTerms } from "../../shared/ruleOverride";
+import { bannedTermsIn } from "../../shared/bannedWords";
 import { editPassages } from "../lib/passageEdits";
 import {
   CHAT_CACHE_CONTROL,
@@ -142,7 +143,9 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
       // confirmed before it is applied. Banned words are still scrubbed unless
       // the writer approved that word (kind banned_words; owner, second).
       const overriding = (input.breaksRules?.length ?? 0) > 0;
-      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived, approvedBannedTerms(input.breaksRules));
+      // 2026-11-03 (owner, option C): a banned word the passage already holds stays.
+      const scrub = (text: string, find: string) =>
+        scrubBannedWordsUnlessWaived(text, bannedWordsWaived, [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(find)]);
       const [single] = passages.pairs;
       // Owner 2026-10-28: Option 2 and Option 3, each a passage set.
       const alternatives: Array<{ replacements: Array<{ find: string; replaceWith: string }> }> = [];
@@ -150,7 +153,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         const version = editPassages(input.targetText, other);
         if (!version.ok) return `Proposal NOT created: Option ${index + 2}: ${version.reason} Retry the edit tool once.`;
         alternatives.push({
-          replacements: version.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith) })),
+          replacements: version.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith, pair.find) })),
         });
       }
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
@@ -160,13 +163,13 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         ...(alternatives.length ? { alternatives } : {}),
         ...(overriding ? { rulesBroken: input.breaksRules } : {}),
         ...(passages.pairs.length === 1
-          ? { kind: "edit" as const, targetText: single.find, newText: scrub(single.replaceWith) }
+          ? { kind: "edit" as const, targetText: single.find, newText: scrub(single.replaceWith, single.find) }
           : {
               // Several paragraphs: one card that applies them together,
               // the passage set a coordinated revision uses.
               kind: "replacements" as const,
               requireUniqueTargets: true,
-              replacements: passages.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith) })),
+              replacements: passages.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith, pair.find) })),
             }),
       });
       if (result.ok) {
@@ -209,7 +212,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
         kind: "replacements",
         replacements: input.replacements.map((r) => ({
           find: r.find,
-          replaceWith: scrubBannedWordsUnlessWaived(r.replaceWith, bannedWordsWaived, approvedBannedTerms(input.breaksRules)),
+          replaceWith: scrubBannedWordsUnlessWaived(r.replaceWith, bannedWordsWaived, [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(r.find)]),
         })),
         ...(overriding ? { rulesBroken: input.breaksRules } : {}),
       });
@@ -554,7 +557,7 @@ export async function runProposeBulkEdits(
     requireUniqueTargets: true,
     replacements: input.edits.map((edit) => ({
       find: edit.targetText,
-      replaceWith: scrubBannedWordsUnlessWaived(edit.newText, options.bannedWordsWaived, approvedBannedTerms(input.breaksRules)),
+      replaceWith: scrubBannedWordsUnlessWaived(edit.newText, options.bannedWordsWaived, [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(edit.targetText)]),
     })),
     ...(overriding ? { rulesBroken: input.breaksRules } : {}),
     items: completionReportItems(input.findings).map((item) => {

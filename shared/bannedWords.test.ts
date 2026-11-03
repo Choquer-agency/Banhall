@@ -7,6 +7,7 @@ import {
   bannedTermPattern,
   scrubBannedWords,
   isBannedTerm,
+  bannedTermsIn,
 } from "./bannedWords";
 
 describe("replacement table round-trips", () => {
@@ -241,5 +242,12 @@ describe("a kept word (review 2026-11-03)", () => {
     expect(isBannedTerm("Novel")).toBe(true);
     expect(isBannedTerm("transform")).toBe(true);
     expect(isBannedTerm("everything")).toBe(false);
+  });
+});
+
+describe("banned words a passage already holds (owner, 2026-11-03, option C)", () => {
+  it("lists the scrubbed terms in a text", () => {
+    expect(bannedTermsIn("A novel rule, cutting-edge and fast.")).toEqual(expect.arrayContaining(["novel", "cutting-edge"]));
+    expect(bannedTermsIn("A new rule.")).toEqual([]);
   });
 });

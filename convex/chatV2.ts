@@ -84,6 +84,7 @@ import {
   scrubBannedWords,
   type PMNode,
 } from "./lib/reportEdits";
+import { bannedTermsIn } from "../shared/bannedWords";
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
@@ -1314,14 +1315,15 @@ export const applyProposal = mutation({
     // applier keeps the proposal verbatim. A confirmed override keeps only the
     // banned words it approved by name (owner, 2026-11-02 second; review
     // 2026-11-03): every other banned word, including one a rewording added,
-    // is still scrubbed.
+    // is still scrubbed, except one the replaced passage already held
+    // (owner, 2026-11-03, option C).
     const keepTerms = overriddenRules ? approvedBannedTerms(proposal.rulesBroken) : [];
     try {
       const style = await getEffectiveWriterStyle(ctx, applier._id);
       if (!style.styleOverrides.bannedWords) {
         pairs = pairs.map((pair) => ({
           ...pair,
-          replaceWith: scrubBannedWords(pair.replaceWith, keepTerms),
+          replaceWith: scrubBannedWords(pair.replaceWith, [...keepTerms, ...bannedTermsIn(pair.find)]),
         }));
       }
     } catch (err) {
@@ -1329,7 +1331,7 @@ export const applyProposal = mutation({
       console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
       pairs = pairs.map((pair) => ({
         ...pair,
-        replaceWith: scrubBannedWords(pair.replaceWith, keepTerms),
+        replaceWith: scrubBannedWords(pair.replaceWith, [...keepTerms, ...bannedTermsIn(pair.find)]),
       }));
     }
 
