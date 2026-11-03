@@ -24,7 +24,7 @@ import { CHAT_WRITER_MESSAGE_LABEL,
   type ChatOpenQuestion,
   type ChatTurnContext,
 } from "./chatEvidence";
-import { CHAT_EVIDENCE_GUIDANCE, CHAT_PARAGRAPH_CHANGES, buildChatSystemPromptV2 } from "./prompts";
+import { CHAT_EVIDENCE_GUIDANCE, CHAT_KEEP_WRITERS_BANNED_WORDS, CHAT_PARAGRAPH_CHANGES, buildChatSystemPromptV2 } from "./prompts";
 import { withoutInferenceMarkerText } from "../inferenceMarker.fixture";
 import { withoutHonestDraftingText } from "../honestDrafting.fixture";
 import { withoutRuleOverrideText } from "../ruleOverride.fixture";
@@ -80,7 +80,8 @@ function evidenceOf(turn: { messages: Array<{ content: unknown }> }): string {
 /** 2026-11-03: the sentence proposeEdit's paragraphs had before cards could add, split or merge them. */
 const withoutParagraphChanges = (text: string) => {
   expect(text).toContain(CHAT_PARAGRAPH_CHANGES);
-  return text.replace(
+  expect(text).toContain(CHAT_KEEP_WRITERS_BANNED_WORDS);
+  return text.replace(CHAT_KEEP_WRITERS_BANNED_WORDS, "").replace(
     CHAT_PARAGRAPH_CHANGES,
     "newText then has the same number of paragraphs in the same order: a proposal cannot merge, split, add or remove a paragraph."
   );

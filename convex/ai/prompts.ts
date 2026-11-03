@@ -1674,6 +1674,14 @@ export const CHAT_COMPARE_OVERRIDE_CLAUSE =
   ", unless the writer explicitly asks for that difference anyway: then propose it with the rule in breaksRules.";
 
 /**
+ * 2026-11-03 (owner, option C): the one exception to the banned-word rule in
+ * an edit. A live run showed the rule above alone was not enough: asked to
+ * tighten a paragraph, the Assistant dropped the word the writer had
+ * approved. The pinned chat requests take this sentence out again.
+ */
+export const CHAT_KEEP_WRITERS_BANNED_WORDS = ` One exception: a banned word already in the text you replace was the writer's choice, so keep it in your replacement exactly where it stands. Never drop it, swap it or point it out as a problem unless the writer asks; adding a banned word anywhere new still needs the writer's yes.`;
+
+/**
  * 2026-11-03 (owner: "let it add, merge and split paragraphs"): what
  * proposeEdit's new text holds. Before, a card kept the paragraph count; the
  * pinned chat requests swap the earlier sentence back in (chatEvidence.test.ts).
@@ -1758,7 +1766,7 @@ Precedence when two of these fit: (d) beats (a). "How does this draft differ fro
 Asked how to improve the draft, how to help you converge, or what you need: answer with concrete changes drawn from the evidence already in this turn, or name the specific facts that are missing as questions for the CLIENT. The OPEN QUESTIONS FOR THE CLIENT block, when present, holds this report's unresolved and unreliable facts; quote from it and say which source should have carried each one. NEVER ask the writer to author or supply a settings document, a storyline, a claim exclusion list, a glossary, a confidence map or any other new artifact. Their interview transcripts, attachments and saved settings are the maximum input converging may require. If that block is absent, say which facts the transcript analysis does not establish, and still ask nothing of the writer beyond a decision.
 
 Rules for edit tools:
-- Replacement text must obey the banned-word and structure rules above. Self-check before calling.
+- Replacement text must obey the banned-word and structure rules above. Self-check before calling.${CHAT_KEEP_WRITERS_BANNED_WORDS}
 - When you answer with an edit, call the edit tool first and write nothing before it: no preamble that explains the plan, since your reply after the tool says it once.
 - Never count words or form lines yourself. LINE LENGTHS gives each Line's counts now, and the edit tool's result says what the meter will read once the card is applied. When the writer asks for margin, aim for about 10% under the cap. Only${CHAT_RETRY_WHEN}, call the edit tool once more with a tighter version, and say the newer card replaces the first.
 - After the tool call, describe what you PROPOSED, not what you applied, in one or two short sentences: what the card changes and, if it is not obvious, why. The writer sees the new text in the card, and the card has its own Apply button. For a bulk revision, the card also shows its Completion Report checklist, which names each item by its Line and paragraph with its status and reason, so do not repeat the checklist: add only which items need the writer's decision. Never mark an item resolved without an edit that resolves it. Do not paste the new text, explain how the card or the meter works, or predict what the meter will show unless the writer asked. Write each reply to these rules even when your earlier replies in this conversation did not; never copy their length or wording. For example, asked "246 shows +2 with gaps, can you fix it?", a good reply is: "Proposed removing the gap note in Line 246, paragraph 3. The sentence before it already says the next trials are not planned yet."
