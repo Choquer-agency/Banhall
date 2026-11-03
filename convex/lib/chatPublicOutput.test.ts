@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "@convex-dev/agent";
 import {
   MAX_PUBLIC_REASONING_CHARS,
+  PUBLIC_INPUT_TOOL,
   deltaHasReasoning,
   messageHasReasoning,
   publicChatDelta,
   publicChatMessage,
 } from "./chatPublicOutput";
 import { readUIMessageStream } from "ai";
+import { ASK_WRITER_TOOL } from "../ai/chatAgentV2";
+import { openWriterQuestion } from "../../src/lib/chat/writerQuestion";
 
 function assistant(parts: unknown[]): UIMessage {
   return {
@@ -178,5 +181,38 @@ describe("browser chat output boundary", () => {
     expect(deltaHasReasoning({ streamId: "s", start: 0, end: 1, parts: [{ type: "text-delta", id: "t", delta: "x" }] })).toBe(false);
     expect(messageHasReasoning(assistant([{ type: "reasoning", text: "x" }]))).toBe(true);
     expect(messageHasReasoning(assistant([{ type: "text", text: "x" }]))).toBe(false);
+  });
+
+  it("lets askWriter's question and options through, saved and streamed, and nothing else of its input", async () => {
+    expect(PUBLIC_INPUT_TOOL).toBe(ASK_WRITER_TOOL);
+    const saved = publicChatMessage(assistant([
+      { type: "tool-askWriter", toolCallId: "q1", state: "output-available",
+        input: { question: "'novel' is on the banned words list. Use it anyway?", options: ["Use it", "Use new", "Leave it"], extra: "PRIVATE_EXTRA" },
+        output: "PRIVATE_OUTPUT" },
+    ]));
+    expect(JSON.stringify(saved)).not.toContain("PRIVATE_");
+    expect(openWriterQuestion([saved])).toEqual({
+      toolCallId: "q1",
+      question: "'novel' is on the banned words list. Use it anyway?",
+      options: ["Use it", "Use new", "Leave it"],
+    });
+    const streamed = await readStream(publicChatDelta({ streamId: "s", start: 0, end: 6, parts: [
+      { type: "start", messageId: "m" },
+      { type: "tool-input-start", toolCallId: "q2", toolName: "askWriter" },
+      { type: "tool-input-delta", toolCallId: "q2", inputTextDelta: '{"extra":"PRIVATE_EXTRA"' },
+      { type: "tool-input-available", toolCallId: "q2", toolName: "askWriter",
+        input: { question: "Which Line?", options: ["242", "244", "x".repeat(500)], extra: "PRIVATE_EXTRA" } },
+      { type: "tool-output-available", toolCallId: "q2", output: "PRIVATE_OUTPUT" },
+      { type: "finish" },
+    ] }).parts);
+    expect(JSON.stringify(streamed)).not.toContain("PRIVATE_");
+    expect(streamed?.parts).toContainEqual(expect.objectContaining({
+      toolCallId: "q2", input: { question: "Which Line?", options: ["242", "244", "x".repeat(120)] },
+    }));
+    // Any other tool's input stays empty.
+    const other = publicChatMessage(assistant([
+      { type: "tool-proposeEdit", toolCallId: "e", state: "output-available", input: { question: "PRIVATE_Q", options: ["PRIVATE_O"] } },
+    ]));
+    expect(JSON.stringify(other)).not.toContain("PRIVATE_");
   });
 });

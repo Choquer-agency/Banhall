@@ -5,6 +5,7 @@ import {
   RULE_OVERRIDE_MANAGER_ONLY,
   RULE_OVERRIDE_NOT_ALLOWED_MESSAGE,
   appliedAgainstRules,
+  brokenRuleLabel,
   describeBrokenRules,
   normalizeBrokenRules,
   rulesNeedManager,
@@ -97,3 +98,14 @@ describe("owner, 2026-11-02 (second): who confirms, and lists", () => {
   });
 });
 
+describe("brokenRuleLabel", () => {
+  it("does not repeat the kind the AI put at the start of the name", () => {
+    expect(brokenRuleLabel({ kind: "banned_words", name: "Banned word: novel" })).toBe('the banned word "novel"');
+    expect(brokenRuleLabel({ kind: "template", name: "Template rule - required opener" })).toBe('the template rule "required opener"');
+    expect(brokenRuleLabel({ kind: "house_rule", name: "First person" })).toBe('the house rule "First person"');
+    expect(brokenRuleLabel({ kind: "cra_limit", name: "CRA limit:" })).toBe('the CRA limit "CRA limit:"');
+    // Only the rule's own kind, and only before a colon or a spaced hyphen.
+    expect(brokenRuleLabel({ kind: "template", name: "Template-based opener" })).toBe('the template rule "Template-based opener"');
+    expect(brokenRuleLabel({ kind: "house_rule", name: "Banned words: plain English" })).toBe('the house rule "Banned words: plain English"');
+  });
+});

@@ -113,11 +113,11 @@ describe("guardDraftWebQueries: what may leave Banhall", () => {
     expect(kept.map((query) => query.query)).toEqual(["How does H.264 encoding handle IPv6 streaming on S3?"]);
   });
 
-  it("drops a query longer than a dozen words, empty ones and repeats, keeps at most three and one about CRA", () => {
+  it("drops a query longer than sixteen words, empty ones and repeats, keeps at most three and one about CRA", () => {
     const { kept, dropped } = guardDraftWebQueries(
       [
         { query: "" },
-        { query: "one two three four five six seven eight nine ten eleven twelve thirteen" },
+        { query: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen" },
         { query: "What is change data capture?" },
         { query: "what is change-data capture" },
         { query: "How does CRA define standard practice?", kind: "cra" },
@@ -134,6 +134,12 @@ describe("guardDraftWebQueries: what may leave Banhall", () => {
     ]);
     expect(kept).toHaveLength(DRAFT_WEB_MAX_QUERIES);
     expect(dropped).toEqual(["empty", "too_long", "duplicate", "over_limit", "over_limit"]);
+  });
+
+  it("keeps a query a few words past the twelve the writer is asked for (lab run 2026-11-03)", () => {
+    const query = "What are the standard approaches to predicting lift wait times for mobile robot fleets?";
+    expect(query.split(" ").length).toBe(14);
+    expect(guardDraftWebQueries([{ query }], identity).kept).toEqual([{ query, kind: "technology" }]);
   });
 
   // Review round 1 (gpt-6-astra, 2026-11-02): a name only an uploaded file

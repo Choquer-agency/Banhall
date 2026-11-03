@@ -45,9 +45,23 @@ const KIND_LABEL: Record<BrokenRuleKind, string> = {
   banned_words: "the banned word",
 };
 
+/**
+ * The rule's own kind repeated at the start of its name ("Banned word:
+ * novel"), dropped so the label does not say it twice (lab run 2026-11-03).
+ * Only the kind of that rule, and only before a colon or a spaced hyphen, so
+ * "Template-based opener" keeps its name.
+ */
+const KIND_PREFIX: Record<BrokenRuleKind, RegExp> = {
+  house_rule: /^\s*(?:the\s+)?house\s+rules?\s*(?::|-\s)\s*(?=\S)/iu,
+  template: /^\s*(?:the\s+)?template(?:\s+rules?)?\s*(?::|-\s)\s*(?=\S)/iu,
+  cra_limit: /^\s*(?:the\s+)?cra\s+limits?\s*(?::|-\s)\s*(?=\S)/iu,
+  banned_words: /^\s*(?:the\s+)?banned\s+words?\s*(?::|-\s)\s*(?=\S)/iu,
+};
+
 /** "the house rule "First person"". */
 export function brokenRuleLabel(rule: Pick<BrokenRule, "kind" | "name">): string {
-  return `${KIND_LABEL[rule.kind] ?? "the rule"} "${rule.name.trim()}"`;
+  const name = KIND_PREFIX[rule.kind] ? rule.name.replace(KIND_PREFIX[rule.kind], "") : rule.name;
+  return `${KIND_LABEL[rule.kind] ?? "the rule"} "${name.trim()}"`;
 }
 
 function joinList(parts: string[]): string {
