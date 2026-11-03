@@ -155,9 +155,14 @@
   const starsQ = useQuery(api.dashboard.listStarredProjects, () => (auth.isAuthenticated ? {} : "skip"));
   const starredCount = $derived(starsQ.data ? String(starsQ.data.length) : null);
 
-  // Small screens: the area shows once a client, All clients or Starred is chosen.
+  // Small screens: the area shows once a client, All clients or Starred is
+  // chosen, or the address names All projects (a reload of ?scope=all; Greptile,
+  // PR #30). Back shows the list again, whatever the address says.
   let mobileAll = $state(false);
-  const areaOnMobile = $derived(selectedKey !== null || starred || mobileAll);
+  let mobileList = $state(false);
+  const areaOnMobile = $derived(
+    !mobileList && (selectedKey !== null || starred || mobileAll || (view.kind === "all" && view.explicit))
+  );
 
   // Home's search handoff seeds only the first client area shown.
   let navigated = $state(false);
@@ -166,17 +171,20 @@
   function selectClient(key: string | null) {
     navigated = true;
     mobileAll = key === null;
+    mobileList = false;
     void goto(clientHref(page.url, key), { keepFocus: true, noScroll: true });
   }
 
   function selectStarred() {
     navigated = true;
     mobileAll = false;
+    mobileList = false;
     void goto(starredHref(page.url), { keepFocus: true, noScroll: true });
   }
 
   function backToList() {
     mobileAll = false;
+    mobileList = true;
     if (selectedKey !== null || starred) void goto(clientHref(page.url, null), { keepFocus: true, noScroll: true });
   }
 
@@ -216,6 +224,7 @@
     endMerge();
     navigated = true;
     mobileAll = false;
+    mobileList = false;
     // The dialog unmounts as the list updates, so focus would fall to the
     // page body: put it on the kept client's row, or on the client title.
     // On small screens the list is hidden, so only a visible target counts.

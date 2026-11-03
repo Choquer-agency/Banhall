@@ -909,8 +909,11 @@ export async function retryFromSummaryHandler(
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
     projectId: failed.projectId,
-    // A recovery keeps the writer's public background choice.
+    // A recovery keeps the writer's public background choice, and the record
+    // of what was looked up: it drafts from the frozen inputs, whose public
+    // background block names those sources W1, W2... (Greptile, PR #30).
     ...(failed.webBackgroundRequested !== undefined ? { webBackgroundRequested: failed.webBackgroundRequested } : {}),
+    ...(failed.webBackground !== undefined ? { webBackground: failed.webBackground } : {}),
     transcriptId: failed.transcriptId,
     transcriptIds: failed.transcriptIds,
     inputMode: failed.inputMode,

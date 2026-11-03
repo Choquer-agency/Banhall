@@ -3600,6 +3600,35 @@ describe("seed Summary sign-off and recovery", () => {
 
   // 2026-10-23 (owner): a writer never starts over on a signed-off plan
   // because the tier of its frozen model was moved back.
+  it("carries the public background record into a Summary recovery, which drafts from the same frozen block (Greptile, PR #30)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const record = {
+      status: "used" as const,
+      queries: [{ query: "How does CRA define standard practice?", kind: "cra" as const, status: "ok" as const }],
+      sources: [{ n: 1, url: "https://www.canada.ca/sred", title: "SR&ED glossary", domain: "canada.ca" }],
+      droppedQueries: 0,
+      cached: false,
+    };
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.generationId, { webBackgroundRequested: true, webBackground: record });
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.webBackgroundRequested).toBe(true);
+    expect(recovery?.webBackground).toEqual(record);
+  });
+
   it("recovers a signed-off plan on the tier's current model when its tier was moved back from the frozen one", async () => {
     const s = await decisionFixture();
     await makeReady(s);
