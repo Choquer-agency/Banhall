@@ -10,6 +10,7 @@ import {
   type PMNode,
   type ReplacePair,
   type ReplacementResult,
+  type ReplaceOptions,
 } from "./reportEdits";
 
 export type ReportLine = "242" | "244" | "246";
@@ -55,11 +56,11 @@ function lineDoc(doc: PMNode, range: LineRange): PMNode {
  * `applyReplacements` inside one Line only. Text outside the Line is never
  * touched or counted; a report without that Line changes nothing.
  */
-export function applyReplacementsInLine(doc: PMNode, pairs: ReplacePair[], line: ReportLine): ReplacementResult {
+export function applyReplacementsInLine(doc: PMNode, pairs: ReplacePair[], line: ReportLine, options: ReplaceOptions = {}): ReplacementResult {
   const range = lineRanges(doc)[line];
   if (!range) return { doc, count: 0, skippedInHeadings: 0, skippedInTitle: 0 };
   const top = (doc.content as PMNode[] | undefined) ?? [];
-  const inner = applyReplacements(lineDoc(doc, range), pairs);
+  const inner = applyReplacements(lineDoc(doc, range), pairs, options);
   const replaced = (inner.doc.content as PMNode[] | undefined) ?? [];
   return {
     ...inner,
@@ -68,13 +69,13 @@ export function applyReplacementsInLine(doc: PMNode, pairs: ReplacePair[], line:
 }
 
 /** How many times `pair.find` matches the prose of each Line. */
-export function pairLineCounts(doc: PMNode, pair: ReplacePair): Partial<Record<ReportLine, number>> {
+export function pairLineCounts(doc: PMNode, pair: ReplacePair, options: ReplaceOptions = {}): Partial<Record<ReportLine, number>> {
   const ranges = lineRanges(doc);
   const counts: Partial<Record<ReportLine, number>> = {};
   for (const line of REPORT_LINES) {
     const range = ranges[line];
     if (!range) continue;
-    const { count } = applyReplacements(lineDoc(doc, range), [pair]);
+    const { count } = applyReplacements(lineDoc(doc, range), [pair], options);
     if (count > 0) counts[line] = count;
   }
   return counts;
@@ -89,10 +90,10 @@ export type LineGroup = { line: ReportLine | undefined; pairs: ReplacePair[] };
  * matches no Line's prose stays in a group without a Line, so the existing
  * checks still decide what happens to it.
  */
-export function groupPairsByLine(doc: PMNode, pairs: ReplacePair[]): LineGroup[] {
+export function groupPairsByLine(doc: PMNode, pairs: ReplacePair[], options: ReplaceOptions = {}): LineGroup[] {
   const byLine = new Map<ReportLine | undefined, ReplacePair[]>();
   for (const pair of pairs) {
-    const lines = REPORT_LINES.filter((line) => (pairLineCounts(doc, pair)[line] ?? 0) > 0);
+    const lines = REPORT_LINES.filter((line) => (pairLineCounts(doc, pair, options)[line] ?? 0) > 0);
     for (const line of lines.length ? lines : [undefined]) {
       byLine.set(line, [...(byLine.get(line) ?? []), pair]);
     }

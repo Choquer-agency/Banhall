@@ -1,6 +1,8 @@
 import {
   PARAGRAPH_BREAK,
   applyReplacements,
+  changesParagraphs,
+  type ReplaceOptions,
   headingEditRefusal,
   normalizeForMatch,
   type PMNode,
@@ -8,7 +10,7 @@ import {
 } from "./reportEdits";
 
 /** Separate passage rewrites must have unique, independent targets. */
-export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
+export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[], options: ReplaceOptions = {}):
   | { ok: true; doc: PMNode; count: number }
   | { ok: false; reason: string } {
   if (pairs.length === 0) return { ok: false, reason: "No passages were supplied." };
@@ -37,6 +39,11 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
     if (!pair.find.trim() || pair.find === pair.replaceWith || probe.count !== 1) {
       return { ok: false, reason: "Each passage must identify exactly one current report location and make a change." };
     }
+    // Review 2026-11-03: a passage that adds, splits or merges paragraphs
+    // must still be one whole paragraph of the current report.
+    if (options.paragraphs && PARAGRAPH_BREAK.test(pair.replaceWith) && !changesParagraphs(doc, pair)) {
+      return { ok: false, reason: "Adding, splitting or merging paragraphs needs whole paragraphs: copy each paragraph in full, exactly as the CURRENT REPORT has it." };
+    }
   }
   // Check both orders to reject overlapping original targets.
   // Reuse the editor's matching rules, including split inline text and case.
@@ -48,7 +55,13 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
   }
   const restored = applyReplacements(forward.doc, pairs.map((pair, i) => ({
     find: markedPairs[i].replaceWith, replaceWith: pair.replaceWith,
-  })));
+  })), options);
+  // Review 2026-11-03: every passage must land, and no marker may stay in
+  // the report (a paragraph pair restores only over a whole paragraph).
+  const text = JSON.stringify(restored.doc);
+  if (restored.count !== pairs.length || markedPairs.some((pair) => text.includes(pair.replaceWith))) {
+    return { ok: false, reason: "The report changed where this suggestion applies. Ask the assistant to make it again." };
+  }
   return { ok: true, doc: restored.doc, count: restored.count };
 }
 

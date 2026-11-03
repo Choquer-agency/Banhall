@@ -572,6 +572,8 @@ async function chat(state) {
     proposals = (call("chatV2:listProposals", { threadId }, as, state) ?? []).map((p) => ({
       id: p._id, state: p.state, kind: p.kind, section: p.section, rulesBroken: p.rulesBroken ?? null,
       targetText: p.targetText, newText: p.newText, options: (p.alternatives ?? []).length,
+      // Every text the card could put in the report: Option 1, its passages and Options 2 and 3.
+      texts: [p.newText, ...(p.replacements ?? []).map((r) => r.replaceWith), ...(p.alternatives ?? []).flatMap((a) => a.replacements.map((r) => r.replaceWith))].filter((t) => typeof t === "string"),
     }));
   } catch (error) {
     proposals = [{ error: error.message }];

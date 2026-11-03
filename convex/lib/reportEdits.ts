@@ -339,20 +339,6 @@ export function headingEditRefusal(
   return null;
 }
 
-/**
- * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
- * Section headings and the hidden title are skipped (see protectedHeadings),
- * and the matches left there are counted so single-target callers can refuse
- * an edit aimed at them (headingEditRefusal).
- *
- * Each block is matched once, against its original text. Where every match
- * sits inside one text node the replacement keeps the marks; where a match
- * spans inline nodes (a passage broken by a [GAP:] highlight or a bold run)
- * the block's inline text is rebuilt as a single text node so the
- * replacement still lands. Matching the original text means a replacement
- * that contains its own search text is applied once, never again to its own
- * output (review 2026-09-25).
- */
 /** A blank line between paragraphs in a card's text. */
 export const PARAGRAPH_BREAK = /\n[ \t]*\n/;
 
@@ -368,18 +354,40 @@ export function isParagraphPair(pair: ReplacePair): boolean {
   return PARAGRAPH_BREAK.test(pair.replaceWith) || pair.replaceWith.trim() === "";
 }
 
-/** The paragraphs a paragraph pair leaves in place of the one it matched. */
-function paragraphsFor(original: PMNode, replaceWith: string): PMNode[] {
-  return replaceWith
+/**
+ * How `applyReplacements` treats paragraph pairs. Off by default, so every
+ * other caller (client review suggestions, research edits) behaves as before;
+ * Assistant cards turn it on (review 2026-11-03).
+ */
+export type ReplaceOptions = { paragraphs?: boolean };
+
+/** Whether a pair changes paragraphs in this doc: a paragraph pair whose find is a whole top-level paragraph. */
+export function changesParagraphs(doc: PMNode, pair: ReplacePair): boolean {
+  if (!isParagraphPair(pair)) return false;
+  const top = (doc.content as PMNode[] | undefined) ?? [];
+  return top.some((block) => block.type === "paragraph" && blockText(block).trim() !== "" && sameText(blockText(block), pair.find));
+}
+
+/**
+ * The paragraphs a paragraph pair leaves in place of the one it matched. A
+ * new paragraph that is the matched one unchanged keeps its node, marks and
+ * gap highlights included (adding a paragraph after it never retypes it).
+ */
+function paragraphsFor(original: PMNode, pair: ReplacePair): PMNode[] {
+  return pair.replaceWith
     .replace(/\r\n?/g, "\n")
     .split(PARAGRAPH_BREAK)
     .map((text) => text.trim())
     .filter(Boolean)
-    .map((text) => ({
-      type: "paragraph",
-      ...(original.attrs ? { attrs: original.attrs } : {}),
-      content: [{ type: "text", text }],
-    }));
+    .map((text) =>
+      sameText(text, pair.find)
+        ? original
+        : {
+            type: "paragraph",
+            ...(original.attrs ? { attrs: original.attrs } : {}),
+            content: [{ type: "text", text }],
+          }
+    );
 }
 
 /** A paragraph's whole text, hard breaks as line breaks, as the matcher reads it. */
@@ -388,15 +396,30 @@ function blockText(node: PMNode): string {
   return children.map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n")).join("");
 }
 
-const sameText = (a: string, b: string) =>
+export const sameText = (a: string, b: string) =>
   normalizeForMatch(a).trim().toLowerCase() === normalizeForMatch(b).trim().toLowerCase();
 
-export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): ReplacementResult {
+/**
+ * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
+ * Section headings and the hidden title are skipped (see protectedHeadings),
+ * and the matches left there are counted so single-target callers can refuse
+ * an edit aimed at them (headingEditRefusal).
+ *
+ * Each block is matched once, against its original text. Where every match
+ * sits inside one text node the replacement keeps the marks; where a match
+ * spans inline nodes (a passage broken by a [GAP:] highlight or a bold run)
+ * the block's inline text is rebuilt as a single text node so the
+ * replacement still lands. Matching the original text means a replacement
+ * that contains its own search text is applied once, never again to its own
+ * output (review 2026-09-25).
+ */
+export function applyReplacements(doc: PMNode, pairs: ReplacePair[], options: ReplaceOptions = {}): ReplacementResult {
   let count = 0;
-  // Paragraph pairs act on whole paragraphs below; a split or an added
-  // paragraph never goes inline. An empty replacement inside a paragraph
-  // still deletes that text, as before.
-  const inlinePairs = pairs.filter((pair) => !PARAGRAPH_BREAK.test(pair.replaceWith));
+  // With paragraphs on, paragraph pairs act on whole top-level paragraphs
+  // below, and a split or an added paragraph never goes inline. An empty
+  // replacement inside a paragraph still deletes that text, as before.
+  const paragraphs = options.paragraphs === true;
+  const inlinePairs = paragraphs ? pairs.filter((pair) => !PARAGRAPH_BREAK.test(pair.replaceWith)) : pairs;
   const guarded = protectedHeadings(doc);
   let skippedInHeadings = 0;
   let skippedInTitle = 0;
@@ -446,13 +469,15 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): Replacemen
     }
     let changed = false;
     const next = children.flatMap((child) => {
-      if (child.type === "paragraph" && !guarded.has(child)) {
+      // Top-level paragraphs only: a list item, a table cell or a quote
+      // must keep a paragraph.
+      if (paragraphs && node === doc && child.type === "paragraph" && !guarded.has(child)) {
         const text = blockText(child);
         const pair = text.trim() ? pairs.find((entry) => isParagraphPair(entry) && sameText(text, entry.find)) : undefined;
         if (pair) {
           count += 1;
           changed = true;
-          return paragraphsFor(child, pair.replaceWith);
+          return paragraphsFor(child, pair);
         }
       }
       const walked = walk(child);

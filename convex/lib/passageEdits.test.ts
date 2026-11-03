@@ -119,32 +119,60 @@ describe("editPassages", () => {
     expect(editPassages("First.", "")).toMatchObject({ ok: false });
   });
 
-  it("applies a split, an added paragraph and a merge to whole paragraphs only", () => {
+  it("applies a split, an added paragraph and a merge to whole top-level paragraphs, only when asked", () => {
     const doc = {
       type: "doc",
       content: [
         { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244 - Work Performed" }] },
         { type: "paragraph", content: [{ type: "text", text: "Alpha one. Alpha two." }] },
-        { type: "paragraph", content: [{ type: "text", text: "Beta." }] },
+        { type: "paragraph", content: [{ type: "text", text: "Beta. " }, { type: "text", text: "[GAP: when]", marks: [{ type: "highlight" }] }] },
         { type: "paragraph", content: [{ type: "text", text: "Gamma." }] },
+        { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Item A." }] }] }] },
       ],
     };
+    const on = { paragraphs: true };
     const texts = (d: unknown) =>
       ((d as { content: Array<{ type: string; content?: Array<{ text: string }> }> }).content)
         .filter((n) => n.type === "paragraph")
         .map((n) => n.content?.map((c) => c.text).join("") ?? "");
-    const split = applyPassageEdits(doc, [{ find: "Alpha one. Alpha two.", replaceWith: "Alpha one.\n\nAlpha two." }]);
-    expect(split.ok && texts(split.doc)).toEqual(["Alpha one.", "Alpha two.", "Beta.", "Gamma."]);
+    const split = applyPassageEdits(doc, [{ find: "Alpha one. Alpha two.", replaceWith: "Alpha one.\n\nAlpha two." }], on);
+    expect(split.ok && texts(split.doc)).toEqual(["Alpha one.", "Alpha two.", "Beta. [GAP: when]", "Gamma."]);
     const merged = applyPassageEdits(doc, [
-      { find: "Beta.", replaceWith: "Beta and gamma." },
+      { find: "Alpha one. Alpha two.", replaceWith: "Alpha one, then Gamma." },
       { find: "Gamma.", replaceWith: "" },
-    ]);
-    expect(merged.ok && texts(merged.doc)).toEqual(["Alpha one. Alpha two.", "Beta and gamma."]);
+    ], on);
+    expect(merged.ok && texts(merged.doc)).toEqual(["Alpha one, then Gamma.", "Beta. [GAP: when]"]);
+    // Adding after a paragraph keeps that paragraph's node, its gap highlight included.
+    const added = applyReplacements(doc, [{ find: "Beta. [GAP: when]", replaceWith: "Beta. [GAP: when]\n\nDelta." }], on);
+    expect((added.doc.content as unknown[])[2]).toBe(doc.content[2]);
+    expect(texts(added.doc)).toEqual(["Alpha one. Alpha two.", "Beta. [GAP: when]", "Delta.", "Gamma."]);
     // Never a blank line inside a paragraph: a split of part of one matches nothing.
-    expect(applyReplacements(doc, [{ find: "Alpha one.", replaceWith: "A.\n\nB." }]).count).toBe(0);
+    expect(applyReplacements(doc, [{ find: "Alpha one.", replaceWith: "A.\n\nB." }], on).count).toBe(0);
+    expect(applyPassageEdits(doc, [{ find: "Alpha one.", replaceWith: "A.\n\nB." }], on)).toMatchObject({ ok: false, reason: expect.stringContaining("needs whole paragraphs") });
+    // A paragraph in a list keeps its place: only top-level paragraphs change.
+    const listItem = applyReplacements(doc, [{ find: "Item A.", replaceWith: "" }], on);
+    expect(JSON.stringify(listItem.doc)).toContain('"type":"listItem","content":[{"type":"paragraph"');
     // An empty replacement inside a paragraph still deletes that text only.
-    const trimmed = applyReplacements(doc, [{ find: " Alpha two.", replaceWith: "" }]);
-    expect(texts(trimmed.doc)).toEqual(["Alpha one.", "Beta.", "Gamma."]);
+    expect(texts(applyReplacements(doc, [{ find: " Alpha two.", replaceWith: "" }], on).doc)[0]).toBe("Alpha one.");
+    // Off (research edits, client suggestions): the old inline behaviour.
+    const off = applyReplacements(doc, [{ find: "Gamma.", replaceWith: "" }]);
+    expect(texts(off.doc)).toHaveLength(3);
+  });
+
+  it("refuses a passage set whose paragraph change no longer lands, leaving no marker behind (review 2026-11-03)", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Alpha." }] },
+        { type: "paragraph", content: [{ type: "text", text: "Beta one. Beta two." }] },
+      ],
+    };
+    // The card was made when the second paragraph read "Beta one."; the writer has since added to it.
+    const result = applyPassageEdits(doc, [
+      { find: "Alpha.", replaceWith: "Alpha, reworded." },
+      { find: "Beta one.", replaceWith: "Beta one.\n\nNew paragraph." },
+    ], { paragraphs: true });
+    expect(result.ok).toBe(false);
   });
 
   it("reads Windows line breaks and trims a one-paragraph target", () => {

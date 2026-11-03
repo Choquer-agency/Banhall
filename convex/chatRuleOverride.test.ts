@@ -414,6 +414,49 @@ describe("a card that adds, splits or merges paragraphs (owner, 2026-11-03)", ()
     expect(JSON.parse(await reportText(s.t, s.reportId))).toEqual(JSON.parse(REPORT_DOC));
   });
 
+  it("refuses a paragraph change across two Lines, and a blank line typed into a card over part of a paragraph (review 2026-11-03)", async () => {
+    const s = await setup();
+    const heading = (text: string) => ({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text }] });
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.reportId, {
+        content: JSON.stringify({
+          type: "doc",
+          content: [
+            heading("Line 242 \u2014 Scientific/Technological Uncertainty"),
+            paragraph("The team tested the alloy under load."),
+            heading("Line 244 \u2014 Work Performed"),
+            paragraph("The company measured the coating."),
+          ],
+        }),
+      });
+    });
+    // A merge as proposeEdit saves it: a passage set, the leftover paragraph removed.
+    const across = await s.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "ro-thread",
+      kind: "replacements",
+      requireUniqueTargets: true,
+      replacements: [
+        { find: "The team tested the alloy under load.", replaceWith: "The team tested the alloy under load and measured the coating." },
+        { find: "The company measured the coating.", replaceWith: "" },
+      ],
+    });
+    expect(across).toMatchObject({ ok: false });
+    expect(across.ok ? "" : across.reason).toContain("works inside one Line");
+
+    const saved = await s.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "ro-thread",
+      kind: "edit",
+      targetText: "measured the coating",
+      newText: "measured the coating twice",
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    const refused = await failure(() =>
+      s.writer.mutation(api.chatV2.updateProposalWording, { proposalId: saved.proposalId, newText: "measured\n\nthe coating" })
+    );
+    expect(refused.message).toContain("A blank line starts a new paragraph");
+  });
+
   it("refuses a split of part of a paragraph, naming whole paragraphs", async () => {
     const s = await setup();
     const saved = await s.t.mutation(internal.chatV2.saveProposal, {

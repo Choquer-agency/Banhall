@@ -65,9 +65,17 @@ const CHAT_DOCUMENT_READ_SLACK_CHARS = 1_000;
  * assistant searches and opens them.
  */
 export const CHAT_WHOLE_FILES_CHARS = 80_000;
+
+/**
+ * 2026-11-03 (owner): Assistant cards may add, split and merge whole
+ * top-level paragraphs (`applyReplacements` paragraphs option). Research
+ * edits and client suggestions keep the old behaviour.
+ */
+const CARD_PARAGRAPHS = { paragraphs: true } as const;
 import {
   PARAGRAPH_BREAK,
   applyReplacements,
+  changesParagraphs,
   headingEditRefusal,
   highlightLocation,
   locateSelection,
@@ -1334,8 +1342,9 @@ export const applyProposal = mutation({
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       domainError("INVALID_INPUT", "The report content is not a valid editor document");
     }
+    const paragraphOptions = proposal.researchSessionId === undefined ? CARD_PARAGRAPHS : {};
     const bulkResult = proposal.requireUniqueTargets || alternative
-      ? applyPassageEdits(parsed as PMNode, pairs)
+      ? applyPassageEdits(parsed as PMNode, pairs, paragraphOptions)
       : null;
     if (bulkResult && !bulkResult.ok) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
@@ -1346,8 +1355,8 @@ export const applyProposal = mutation({
     const direct = bulkResult
       ? null
       : proposal.section && proposal.kind === "replacements"
-        ? applyReplacementsInLine(parsed as PMNode, pairs, proposal.section)
-        : applyReplacements(parsed as PMNode, pairs);
+        ? applyReplacementsInLine(parsed as PMNode, pairs, proposal.section, paragraphOptions)
+        : applyReplacements(parsed as PMNode, pairs, paragraphOptions);
     const { doc: updated, count } = bulkResult ?? direct!;
     // Producer-declared single-target proposals (older research proposals
     // predate the flag, hence the researchSessionId fallback).
@@ -1373,7 +1382,7 @@ export const applyProposal = mutation({
         // edit targets it.
         const highlight = await turnHighlight(ctx, proposal.agentThreadId, proposal.promptMessageId);
         for (const pair of highlight ? pairs : []) {
-          const probe = applyReplacements(parsed as PMNode, [pair]);
+          const probe = applyReplacements(parsed as PMNode, [pair], paragraphOptions);
           const found = highlightLocation(
             parsed as PMNode,
             highlight!,
@@ -1699,6 +1708,30 @@ export const updateProposalWording = mutation({
     // Owner, 2026-11-02 (second): no list enters report text, reworded or not.
     if ([patch.newText ?? "", ...(patch.replacements ?? []).map((pair) => pair.replaceWith)].some(holdsListLines)) {
       domainError("INVALID_INPUT", LIST_NOT_ALLOWED_MESSAGE);
+    }
+    // Review 2026-11-03: a blank line starts a new paragraph, which only a
+    // card over a whole paragraph can do; otherwise the card would never
+    // apply.
+    const editedPairs =
+      proposal.kind === "edit"
+        ? [{ find: proposal.targetText ?? "", replaceWith: patch.newText ?? "" }]
+        : (patch.replacements ?? []);
+    if (editedPairs.some((pair) => PARAGRAPH_BREAK.test(pair.replaceWith))) {
+      const report = await ctx.db.get(proposal.reportId);
+      let doc: unknown = null;
+      try {
+        doc = report ? JSON.parse(report.content) : null;
+      } catch {
+        doc = null;
+      }
+      const whole = (pair: { find: string; replaceWith: string }) =>
+        !PARAGRAPH_BREAK.test(pair.replaceWith) || (doc !== null && changesParagraphs(doc as PMNode, pair));
+      if (proposal.researchSessionId !== undefined || !editedPairs.every(whole)) {
+        domainError(
+          "INVALID_INPUT",
+          "A blank line starts a new paragraph, which this suggestion can't do here. Remove the blank line, or ask the Assistant to add the paragraph."
+        );
+      }
     }
     const now = Date.now();
     await ctx.db.patch(proposal._id, {
@@ -2724,7 +2757,7 @@ export const saveProposal = internalMutation({
       if (issue) return { ok: false as const, reason: issue };
     } else if (args.requireUniqueTargets) {
       if (args.kind !== "replacements") return { ok: false as const, reason: "A passage set must use replacements." };
-      const result = applyPassageEdits(parsed as PMNode, pairs);
+      const result = applyPassageEdits(parsed as PMNode, pairs, CARD_PARAGRAPHS);
       if (!result.ok) return { ok: false as const, reason: result.reason };
     }
     if (recordOnly) {
@@ -2734,7 +2767,7 @@ export const saveProposal = internalMutation({
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
       for (const pair of pairs) {
-        const probe = applyReplacements(parsed as PMNode, [pair]);
+        const probe = applyReplacements(parsed as PMNode, [pair], CARD_PARAGRAPHS);
         const { count } = probe;
         // Heading and title text is never edited. An edit aimed at the text
         // the writer highlighted is judged by where the highlight sits; any
@@ -2846,8 +2879,16 @@ export const saveProposal = internalMutation({
     const groups: LineGroup[] =
       recordOnly || args.kind === "references"
         ? [{ line: undefined, pairs }]
-        : groupPairsByLine(parsed as PMNode, pairs);
+        : groupPairsByLine(parsed as PMNode, pairs, CARD_PARAGRAPHS);
     const split = groups.length > 1;
+    // Review 2026-11-03: a merge or an added paragraph split into one card
+    // per Line could lose or repeat text when only one card is accepted.
+    if (split && pairs.some((pair) => changesParagraphs(parsed as PMNode, pair) || PARAGRAPH_BREAK.test(pair.replaceWith))) {
+      return {
+        ok: false as const,
+        reason: "Adding, splitting or merging paragraphs works inside one Line. Propose a separate change for each Line.",
+      };
+    }
 
     // Owner 2026-10-28: Option 2 and Option 3, only for an edit inside one
     // Line, each checked the way a passage set is.
@@ -2868,9 +2909,9 @@ export const saveProposal = internalMutation({
         };
       }
       for (const [index, option] of alternatives.entries()) {
-        const checked = applyPassageEdits(parsed as PMNode, option.replacements);
+        const checked = applyPassageEdits(parsed as PMNode, option.replacements, CARD_PARAGRAPHS);
         if (!checked.ok) return { ok: false as const, reason: `Option ${index + 2}: ${checked.reason}` };
-        const optionLines = groupPairsByLine(parsed as PMNode, option.replacements);
+        const optionLines = groupPairsByLine(parsed as PMNode, option.replacements, CARD_PARAGRAPHS);
         if (optionLines.length !== 1 || optionLines[0].line !== line) {
           return { ok: false as const, reason: `Option ${index + 2} must edit the same Line as Option 1.` };
         }
@@ -2928,8 +2969,8 @@ export const saveProposal = internalMutation({
     let lengths: string | null = null;
     if (!recordOnly && args.kind !== "references") {
       const after = args.requireUniqueTargets
-        ? applyPassageEdits(parsed as PMNode, pairs)
-        : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs) };
+        ? applyPassageEdits(parsed as PMNode, pairs, CARD_PARAGRAPHS)
+        : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs, CARD_PARAGRAPHS) };
       if (after.ok) lengths = lineLengthsAfterEdit(report.content, JSON.stringify(after.doc));
     }
     return { ok: true as const, proposalId, proposalIds, lengths };
