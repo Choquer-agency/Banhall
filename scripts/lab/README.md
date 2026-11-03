@@ -31,6 +31,10 @@ Or through the terminal: `node scripts/lab/lab.mjs <command>`. The MCP tools run
 | `chat <projectId> "<message>" [--as role]` | Sends a message to the Assistant and waits for the reply and its cards. |
 | `export-check <projectId>` | Whether the report may be exported, and why not. When it may, this records an authorized export on the lab, as the app's Export does. |
 
+## The Assistant test set
+
+`node scripts/lab/assistant-suite.mjs` (MCP: `lab_assistant_suite`) makes a fictional project, drafts it once, then runs the report Assistant through the cases the firm raised: a template change and a one-sentence paragraph the writer may approve, a banned word asked about once, a bullet list refused, a paragraph added and two merged, a made-up figure refused, a house rule only a manager may approve, and export refused over a CRA limit. Each check reads what the app stored (the cards, their rules and the report). It writes a pass/fail report with every reply, and exits non-zero when a case fails. About $2 to $3 a run; `--only a,b` runs some cases.
+
 ## Rules it keeps
 
 - **Local only.** Every command checks that it is talking to the local backend inside the lab folder.

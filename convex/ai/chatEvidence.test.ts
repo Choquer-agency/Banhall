@@ -24,7 +24,7 @@ import { CHAT_WRITER_MESSAGE_LABEL,
   type ChatOpenQuestion,
   type ChatTurnContext,
 } from "./chatEvidence";
-import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
+import { CHAT_EVIDENCE_GUIDANCE, CHAT_PARAGRAPH_CHANGES, buildChatSystemPromptV2 } from "./prompts";
 import { withoutInferenceMarkerText } from "../inferenceMarker.fixture";
 import { withoutHonestDraftingText } from "../honestDrafting.fixture";
 import { withoutRuleOverrideText } from "../ruleOverride.fixture";
@@ -76,6 +76,15 @@ function blockBody(message: string, line: string): string {
 function evidenceOf(turn: { messages: Array<{ content: unknown }> }): string {
   return turn.messages.map((message) => String(message.content)).join("\n\n");
 }
+
+/** 2026-11-03: the sentence proposeEdit's paragraphs had before cards could add, split or merge them. */
+const withoutParagraphChanges = (text: string) => {
+  expect(text).toContain(CHAT_PARAGRAPH_CHANGES);
+  return text.replace(
+    CHAT_PARAGRAPH_CHANGES,
+    "newText then has the same number of paragraphs in the same order: a proposal cannot merge, split, add or remove a paragraph."
+  );
+};
 
 describe("chat evidence message", () => {
   it("puts every source between provenance markers, in order", () => {
@@ -1372,7 +1381,7 @@ describe("the published style lesson set in chat (Phase E, E2b)", () => {
   // (convex/ruleOverride.fixture.ts); every other byte is still the pinned one.
   it("sends the same system text as before E2b when no set is published (pinned at a0e3c1d4)", () => {
     const hash = (text: string) =>
-      createHash("sha256").update(withoutRuleOverrideText(withoutOneUncertaintyText(withoutHonestDraftingText(withoutInferenceMarkerText(text, "chat"), "chat"), "chat"))).digest("hex");
+      createHash("sha256").update(withoutParagraphChanges(withoutRuleOverrideText(withoutOneUncertaintyText(withoutHonestDraftingText(withoutInferenceMarkerText(text, "chat"), "chat"), "chat")))).digest("hex");
     for (const empty of [null, undefined, "   "]) {
       expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("52c9b254f8a976ed2772098a605c787c228cff3bc71c55e5ec0fcffa47c1d73b");
       expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("c45ea1e3eb6580e1e833ef3b677038f244338b059eadf6247791efcf46dffe33");

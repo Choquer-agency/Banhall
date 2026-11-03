@@ -353,8 +353,50 @@ export function headingEditRefusal(
  * that contains its own search text is applied once, never again to its own
  * output (review 2026-09-25).
  */
+/** A blank line between paragraphs in a card's text. */
+export const PARAGRAPH_BREAK = /\n[ \t]*\n/;
+
+/**
+ * 2026-11-03 (owner: "let it add, merge and split paragraphs"): a pair that
+ * changes the paragraphs, not just their text. Its replacement holds a blank
+ * line (a split, or a paragraph added after this one) or is empty (the
+ * paragraph merged into another, so it goes). Such a pair acts only on a
+ * whole paragraph whose text is exactly its `find`; it never puts a blank
+ * line inside a paragraph.
+ */
+export function isParagraphPair(pair: ReplacePair): boolean {
+  return PARAGRAPH_BREAK.test(pair.replaceWith) || pair.replaceWith.trim() === "";
+}
+
+/** The paragraphs a paragraph pair leaves in place of the one it matched. */
+function paragraphsFor(original: PMNode, replaceWith: string): PMNode[] {
+  return replaceWith
+    .replace(/\r\n?/g, "\n")
+    .split(PARAGRAPH_BREAK)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .map((text) => ({
+      type: "paragraph",
+      ...(original.attrs ? { attrs: original.attrs } : {}),
+      content: [{ type: "text", text }],
+    }));
+}
+
+/** A paragraph's whole text, hard breaks as line breaks, as the matcher reads it. */
+function blockText(node: PMNode): string {
+  const children = (node.content as PMNode[] | undefined) ?? [];
+  return children.map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n")).join("");
+}
+
+const sameText = (a: string, b: string) =>
+  normalizeForMatch(a).trim().toLowerCase() === normalizeForMatch(b).trim().toLowerCase();
+
 export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): ReplacementResult {
   let count = 0;
+  // Paragraph pairs act on whole paragraphs below; a split or an added
+  // paragraph never goes inline. An empty replacement inside a paragraph
+  // still deletes that text, as before.
+  const inlinePairs = pairs.filter((pair) => !PARAGRAPH_BREAK.test(pair.replaceWith));
   const guarded = protectedHeadings(doc);
   let skippedInHeadings = 0;
   let skippedInTitle = 0;
@@ -370,7 +412,7 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): Replacemen
   const replaceInText = (text: string): { text: string; count: number } => {
     let out = text;
     let found = 0;
-    for (const { find, replaceWith } of pairs) {
+    for (const { find, replaceWith } of inlinePairs) {
       const r = replaceAll(out, find, replaceWith);
       out = r.text;
       found += r.count;
@@ -402,8 +444,22 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): Replacemen
       count += perNode;
       return perNode > 0 ? { ...node, content: replaced } : node;
     }
-    const next = children.map(walk);
-    return next.some((child, i) => child !== children[i]) ? { ...node, content: next } : node;
+    let changed = false;
+    const next = children.flatMap((child) => {
+      if (child.type === "paragraph" && !guarded.has(child)) {
+        const text = blockText(child);
+        const pair = text.trim() ? pairs.find((entry) => isParagraphPair(entry) && sameText(text, entry.find)) : undefined;
+        if (pair) {
+          count += 1;
+          changed = true;
+          return paragraphsFor(child, pair.replaceWith);
+        }
+      }
+      const walked = walk(child);
+      if (walked !== child) changed = true;
+      return [walked];
+    });
+    return changed ? { ...node, content: next } : node;
   };
   const result = walk(doc);
   return { doc: result, count, skippedInHeadings, skippedInTitle };

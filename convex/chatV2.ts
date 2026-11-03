@@ -66,6 +66,7 @@ const CHAT_DOCUMENT_READ_SLACK_CHARS = 1_000;
  */
 export const CHAT_WHOLE_FILES_CHARS = 80_000;
 import {
+  PARAGRAPH_BREAK,
   applyReplacements,
   headingEditRefusal,
   highlightLocation,
@@ -2750,6 +2751,13 @@ export const saveProposal = internalMutation({
             ok: false as const,
             reason:
               refusal === SELECTION_GONE ? refusal : `${refusal} Target the passage in the report prose instead.`,
+          };
+        }
+        if (count === 0 && PARAGRAPH_BREAK.test(pair.replaceWith)) {
+          return {
+            ok: false as const,
+            reason:
+              "Adding, splitting or merging paragraphs needs whole paragraphs: copy each paragraph of targetText in full, exactly as the CURRENT REPORT has it.",
           };
         }
         if (count === 0) {

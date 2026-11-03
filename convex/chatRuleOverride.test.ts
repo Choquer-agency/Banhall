@@ -392,6 +392,41 @@ describe("saving a card that goes against a rule", () => {
   });
 });
 
+describe("a card that adds, splits or merges paragraphs (owner, 2026-11-03)", () => {
+  it("saves, applies and undoes an added paragraph", async () => {
+    const s = await setup();
+    const saved = await s.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "ro-thread",
+      kind: "edit",
+      targetText: "The company measured the coating.",
+      newText: "The company measured the coating.\n\nThe team then repeated the test at a higher load.",
+    });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    await s.writer.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId });
+    const after = JSON.parse(await reportText(s.t, s.reportId)) as { content: Array<{ content: Array<{ text: string }> }> };
+    expect(after.content.map((block) => block.content[0].text)).toEqual([
+      "The team tested the alloy under load.",
+      "The company measured the coating.",
+      "The team then repeated the test at a higher load.",
+    ]);
+    await s.writer.mutation(api.chatV2.undoProposal, { proposalId: saved.proposalId });
+    expect(JSON.parse(await reportText(s.t, s.reportId))).toEqual(JSON.parse(REPORT_DOC));
+  });
+
+  it("refuses a split of part of a paragraph, naming whole paragraphs", async () => {
+    const s = await setup();
+    const saved = await s.t.mutation(internal.chatV2.saveProposal, {
+      agentThreadId: "ro-thread",
+      kind: "edit",
+      targetText: "measured the coating.",
+      newText: "measured\n\nthe coating.",
+    });
+    expect(saved).toMatchObject({ ok: false });
+    expect(saved.ok ? "" : saved.reason).toContain("needs whole paragraphs");
+  });
+});
+
 describe("the Assistant's memory of an applied override", () => {
   it("marks the applied card as kept on purpose, naming the rules", async () => {
     const s = await setup();

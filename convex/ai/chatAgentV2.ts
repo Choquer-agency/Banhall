@@ -111,7 +111,7 @@ function cardCount(proposalIds: readonly unknown[] | undefined): string {
 const makeProposeEdit = (bannedWordsWaived: boolean) =>
   createTool({
     description:
-      "Propose one change: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText has the same number of paragraphs in the same order. It cannot merge, split, add or remove a paragraph. The writer gets one suggestion card per Line the change touches, and reviews and accepts each card on its own. For an edit inside one Line where the writer would want to choose (a trim or a rewording), give up to two other versions in otherOptions; newText is Option 1, the one you recommend.",
+      "Propose one change: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText holds the new paragraphs in the same order. To add a paragraph, target the whole paragraph it follows and give newText that paragraph, then the new one. To split a paragraph, target all of it and put a blank line where it splits. To merge paragraphs, target all of each and give newText fewer paragraphs. Adding, splitting and merging need whole paragraphs, copied in full. The writer gets one suggestion card per Line the change touches, and reviews and accepts each card on its own. For an edit inside one Line where the writer would want to choose (a trim or a rewording), give up to two other versions in otherOptions; newText is Option 1, the one you recommend.",
     inputSchema: z.object({
       targetText: z
         .string()
@@ -123,7 +123,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         .string()
         .min(1)
         .describe(
-          "The replacement text, fully compliant with the writing rules, with exactly as many paragraphs as targetText: for several paragraphs, one new paragraph for each, in the same order, separated by a blank line."
+          "The replacement text, fully compliant with the writing rules, its paragraphs in order and separated by a blank line. Usually one new paragraph for each paragraph of targetText; more to add or split paragraphs, fewer to merge them."
         ),
       otherOptions: z
         .array(z.string().min(1))

@@ -67,12 +67,19 @@ const TOOLS = [
     required: ["projectId", "message"],
     args: (a) => ["chat", a.projectId, a.message, ...(a.threadId ? ["--thread", a.threadId] : []), ...(a.newThread ? ["--new-thread"] : []), ...(a.web ? ["--web"] : []), ...(a.as ? ["--as", a.as] : [])],
   },
+  {
+    name: "lab_assistant_suite",
+    description: "Run the Assistant test set on the lab (fictional project, about $2 to $3): template and banned-word overrides, lists, paragraph changes, no invention, who may approve, the CRA limit at export. Returns pass/fail and the report path.",
+    schema: { only: { type: "string", description: "Comma-separated case names to run; default all." } },
+    script: "assistant-suite.mjs",
+    args: (a) => (a.only ? ["--only", a.only] : []),
+  },
   { name: "lab_export_check", description: "Whether the report may be exported, and why not.", schema: { projectId, as }, required: ["projectId"], args: (a) => ["export-check", a.projectId, ...(a.as ? ["--as", a.as] : [])] },
 ];
 
-function runLab(args) {
+function runLab(args, script = LAB) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [LAB, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [script, ...args], { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (c) => (stdout += c));
@@ -126,7 +133,8 @@ rl.on("line", async (line) => {
       if (problem) return reply({ content: [{ type: "text", text: problem }], isError: true });
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "banhall-lab-mcp-"));
       try {
-        const { code, text } = await runLab(tool.args(args, tmp));
+        const script = tool.script ? path.join(path.dirname(LAB), tool.script) : LAB;
+        const { code, text } = await runLab(tool.args(args, tmp), script);
         return reply({ content: [{ type: "text", text: text || "(no output)" }], isError: code !== 0 });
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });

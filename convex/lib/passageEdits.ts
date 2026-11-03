@@ -1,4 +1,5 @@
 import {
+  PARAGRAPH_BREAK,
   applyReplacements,
   headingEditRefusal,
   normalizeForMatch,
@@ -52,13 +53,6 @@ export function applyPassageEdits(doc: PMNode, pairs: ReplacePair[]):
 }
 
 /**
- * A blank line between paragraphs, as the CURRENT REPORT block prints them.
- * A match never crosses a paragraph (`applyReplacements` matches one block at
- * a time), so a target that spans paragraphs has to be split on these.
- */
-const PARAGRAPH_BREAK = /\n[ \t]*\n/;
-
-/**
  * The passages of one proposeEdit call (owner, 2026-10-21). A target inside
  * one paragraph is one passage, as before. A target of several paragraphs,
  * such as a trim across a whole Line, never matched anything: the model fell
@@ -66,10 +60,12 @@ const PARAGRAPH_BREAK = /\n[ \t]*\n/;
  * paragraph pairs with the matching paragraph of the new text, so the change
  * lands as one card; unchanged paragraphs are dropped.
  *
- * A proposal keeps the paragraph count (review 2026-10-21): text replaces
- * text inside paragraphs, so it cannot merge, split, add or remove one. A
- * blank line inside one paragraph's new text would only put a line break in
- * that paragraph, which every count downstream then reads differently.
+ * 2026-11-03 (owner): the new text may hold more or fewer paragraphs than the
+ * target, so a card can add, split or merge paragraphs. Then the target must
+ * be whole paragraphs (`applyReplacements` acts on a whole paragraph only).
+ * Paragraphs pair in order; the last target paragraph takes any extra new
+ * paragraphs (a split, or paragraphs added after it), and target paragraphs
+ * left over once the new text runs out are removed (a merge).
  */
 export function editPassages(targetText: string, newText: string):
   | { ok: true; pairs: ReplacePair[] }
@@ -82,16 +78,21 @@ export function editPassages(targetText: string, newText: string):
       .filter((p) => p.length > 0);
   const targets = paragraphs(targetText);
   const replacements = paragraphs(newText);
-  if (replacements.length !== targets.length) {
-    return {
-      ok: false,
-      reason: `targetText has ${targets.length} ${targets.length === 1 ? "paragraph" : "paragraphs"} but newText has ${replacements.length}. A proposal keeps the paragraph count: give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.`,
-    };
+  if (targets.length === 0) return { ok: false, reason: "targetText is empty." };
+  if (replacements.length === 0) {
+    return { ok: false, reason: "newText is empty. To remove a paragraph, merge it: target it with the paragraph it joins and give newText the joined paragraph." };
   }
+  const last = targets.length - 1;
+  const paired = targets.map((find, i) => ({
+    find,
+    replaceWith:
+      i < last
+        ? (replacements[i] ?? "")
+        : replacements.slice(last).join("\n\n"),
+  }));
   // A paragraph the model retyped with straight quotes or plain dashes is
   // unchanged, not an edit that silently swaps the report's typography.
-  const pairs = targets
-    .map((find, i) => ({ find, replaceWith: replacements[i] }))
+  const pairs = paired
     .filter((pair) => normalizeForMatch(pair.find) !== normalizeForMatch(pair.replaceWith));
   if (pairs.length === 0) return { ok: false, reason: "newText is the same as targetText, so nothing would change." };
   return { ok: true, pairs };
