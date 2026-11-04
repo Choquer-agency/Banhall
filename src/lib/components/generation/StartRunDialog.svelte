@@ -9,7 +9,8 @@
 
   export type StartRunSource = {
     id: string;
-    kind: "transcript" | "document" | "writtenPd";
+    /** "companyFile": a file of the project's company (2026-10-26, Phase C). */
+    kind: "transcript" | "document" | "writtenPd" | "companyFile";
     name: string;
     /** The chip at the right: "Transcript" or the document category label. */
     typeLabel: string;
@@ -23,7 +24,8 @@
     locked?: boolean;
   };
 
-  export type StartRunExcluded = { transcriptIds: string[]; documentIds: string[] };
+  /** `companyFileIds`: present only when a company file is unticked (Phase C). */
+  export type StartRunExcluded = { transcriptIds: string[]; documentIds: string[]; companyFileIds?: string[] };
 
   /** F1, G1 to G3 copy (ws3 spec section 3). */
   export const START_RUN_COPY: Record<StartRunMode, { title: string; subtitle: string }> = {
@@ -68,6 +70,15 @@
   }
 
   export const NOTHING_TICKED_MESSAGE = "Tick at least one transcript or current file.";
+
+  /** 2026-11-02 (proposed): the per-run choices beside the files. */
+  export type StartRunOptions = { webBackground: boolean };
+
+  /** The public background tick (drafts only, when the deployment offers it). */
+  export const WEB_BACKGROUND_COPY = {
+    label: "Look up public background",
+    line: "Searches the web for what the named technologies are and how they are usually done. No names or project details are sent.",
+  } as const;
 
   /** F6: a run already going on this project (user-safe fields only). */
   export type ActiveRun = {
@@ -156,6 +167,7 @@
     onOpenActiveRun,
     onSelectionChange,
     initialExcluded = [],
+    offerWebBackground = false,
   }: {
     open?: boolean;
     mode: StartRunMode;
@@ -167,7 +179,8 @@
     blockingMessage?: string | null;
     /** A problem the current selection causes (the previous-year rule). */
     validate?: (excluded: StartRunExcluded) => string | null;
-    onConfirm: (excluded: StartRunExcluded) => void;
+    /** `options` is the run's own choices (absent from older hosts' reading: on). */
+    onConfirm: (excluded: StartRunExcluded, options: StartRunOptions) => void;
     onCancel?: () => void;
     returnFocus?: () => HTMLElement | null | undefined;
     /** F6: a run already going on this project; the start waits for it. */
@@ -185,23 +198,38 @@
      * brought back). Every other file starts ticked.
      */
     initialExcluded?: string[];
+    /**
+     * 2026-11-02 (proposed): show "Look up public background", ticked when
+     * it opens. Only for a draft, and only when the deployment looks it up.
+     */
+    offerWebBackground?: boolean;
   } = $props();
+
+  let lookUpBackground = $state(true);
+  const showWebBackground = $derived(offerWebBackground && mode !== "review");
 
   const unticked = new SvelteSet<string>();
   let confirmedClose = false;
   const cancelId = $props.id();
 
   const tickable = $derived(sources.filter((source) => !source.locked));
-  const excluded = $derived<StartRunExcluded>({
-    transcriptIds: tickable.filter((s) => s.kind === "transcript" && unticked.has(s.id)).map((s) => s.id),
-    documentIds: tickable.filter((s) => s.kind === "document" && unticked.has(s.id)).map((s) => s.id),
+  const excluded = $derived.by<StartRunExcluded>(() => {
+    const companyFileIds = tickable.filter((s) => s.kind === "companyFile" && unticked.has(s.id)).map((s) => s.id);
+    return {
+      transcriptIds: tickable.filter((s) => s.kind === "transcript" && unticked.has(s.id)).map((s) => s.id),
+      documentIds: tickable.filter((s) => s.kind === "document" && unticked.has(s.id)).map((s) => s.id),
+      ...(companyFileIds.length > 0 ? { companyFileIds } : {}),
+    };
   });
   const tickedCount = $derived(sources.filter((s) => s.locked || !unticked.has(s.id)).length);
   const anyTickedReading = $derived(
     sources.some((s) => s.reading && (s.locked || !unticked.has(s.id)))
   );
+  // Company files never stand in for the project's own sources (Phase C),
+  // so a run with only company files ticked is "nothing ticked".
+  const projectTickable = $derived(tickable.filter((s) => s.kind !== "companyFile"));
   const nothingTicked = $derived(
-    mode !== "review" && tickable.length > 0 && tickable.every((s) => unticked.has(s.id))
+    mode !== "review" && projectTickable.length > 0 && projectTickable.every((s) => unticked.has(s.id))
   );
   const problem = $derived(
     blockingMessage ?? (nothingTicked ? NOTHING_TICKED_MESSAGE : (validate?.(excluded) ?? null))
@@ -216,6 +244,7 @@
     const isOpen = open;
     untrack(() => {
       if (isOpen && !wasOpen) {
+        lookUpBackground = true;
         unticked.clear();
         for (const id of initialExcluded) unticked.add(id);
       }
@@ -226,10 +255,17 @@
   $effect(() => {
     if (!open || !onSelectionChange) return;
     const current = excluded;
-    untrack(() =>
-      onSelectionChange?.({ transcriptIds: [...current.transcriptIds], documentIds: [...current.documentIds] })
-    );
+    untrack(() => onSelectionChange?.(copyExcluded(current)));
   });
+
+  /** A plain copy of the leave-out list; company files only when one is left out. */
+  function copyExcluded(from: StartRunExcluded): StartRunExcluded {
+    return {
+      transcriptIds: [...from.transcriptIds],
+      documentIds: [...from.documentIds],
+      ...(from.companyFileIds?.length ? { companyFileIds: [...from.companyFileIds] } : {}),
+    };
+  }
 
   function toggle(id: string, next: boolean) {
     if (next) unticked.delete(id);
@@ -246,7 +282,7 @@
   function confirm() {
     if (problem || busy || activeRun) return;
     confirmedClose = true;
-    onConfirm({ transcriptIds: [...excluded.transcriptIds], documentIds: [...excluded.documentIds] });
+    onConfirm(copyExcluded(excluded), { webBackground: showWebBackground ? lookUpBackground : true });
   }
 </script>
 
@@ -255,6 +291,7 @@
   onOpenChange={(isOpen) => {
     if (isOpen) {
       confirmedClose = false;
+      lookUpBackground = true;
       unticked.clear();
       for (const id of initialExcluded) unticked.add(id);
     } else if (!confirmedClose) {
@@ -342,7 +379,7 @@
                       <span class="flex size-7 shrink-0 items-center justify-center"><FileIcon name={source.name} size={28} /></span>
                       <div class="flex min-w-0 flex-col">
                         <span class="truncate text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink" data-start-run-name>{source.name}</span>
-                        <span data-start-run-meta class="truncate text-xs leading-[calc(4/3)] text-ink-muted">
+                        <span data-start-run-meta class="truncate text-xs leading-[calc(4/3)] text-ink-muted" title={source.reading ? undefined : source.meta}>
                           {source.reading ? readingMeta(source.readingEtaSeconds) : source.meta}
                         </span>
                       </div>
@@ -360,6 +397,27 @@
                 {/each}
               </ul>
 
+              {#if showWebBackground}
+                <label data-start-run-web-background class="flex shrink-0 items-start gap-3 px-7 pt-3.5">
+                  <Checkbox.Root
+                    checked={lookUpBackground}
+                    onCheckedChange={(next) => (lookUpBackground = next === true)}
+                    data-start-run-web-check
+                    aria-describedby={`${cancelId}-web-line`}
+                    class="mt-px inline-flex size-[1.125rem] shrink-0 items-center justify-center rounded-[0.3125rem] border-[1.5px] text-white transition-colors duration-150 ease-out motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:border-fir data-[state=checked]:bg-fir data-[state=unchecked]:border-gray-300 data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-gray-400"
+                  >
+                    {#snippet children({ checked })}
+                      {#if checked}
+                        <IconCheck size={11} strokeWidth={3.2} />
+                      {/if}
+                    {/snippet}
+                  </Checkbox.Root>
+                  <span class="flex min-w-0 flex-col">
+                    <span class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{WEB_BACKGROUND_COPY.label}</span>
+                    <span id={`${cancelId}-web-line`} class="text-xs leading-[calc(17/12)] text-ink-muted">{WEB_BACKGROUND_COPY.line}</span>
+                  </span>
+                </label>
+              {/if}
               {#if anyTickedReading}
                 <div class="flex items-start gap-2 px-7 pt-2.5" data-start-run-reading-note>
                   <span class="aurora-spin mt-0.5 size-3.5 shrink-0 rounded-full border-2 border-[var(--aurora-track)] border-t-ink-muted" aria-hidden="true"></span>

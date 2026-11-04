@@ -4,6 +4,7 @@ import { page, userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import StartRunDialog, {
   type StartRunSource,
+  WEB_BACKGROUND_COPY,
   readingMeta,
 } from "./StartRunDialog.svelte";
 import { board, boardPx } from "$lib/test/boardScale";
@@ -110,7 +111,7 @@ describe("StartRunDialog rows", () => {
     q("[data-start-run-check='d1']")!.click();
     await tick();
     q<HTMLButtonElement>("[data-start-run-confirm]")!.click();
-    expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: ["t2"], documentIds: ["d1"] });
+    expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: ["t2"], documentIds: ["d1"] }, { webBackground: true });
   });
 
   it("locks the written PD in a review", async () => {
@@ -134,7 +135,7 @@ describe("StartRunDialog rows", () => {
     await tick();
     expect(q<HTMLButtonElement>("[data-start-run-confirm]")!.disabled).toBe(false);
     q<HTMLButtonElement>("[data-start-run-confirm]")!.click();
-    expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: ["t1"], documentIds: [] });
+    expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: ["t1"], documentIds: [] }, { webBackground: true });
   });
 });
 
@@ -355,6 +356,14 @@ describe("activeRunFromError", () => {
   });
 });
 
+describe("StartRunDialog with company files (Phase C)", () => {
+  it("a run with only company files ticked counts as nothing ticked", async () => {
+    const company: StartRunSource = { id: "c1", kind: "companyFile", name: "acme-history.docx", typeLabel: "Company file", meta: "900 words" };
+    await render(StartRunDialog, props({ sources: [SOURCES[0], company], initialExcluded: ["t1"] }));
+    await expect.element(page.getByText("Tick at least one transcript or current file.")).toBeVisible();
+  });
+});
+
 describe("StartRunDialog selection while open (decision 65, stage 2)", () => {
   it("reports the leave-out list as it changes, without confirming", async () => {
     const onSelectionChange = vi.fn();
@@ -382,5 +391,39 @@ describe("StartRunDialog choice a reload brought back (2026-09-27, fourth)", () 
     expect(onSelectionChange.mock.calls.every(([excluded]) => JSON.stringify(excluded) === JSON.stringify({ transcriptIds: [], documentIds: ["d1"] }))).toBe(true);
     expect(q('[data-start-run-row="d1"]')?.dataset.ticked).toBe("false");
     expect(q('[data-start-run-row="t2"]')?.dataset.ticked).toBe("true");
+  });
+});
+
+describe("StartRunDialog public background (2026-11-02, proposed)", () => {
+  it("is not offered unless the host offers it, and never for a review", async () => {
+    await render(StartRunDialog, props({ mode: "single" }));
+    expect(q("[data-start-run-web-background]")).toBeNull();
+    document.body.innerHTML = "";
+    await render(StartRunDialog, props({ mode: "review", offerWebBackground: true }));
+    expect(q("[data-start-run-web-background]")).toBeNull();
+  });
+
+  it("is ticked when it opens, says what is sent, and returns the writer's choice", async () => {
+    const onConfirm = vi.fn();
+    await render(StartRunDialog, props({ mode: "single", offerWebBackground: true, onConfirm }));
+    const row = q("[data-start-run-web-background]")!;
+    expect(text(row)).toBe(`${WEB_BACKGROUND_COPY.label} ${WEB_BACKGROUND_COPY.line}`);
+    expect(text(row)).not.toMatch(/[\u2010-\u2015\u2212]/u);
+    const check = q("[data-start-run-web-check]")!;
+    expect(check.getAttribute("aria-checked")).toBe("true");
+    // Its line describes the tick for assistive technology.
+    expect(document.getElementById(check.getAttribute("aria-describedby")!)?.textContent).toBe(WEB_BACKGROUND_COPY.line);
+    await userEvent.click(check);
+    expect(check.getAttribute("aria-checked")).toBe("false");
+    q<HTMLButtonElement>("[data-start-run-confirm]")!.click();
+    expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: [], documentIds: [] }, { webBackground: false });
+  });
+
+  it("is on for every mode that drafts, Step by step included", async () => {
+    const onConfirm = vi.fn();
+    await render(StartRunDialog, props({ mode: "iterative", offerWebBackground: true, onConfirm }));
+    expect(q("[data-start-run-web-check]")!.getAttribute("aria-checked")).toBe("true");
+    q<HTMLButtonElement>("[data-start-run-confirm]")!.click();
+    expect(onConfirm).toHaveBeenCalledWith({ transcriptIds: [], documentIds: [] }, { webBackground: true });
   });
 });

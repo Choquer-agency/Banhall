@@ -38,7 +38,7 @@ describe("CandidateSelection QA rail (2026-09-28, second)", () => {
     const rows = [...container.querySelectorAll<HTMLElement>("[data-qa-line-limit]")];
     expect(rows.map((row) => row.dataset.qaLineLimit)).toEqual(["246"]);
     expect(rows[0].textContent?.trim()).toBe(
-      "Line 246 is over the CRA limit: 420 of 350 words, 41 of 50 lines. Shorten it before filing."
+      "Line 246 is over the CRA limit: 420 of 350 words, 41 of 50 lines. Trim it to fit before export."
     );
   });
 });

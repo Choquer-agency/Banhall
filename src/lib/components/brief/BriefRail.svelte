@@ -9,6 +9,7 @@
     CONFIDENCE_WORDS,
     ELIGIBILITY_REASON_WORDS,
     INCLUSION_SOURCES_TRUNCATED_NOTE,
+    INCLUSION_USES_TRUNCATED_NOTE,
     INCLUSION_TRUNCATED_NOTE,
     changeSummary,
     inclusionTruncation,
@@ -16,6 +17,7 @@
     groupBrief,
     inclusionHeader,
     inclusionStatusText,
+    inclusionUsesText,
     liveCount,
     offerHref,
     offerSentence,
@@ -50,10 +52,14 @@
     documentsTruncated?: boolean;
     /** DW-133: the frozen sources stopped at the budget; transcripts and both counts are lower bounds. */
     sourcesTruncated?: boolean;
+    /** Phase D (step 2): the steps' recorded reads stopped at their read budget. */
+    usesTruncated?: boolean;
     rows: InclusionRow[];
   };
   type WriterSettingsView = {
     noProfileLine: string | null;
+    /** Phase E (E1b): "3 saved preferences used.", or absent. */
+    savedPreferencesLine?: string | null;
     offer: { supplyPath: "writer_notes" | "attachment"; fileName: string } | null;
   };
 
@@ -224,7 +230,12 @@
     <ul class="m-0 list-none p-0">
       {#each inclusion.rows as row (row.key)}
         <li class="flex items-baseline gap-3 border-b border-line-soft px-4 py-2.5">
-          <span class="min-w-0 flex-1 break-words text-body">{row.label}</span>
+          <span class="min-w-0 flex-1 break-words text-body">
+            {#if row.kind === "company"}<span class="mr-1.5 text-data text-ink-muted" data-inclusion-company>Company file</span>{/if}{row.label}
+            {#if inclusionUsesText(row.uses)}
+              <span class="block text-data text-ink-muted" data-inclusion-uses>{inclusionUsesText(row.uses)}</span>
+            {/if}
+          </span>
           {#if row.inclusion}
             <span
               data-inclusion={row.inclusion}
@@ -246,8 +257,16 @@
       {truncation === "sources" ? INCLUSION_SOURCES_TRUNCATED_NOTE : INCLUSION_TRUNCATED_NOTE}
     </p>
   {/if}
+  {#if inclusion?.usesTruncated}
+    <p data-inclusion-uses-truncated class="border-b border-line-soft px-4 py-2.5 text-body text-ink-muted">
+      {INCLUSION_USES_TRUNCATED_NOTE}
+    </p>
+  {/if}
   {#if writerSettings?.noProfileLine}
     <p class="border-b border-line-soft px-4 py-2.5 text-body">{writerSettings.noProfileLine}</p>
+  {/if}
+  {#if writerSettings?.savedPreferencesLine}
+    <p data-saved-preferences-line class="border-b border-line-soft px-4 py-2.5 text-body">{writerSettings.savedPreferencesLine}</p>
   {/if}
   {#if writerSettings?.offer && !offerDismissed}
     <div class="mx-4 my-3 flex flex-wrap items-center gap-2 rounded-md bg-primary-wash px-3 py-2">

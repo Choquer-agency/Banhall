@@ -123,6 +123,40 @@ for (const [name, Page] of [["preview", PreviewProjectPage], ["current", Current
       expect(requests()).toEqual([]);
     });
 
+    it("lists the company's files last as company files, and an unticked one is left out of the run (Phase C)", async () => {
+      __setQueryData("companyFiles:listForProject", {
+        files: [{ _id: "company-file-1", fileName: "acme-history.docx", category: null, wordCount: 900, createdAt: now }],
+        usedAtMost: 12,
+      });
+      await openDialog();
+      const rows = [...document.querySelectorAll<HTMLElement>("[data-start-run-row]")];
+      expect(rows.map((row) => row.querySelector("[data-start-run-name]")?.textContent)).toEqual([
+        "Priya interview.docx", "cold-soak.txt", "later-notes.pdf", "acme-history.docx",
+      ]);
+      expect(rows.at(-1)?.querySelector("[data-start-run-chip]")?.textContent?.trim()).toBe("Company file");
+      // 2026-10-28 (third): a company file is read last, while there is room; the
+      // whole line is in the title when the row cuts it short.
+      const meta = rows.at(-1)?.querySelector("[data-start-run-meta]");
+      expect(meta?.textContent?.trim()).toBe("900 words · Read last, newest first, while there is room");
+      expect(meta?.getAttribute("title")).toBe("900 words · Read last, newest first, while there is room");
+      await dialog().getByRole("checkbox", { name: "Use acme-history.docx", exact: true }).click();
+      await expect.poll(selections).toEqual([
+        {
+          projectId: "project-start",
+          excludedTranscriptIds: [],
+          excludedDocumentIds: [],
+          excludedCompanyFileIds: ["company-file-1"],
+        },
+      ]);
+      await dialog().getByRole("button", { name: "Start with 3 files", exact: true }).click();
+      await expect.poll(requests).toEqual([{
+        projectId: "project-start",
+        lengthTarget: "standard",
+        candidateMode: "iterative",
+        excludeCompanyFileIds: ["company-file-1"],
+      }]);
+    });
+
     it("an untick asks for a matching head start, and Start sends the leave-out list with the run, confirm first", async () => {
       await openDialog();
       await dialog().getByRole("checkbox", { name: "Use later-notes.pdf", exact: true }).click();

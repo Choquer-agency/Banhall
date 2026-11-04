@@ -53,10 +53,21 @@
     PromptInputTextarea,
     PromptInputActions,
     Loader,
-    Suggestion,
   } from "$lib/components/chat/primitives";
   import { createRequestId } from "$lib/requestId";
   import { userErrorMessage } from "$lib/errors";
+  import {
+    AssistantCards,
+    provideAssistantCards,
+    updatedLabel,
+    type ReviewSession,
+  } from "$lib/chat/assistantCards.svelte";
+  import { PROPOSAL_UNDO_CONFLICT_TEXT, proposalUndoErrorMessage } from "$lib/chat/chatRefusals";
+  import { openWriterQuestion } from "$lib/chat/writerQuestion";
+  import { groupHistory, shortTimeAgo } from "$lib/chat/chatHistory";
+  import { startOptions } from "$lib/chat/startOptions";
+  import type { QaTopIssue } from "$lib/qa/qaSectionScores";
+  import ComposerOptionsPanel from "./ComposerOptionsPanel.svelte";
 
   // Agent-based chat rail (BNH-10 P2) — streaming replacement for ChatPanel.
   // Messages come from the @convex-dev/agent component (token-streamed into
@@ -82,17 +93,35 @@
     /** Height of the pinned composer area, for hosts that float notices above it. */
     composerHeight?: number;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
-    onReviewReplacements?: (
-      pairs: { find: string; replaceWith: string }[],
-      proposalId: string
-    ) => void;
-    /** Live "Show changes" preview: render the proposal as strikethrough +
-     * inline insertions in the real editor (on), or clear the preview (off). */
-    onPreviewProposal?: (
-      pairs: { find: string; replaceWith: string }[],
-      on: boolean
-    ) => void;
-    reviewingId?: string | null;
+    /**
+     * Owner 2026-10-28 (row 34): the page's review session. Review marks a
+     * card's change in the report and floats the review bar over it. Without
+     * one (a host with no report beside the chat) the card shows the change.
+     */
+    review?: ReviewSession | null;
+    /** Opens the report's version history, offered when an Undo is refused. */
+    onOpenVersionHistory?: () => void;
+    /**
+     * Owner 2026-10-28 (O4) and 2026-10-29: the report, so a new conversation
+     * can offer options built from it (`startOptions`).
+     */
+    reportContent?: string | null;
+    /** The last finished QA run's costliest issue per Line (`qaTopIssues`). */
+    qaIssues?: readonly QaTopIssue[];
+    /** The page is still reading whether QA issues apply: "Get started" waits. */
+    qaLoading?: boolean;
+    /**
+     * Owner 2026-10-28 (row 21): a message the page asks the Assistant to
+     * send in a new conversation, such as the over-limit pill's shorten
+     * request. Sent once per id; `onPromptSent` then clears it.
+     */
+    pendingPrompt?: { id: string; text: string } | null;
+    /** Called as the panel takes the prompt, before it sends it. */
+    onPromptTaken?: (id: string) => void;
+    /** Whether it was sent, and whether a reply is under way at that moment. */
+    onPromptDone?: (id: string, sent: boolean, working: boolean) => void;
+    /** Whether a reply is being sent or written, for the report's "Shortening" chip. */
+    onWorkingChange?: (working: boolean) => void;
     onBeforeApply?: () => Promise<unknown>;
   }
 
@@ -108,11 +137,56 @@
     closeInset = true,
     composerHeight = $bindable(0),
     onReferenceText,
-    onReviewReplacements,
-    onPreviewProposal,
-    reviewingId,
+    review = null,
+    onOpenVersionHistory,
+    reportContent = null,
+    qaIssues = [],
+    qaLoading = false,
+    pendingPrompt = null,
+    onPromptTaken,
+    onPromptDone,
+    onWorkingChange,
     onBeforeApply,
   }: Props = $props();
+
+  // Owner 2026-10-28 (rows 32 to 36): the cards' shared state, the Undo bar
+  // and the inline notice. The page's review session is read once.
+  const cards = new AssistantCards(untrack(() => review));
+  provideAssistantCards(cards);
+
+  // The Undo bar keeps only cards that are still applied: one undone from its
+  // own card, or refused, leaves the bar.
+  const undoBarCards = $derived(
+    (cards.lastAccepted ?? []).filter((card) =>
+      (proposalsQ.data ?? []).some((proposal) => proposal._id === card.proposalId && proposal.state === "applied")
+    )
+  );
+  let undoingLatest = $state(false);
+  async function undoLatest() {
+    if (undoingLatest || undoBarCards.length === 0) return;
+    undoingLatest = true;
+    cards.clearNotice();
+    let current: (typeof undoBarCards)[number] | undefined;
+    try {
+      await onBeforeApply?.();
+      for (const card of [...undoBarCards].reverse()) {
+        current = card;
+        await undoProposal({ proposalId: card.proposalId as Id<"chatProposals"> });
+        cards.forget([card.proposalId]);
+      }
+    } catch (error) {
+      // Q5: the bar goes and the reason is the newest thing in the chat.
+      cards.lastAccepted = null;
+      const message = proposalUndoErrorMessage(error);
+      cards.showNotice(
+        message === PROPOSAL_UNDO_CONFLICT_TEXT
+          ? { message: `Couldn't undo. ${current?.line ? `Line ${current.line}` : "This passage"} was edited after you accepted it.`, action: "version_history" }
+          : { message }
+      );
+    } finally {
+      undoingLatest = false;
+    }
+  }
 
   /** The source passages a proposal references — for scroll-and-highlight. */
   function proposalRefs(p: Proposal): string[] {
@@ -147,26 +221,6 @@
     const marker = "\n\n[Writer is refining suggestion ";
     const index = text.indexOf(marker);
     return index === -1 ? text : text.slice(0, index);
-  }
-
-  /**
-   * SR&ED-relevant conversation starters for the empty state. Phase C (W3):
-   * a starter fills the empty composer and focuses it; the writer sends it.
-   */
-  const STARTERS = [
-    "Tighten the uncertainty framing in Line 242",
-    "Find every mention of the prototype",
-    "Check this report for banned words",
-    "Make Line 244 (work performed) more chronological",
-  ];
-
-  function useStarter(starter: string) {
-    if (input.trim()) return;
-    input = starter;
-    void tick().then(() => {
-      textareaEl?.focus();
-      textareaEl?.setSelectionRange(starter.length, starter.length);
-    });
   }
 
   const HINT_KEY = "banhall.chat.hintSeen";
@@ -422,6 +476,33 @@
     });
   });
 
+  const undoProposal = useMutation(api.chatV2.undoProposal);
+  // A card under review that is no longer waiting or no longer shown
+  // (accepted elsewhere, dismissed, stale, replaced by a later card for the
+  // same passage, or on another alternative) ends its review. A research
+  // card is never in this list, so only a card once listed can leave it.
+  let reviewedListed: string | null = null;
+  $effect(() => {
+    const target = review?.target;
+    const rows = proposalsQ.data;
+    if (!target) {
+      reviewedListed = null;
+      return;
+    }
+    if (!rows) return;
+    const card = rows.find((row) => row._id === target.proposalId);
+    if (card) reviewedListed = target.proposalId;
+    const gone = card
+      ? card.state !== "pending" || !shownProposalIds.has(card._id)
+      : reviewedListed === target.proposalId;
+    if (gone) untrack(() => review?.stop());
+  });
+  // Owner 2026-10-28 (row 32): a new conversation starts without a bar or a
+  // notice from the last one.
+  $effect(() => {
+    void selectedThreadId;
+    untrack(() => cards.reset());
+  });
   const proposalsQ = useQuery(api.chatV2.listProposals, () =>
     selectedThreadId ? { threadId: selectedThreadId } : "skip"
   );
@@ -748,6 +829,10 @@
   const grouped = $derived(
     correlateProposals(messages ?? [], proposalsQ.data ?? [])
   );
+  // The cards the transcript shows (superseded refinements are left out).
+  const shownProposalIds = $derived(
+    new Set<string>([...[...grouped.byMessageId.values()].flat(), ...grouped.orphans].map((proposal) => proposal._id))
+  );
 
   // Durable turn timing ("Worked for 12s"). The agent component's UIMessage
   // can't express it: its _creationTime is enqueue time and is regenerated on
@@ -882,8 +967,8 @@
     return {
       disabled: regenerationBusy,
       description: `Regenerate response to: ${excerpt.length > 160 ? `${excerpt.slice(0, 159)}…` : excerpt}`,
-      onRegenerate: () => sendText(text, { kind: "regenerate", threadId },
-        turn?.promptMessageId ? { kind: "regenerate", ofPromptMessageId: turn.promptMessageId } : undefined),
+      onRegenerate: async () => void (await sendText(text, { kind: "regenerate", threadId },
+        turn?.promptMessageId ? { kind: "regenerate", ofPromptMessageId: turn.promptMessageId } : undefined)),
     };
   }
 
@@ -906,7 +991,7 @@
     return {
       label,
       disabled: regenerationBusy,
-      onContinue: () => sendText(text, { kind: "continue", threadId }),
+      onContinue: async () => void (await sendText(text, { kind: "continue", threadId })),
       ...(skipNote ? { skipNote } : {}),
     };
   }
@@ -1156,7 +1241,7 @@
     if (composerSelection) textareaEl?.focus();
   });
 
-  async function sendText(text: string, intent: SendIntent = { kind: "composer" }, alternative?: AlternativeSend) {
+  async function sendText(text: string, intent: SendIntent = { kind: "composer" }, alternative?: AlternativeSend): Promise<boolean> {
     const historical = intent.kind !== "composer";
     const trimmed = historical ? text : text.trim();
     if (
@@ -1170,7 +1255,7 @@
       (!historical && composerChatBlocked) ||
       (!historical && (threadsLoading || threadsUnreadable || conversationUnreadable)) ||
       isStreaming
-    ) return;
+    ) return false;
 
     if (!historical && pendingResearch) {
       researchStarting = true;
@@ -1199,7 +1284,7 @@
       } finally {
         researchStarting = false;
       }
-      return;
+      return researchError === null;
     }
 
     const args: Parameters<typeof sendMessage>[0] = {
@@ -1247,6 +1332,8 @@
     const transmission = transmitRequest(request);
     void revealRequest(request);
     await transmission;
+    // Whether it reached the server; a refused send stays as a failed row.
+    return localSends.find((candidate) => candidate.key === request.key)?.state.kind !== "failed";
   }
 
   function retryRequest(key: string, button: HTMLButtonElement) {
@@ -1259,6 +1346,7 @@
 
   async function transmitRequest(request: LocalSend, retryButton?: HTMLButtonElement) {
     sending = true;
+    cards.clearNotice();
     localSends = localSends.map(candidate => candidate.key === request.key
       ? { ...candidate, retried: candidate.retried || !!retryButton, state: { kind: "sending" } } : candidate);
     try {
@@ -1312,6 +1400,9 @@
   const isEmpty = $derived(!messages || messages.length === 0);
   // Phase C (W2): older pages may still hold this path's messages.
   const isConversationEmpty = $derived(isEmpty && visibleLocalSends.length === 0 && !hasResearch && !pendingResearch && !canLoadOlder);
+  // "Get started" goes by the conversation's own messages: research sessions
+  // belong to the whole report and show in every conversation's feed.
+  const conversationUnstarted = $derived(isEmpty && visibleLocalSends.length === 0 && !pendingResearch && !canLoadOlder);
 
   // Typing dots while the reply hasn't started streaming text yet.
   const lastMessage = $derived(
@@ -1352,6 +1443,100 @@
           (lastMessage.status === "streaming" ||
             lastMessage.status === "pending")))
   );
+
+  // Owner 2026-10-28 (row 37): options that take the message box's place.
+  // "Assistant needs you" holds the AI's open question; "Get started" a new
+  // conversation's options built from the report (owner 2026-10-29: always,
+  // see startOptions). Skip returns to the message box for that question or chat. A
+  // conversation still loading reads as empty, so neither shows until the
+  // transcript is ready: reopening a chat never flashes "Get started".
+  const skippedPanelKeys = new SvelteSet<string>();
+  const writerQuestion = $derived(openWriterQuestion(messages));
+  const newChatOptions = $derived(startOptions(reportContent, qaIssues));
+  const optionsPanel = $derived.by(() => {
+    // A conversation that could not load says so over a held message box;
+    // a pick there could not be sent.
+    if (!transcriptReady || threadsUnreadable || conversationUnreadable) return null;
+    // Research being started or published blocks a send, as it blocks Send.
+    if (isStreaming || awaitingReply || sending || pendingResearch || refiningProposal || researchStarting || publicationPending) return null;
+    if (writerQuestion && selectedThreadId) {
+      const key = `question:${selectedThreadId}:${writerQuestion.toolCallId}`;
+      if (skippedPanelKeys.has(key)) return null;
+      return { kind: "question" as const, key, label: "Assistant needs you", question: writerQuestion.question, options: writerQuestion.options };
+    }
+    // Waits for the QA reads, so its options never reorder under the writer.
+    if (conversationUnstarted && newChatOptions.length && !input.trim() && !pendingHighlight && !qaLoading) {
+      const key = `start:${selectedThreadId ?? draftConversationId}`;
+      if (skippedPanelKeys.has(key)) return null;
+      return { kind: "start" as const, key, label: "Get started", question: "What should we work on?", options: newChatOptions };
+    }
+    return null;
+  });
+  // Row 21: the page's request, sent once in a new conversation as soon as
+  // the panel can send.
+  let sentPromptId: string | null = null;
+  $effect(() => {
+    const prompt = pendingPrompt;
+    if (!prompt || prompt.id === sentPromptId) return;
+    if (threadsLoading || sending || isStreaming || awaitingReply || researchStarting || publicationPending) return;
+    sentPromptId = prompt.id;
+    // Taken at once, so a remount cannot send it again.
+    untrack(() => onPromptTaken?.(prompt.id));
+    untrack(() => void sendPagePrompt(prompt));
+  });
+  // The request goes out alone in a new conversation: changing conversation
+  // already resets the per-message choices (pinned files, Brain), and the
+  // writer's draft stays with the conversation it was typed in.
+  async function sendPagePrompt(prompt: { id: string; text: string }) {
+    startNewThread();
+    await tick();
+    let sent = false;
+    try {
+      sent = await sendText(prompt.text);
+    } finally {
+      onPromptDone?.(prompt.id, sent, replyUnderWay());
+    }
+  }
+  // A message on its way counts until the server's copy and its reply take
+  // over, so a new conversation still loading never reads as idle.
+  function replyUnderWay() {
+    return sending || isStreaming || awaitingReply || visibleLocalSends.some((request) => request.state.kind !== "failed");
+  }
+  $effect(() => {
+    const working = replyUnderWay();
+    untrack(() => onWorkingChange?.(working));
+  });
+
+  // Row 16 B: the header names the open conversation. Until the list says
+  // there is none to reopen, it is not yet a new one.
+  const conversationTitle = $derived(
+    selectedThreadId
+      ? (threadsQ.data?.find((thread) => thread.agentThreadId === selectedThreadId)?.title ?? "Assistant")
+      : startingNewChat || threadsQ.data?.length === 0
+        ? "New conversation"
+        : "Assistant"
+  );
+  function skipOptionsPanel(key: string | undefined) {
+    if (key) skippedPanelKeys.add(key);
+    void tick().then(() => textareaEl?.focus());
+  }
+  // Review P2-2: once a conversation's message box has held words, a
+  // selection or a research request, emptying it never brings "Get started"
+  // back over it.
+  $effect(() => {
+    if (!input.trim() && !pendingHighlight && !pendingResearch) return;
+    const key = `start:${selectedThreadId ?? draftConversationId}`;
+    untrack(() => skippedPanelKeys.add(key));
+  });
+  /** Typing on "Get started" goes to the message box, what was typed included. */
+  function typeIntoComposer(key: string | undefined, text: string) {
+    if (key) skippedPanelKeys.add(key);
+    input = `${input}${text}`;
+    void tick().then(() => {
+      textareaEl?.focus();
+      textareaEl?.setSelectionRange(input.length, input.length);
+    });
+  }
 
   const regenerationBusy = $derived(regenerationLoading || sending || researchStarting || isStreaming ||
     researchSessionsQ.isLoading || researchSessionsQ.isStale || !!researchSessionsQ.error ||
@@ -1484,6 +1669,32 @@
         </div>
       </MessageContent>
     </Message>
+  </div>
+{/snippet}
+
+{#snippet chatNotice(notice: { message: string; action?: "version_history" })}
+  <!-- Row 32 (Q5): an error the writer can act on, Claude style: the newest
+       item in the chat, a light grey box with a small action under it. -->
+  <div class="mt-3 flex flex-col gap-2 rounded-[0.625rem] border border-line-soft bg-gray-50 px-3 py-2.5" role="alert" data-chat-notice>
+    <div class="flex items-start gap-2">
+      <span class="flex h-[1.1875rem] w-4 shrink-0 items-center" aria-hidden="true">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4M12 17h.01" />
+        </svg>
+      </span>
+      <p class="min-w-0 flex-1 text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{notice.message}</p>
+    </div>
+    {#if notice.action === "version_history" && onOpenVersionHistory}
+      <div class="flex gap-1 pl-5">
+        <button type="button" class="inline-flex h-[1.625rem] items-center gap-1.5 rounded-md border border-line bg-white px-2 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-100 pointer-coarse:min-h-11"
+          onclick={onOpenVersionHistory} data-chat-notice-action>
+          <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="var(--color-ink-secondary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2" />
+          </svg>
+          Version history
+        </button>
+      </div>
+    {/if}
   </div>
 {/snippet}
 
@@ -1892,20 +2103,21 @@
 <div class="flex h-full flex-col bg-white" data-assistant-panel data-assistant-draft={input.trim() || pinnedFiles.length || allowBrain || composerContextActive ? "" : undefined}>
   <p class="sr-only" aria-live="polite" aria-atomic="true" data-reply-announcement>{replyAnnouncement}</p>
   <!-- Header (pr-12 clears a host's overlay close button when it has one) -->
-  <!-- Board 2.1 header: Aurora mark, "Assistant" and the expand control.
-       The title opens the conversation menu (history, new conversation). -->
+  <!-- Owner 2026-10-28 (row 16 B, like Linear): the conversation's title as
+       plain text, a clock button that opens Chat history, and a pencil that
+       starts a new conversation. -->
   <div class={`box-content flex h-7 shrink-0 items-center gap-2.5 pt-5 pb-2 ${isFull ? "px-6 lg:px-0" : `pl-6 ${closeInset ? "pr-12" : "pr-6"}`}`}>
     <AuroraMark size={20} />
+    <span class="min-w-0 flex-1 truncate text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink" data-conversation-title>{conversationTitle}</span>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
         bind:ref={conversationMenuButton}
-        aria-label="Conversation menu"
-        title="Conversations"
-        class="group -ml-1.5 flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink transition-colors hover:bg-chrome/60 data-[state=open]:bg-chrome/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11"
+        aria-label="Chat history"
+        title="Chat history"
+        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink data-[state=open]:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
       >
-        Assistant
-        <svg class="size-3 shrink-0 text-ink-faint opacity-0 transition-[opacity,transform] group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[state=open]:rotate-180 group-data-[state=open]:opacity-100 motion-reduce:transition-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2" />
         </svg>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
@@ -1922,15 +2134,7 @@
           }}
           class="z-[100] max-h-80 w-72 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg"
         >
-          <DropdownMenu.Item
-            onSelect={startNewThread}
-            class="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:h-11"
-          >
-            <svg class="h-4 w-4 shrink-0 text-primary-selected" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" d="M12 5v14M5 12h14" />
-            </svg>
-            New conversation
-          </DropdownMenu.Item>
+          <p class="px-2 pb-1 pt-1.5 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">Chat history</p>
           {#each unsavedConversations as request (request.scope)}
             <DropdownMenu.Item onSelect={() => returnToRequest(request)}
               class="flex min-h-8 w-full items-center rounded-md px-2 text-sm font-medium text-ink outline-none hover:bg-primary-wash focus:bg-primary-wash pointer-coarse:min-h-11">
@@ -1938,24 +2142,26 @@
             </DropdownMenu.Item>
           {/each}
           {#if (threadsQ.data?.length ?? 0) > 0}
-            <div class="my-1 border-t border-line-soft"></div>
-            {#each threadsQ.data ?? [] as thread (thread._id)}
+            {@const now = Date.now()}
+            {#each groupHistory(threadsQ.data ?? [], (thread) => thread.lastActivityAt ?? thread.createdAt, now) as entry (entry.group)}
+            <p class="px-2 pb-1 pt-2 text-xs leading-[calc(4/3)] text-ink-muted" data-history-group>{entry.group}</p>
+            {#each entry.rows as thread (thread._id)}
+              {@const current = thread.agentThreadId === selectedThreadId}
               <!-- Phase C (W3): each conversation has its own actions. -->
               <div class="flex items-center gap-0.5" data-thread-row>
                 <DropdownMenu.Item
                   onSelect={() => selectThread(thread.agentThreadId)}
-                  class={`flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-sm outline-none hover:bg-chrome/60 focus:bg-chrome/60 pointer-coarse:min-h-11 ${thread.agentThreadId === selectedThreadId ? "bg-chrome" : ""}`}
+                  class={`flex min-h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] outline-none hover:bg-gray-50 focus:bg-gray-50 pointer-coarse:min-h-11 ${current ? "bg-primary-wash" : ""}`}
                 >
-                  <span class="size-2 shrink-0 rounded-full bg-primary-selected" aria-hidden="true"></span>
                   <span class="flex min-w-0 flex-1 flex-col">
-                    <span id={`thread-title-${thread._id}`} class="truncate text-sm font-medium text-ink">{thread.title}</span>
+                    <span id={`thread-title-${thread._id}`} class={`truncate leading-[calc(18/13)] ${current ? "text-primary-selected" : "text-ink"}`}>{thread.title}</span>
                     {#if !thread.startedByCurrentUser && thread.createdByName}
                       <!-- Phase B: a conversation someone else started says who. -->
                       <span class="truncate text-xs text-ink-muted" data-thread-starter>Started by {thread.createdByName}</span>
                     {/if}
                   </span>
-                  <span class="shrink-0 text-xs text-ink-faint">
-                    {new Date(thread.lastActivityAt ?? thread.createdAt).toLocaleDateString()}
+                  <span class="shrink-0 text-xs text-ink-muted">
+                    {shortTimeAgo(thread.lastActivityAt ?? thread.createdAt, now)}
                   </span>
                 </DropdownMenu.Item>
                 <DropdownMenu.Sub>
@@ -1985,6 +2191,7 @@
                   </DropdownMenu.Portal>
                 </DropdownMenu.Sub>
               </div>
+            {/each}
             {/each}
           {/if}
           {#if archivedThreads.length > 0}
@@ -2036,13 +2243,25 @@
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+    <button
+      type="button"
+      onclick={startNewThread}
+      title="New conversation"
+      aria-label="New conversation"
+      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-gray-50 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
+      data-new-conversation
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      </svg>
+    </button>
     {#if onToggleFull}
       <button
         onclick={onToggleFull}
         title={isFull ? "Collapse assistant" : "Expand assistant"}
         aria-label={isFull ? "Collapse assistant" : "Expand assistant"}
         aria-pressed={isFull}
-        class="ml-auto flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none pointer-coarse:size-11"
+        class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-md text-ink-secondary transition-colors hover:bg-chrome/60 hover:text-ink motion-reduce:transition-none pointer-coarse:size-11"
       >
         {#if isFull}
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -2110,9 +2329,12 @@
         This conversation could not load. Pick another from the Assistant menu, or start a new one.
       </p>
     </div>
+  {:else if isConversationEmpty && optionsPanel?.kind === "start"}
+    <!-- O4: the Get started options stand in for the welcome. -->
+    <div class="min-h-0 flex-1" data-empty-conversation></div>
   {:else if isConversationEmpty}
-    <!-- Empty state: brand mark, capability blurb, starter suggestions; the
-         composer stays pinned to the bottom (Obvious anatomy) in EVERY state. -->
+    <!-- Empty state: brand mark and capability blurb; the composer stays
+         pinned to the bottom (Obvious anatomy) in EVERY state. -->
     <div class="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-6">
       <AuroraMark size={36} class="mb-3" />
       <h2 class="text-center text-[0.9375rem] font-medium text-ink">
@@ -2122,18 +2344,6 @@
         I can tighten language, find passages, check compliance and propose
         edits, grounded in this report and its source documents.
       </p>
-      {#if !input.trim()}
-      <div class="mt-5 flex w-full max-w-[20rem] flex-col gap-1.5" data-starters>
-        {#each STARTERS as starter (starter)}
-          <Suggestion
-            class="w-full justify-start rounded-lg px-3 py-1.5 text-left text-[0.8125rem] pointer-coarse:min-h-11"
-            onclick={() => useStarter(starter)}
-          >
-            {starter}
-          </Suggestion>
-        {/each}
-      </div>
-      {/if}
     </div>
   {:else}
     <ChatContainer
@@ -2237,9 +2447,6 @@
             onRefine={refineProposal}
             {onBeforeApply}
             {onReferenceText}
-            {onReviewReplacements}
-            {onPreviewProposal}
-            {reviewingId}
           />
         {/if}
         {/if}
@@ -2252,19 +2459,19 @@
           onRefine={refineProposal}
           {onBeforeApply}
           {onReferenceText}
-          {onReviewReplacements}
-          {onPreviewProposal}
-          {reviewingId}
         />
       {/if}
 
       <ResearchFeed
         {reportId}
         {onReferenceText}
-        {onPreviewProposal}
         {onBeforeApply}
         onRefineProposal={refineProposal}
       />
+
+      {#if cards.notice}
+        {@render chatNotice(cards.notice)}
+      {/if}
 
       <!-- Only until the reply's own status line exists: once the assistant
            has started, its turn says what it is doing (owner, 2026-10-21). -->
@@ -2277,7 +2484,34 @@
 
   {/if}
   <!-- Preserve the composer and keyboard focus across the first local row. -->
-  <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>{@render composer()}</div>
+  <div bind:offsetHeight={composerHeight} class={`shrink-0 pt-2 pb-6 ${isFull ? "px-6 lg:px-0" : "px-6"}`}>
+    {#if undoBarCards.length}
+      <!-- Row 32: the latest accept only; older accepts undo from their card. -->
+      <div class="pb-2" data-undo-bar>
+        <div class="flex h-10 items-center gap-2 rounded-[0.625rem] border border-line-soft bg-gray-50 pl-3 pr-1.5">
+          <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary-selected)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
+          <span class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(18/13)] text-ink" role="status">{updatedLabel(undoBarCards)}</span>
+          <button type="button" class="inline-flex h-7 shrink-0 items-center rounded-[0.4375rem] border border-line bg-white px-3 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-100 disabled:opacity-50 pointer-coarse:min-h-11"
+            onclick={() => void undoLatest()} disabled={undoingLatest} data-undo-bar-undo>{undoingLatest ? "Undoing…" : "Undo"}</button>
+        </div>
+      </div>
+    {/if}
+    {#if optionsPanel}
+      {#key optionsPanel.key}
+        <ComposerOptionsPanel
+          label={optionsPanel.label}
+          question={optionsPanel.question}
+          options={optionsPanel.options}
+          disabled={sending || researchStarting || publicationPending || composerChatBlocked || threadsLoading}
+          onSelect={(text) => void sendText(text)}
+          onSkip={() => skipOptionsPanel(optionsPanel?.key)}
+          onType={optionsPanel.kind === "start" ? (text) => typeIntoComposer(optionsPanel?.key, text) : undefined}
+        />
+      {/key}
+    {:else}
+      {@render composer()}
+    {/if}
+  </div>
   <StopReplyDialog bind:open={stopConfirmOpen} name={stopConfirmName} onConfirm={() => void stopGeneration()} />
   <DeleteConversationDialog bind:open={deleteOpen} title={deleteTarget?.title} onConfirm={() => void confirmDelete()} onCloseFocus={focusConversationMenu} />
 </div>

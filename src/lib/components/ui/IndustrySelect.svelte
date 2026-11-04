@@ -3,11 +3,11 @@
   everywhere (project creation, project page, dashboard filter): the three base
   industries plus legacy custom values already saved on projects.
 
-  variant "picker"  — for setting a project's industry ("" = not set).
+  variant "picker": for setting a project's industry ("" = not set).
                       Admins may type and add a new industry; other roles select only.
-  variant "filter"  — for filtering lists ("all" = no filter); never creatable.
+  variant "filter": for filtering lists ("all" = no filter); never creatable.
 
-  Values are kebab-case slugs (must match the Brain namespace strings —
+  Values are kebab-case slugs (must match the Brain namespace strings in
   docs/the-brain.md); labels are the humanized form.
 -->
 <script module lang="ts">
@@ -33,6 +33,7 @@
     noChangeLabel = undefined,
     clearable = true,
     ariaLabel = undefined,
+    offer = [],
     onValueChange,
   }: {
     value?: string;
@@ -52,6 +53,11 @@
     clearable?: boolean;
     /** The input's accessible name; without it the placeholder names it. */
     ariaLabel?: string;
+    /**
+     * Industries offered even when no project uses one (Edit company keeps
+     * the company's own, 2026-10-28).
+     */
+    offer?: string[];
     onValueChange?: (value: string) => void;
   } = $props();
 
@@ -64,7 +70,7 @@
   let sessionIndustries = $state<string[]>([]);
 
   const customIndustries = $derived(
-    [...new Set([...(industriesQ.data ?? []), ...sessionIndustries])]
+    [...new Set([...(industriesQ.data ?? []), ...sessionIndustries, ...offer.filter(Boolean)])]
       .filter((slug) => !BASE_INDUSTRY_SLUGS.has(slug))
       .sort()
   );

@@ -31,8 +31,8 @@ import {
   classify,
   extensionOf,
 } from "./lib/ingestionClassify";
-import mammoth from "mammoth";
 import { createHash } from "node:crypto";
+import { readFileOnServer } from "./ai/fileReader";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 // Full extracted text is byte-capped (UTF-8) and stored as a blob; only a
@@ -42,6 +42,12 @@ const PREVIEW_CHARS = 8_000;
 const PROCESS_BATCH = 20;
 const BATCHES_PER_INVOCATION = 6; // ~120 files, then reschedule
 const PAGES_PER_INVOCATION = 40; // ~8k delta items, then reschedule
+// 2026-10-26 (Phase B2): PDFs are read in their own action
+// (extractUploadedItem), spaced PDF_READ_SPACING_MS apart, so one slow PDF
+// cannot stop a run. Past PROCESS_TIME_BUDGET_MS from the start of a run,
+// it stops between files and reschedules, inside the 10-minute action limit.
+const PDF_READ_SPACING_MS = 2_000;
+const PROCESS_TIME_BUDGET_MS = 6 * 60_000;
 
 type DriveItem = {
   id: string;
@@ -143,27 +149,20 @@ function truncateUtf8(text: string, maxBytes: number): { text: string; truncated
   };
 }
 
-async function extractText(
+/**
+ * The server reader (convex/ai/fileReader.ts), shared with project files.
+ * A file the reader fails on (damaged or protected) throws, so the item is
+ * marked failed, as before the shared reader.
+ */
+export async function extractText(
   bytes: ArrayBuffer,
   fileName: string
 ): Promise<{ text?: string; note?: string }> {
-  const ext = extensionOf(fileName);
-  if (ext === "txt" || ext === "vtt") {
-    return { text: new TextDecoder("utf-8").decode(bytes) };
-  }
-  if (ext === "docx") {
-    const result = await mammoth.extractRawText({
-      buffer: Buffer.from(bytes),
-    });
-    return { text: result.value };
-  }
-  if (ext === "pdf") {
-    return { note: "PDF — text extraction not yet supported server-side" };
-  }
-  if (ext === "doc") {
-    return { note: "Legacy .doc — re-save as .docx to extract text" };
-  }
-  return { note: `Unsupported type .${ext}` };
+  // The import keeps up to MAX_TEXT_BYTES, as before the shared reader;
+  // finishExtraction cuts it to bytes and notes the cut.
+  const reading = await readFileOnServer(new Uint8Array(bytes), fileName, { maxChars: MAX_TEXT_BYTES, word: "plain" });
+  if (reading.failed) throw new Error(reading.note ?? "The file could not be read");
+  return { text: reading.text, ...(reading.note ? { note: reading.note } : {}) };
 }
 
 /** Store extracted text (bounded) and mark the item reviewed-ready. */
@@ -204,9 +203,11 @@ async function processBatches(
   ctx: ActionCtx,
   cfg: GraphConfig,
   token: string,
-  runId: Id<"oneDriveSyncRuns">
+  runId: Id<"oneDriveSyncRuns">,
+  startedAt: number
 ): Promise<{ done: boolean }> {
   const groupKeys = new Set<string>();
+  let pdfsHandedOff = 0;
   const flushGroups = async () => {
     const keys = [...groupKeys];
     groupKeys.clear();
@@ -228,7 +229,12 @@ async function processBatches(
     }
 
     let processed = 0;
+    let outOfTime = false;
     for (const item of items) {
+      if (Date.now() - startedAt > PROCESS_TIME_BUDGET_MS) {
+        outOfTime = true;
+        break;
+      }
       try {
         if (item.size > MAX_FILE_BYTES) {
           await ctx.runMutation(internal.ingestion.markItemFailed, {
@@ -247,7 +253,16 @@ async function processBatches(
         }
         const bytes = await res.arrayBuffer();
         const storageId = await ctx.storage.store(new Blob([bytes]));
-        await finishExtraction(ctx, item._id, storageId, bytes, item.name);
+        if (extensionOf(item.name) === "pdf") {
+          await ctx.runMutation(internal.ingestion.attachUpload, {
+            itemId: item._id,
+            storageId,
+            delayMs: pdfsHandedOff * PDF_READ_SPACING_MS,
+          });
+          pdfsHandedOff++;
+        } else {
+          await finishExtraction(ctx, item._id, storageId, bytes, item.name);
+        }
         groupKeys.add(item.pairGroupKey);
         processed++;
       } catch (err) {
@@ -262,6 +277,7 @@ async function processBatches(
       runId,
       addProcessed: processed,
     });
+    if (outOfTime) break;
   }
   await flushGroups();
   return { done: false };
@@ -389,6 +405,7 @@ async function runSyncSlice(
   runId: Id<"oneDriveSyncRuns">,
   phase: "discover" | "process"
 ) {
+  const startedAt = Date.now();
   try {
     const cfg = requireGraphConfigured();
     const token = await graphToken(cfg);
@@ -404,7 +421,7 @@ async function runSyncSlice(
       }
     }
 
-    const { done } = await processBatches(ctx, cfg, token, runId);
+    const { done } = await processBatches(ctx, cfg, token, runId, startedAt);
     if (done) {
       await ctx.runMutation(internal.ingestion.updateSyncRun, {
         runId,

@@ -36,21 +36,25 @@ export function waivingHouseRulesLog(overrides: StyleOverrides): string {
 export async function fetchWriterStyle(
   ctx: Pick<ActionCtx, "runQuery">,
   requestedBy: Id<"users"> | undefined,
-  log: (line: string) => Promise<unknown>
-): Promise<{ writerFlavor?: string; styleOverrides?: StyleOverrides }> {
-  const result: { writerFlavor?: string; styleOverrides?: StyleOverrides } = {};
+  log: (line: string) => Promise<unknown>,
+  /** E3 review: the generation's project, for a release suite --compare arm. */
+  projectId?: Id<"projects">
+): Promise<{ writerFlavor?: string; styleOverrides?: StyleOverrides; savedPreferences?: { count: number; textHash: string }; savedPreferenceTexts?: string[] }> {
+  const result: { writerFlavor?: string; styleOverrides?: StyleOverrides; savedPreferences?: { count: number; textHash: string }; savedPreferenceTexts?: string[] } = {};
   try {
     // Called even without a requestedBy: org-wide "off" modes (PSOS-50)
     // apply to legacy generations with no recorded requester too.
-    const profile = await ctx.runQuery(
-      internal.writerProfiles.getProfileForGeneration,
-      requestedBy ? { userId: requestedBy } : {}
-    );
+    const profile = await ctx.runQuery(internal.writerProfiles.getProfileForGeneration, {
+      ...(requestedBy ? { userId: requestedBy } : {}),
+      ...(projectId ? { projectId } : {}),
+    });
     if (!profile) return result;
     if (profile.customInstructions) {
       result.writerFlavor = profile.customInstructions;
       await log(APPLYING_WRITER_STYLE_LOG);
     }
+    if (profile.savedPreferences) result.savedPreferences = profile.savedPreferences;
+    if (profile.savedPreferenceTexts) result.savedPreferenceTexts = profile.savedPreferenceTexts;
     const overrides = normalizeStyleOverrides(profile.styleOverrides);
     if (hasAnyStyleOverride(overrides)) {
       result.styleOverrides = overrides;
@@ -71,13 +75,14 @@ export async function fetchWriterStyle(
  */
 export async function readOrderedProfileContext(
   ctx: Pick<ActionCtx, "runQuery">,
-  requestedBy: Id<"users"> | undefined
+  requestedBy: Id<"users"> | undefined,
+  projectId?: Id<"projects">
 ): Promise<OrderedProfileContext> {
   try {
-    return await ctx.runQuery(
-      internal.writerProfiles.getGenerationProfileContext,
-      requestedBy ? { userId: requestedBy } : {}
-    );
+    return await ctx.runQuery(internal.writerProfiles.getGenerationProfileContext, {
+      ...(requestedBy ? { userId: requestedBy } : {}),
+      ...(projectId ? { projectId } : {}),
+    });
   } catch (error) {
     console.error("ordered profile context read failed", error);
     return {

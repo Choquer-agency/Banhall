@@ -572,6 +572,8 @@ describe("Bulk edit dialog (Z7p)", () => {
     expect(sonner.success).toHaveBeenCalledWith("Updated 2 projects.");
     await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
     expect(appPage.url.searchParams.get("client")).toBe("cedarline systems");
+    // The bar left with the selection, so focus goes to the company's title.
+    await expect.poll(() => document.activeElement?.hasAttribute("data-client-title")).toBe(true);
   });
 
   it("sets a date and a client", async () => {

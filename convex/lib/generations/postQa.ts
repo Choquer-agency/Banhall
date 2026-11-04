@@ -17,7 +17,8 @@ import {
 import { extractReportSections } from "../tiptapReport";
 import type { Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
-import type { FrozenBrainArtifact } from "./seedStage";
+import { loadFactsSourceDocuments, type FrozenBrainArtifact } from "./seedStage";
+import type { FactsSourceDocuments } from "../seedRevisions";
 import { type IterativeSection, SECTION_ORDER, getSectionRun } from "./iterative";
 import { transitionPostQa } from "../generationTransitions";
 import { appendGenerationProgress } from "../generationProgress";
@@ -25,9 +26,12 @@ import { domainError } from "../contracts";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitUserAction } from "../aiRateLimits";
+import { leaveMovedBackModels } from "../modelRoles";
+import { isRedraftLive } from "./redraft";
 import { internal } from "../../_generated/api";
 import { readAgentOutputs, writeAgentOutputs } from "../generationOutputs";
 import { latestQaResult, qaResultIsCurrent, recordQaResult } from "../qaResults";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 /** Argument validators of generations.getPostQaAttempt. */
 export const getPostQaAttemptArgs = { generationId: v.id("generations") };
@@ -47,6 +51,31 @@ export async function getPostQaAttemptHandler(
   };
 }
 
+/** Argument validators of generations.getQaSourceEvidence. */
+export const getQaSourceEvidenceArgs = {
+  generationId: v.id("generations"),
+  /** The drafted Lines QA scores: the parts of each file that best match them are read. */
+  subjectTexts: v.array(v.string()),
+};
+
+/**
+ * 2026-10-29 (third, owner "Sure" to item 4): the source evidence QA reads,
+ * so it checks claims against the sources and not only the analysis. It is
+ * the facts check's own Phase D choice (loadFactsSourceDocuments, entry
+ * "2026-10-28 (fifth)"): the generation's frozen interviews, project files
+ * and company files, whole when they fit the 48,000-byte budget, otherwise
+ * the writer's notes first and then the parts that best match the drafted
+ * Lines. Null when the generation is gone.
+ */
+export async function getQaSourceEvidenceHandler(
+  ctx: QueryCtx,
+  args: ObjectType<typeof getQaSourceEvidenceArgs>
+): Promise<FactsSourceDocuments | null> {
+  const generation = await ctx.db.get(args.generationId);
+  if (!generation) return null;
+  return await loadFactsSourceDocuments(ctx, generation, undefined, args.subjectTexts, { skipUnreadable: true });
+}
+
 /** Argument validators of generations.getPostQaInput. */
 export const getPostQaInputArgs = { generationId: v.id("generations") };
 
@@ -62,6 +91,9 @@ export async function getPostQaInputHandler(
   if (!report) return null;
   const capturedRef = await reportQaRef(report);
   const currentSections = extractReportSections(report.content);
+  // 2026-10-30 (owner, item 2): the claimant line's company name, frozen at reservation.
+  const claimantName = claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff);
+  const claimant = claimantName !== undefined ? { claimantName } : {};
   if (!Object.values(currentSections).some(text => text.trim())) return null;
   if ((generation.candidateMode ?? "compare") === "iterative") {
     const [analysisRow, brainRow] = await Promise.all([
@@ -155,6 +187,7 @@ export async function getPostQaInputHandler(
       model: sections.s242.model || undefined,
       styleOverrides,
       ...(frozenQaInputs ? { frozenQaInputs } : {}),
+      ...claimant,
     };
   }
   // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
@@ -197,6 +230,7 @@ export async function getPostQaInputHandler(
         outputs.styleOverrides && typeof outputs.styleOverrides === "object"
           ? outputs.styleOverrides
           : undefined,
+      ...claimant,
     };
   } catch {
     return null;
@@ -341,8 +375,15 @@ export async function requestReportQaHandler(
   if (generation.postQaStatus === "running") return null;
   // Audit wave 2: 20 QA runs an hour per user.
   await limitUserAction(ctx, "qaPerUser", user._id);
+  // 2026-10-23 (owner, second): the QA pass runs off a helper model its
+  // tier was moved back from. The report's writer model is not touched, and
+  // nothing moves while "Draft the rest" is drafting (review 2026-10-23).
+  const current =
+    generation.redraft && isRedraftLive(generation.redraft, Date.now())
+      ? generation
+      : await leaveMovedBackModels(ctx, generation, { writer: false });
   const attemptStartedAt = Math.max(Date.now(), (generation.postQaStartedAt ?? 0) + 1);
-  await transitionPostQa(ctx, generation, "running", {
+  await transitionPostQa(ctx, current, "running", {
     postQaStartedAt: attemptStartedAt,
   });
   await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {

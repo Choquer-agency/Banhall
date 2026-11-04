@@ -6,8 +6,8 @@
  * "pinholes", "edge DFT", "bake window" and "edge wrap", which the settings
  * document in Writer's Notes bans.
  */
+import type { SourceRowWithText } from "./lib/sourceText";
 import { describe, expect, it, vi } from "vitest";
-import type { Doc } from "./_generated/dataModel";
 import { BRIEF_WRITER_WORDING, briefSettingsSource, buildBriefUserMessage } from "./lib/briefRequest";
 import { briefInputsHash } from "./lib/briefInputsHash";
 import { sha256 } from "./lib/contracts";
@@ -24,7 +24,7 @@ const SETTINGS = [
 ].join("\n");
 const NOTES = "Writer's notes: the client wants the deep cove result stated plainly.";
 
-type Row = Pick<Doc<"generationSources">, "label" | "content" | "kind" | "contentHash"> & {
+type Row = Pick<SourceRowWithText, "label" | "content" | "kind" | "contentHash"> & {
   uploaderRole?: "writer" | "manager" | "admin";
 };
 const transcript: Row = { kind: "transcript", label: "Interview", content: TRANSCRIPT, contentHash: "h-transcript" };
@@ -69,17 +69,24 @@ describe("the Brief follows the settings document's terms (round 2)", () => {
   });
 
   it("says nothing when the settings document's block did not fit the budget", () => {
-    const tight = { totalTokens: Math.floor(TRANSCRIPT.length / 4), perSourceTokens: 100_000 };
-    const message = buildBriefUserMessage([transcript, settings("writer")], tight);
+    // Phase D, step 1: the interview and the settings document both go in
+    // whole, in order, so the settings document is left out only when the
+    // interview takes the budget to the last character: a budget that ends
+    // right after a space, with no sentence end in the 300 characters before.
+    const padded = { ...transcript, content: `${TRANSCRIPT} ${"seal held on the bench ".repeat(60)}` };
+    let total = padded.content.length - 40;
+    while (total % 4 !== 0 || padded.content[total - 1] !== " ") total -= 1;
+    const tight = { totalTokens: total / 4, perSourceTokens: 100_000 };
+    const message = buildBriefUserMessage([padded, settings("writer")], tight);
     expect(message).not.toContain("WRITER_NOTES:PD-WRITING-CUSTOMIZED-SETTINGS.MD");
     expect(message).not.toContain(BRIEF_WRITER_WORDING.suffix);
   });
 
   it("never reuses a Brief across the rule, and keeps the hash as it was without it", async () => {
-    const plain = await briefInputsHash([transcript, notes] as Array<Omit<Doc<"generationSources">, "_id" | "_creationTime">>);
+    const plain = await briefInputsHash([transcript, notes] as Array<Omit<SourceRowWithText, "_id" | "_creationTime">>);
     expect(plain).toBe(await sha256(plainConcat([transcript, notes])));
-    const internal = await briefInputsHash([transcript, settings("writer")] as Array<Omit<Doc<"generationSources">, "_id" | "_creationTime">>);
-    const client = await briefInputsHash([transcript, settings()] as Array<Omit<Doc<"generationSources">, "_id" | "_creationTime">>);
+    const internal = await briefInputsHash([transcript, settings("writer")] as Array<Omit<SourceRowWithText, "_id" | "_creationTime">>);
+    const client = await briefInputsHash([transcript, settings()] as Array<Omit<SourceRowWithText, "_id" | "_creationTime">>);
     expect(internal).not.toBe(client);
     expect(client).toBe(await sha256(plainConcat([transcript, settings()])));
     expect(internal).toBe(await sha256(`${plainConcat([transcript, settings("writer")])}|writerWording:${BRIEF_WRITER_WORDING.version}`));

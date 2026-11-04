@@ -125,6 +125,7 @@ export async function requestBriefPreparation(
       ? {
           ...(latest.excludedTranscriptIds ? { excludedTranscriptIds: latest.excludedTranscriptIds } : {}),
           ...(latest.excludedDocumentIds ? { excludedDocumentIds: latest.excludedDocumentIds } : {}),
+          ...(latest.excludedCompanyFileIds ? { excludedCompanyFileIds: latest.excludedCompanyFileIds } : {}),
           selectionAt: latest.selectionAt,
         }
       : {};

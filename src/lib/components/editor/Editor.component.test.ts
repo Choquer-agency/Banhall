@@ -69,11 +69,9 @@ const PREVIEW_PAIRS = [
   { find: "isolation mount", replaceWith: "isolation bracket" },
   { find: "elastomer seal", replaceWith: "elastomer gasket" },
 ];
-const EXPECTED_REMOVED = 20;
-const EXPECTED_ADDED = 21;
 
-const removed = (container: HTMLElement) => container.querySelectorAll(".proposal-removed").length;
-const added = (container: HTMLElement) => container.querySelectorAll(".proposal-added").length;
+const removed = (container: HTMLElement) => container.querySelectorAll(".review-cut").length;
+const added = (container: HTMLElement) => container.querySelectorAll(".review-new").length;
 
 /** Top-level block text of a serialized Tiptap document, in document order. */
 function blockTexts(json: string): string[] {
@@ -109,23 +107,95 @@ describe("Editor search surface", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders merged strikes per occurrence and insertion widgets per replacement pair", async () => {
+  // Owner 2026-10-28: a suggestion under review marks only the words that
+  // change, in every occurrence it would change.
+  // Review 2026-10-28 (finding 4): a word changed or added inside a passage
+  // keeps the spaces around it, with Show changes on and off.
+  it("places changed and added words inside a passage with their spaces", async () => {
+    const doc = (text: string) => JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const shown = (container: HTMLElement) => {
+      const clone = container.querySelector(".ProseMirror")!.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll(".review-cut-hidden").forEach((el) => el.remove());
+      return (clone.textContent ?? "").replace(/\s+/g, " ").trim();
+    };
+    const { component, container } = await mountEditor(doc("The big dog ran home."));
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }]);
+    await expect.poll(() => [...container.querySelectorAll(".review-cut")].map((el) => el.textContent)).toEqual(["big"]);
+    expect([...container.querySelectorAll(".review-new")].map((el) => el.textContent)).toEqual(["red"]);
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The red dog ran home.");
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big brown dog ran home." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The big brown dog ran home.");
+    // Round 2 (F1): an added sentence after a full stop, and words before a bracket.
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big dog ran home. It stopped." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The big dog ran home. It stopped.");
+    component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The big dog quickly ran home." }], { showChanges: false });
+    await expect.poll(() => shown(container)).toBe("The big dog quickly ran home.");
+    const bracket = await mountEditor(doc("(n=5) shows the drift."));
+    bracket.component.previewProposal([{ find: "(n=5) shows the drift.", replaceWith: "Table 1 (n=5) shows the drift." }], { showChanges: false });
+    await expect.poll(() => shown(bracket.container)).toBe("Table 1 (n=5) shows the drift.");
+  });
+
+  it("shows nothing, and says so, when the report no longer holds the suggestion's words (live check 2026-10-28)", async () => {
+    const doc = (text: string) => JSON.stringify({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    const { component, container } = await mountEditor(doc("The big dog ran home."));
+    expect(component.previewProposal([{ find: "The small cat sat down.", replaceWith: "The cat sat." }])).toBe(false);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(container.querySelectorAll(".review-cut, .review-new").length).toBe(0);
+    expect(component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }])).toBe(true);
+    await expect.poll(() => container.querySelectorAll(".review-cut").length).toBe(1);
+    // Later calls for the same suggestion (Show changes, another option) report it shown.
+    expect(component.previewProposal([{ find: "The big dog ran home.", replaceWith: "The red dog ran home." }], { showChanges: false })).toBe(true);
+  });
+
+  it("checks a card on its first show only: outside its Line it is still marked, and switching options never ends it (review 2026-10-28)", async () => {
+    const block = (type: string, text: string) =>
+      type === "heading"
+        ? { type, attrs: { level: 2 }, content: [{ type: "text", text }] }
+        : { type, content: [{ type: "text", text }] };
+    const lines = JSON.stringify({
+      type: "doc",
+      content: [
+        block("heading", "Line 242 - Scientific/Technological Uncertainty"),
+        block("paragraph", "The loop drifted under load."),
+        block("heading", "Line 244 - Work performed"),
+        block("paragraph", "The team ran twelve trials."),
+      ],
+    });
+    const { component, container } = await mountEditor(lines);
+    // A card for Line 242 whose words now sit in Line 244: marked there, and
+    // Accept lets the server decide.
+    expect(component.previewProposal([{ find: "ran twelve trials", replaceWith: "ran 12 trials" }], { line: "242", key: "card-a" })).toBe(true);
+    await expect.poll(() => container.querySelectorAll(".review-cut").length).toBeGreaterThan(0);
+    // The same card's other option on words the report no longer has: the review stays.
+    expect(component.previewProposal([{ find: "ran forty trials", replaceWith: "ran 40 trials" }], { line: "242", key: "card-a" })).toBe(true);
+    // Another card with the same words is a new show, and is checked.
+    expect(component.previewProposal([{ find: "ran forty trials", replaceWith: "ran 40 trials" }], { line: "244", key: "card-b" })).toBe(false);
+    component.clearProposalPreview();
+  });
+
+  it("marks only the changed words of each occurrence, and clears", async () => {
     const { component, container } = await mountEditor();
 
-    component.previewProposal(PREVIEW_PAIRS);
-    await expect.poll(() => removed(container)).toBe(EXPECTED_REMOVED);
-    expect(added(container)).toBe(EXPECTED_ADDED);
+    component.previewProposal([
+      { find: "thermal stability", replaceWith: "thermal behaviour" },
+      { find: "measured reference baseline", replaceWith: "" },
+    ]);
+    await expect.poll(() => [...container.querySelectorAll(".review-cut")].map((el) => el.textContent))
+      .toEqual(expect.arrayContaining(["stability", "measured reference baseline"]));
+    const struck = [...container.querySelectorAll(".review-cut")].map((el) => el.textContent);
+    expect(struck.filter((t) => t === "stability")).toHaveLength(2);
+    expect([...container.querySelectorAll(".review-new")].map((el) => el.textContent)).toEqual(["behaviour", "behaviour"]);
 
-    // The struck spans preserve the original matched text for each occurrence.
-    const struck = [...container.querySelectorAll(".proposal-removed")].map((el) => el.textContent);
-    expect(struck.filter((t) => t === "thermal stability")).toHaveLength(2);
-    expect(struck).toContain("measured reference baseline");
-    expect([...container.querySelectorAll(".proposal-added")].filter((el) => el.textContent === "thermal behaviour")).toHaveLength(2);
-    expect([...container.querySelectorAll(".proposal-added")].filter((el) => el.textContent === "thermal response")).toHaveLength(2);
+    // Show changes off: the old words are hidden and the new ones lightly marked.
+    component.previewProposal([{ find: "thermal stability", replaceWith: "thermal behaviour" }], { showChanges: false });
+    await expect.poll(() => container.querySelectorAll(".review-new-quiet").length).toBe(2);
+    expect(container.querySelectorAll(".review-cut-hidden").length).toBe(2);
 
     component.clearProposalPreview();
     await expect.poll(() => removed(container)).toBe(0);
     expect(added(container)).toBe(0);
+    expect(container.querySelectorAll(".review-new-quiet, .review-cut-hidden").length).toBe(0);
   });
 
   it("returns find/replace matches sorted by position with smart-case replacements", async () => {
@@ -158,8 +228,8 @@ describe("Editor search surface", () => {
     const counter = countDocumentWalks(container);
     try {
       component.previewProposal(PREVIEW_PAIRS);
-      await expect.poll(() => removed(container)).toBe(EXPECTED_REMOVED);
-      expect(added(container)).toBe(EXPECTED_ADDED);
+      await expect.poll(() => removed(container)).toBeGreaterThan(0);
+      expect(added(container)).toBeGreaterThan(0);
       expect(counter.count()).toBe(2); // One batch and one initial scroll search.
     } finally {
       counter.restore();
@@ -259,8 +329,8 @@ describe("Editor actual JSON search boundaries", () => {
       { from: 3, to: 9, text: "target", replaceWith: "result" },
     ]);
     component.previewProposal([{ find: "target", replaceWith: "result" }]);
-    await expect.poll(() => [...container.querySelectorAll(".proposal-removed")].map((el) => el.textContent)).toEqual(["target"]);
-    expect([...container.querySelectorAll(".proposal-added")].map((el) => el.textContent)).toEqual(["result"]);
+    await expect.poll(() => [...container.querySelectorAll(".review-cut")].map((el) => el.textContent)).toEqual(["target"]);
+    expect([...container.querySelectorAll(".review-new")].map((el) => el.textContent)).toEqual(["result"]);
     expect(saved).toEqual([]);
     await component.flushPendingSave();
     expect(saved).toEqual([content]);
@@ -279,12 +349,12 @@ describe("Editor actual JSON search boundaries", () => {
     await expect.poll(() => [...container.querySelectorAll(".ai-ref-highlight")].map((el) => el.textContent).join("")).toBe("alphabeta");
     expect(container.querySelector(".ai-ref-highlight br, br.ai-ref-highlight")).not.toBeNull();
     component.previewProposal([{ find: "alpha beta", replaceWith: "result" }]);
-    await expect.poll(() => [...container.querySelectorAll(".proposal-removed")].map((el) => el.textContent).join("")).toBe("alphabeta");
-    expect(container.querySelector(".proposal-removed br, br.proposal-removed")).not.toBeNull();
-    expect([...container.querySelectorAll(".proposal-added")].map((el) => el.textContent)).toEqual(["result"]);
+    await expect.poll(() => [...container.querySelectorAll(".review-cut")].map((el) => el.textContent).join("")).toBe("alphabeta");
+    expect(container.querySelector(".review-cut br, br.review-cut")).not.toBeNull();
+    expect([...container.querySelectorAll(".review-new")].map((el) => el.textContent)).toEqual(["result"]);
     component.clearProposalPreview();
     component.clearHighlight();
-    await expect.poll(() => container.querySelectorAll(".proposal-removed, .proposal-added, .ai-ref-highlight").length).toBe(0);
+    await expect.poll(() => container.querySelectorAll(".review-cut, .review-new, .ai-ref-highlight").length).toBe(0);
     expect(saved).toEqual([]);
     await component.flushPendingSave();
     expect(saved).toEqual([content]);
@@ -336,9 +406,9 @@ describe("Editor search boundary caller regressions", () => {
     const match = matches[0];
     component.highlightRange(match.from, match.to, match.text);
     component.previewProposal(pairs);
-    await expect.poll(() => [...container.querySelectorAll(".proposal-removed")].map((el) => el.textContent).join("")).toBe("alphabeta");
-    expect(container.querySelector(".proposal-removed br, br.proposal-removed")).not.toBeNull();
-    expect([...container.querySelectorAll(".proposal-added")].map((el) => el.textContent)).toEqual(["result"]);
+    await expect.poll(() => [...container.querySelectorAll(".review-cut")].map((el) => el.textContent).join("")).toBe("alphabeta");
+    expect(container.querySelector(".review-cut br, br.review-cut")).not.toBeNull();
+    expect([...container.querySelectorAll(".review-new")].map((el) => el.textContent)).toEqual(["result"]);
     expect(container.querySelector(".ai-ref-highlight")).not.toBeNull();
     expect(saved).toEqual([]);
     await component.flushPendingSave();
@@ -353,10 +423,10 @@ describe("Editor search boundary caller regressions", () => {
         { type: "text", marks: [{ type: "italic" }], text: " tail" },
       ] },
     ] });
-    await expect.poll(() => container.querySelectorAll(".proposal-removed, .proposal-added, .ai-ref-highlight").length).toBe(0);
+    await expect.poll(() => container.querySelectorAll(".review-cut, .review-new, .ai-ref-highlight").length).toBe(0);
     component.clearProposalPreview();
     component.clearHighlight();
-    await expect.poll(() => container.querySelectorAll(".proposal-removed, .proposal-added, .ai-ref-highlight").length).toBe(0);
+    await expect.poll(() => container.querySelectorAll(".review-cut, .review-new, .ai-ref-highlight").length).toBe(0);
     expect(container.querySelector(".tiptap-editor p")?.textContent).toBe("İ result tail");
     expect(container.querySelector(".tiptap-editor br")).toBeNull();
   });
@@ -424,15 +494,15 @@ it("previews actual heading, list and blockquote hard breaks without joining wor
   for (const selector of ["h2", "li p", "blockquote p"]) {
     const block = container.querySelector(selector);
     expect(block).not.toBeNull();
-    expect(block?.querySelector(".proposal-removed br, br.proposal-removed")).not.toBeNull();
+    expect(block?.querySelector(".review-cut br, br.review-cut")).not.toBeNull();
     expect(block?.querySelector(".ai-ref-highlight br, br.ai-ref-highlight")).not.toBeNull();
-    expect([...block?.querySelectorAll(".proposal-removed") ?? []].map((el) => el.textContent).join("")).toBe("alphabeta");
-    expect(block?.querySelector(".proposal-added")?.textContent).toBe("result");
+    expect([...block?.querySelectorAll(".review-cut") ?? []].map((el) => el.textContent).join("")).toBe("alphabeta");
+    expect(block?.querySelector(".review-new")?.textContent).toBe("result");
   }
   expect(saved).toEqual([]);
   component.clearProposalPreview();
   component.clearHighlight();
-  await expect.poll(() => container.querySelectorAll(".proposal-removed, .proposal-added, .ai-ref-highlight").length).toBe(0);
+  await expect.poll(() => container.querySelectorAll(".review-cut, .review-new, .ai-ref-highlight").length).toBe(0);
   await component.flushPendingSave();
   expect(saved).toEqual([content]);
 });

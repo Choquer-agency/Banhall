@@ -1,4 +1,4 @@
-import { SEED_LINK_RULES, SEED_PROMPT_PROGRAM } from "./ai/promptDefinitions";
+import { SEED_BULLET_SENTENCE_RULE, SEED_LINK_RULES, SEED_PROMPT_PROGRAM } from "./ai/promptDefinitions";
 
 /**
  * The advancement link sentence every Seed request sent before the
@@ -31,4 +31,19 @@ export function withSharedSeedToolOnly<T extends Record<string, unknown>>(json: 
   const tools = json.tools as Array<{ name: string }> | undefined;
   if (!tools || tools[0]?.name !== SEED_PROMPT_PROGRAM.request.toolName) return json;
   return { ...json, tools: tools.filter((tool) => tool.name === SEED_PROMPT_PROGRAM.request.toolName) };
+}
+
+/**
+ * The bullet sentence every Seed request sent before 2026-10-27 (eleventh),
+ * when a bullet over 25 words was rejected. Pinned request bodies were
+ * captured with it.
+ */
+export const PINNED_BULLET_SENTENCE =
+  "Write each bullet as one full sentence that ends with a full stop, and aim for about 15 words: a bullet over 25 whitespace-separated words is rejected, so shorten it or split the idea across the Seed's two bullets.";
+
+/** A request body as JSON text with the current bullet sentence put back to the pinned one. */
+export function withPinnedBulletSentence(body: string): string {
+  return body
+    .split(JSON.stringify(SEED_BULLET_SENTENCE_RULE).slice(1, -1))
+    .join(JSON.stringify(PINNED_BULLET_SENTENCE).slice(1, -1));
 }

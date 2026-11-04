@@ -209,3 +209,73 @@ describe("assembleContextInclusion (story 4, CAP-11)", () => {
     ).toMatchObject({ documentsTruncated: true, sourcesTruncated: true });
   });
 });
+
+describe("what each step read (Phase D, step 2)", () => {
+  const sources = [
+    { _id: "t1", kind: "transcript" as const, label: "Kickoff", transcriptId: "tr1" },
+    { _id: "d1", kind: "transcript_digest" as const, label: "Kickoff digest", transcriptId: "tr1" },
+    { _id: "p1", kind: "project_document" as const, label: "other:report.pdf" },
+    { _id: "p2", kind: "project_document" as const, label: "other:notes.txt" },
+    { _id: "s1", kind: "writer_storyline" as const, label: "Storyline" },
+  ];
+
+  it("summarises each row's uses by step, a transcript taking its digest's", () => {
+    const result = assembleContextInclusion({
+      sources,
+      unfrozenDocuments: [],
+      fallbackCap: 12,
+      uses: [
+        { sourceId: "d1", step: "analyzer", state: "whole" },
+        { sourceId: "p1", step: "analyzer", state: "part" },
+        { sourceId: "p1", step: "brief", state: "whole" },
+        { sourceId: "p1", step: "seeds", run: "b1", state: "whole" },
+        { sourceId: "p1", step: "seeds", run: "b2", state: "part" },
+        { sourceId: "p1", step: "seeds", run: "b3", state: "left_out" },
+        { sourceId: "p2", step: "facts_check", run: "line:242", state: "left_out" },
+        { sourceId: "s1", step: "brief", state: "whole" },
+      ],
+    });
+    const uses = Object.fromEntries(result.rows.map((row) => [row.key, row.uses]));
+    expect(uses["source:t1"]).toEqual([{ step: "analyzer", runs: 1, read: 1, whole: true, condensed: true }]);
+    expect(uses["source:p1"]).toEqual([
+      { step: "analyzer", runs: 1, read: 1, whole: false },
+      { step: "brief", runs: 1, read: 1, whole: true },
+      { step: "seeds", runs: 3, read: 2, whole: false },
+    ]);
+    expect(uses["source:p2"]).toEqual([{ step: "facts_check", runs: 1, read: 0, whole: false }]);
+    expect(result.usesTruncated).toBeUndefined();
+  });
+
+  it("marks a step condensed only when every run that read the transcript read its digest or fact pack (review)", () => {
+    const result = assembleContextInclusion({
+      sources: [
+        ...sources,
+        { _id: "f1", kind: "transcript_facts" as const, label: "Kickoff facts", transcriptId: "tr1" },
+      ],
+      unfrozenDocuments: [],
+      fallbackCap: 12,
+      uses: [
+        // The analyzer read the transcript itself and its digest: itself wins.
+        { sourceId: "t1", step: "analyzer", state: "whole" },
+        { sourceId: "d1", step: "analyzer", state: "whole" },
+        // One Seed step read the fact pack, another the transcript in part.
+        { sourceId: "f1", step: "seeds", run: "r1", state: "whole" },
+        { sourceId: "t1", step: "seeds", run: "r2", state: "part" },
+        // The Brief read only the digest.
+        { sourceId: "d1", step: "brief", state: "whole" },
+      ],
+    });
+    const uses = result.rows.find((row) => row.key === "source:t1")?.uses;
+    expect(uses).toEqual([
+      { step: "analyzer", runs: 1, read: 1, whole: true },
+      { step: "brief", runs: 1, read: 1, whole: true, condensed: true },
+      { step: "seeds", runs: 2, read: 2, whole: false },
+    ]);
+  });
+
+  it("gives a row no uses when no step recorded one, and says when the uses were cut short", () => {
+    const result = assembleContextInclusion({ sources, unfrozenDocuments: [], fallbackCap: 12, uses: [], usesTruncated: true });
+    expect(result.rows.every((row) => row.uses === undefined)).toBe(true);
+    expect(result.usesTruncated).toBe(true);
+  });
+});

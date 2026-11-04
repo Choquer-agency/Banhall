@@ -8,6 +8,7 @@ import {
   TRANSCRIPT_PARSER_VERSION,
   type TranscriptSourceFormat,
 } from "../../shared/transcriptParse";
+import { countedRows, type ReadCounter } from "./readMeter";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -142,14 +143,22 @@ export async function listProjectTranscripts(
  */
 export async function listActiveTranscriptRows(
   ctx: Ctx,
-  projectId: Id<"projects">
+  projectId: Id<"projects">,
+  /** Counts each row as it is read, so a draft's reservation stops by name first (B1 review, 2026-10-27). */
+  meter?: ReadCounter
 ): Promise<Doc<"transcripts">[]> {
-  return await ctx.db
+  const query = ctx.db
     .query("transcripts")
     .withIndex("by_projectId_and_archivedAt", (q) =>
       q.eq("projectId", projectId).eq("archivedAt", undefined)
-    )
-    .take(MAX_ACTIVE_TRANSCRIPT_ROWS_READ);
+    );
+  if (!meter) return await query.take(MAX_ACTIVE_TRANSCRIPT_ROWS_READ);
+  const rows: Doc<"transcripts">[] = [];
+  for await (const row of countedRows(query, meter)) {
+    rows.push(row);
+    if (rows.length >= MAX_ACTIVE_TRANSCRIPT_ROWS_READ) break;
+  }
+  return rows;
 }
 
 /** A project's transcripts out of its active rows, as `listProjectTranscripts` returns them. */
@@ -401,6 +410,16 @@ export async function scheduleTranscriptStructure(
 }
 
 /**
+ * Whether a row's turns are not at the current parser version and no build
+ * holds it, from the row alone (no reads).
+ */
+export function structureRebuildDue(transcript: Doc<"transcripts">, now = Date.now()): boolean {
+  if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return false;
+  if (transcript.archivedAt !== undefined || transcript.content.trim() === "") return false;
+  return !structureBuildIsLive(transcript, now);
+}
+
+/**
  * Schedules a rule-only rebuild of a row whose turns are not at the current
  * parser version, unless a build already holds it. Marks the row first, so
  * repeated calls schedule once. Returns whether it scheduled one.
@@ -409,10 +428,8 @@ export async function scheduleStructureRebuildIfStale(
   ctx: MutationCtx,
   transcript: Doc<"transcripts">
 ): Promise<boolean> {
-  if (transcript.parserVersion === TRANSCRIPT_PARSER_VERSION) return false;
-  if (transcript.archivedAt !== undefined || transcript.content.trim() === "") return false;
   const now = Date.now();
-  if (structureBuildIsLive(transcript, now)) return false;
+  if (!structureRebuildDue(transcript, now)) return false;
   await ctx.db.patch(transcript._id, { structureBuildId: newStructureBuildId(now) });
   await ctx.scheduler.runAfter(0, internal.transcripts.buildTranscriptStructure, {
     transcriptId: transcript._id,

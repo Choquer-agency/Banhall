@@ -5,8 +5,10 @@
   name that another client already uses (nameConflict) and a merge over the
   200 project cap (tooMany), and lists project numbers the merge makes appear
   twice in one fiscal year. When that check hit its read bound
-  (collisionCheckIncomplete) the dialog says so. Either refusal disables
-  Merge clients.
+  (collisionCheckIncomplete) the dialog says so. Since Phase C (2026-10-26)
+  it also says how many company files move, and a merge over the company
+  file cap (tooManyCompanyFiles) is refused. Any refusal disables Merge
+  clients.
 -->
 <script module lang="ts">
   export type MergeResult = { keptKey: string; keptName: string; moved: number };
@@ -100,7 +102,8 @@
       preview !== undefined &&
       !previewError &&
       preview.nameConflict === null &&
-      !preview.tooMany
+      !preview.tooMany &&
+      !preview.tooManyCompanyFiles
   );
 
   const projectsLabel = (count: number) => (count === 1 ? "1 project" : `${count} projects`);
@@ -211,6 +214,11 @@
       <p data-merge-summary class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
         {mergeSummaryText(preview.projectCount, preview.keptName, clients.length - 1)}
       </p>
+      {#if preview.companyFileCount > 0 && !preview.tooManyCompanyFiles}
+        <p data-merge-company-files class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
+          {preview.companyFileCount === 1 ? "1 company file moves" : `${preview.companyFileCount} company files move`} to {preview.keptName} too.
+        </p>
+      {/if}
     {/if}
     {#if preview && preview.numberCollisions.length > 0 && preview.nameConflict === null && !preview.tooMany}
       <ul data-merge-collisions class="flex flex-col gap-1 rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-[calc(10/7)] text-gap-text">
@@ -232,6 +240,11 @@
     {#if preview?.tooMany}
       <p role="alert" data-merge-error="too-many" class={errorBox}>
         This merge would move more than 200 projects. Merge fewer companies at a time.
+      </p>
+    {/if}
+    {#if preview?.tooManyCompanyFiles}
+      <p role="alert" data-merge-error="too-many-files" class={errorBox}>
+        This merge would move more than 500 company files. Merge fewer companies at a time.
       </p>
     {/if}
     {#if previewError}

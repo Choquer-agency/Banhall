@@ -135,6 +135,8 @@ export const SETTINGS_CLASSIFIER_VERSION = settingsClassifierVersionFor(MODEL);
 
 export type ResolvedWriterSettings = {
   writerFlavor?: string;
+  /** Sixth re-check: the saved preference texts composed into writerFlavor. */
+  savedPreferenceTexts?: string[];
   styleOverrides?: StyleOverrides;
   orderedContext: OrderedProfileContext;
 };
@@ -283,6 +285,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
   const style = await ctx.runQuery(internal.writerProfiles.getGenerationWriterStyle, {
     ...userArgs,
     ...(settingsDocument ? { settingsDocument } : {}),
+    projectId: args.projectId,
   });
   const documentApplied =
     style.settingsSource === "writer_notes" || style.settingsSource === "attachment";
@@ -320,6 +323,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
         ? "profile"
         : "none",
     truncated: documentApplied && detected !== null && detected.truncated,
+    ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
     // The waivers the applied document legislates, as this generation
     // resolved them: the save offer's only source (never re-read from the
     // cache, so a failed cache write or a later classifier version cannot
@@ -344,6 +348,7 @@ async function resolve(ctx: ResolverCtx, args: ResolverArgs): Promise<ResolvedWr
   await logAppliedStyle(args.log, writerFlavor, styleOverrides);
   return {
     ...(writerFlavor ? { writerFlavor } : {}),
+    ...(writerFlavor && style.savedPreferenceTexts ? { savedPreferenceTexts: style.savedPreferenceTexts } : {}),
     ...(styleOverrides ? { styleOverrides } : {}),
     orderedContext: pickOrderedProfileContext(style),
   };
@@ -363,8 +368,8 @@ async function degrade(
     args.log,
     `Writer settings could not be resolved (${reason}); the saved Writer Profile applies and no settings document is read.`
   );
-  const style = await fetchWriterStyle(ctx, args.requestedBy, args.log);
-  const orderedContext = await readOrderedProfileContext(ctx, args.requestedBy);
+  const style = await fetchWriterStyle(ctx, args.requestedBy, args.log, args.projectId);
+  const orderedContext = await readOrderedProfileContext(ctx, args.requestedBy, args.projectId);
   try {
     const applied = orderedContext.profileState === "applied";
     await ctx.runMutation(internal.generations.recordWriterSettings, {
@@ -376,12 +381,18 @@ async function degrade(
         savedProfileSuperseded: false,
         waiverAnalysis: applied ? "profile" : "none",
         truncated: false,
+        // E1b review: the saved preferences the fallback style carries.
+        ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
       },
     });
   } catch (recordError) {
     console.error("writer settings record failed", reasonOf(recordError), recordError);
   }
-  return { ...style, orderedContext };
+  const { savedPreferences, ...applied } = style;
+  return {
+    ...applied,
+    orderedContext: savedPreferences ? { ...orderedContext, savedPreferencesApplied: true } : orderedContext,
+  };
 }
 
 export async function resolveGenerationWriterSettings(

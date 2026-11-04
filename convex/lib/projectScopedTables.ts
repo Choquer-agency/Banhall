@@ -124,6 +124,22 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "intakeSourceLinks", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "intakeDrafts", field: "projectId", disposition: "detach", index: "by_projectId" },
   { table: "generationSources", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
+  // 2026-10-27 (B1, second part): the text versions the project's drafts
+  // read; pieces before their versions. Company file versions have no project.
+  { table: "sourceTextVersionPieces", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "sourceTextVersions", field: "projectId", disposition: "delete", index: "by_projectId_and_textHash" },
+  // 2026-10-26 (B1, first part): files' earlier text.
+  { table: "projectDocumentTextVersions", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "projectDocumentTextVersionPieces", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-10-26 (Phase D, step 2): what each step sent of each frozen row.
+  { table: "generationSourceUse", field: "projectId", disposition: "delete", index: "by_projectId_and_generationId" },
+  // 2026-10-26 (Phase E, E2b): learning signals made from the project's rows.
+  { table: "learningSignals", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-10-27 (Phase E, E1a): an open suggestion's request texts. The
+  // suggestion itself has no project; it is withdrawn when its texts are gone.
+  { table: "writerMemorySources", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-10-27 (Phase E, E3): an open editing burst; its readings are kept.
+  { table: "reportEditSizeDue", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationSectionRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "generationCandidateRuns", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "candidateScores", field: "projectId", disposition: "delete", index: "by_projectId" },
@@ -152,6 +168,13 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "chatProposals", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Chat parity Phase B: the report chat's web search records (queries and sources).
   { table: "chatWebSearches", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-11-02 (proposed): drafting's public background cache (queries, public answers, sources).
+  {
+    table: "draftWebBackgrounds",
+    field: "projectId",
+    disposition: "delete",
+    index: "by_projectId_and_fingerprint",
+  },
   {
     table: "agentChatThreads",
     field: "projectId",
@@ -177,6 +200,8 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "comments", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "commenters", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportViews", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-11-02: each person's private star on the project.
+  { table: "projectStars", field: "projectId", disposition: "delete", index: "by_projectId_and_userId" },
   { table: "reportSnapshots", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportExports", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportProvenance", field: "projectId", disposition: "delete", index: "by_projectId" },
@@ -199,7 +224,16 @@ export const PROJECT_SCOPED_TABLES = [
       },
     ],
   },
+  // 2026-10-27 (F2): a project copy goes with the new project. If the
+  // original project is erased first, its reference is cleared and the copy
+  // marks the files it had not copied yet "could not copy".
+  { table: "projectCopyJobs", field: "toProjectId", disposition: "delete", index: "by_toProjectId_and_status" },
+  { table: "projectCopyJobs", field: "fromProjectId", disposition: "detach", index: "by_fromProjectId" },
   // Documents (blob-owning) and their upload receipts.
+  // 2026-10-22 (fourth): a file's text pieces, before the file row.
+  { table: "projectDocumentTexts", field: "projectId", disposition: "delete", index: "by_projectId" },
+  // 2026-10-26 (Phase B4): its search pieces too.
+  { table: "documentSearchPieces", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "projectDocuments", field: "projectId", disposition: "delete", index: "by_projectId", blob: "storageId" },
   { table: "documentUploadAttempts", field: "projectId", disposition: "delete", index: "by_projectId" },
   // Financials and identity evidence.

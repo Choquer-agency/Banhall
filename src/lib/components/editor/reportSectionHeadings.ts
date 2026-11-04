@@ -40,6 +40,15 @@ export interface ReportLimitMeterSpec {
     description: string;
     /** Fill of the small band bar, 0 to 100. */
     percent: number;
+    /**
+     * Owner 2026-10-28 (Paper row 21, F1): the pill's words, "35 words
+     * over". Clicking it opens the limit popover.
+     */
+    pill: string;
+    /** "242": which Line's popover the pill opens. */
+    line: string;
+    /** F2: the Assistant is shortening this Line; the pill reads "Shortening". */
+    shortening: boolean;
   };
 }
 
@@ -67,22 +76,37 @@ function renderMeter(slot: HTMLElement, meter: ReportLimitMeterSpec["reportLimit
     return;
   }
   slot.hidden = false;
-  slot.dataset.limitState = meter.state;
-  slot.title = meter.description;
+  slot.dataset.limitState = meter.shortening ? "shortening" : meter.state;
+  slot.removeAttribute("title");
+  if (meter.shortening) {
+    // F2: while the Assistant works on this Line.
+    const chip = document.createElement("span");
+    chip.className = "report-limit-chip";
+    chip.setAttribute("role", "status");
+    const spinner = document.createElement("span");
+    spinner.className = "report-limit-chip__spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = "Shortening";
+    chip.append(spinner, label);
+    slot.append(chip);
+    return;
+  }
+  // F1: the pill opens the limit popover (the editor handles the click).
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "report-limit-pill";
+  pill.dataset.reportLimitPill = meter.line;
+  pill.setAttribute("aria-haspopup", "dialog");
+  pill.title = meter.description;
   const text = document.createElement("span");
   text.className = "report-limit-meter__text";
-  text.textContent = meter.text;
-  const bar = document.createElement("span");
-  bar.className = "report-limit-meter__bar";
-  bar.setAttribute("aria-hidden", "true");
-  const fill = document.createElement("span");
-  fill.className = "report-limit-meter__fill";
-  fill.style.width = `${Math.max(0, Math.min(100, meter.percent))}%`;
-  bar.append(fill);
+  text.textContent = meter.pill;
   const sr = document.createElement("span");
   sr.className = "sr-only";
   sr.textContent = `. ${meter.description}`;
-  slot.append(text, bar, sr);
+  pill.append(text, sr);
+  slot.append(pill);
 }
 
 function sectionHeadingView(
@@ -131,7 +155,9 @@ function sectionHeadingView(
     // changes still reach ProseMirror, so a click there moves the real caret
     // (which the plugin then places just after the heading).
     ignoreMutation: (mutation) => mutation.type !== "selection",
-    stopEvent: () => false,
+    // The limit pill is a real button: its clicks and keys are its own, so
+    // Enter opens its popover instead of editing the report.
+    stopEvent: (event) => !!(event.target as HTMLElement | null)?.closest?.("[data-report-limit-pill]"),
   };
 }
 
@@ -305,11 +331,12 @@ function edgeBesideSectionHeading(editor: CoreEditor, direction: "backward" | "f
 
 // The keys Tiptap binds to its Backspace and Delete handlers. The Mac-only ones
 // are registered only on Mac and iOS, as Tiptap does, so Ctrl-d, Ctrl-h and
-// Alt-d keep their browser meaning elsewhere (review g1).
-const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace"] as const;
-const FORWARD_KEYS = ["Delete", "Mod-Delete"] as const;
-const MAC_BACKWARD_KEYS = ["Alt-Backspace", "Ctrl-h"] as const;
-const MAC_FORWARD_KEYS = ["Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
+// Alt-d keep their browser meaning elsewhere (review g1). The inference chips
+// (inferenceNotes.ts) bind the same keys.
+export const BACKWARD_KEYS = ["Backspace", "Shift-Backspace", "Mod-Backspace"] as const;
+export const FORWARD_KEYS = ["Delete", "Mod-Delete"] as const;
+export const MAC_BACKWARD_KEYS = ["Alt-Backspace", "Ctrl-h"] as const;
+export const MAC_FORWARD_KEYS = ["Alt-Delete", "Ctrl-d", "Alt-d", "Ctrl-Alt-Backspace"] as const;
 
 /**
  * Plugin-level node view for `heading`, so StarterKit's Heading extension

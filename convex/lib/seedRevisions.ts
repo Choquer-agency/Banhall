@@ -11,25 +11,41 @@ export const MAX_SEED_CONTEXT_SNAPSHOT_UTF8_BYTES = 512_000;
 export const MAX_SEED_PROMPT_UTF8_BYTES = 600_000;
 export const MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES = 64_000;
 /**
- * Worst-case compact-JSON bytes of one Summary Self-check response. Real
- * Briefs carry 10 to 20 ordinary checks per Section, so 4,096 bytes refused
- * every real sign-off (2026-09-25). 16,384 bytes fit 30 ordinary checks,
- * about 10 plan rows and the Storyline question, until the facts check
- * (1,106 bytes) and the targets check (1,102 bytes) took about 2,200 of it
- * (2026-10-04). On 2026-10-09 a writer's full plan (30 ordinary checks, 14
- * Line 244 items) was refused twice: its Line 244 worst case was 17,125
- * bytes, 741 over. 32,768 bytes fits 30 ordinary checks, the Storyline
- * question, every rule check and about 50 plan rows per Line; her plan's
- * largest Line uses 17,125, and five picks in every step 22,253.
- * The Summary-plan Self-check request sends the same number as its output
- * token allowance (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens), so a response
- * within this byte limit never needs more tokens than the request allows.
- * Every model enabled on 2026-10-22 allows at least 64,000 output tokens,
- * and a reasoning model's multiplied allowance is clipped to its own cap.
+ * Projected compact-JSON bytes of one Summary Self-check response: the
+ * admission budget sign-off and runtime admission size each Line's request
+ * by. Real Briefs carry 10 to 20 ordinary checks per Section, so 4,096
+ * bytes refused every real sign-off (2026-09-25). 16,384 bytes fit 30
+ * ordinary checks, about 10 plan rows and the Storyline question, until the
+ * facts check (1,106 bytes) and the targets check (1,102 bytes) took about
+ * 2,200 of it (2026-10-04). On 2026-10-09 a writer's full plan (30 ordinary
+ * checks, 14 Line 244 items) was refused twice: its Line 244 projection was
+ * 17,125 bytes, 741 over, and the limit became 32,768 (2026-10-22, first).
+ * Since 2026-10-22 (third) a plan verdict no longer repeats its step's
+ * merged ids, so each pick adds the same bytes however many picks share its
+ * step, and the answer itself is no longer measured against this budget:
+ * real free text runs past its reservations, so the answer has its own
+ * ceiling (MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES). The Summary-plan
+ * Self-check request sends the same number as its output token allowance
+ * (SUMMARY_PLAN_SELF_CHECK_REQUEST.maxTokens).
  */
 export const MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES = 32_768;
+/**
+ * 2026-10-22 (third): the raw answer of one Summary Self-check request is
+ * rejected whole above this many UTF-8 bytes, four times the admission
+ * budget. Real reasons and guidance run two to four times their
+ * reservations, so a real answer to an admitted request is expected to stay
+ * well under it; the ceiling bounds what an answer can hand to the repair
+ * (unclipped guidance, facts corrections).
+ */
+export const MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES =
+  4 * MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES;
 export const MAX_SUMMARY_PLAN_VERDICTS = 256;
-export const MAX_SUMMARY_ORDINARY_VERDICTS = 30;
+/**
+ * 2026-10-22 (third): older Briefs on the dev deployment carry 37 to 46
+ * Confidence Map entries and Glossary Terms, which 30 refused at sign-off.
+ * The response budget still bounds how many fit beside a Line's plan.
+ */
+export const MAX_SUMMARY_ORDINARY_VERDICTS = 64;
 export const MAX_SUMMARY_SELF_CHECK_LABEL_ESCAPED_UTF8_BYTES = 32;
 export const MAX_SUMMARY_SELF_CHECK_ID_ESCAPED_UTF8_BYTES = 64;
 export const MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES = 64;
@@ -101,7 +117,23 @@ export type FactsSourceDocuments = {
   documents: FactsSourceDocument[];
   leftOut: Array<{ label: string; bytes: number }>;
   budget: number;
+  /**
+   * Phase D, step 1 (2026-10-28, fourth): the documents read only in part,
+   * named with their size and the bytes read: the parts that best match the
+   * Line, each excerpt its own entry in `documents`, or, for writer's notes
+   * too long to go in whole, their start (`start`).
+   */
+  readInPart?: Array<{ label: string; bytes: number; sent: number; start?: true; matched?: true }>;
+  /**
+   * 2026-10-29 (third), review round 1: QA's read only (`skipUnreadable`),
+   * the frozen documents whose text could not be read, so they were left
+   * out. The facts check never gets this list: it refuses instead.
+   */
+  unreadable?: Array<{ label: string }>;
 };
+
+/** What an excerpt's label line adds beyond the label itself: its frame and " (excerpt N of M)". */
+export const FACTS_PART_FRAME_BYTES = 32;
 export const MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES = 96;
 export const MAX_SUMMARY_SELF_CHECK_PARAGRAPH = 9_999_999_999;
 
@@ -174,8 +206,11 @@ export const RESULTS_AGAINST_TARGETS_SECTIONS: readonly PdSection[] = ["s244", "
  * `ruleId: "results_against_targets"`) in Lines 244 and 246.
  * v5 (2026-10-04, second): the facts check (`instruction: "match_sources"`,
  * `ruleId: "facts_match_sources"`) in every Line.
+ * v6 (2026-10-27, eleventh): another Line's items in Rule B and Rule C, and
+ * relationship references (a cover item's and a LEAVE OUT's), carry each
+ * bullet up to MAX_REFERENCE_BULLET_CHARS, clipped with a mark.
  */
-export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v5";
+export const SUMMARY_PLAN_SERIALIZER_VERSION = "summary-plan-jsonl-v6";
 export const SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION =
   "summary-ordinary-labels-v2";
 
@@ -361,8 +396,9 @@ export const FROZEN_SUMMARY_PLAN_SCAFFOLD = {
   quotesDoNotBackInstruction:
     "Its own quotes do not back this. State it only as the sources give it.",
   // Review P3-1 and Greptile P1: Line 246's advancement check carries Line
-  // 242's signed-off plan items first, whole, then its drafted text, the only
-  // part clipped (the items alone before Line 242 is drafted).
+  // 242's signed-off plan items first (each bullet up to
+  // MAX_REFERENCE_BULLET_CHARS since 2026-10-27), then its drafted text,
+  // clipped (the items alone before Line 242 is drafted).
   line242PlanHeading: "Signed-off plan items for Line 242, by step:",
   line242DraftedHeading: "Line 242 as drafted:",
   // 2026-09-30 (second, Rule C): Line 244's work check carries Line 246's
@@ -405,6 +441,24 @@ export function isClippedStorylineAlternative(value: string): boolean {
     endsWithClipMark(value) &&
     jsonEscapedUtf8Bytes(value) <= MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES
   );
+}
+
+/**
+ * 2026-10-27 (eleventh): the characters of one bullet a check carries when
+ * the item is only data for it (another Line's items in Rule B and Rule C, a
+ * cover item's or a LEAVE OUT's relationship references): the most a
+ * writer's edit could hold before the
+ * owner lifted that limit, so these checks stay the size they were. A
+ * longer bullet is clipped with a mark; an item's own check and plan entry
+ * carry its wording whole.
+ */
+export const MAX_REFERENCE_BULLET_CHARS = 600;
+
+/** One bullet as reference data: unchanged up to MAX_REFERENCE_BULLET_CHARS characters. */
+export function clipReferenceBullet(text: string): string {
+  const codePoints = Array.from(text);
+  if (codePoints.length <= MAX_REFERENCE_BULLET_CHARS) return text;
+  return clipJsonEscapedUtf8(text, jsonEscapedUtf8Bytes(codePoints.slice(0, MAX_REFERENCE_BULLET_CHARS).join("")));
 }
 
 /**
@@ -613,22 +667,15 @@ function repeated(maximum: number, value: string): string {
   return value.repeat(maximum);
 }
 
-/** Conservative complete response envelope used at sign-off and runtime. */
-export function projectSummarySelfCheckWorstCaseResponse(
-  args: SummarySelfCheckCapacity
-): string {
-  if (args.ordinaryChecks.length > MAX_SUMMARY_ORDINARY_VERDICTS) {
-    throw new SeedContextLimitError(
-      "summary_self_check_ordinary_count",
-      `Summary Self-check requires more than ${MAX_SUMMARY_ORDINARY_VERDICTS} ordinary verdicts`
-    );
-  }
-  if (args.planChecks.length > MAX_SUMMARY_PLAN_VERDICTS) {
-    throw new SeedContextLimitError(
-      "summary_self_check_plan_count",
-      `Summary Self-check requires more than ${MAX_SUMMARY_PLAN_VERDICTS} plan verdicts`
-    );
-  }
+/**
+ * Every check of one Line is well formed: ordinary labels unique and within
+ * their byte limit, each plan check naming exactly one reference, every id
+ * within its byte limit, and an item's merge references complete. Counts
+ * are checked per request (projectSummarySelfCheckWorstCaseResponse).
+ */
+function assertSummaryChecksWellFormed(
+  args: Pick<SummarySelfCheckCapacity, "ordinaryChecks" | "planChecks">
+): void {
   const ordinaryLabels = new Set<string>();
   for (const ordinary of args.ordinaryChecks) {
     assertEscapedStringLimit(
@@ -676,19 +723,24 @@ export function projectSummarySelfCheckWorstCaseResponse(
       );
     }
   }
-  const reason = repeated(MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES, "r");
-  const repairGuidance = repeated(
-    MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES,
-    "g"
-  );
-  const verdicts = args.ordinaryChecks.map((ordinary) => ({
+}
+
+/** An ordinary verdict at every field's limit. */
+function worstCaseOrdinaryVerdict(ordinary: SummaryOrdinaryCheck): JsonValue {
+  return {
     check: "instruction",
     instruction: ordinary.label,
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
-    reason,
-    repairGuidance,
-  }));
+    reason: repeated(MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES, "r"),
+    repairGuidance: repeated(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES, "g"),
+  };
+}
+
+/** A plan verdict at every field's limit, with a rule's findings in full. */
+function worstCasePlanVerdict(check: FrozenSummaryPlanCheck): JsonValue {
+  const reason = repeated(MAX_SUMMARY_SELF_CHECK_REASON_ESCAPED_UTF8_BYTES, "r");
+  const repairGuidance = repeated(MAX_SUMMARY_SELF_CHECK_GUIDANCE_ESCAPED_UTF8_BYTES, "g");
   const factsFindings = Array.from({ length: MAX_FACTS_FINDINGS }, () => ({
     correction: repeated(MAX_FACTS_CORRECTION_ESCAPED_UTF8_BYTES, "c"),
     draftQuote: repeated(MAX_FACTS_DRAFT_QUOTE_ESCAPED_UTF8_BYTES, "d"),
@@ -702,10 +754,11 @@ export function projectSummarySelfCheckWorstCaseResponse(
     sourceQuote: repeated(MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES, "s"),
     targetQuote: repeated(MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES, "t"),
   }));
-  const planVerdicts = args.planChecks.map((check) => ({
+  // 2026-10-22 (third): a plan verdict names only its own reference; code
+  // takes its merged ids from the frozen check, so none are reserved.
+  return {
     ...(check.droppedSeedId ? { droppedSeedId: check.droppedSeedId } : {}),
     ...(check.itemId ? { itemId: check.itemId } : {}),
-    mergedItemIds: [...check.mergedItemIds],
     outcome: "not_applied",
     paragraph: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
     reason,
@@ -716,25 +769,176 @@ export function projectSummarySelfCheckWorstCaseResponse(
         : { repairGuidance }),
     ...(check.ruleId ? { ruleId: check.ruleId } : {}),
     ...(check.skippedRoleId ? { skippedRoleId: check.skippedRoleId } : {}),
-  }));
+  };
+}
+
+/** The Storyline question at every field's limit. */
+function worstCaseStorylineQuestion(): JsonValue {
+  return {
+    confidenceEntry: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
+    question: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "q"),
+    sectionClaim: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "c"),
+    storylineAlternative: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "a"),
+  };
+}
+
+/** Conservative complete response envelope used at sign-off and runtime. */
+export function projectSummarySelfCheckWorstCaseResponse(
+  args: SummarySelfCheckCapacity
+): string {
+  if (args.ordinaryChecks.length > MAX_SUMMARY_ORDINARY_VERDICTS) {
+    throw new SeedContextLimitError(
+      "summary_self_check_ordinary_count",
+      `Summary Self-check requires more than ${MAX_SUMMARY_ORDINARY_VERDICTS} ordinary verdicts`
+    );
+  }
+  if (args.planChecks.length > MAX_SUMMARY_PLAN_VERDICTS) {
+    throw new SeedContextLimitError(
+      "summary_self_check_plan_count",
+      `Summary Self-check requires more than ${MAX_SUMMARY_PLAN_VERDICTS} plan verdicts`
+    );
+  }
+  assertSummaryChecksWellFormed(args);
   const envelope: JsonValue = {
-    planVerdicts,
-    ...(args.includeStorylineQuestion
-      ? {
-          storylineQuestion: {
-            confidenceEntry: MAX_SUMMARY_SELF_CHECK_PARAGRAPH,
-            question: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "q"),
-            sectionClaim: repeated(MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES, "c"),
-            storylineAlternative: repeated(
-              MAX_SUMMARY_SELF_CHECK_QUESTION_ESCAPED_UTF8_BYTES,
-              "a"
-            ),
-          },
-        }
-      : {}),
-    verdicts,
+    planVerdicts: args.planChecks.map(worstCasePlanVerdict),
+    ...(args.includeStorylineQuestion ? { storylineQuestion: worstCaseStorylineQuestion() } : {}),
+    verdicts: args.ordinaryChecks.map(worstCaseOrdinaryVerdict),
   };
   return stableSerialize(envelope);
+}
+
+/**
+ * 2026-10-26 (P0 item 2; owner, 2026-10-26: check in batches instead of
+ * refusing): at most this many requests check one Line. Each request keeps
+ * every per-request limit above; this bounds a Line's time and cost.
+ */
+export const MAX_SUMMARY_SELF_CHECK_BATCHES = 8;
+
+/**
+ * 2026-10-26 (round 2 design review): a Line's requests all run at once, so
+ * one check still takes one request and its follow-up in a row, however
+ * many requests it needs (the section's time budget counts two).
+ */
+export const SUMMARY_SELF_CHECK_PARALLEL_REQUESTS = MAX_SUMMARY_SELF_CHECK_BATCHES;
+
+/** One request of a Line's Summary Self-check (planSummarySelfCheckBatches). */
+export type SummarySelfCheckBatch<Plan extends FrozenSummaryPlanCheck = FrozenSummaryPlanCheck> = {
+  ordinaryChecks: SummaryOrdinaryCheck[];
+  planChecks: Plan[];
+  /** Only the first request may ask the Storyline question. */
+  includeStorylineQuestion: boolean;
+};
+
+/**
+ * Throws the SeedContextLimitError of the first per-request limit `batch`
+ * breaks: its counts, its worst-case response, or its CONTENT PLAN CHECKS
+ * block (a request with no plan check sends none).
+ */
+export function assertSummarySelfCheckBatchFits(batch: SummarySelfCheckCapacity): void {
+  assertSummarySelfCheckResponseWithinLimit(projectSummarySelfCheckWorstCaseResponse(batch));
+  if (batch.planChecks.length > 0) {
+    assertSummaryPlanCheckInputWithinLimit(projectFrozenSummaryPlanChecks(batch.planChecks));
+  }
+}
+
+/**
+ * 2026-10-26 (P0 item 2): the requests one Line's Summary Self-check is sent
+ * as. Sign-off, runtime admission and the request itself all call this, so
+ * they cannot disagree. A Line whose checks fit one request gets one batch
+ * holding everything, sent byte for byte as before. Otherwise the first
+ * batch holds every rule check (facts, targets and the Line 242 answers,
+ * which read the same sources) and may ask the Storyline question; the
+ * ordinary checks, then the other plan checks in frozen order, are added to
+ * the current batch while it fits every per-request limit, else start the
+ * next. Throws SeedContextLimitError (the Line is refused at sign-off, its
+ * limit named) when one check, or the first batch's rule checks together,
+ * cannot fit a request on their own, or when more than
+ * MAX_SUMMARY_SELF_CHECK_BATCHES requests would be needed.
+ */
+export function planSummarySelfCheckBatches<Plan extends FrozenSummaryPlanCheck>(args: {
+  ordinaryChecks: readonly SummaryOrdinaryCheck[];
+  planChecks: readonly Plan[];
+  includeStorylineQuestion: boolean;
+}): SummarySelfCheckBatch<Plan>[] {
+  assertSummaryChecksWellFormed(args);
+  const whole: SummarySelfCheckBatch<Plan> = {
+    ordinaryChecks: [...args.ordinaryChecks],
+    planChecks: [...args.planChecks],
+    includeStorylineQuestion: args.includeStorylineQuestion,
+  };
+  // Sizes per check, so packing never re-serializes a growing batch. The
+  // finished batches are checked again with the exact projections below.
+  const bytesOf = (value: JsonValue) => utf8Bytes(stableSerialize(value));
+  const emptyEnvelope = bytesOf({ planVerdicts: [], verdicts: [] });
+  const questionBytes =
+    bytesOf({ planVerdicts: [], storylineQuestion: worstCaseStorylineQuestion(), verdicts: [] }) - emptyEnvelope;
+  const ordinaryBytes = new Map(args.ordinaryChecks.map((check) => [check, bytesOf(worstCaseOrdinaryVerdict(check))]));
+  const planBytes = new Map(args.planChecks.map((check) => [check, bytesOf(worstCasePlanVerdict(check))]));
+  const lineBytes = new Map(args.planChecks.map((check) => [check, bytesOf(canonicalPlanCheck(check))]));
+  const blockFrame =
+    utf8Bytes(FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD.begin) + utf8Bytes(FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD.end) + 2;
+  const separator = utf8Bytes(FROZEN_SUMMARY_PLAN_CHECKS_SCAFFOLD.separator);
+  const sum = <T>(items: readonly T[], sizes: Map<T, number>) =>
+    items.reduce((total, item) => total + sizes.get(item)!, 0);
+  const fits = (batch: SummarySelfCheckBatch<Plan>): boolean => {
+    const ordinary = batch.ordinaryChecks.length;
+    const plans = batch.planChecks.length;
+    if (ordinary > MAX_SUMMARY_ORDINARY_VERDICTS || plans > MAX_SUMMARY_PLAN_VERDICTS) return false;
+    const response =
+      emptyEnvelope +
+      (batch.includeStorylineQuestion ? questionBytes : 0) +
+      sum(batch.planChecks, planBytes) +
+      Math.max(0, plans - 1) +
+      sum(batch.ordinaryChecks, ordinaryBytes) +
+      Math.max(0, ordinary - 1);
+    if (response > MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES) return false;
+    if (plans === 0) return true;
+    const block = blockFrame + sum(batch.planChecks, lineBytes) + (plans - 1) * separator;
+    return block <= MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES;
+  };
+  if (fits(whole)) {
+    assertSummarySelfCheckBatchFits(whole);
+    return [whole];
+  }
+  const batches: SummarySelfCheckBatch<Plan>[] = [];
+  let current: SummarySelfCheckBatch<Plan> = {
+    ordinaryChecks: [],
+    planChecks: args.planChecks.filter((check) => check.ruleId !== undefined),
+    includeStorylineQuestion: args.includeStorylineQuestion,
+  };
+  if (!fits(current)) assertSummarySelfCheckBatchFits(current);
+  const add = (next: SummarySelfCheckBatch<Plan>, alone: SummarySelfCheckBatch<Plan>) => {
+    if (fits(next)) {
+      current = next;
+      return;
+    }
+    batches.push(current);
+    if (!fits(alone)) assertSummarySelfCheckBatchFits(alone);
+    current = alone;
+  };
+  for (const check of args.ordinaryChecks) {
+    add(
+      { ...current, ordinaryChecks: [...current.ordinaryChecks, check] },
+      { ordinaryChecks: [check], planChecks: [], includeStorylineQuestion: false }
+    );
+  }
+  for (const check of args.planChecks) {
+    if (check.ruleId !== undefined) continue;
+    add(
+      { ...current, planChecks: [...current.planChecks, check] },
+      { ordinaryChecks: [], planChecks: [check], includeStorylineQuestion: false }
+    );
+  }
+  batches.push(current);
+  const filled = batches.filter((batch) => batch.ordinaryChecks.length > 0 || batch.planChecks.length > 0);
+  if (filled.length > MAX_SUMMARY_SELF_CHECK_BATCHES) {
+    throw new SeedContextLimitError(
+      "summary_self_check_batches",
+      `Summary Self-check needs more than ${MAX_SUMMARY_SELF_CHECK_BATCHES} requests for one Line`
+    );
+  }
+  for (const batch of filled) assertSummarySelfCheckBatchFits(batch);
+  return filled;
 }
 
 export function summarySelfCheckWorstCaseResponse(args: SummarySelfCheckCapacity): string {
@@ -799,14 +1003,15 @@ function planItemsByStep(
   return [
     heading,
     ...(items.length > 0
-      ? items.map((item) => `- ${title(item.roleId)}: ${item.wording.join(" ")}`)
+      ? items.map((item) => `- ${title(item.roleId)}: ${item.wording.map(clipReferenceBullet).join(" ")}`)
       : [`- ${FROZEN_SUMMARY_PLAN_SCAFFOLD.empty}`]),
   ].join("\n");
 }
 
 /**
  * 2026-09-30 (first, Greptile P1): the wording of Line 246's advancement
- * check. Line 242's signed-off plan items come first and are never clipped;
+ * check. Line 242's signed-off plan items come first, each bullet up to
+ * MAX_REFERENCE_BULLET_CHARS (2026-10-27, eleventh);
  * the drafted text follows under its own heading and is clipped alone to
  * MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES with a mark. Without drafted
  * text, the items stand alone.
@@ -826,9 +1031,10 @@ export function line242Reference(args: {
 
 /**
  * 2026-09-30 (second, Rule C): the wording of Line 244's work check. Line
- * 242 as in Rule B (its signed-off items whole, then its drafted text, the
- * only part clipped, to the same reservation), then Line 246's signed-off
- * items, whole: frozen at sign-off, so admission counts their exact bytes.
+ * 242 as in Rule B (its signed-off items, then its drafted text, clipped to
+ * the same reservation), then Line 246's signed-off items; each item's
+ * bullets up to MAX_REFERENCE_BULLET_CHARS (2026-10-27, eleventh). Frozen
+ * at sign-off, so admission counts their exact bytes.
  */
 export function line244Reference(args: {
   items242: ReadonlyArray<{ roleId: PdSubsectionRoleId; wording: readonly string[] }>;
@@ -865,7 +1071,8 @@ export function buildFrozenSummaryPlan<
   droppedUncertainties?: readonly FrozenDroppedUncertainty<SeedId>[];
   /**
    * 2026-09-30 (first): Line 246 only. Its advancement check carries Line
-   * 242's signed-off plan items from `items`, whole, then `line242Text` (the
+   * 242's signed-off plan items from `items` (each bullet up to
+   * MAX_REFERENCE_BULLET_CHARS since 2026-10-27), then `line242Text` (the
    * text Line 242 was drafted with, or ANSWERS_242_WORST_CASE_REFERENCE at
    * admission), clipped alone to MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES.
    * No text: the items alone. Absent: no such check.
@@ -874,7 +1081,7 @@ export function buildFrozenSummaryPlan<
   /**
    * 2026-09-30 (second, Rule C): Line 244 only. Its work check carries Line
    * 242 as `answers242` does, then Line 246's signed-off items from `items`,
-   * whole. Absent: no such check.
+   * each bullet up to MAX_REFERENCE_BULLET_CHARS. Absent: no such check.
    */
   workAnswers242?: { line242Text?: string };
   /**
@@ -951,7 +1158,9 @@ export function buildFrozenSummaryPlan<
             `Signed-off content plan reference closure is incomplete for ${seedId}`
           );
         }
-        return { seedId, wording: [...wording] };
+        // 2026-10-27 (eleventh): reference data, each bullet up to
+        // MAX_REFERENCE_BULLET_CHARS.
+        return { seedId, wording: wording.map(clipReferenceBullet) };
       });
       const groupSourceReferences = group.flatMap((item) =>
         (args.sourceRefsByItemId?.get(item.itemId) ?? []).map((citation) => ({
@@ -1004,10 +1213,13 @@ export function buildFrozenSummaryPlan<
   // reference, so the drafter and the checker recognise its content.
   const dropped = (args.droppedUncertainties ?? []).slice(0, MAX_DROPPED_UNCERTAINTY_CHECKS);
   for (const uncertainty of dropped) {
+    // 2026-10-27 (eleventh, review round 2): reference data, each bullet up
+    // to MAX_REFERENCE_BULLET_CHARS; the dropped uncertainty's own wording
+    // stays whole.
     const relationshipReferences = [
       ...uncertainty.experiments.slice(0, MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND),
       ...uncertainty.advancements.slice(0, MAX_DROPPED_UNCERTAINTY_RELATED_PER_KIND),
-    ].map((reference) => ({ seedId: reference.seedId, wording: [...reference.wording] }));
+    ].map((reference) => ({ seedId: reference.seedId, wording: reference.wording.map(clipReferenceBullet) }));
     entries.push({
       droppedSeedId: uncertainty.seedId,
       instruction: FROZEN_SUMMARY_PLAN_SCAFFOLD.leaveOutInstruction,
@@ -1066,8 +1278,9 @@ export function buildFrozenSummaryPlan<
   }
   // 2026-09-30 (first): every Line 246 advancement answers an uncertainty
   // Line 242 states. The check carries Line 242 as data: its signed-off plan
-  // items, whole (frozen at sign-off, so admission counts their exact bytes),
-  // then its drafted text, the only part clipped (Greptile P1).
+  // items (frozen at sign-off, so admission counts their exact bytes; each
+  // bullet up to MAX_REFERENCE_BULLET_CHARS since 2026-10-27, eleventh), then
+  // its drafted text, clipped (Greptile P1).
   if (args.answers242 && args.section === "s246") {
     checks.push({
       ruleId: ADVANCEMENTS_ANSWER_242_RULE_ID,
@@ -1086,7 +1299,7 @@ export function buildFrozenSummaryPlan<
   // 2026-09-30 (second, Rule C): Line 244 describes work only for an
   // uncertainty Line 242 states, or work that is the evidence a signed-off
   // item needs. The check carries Line 242 as Rule B does, then Line 246's
-  // signed-off items, whole.
+  // signed-off items, each bullet up to MAX_REFERENCE_BULLET_CHARS.
   if (args.workAnswers242 && args.section === "s244") {
     checks.push({
       ruleId: WORK_ANSWERS_242_RULE_ID,
@@ -1118,7 +1331,13 @@ export function buildFrozenSummaryPlan<
       "Signed-off content plan exceeds the prompt byte budget"
     );
   }
-  const checksBlock = serializeFrozenSummaryPlanChecks(checks);
+  // 2026-10-26 (P0 item 2): the whole Line's block is the integrity record
+  // of its checks; each request sends its own batch's block, which
+  // planSummarySelfCheckBatches keeps within the input limit. A Line whose
+  // plan checks alone cannot be split into requests is still refused here,
+  // before any provider call, at sign-off and at every section claim.
+  planSummarySelfCheckBatches({ ordinaryChecks: [], planChecks: checks, includeStorylineQuestion: false });
+  const checksBlock = projectFrozenSummaryPlanChecks(checks);
   return { block, checks, checksBlock };
 }
 
@@ -1358,7 +1577,9 @@ export class SeedContextLimitError extends Error {
     | "summary_self_check_plan_count"
     | "summary_self_check_ordinary_count"
     | "summary_self_check_field_utf8_bytes"
-    | "summary_self_check_merge_refs";
+    | "summary_self_check_merge_refs"
+    // 2026-10-26: more than MAX_SUMMARY_SELF_CHECK_BATCHES requests.
+    | "summary_self_check_batches";
 
   constructor(
     limit: SeedContextLimitError["limit"],

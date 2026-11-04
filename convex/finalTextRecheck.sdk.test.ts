@@ -29,8 +29,9 @@ import { draftCheckedSection } from "./ai/orderedGeneration";
 import { COMPRESSION_REQUEST, ORDERED_PROMPT_SCAFFOLDS } from "./ai/promptDefinitions";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
-import { sectionMetrics } from "./lib/lineLimits";
+import { overGenerationCeiling, sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload } from "./lib/orderedChain";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -175,9 +176,7 @@ function installFetch(script: Script): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
   const compressions = [...(script.compressions ?? [])];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const json = JSON.parse(await new Request(input, init).text()) as Record<string, unknown>;
       const user = userOf(json);
       const tool = (json.tools as Array<{ name: string }> | undefined)?.[0]?.name ?? null;
@@ -419,13 +418,16 @@ describe("every used repair is checked again on the final text (2026-10-05, Roun
     const filler = (topic: string) =>
       `The team recorded each ${topic} run in the shop log and compared it with the run before it on the same line.`;
     const paragraphs = (topic: string, count: number) => Array.from({ length: count }, () => filler(topic)).join(" ");
-    // Within the Locked cap, over the compression floor: the checked text.
-    const checked = `${DRAFT_242}\n\n${paragraphs("oven", 7)}`;
-    // Over the Locked cap: the draft and the repair, before shortening.
-    const long = `${checked}\n\n${paragraphs("door", 9)}`;
+    // Within the Locked cap, over the compression floor (60 percent of the
+    // 337-word target): the checked text.
+    const checked = `${DRAFT_242}\n\n${paragraphs("oven", 9)}`;
+    // Over the Locked cap and (2026-10-29, third, item 7) over the drafting
+    // ceiling: the draft and the repair, before shortening.
+    const long = `${checked}\n\n${paragraphs("door", 14)}`;
     const repaired = long.replace("The team did not know whether", "It was not known whether");
     expect(sectionMetrics(checked, "s242").overLimit).toBe(false);
-    expect(sectionMetrics(long, "s242").overLimit).toBe(true);
+    expect(sectionMetrics(checked, "s242").words).toBeGreaterThan(Math.floor(337 * 0.6));
+    expect(overGenerationCeiling(sectionMetrics(long, "s242"), "s242")).toBe(true);
     const { sent, result } = await draft("242", true, {
       draft: long,
       repair: repaired,

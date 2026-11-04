@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { decodeEncodedToolFields, generateStructured } from "./structured";
+import { decodeEncodedToolFields, generateStructured, wrappedAnswer } from "./structured";
 import { MalformedOutputError, type GenerationClient } from "./openrouterCore";
 
 function clientWith(inputs: unknown[]): GenerationClient {
@@ -542,5 +542,117 @@ describe("decodeEncodedToolFields and encodedFieldRecovery (Round 3)", () => {
       expect(client.messages.create).toHaveBeenCalledTimes(1);
     }
     quiet.mockRestore();
+  });
+});
+
+describe("answers that leave out required fields (live check, 2026-10-26)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: { storyline: { type: "string" }, claims: { type: "array", items: { type: "string" } } },
+    required: ["storyline", "claims"],
+  };
+  // Every list defaults, as the Brief's schema does: `{}` would pass.
+  const validate = z.object({ storyline: z.string().default(""), claims: z.array(z.string()).default([]) });
+
+  it("a call that needs every field, on a model that cannot be forced to call the tool, repairs an empty answer, naming the fields", async () => {
+    const client = clientWith([{}, { storyline: "The seal held.", claims: ["held at 4.2 bar"] }]);
+    const result = await generateStructured(client, {
+      system: "system",
+      user: "user",
+      toolName: "submit",
+      description: "submit",
+      schema,
+      model: "claude-sonnet-5-5",
+      validate,
+      requireEveryField: true,
+    });
+    expect(result).toEqual({ storyline: "The seal held.", claims: ["held at 4.2 bar"] });
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+    const second = vi.mocked(client.messages.create).mock.calls[1][0];
+    expect(JSON.stringify(second.messages[0].content)).toContain("it left out required fields: storyline, claims");
+  });
+
+  it("fails rather than saving an empty answer when the repair leaves fields out too", async () => {
+    const client = clientWith([{}, { storyline: "Only this." }]);
+    await expect(
+      generateStructured(client, {
+        system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-opus-5-5", validate,
+        requireEveryField: true,
+      })
+    ).rejects.toThrow(/left out required fields: claims/);
+  });
+
+  it("an answer sent as JSON text, or wrapped in one key, is checked once read (review round 3)", async () => {
+    const encoded = clientWith([JSON.stringify({ storyline: "Only this." }), { storyline: "The seal held.", claims: [] }]);
+    expect(
+      await generateStructured(encoded, {
+        system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5-5", validate,
+        requireEveryField: true,
+      })
+    ).toEqual({ storyline: "The seal held.", claims: [] });
+    expect(encoded.messages.create).toHaveBeenCalledTimes(2);
+    const repair = JSON.stringify(vi.mocked(encoded.messages.create).mock.calls[1][0].messages[0].content);
+    expect(repair).toContain("it left out required fields: claims");
+
+    const wrappedClient = clientWith([{ brief: { storyline: "Only this." } }, { brief: { storyline: "Still only this." } }]);
+    await expect(
+      generateStructured(wrappedClient, {
+        system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-opus-5-5", validate,
+        requireEveryField: true,
+      })
+    ).rejects.toThrow(/left out required fields: claims/);
+  });
+
+  it("a call that leaves the check off keeps its defaults, as the analyzer does", async () => {
+    const client = clientWith([{ storyline: "Only this." }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5-5", validate,
+    });
+    expect(result).toEqual({ storyline: "Only this.", claims: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a model that takes a forced call is held to it too, and a wrapped answer is read from inside (review round 3)", async () => {
+    const client = clientWith([{}, { brief: { storyline: "The seal held.", claims: ["held at 4.2 bar"] } }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
+      requireEveryField: true,
+    });
+    expect(result).toEqual({ storyline: "The seal held.", claims: ["held at 4.2 bar"] });
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("an answer wrapped in one more key (live check, 2026-10-26)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: { company_context: { type: "string" }, gaps: { type: "array", items: { type: "string" } } },
+    required: ["company_context"],
+  };
+  const validate = z.object({ company_context: z.string(), gaps: z.array(z.string()).default([]) });
+
+  it("is read from inside the key, with no repair, as Sonnet 5 sent the analysis", async () => {
+    const client = clientWith([{ analysis: { company_context: "A mining consultancy.", gaps: ["Dates"] } }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
+    });
+    expect(result).toEqual({ company_context: "A mining consultancy.", gaps: ["Dates"] });
+    expect(client.messages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not read from inside a key the schema names, or a wrapper holding a list", () => {
+    expect(wrappedAnswer({ gaps: { company_context: "x" } }, schema)).toBeNull();
+    expect(wrappedAnswer({ analysis: [{ company_context: "x" }] }, schema)).toBeNull();
+    expect(wrappedAnswer({ analysis: { company_context: "x" }, other: 1 }, schema)).toBeNull();
+    expect(wrappedAnswer({ analysis: { company_context: "x" } }, schema)).toEqual({ key: "analysis", value: { company_context: "x" } });
+  });
+
+  it("still spends the repair when what the wrapper holds is invalid too", async () => {
+    const client = clientWith([{ analysis: { project_goal: "No context." } }, { company_context: "A mining consultancy." }]);
+    const result = await generateStructured(client, {
+      system: "system", user: "user", toolName: "submit", description: "submit", schema, model: "claude-sonnet-5", validate,
+    });
+    expect(result).toEqual({ company_context: "A mining consultancy.", gaps: [] });
+    expect(client.messages.create).toHaveBeenCalledTimes(2);
   });
 });

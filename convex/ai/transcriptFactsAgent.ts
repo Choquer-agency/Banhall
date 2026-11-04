@@ -22,6 +22,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { restorePlaceholders, type PlaceholderMap } from "../lib/deidentify";
 import {
+  FACT_WINDOW_OVERLAP_TURNS,
   parseTurnId,
   planFactWindows,
   renderTurnLine,
@@ -32,7 +33,7 @@ import {
   type VerifiedFact,
 } from "../lib/transcriptFacts";
 import { TRANSCRIPT_FACT_TYPES } from "../lib/transcriptValidators";
-import type { GenerationClient } from "./openrouterCore";
+import { OutputLimitError, isCutOffStopReason, type GenerationClient } from "./openrouterCore";
 import { generateStructured } from "./structured";
 
 export const FACTS_SYSTEM_PROMPT = `You extract SR&ED evidence from one window of an interview transcript for a Canadian SR&ED consulting firm. A technical writer will draft a CRA project description from what you record, and every fact you record is checked against the transcript word for word.
@@ -94,6 +95,70 @@ export const FACTS_TIMEOUT_MS = 150_000;
 export const FACTS_CONCURRENCY = 4;
 
 export type FactWindowLine = { turnIndex: number; text: string };
+
+/**
+ * A window's answer was cut off at its output limit (2026-10-26, failure 6
+ * of the context pipeline plan): a dense stretch of transcript has more
+ * facts than one answer holds. Its facts are never kept as if complete:
+ * citations mode used to keep the lines before the cut without a word. In
+ * a generation the extraction fails, so the draft reads the transcript the
+ * usual way, and the transcript is queued for background extraction, which
+ * splits the window (extractTranscriptFacts `splitDenseWindows`). `cause`
+ * is structured mode's OutputLimitError.
+ */
+export class FactWindowCutOffError extends Error {
+  readonly cause?: unknown;
+  constructor(cause?: unknown) {
+    super("A stretch of the transcript had more facts than one answer holds, so its answer was cut off");
+    this.name = "FactWindowCutOffError";
+    this.cause = cause;
+  }
+}
+
+/**
+ * A window's call ran past its time limit (FACTS_TIMEOUT_MS). Background
+ * extraction splits such a window as it splits a cut-off one: a dense
+ * window on a model that always thinks runs out of time before it reaches
+ * its output limit (2026-10-26 design review).
+ */
+export class FactWindowTimeoutError extends Error {
+  constructor() {
+    super("Fact extraction ran past its time limit");
+    this.name = "FactWindowTimeoutError";
+  }
+}
+
+/**
+ * How many times background extraction halves a dense window: one window
+ * becomes at most four, each asked in the window's own slot, one after
+ * another, within the action's deadline.
+ */
+export const FACT_WINDOW_SPLIT_DEPTH = 2;
+
+/**
+ * A stretch still cut off after it was split as far as it goes (code review,
+ * 2026-10-26): its text, not the time or the provider, is too dense for one
+ * answer. Only this marks a fact run too dense (transcriptFactRuns.tooDense);
+ * a window that ran out of time, or had no time left to split, fails the run
+ * so a later background run can try again.
+ */
+export class FactWindowTooDenseError extends FactWindowCutOffError {
+  constructor(cause?: unknown) {
+    super(cause);
+    this.name = "FactWindowTooDenseError";
+  }
+}
+
+/**
+ * A window halved at a turn boundary, the second half starting
+ * FACT_WINDOW_OVERLAP_TURNS turns early (as planned windows overlap), each
+ * half shorter than the window; null for a window of one turn.
+ */
+export function splitFactWindow<T>(window: readonly T[]): [T[], T[]] | null {
+  if (window.length < 2) return null;
+  const middle = Math.ceil(window.length / 2);
+  return [window.slice(0, middle), window.slice(Math.max(1, middle - FACT_WINDOW_OVERLAP_TURNS))];
+}
 
 /**
  * One window's proposals, still carrying placeholders. `signal` aborts the
@@ -230,11 +295,13 @@ export type CitationsClient = {
 
 /**
  * The outcome one parsed citations answer records (review 2026-09-25,
- * P3-a): cut off at max_tokens or refused is a failure of the model, even
- * when the lines before the cut are kept; anything else is a success.
+ * P3-a): cut off (at max_tokens or, since 2026-10-26, the context window)
+ * or refused is a failure; anything else is a success. Since 2026-10-28
+ * (owner) the recorder keeps a refusal out of the model's count
+ * (providers.ts recordedRequest), so its settle records nothing.
  */
 export function citationsOutcome(stopReason: string | null | undefined): { ok: true } | { ok: false; code: string } {
-  if (stopReason === "max_tokens") return { ok: false, code: "output_limit" };
+  if (isCutOffStopReason(stopReason)) return { ok: false, code: "output_limit" };
   if (stopReason === "refusal") return { ok: false, code: "refusal" };
   return { ok: true };
 }
@@ -251,13 +318,16 @@ export function citationsExtractor(
       onUsage?.({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens });
     }
     let facts: ProposedFact[];
+    const truncated = isCutOffStopReason(response.stop_reason);
     try {
-      facts = parseCitationsResponse(response.content, lines, { truncated: response.stop_reason === "max_tokens" });
+      facts = parseCitationsResponse(response.content, lines, { truncated });
     } catch (error) {
       await response.settleOutcome?.({ ok: false, code: "malformed_output" });
       throw error;
     }
     await response.settleOutcome?.(citationsOutcome(response.stop_reason));
+    // 2026-10-26: a cut answer's facts are never kept as if complete.
+    if (truncated) throw new FactWindowCutOffError();
     return facts;
   };
 }
@@ -290,17 +360,24 @@ export function structuredExtractor(
   model: string
 ): FactWindowExtractor {
   return async (lines, signal) => {
-    const result = await generateStructured(typeof client === "function" ? client(signal) : client, {
-      system: FACTS_SYSTEM_PROMPT,
-      user: structuredUserMessage(lines),
-      toolName: FACTS_REQUEST.toolName,
-      description: FACTS_REQUEST.description,
-      schema: FACTS_SCHEMA,
-      maxTokens: FACTS_REQUEST.maxTokens,
-      model,
-      validate: structuredSchema,
-      attempts: 1,
-    });
+    let result: z.infer<typeof structuredSchema>;
+    try {
+      result = await generateStructured(typeof client === "function" ? client(signal) : client, {
+        system: FACTS_SYSTEM_PROMPT,
+        user: structuredUserMessage(lines),
+        toolName: FACTS_REQUEST.toolName,
+        description: FACTS_REQUEST.description,
+        schema: FACTS_SCHEMA,
+        maxTokens: FACTS_REQUEST.maxTokens,
+        model,
+        validate: structuredSchema,
+        attempts: 1,
+      });
+    } catch (error) {
+      // 2026-10-26: a cut answer is split in background extraction (extractTranscriptFacts).
+      if (error instanceof OutputLimitError) throw new FactWindowCutOffError(error);
+      throw error;
+    }
     return result.facts.map((fact) => ({
       type: fact.type,
       claim: fact.claim,
@@ -377,7 +454,7 @@ async function withTimeout<T>(
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           controller.abort(abortError("Fact extraction ran past its time limit"));
-          reject(new Error("Fact extraction ran past its time limit"));
+          reject(new FactWindowTimeoutError());
         }, ms);
       }),
     ]);
@@ -432,7 +509,15 @@ export async function extractTranscriptFacts(args: {
   timeoutMs?: number;
   /** Shared with other transcripts extracted at the same time. */
   slots?: CallSlots;
-}): Promise<{ facts: VerifiedFact[]; counts: FactCounts; windows: number }> {
+  /**
+   * 2026-10-26 (failure 6): halve a window that was cut off or ran out of
+   * time, up to FACT_WINDOW_SPLIT_DEPTH times, while its two halves (each up
+   * to `timeoutMs`) still fit before `deadline`. Background extraction only:
+   * a generation admits extraction for exactly its planned windows
+   * (factsFitBudget), so there a dense window fails the extraction.
+   */
+  splitDenseWindows?: { deadline: number | undefined };
+}): Promise<{ facts: VerifiedFact[]; counts: FactCounts; windows: number; calls: number }> {
   const windows = planFactWindows(args.turns);
   // One failed window fails the extraction, so the calls still in flight are
   // aborted and no new one starts (review 2026-09-25).
@@ -447,14 +532,47 @@ export async function extractTranscriptFacts(args: {
       args.timeoutMs,
       stop.signal
     );
+  let calls = 0;
+  // 2026-10-26 (failure 6): with `splitDenseWindows`, a window whose answer
+  // was cut off or ran out of time is halved and each half asked in turn,
+  // in the same slot, at most FACT_WINDOW_SPLIT_DEPTH times. A window that
+  // cannot be halved further fails the extraction. Its facts are never kept
+  // part way.
+  const extract = async (window: readonly FactTurn[], depth: number): Promise<ProposedFact[]> => {
+    try {
+      calls += 1;
+      return await call(window);
+    } catch (error) {
+      const dense = error instanceof FactWindowCutOffError || error instanceof FactWindowTimeoutError;
+      if (!dense || !args.splitDenseWindows || stop.signal.aborted) throw error;
+      const deadline = args.splitDenseWindows.deadline;
+      if (deadline !== undefined && deadline - Date.now() < 2 * (args.timeoutMs ?? FACTS_TIMEOUT_MS)) {
+        console.warn(`A fact window of ${window.length} turns failed (${error.name}) with too little time left to split it`);
+        throw error;
+      }
+      const halves = depth < FACT_WINDOW_SPLIT_DEPTH ? splitFactWindow(window) : null;
+      if (!halves) {
+        console.warn(`A fact window of ${window.length} turns failed (${error.name}) and cannot be split further`);
+        if (error instanceof FactWindowTooDenseError) throw error;
+        throw error instanceof FactWindowCutOffError ? new FactWindowTooDenseError(error.cause ?? error) : error;
+      }
+      console.warn(`A fact window of ${window.length} turns failed (${error.name}); extracting it in two halves`);
+      const facts: ProposedFact[] = [];
+      for (const half of halves) {
+        if (stop.signal.aborted) throw stoppedError();
+        facts.push(...(await extract(half, depth + 1)));
+      }
+      return facts;
+    }
+  };
   const proposals = await mapWithConcurrency(
     windows,
     args.concurrency ?? FACTS_CONCURRENCY,
     async (window) => {
-      if (!args.slots) return await call(window);
+      if (!args.slots) return await extract(window, 0);
       return await args.slots.run(async () => {
         if (stop.signal.aborted) throw stoppedError();
-        return await call(window);
+        return await extract(window, 0);
       });
     },
     stop
@@ -465,5 +583,5 @@ export async function extractTranscriptFacts(args: {
     quotes: fact.quotes.map((quote) => restorePlaceholders(quote, args.placeholders)),
   }));
   const verified = verifyFacts({ content: args.content, turns: args.turns, proposals: restored });
-  return { ...verified, windows: windows.length };
+  return { ...verified, windows: windows.length, calls };
 }

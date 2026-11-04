@@ -3,7 +3,7 @@
  * version of their tier"). A track is one tier of one vendor's models:
  * Claude Opus, Claude Sonnet, Claude Haiku, GPT Sol, GPT Luna, Gemini Pro and
  * Gemini Flash. The app always runs the newest version of each track, and
- * the daily job (convex/modelCatalog.ts) moves a track forward when a newer
+ * the Monday job (convex/modelCatalog.ts) moves a track forward when a newer
  * version shows up on OpenRouter and passes a readiness check.
  *
  * Never tracked: the top tiers (Fable, Mythos, Astra), OpenAI's "-pro" and
@@ -117,7 +117,7 @@ export const MODEL_TRACKS: Readonly<Record<ModelTrackId, TrackDefinition>> = {
 
 /**
  * Each track's model on 2026-10-22, read from OpenRouter's live list. A
- * deployment whose track table is empty runs these; the daily job moves
+ * deployment whose track table is empty runs these; the Monday job moves
  * them forward from there. Claude tracks hold the direct Anthropic id.
  */
 export const TRACK_SEED_MODEL_IDS: Readonly<Record<ModelTrackId, string>> = {
@@ -272,7 +272,7 @@ export function versionString(value: TrackVersion): string {
 
 /**
  * A track model's picker label from the track and the version, so a model
- * the daily job finds needs no code: "Sonnet 5.5", "GPT-6.1 Sol",
+ * the Monday job finds needs no code: "Sonnet 5.5", "GPT-6.1 Sol",
  * "Gemini 3.8 Flash".
  */
 export function trackLabel(track: ModelTrackId, value: TrackVersion): string {

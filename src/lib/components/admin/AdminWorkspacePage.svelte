@@ -9,6 +9,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+  import AdminSidebar from "$lib/components/workspace/sidebars/AdminSidebar.svelte";
   import { IconShield } from "$lib/components/icons";
   import { resolve } from "$app/paths";
 
@@ -56,12 +57,15 @@
     </main>
   </div>
 {:else}
-  <!-- Round 2 B3: 56px top bar with the shield tile and "Admin / {title}",
-       page actions in the top bar, then the padded panel with the serif
-       heading and description. Full width, no sub-rail. While a developer
-       views Banhall as a role without settings.configure, WorkspaceChrome
-       shows the D4 hidden-page state instead (`viewAsGate`). -->
+  <!-- The page frame (owner, 2026-10-28, answers 1 and 2): the Admin
+       sidebar lists the admin pages (developers also get Alerts and Feature
+       requests at its foot); the top bar names the page and holds its
+       actions. While a developer views Banhall as a role without
+       settings.configure, WorkspaceChrome shows the D4 hidden-page state
+       instead, with no sidebar (`viewAsGate`). -->
+  {#snippet adminSidebar()}<AdminSidebar />{/snippet}
   <WorkspaceChrome
+    sidebar={adminSidebar}
     {title}
     icon={IconShield}
     breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }}

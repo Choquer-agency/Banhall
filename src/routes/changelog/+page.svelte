@@ -86,7 +86,8 @@
 {#snippet changelogContent(showHeading: boolean)}
     <!-- In the workspace the work panel already pads its content (owner,
          2026-10-19), so the page gutter applies only to the classic page. -->
-    <main class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-10" : ""}`}>
+    <!-- In the page frame the card already holds the page's one <main>. -->
+    <svelte:element this={showHeading ? "main" : "div"} class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-10" : ""}`}>
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
         <div class={`flex flex-wrap items-start gap-4 ${showHeading ? "justify-between" : "justify-end"}`}>
           {#if showHeading}
@@ -182,7 +183,7 @@
           </div>
         {/if}
       </div>
-    </main>
+    </svelte:element>
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}

@@ -1,3 +1,4 @@
+import { isEvaluationProject } from "./evaluationProjects";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { FIRM_TIME_ZONE } from "../../shared/firmTime";
@@ -184,7 +185,9 @@ export async function readSeedLearningHealth(
       cohortCache.set(generationId, null);
       return null;
     }
-    if (projectRead.value.usedInDevelopment === true) {
+    // Phase E (E3, review): the release suite's evaluation projects are not
+    // real work either.
+    if (projectRead.value.usedInDevelopment === true || isEvaluationProject(projectRead.value)) {
       cohortCache.set(generationId, null);
       return null;
     }

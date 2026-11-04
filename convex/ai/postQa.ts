@@ -14,7 +14,7 @@ import { LEGACY_MODEL } from "../../shared/generationModels";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { generationStepClients, registerGenerationModels, startActionDeadline } from "./providers";
-import { runQAAgent } from "./qaAgent";
+import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import {
@@ -105,6 +105,7 @@ export const runReportQa = internalAction({
       try {
         const digest = await ctx.runQuery(internal.learning.getActiveDigest, {
           kind: "qa_calibration",
+          projectId: input.projectId,
         });
         return digest?.content.trim()
           ? { content: digest.content, digestId: digest._id }
@@ -148,9 +149,12 @@ export const runReportQa = internalAction({
         return { overrides: undefined, firstPerson: null };
       }
     })();
-    const [calibration, style] = await Promise.all([
+    // 2026-10-29 (third, item 4): QA checks the report against the source
+    // evidence the generation froze, not only the analysis.
+    const [calibration, style, sourceEvidence] = await Promise.all([
       calibrationPromise,
       stylePromise,
+      qaSourceEvidenceFor(ctx, args.generationId, [input.section242, input.section244, input.section246]),
     ]);
 
     try {
@@ -170,7 +174,10 @@ export const runReportQa = internalAction({
           modelFor("generation:post_qa"),
           calibration?.content,
           style.overrides,
-          style.firstPerson
+          style.firstPerson,
+          sourceEvidence,
+          // 2026-10-30 (owner, item 2): the claimant line.
+          input.claimantName
         ),
         runChronologyAgent(
           clientFor("generation:post_chronology"),

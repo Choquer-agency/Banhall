@@ -11,7 +11,7 @@ import {
   TRANSCRIPT_PARSER_VERSION,
   transcriptSpeakerNames,
 } from "../../shared/transcriptParse";
-import { avoidTokenCollisions, buildPlaceholderMap, type PlaceholderMap } from "./deidentify";
+import { avoidTokenCollisions, buildPlaceholderMap, pseudonymize, type PlaceholderMap } from "./deidentify";
 import { frozenSlice, listSpeakerRows } from "./transcriptStructure";
 import { firmNames } from "./firmNames";
 
@@ -80,12 +80,17 @@ export async function projectPlaceholderMap(
   ctx: Ctx,
   project: Doc<"projects">,
   transcripts: readonly Doc<"transcripts">[],
-  texts: readonly string[] = []
+  texts: readonly string[] = [],
+  /** Names tied to the project's company (Phase C), when its files are sent. */
+  companyNames: { organizations: readonly string[]; people: readonly string[] } = { organizations: [], people: [] }
 ): Promise<PlaceholderMap> {
   const names: Array<{ people: string[]; organizations: string[]; phrases: string[] }> = [];
   for (const transcript of transcripts) {
     const rows = await listSpeakerRows(ctx, transcript._id);
     names.push(transcriptNamesToHide(transcript, rows.map((row) => row.label)));
+  }
+  if (companyNames.organizations.length > 0 || companyNames.people.length > 0) {
+    names.push({ people: [...companyNames.people], organizations: [...companyNames.organizations], phrases: [] });
   }
   return await placeholderMapFrom(ctx, project, names, texts);
 }
@@ -128,4 +133,41 @@ export async function placeholderMapFrom(
     phrases,
   });
   return avoidTokenCollisions(map, [...texts, ...labels, ...organizations, ...firms, ...phrases]);
+}
+
+/** The claimant's name as frozen on a generation: the record's company name, spaces folded. */
+export function frozenClaimantName(clientName: string | null | undefined): string | undefined {
+  const name = clientName?.trim().replace(/\s+/g, " ");
+  return name ? name : undefined;
+}
+
+/** A placeholder token, bracketed: what is left of a hidden name. */
+const PLACEHOLDER_TOKEN = /\[(?:CLIENT|PERSON|FIRM)_\d+(?:_[A-Z]+)?\]/g;
+
+/**
+ * 2026-10-30 (owner, "please fix all properly", item 2): the claimant's name
+ * a generation's requests may carry in their claimant line (claimantLine in
+ * convex/ai/prompts.ts). It is the project record's company name, frozen on
+ * the generation at reservation with its placeholder map and the
+ * placeholder switch (Summary recovery copies all three), so a later rename
+ * never changes a request. A generation reserved before this froze no name
+ * and sends no line.
+ *
+ * Owner decision 26, review round 1 (P1-a): the name is sent as written only
+ * when the switch was off at reservation (`placeholdersOff`). Otherwise the
+ * frozen map must hide all of it: nothing but placeholders and spaces may be
+ * left, so a partly hidden "Quillmere 42" and a name too short for the map
+ * ("AB", which leaves the map empty) send no line. An empty map is never
+ * read as the switch being off.
+ */
+export function claimantNameFor(
+  frozenName: string | null | undefined,
+  placeholders: PlaceholderMap | undefined,
+  placeholdersOff: boolean | undefined
+): string | undefined {
+  const name = frozenClaimantName(frozenName);
+  if (!name) return undefined;
+  if (placeholdersOff === true) return name;
+  const masked = pseudonymize(name, placeholders ?? []);
+  return masked.replace(PLACEHOLDER_TOKEN, "").trim() === "" ? name : undefined;
 }

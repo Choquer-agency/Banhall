@@ -202,9 +202,14 @@ describe("the derivation bundle", () => {
   test("is pinned: a changed constant needs a new version and a new pin", async () => {
     const hash = await sha256(stableSerialize(BRIEF_DERIVATION_CONSTANTS as unknown as JsonValue));
     expect({ version: BRIEF_DERIVATION_VERSION, maxQuotePlaces: MAX_QUOTE_PLACES, hash }).toEqual({
-      version: 8,
+      // 11 (2026-10-28, sixth): over the budget, the request sends the parts
+      // that best match the interviews, and quotes are found only in them.
+      // 12 (2026-10-30, review round 4, A1): the Storyline frames one main
+      // uncertainty as the shared problem, and a model-derived Brief made
+      // under an earlier version is no longer reused.
+      version: 12,
       maxQuotePlaces: 8,
-      hash: "655c4a925d1ff374670e45de8ab6a0aa0b31b76261db8c26877f8e1baaf89ef4",
+      hash: "e530dee593d14adce84dd03b94e7ea3bcc4bcc10d441881b93a11dcceefa0438",
     });
   });
 

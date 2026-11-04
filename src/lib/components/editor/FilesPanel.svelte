@@ -69,6 +69,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 </script>
 
 <script lang="ts">
+  import { MessageContent } from "$lib/components/chat/primitives";
+  import { quotableFileText } from "../../../../shared/wordMarkdown";
   import { createExtractionScope } from "$lib/extractionScope.svelte";
   import { isParseAbort } from "$lib/spreadsheetClient";
   import { useQuery, useMutation, useConvexClient } from "convex-svelte";
@@ -88,6 +90,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
   import Disclosure from "$lib/components/ui/Disclosure.svelte";
   import DisclosureChevron from "$lib/components/ui/DisclosureChevron.svelte";
   import ProcessingStatusBadge from "$lib/components/upload/ProcessingStatusBadge.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import UploadReceiptRow from "$lib/components/upload/UploadReceiptRow.svelte";
   import {
     buildReceiptRows,
@@ -103,6 +106,8 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
     statusExplanation,
   } from "$lib/uploads/processingStatus";
 
+  /** Word Markdown longer than this is shown as plain text, without its marks. */
+  const MARKDOWN_PREVIEW_MAX_CHARS = 200_000;
   let {
     projectId,
     reportId,
@@ -272,6 +277,11 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
    * excluded from AI.
    */
   function documentStatusCopy(doc: DocRow): string | null {
+    // F2: a file copied from another project, still on its way or lost.
+    if (doc.copyState === "copying") return "This file is still being copied from the original project.";
+    if (doc.copyState === "could_not_copy") {
+      return "This file could not be copied from the original project, so it holds no text here. Add it again if you need it.";
+    }
     if (doc.archived || doc.processingStatus === "ready") return null;
     const explanation = statusExplanation(doc.processingStatus);
     const action = statusAction(doc.processingStatus, {
@@ -732,7 +742,18 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                 {#if !doc.archived}
                   {@const copy = documentStatusCopy(doc)}
                   <div class="mt-1">
-                    <ProcessingStatusBadge status={doc.processingStatus} />
+                    {#if doc.copyState === "copying"}
+                      <span class="inline-flex items-center gap-1.5 rounded-full bg-chrome px-2.5 py-0.5 text-xs font-medium text-ink-secondary">
+                        <Spinner size="sm" class="h-3 w-3 border-[1.5px] motion-reduce:animate-none" />
+                        Being copied
+                      </span>
+                    {:else if doc.copyState === "could_not_copy"}
+                      <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                        Could not copy
+                      </span>
+                    {:else}
+                      <ProcessingStatusBadge status={doc.processingStatus} />
+                    {/if}
                   </div>
                   {#if copy}
                     <p class="mt-1 text-xs text-ink-muted">{copy}</p>
@@ -742,7 +763,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
                   {formatDate(doc.createdAt)}{doc.archived ? ", excluded from AI" : ""}
                 </p>
               </div>
-              {#if !doc.archived && docCanReplace.get(doc._id)}
+              {#if !doc.archived && doc.copyState !== "copying" && docCanReplace.get(doc._id)}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -989,9 +1010,16 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
             <img src={url} alt={preview.fileName} class="mx-auto max-h-full" />
           {:else if previewContentQ.data === undefined}
             <p class="px-6 py-6 text-sm text-gray-400">Loading…</p>
+          {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
+            <!-- 2026-10-26 (owner): a Word file's headings, bold, italic and
+                 tables, shown formatted with chat's Markdown, so no image
+                 loads and links need a click. -->
+            <div class="px-6 py-6" data-testid="file-preview-markdown">
+              <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
+            </div>
           {:else}
             <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-relaxed text-gray-700">{previewContentQ.data?.content
-                ? normalizeExtractedText(previewContentQ.data.content)
+                ? normalizeExtractedText(quotableFileText(previewContentQ.data.content, previewContentQ.data.textFormat))
                 : "No text content."}</pre>
           {/if}
         </div>

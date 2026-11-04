@@ -1,0 +1,55 @@
+{
+  "startedAt": "2026-10-28T03:21:27.842Z",
+  "drafts": {
+    "k976hvrv4qfrd8pqd4811d60558h5sp2": {
+      "generationId": "k5779ge8z9ar04ww1st1mj2zgn8h539p",
+      "requestedAt": 1793157688173,
+      "error": "stopped by SIGTERM",
+      "cancelFailed": "This generation is no longer active",
+      "byCallSite": {
+        "file_labels claude-haiku-5-5": {
+          "calls": 5,
+          "charsPerToken": 2.6,
+          "inputSide": 40840,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 5
+          },
+          "usd": 0.004084
+        },
+        "generation:analyzer claude-sonnet-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.72,
+          "inputSide": 222981,
+          "outputTokens": 1160,
+          "stops": {
+            "tool_use": 1
+          },
+          "usd": 0.5623253
+        },
+        "generation:brief claude-sonnet-5-5": {
+          "calls": 2,
+          "charsPerToken": 2.72,
+          "inputSide": 444991,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 2
+          },
+          "usd": 1.0947635
+        },
+        "generation:retrieval_brief claude-haiku-5-5": {
+          "calls": 1,
+          "charsPerToken": 2.64,
+          "inputSide": 44903,
+          "outputTokens": 0,
+          "stops": {
+            "refusal": 1
+          },
+          "usd": 0.005537705
+        }
+      }
+    }
+  },
+  "stoppedBecause": "a draft did not reach its Seeds",
+  "spendSinceT0": 5.690993404999997
+}

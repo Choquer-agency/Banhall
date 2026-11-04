@@ -339,6 +339,91 @@ export function headingEditRefusal(
   return null;
 }
 
+/** A blank line between paragraphs in a card's text. */
+export const PARAGRAPH_BREAK = /\n[ \t]*\n/;
+
+/**
+ * 2026-11-03 (owner: "let it add, merge and split paragraphs"): a pair that
+ * changes the paragraphs, not just their text. Its replacement holds a blank
+ * line (a split, or a paragraph added after this one) or is empty (the
+ * paragraph merged into another, so it goes). Such a pair acts only on a
+ * whole paragraph whose text is exactly its `find`; it never puts a blank
+ * line inside a paragraph.
+ */
+export function isParagraphPair(pair: ReplacePair): boolean {
+  return PARAGRAPH_BREAK.test(pair.replaceWith) || pair.replaceWith.trim() === "";
+}
+
+/**
+ * How `applyReplacements` treats paragraph pairs. Off by default, so every
+ * other caller (client review suggestions, research edits) behaves as before;
+ * Assistant cards turn it on (review 2026-11-03).
+ */
+export type ReplaceOptions = { paragraphs?: boolean };
+
+/** Whether a pair changes paragraphs in this doc: a paragraph pair whose find is a whole top-level paragraph. */
+export function changesParagraphs(doc: PMNode, pair: ReplacePair): boolean {
+  if (!isParagraphPair(pair)) return false;
+  const top = (doc.content as PMNode[] | undefined) ?? [];
+  return top.some((block) => block.type === "paragraph" && blockText(block).trim() !== "" && sameText(blockText(block), pair.find));
+}
+
+/**
+ * The paragraphs a paragraph pair leaves in place of the one it matched. A
+ * new paragraph that is the matched one unchanged keeps its node, marks and
+ * gap highlights included (adding a paragraph after it never retypes it).
+ */
+function paragraphsFor(original: PMNode, pair: ReplacePair): PMNode[] {
+  return pair.replaceWith
+    .replace(/\r\n?/g, "\n")
+    .split(PARAGRAPH_BREAK)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .map((text) =>
+      sameText(text, pair.find)
+        ? original
+        : {
+            type: "paragraph",
+            ...(original.attrs ? { attrs: original.attrs } : {}),
+            content: [{ type: "text", text }],
+          }
+    );
+}
+
+/**
+ * Final review 2026-11-03: a passage set marks each target before it writes
+ * the new text, so a paragraph an added paragraph leaves unchanged comes back
+ * as plain text. Put the original top-level paragraph back (its marks and gap
+ * highlights) wherever the new doc holds one with exactly its text that a
+ * paragraph pair left in place.
+ */
+export function keepUnchangedParagraphs(original: PMNode, updated: PMNode, pairs: ReplacePair[]): PMNode {
+  const kept = new Set(
+    pairs
+      .filter((pair) => PARAGRAPH_BREAK.test(pair.replaceWith) && changesParagraphs(original, pair))
+      .map((pair) => normalizeForMatch(pair.find).trim().toLowerCase())
+  );
+  if (kept.size === 0) return updated;
+  const originals = ((original.content as PMNode[] | undefined) ?? []).filter(
+    (block) => block.type === "paragraph" && kept.has(normalizeForMatch(blockText(block)).trim().toLowerCase())
+  );
+  const content = ((updated.content as PMNode[] | undefined) ?? []).map((block) => {
+    if (block.type !== "paragraph") return block;
+    const match = originals.find((source) => sameText(blockText(source), blockText(block)));
+    return match ?? block;
+  });
+  return { ...updated, content };
+}
+
+/** A paragraph's whole text, hard breaks as line breaks, as the matcher reads it. */
+function blockText(node: PMNode): string {
+  const children = (node.content as PMNode[] | undefined) ?? [];
+  return children.map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n")).join("");
+}
+
+export const sameText = (a: string, b: string) =>
+  normalizeForMatch(a).trim().toLowerCase() === normalizeForMatch(b).trim().toLowerCase();
+
 /**
  * BNH-27: apply find/replace pairs to a Tiptap JSON doc across ALL occurrences.
  * Section headings and the hidden title are skipped (see protectedHeadings),
@@ -353,8 +438,19 @@ export function headingEditRefusal(
  * that contains its own search text is applied once, never again to its own
  * output (review 2026-09-25).
  */
-export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): ReplacementResult {
+export function applyReplacements(doc: PMNode, pairs: ReplacePair[], options: ReplaceOptions = {}): ReplacementResult {
   let count = 0;
+  // With paragraphs on, paragraph pairs act on whole top-level paragraphs
+  // below, and a split or an added paragraph never goes inline. An empty
+  // replacement inside a paragraph still deletes that text, as before.
+  const paragraphs = options.paragraphs === true;
+  // Final review (Fable) 2026-11-03: a pair that removes a whole top-level
+  // paragraph acts only there. Run inline too, it would also delete that
+  // text from a merged paragraph another pair just wrote.
+  const structural = paragraphs ? new Set(pairs.filter((pair) => changesParagraphs(doc, pair))) : new Set<ReplacePair>();
+  const inlinePairs = paragraphs
+    ? pairs.filter((pair) => !PARAGRAPH_BREAK.test(pair.replaceWith) && !structural.has(pair))
+    : pairs;
   const guarded = protectedHeadings(doc);
   let skippedInHeadings = 0;
   let skippedInTitle = 0;
@@ -370,7 +466,7 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): Replacemen
   const replaceInText = (text: string): { text: string; count: number } => {
     let out = text;
     let found = 0;
-    for (const { find, replaceWith } of pairs) {
+    for (const { find, replaceWith } of inlinePairs) {
       const r = replaceAll(out, find, replaceWith);
       out = r.text;
       found += r.count;
@@ -391,19 +487,37 @@ export function applyReplacements(doc: PMNode, pairs: ReplacePair[]): Replacemen
         const r = replaceInText(child.text);
         perNode += r.count;
         return r.text === child.text ? child : { ...child, text: r.text };
-      });
+      }).filter((child) => !(child.type === "text" && child.text === ""));
+      // Final review 2026-11-03: an empty text node is invalid, and the editor
+      // would load a blank document; an emptied paragraph keeps no content.
       // Across the block's original text: finds matches that span nodes.
       const joined = children.map((c) => (c.type === "text" ? ((c.text as string) ?? "") : "\n")).join("");
       const whole = replaceInText(joined);
       if (whole.count > perNode) {
         count += whole.count;
-        return { ...node, content: [{ type: "text", text: whole.text }] };
+        return { ...node, content: whole.text ? [{ type: "text", text: whole.text }] : [] };
       }
       count += perNode;
       return perNode > 0 ? { ...node, content: replaced } : node;
     }
-    const next = children.map(walk);
-    return next.some((child, i) => child !== children[i]) ? { ...node, content: next } : node;
+    let changed = false;
+    const next = children.flatMap((child) => {
+      // Top-level paragraphs only: a list item, a table cell or a quote
+      // must keep a paragraph.
+      if (paragraphs && node === doc && child.type === "paragraph" && !guarded.has(child)) {
+        const text = blockText(child);
+        const pair = text.trim() ? pairs.find((entry) => isParagraphPair(entry) && sameText(text, entry.find)) : undefined;
+        if (pair) {
+          count += 1;
+          changed = true;
+          return paragraphsFor(child, pair);
+        }
+      }
+      const walked = walk(child);
+      if (walked !== child) changed = true;
+      return [walked];
+    });
+    return changed ? { ...node, content: next } : node;
   };
   const result = walk(doc);
   return { doc: result, count, skippedInHeadings, skippedInTitle };

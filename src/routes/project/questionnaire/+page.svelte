@@ -11,72 +11,7 @@
   import AppNav from "$lib/components/ui/AppNav.svelte";
   import PageBar from "$lib/components/ui/PageBar.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
-
-  const QUESTIONS = [
-    {
-      id: "company_background",
-      label: "Company Background",
-      question: "Describe your company, industry, and relevant domain expertise. What makes your team qualified to tackle this technical problem?",
-      placeholder: "e.g., We are a 50-person horticulture company in BC with 15 years of experience managing multi-species greenhouses...",
-      rows: 4,
-    },
-    {
-      id: "project_goal",
-      label: "Project Goal",
-      question: "What are you trying to build, create, or improve? Describe the physical product, process, or system.",
-      placeholder: "e.g., We are developing a custom software system using computer vision and environmental analytics to automatically track plant growth stages...",
-      rows: 4,
-    },
-    {
-      id: "business_problem",
-      label: "Business Problem",
-      question: "What business problem is driving this project? (e.g., reduce costs, enter new market, improve efficiency)",
-      placeholder: "e.g., Manual inventory tracking of living plants is error-prone and labor-intensive, costing us X hours per week...",
-      rows: 3,
-    },
-    {
-      id: "technical_problem",
-      label: "Technical / Scientific Problem",
-      question: "What is the underlying technical or scientific problem? What knowledge gaps exist in your field that make this challenging?",
-      placeholder: "e.g., Existing computer vision methods are designed for broad-acre agriculture, not multi-species nursery environments. No documented methods exist for...",
-      rows: 4,
-    },
-    {
-      id: "what_was_tried",
-      label: "What Was Tried",
-      question: "Describe the approaches, experiments, or iterations your team undertook. What did you try first? What worked? What didn't? What did you change?",
-      placeholder: "e.g., First we tried using off-the-shelf image classification models, but they failed because... Then we developed a custom approach where...",
-      rows: 6,
-    },
-    {
-      id: "hypothesis",
-      label: "Hypothesis",
-      question: "What did you hypothesize would work? If [specific approach], then [expected measurable outcome].",
-      placeholder: "e.g., We hypothesized that if we combined dual-spectrum imaging with environmental sensor data, then we could achieve growth stage classification accuracy above 85%...",
-      rows: 3,
-    },
-    {
-      id: "what_was_learned",
-      label: "What Was Learned",
-      question: "What new knowledge or understanding did your team gain? What worked, what didn't, and why?",
-      placeholder: "e.g., We determined that temporal image sequences combined with environmental data significantly outperform single-image approaches for species classification...",
-      rows: 4,
-    },
-    {
-      id: "remaining_uncertainties",
-      label: "Remaining Uncertainties",
-      question: "What technical questions remain unresolved? What are you planning to investigate next?",
-      placeholder: "e.g., Classification accuracy for early-stage seedlings remains below target. We need to investigate whether transfer learning from related species...",
-      rows: 3,
-    },
-    {
-      id: "team_and_timeline",
-      label: "Team & Timeline",
-      question: "Who worked on this project? Approximately how long did the R&D work take? Is it ongoing?",
-      placeholder: "e.g., 3 developers and 1 horticultural scientist worked on this over 8 months. The project is continuing into the next fiscal year...",
-      rows: 3,
-    },
-  ];
+  import { QUESTIONS } from "./questions";
 
   const auth = useAuth();
   const createProject = useMutation(api.projects.createProject);

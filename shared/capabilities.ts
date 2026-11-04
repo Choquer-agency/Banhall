@@ -6,6 +6,9 @@ export const CAPABILITIES = [
   "project.transferOwnership",
   "project.setStage",
   "report.editProse",
+  // 2026-11-02 (client meeting): apply a chat card that goes against a house
+  // rule, the template or a CRA limit, after confirming those rules.
+  "report.overrideRules",
   "workItem.create",
   "workItem.completeOwn",
   "workItem.completeOthers",
@@ -23,6 +26,10 @@ export const CAPABILITIES = [
   "settings.configure",
   "ops.viewAlerts",
   "analytics.viewManager",
+  // 2026-10-26 (decision "2026-10-26", part 1): company files.
+  "companyFiles.read",
+  "companyFiles.add",
+  "companyFiles.manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -57,6 +64,7 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "project.transferOwnership": own,
     "project.setStage": own,
     "report.editProse": own,
+    "report.overrideRules": none,
     "workItem.create": own,
     "workItem.completeOwn": own,
     "workItem.completeOthers": none,
@@ -74,6 +82,9 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "settings.configure": none,
     "ops.viewAlerts": none,
     "analytics.viewManager": none,
+    "companyFiles.read": all,
+    "companyFiles.add": all,
+    "companyFiles.manage": none,
   },
   manager: {
     "project.create": all,
@@ -81,6 +92,9 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "project.transferOwnership": all,
     "project.setStage": all,
     "report.editProse": all,
+    // 2026-11-02 (owner): "all the managers should have the ability to
+    // override the template, the house rules".
+    "report.overrideRules": all,
     "workItem.create": all,
     "workItem.completeOwn": own,
     "workItem.completeOthers": all,
@@ -100,6 +114,9 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "settings.configure": none,
     "ops.viewAlerts": none,
     "analytics.viewManager": all,
+    "companyFiles.read": all,
+    "companyFiles.add": all,
+    "companyFiles.manage": all,
   },
   admin: Object.fromEntries(CAPABILITIES.map((capability) => [capability, all])) as CapabilityPreset,
   financial: {
@@ -120,6 +137,7 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
       },
     },
     "report.editProse": none,
+    "report.overrideRules": none,
     "workItem.create": {
       level: "none",
       planned: { level: "own", note: "Financial work items only." },
@@ -158,6 +176,10 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "settings.configure": none,
     "ops.viewAlerts": none,
     "analytics.viewManager": none,
+    // Decision "2026-10-26", part 1: Financial never reads company files.
+    "companyFiles.read": none,
+    "companyFiles.add": none,
+    "companyFiles.manage": none,
   },
 };
 
@@ -171,6 +193,7 @@ export const CAPABILITY_GROUPS = [
       "project.transferOwnership",
       "project.setStage",
       "report.editProse",
+      "report.overrideRules",
       "pipeline.view",
     ],
   },
@@ -198,6 +221,11 @@ export const CAPABILITY_GROUPS = [
     id: "financial",
     label: "Financial",
     capabilities: ["financial.read", "financial.write"],
+  },
+  {
+    id: "company-files",
+    label: "Company files",
+    capabilities: ["companyFiles.read", "companyFiles.add", "companyFiles.manage"],
   },
   {
     id: "team",

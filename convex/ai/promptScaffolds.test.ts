@@ -55,6 +55,9 @@ import {
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_BATCHES,
+  SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
@@ -387,7 +390,11 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("names each experiment's uncertainty and makes advancements follow it (2026-09-29, first amendment)", () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-10-19.1");
+    // 2026-10-29 (third): the Hypothesis, Experimentation and Specific
+    // advancements objectives move the Seed version on purpose. 2026-10-30:
+    // so do the claimant line and the acronym rule (`.2`: its examples and
+    // terms with their own casing).
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-10-30.2");
     expect(SEED_PROMPT_PROGRAM.user.blocks.experimentLinks).toBe("FROZEN EXPERIMENT LINKS");
     // Run 7: the exact pairs in a repair have their own reserved bytes.
     expect(SEED_PROMPT_PROGRAM.request.repairLinkPairsMaxUtf8Bytes).toBe(768);
@@ -468,7 +475,11 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
   });
 
   it("versions the Seed quote rules (2026-09-27, third amendment)", async () => {
-    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-10-19.1");
+    // 2026-10-29 (third): the Hypothesis, Experimentation and Specific
+    // advancements objectives move the Seed version on purpose. 2026-10-30:
+    // so do the claimant line and the acronym rule (`.2`: its examples and
+    // terms with their own casing).
+    expect(SEED_PROMPT_PROGRAM.version).toBe("seeds.2026-10-30.2");
     expect(SEED_PROMPT_PROGRAM.request.quoteRepair.opening).toContain("Some quotes may not back their idea card.");
     expect(JSON.stringify(SEED_PROMPT_PROGRAM.request.quoteRepair)).not.toMatch(/[\u2013\u2014]/);
     expect(generationPromptProgram.templates.seeds.scaffolds.version).toBe(SEED_PROMPT_PROGRAM.version);
@@ -564,6 +575,8 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
       finalCoverage: "full-self-check-on-the-final-text-after-a-used-repair",
       invalidVerdicts: "dropped-and-asked-for-unless-most-are-invalid",
       unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
+      // 2026-10-27 (ninth): a stray top-level field is ignored.
+      unknownRootProperties: "ignored-logged-by-name-unless-neither-list-or-over-ceiling",
       editedTerms: "allowed-word-for-word-invention-objections-set-aside",
       writerPrecedence: "kept-ideas-judged-for-coverage-feedback-governs-named-glossary-terms-by-label-even-in-unedited-signed-off-ideas",
       droppedUncertainties: "left-out-in-every-line-one-plan-check-each-by-dropped-seed-id-at-most-three",
@@ -636,6 +649,11 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
         maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
         maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
         maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+        // 2026-10-22 (third): the raw answer's own ceiling is in the program.
+        maxAnswerUtf8Bytes: MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
+        // 2026-10-26 (P0 item 2): a Line in up to 8 requests, all at once.
+        maxRequests: MAX_SUMMARY_SELF_CHECK_BATCHES,
+        parallelRequests: SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
       },
     });
     const current = await hashPromptProgram(generationPromptProgram);
@@ -689,7 +707,7 @@ describe("the condense call belongs to the prompt program (AC5)", () => {
           ...generationPromptProgram.templates.seeds,
           summaryPlan: {
             ...generationPromptProgram.templates.seeds.summaryPlan,
-            serializerVersion: "summary-plan-jsonl-v6",
+            serializerVersion: "summary-plan-jsonl-v7",
           },
         },
       },

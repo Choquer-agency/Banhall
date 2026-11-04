@@ -186,6 +186,30 @@ async function wireOf(input: RequestInfo | URL, init: RequestInit | undefined): 
   return { url: request.url, method: request.method, headers, body: await request.text() };
 }
 
+/**
+ * 2026-10-26 (live check): the wire with the strict tool fields taken out
+ * (`strict` on each tool, the `additionalProperties: false` strictTools.ts
+ * adds to each object schema). For a request on the unforced path, these
+ * bytes are the ones pinned before the tools became strict.
+ */
+function withoutStrictTools(wire: Wire): Wire {
+  const body = JSON.parse(wire.body) as { tools?: Array<Record<string, unknown>> };
+  const open = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(open);
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(
+      Object.entries(node as Record<string, unknown>)
+        .filter(([key, value]) => !(key === "additionalProperties" && value === false))
+        .map(([key, value]) => [key, open(value)])
+    );
+  };
+  body.tools = body.tools?.map(({ strict: _strict, input_schema, ...tool }) => ({ ...tool, input_schema: open(input_schema) }));
+  const text = JSON.stringify(body);
+  const headers = { ...wire.headers };
+  if (headers["content-length"] !== undefined) headers["content-length"] = String(new TextEncoder().encode(text).length);
+  return { ...wire, headers, body: text };
+}
+
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -236,10 +260,27 @@ async function send(t: TestConvex, name: RequestName): Promise<Wire> {
 const DIRECT_WIRE_HASHES: Record<RequestName, string> = {
   SECTION_DRAFT: "d29f8da09347b348bc2b4e8fbc21860890aae8312e3ff46ee3a1fcb256cac77b",
   SEED_BATCH: "b9b8701e6576a5a90dcaea83abad2f5a7175864c287ad62c59ef7536a0064a9c",
-  OPUS_STRUCTURED: "5589bb048cf2343f1f80c515a3b45fde7b63bc836a8f10994f732b0c89d3bdb3",
+  // 2026-10-26: Opus 5.5's tool is strict (BEFORE_STRICT_TOOLS has the earlier bytes).
+  OPUS_STRUCTURED: "fcc66cf60c5ded02c1c0a806b2c747a4c973a945db83ca42766b65100539544f",
   CITATIONS_WINDOW: "d3199ca251ac3802d2b97e53007f879243e82a36a8159ae77df534b112746e15",
+  QA_UNDER_DEADLINE: "da2f44fd0174eee13f86e58dd6ae92758618edb9fd3ed97cab78fc65c6967f1c",
+};
+
+/** The unforced path's pins before its tools became strict (2026-10-26, live check). */
+const BEFORE_STRICT_TOOLS: Partial<Record<RequestName, string>> = {
+  OPUS_STRUCTURED: "5589bb048cf2343f1f80c515a3b45fde7b63bc836a8f10994f732b0c89d3bdb3",
   QA_UNDER_DEADLINE: "b3f8e2c05f9a7b890d68be27d02ee70e7c2ec845bfcab5d08bc3a066e571ec1b",
 };
+
+test.each(Object.keys(BEFORE_STRICT_TOOLS) as RequestName[])(
+  "%s differs from its bytes before strict tools only by `strict` and closed objects",
+  async (name) => {
+    const t = convexTest(schema, modules);
+    const wire = await send(t, name);
+    expect((JSON.parse(wire.body) as { tools: Array<{ strict?: boolean }> }).tools.every((tool) => tool.strict === true)).toBe(true);
+    expect(await sha256(JSON.stringify(withoutStrictTools(wire)))).toBe(BEFORE_STRICT_TOOLS[name]);
+  }
+);
 
 test.each(Object.keys(REQUESTS) as RequestName[])(
   "direct by default: %s is byte-identical to the request before the transport switch",
@@ -794,3 +835,4 @@ test.each([
   expect(fetchSpy).not.toHaveBeenCalled();
   expect(outcomes).toEqual([]);
 });
+

@@ -5,6 +5,7 @@
  * 8): the quote pool is the packs' verified client quotes, and every claim
  * cites the frozen transcript row at the fact's own span, never the pack.
  */
+import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { internal } from "./_generated/api";
@@ -185,7 +186,7 @@ describe("a generation whose extraction froze only some packs reads today's way 
         .withIndex("by_generationId", (q) => q.eq("generationId", f.generationId))
         .collect()
     );
-    const message = buildBriefUserMessage(sources);
+    const message = buildBriefUserMessage(rowsWithStoredText(sources));
     expect(message).not.toContain("SOURCE_KIND=transcript_facts");
     expect(message).toContain("SOURCE_KIND=transcript]");
     expect(message).toContain("A second interview about the feeder test.");

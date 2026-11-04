@@ -6,11 +6,11 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { withSourceTexts, type SourceRowWithText } from "../sourceText";
 import { v, type ObjectType } from "convex/values";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import {
-  MAX_TRANSCRIPTS_PER_PROJECT,
   generationTranscriptIds,
   buildTranscriptPromptText,
 } from "../transcripts";
@@ -21,6 +21,10 @@ import { sourceInclusion } from "../../ai/trustedContext";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { createReadBudget } from "../readBudget";
 import { type UnfrozenDocument, assembleContextInclusion } from "../contextInclusion";
+import { documentHasText } from "../documentText";
+import { MAX_FROZEN_SOURCE_ROWS, withCurrentCompanyFiles } from "../briefEvidence";
+import { hasCapability } from "../../../shared/capabilities";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 /** Argument validators of generations.getGenerationPlaceholders. */
 export const getGenerationPlaceholdersArgs = { generationId: v.id("generations") };
@@ -62,17 +66,25 @@ export async function getGenerationInputHandler(
     }
     reportTitle = summary.reportTitle;
   }
-  const sources = await ctx.db
-    .query("generationSources")
-    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-    // One transcript row and one digest row per transcript, plus the 50
-    // context documents. A tighter bound would drop the digest rows of a
-    // many-transcript project — the case digest mode exists for — and hand
-    // the model the over-budget full text instead.
-    .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+  // B1, second part: each row with its text on it, in the old shape.
+  const sources = await withSourceTexts(
+    ctx,
+    await withCurrentCompanyFiles(
+      ctx,
+      generation.projectId,
+      await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        // One transcript row and one digest row per transcript, plus the 50
+        // context documents. A tighter bound would drop the digest rows of a
+        // many-transcript project, the case digest mode exists for, and hand
+        // the model the over-budget full text instead.
+        .take(MAX_FROZEN_SOURCE_ROWS)
+    )
+  );
   const transcriptIds = generationTranscriptIds(generation);
   const inputMode = generation.inputMode ?? "full";
-  const toPart = (source: Doc<"generationSources">) => ({
+  const toPart = (source: SourceRowWithText) => ({
     sourceId: source._id,
     contentHash: source.contentHash,
     content: source.content,
@@ -142,6 +154,11 @@ export async function getGenerationInputHandler(
     // Owner decision 26: the frozen name map, for work that leaves the
     // app without a model call (the Brain query built from facts).
     placeholders: generation.placeholders ?? [],
+    // 2026-10-30 (owner, item 2): the claimant's name frozen at
+    // reservation, for the claimant line, when the frozen map hides it.
+    ...(claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff) !== undefined
+      ? { claimantName: claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff) }
+      : {}),
     digestIds: generation.digestIds,
     generationId: generation._id,
     projectId: project._id,
@@ -162,8 +179,10 @@ export async function getGenerationInputHandler(
     seededCandidates: generation.seededCandidates ?? 0,
     industry: project.industry,
     scienceCode: project.scienceCode,
+    // Project files, then the company's (Phase C), which the analyzer puts
+    // in a block of their own after every project file.
     contextDocs: sources
-      .filter((source) => source.kind === "project_document")
+      .filter((source) => source.kind === "project_document" || source.kind === "company_file")
       .map((source) => {
         const separator = source.label.indexOf(":");
         const category = separator >= 0 ? source.label.slice(0, separator) : "other";
@@ -174,6 +193,7 @@ export async function getGenerationInputHandler(
           content: source.content,
           // CAP-3: frozen at reservation. Absent = client trust.
           ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
+          ...(source.kind === "company_file" ? { company: true as const } : {}),
         };
       }),
     // Analyzer context budget as configured right now. Each candidate
@@ -249,6 +269,14 @@ export const INCLUSION_SOURCE_ROWS = 200;
 
 export const INCLUSION_DOCUMENT_ROWS = 1000;
 
+/**
+ * Phase D (step 2): recorded uses one Inputs band reads per step. A draft
+ * writes a row per frozen source per step run (at most 123 sources): the
+ * analyzer and the Brief once or a few times, a Seed step once per answered
+ * Batch, a Line's facts check once per claim; rows are small.
+ */
+export const INCLUSION_USE_ROWS_PER_STEP = 2500;
+
 /** Argument validators of generations.getContextInclusion. */
 export const getContextInclusionArgs = { generationId: v.id("generations") };
 
@@ -308,13 +336,63 @@ export async function getContextInclusionHandler(
       if (frozenDocumentIds.has(document._id)) return [];
       const reason = document.archived
         ? ("archived" as const)
-        : !document.content.trim()
+        : !documentHasText(document)
           ? ("unreadable" as const)
           : ("not_captured" as const);
       return [{ _id: document._id, fileName: document.fileName, reason }];
     });
   }
+  // 2026-10-28 (third, owner): the company files the draft could read but
+  // did not fit, as it recorded them at its start (at most
+  // FROZEN_COMPANY_FILES), for a viewer who may read company files. A file
+  // deleted since is left off; one archived since says so, as project files
+  // do. Read under the same budget as the documents (DW-133).
+  const showCompanyFiles = hasCapability(access.user.role ?? null, "companyFiles.read");
+  const unfrozenCompanyFiles: UnfrozenDocument[] = [];
+  if (showCompanyFiles) {
+    for (const companyFileId of generation.companyFilesLeftOut ?? []) {
+      const read = await reads.one(() => ctx.db.get(companyFileId));
+      if (read.kind === "not-loaded") {
+        documentsTruncated = true;
+        break;
+      }
+      const file = read.value;
+      if (!file) continue;
+      unfrozenCompanyFiles.push({
+        _id: file._id,
+        fileName: file.fileName,
+        reason: file.archived ? "archived" : "not_captured",
+      });
+    }
+  }
+  // Phase D (step 2): what each step sent of each frozen row, after the
+  // documents so they keep the budget first; each step read on its own, so
+  // one busy step never crowds another out (review).
+  const useRows: Doc<"generationSourceUse">[] = [];
+  let usesTruncated = false;
+  for (const step of ["analyzer", "brief", "seeds", "facts_check"] as const) {
+    const read = await reads.list(
+      ctx.db
+        .query("generationSourceUse")
+        .withIndex("by_generationId_and_step_and_run", (q) => q.eq("generationId", generation._id).eq("step", step)),
+      INCLUSION_USE_ROWS_PER_STEP
+    );
+    useRows.push(...read.rows);
+    if (!read.complete) usesTruncated = true;
+  }
+  // A Summary recovery that could not copy every record says so (re-check).
+  if (generation.sourceUseTruncated) usesTruncated = true;
   return assembleContextInclusion({
+    uses: useRows.map((use) => ({
+      sourceId: use.sourceId,
+      step: use.step,
+      ...(use.run ? { run: use.run } : {}),
+      state: use.state,
+      sent: use.sent,
+      total: use.total,
+      ...(use.ranges ? { parts: use.ranges.length } : {}),
+    })),
+    usesTruncated,
     sources: sources.map((row) => ({
       _id: row._id,
       kind: row.kind,
@@ -324,8 +402,11 @@ export async function getContextInclusionHandler(
       ...(row.contextBudget ? { contextBudget: row.contextBudget } : {}),
     })),
     unfrozenDocuments,
+    unfrozenCompanyFiles,
     fallbackCap: budget.maxDocuments,
     documentsTruncated,
     sourcesTruncated,
+    // Phase C: company file names only for viewers who may read them.
+    showCompanyFiles,
   });
 }

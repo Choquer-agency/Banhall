@@ -42,5 +42,10 @@
     "The Compliance Note shows the conflict (tier conflict) so a reviewer can see it before filing.",
     "The Ashgrove field trial appears in Section 246 as the writer's own assertion, without invented numbers, dates or results.",
     "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ],
+  "preferences": [
+    "Uses the active voice.",
+    "Puts the result of each experiment before its method.",
+    "Avoids words such as 'innovative' and 'cutting-edge'."
   ]
 }

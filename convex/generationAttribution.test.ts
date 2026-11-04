@@ -10,6 +10,7 @@ import type {
   GenerationResponse,
 } from "./ai/openrouterCore";
 import { runPipelineForModel } from "./ai/pipeline";
+import { QA_REQUEST } from "./ai/qaAgent";
 import { buildTrustedContext, DEFAULT_CONTEXT_BUDGET } from "./ai/trustedContext";
 import { CONTEXT_INPUTS_GUIDANCE } from "./ai/prompts";
 import { CONDENSE_VERSION } from "./lib/transcripts";
@@ -744,6 +745,43 @@ describe("generation provenance", () => {
 });
 
 describe("generation payload provenance", () => {
+  // 2026-10-29 (third, item 4), review round 1: the one-shot path's QA
+  // reads the source evidence too, chosen against the drafted Lines.
+  it("sends the one-shot path's QA the source evidence it loads for the drafted Lines", async () => {
+    const calls: ObservedPipelineCall[] = [];
+    const subjects: string[][] = [];
+    const SOURCE = "The interview says the controller was retuned twice.";
+    await runPipelineForModel(
+      observingPipelineClientFactory(calls),
+      "claude-sonnet-5",
+      "A runtime transcript",
+      analyzerMessageFor("A runtime transcript"),
+      "Runtime title",
+      { analyzer: "", s242: "", s244: "", s246: "" },
+      "standard",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      NO_STYLE_OVERRIDES,
+      undefined,
+      "",
+      undefined,
+      undefined,
+      async (sections) => {
+        subjects.push(sections);
+        return { documents: [{ label: "INTERVIEW TRANSCRIPT: Interview", content: SOURCE }], leftOut: [], budget: 48_000 };
+      },
+    );
+    expect(subjects).toHaveLength(1);
+    expect(subjects[0]).toHaveLength(3);
+    const qa = calls.find((call) => call.callSite === "generation:qa");
+    const body = JSON.stringify(qa?.params);
+    const inJson = (text: string) => JSON.stringify(text).slice(1, -1);
+    expect(body).toContain(inJson(`${QA_REQUEST.sourceScaffold.heading}\n[INTERVIEW TRANSCRIPT: Interview]\n${SOURCE}`));
+  });
+
   it("omits blank digest ids at actual pipeline creates and pairs nonblank ids with only their payloads", async () => {
     const t = convexTest(schema, modules);
     rateLimiterTest.register(t);
@@ -999,6 +1037,43 @@ describe("generation payload provenance", () => {
     expect(JSON.stringify(qaRequest)).not.toContain("Reviewer Calibration");
     expect(generation?.learningDigestIds).toEqual([]);
     expect(generation?.postQaStatus).toBe("done");
+  });
+
+  // 2026-10-29 (third, item 4), review round 1: the post-assembly QA pass
+  // sends the generation's frozen source evidence, through the real client.
+  it("sends the frozen source evidence to post-assembly QA, before the analysis", async () => {
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    const fixture = await insertCompletedPostQaFixture(t, {
+      promptVersion: await currentPromptVersion(),
+      calibrationContent: "",
+    });
+    const SOURCE = "The interview says the prototype was tested in controlled trials at the pilot plant.";
+    await t.run(async (ctx) => {
+      await ctx.db.insert("generationSources", {
+        generationId: fixture.generationId,
+        projectId: fixture.projectId,
+        kind: "transcript",
+        label: "Interview",
+        content: SOURCE,
+        contentHash: "post-qa-source-hash",
+        truncated: false,
+        originalLength: SOURCE.length,
+        capturedAt: fixture.now,
+      });
+    });
+    const requests: OpenRouterRequest[] = [];
+    vi.stubGlobal("fetch", successfulOpenRouterFetch(requests));
+    await t.action(internal.ai.postQa.runReportQa, { generationId: fixture.generationId });
+    const qaRequest = JSON.stringify(
+      requests.find((request) => request.tool_choice?.function?.name === "submit_qa_scorecard")
+    );
+    const inJson = (text: string) => JSON.stringify(text).slice(1, -1);
+    const heading = qaRequest.indexOf(inJson(QA_REQUEST.sourceScaffold.heading));
+    expect(heading).toBeGreaterThan(0);
+    expect(qaRequest.indexOf(inJson(QA_REQUEST.userScaffold.analysisHeading))).toBeGreaterThan(heading);
+    expect(qaRequest.slice(heading)).toContain(inJson(SOURCE));
+    expect((await t.run((ctx) => ctx.db.get(fixture.generationId)))?.postQaStatus).toBe("done");
   });
 
   it("uses the live post-QA calibration, unions exactly its id after completion, and preserves the stamped deployment hash", async () => {
@@ -2396,7 +2471,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
       expect(transcriptRow.contextBudget).toEqual({
         budgetTokens: 100,
         included: true,
-        includedLength: transcriptRow.content.length,
+        includedLength: transcriptRow.content!.length,
         truncated: false,
         maxDocuments: 12,
       });
@@ -2597,7 +2672,7 @@ describe("the analyzer context budget is recorded by the entry actions", () => {
           DEFAULT_CONTEXT_BUDGET.totalTokens,
         );
         expect(row.contextBudget?.included).toBe(true);
-        expect(row.contextBudget?.includedLength).toBe(row.content.length);
+        expect(row.contextBudget?.includedLength).toBe(row.content!.length);
         expect(row.contextBudget?.truncated).toBe(false);
       }
     },

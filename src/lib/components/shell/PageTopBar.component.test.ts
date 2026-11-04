@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
+import { board, boardPx } from "$lib/test/boardScale";
+import { registerSectionSidebar, sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 import { createRawSnippet } from "svelte";
 import { IconGear } from "$lib/components/icons";
 import PageTopBar from "./PageTopBar.svelte";
@@ -15,24 +18,30 @@ describe("PageTopBar", () => {
     __resetConvexStub();
   });
 
-  it("2026-10-19 standard bar: 64px, 8px sides, a 20/26 500 title, a muted 14px line, no page tile, and the unseen dot on the bell", async () => {
+  it("the page frame bar (S9): 64px, 32px sides on a desktop, 12px gaps, a 22/28 500 title, a muted 14px line, no page tile; the bell below 1024px only", async () => {
+    await page.viewport(1440, 900);
     __setQueryData("changelog:unseenCount", 2);
     await render(PageTopBar, { title: "Settings", subtitle: "Account", icon: IconGear, onOpenNavigation: vi.fn() });
     const bar = document.querySelector<HTMLElement>("[data-page-top-bar]")!;
-    expect(bar.getBoundingClientRect().height).toBe(64);
-    expect([getComputedStyle(bar).paddingLeft, getComputedStyle(bar).columnGap]).toEqual(["8px", "10px"]);
+    expect(bar.getBoundingClientRect().height).toBe(board(64));
+    expect([getComputedStyle(bar).paddingLeft, getComputedStyle(bar).columnGap]).toEqual([boardPx(32), boardPx(12)]);
+    expect(getComputedStyle(bar).borderBottomWidth).toBe("0px");
     const title = bar.querySelector("h1")!;
     expect(title.textContent).toBe("Settings");
-    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual(["20px", "26px", "500"]);
+    expect([getComputedStyle(title).fontSize, getComputedStyle(title).lineHeight, getComputedStyle(title).fontWeight]).toEqual([boardPx(22), boardPx(28), "500"]);
     expect(getComputedStyle(title).color).toBe("rgb(22, 33, 31)");
     const subtitle = bar.querySelector<HTMLElement>("[data-page-subtitle]")!;
-    expect([subtitle.textContent, getComputedStyle(subtitle).fontSize, getComputedStyle(subtitle).color]).toEqual(["Account", "14px", "rgb(107, 127, 123)"]);
+    expect([subtitle.textContent, getComputedStyle(subtitle).fontSize, getComputedStyle(subtitle).color]).toEqual(["Account", boardPx(14), "rgb(107, 127, 123)"]);
     expect(bar.querySelector("[data-page-icon-tile]")).toBeNull();
     expect(bar.querySelector("[data-rail-toggle]")).toBeNull();
     expect(bar.querySelector("[data-page-breadcrumb]")).toBeNull();
     const bell = bar.querySelector<HTMLAnchorElement>("[data-top-bar-bell]")!;
     expect(bell.getAttribute("href")).toBe("/changelog");
-    expect(bell.getBoundingClientRect().width).toBe(36);
+    // From 1024px the global bar holds the bell (owner, 2026-10-28).
+    expect(bell.getBoundingClientRect().width).toBe(0);
+    await page.viewport(800, 900);
+    await expect.poll(() => bell.getBoundingClientRect().width).toBe(36);
+    expect(getComputedStyle(bar).paddingLeft).toBe("24px");
     // The board bell: 16px, stroke 1.5, secondary ink.
     const bellIcon = bell.querySelector<SVGElement>("svg")!;
     expect(bellIcon.getAttribute("width")).toBe("16");
@@ -42,7 +51,8 @@ describe("PageTopBar", () => {
     expect(bell.getAttribute("aria-label")).toBe("What's new, 2 new updates");
   });
 
-  it("shows the muted count after the title and the 38px primary button at the right edge", async () => {
+  it("shows the muted 15/20 count after the title and the 38px primary button at the right edge", async () => {
+    await page.viewport(800, 900);
     const onclick = vi.fn();
     const first = await render(PageTopBar, {
       title: "Projects",
@@ -55,7 +65,7 @@ describe("PageTopBar", () => {
     const count = bar.querySelector<HTMLElement>("[data-page-count]")!;
     expect([count.textContent, getComputedStyle(count).fontSize, getComputedStyle(count).lineHeight, getComputedStyle(count).color]).toEqual([
       "42",
-      "14px",
+      "15px",
       "20px",
       "rgb(107, 127, 123)",
     ]);
@@ -75,12 +85,24 @@ describe("PageTopBar", () => {
     expect(bar.lastElementChild).toBe(primary);
     first.unmount();
 
-    await render(PageTopBar, { title: "Team", primaryAction: { label: "Invite", onclick }, onOpenNavigation: vi.fn() });
+    await render(PageTopBar, { title: "Team", primaryAction: { label: "Invite people", onclick }, primaryActionInSidebar: true, onOpenNavigation: vi.fn() });
     const button = document.querySelector<HTMLButtonElement>("[data-top-bar-primary]")!;
     expect(button.tagName).toBe("BUTTON");
+    // With no section sidebar on screen the bar keeps it.
+    expect(button.getBoundingClientRect().width).toBeGreaterThan(0);
+    // A sidebar on screen carries it from 768px; collapsed, the bar has it again.
+    const unregister = registerSectionSidebar();
+    await expect.poll(() => button.getBoundingClientRect().width).toBe(0);
+    sectionSidebar.collapsed = true;
+    await expect.poll(() => button.getBoundingClientRect().width).toBeGreaterThan(0);
+    sectionSidebar.collapsed = false;
+    await expect.poll(() => button.getBoundingClientRect().width).toBe(0);
+    await page.viewport(390, 844);
+    await expect.poll(() => button.getBoundingClientRect().width).toBeGreaterThan(0);
     button.click();
     expect(onclick).toHaveBeenCalledOnce();
     expect(document.querySelector("[data-page-count]")).toBeNull();
+    unregister();
   });
 
   it("shows a breadcrumb instead of a subtitle, then status, bell and actions in that order", async () => {

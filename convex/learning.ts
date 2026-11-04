@@ -1,3 +1,4 @@
+import { isEvaluationProject } from "./lib/evaluationProjects";
 import {
   mutation,
   query,
@@ -17,6 +18,13 @@ import {
   type AttemptOutcome,
 } from "./lib/learningAdmission";
 import type { Doc, Id } from "./_generated/dataModel";
+import {
+  drewOnWithdrawn,
+  learningRevision,
+  sameLearningInputs,
+  withdrawnLookup,
+} from "./lib/learningWithdrawal";
+import { signalStillValid, signalsChangedAt } from "./learningSignals";
 
 /**
  * Learning loop storage + governed publication.
@@ -34,6 +42,10 @@ const digestKind = v.union(
 const MAX_REASON_LENGTH = 500;
 
 /** One cache per bounded query; missing projects still get contact scrubbing. */
+/**
+ * The scrubber for a row's project, or null for an evaluation project's row
+ * (Phase E, E3), which lesson sets never read.
+ */
 function projectScrubber(ctx: QueryCtx) {
   const projects = new Map<Id<"projects">, Doc<"projects"> | null>();
   return async (projectId: Id<"projects"> | undefined) => {
@@ -41,6 +53,7 @@ function projectScrubber(ctx: QueryCtx) {
       projects.set(projectId, await ctx.db.get(projectId));
     }
     const project = projectId ? (projects.get(projectId) ?? null) : null;
+    if (isEvaluationProject(project)) return null;
     return (text: string, limit: number) =>
       deidentify(text, project).slice(0, limit);
   };
@@ -58,6 +71,7 @@ export const getFeedbackForDigest = internalQuery({
     const results = [];
     for (const row of rows) {
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId,
@@ -88,6 +102,7 @@ export const getCandidateFeedbackForDigest = internalQuery({
     const results = [];
     for (const row of rows) {
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId,
@@ -115,6 +130,7 @@ export const getProposalWordingEditsForDigest = internalQuery({
     const results = [];
     for (const row of rows) {
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId,
@@ -143,6 +159,7 @@ export const getSectionEditsForDigest = internalQuery({
     for (const row of rows) {
       if (!(row.editRatio >= 0.05)) continue;
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       results.push({
         signalId: row._id,
         producerId: row.userId ?? null,
@@ -174,6 +191,14 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
     const scrubProject = projectScrubber(ctx);
     const items = [];
     for (const row of rows) {
+      // Phase E (E2a): its Brain source was removed, so its lessons are too;
+      // a source revoked or removed before its items were all withdrawn
+      // counts already (review).
+      if (row.withdrawnAt !== undefined) continue;
+      if (row.brainSourceId) {
+        const source = await ctx.db.get(row.brainSourceId);
+        if (!source || source.status === "revoked") continue;
+      }
       const rule = row.suggestedRule?.trim();
       const body = row.body.trim();
       if (!rule && body.length < MIN_PROMOTABLE_FEEDBACK_CHARS) continue;
@@ -183,6 +208,7 @@ export const getApprovedBrainFeedbackForDigest = internalQuery({
         .order("desc")
         .first();
       const scrub = await scrubProject(row.projectId);
+      if (!scrub) continue;
       items.push({
         signalId: row._id,
         producerId: row.fromUserId,
@@ -233,8 +259,21 @@ async function latestSelection(
  * before inserting the first post-governance candidate.
  */
 export const getActiveDigest = internalQuery({
-  args: { kind: digestKind },
+  args: { kind: digestKind, projectId: v.optional(v.id("projects")) },
   handler: async (ctx, args) => {
+    // Phase E (E3): a release suite --compare arm uses its own lesson set
+    // (or none) in place of the published one, still never one that
+    // admitted withdrawn feedback.
+    if (args.projectId) {
+      const project = await ctx.db.get(args.projectId);
+      const override = isEvaluationProject(project) ? project?.evaluation?.lessons : undefined;
+      if (override && override.kind === args.kind) {
+        if (!override.learningDigestId) return null;
+        const digest = await ctx.db.get(override.learningDigestId);
+        if (!digest || digest.kind !== args.kind || digest.userId) return null;
+        return (await drewOnWithdrawn(ctx, digest)) ? null : digest;
+      }
+    }
     const selection = await latestSelection(ctx, args.kind);
     if (!selection) return await latestGlobalDigest(ctx, args.kind);
     if (!selection.selectedDigestId) return null;
@@ -251,6 +290,24 @@ export const getLatestGeneratedDigest = internalQuery({
 });
 
 /**
+ * Phase E (E2a): the learning revision a build reads first (the latest
+ * feedback withdrawal), and whether its inputs add nothing to the newest
+ * candidate. Only `draft_style` reads Brain feedback, so `qa_calibration`
+ * stays at 0.
+ */
+export const getLearningFreshness = internalQuery({
+  args: { kind: digestKind, feedbackCutoff: v.number() },
+  returns: v.object({ revision: v.number(), unchanged: v.boolean() }),
+  handler: async (ctx, args) => {
+    // E2b review: a learning signal written with an old time or removed
+    // changes the inputs too.
+    const revision = args.kind === "draft_style" ? Math.max(await learningRevision(ctx), await signalsChangedAt(ctx)) : 0;
+    const newest = await latestGlobalDigest(ctx, args.kind);
+    return { revision, unchanged: sameLearningInputs(newest, args.feedbackCutoff, revision) };
+  },
+});
+
+/**
  * Save an immutable candidate. The first post-deploy save freezes the current
  * legacy choice before inserting, so a newly generated candidate cannot leak
  * into production through compatibility behavior.
@@ -263,12 +320,43 @@ export const saveDigest = internalMutation({
     feedbackCutoff: v.number(),
     model: v.string(),
     admission: v.optional(admissionValidator),
+    /** Phase E (E2a): the learning revision the build read. */
+    learningRevision: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const newest = await latestGlobalDigest(ctx, args.kind);
-    if (newest && args.feedbackCutoff <= newest.feedbackCutoff) {
+    if (sameLearningInputs(newest, args.feedbackCutoff, args.learningRevision ?? 0)) {
       if (args.admission)
         await saveAttempt(ctx, args.kind, "deduplicated", args.admission);
+      return null;
+    }
+    // Phase E (E2b review): a learning signal the build admitted may have
+    // been removed, or its project erased, while its model call ran.
+    if (args.kind === "draft_style" && args.admission) {
+      for (const stream of args.admission.streams) {
+        if (!stream.stream.startsWith("learningSignals:")) continue;
+        for (const signalId of stream.signalIds) {
+          const id = ctx.db.normalizeId("learningSignals", signalId);
+          const row = id ? await ctx.db.get(id) : null;
+          if (!row || !(await signalStillValid(ctx, row))) {
+            await saveAttempt(ctx, args.kind, "withdrawn_inputs", args.admission);
+            return null;
+          }
+        }
+      }
+    }
+    // Phase E (E2a): feedback the build admitted may have been withdrawn
+    // while its model call ran; such a candidate is never saved.
+    if (
+      args.kind === "draft_style" &&
+      args.admission &&
+      (await drewOnWithdrawn(ctx, {
+        kind: args.kind,
+        admission: args.admission,
+        feedbackCutoff: args.feedbackCutoff,
+      }))
+    ) {
+      await saveAttempt(ctx, args.kind, "withdrawn_inputs", args.admission);
       return null;
     }
 
@@ -349,6 +437,7 @@ export const getDigestHistory = query({
     const publishedDigest = publishedDigestId
       ? await ctx.db.get(publishedDigestId)
       : null;
+    const isWithdrawn = withdrawnLookup(ctx);
     const visibleDigests =
       publishedDigest &&
       !digests.some((digest) => digest._id === publishedDigest._id)
@@ -358,8 +447,9 @@ export const getDigestHistory = query({
       seedWorkflowCoverage:
         args.kind === "draft_style"
           ? {
-              included: false,
-              label: "Seed-workflow generations are not included",
+              // Phase E (E2b): Seed choices, rewordings and Feedback are signals now.
+              included: true,
+              label: "Step-by-step choices and review outcomes are included",
             }
           : null,
       latestAttempt: await ctx.db
@@ -369,7 +459,9 @@ export const getDigestHistory = query({
       publishedDigestId,
       selectionId: currentSelection?._id ?? null,
       explicitlyDisabled: currentSelection?.selectedDigestId === null,
-      digests: visibleDigests.map((digest) => ({
+      // Phase E (E2a): turned off because a Brain source it drew on was removed.
+      turnedOffForRemovedSource: currentSelection?.action === "source_withdrawn",
+      digests: await Promise.all(visibleDigests.map(async (digest) => ({
         _id: digest._id,
         content: digest.content,
         sourceCount: digest.sourceCount,
@@ -378,7 +470,8 @@ export const getDigestHistory = query({
         model: digest.model,
         createdAt: digest.createdAt,
         isPersonal: Boolean(digest.userId),
-      })),
+        drewOnRemovedSource: await drewOnWithdrawn(ctx, digest, isWithdrawn),
+      }))),
       selections: selectionEvents.map((event) => ({
         _id: event._id,
         selectedDigestId: event.selectedDigestId,
@@ -424,6 +517,12 @@ export const selectDigest = mutation({
         throw new Error("Digest not found for this guidance type");
       if (digest.userId)
         throw new Error("Personal digests cannot be published globally");
+      // Phase E (E2a): publishing, or rolling back to, a version that drew
+      // on a removed Brain source's feedback is refused.
+      if (await drewOnWithdrawn(ctx, digest))
+        throw new Error(
+          "This version drew on feedback from a Brain source that was removed. Publish a version that did not use it.",
+        );
     }
 
     if (current && current.selectedDigestId === args.digestId)

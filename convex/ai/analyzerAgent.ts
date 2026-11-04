@@ -149,6 +149,7 @@ export async function runAnalyzerAgent(
     schema: ANALYSIS_SCHEMA,
     maxTokens: ANALYZER_REQUEST.maxTokens,
     model,
+    cutOffRetry: "more_room",
     validate: analysisSchema,
     ...(options.onCutOff ? { onCutOff: options.onCutOff } : {}),
   });

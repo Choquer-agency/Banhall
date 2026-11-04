@@ -10,6 +10,7 @@ import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import { buildSeedPrompt } from "./trustedContext";
 import { seedToolSchema } from "../lib/seedContract";
 import { PD_SUBSECTIONS } from "../../shared/pdSubsections";
+import { streamWhenAsked } from "../anthropicSse.fixture";
 
 // Keep SDK, application decoding and Convex scheduling real; replace only fetch.
 const modules = import.meta.glob("../**/*.ts");
@@ -261,7 +262,7 @@ test("every seed role and both modes share tools, system and the cached source b
 const TOOL_ONLY_LINE =
   "Reply only by calling the submit_assessment tool, exactly once. A tool call is the only valid reply.";
 
-test("Opus 5.5: the real SDK sends `auto` and one system line, never a forced tool; usage is priced at $4/$20", async () => {
+test("Opus 5.5: the real SDK sends `auto`, one system line and a strict tool, never a forced tool; usage is priced at $4/$20", async () => {
   const t = convexTest(schema, modules);
   const bodies: Record<string, unknown>[] = [];
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
@@ -294,7 +295,8 @@ test("Opus 5.5: the real SDK sends `auto` and one system line, never a forced to
     // REASONING_TOKEN_MULTIPLIER, since Opus 5.5 always thinks.
     max_tokens: 1024,
     system: `${options.system}\n\n${TOOL_ONLY_LINE}`,
-    tools: [{ name: options.toolName, description: options.description, input_schema: toolSchema }],
+    // 2026-10-26 (live check): strict, so the answer keeps the forced call's schema guarantee.
+    tools: [{ name: options.toolName, description: options.description, input_schema: toolSchema, strict: true }],
     tool_choice: { type: "auto", disable_parallel_tool_use: true },
     messages: [{ role: "user", content: options.user }],
   }]);
@@ -331,14 +333,14 @@ test("Fable 5.1: a text-only answer spends the one repair, and both requests sta
 test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonnet 5 is unchanged", async () => {
   const t = convexTest(schema, modules);
   const bodies: Array<Record<string, unknown>> = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const body = await new Request(input, init).json() as Record<string, unknown>;
     bodies.push(body);
     return anthropicReply([
       { type: "thinking", thinking: "", signature: "sig-synthetic" },
       { type: "text", text: "Drafted paragraph." },
     ], String(body.model));
-  }));
+  })));
   const { runSection242Agent } = await import("./section242Agent");
   const { runSection246Agent } = await import("./section246Agent");
   const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
@@ -361,16 +363,19 @@ test("section drafts never send disabled thinking to Opus 5.5 or Fable 5.1; Sonn
     expect(flagged.thinking).toBeUndefined();
     expect(flagged.output_config).toEqual({ effort: "low" });
     expect(flagged.tool_choice).toBeUndefined();
-    // The 8,192-token section answer budget plus room for the thinking.
+    // The 8,192-token section answer budget plus room for the thinking:
+    // a large answer, so it streams (2026-10-26).
     expect(flagged.max_tokens).toBe(32768);
+    expect(flagged.stream).toBe(true);
   }
   expect(sonnet.thinking).toEqual({ type: "disabled" });
   expect(sonnet.output_config).toBeUndefined();
   expect(sonnet.max_tokens).toBe(8192);
-  // Apart from the model, the dropped thinking control and the thinking
-  // room, the request is the one Sonnet 5 gets.
+  expect(sonnet.stream).toBeUndefined();
+  // Apart from the model, the dropped thinking control, the thinking room
+  // and streaming, the request is the one Sonnet 5 gets.
   const { thinking: _sonnetThinking, model: _sonnetModel, max_tokens: _sonnetMax, ...sonnetRest } = sonnet;
-  const { output_config: _opusEffort, model: _opusModel, max_tokens: _opusMax, ...opusRest } = opus;
-  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel; void _sonnetMax; void _opusMax;
+  const { output_config: _opusEffort, model: _opusModel, max_tokens: _opusMax, stream: _opusStream, ...opusRest } = opus;
+  void _sonnetThinking; void _sonnetModel; void _opusEffort; void _opusModel; void _sonnetMax; void _opusMax; void _opusStream;
   expect(opusRest).toEqual(sonnetRest);
 });

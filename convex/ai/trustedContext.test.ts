@@ -960,10 +960,12 @@ describe("seed source allowance near the byte limit (cost phase 1)", () => {
     // half-space clamp alone left the disclosure no room. The Brief is
     // 3,000 bytes shorter since 2026-09-29 (first), whose link rules added
     // 1,316 bytes to the shared guidance and 768 to the repair reservation
-    // (run 7), so the role keeps the same room.
+    // (run 7), so the role keeps the same room. 2026-10-30: 1,000 bytes
+    // shorter again, since the acronym rule added 149 bytes to the Seed
+    // system prompt.
     const build = (objective: string) => buildSeedPrompt({
       ...base,
-      brief: { storyline: "S".repeat(587_000), entries: [] },
+      brief: { storyline: "S".repeat(586_000), entries: [] },
       sources: Array.from({ length: 128 }, (_, i) => ({
         sourceId: `source-${String(i).padStart(25, "0")}`,
         label: `Interview ${i}`,

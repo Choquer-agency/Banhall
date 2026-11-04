@@ -13,11 +13,13 @@
     detectedSectionText,
     type PdSectionKey,
   } from "../../../../shared/pdSectionDetect";
+  import { quotableFileText } from "../../../../shared/wordMarkdown";
 
   let {
     name,
     content,
     pageOffsets,
+    textFormat,
     titleFromFileName = false,
     onPreview,
     onRemove,
@@ -25,6 +27,8 @@
     name: string;
     content: string;
     pageOffsets?: number[];
+    /** Word Markdown is counted without its marks (2026-10-26). */
+    textFormat?: "markdown";
     titleFromFileName?: boolean;
     onPreview: () => void;
     onRemove: () => void;
@@ -41,7 +45,7 @@
     return EXPECTED.map((expected) => {
       const section = found.find((item) => item.section === expected.key);
       if (!section) return { ...expected, found: false as const, line: "Not found" };
-      const metrics = sectionMetrics(detectedSectionText(content, section), expected.key);
+      const metrics = sectionMetrics(quotableFileText(detectedSectionText(content, section), textFormat), expected.key);
       return {
         ...expected,
         found: true as const,

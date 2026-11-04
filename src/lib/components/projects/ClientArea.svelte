@@ -1,10 +1,17 @@
 <!--
   The right side of the Projects page (Paper W1, V1 and V4; 2026-10-14
-  amendment). With a client selected: the client name as a serif title with
-  no subtext, a search scoped to that client, Select, and the client's
-  project cards grouped by fiscal year (groupProjectsByFiscalYear). With no
-  client: "All clients", a search across every project, and the recently
-  edited projects, each card naming its client.
+  amendment; the page frame, Paper S9, 2026-10-28). Its header is the page
+  top bar. With a client selected: the client name, a search scoped to that
+  client, Select, and the client's project cards grouped by fiscal year
+  (groupProjectsByFiscalYear). With no client: "All projects", a search
+  across every project, and the recently edited projects, each card naming
+  its client.
+
+  On the company page (2026-10-28, `embedded`) the page draws the company's
+  name, count and New project in its own bar, so the area draws only the
+  fiscal year sections, the selection and Show more. The company's Files
+  tab lives on that page only; on Projects the title carries the arrow
+  (Paper S9) that opens it.
 
   Selecting (Paper Z7n, 2026-10-19): a checkbox shows on a card's hover
   (and on keyboard focus and touch). Once one card is ticked every card
@@ -14,19 +21,32 @@
   screen: a project that leaves the visible set drops out of the selection.
   Edit details and bulk edit go through the host's callbacks (the host
   opens its dialogs).
+
+  Stars (2026-11-02): every card carries the viewer's private star, read
+  from `dashboard.listStarredProjects` (at most 200, one read). With
+  `starredView` the area is "Starred": those projects, most recently
+  starred first, each card naming its company; the search filters them in
+  place.
 -->
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import { resolve } from "$app/paths";
-  import { usePaginatedQuery } from "convex-svelte";
+  import { usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { DASHBOARD_PROJECT_PAGE_SIZE } from "../../../../shared/dashboardProjection";
+  import { DASHBOARD_PROJECT_PAGE_SIZE, normalizeDashboardText } from "../../../../shared/dashboardProjection";
   import ProjectCard from "./ProjectCard.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import ProjectCardMenu from "./ProjectCardMenu.svelte";
   import { IconArrowLeft, IconSearch } from "$lib/components/icons";
+  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
+  import FrameIcon from "$lib/components/workspace/FrameIcon.svelte";
+  import { companiesPath, hasCompanyPage } from "$lib/companies/companies";
+  import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
+  import { topBarPrimary } from "$lib/components/shell/topBar";
+  import { sectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
   import { isOpen, openByRule, readOverrides, writeOverrides } from "$lib/projects/fiscalYearOpen";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import { toProjectsTableRow, type DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
@@ -53,10 +73,14 @@
     onBulkEdit,
     onRetry,
     onBack = undefined,
-    backLabel = "All companies",
+    onOpenNavigation = undefined,
+    backLabel = "Projects",
     allClientsHref = "/projects",
     onShowAll = undefined,
     countLabel = null,
+    embedded = false,
+    focusFallback = undefined,
+    starredView = false,
   }: {
     /**
      * The selected client; null for All clients. `name` is null until known.
@@ -77,12 +101,24 @@
     onRetry: () => void;
     /** Small screens: back to the client list. */
     onBack?: () => void;
+    /** Between 768 and 1024px the header leads with the drawer's hamburger. */
+    onOpenNavigation?: () => void;
     backLabel?: string;
     /** All clients, for a client that is no longer in the list. */
     allClientsHref?: string;
     onShowAll?: () => void;
     /** How many projects the title stands for ("10", "1000+"), from the company list. */
     countLabel?: string | null;
+    /** On the company page: no header and no search, the listing only. */
+    embedded?: boolean;
+    /**
+     * Where focus goes when the selection ends with focus lost; the area's
+     * own title by default. The company page, which has none, names its
+     * active tab or its page title.
+     */
+    focusFallback?: () => HTMLElement | null;
+    /** The person's starred projects instead of a company or All projects (`client` is null). */
+    starredView?: boolean;
   } = $props();
 
   const auth = useAuth();
@@ -100,6 +136,7 @@
     return () => clearTimeout(timer);
   });
 
+  const starred = $derived(starredView && !client);
   const companyQ = usePaginatedQuery(
     api.dashboard.listCompanyProjects,
     () => (auth.isAuthenticated && client && !q ? { companyKey: client.key } : "skip"),
@@ -107,19 +144,39 @@
   );
   const recentQ = usePaginatedQuery(
     api.dashboard.listFlatProjects,
-    () => (auth.isAuthenticated && !client && !q ? { sortBy: "updated" as const } : "skip"),
+    () => (auth.isAuthenticated && !client && !starred && !q ? { sortBy: "updated" as const } : "skip"),
     { initialNumItems: PAGE }
   );
   const searchQ = usePaginatedQuery(
     api.dashboard.searchProjects,
     () =>
-      auth.isAuthenticated && q
+      auth.isAuthenticated && q && !starred
         ? { search: q, ...(client ? { companyKey: client.key } : {}) }
         : "skip",
     { initialNumItems: PAGE }
   );
+  // The viewer's stars: the star on every card, and the Starred view itself.
+  const starsQ = useQuery(api.dashboard.listStarredProjects, () => (auth.isAuthenticated ? {} : "skip"));
+  const starredRows = $derived((starsQ.data ?? undefined) as DashboardProjectionRow[] | undefined);
+  const starredIds = $derived(starredRows ? new Set(starredRows.map((row) => row._id)) : null);
+  /** The Starred view as a list read: one bounded page, filtered in place by the search. */
+  const starredList = $derived.by(() => {
+    const rows = starredRows ?? [];
+    const needle = normalizeDashboardText(q);
+    const results = needle
+      ? rows.filter((row) =>
+          normalizeDashboardText(`${row.title} ${row.clientName ?? ""} ${row.projectNumber ?? ""}`).includes(needle)
+        )
+      : rows;
+    return {
+      results,
+      status: (starredRows === undefined ? "LoadingFirstPage" : "Exhausted") as "LoadingFirstPage" | "Exhausted",
+      error: starsQ.error,
+      loadMore: (_count: number) => {},
+    };
+  });
 
-  const activeQ = $derived(q ? searchQ : client ? companyQ : recentQ);
+  const activeQ = $derived(starred ? starredList : q ? searchQ : client ? companyQ : recentQ);
   const raw = $derived(activeQ.results as unknown as DashboardProjectionRow[]);
   const tableRows = $derived(new Map(raw.map((source) => [source._id, toProjectsTableRow(source)])));
   const loadingFirst = $derived(activeQ.status === "LoadingFirstPage" && !activeQ.error);
@@ -131,9 +188,16 @@
   const displayName = $derived(
     client
       ? (client.name ?? raw.find((row) => row.clientName)?.clientName ?? (client.missing ? "Company not found" : client.key))
-      : "All companies"
+      : starred
+        ? "Starred"
+        : "All projects"
   );
   const searchLabel = $derived("Search projects");
+  // Paper S9: a named company's title leads to its company page; the
+  // projects with no company name and All projects have none.
+  const companyPageHref = $derived(
+    client && !gone && !client.missing && hasCompanyPage(client.key) ? companiesPath(resolve("/"), client.key) : null
+  );
 
   // ─── Fiscal year sections (Paper 2V1W-0; the smart rule, 2026-10-19) ──────
   // Read with the company key, before the first frame, so one company's
@@ -201,7 +265,7 @@
     const active = document.activeElement;
     const lost = !active || active === document.body || !document.contains(active);
     if (!lost && !active.closest("[data-selection-bar]")) return;
-    document.querySelector<HTMLElement>("[data-client-title]")?.focus();
+    (focusFallback ? focusFallback() : document.querySelector<HTMLElement>("[data-client-title]"))?.focus();
   }
 
   function toggle(source: DashboardProjectionRow) {
@@ -288,11 +352,12 @@
     q = "";
   }
 
-  // Another client (or All clients): start from its unfiltered projects,
-  // out of select mode.
-  let shownKey = untrack(() => client?.key ?? null);
+  // Another client (or All clients, or Starred): start from its unfiltered
+  // projects, out of select mode.
+  const viewKey = (key: string | null, isStarred: boolean) => (key !== null ? `client:${key}` : isStarred ? "starred" : "all");
+  let shownKey = untrack(() => viewKey(client?.key ?? null, starred));
   $effect(() => {
-    const key = client?.key ?? null;
+    const key = viewKey(client?.key ?? null, starred);
     if (key === shownKey) return;
     shownKey = key;
     untrack(() => {
@@ -306,9 +371,11 @@
   const textButton =
     "shrink-0 rounded-md text-xs leading-[calc(4/3)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11";
   // Cards adjust to the space (owner, 2026-10-19): three a row on a 13 inch
-  // MacBook (1440 or 1280), four around 1680, five at 1920, two on a
-  // tablet, one on a phone. Each card stays at least 264px wide.
-  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,16.5rem),1fr))] gap-3";
+  // MacBook (1440 or 1280), four around 1680 to 1920, two on a tablet, one
+  // on a phone. The page frame's narrower rail (2026-10-28) gives the cards
+  // more room, so each stays at least 288px wide to keep three at 1440, as
+  // Paper S9 draws it.
+  const grid = "grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3";
 </script>
 
 <svelte:window
@@ -330,6 +397,7 @@
       selected={selected.has(source._id)}
       selectionActive={selecting}
       onToggleSelect={() => toggle(source)}
+      starred={starredIds ? starredIds.has(source._id) : null}
     >
       {#snippet actions()}
         <ProjectCardMenu
@@ -391,55 +459,88 @@
   </section>
 {/snippet}
 
-<section aria-label={displayName} class="relative flex min-h-0 min-w-0 flex-1 flex-col" data-client-area={client?.key ?? "all"}>
-  <div class={`min-h-0 flex-1 overflow-y-auto px-4 sm:px-6 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>
+<section aria-label={displayName} class="relative flex min-h-0 min-w-0 flex-1 flex-col" data-client-area={client?.key ?? (starred ? "starred" : "all")}>
+  <!-- The page top bar (Paper S9, 2026-10-28): 64px inside the card, the
+       company name at 22/28 500 with its muted 15/20 project count and the
+       300px search on the right, 32px in from the sidebar on a desktop. On
+       a phone the back link leads and the search drops to its own row. -->
+  {#if !embedded}
+  <div
+    class="flex shrink-0 flex-wrap items-center gap-3 px-4 pb-3 sm:px-6 md:h-16 md:flex-nowrap md:pb-0 lg:px-8"
+    data-client-header
+  >
     {#if onBack}
       <button
         type="button"
         data-client-back
         onclick={onBack}
-        class="-ml-1 mt-3 flex h-11 items-center gap-1.5 rounded-md px-1 text-[0.8125rem] text-ink-secondary hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy md:hidden"
+        class="-ml-1 flex h-11 basis-full items-center gap-1.5 rounded-md px-1 text-[0.8125rem] text-ink-secondary hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy md:hidden"
       >
         <IconArrowLeft size={14} />
         {backLabel}
       </button>
     {/if}
-
-    <!-- Paper Z3d: the company name at 20/500 with its project count, the
-         search on the right, 28px above the first fiscal year. -->
-    <div class="flex flex-wrap items-center gap-3 pb-7 pt-5 max-md:pt-1" data-client-header>
-      <h2 data-client-title tabindex="-1" class="min-w-0 truncate text-lg leading-[calc(4/3)] font-medium text-ink outline-none">{displayName}</h2>
-      {#if countLabel !== null && !gone}
-        <span class="shrink-0 text-sm leading-[calc(10/7)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
-      {/if}
-      <div class="flex-1"></div>
-      {#if selecting}
-        {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
-      {/if}
-      <div role="search" class="relative w-80 max-w-full max-md:order-last max-md:w-full">
-        <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
-        <input
-          bind:this={searchEl}
-          bind:value={searchInput}
-          type="search"
-          data-client-search
-          aria-label={searchLabel}
-          placeholder={searchLabel}
-          autocomplete="off"
-          onkeydown={(event) => {
-            if (event.key !== "Escape") return;
-            if (searchInput) {
-              event.stopPropagation();
-              clearSearch();
-            } else {
-              event.currentTarget.blur();
-            }
-          }}
-          class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
-        />
+    {#if onOpenNavigation}
+      <div class="contents max-md:hidden">
+        <WorkspaceShellControls tone="light" {onOpenNavigation} />
       </div>
+    {/if}
+    <SectionSidebarExpand />
+    <!-- The page's one visible h1 from 768px (the phone bar names the section). -->
+    <h1 data-client-title tabindex="-1" class="min-w-0 truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{displayName}</h1>
+    {#if companyPageHref}
+      <!-- Paper S9: the teal arrow beside the name opens the company page. -->
+      <a
+        href={companyPageHref}
+        data-company-page-link
+        aria-label={`Open ${displayName}'s company page`}
+        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[0.4375rem] text-primary-selected transition-colors hover:bg-primary-wash hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
+      >
+        <FrameIcon name="arrow-up-right" />
+      </a>
+    {/if}
+    {#if countLabel !== null && !gone}
+      <span class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted" data-client-count>{countLabel === "1" ? "1 project" : `${countLabel} projects`}</span>
+    {/if}
+    <div class="flex-1"></div>
+    {#if selecting}
+      {@render selectAllButton(shownRows, `Select all ${shownRows.length}${hasMore ? "+" : ""}`)}
+    {/if}
+    {#if onOpenNavigation}
+      <!-- 768 to 1024px: no global bar and no phone bar, so the bell is here. -->
+      <TopBarBell class="max-md:hidden" />
+    {/if}
+    <div role="search" class="relative w-[18.75rem] max-w-full max-md:order-last max-md:w-full">
+      <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
+      <input
+        bind:this={searchEl}
+        bind:value={searchInput}
+        type="search"
+        data-client-search
+        aria-label={searchLabel}
+        placeholder={searchLabel}
+        autocomplete="off"
+        onkeydown={(event) => {
+          if (event.key !== "Escape") return;
+          if (searchInput) {
+            event.stopPropagation();
+            clearSearch();
+          } else {
+            event.currentTarget.blur();
+          }
+        }}
+        class="field-control h-9 w-full rounded-lg pl-[2.125rem] pr-3 text-sm leading-[calc(9/7)] text-ink placeholder:text-ink-muted pointer-coarse:h-11"
+      />
     </div>
+    {#if onOpenNavigation && sectionSidebar.collapsed && sectionSidebar.mounted > 0}
+      <!-- The sidebar holds New project; while it is collapsed the bar
+           does, from 768px (a phone's own bar always has it). -->
+      <a href={resolve("/project/new")} data-top-bar-primary class={`${topBarPrimary} max-md:hidden`}>New project</a>
+    {/if}
+  </div>
+  {/if}
 
+  <div class={`min-h-0 flex-1 overflow-y-auto px-4 pt-3 sm:px-6 lg:px-8 ${selecting ? "pb-24" : "pb-8"}`} data-client-area-scroll>
     {#if activeQ.error}
       <div class="flex flex-col items-start gap-2 py-10" role="alert" data-projects-error>
         <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink">Projects could not be loaded.</p>
@@ -487,23 +588,41 @@
             onShowAll();
           }}
           class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:min-h-11"
-        >Go to All companies</a>
+        >Go to All projects</a>
       </div>
     {:else if client && raw.length === 0}
-      <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
-        <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{displayName} has no projects yet.</p>
+      <!-- Paper Z9a: a company with no projects yet. -->
+      <div class="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-line px-6 py-[4.5rem] text-center" data-client-empty>
+        <p class="text-base leading-[1.5] font-medium text-ink">No projects for {displayName} yet</p>
+        <p class="max-w-[26.25rem] text-[0.9375rem] leading-[calc(22/15)] text-ink-secondary">Start a project and it will show up here, grouped by fiscal year.</p>
         {#if canCreate}
           <a
             href={`${resolve("/project/new")}${newProjectSearch(displayName)}`}
             data-client-new-project
-            class="inline-flex h-8 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-[0.8125rem] font-medium text-white hover:bg-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy pointer-coarse:h-11"
-          >New project</a>
+            class={`${topBarPrimary} mt-1 max-w-full`}
+          ><span class="truncate">New project for {displayName}</span></a>
         {/if}
       </div>
     {:else if client}
       {#each groups as group, index (group.key)}
         {@render fiscalGroup(group, index === 0)}
       {/each}
+    {:else if starred && raw.length === 0}
+      <div class="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-dashed border-line px-6 py-[4.5rem] text-center" data-starred-empty>
+        <p class="text-base leading-[1.5] font-medium text-ink">No starred projects yet</p>
+        <p class="max-w-[26.25rem] text-[0.9375rem] leading-[calc(22/15)] text-ink-secondary">Star the projects you are working on and they will show up here. Only you see your stars.</p>
+      </div>
+    {:else if starred}
+      <section aria-label="Starred projects" data-starred-projects>
+        {#if selecting}
+          <div class="flex items-baseline gap-3 pb-3.5">{@render selectAllButton(raw, "Select all")}</div>
+        {/if}
+        <ul class={grid}>
+          {#each raw as source (source._id)}
+            {@render card(source, true, true)}
+          {/each}
+        </ul>
+      </section>
     {:else if raw.length === 0}
       <div class="flex flex-col items-start gap-3 py-10" data-client-empty>
         <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">No projects yet.</p>

@@ -30,8 +30,9 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import FormDialog from "$lib/components/ui/FormDialog.svelte";
   import { formCancel, formError, formField, formLabel, formPrimary, formSelect } from "$lib/components/ui/formDialog";
-  import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
+  import FiscalYearEndPicker from "./FiscalYearEndPicker.svelte";
+  import CompanyWebsiteField from "./CompanyWebsiteField.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { api } from "../../../../convex/_generated/api";
 
@@ -55,24 +56,6 @@
     canAddIndustry?: boolean;
   } = $props();
 
-  const MONTHS = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-  /** Days in each month with February 29 allowed (a usual year end has no year). */
-  const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  const MONTH_ITEMS = [{ value: "", label: "Not set" }, ...MONTHS.map((label, index) => ({ value: String(index + 1), label }))];
-
   const auth = useAuth();
   const createClient = useMutation(api.clients.createClient);
 
@@ -80,6 +63,8 @@
   let month = $state("");
   let day = $state("");
   let industry = $state("");
+  let website = $state("");
+  let websiteInvalid = $state(false);
   let filledFromProject = $state(false);
   let busy = $state(false);
   let errorMessage = $state<string | null>(null);
@@ -96,24 +81,11 @@
       day = initialFiscalYearEnd ? String(initialFiscalYearEnd.day) : "";
       filledFromProject = initialFiscalYearEnd !== null;
       industry = initialIndustry;
+      website = "";
       errorMessage = null;
       busy = false;
       checkedName = name;
     });
-  });
-
-  const dayItems = $derived([
-    { value: "", label: "Not set" },
-    ...Array.from({ length: month ? DAYS_IN_MONTH[Number(month) - 1] : 31 }, (_, index) => ({
-      value: String(index + 1),
-      label: String(index + 1),
-    })),
-  ]);
-  // A day past the new month's end moves to its last day.
-  $effect(() => {
-    if (!month || !day) return;
-    const last = DAYS_IN_MONTH[Number(month) - 1];
-    if (Number(day) > last) day = String(last);
   });
 
   // The same and look-alike names, asked 250ms after typing stops.
@@ -148,7 +120,7 @@
   // the 250ms pause, the read itself) or after it failed, nothing is known
   // about look-alikes yet.
   const canCreate = $derived(
-    Boolean(name.trim()) && similar !== undefined && !exact && !yearEndIncomplete && !busy
+    Boolean(name.trim()) && similar !== undefined && !exact && !yearEndIncomplete && !websiteInvalid && !busy
   );
 
   const projectCount = (count: number) =>
@@ -172,7 +144,7 @@
       ...(industry ? { industry } : {}),
     };
     try {
-      const created = await createClient({ name: name.trim(), ...defaults });
+      const created = await createClient({ name: name.trim(), ...defaults, ...(website.trim() ? { website: website.trim() } : {}) });
       open = false;
       done?.({ clientId: created.clientId, key: created.key, name: created.name, ...defaults });
     } catch (error) {
@@ -255,26 +227,14 @@
 
     <div class="flex flex-col gap-1.5">
         <span class={formLabel} id="new-client-year-end-label">Usual fiscal year end</span>
-        <div class="flex gap-2" role="group" aria-labelledby="new-client-year-end-label" data-filled={month && day ? "" : undefined}>
-          <SelectInput
-            id="new-client-year-end-month"
-            bind:value={month}
-            items={MONTH_ITEMS}
-            placeholder="Month"
-            ariaLabel="Usual fiscal year end month"
-            class={`min-w-0 flex-1 ${formSelect}`}
-            onValueChange={() => (filledFromProject = false)}
-          />
-          <SelectInput
-            id="new-client-year-end-day"
-            bind:value={day}
-            items={dayItems}
-            placeholder="Day"
-            ariaLabel="Usual fiscal year end day"
-            class={`w-28 shrink-0 ${formSelect}`}
-            onValueChange={() => (filledFromProject = false)}
-          />
-        </div>
+        <FiscalYearEndPicker
+          bind:month
+          bind:day
+          idPrefix="new-client-year-end"
+          labelId="new-client-year-end-label"
+          ariaPrefix="Usual fiscal year end"
+          onValueChange={() => (filledFromProject = false)}
+        />
         <p class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted" data-year-end-helper>
           {yearEndIncomplete
             ? "Pick both a month and a day, or leave both empty."
@@ -288,5 +248,7 @@
       <label for="new-client-industry" class={formLabel}>Industry</label>
       <IndustrySelect ariaLabel="Industry" id="new-client-industry" bind:value={industry} canCreate={canAddIndustry} class={formSelect} />
     </div>
+
+    <CompanyWebsiteField id="new-client-website" bind:value={website} bind:invalid={websiteInvalid} onInput={() => (errorMessage = null)} />
   </div>
 </FormDialog>

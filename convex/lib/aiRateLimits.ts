@@ -35,6 +35,9 @@ export const AI_RATE_LIMITS = {
   // 2026-10-19: one token per report chat web search the model sends (at
   // most 3 a reply). Spent by the chat action for the message's sender.
   webSearchPerUser: { kind: "token bucket", rate: 30, period: HOUR },
+  // 2026-10-29: one token per company website read a person's save asks
+  // for (no AI call, but a fetch from the server). Spent by the save.
+  websiteReadPerUser: { kind: "token bucket", rate: 20, period: HOUR },
 } as const satisfies Record<string, RateLimitConfig>;
 
 /** Generation starts one user may make in one firm day (America/Vancouver). */

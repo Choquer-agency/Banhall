@@ -38,12 +38,16 @@ import {
   type ProviderCallMeta,
 } from "./instrument";
 import { COMPRESSION_REQUEST } from "./promptDefinitions";
+import { readGenerationFreeze, resetGenerationFreezeReads } from "./generationFreezeRead";
 import { ActionTimeBudgetError, wasStoppedByDeadline } from "./actionDeadline";
+import { isWriteRateLimitError } from "../../shared/writeLimit";
 import { instrumentedOpenRouter } from "./openrouter";
 import {
   MalformedOutputError,
   OutputLimitError,
+  RefusalOutputError,
   isCutOffStopReason,
+  isRefusalStopReason,
   type GenerationClient,
   type GenerationMessageParams,
   type GenerationResponse,
@@ -61,7 +65,6 @@ import {
 } from "../lib/generationSteps";
 import {
   generationModelRedirectsRef,
-  generationModelsRef,
   modelEntryForCallRef,
   recordCallOutcomeRef,
   recordGenerationModelRedirectsRef,
@@ -243,13 +246,11 @@ export function createAnthropicClient(
 
 type RunQueryCtx = Pick<ActionCtx, "runQuery">;
 
-/** A generation's freeze never changes, so one read per isolate suffices. */
-const freezeCache = new Map<string, Promise<ModelFreeze | null>>();
 const FREEZE_CACHE_LIMIT = 200;
 
 /** Test seam: forget cached generation freezes (ids repeat across tests). */
 export function resetGenerationModelCache(): void {
-  freezeCache.clear();
+  resetGenerationFreezeReads();
   resetModelRedirectCache();
 }
 
@@ -263,16 +264,8 @@ export async function registerGenerationModels(
   ctx: RunQueryCtx,
   generationId: Id<"generations">
 ): Promise<ModelFreeze | null> {
-  let pending = freezeCache.get(generationId);
-  if (!pending) {
-    if (freezeCache.size >= FREEZE_CACHE_LIMIT) freezeCache.clear();
-    pending = ctx.runQuery(generationModelsRef, { generationId }).catch((error: unknown) => {
-      freezeCache.delete(generationId);
-      throw error;
-    });
-    freezeCache.set(generationId, pending);
-  }
-  const freeze = await pending;
+  // One read per action (generationFreezeRead.ts, 2026-10-23 second).
+  const freeze = await readGenerationFreeze(ctx, generationId);
   if (freeze) {
     registerModelEntries(freeze.entries.map(entryFromFrozen));
     await registerModelRedirects(ctx, generationId);
@@ -354,10 +347,28 @@ async function ensureModelRegistered(
 }
 
 /**
+ * A decline that arrives as an error instead of a stop reason (review,
+ * 2026-10-28): a moderation flag (OpenRouter's "requires moderation ... was
+ * flagged"), or Anthropic's "Output blocked by content filtering policy". It
+ * comes from the content, like a refusal, so it is not counted. Both words
+ * are needed for a moderation flag: either alone is too broad to decide
+ * whether a failure counts (review round 2).
+ */
+function isContentDeclineError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    (message.includes("moderation") && message.includes("flagged")) ||
+    message.includes("content filtering policy")
+  );
+}
+
+/**
  * The failure codes the production error-rate rollback counts: the model
- * returned something unusable, refused, or failed in a way nobody has
- * classified. Billing, auth, rate limits and network faults say nothing
- * about the model and are not recorded. Neither is an action running out of
+ * returned something unusable or failed in a way nobody has classified.
+ * Billing, auth, rate limits and network faults say nothing about the model
+ * and are not recorded. Neither is a refusal (owner, 2026-10-28): it comes
+ * from the content sent, not from the model being down. Neither is an action running out of
  * time (ActionTimeBudgetError, 2026-09-25): that is our own arithmetic.
  * The same goes for any failure the action's time limit caused: a timeout
  * the deadline cut short (thrown as ActionTimeBudgetError), or a retryable
@@ -375,6 +386,9 @@ export function modelFaultCode(error: unknown): string | null {
   // unknown value, a missing OpenRouter key, a model without an OpenRouter
   // id. A missing ANTHROPIC_API_KEY on direct still counts, as before.
   if (isTransportConfigurationError(error)) return null;
+  if (error instanceof RefusalOutputError || isContentDeclineError(error)) return null;
+  // The database refusing a write for its write rate (owner, 2026-10-28).
+  if (isWriteRateLimitError(error)) return null;
   // A cut-off is `output_limit` on both gateways: OpenRouter throws it
   // inside the request (cutoff review P3-1).
   if (error instanceof OutputLimitError) return "output_limit";
@@ -392,8 +406,9 @@ export function modelFaultCode(error: unknown): string | null {
  * and never also a success, which a usage-row count would have made it.
  * Some requests record no outcome at all: errors that say nothing about the
  * model (billing, auth, rate limits, network, the action's own time limit,
- * a request the caller aborted) and an answer cut off at the output limit
- * whose step still succeeds (see cutOffCounts). A recording failure is
+ * a request the caller aborted), an answer cut off at the output limit
+ * whose step still succeeds (see cutOffCounts), and a refused answer
+ * (owner, 2026-10-28). A recording failure is
  * logged and never fails the call; one small mutation per request is
  * negligible next to the request.
  */
@@ -488,7 +503,8 @@ export type SettleOutcome = (result: { ok: true } | { ok: false; code: string })
 /**
  * The one place a provider request's terminal outcome is recorded: at most
  * one per request (phase 2 rule), for the model that served it, and none
- * for a cut-off whose step succeeds (see cutOffCounts). A deferred
+ * for a cut-off whose step succeeds (see cutOffCounts) or for a refusal
+ * (isRefusalStopReason, owner 2026-10-28). A deferred
  * request hands the response a `settleOutcome` for the caller to call after
  * its own validation. A request whose own `signal` was aborted records
  * nothing (review 2026-09-25, P3-b): the caller gave up, which says nothing
@@ -516,6 +532,14 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
     throw error;
   }
   const model = response.servedModel ?? requested;
+  const stopReason = (response as { stop_reason?: string | null }).stop_reason;
+  // Owner, 2026-10-28 (F5 stress run): a refused answer records nothing on
+  // any path, so one project's content cannot move a tier back for every
+  // writer. A deferred caller still settles; its settle records nothing.
+  if (isRefusalStopReason(stopReason)) {
+    if (request.defer) response.settleOutcome = async () => {};
+    return response;
+  }
   if (request.defer) {
     let settled = false;
     response.settleOutcome = async (result) => {
@@ -534,7 +558,6 @@ async function recordedRequest<R extends { servedModel?: string; settleOutcome?:
   // review P3-1). It is a failure only where the cut fails its step, as a
   // section draft's reader (requireTextResponse) refuses it; anywhere else
   // it records nothing (see cutOffCounts).
-  const stopReason = (response as { stop_reason?: string | null }).stop_reason;
   if (isCutOffStopReason(stopReason)) {
     if (cutOffCounts(callSite, false)) {
       await recordOutcome(ctx, { model, callSite, outcome: "failure", code: "output_limit" });
@@ -806,7 +829,13 @@ export function clientForModel(
     meta,
     () => {
       if (gatewayForModel(modelId) === "openrouter") {
-        return instrumentedOpenRouter(ctx, meta, signal ? { signal } : {});
+        // 2026-10-26: the step table's timeout (ANTHROPIC_TIMEOUT_MS) on both
+        // gateways, not OpenRouter's 180 s default. These requests do not
+        // stream, so a cut-off retry here keeps the shorter repair.
+        return instrumentedOpenRouter(ctx, meta, {
+          timeoutMs: ANTHROPIC_TIMEOUT_MS,
+          ...(signal ? { signal } : {}),
+        });
       }
       // Anthropic's response is a superset of GenerationResponse (extra block
       // variants like thinking); safe to narrow: agents only read text/tool_use.
@@ -1050,6 +1079,16 @@ export function normalizeProviderError(error: unknown): {
   let status: number | undefined;
   let rawMessage = "";
   if (error instanceof Error) rawMessage = error.message;
+  // F5 stress run (2026-10-27): a write the database refused for its write
+  // rate was stored as "The AI provider rejected the request". It keeps the
+  // "unknown" code every stored failure accepts, with words that say whose
+  // refusal it was (owner, 2026-10-28, question 14).
+  if (isWriteRateLimitError(error)) {
+    return {
+      code: "unknown",
+      message: `The database refused a write for its write rate, not the AI provider: ${rawMessage.slice(0, 300)}`,
+    };
+  }
   if (error && typeof error === "object" && "status" in error) {
     status = typeof error.status === "number" ? error.status : undefined;
   }

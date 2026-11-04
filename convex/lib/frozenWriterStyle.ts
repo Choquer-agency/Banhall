@@ -24,6 +24,8 @@ export type FrozenWriterStyle = {
   qaCalibrationDigestId?: Id<"learningDigests">;
   draftStyleDigestId?: Id<"learningDigests">;
   writerFlavor?: string;
+  /** Sixth re-check: the saved preference texts composed into writerFlavor. */
+  savedPreferenceTexts?: string[];
   styleOverrides: StyleOverrides;
 };
 
@@ -48,6 +50,7 @@ function styleFields(style: FrozenWriterStyle) {
       ? { draftStyleDigestId: style.draftStyleDigestId }
       : {}),
     ...(style.writerFlavor ? { writerFlavor: style.writerFlavor } : {}),
+    ...(style.savedPreferenceTexts ? { savedPreferenceTexts: style.savedPreferenceTexts } : {}),
     // Frozen at start like styleGuidance, including the all-false "full
     // enforcement" state, so a later profile or mode change can never
     // re-score this draft under waivers it was not written with.
@@ -76,13 +79,21 @@ export function brainBlocksArtifactContent(
  */
 export function brainBlocksFromWriterStyle(
   blocks: FrozenBrainBlocks,
-  writerStyleContent: string
+  writerStyleContent: string,
+  /** 2026-11-02 (proposed): the public background block and its answers, when any. */
+  webBackground?: { block: string; answers: string }
 ): string {
   const parsed: unknown = JSON.parse(writerStyleContent);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Frozen writer style is malformed");
   }
-  return JSON.stringify({ blocks, ...(parsed as Record<string, unknown>) });
+  return JSON.stringify({
+    blocks,
+    ...(parsed as Record<string, unknown>),
+    ...(webBackground?.block
+      ? { webBackground: webBackground.block, webBackgroundAnswers: webBackground.answers }
+      : {}),
+  });
 }
 
 /** Brain blocks as the background step hands them over: four strings. */

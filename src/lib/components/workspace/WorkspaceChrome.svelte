@@ -12,6 +12,7 @@
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
+  import FrameCard from "$lib/components/workspace/FrameCard.svelte";
   import PageTopBar, { type TopBarPrimaryAction } from "$lib/components/shell/PageTopBar.svelte";
   import { workPanelPadding } from "$lib/components/shell/topBar";
   import ViewAsHiddenPage from "$lib/components/shell/ViewAsHiddenPage.svelte";
@@ -21,6 +22,7 @@
 
   let {
     title,
+    titlePending = false,
     description = null,
     subtitle = null,
     icon = undefined,
@@ -39,12 +41,24 @@
     status,
     count = null,
     primaryAction = null,
+    primaryActionInSidebar = false,
+    sidebar = undefined,
   }: {
     title: string;
+    /** The title is not known yet: the bar holds its place with a quiet block. */
+    titlePending?: boolean;
     /** Muted count after the title, as on Projects. */
     count?: string | number | null;
     /** The top bar's filled button. */
     primaryAction?: TopBarPrimaryAction | null;
+    /** The section sidebar repeats `primaryAction` from 768px (Team's Invite people). */
+    primaryActionInSidebar?: boolean;
+    /**
+     * The section's inner sidebar (`SectionSidebar`): Team, Admin and
+     * Settings. Pages without one (What's new, Alerts, Feature requests, New
+     * project) sit in the card alone (owner answer 5, 2026-10-28).
+     */
+    sidebar?: Snippet;
     /**
      * @deprecated Every top bar is the title and its count (owner,
      * 2026-10-19); a page that needs a sentence of context puts it in its body.
@@ -74,10 +88,9 @@
      */
     viewAsGate?: ViewAsGate | null;
     /**
-     * `inset`: the round 2 frame (top bar on the shell background, white
-     * panel inset 12px). `bleed` (H1, tablet) and `phone` (H2): a full-bleed
-     * white page under a plain top bar, with no inset panel, page tile or
-     * bell; the phone bar leads with a back arrow when `onBack` is set.
+     * `inset`: the page frame's top bar inside the white card. `bleed` (H1,
+     * tablet) and `phone` (H2): the plain bars with a soft line under them,
+     * no bell; the phone bar leads with a back arrow when `onBack` is set.
      */
     frame?: "inset" | "bleed" | "phone";
     onBack?: (() => void) | null;
@@ -90,8 +103,6 @@
   const auth = useAuth();
   const configQ = useQuery(api.myWork.getViewConfig, () => (auth.isAuthenticated ? {} : "skip"));
   let navigationOpen = $state(false);
-  // Desktop rail visibility — shared persisted preference (WorkspaceShell).
-  let railHidden = $state(false);
   const myWorkAvailable = $derived(Boolean(configQ.data?.ready && !configQ.data?.killSwitch));
   const userQ = useQuery(api.users.getCurrentUser, () =>
     auth.isAuthenticated && viewAsGate ? {} : "skip"
@@ -119,7 +130,7 @@
 
   function focusProjectSearch() {
     navigationOpen = false;
-    // SPA navigation like the rest of the shell — the previous hard full-page
+    // SPA navigation like the rest of the shell; the previous hard full-page
     // reload dropped all client state just to reach the Projects board.
     void goto(destinationHref("all_projects"));
   }
@@ -130,7 +141,6 @@
   kind="chrome"
   {theme}
   bind:navigationOpen
-  bind:railHidden
   displayedView={null}
   {myWorkAvailable}
   myWorkHref={destinationHref("my_work")}
@@ -140,25 +150,23 @@
   onFocusSearch={focusProjectSearch}
   drawerDescription="Navigate between work, projects, and account pages."
 >
-  <!-- Rail v3 frame (2026-10-19): the 64px standard top bar on the shell
-       background, then the white work panel (radius 12, line border) with
-       12px between it and the rail, the window's right edge and its foot.
-       The panel owns the vertical scroll. `data-work-panel` is the shared
-       hook for the View as frame. -->
-  <div
-    data-chrome-frame={frame}
-    class={`flex min-h-0 min-w-0 flex-col overflow-hidden ${frame === "inset" ? "bg-workspace-shell px-3 pb-3" : "bg-surface"}`}
-  >
+  <!-- The page frame (owner, 2026-10-28): one white card holding the
+       section sidebar (when the page has one) and the page, its 64px top
+       bar inside the card above the content. `main` owns the vertical
+       scroll; the card carries `data-work-panel` for the View as frame. A
+       page hidden in a View as role draws no sidebar. -->
+  <FrameCard sidebar={hiddenInView ? undefined : sidebar} data-chrome-frame={frame}>
     <!-- D4: while the page is hidden in a View as role, the bar names the
          gated page on its own ("Admin") with its address as the muted line
          ("banhall.app/admin"), and no breadcrumb or actions. -->
-    <!-- Owner, 2026-10-19: every header is the Projects bar: the title, its
-         count, the bell and one plain main button. No muted line, no trail. -->
     <PageTopBar
       title={hiddenInView && viewAsGate ? VIEW_AS_GATE_PAGE_NAMES[viewAsGate] : title}
+      titlePending={titlePending && !hiddenInView}
       subtitle={hiddenInView ? `${page.url.host}${page.url.pathname}` : null}
       count={hiddenInView ? null : count}
       primaryAction={hiddenInView ? null : primaryAction}
+      {primaryActionInSidebar}
+      sidebarToggle={Boolean(sidebar) && !hiddenInView}
       tone={theme === "dark" ? "dark" : "light"}
       onOpenNavigation={() => (navigationOpen = true)}
       {status}
@@ -166,10 +174,10 @@
       variant={frame === "inset" ? "default" : frame}
       {onBack}
     />
-    <main
-      data-work-panel
+    <div
+      data-chrome-main
       data-work-panel-padding={panel === "padded" && !hiddenInView ? padding : "flush"}
-      class={`min-h-0 min-w-0 flex-1 overflow-y-auto bg-surface ${frame === "inset" ? "rounded-xl border border-line" : ""} ${hiddenInView ? "flex flex-col" : ""} ${
+      class={`min-h-0 min-w-0 flex-1 overflow-y-auto ${hiddenInView ? "flex flex-col" : ""} ${
         panel === "flush" || hiddenInView ? "" : workPanelPadding
       }`}
     >
@@ -178,6 +186,6 @@
       {:else}
         {@render children()}
       {/if}
-    </main>
-  </div>
+    </div>
+  </FrameCard>
 </WorkspaceShell>

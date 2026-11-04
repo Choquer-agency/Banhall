@@ -1,8 +1,9 @@
 <!--
-  Home (ui-design-final.md section 9, boards 1.1 and 1.2). Top bar: the
-  standard 64px bar of the 2026-10-19 amendment ("Home" at 22/28, the
-  greeting as the muted line, the bell and New project). One panel splits
-  into two tables on the left and "Continue working" on the right.
+  Home (ui-design-final.md section 9, boards 1.1 and 1.2; the page frame of
+  2026-10-28). The white card holds the Projects section sidebar (Home
+  marked) and the page: the standard 64px top bar ("Home" and the greeting
+  as the muted line; New project lives in the sidebar from 768px), then two
+  tables on the left and "Continue working" on the right.
 
   Data:
   - "With you": open work items assigned to the viewer
@@ -20,11 +21,13 @@
   import { resolve } from "$app/paths";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { usePaginatedQuery, useQuery } from "convex-svelte";
-  import { IconBell, IconPlus, IconPlusSmall } from "$lib/components/icons";
+  import { IconPlus, IconPlusSmall } from "$lib/components/icons";
   import { api } from "../../../../convex/_generated/api";
   import HomeContinueCard from "$lib/components/mywork/HomeContinueCard.svelte";
   import HomeProjectTable from "$lib/components/mywork/HomeProjectTable.svelte";
-  import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
+  import FrameCard from "$lib/components/workspace/FrameCard.svelte";
+  import ProjectsSectionSidebar from "$lib/components/projects/ProjectsSectionSidebar.svelte";
   import { greetingForHour, greetingName } from "$lib/mywork/homeGreeting";
   import { continueTarget, liveProjectRows, withYouRows } from "$lib/mywork/homeRows";
   import type { RecentProject } from "$lib/workspace/recentProjects";
@@ -33,13 +36,12 @@
 
   let {
     recentProjects = [],
+    homeHref = "/my-work",
     onOpenNavigation,
   }: {
     recentProjects?: RecentProject[];
-    /** @deprecated The rail draws its own collapse control (2026-10-19). */
-    railHidden?: boolean;
-    /** @deprecated The rail draws its own collapse control (2026-10-19). */
-    onToggleRail?: () => void;
+    /** The sidebar's Home row (this page). */
+    homeHref?: string;
     onOpenNavigation: () => void;
   } = $props();
 
@@ -47,8 +49,6 @@
   let now = $state(Date.now());
 
   const userQ = useQuery(api.users.getCurrentUser, () => (auth.isAuthenticated ? {} : "skip"));
-  const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
-  const unseen = $derived(unseenQ.data ?? 0);
   const greeting = $derived.by(() => {
     const name = greetingName(userQ.data);
     return `${greetingForHour(new Date(now).getHours())}${name ? `, ${name}` : ""}`;
@@ -85,51 +85,32 @@
       : [];
     return continueTarget(opened, withYou);
   });
-
-  const iconButton =
-    "flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11";
 </script>
 
 <svelte:window onfocus={() => (now = Date.now())} />
 
-<div data-home class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell">
-  <!-- The standard top bar (2026-10-19): 64px, the title 8px inside the
-       panel's left edge, which sits 12px from the rail. -->
-  <header data-workspace-page-header data-home-top-bar class="flex h-16 shrink-0 items-center gap-2.5 px-5">
-    <WorkspaceShellControls tone="light" {onOpenNavigation} />
-    <h1 class="shrink-0 text-xl font-medium leading-[1.3] text-ink">Home</h1>
-    <p data-home-greeting class="min-w-0 truncate text-sm leading-[calc(10/7)] text-ink-muted max-sm:hidden">{greeting}</p>
-    <div class="flex-1"></div>
-    <a
-      href={resolve("/changelog")}
-      data-top-bar-bell
-      aria-label={unseen > 0 ? `Notifications, ${unseen} new update${unseen === 1 ? "" : "s"}` : "Notifications"}
-      class={`relative ${iconButton}`}
-    >
-      <IconBell size={16} strokeWidth={1.5} />
-      {#if unseen > 0}
-        <span aria-hidden="true" data-top-bar-bell-dot class="absolute right-2.5 top-2 size-1.5 rounded-full bg-primary"></span>
-      {/if}
-    </a>
-    <a
-      href={resolve("/project/new")}
-      data-home-new-project
-      class="inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
-    >
-      New project
-    </a>
-  </header>
+<FrameCard data-home class="flex-1">
+  {#snippet sidebar()}
+    <ProjectsSectionSidebar current="home" {homeHref} />
+  {/snippet}
+  <PageTopBar
+    title="Home"
+    subtitle={greeting}
+    primaryAction={{ label: "New project", href: resolve("/project/new") }}
+    primaryActionInSidebar
+    sidebarToggle
+    {onOpenNavigation}
+  />
 
-  <main
+  <div
     data-home-panel
-    data-work-panel
-    class="mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-y-auto rounded-xl border border-line bg-surface"
+    class="flex min-h-0 flex-1 flex-col overflow-y-auto"
   >
     <!-- Owner direction 2026-09-28 (overrides the A1, A4 fixed 752px): the
          tables take every pixel the window gives them, Continue working
          keeps its 384px column at the panel's right edge, and the sides use
          the shared page gutter, so nothing is stranded on a wide screen. -->
-    <div class="flex flex-1 flex-col gap-10 page-gutter pb-6 pt-5 xl:flex-row xl:gap-8">
+    <div class="flex flex-1 flex-col gap-10 px-4 pb-6 pt-1 sm:px-6 lg:px-8 xl:flex-row xl:gap-8">
       <div data-home-tables class="min-w-0 flex-1">
         <HomeProjectTable
           id="home-with-you"
@@ -195,5 +176,5 @@
         <HomeContinueCard {target} {now} />
       </div>
     </div>
-  </main>
-</div>
+  </div>
+</FrameCard>

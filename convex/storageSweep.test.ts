@@ -131,6 +131,16 @@ const holders: Record<(typeof STORAGE_REFERENCE_FIELDS)[number], (ctx: MutationC
       label: "notes.txt", contentHash: "hash", contentLength: 6, hasText: true, storageId, createdAt: 1, updatedAt: 1,
     });
   },
+  "companyFiles.storageId": async (ctx, storageId) => {
+    const userId = await ctx.db.insert("users", { authId: `sweep-company-${Math.random()}`, role: "writer" });
+    const clientId = await ctx.db.insert("clients", {
+      name: "Sweep Co", nameKey: "sweep co", status: "active", createdBy: userId, createdAt: 1, updatedAt: 1,
+    });
+    return await ctx.db.insert("companyFiles", {
+      clientId, fileName: "notes.txt", fileType: "txt", storageId, textLength: 0, hasText: false, textHash: "empty",
+      textPreview: "", wordCount: 0, processingStatus: "could_not_read", uploadedBy: userId, createdAt: 1,
+    });
+  },
 };
 
 function ingestionItem(files: { storageId?: Id<"_storage">; textStorageId?: Id<"_storage"> }) {
@@ -179,18 +189,21 @@ const KNOWN_SERVER_STORAGE_WRITERS: Record<string, string> = {
   "./ingestionPort.ts": "projectDocuments.storageId (the copied original)",
   "./projectDuplication.ts": "projectDocuments.storageId and transcripts.originalStorageId (projects.finishProjectContentCopy)",
   "./documents.ts": "generateUploadUrl: the browser uploads, then saves the id (below); a profile photo lands in users.imageStorageId (account.setMyPhoto)",
+  "./companyFiles.ts": "generateCompanyUploadUrl: the company page uploads, then addCompanyFile saves the id in companyFiles.storageId",
 };
 
-/** Browser code that uploads through `documents.generateUploadUrl`, and where the id is saved. */
+/** Browser code that uploads through an upload URL (`documents.generateUploadUrl`, `companyFiles.generateCompanyUploadUrl`), and where the id is saved. */
 const KNOWN_CLIENT_UPLOADERS: Record<string, string> = {
   "../src/lib/transcriptUpload.ts": "transcripts.originalStorageId (the caller's save)",
   "../src/lib/uploads/originalUpload.ts": "projectDocuments.storageId (the caller's uploadDocument)",
   "../src/lib/uploads/storeProjectFile.ts": "projectDocuments.storageId (uploadDocument: the files panel's Add files and Replace file)",
+  "../src/lib/uploads/storeCompanyFile.ts": "companyFiles.storageId (addCompanyFile: the company page's Upload files)",
   "../src/lib/components/review-pd/PdReviewStart.svelte": "projectDocuments.storageId (uploadDocument)",
   "../src/lib/components/project/PreviewProjectPage.svelte": "transcripts.originalStorageId (add or replace)",
   "../src/lib/components/editor/FilesPanel.svelte": "projectDocuments.storageId (uploadDocument)",
   "../src/routes/project/new/+page.svelte": "projectDocuments.storageId and transcripts.originalStorageId",
   "../src/routes/settings/account/+page.svelte": "users.imageStorageId (account.setMyPhoto)",
+  "../src/lib/components/projects/CompanyFiles.svelte": "companyFiles.storageId (companyFiles.generateCompanyUploadUrl, then addCompanyFile)",
 };
 
 const convexSources = import.meta.glob(["./**/*.ts", "!./_generated/**", "!./**/*.test.ts"], {

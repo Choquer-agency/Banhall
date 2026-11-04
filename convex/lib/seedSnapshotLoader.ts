@@ -1,10 +1,14 @@
+import { sourceRowText, type SourceRowWithText } from "./sourceText";
 import type { Doc, Id } from "../_generated/dataModel";
+import { refuseWhenCompanyLeft } from "./briefEvidence";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   PD_SUBSECTIONS,
   type PdSubsectionRoleId,
 } from "../../shared/pdSubsections";
 import { createReadBudget } from "./readBudget";
+import type { ReadCounter } from "./readMeter";
+import type { Value } from "convex/values";
 import { domainError } from "./contracts";
 import {
   MAX_SEED_SNAPSHOT_ROWS,
@@ -15,6 +19,7 @@ import {
   type MaterializedSeedSelection,
   type SeedContextSnapshot,
 } from "./seedRevisions";
+import { claimantNameFor } from "./transcriptPlaceholders";
 
 type SeedReadCtx = Pick<QueryCtx | MutationCtx, "db">;
 
@@ -243,7 +248,7 @@ export type FrozenSeedActionInput = {
   >;
   sources: Array<
     Pick<
-      Doc<"generationSources">,
+      SourceRowWithText,
       | "_id"
       | "kind"
       | "label"
@@ -253,6 +258,7 @@ export type FrozenSeedActionInput = {
       | "originalLength"
       | "transcriptId"
       | "factSpans"
+      | "uploaderRole"
     >
   >;
   writerSettings: {
@@ -261,6 +267,12 @@ export type FrozenSeedActionInput = {
     styleOverrides: Record<string, unknown>;
   };
   lengthTarget: "concise" | "standard" | "full";
+  /**
+   * 2026-10-30 (owner, item 2): the claimant's name frozen on the generation,
+   * for the Seed request's claimant line, when its frozen map hides it.
+   * Absent, the request is as before.
+   */
+  claimantName?: string;
 };
 
 export const MAX_SEED_BRIEF_ENTRY_ROWS = 500;
@@ -288,6 +300,31 @@ function frozenStyleProjection(content: string): {
     throw new Error("Frozen seed writer settings are incomplete");
   }
   return { styleGuidance, styleOverrides };
+}
+
+/**
+ * 2026-10-28 (Phase D step 1 live check): a Brief reused from an earlier
+ * draft names that draft's rows. It is reused only when this draft froze the
+ * same texts (its inputs hash), but a Seed may cite only this draft's rows,
+ * and a Seed that quoted a Brief entry kept the earlier id, so its quote was
+ * refused (live: 4 of 46 Seeds kept a quote, against 45 of 47 with the
+ * draft's own Brief). Each entry is shown with this draft's row of the same
+ * text, so its offsets still hold; among rows of the same text an interview
+ * comes first, so the speaker check still applies (review). An entry naming
+ * one of this draft's rows, or a text this draft did not freeze, keeps its
+ * id. Seeds never run on a draft that has a Summary, so a Summary recovery
+ * (which maps rows by its own source map) never reaches this.
+ */
+export function ownSourceIdOf(
+  sources: ReadonlyArray<{ _id: Id<"generationSources">; kind: string; contentHash: string }>,
+): (entry: { sourceId: Id<"generationSources">; sourceContentHash: string }) => Id<"generationSources"> {
+  const own = new Set<string>(sources.map((source) => source._id));
+  const byText = new Map<string, { _id: Id<"generationSources">; kind: string }>();
+  for (const source of sources) {
+    const before = byText.get(source.contentHash);
+    if (!before || (before.kind !== "transcript" && source.kind === "transcript")) byText.set(source.contentHash, source);
+  }
+  return (entry) => (own.has(entry.sourceId) ? entry.sourceId : (byText.get(entry.sourceContentHash)?._id ?? entry.sourceId));
 }
 
 /** Read generation-frozen model inputs. Called only after the attempt claim. */
@@ -355,6 +392,10 @@ export async function loadFrozenSeedActionInput(
   const briefEntries = entryRead.rows,
     sources = sourceRead.rows,
     settingsArtifact = settingsRead.value;
+  // Phase C review 2: a draft that read the files of a company the project
+  // has left makes no more Seeds. Its Brief may quote those files, and
+  // dropping their rows would leave entries citing rows that are gone.
+  await refuseWhenCompanyLeft(ctx, args.generation.projectId, sources);
   if (briefEntries.length > MAX_SEED_BRIEF_ENTRY_ROWS) {
     throw new SeedContextLimitError(
       "rows",
@@ -369,8 +410,35 @@ export async function loadFrozenSeedActionInput(
   }
   if (!settingsArtifact)
     throw new Error("Frozen seed writer settings are missing");
+  // B1, second part: a row that refers to its text reads it within the same
+  // budget, charged with every document read for it (the version and its
+  // pieces, or the whole transcript, B1 review 2026-10-27); a row written
+  // before the change carries it.
+  const overBudget = () =>
+    new SeedContextLimitError(
+      "read_bytes",
+      "Frozen seed inputs exceed the processing budget",
+    );
+  const charge: ReadCounter = {
+    read(doc) {
+      if (!doc) return;
+      budget.account(doc as Value);
+      const { estimatedBytesRead, limit } = budget.snapshot();
+      if (estimatedBytesRead > limit) throw overBudget();
+    },
+  };
+  const texts = new Map<Id<"generationSources">, string>();
+  for (const source of sources) {
+    if (source.content !== undefined) continue;
+    if (!budget.reserve()) throw overBudget();
+    texts.set(source._id, await sourceRowText(ctx, source, charge));
+  }
   const style = frozenStyleProjection(settingsArtifact.content);
+  const ownSourceId = ownSourceIdOf(sources);
+  // 2026-10-30 (owner, item 2): frozen at reservation, as the map is.
+  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders, args.generation.placeholdersOff);
   return {
+    ...(claimantName !== undefined ? { claimantName } : {}),
     brief: {
       _id: brief._id,
       inputsHash: brief.inputsHash,
@@ -389,7 +457,7 @@ export async function loadFrozenSeedActionInput(
         text: entry.text,
         reason: entry.reason,
         confidence: entry.confidence,
-        sourceId: entry.sourceId,
+        sourceId: ownSourceId(entry),
         sourceContentHash: entry.sourceContentHash,
         startOffset: entry.startOffset,
         endOffset: entry.endOffset,
@@ -402,7 +470,7 @@ export async function loadFrozenSeedActionInput(
       _id: source._id,
       kind: source.kind,
       label: source.label,
-      content: source.content,
+      content: source.content ?? texts.get(source._id) ?? "",
       contentHash: source.contentHash,
       ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       truncated: source.truncated,
@@ -410,6 +478,9 @@ export async function loadFrozenSeedActionInput(
       // 2026-09-24 (transcript method): the verified spans behind each fact
       // id of a frozen pack, which a Seed citing a fact resolves to.
       ...(source.factSpans ? { factSpans: source.factSpans } : {}),
+      // Phase D, step 1: whose file it is (writer's notes go in whole only
+      // when an internal user uploaded them).
+      ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
     })),
     writerSettings: {
       profile: args.generation.writerSettings,

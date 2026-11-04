@@ -18,9 +18,21 @@ import { PLACEHOLDER_ALGORITHM_VERSION } from "./deidentify";
  * escape is a word edge before a name (2026-09-29, second, privacy). 7: any
  * escape is an edge, labels open strings and split names are hidden
  * (2026-09-29, second, privacy re-check). 8: placeholder algorithm 7 (final
- * privacy round).
+ * privacy round). 9: a cut-off answer's repair may ask for the model's whole
+ * output allowance (STRUCTURED_OUTPUT_PROGRAM cutOffMoreRoomSummary,
+ * 2026-10-26, P0 item 3). 10: on a model that refuses a forced tool call,
+ * an answer that leaves out a field the Brief tool requires is repaired, and
+ * fails if the repair leaves fields out too (`requireEveryField`, 2026-10-26,
+ * live check). 11: when the frozen sources do not all fit, the request
+ * sends the parts of each file that best match the interviews, and a quote
+ * is found only in what was sent (Phase D, step 1, 2026-10-28). 12: the
+ * Storyline frames one main uncertainty as the shared problem
+ * (BRIEF_STORYLINE_MAIN_UNCERTAINTY, 2026-10-30, after the live rerun, R2),
+ * and the version now also decides reuse: a model-derived Brief made under
+ * an earlier version is not reused for the same inputs, while one a writer
+ * shaped still is (review round 4, A1; `briefRulesCurrent`).
  */
-export const BRIEF_DERIVATION_VERSION = 8;
+export const BRIEF_DERIVATION_VERSION = 12;
 
 /** Places of one quote tried under owner decision 25 before it is dropped. */
 export const MAX_QUOTE_PLACES = 8;

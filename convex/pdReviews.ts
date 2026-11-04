@@ -1,4 +1,5 @@
 import { requireProjectSetUp } from "./lib/intakeDrafts";
+import { quotableFileText } from "../shared/wordMarkdown";
 import {
   query,
   mutation,
@@ -12,8 +13,9 @@ import {
   getInternalProjectAccessOrNull,
   requireInternalProjectAccess,
 } from "./lib/auth";
-import { domainError, sha256 } from "./lib/contracts";
+import { domainError } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
+import { documentHasText, documentTextHash, readDocumentText } from "./lib/documentText";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import {
@@ -25,6 +27,7 @@ import { liveFactPacksApply } from "./lib/transcriptFactRows";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
 import { transcriptFactsMode, transcriptPlaceholdersEnabled } from "./appSettings";
 import { excludedIdsArgs, validatedExcludedSources } from "./lib/generations/reservation";
+import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress, textCopyPending } from "./lib/projectCopy";
 /**
  * BNH-39: PD review mode. A review-mode project uploads an existing written PD
  * (stored in projectDocuments, source "review_pd"); these functions run the AI
@@ -46,8 +49,19 @@ export const startPdReview = mutation({
     const { user } = await requireReportEditAccess(ctx, args.projectId);
     // Decision 65, stage 2: not while the project is still being set up.
     await requireProjectSetUp(ctx, args.projectId);
+    // F2 review: nor while its files are still being copied into it.
+    if (await projectCopyInProgress(ctx, args.projectId)) {
+      domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     requireAnthropicConfigured("review");
-    const excludedSources = await validatedExcludedSources(ctx, args.projectId, args);
+    // PD reviews never read company files: only the project's lists are kept.
+    const validated = await validatedExcludedSources(ctx, args.projectId, {
+      excludeDocumentIds: args.excludeDocumentIds,
+      excludeTranscriptIds: args.excludeTranscriptIds,
+    });
+    const excludedSources = validated
+      ? { documentIds: validated.documentIds, transcriptIds: validated.transcriptIds }
+      : undefined;
     if (excludedSources?.documentIds.includes(args.documentId)) {
       domainError("INVALID_INPUT", "The written PD is always reviewed");
     }
@@ -56,7 +70,7 @@ export const startPdReview = mutation({
       !doc ||
       doc.projectId !== args.projectId ||
       doc.archived ||
-      !doc.content.trim()
+      !documentHasText(doc)
     ) {
       domainError("INVALID_INPUT", "An active, non-empty project document is required");
     }
@@ -81,7 +95,7 @@ export const startPdReview = mutation({
       sourceFileName: doc.fileName,
       status: "running",
       revisionNumber: 0,
-      contentHash: await sha256(doc.content),
+      contentHash: await documentTextHash(doc),
       createdBy: user._id,
       createdAt: now,
       ...(excludedSources ? { excludedSources } : {}),
@@ -111,6 +125,10 @@ export const retryPdReview = mutation({
     const failed = await ctx.db.get(args.reviewId);
     if (!failed) domainError("NOT_FOUND", "Review not found");
     const { user } = await requireReportEditAccess(ctx, failed.projectId);
+    // F2 review: not while the project's files are still being copied.
+    if (await projectCopyInProgress(ctx, failed.projectId)) {
+      domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     requireAnthropicConfigured("review");
     // `completed` is retryable too: older rows were stored before the result
     // was validated, so a review can be marked complete yet hold a payload the
@@ -127,7 +145,7 @@ export const retryPdReview = mutation({
       domainError("INVALID_INPUT", "A review is already running for this project");
     }
     const doc = await ctx.db.get(failed.documentId);
-    if (!doc || doc.archived || !doc.content.trim()) {
+    if (!doc || doc.archived || !documentHasText(doc)) {
       domainError("INVALID_INPUT", "The reviewed PD document is no longer available");
     }
     await limitUserAction(ctx, "pdReviewPerUser", user._id);
@@ -139,7 +157,7 @@ export const retryPdReview = mutation({
       sourceFileName: doc.fileName,
       status: "running",
       revisionNumber: 0,
-      contentHash: await sha256(doc.content),
+      contentHash: await documentTextHash(doc),
       createdBy: user._id,
       createdAt: now,
       ...(failed.excludedSources ? { excludedSources: failed.excludedSources } : {}),
@@ -214,7 +232,7 @@ export const getReviewSourceDocument = query({
     return {
       _id: doc._id,
       fileName: doc.fileName,
-      hasText: doc.content.trim().length > 0,
+      hasText: documentHasText(doc),
     };
   },
 });
@@ -275,6 +293,22 @@ export const logPdReviewEvent = mutation({
 
 // ─── Internal plumbing for the review action ─────────────────────────────────
 
+/**
+ * F2 review: whether a review must wait for its project's files, still
+ * being copied into it (review from project starts its review as the copy
+ * runs; a crash can leave a copy to the job).
+ */
+export const reviewWaitsForCopy = internalQuery({
+  args: { reviewId: v.id("pdReviews") },
+  /** "gone": the review was removed or is no longer running (the reaper failed it). */
+  returns: v.union(v.literal("wait"), v.literal("go"), v.literal("gone")),
+  handler: async (ctx, args) => {
+    const review = await ctx.db.get(args.reviewId);
+    if (!review || review.status !== "running") return "gone";
+    return (await projectCopyInProgress(ctx, review.projectId)) ? "wait" : "go";
+  },
+});
+
 /** Everything the review agent needs in one read: the written PD, the project
  *  basics, and every transcript joined (may be empty in review mode). */
 export const getReviewInput = internalQuery({
@@ -283,6 +317,12 @@ export const getReviewInput = internalQuery({
     const review = await ctx.db.get(args.reviewId);
     if (!review) return null;
     const doc = await ctx.db.get(review.documentId);
+    // F2 review: no review reads a project while files are still being
+    // copied into it, the written PD or the support files (the review waits
+    // for the copy first: `reviewWaitsForCopy`).
+    if ((doc && textCopyPending(doc)) || (await projectCopyInProgress(ctx, review.projectId))) {
+      domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+    }
     const project = await ctx.db.get(review.projectId);
     const allRows = await listProjectTranscripts(ctx, review.projectId);
     const excludedTranscripts = new Set(review.excludedSources?.transcriptIds ?? []);
@@ -295,27 +335,26 @@ export const getReviewInput = internalQuery({
       project && (await transcriptPlaceholdersEnabled(ctx))
         ? [...(await projectPlaceholderMap(ctx, project, allRows))]
         : [];
-    // The context documents the review reads (the same rule as
-    // documents.getContextDocsForGeneration), minus the left-out ones.
+    // The context documents the review reads (archived, uncategorized and
+    // empty files skipped), minus the left-out ones.
     const documents = await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", review.projectId))
       .take(200);
-    const contextDocs = documents
-      .filter(
-        (d) =>
-          !d.archived &&
-          d.category &&
-          d.content.trim().length > 0 &&
-          !excludedDocuments.has(d._id)
-      )
-      .map((d) => ({
-        category: d.category!,
+    const contextDocs = [];
+    for (const d of documents) {
+      // F2: a file still being copied has no text yet.
+      if (d.archived || !d.category || textCopyPending(d) || !documentHasText(d) || excludedDocuments.has(d._id)) continue;
+      contextDocs.push({
+        category: d.category,
         fileName: d.fileName,
-        content: d.content.slice(0, 15000),
-      }));
+        // 2026-10-22 (fourth): only the part the review reads. 2026-10-26:
+        // Word Markdown without its marks.
+        content: quotableFileText(await readDocumentText(ctx, d, 0, 15000), d.textFormat),
+      });
+    }
     return {
-      pdContent: doc?.content ?? "",
+      pdContent: doc ? quotableFileText(await readDocumentText(ctx, doc), doc.textFormat) : "",
       // Usage attribution: the user who started (or retried) this review.
       createdBy: review.createdBy,
       fileName: review.sourceFileName,

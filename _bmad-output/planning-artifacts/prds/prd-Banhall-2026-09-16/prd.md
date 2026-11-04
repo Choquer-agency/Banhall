@@ -42,7 +42,7 @@ Why it matters: the September goal is a program the writers adopt. Larry's Rev A
 - **Predecessors** of a Subsection — the Subsections with a lower order in FR-2. **Successors** — those with a higher order. Dependency logic uses this order regardless of the order the writer visits Subsections.
 - **Decision Set** of a Subsection — the current active Seed Selections (final wording), Skips and active Feedback instructions of all its Predecessors, plus the Brief version and generation settings frozen at start. It is what a Batch for that Subsection is conditioned on.
 - **Context Revision** of a Subsection — a server-computed identifier of its Decision Set plus its own active Feedback. Every Batch records, immutably, the Context Revision it consumed (**consumed revision**).
-- **Idea Seed (Seed)**: one AI-proposed idea for one Subsection: one or two bullets, at most 25 words per bullet as proposed by the AI `[ASSUMPTION: cap chosen to make "1-2 brief bullets" testable]`; a writer's edit is not capped (FR-11), one or two Positioning Tags, a support status and its Seed Provenance. A Seed is not prose and never enters the report directly.
+- **Idea Seed (Seed)**: one AI-proposed idea for one Subsection: one or two bullets, each one short sentence as proposed by the AI (the 25-word cap was removed on 2026-10-27, owner approved); a writer's edit has only a 5,000-character ceiling (FR-11), one or two Positioning Tags, a support status and its Seed Provenance. A Seed is not prose and never enters the report directly.
 - **Seed Batch (Batch)** — the immutable result of one AI request sequence (an **attempt**) for one Subsection: three to five Seeds (or one to three Revised Seeds for a Feedback Batch) and the consumed revision. A Subsection may accumulate several Batches; **Outdated** is a Batch whose consumed revision differs from the Subsection's current Context Revision.
 - **Shown Set** — what the writer sees for a Subsection: its current Batch, any Revised Seeds returned by Feedback on it, and Seed Selections carried over from earlier Batches.
 - **Positioning Tag (Tag)** — a label from the closed set {Conservative, Aggressive, High-level, Detailed, Technical, Alternative angle} `[ASSUMPTION: set taken from the handoff; the chat brief's "sentiment tags or categories" is exploratory — OQ-8]`.
@@ -189,7 +189,7 @@ The system generates a Batch for a Subsection when the writer first opens it, wh
 
 **Consequences (testable):**
 - A Batch contains between three and five Seeds; fewer than three after validation fails the attempt. The only automatic retry is the existing structured-output repair (at most two requests per attempt); a failed attempt shows a retry action, never a partial Batch. Every attempt has a durable identity and records how many Seeds validation dropped.
-- Each Seed has one or two bullets. Every bullet is at most 25 words and at most one sentence. The system checks both limits deterministically: it splits words on whitespace. A sentence ends at `.`, `!` or `?` followed by whitespace or the end, ignoring abbreviations and decimals per a fixture list. The system drops a violating Seed before display.
+- Each Seed has one or two bullets. Every bullet is one sentence, and the prompt asks for about 15 words (amended 2026-10-27, owner approved: the 25-word cap is removed). The system checks the sentence rule deterministically. A sentence ends at `.`, `!` or `?` followed by whitespace or the end, ignoring abbreviations and decimals per a fixture list. The system drops a violating Seed before display.
 - Every Batch immutably records the consumed revision, attempt identity, Brief version and settings it was given. A Subsection has at most one pending attempt; only the pending attempt's result becomes the shown Batch. A result arriving for an attempt that was superseded by a retry, timed out (10-minute lease), cancelled or signed off is stored as *late*. It is kept for audit and usage, never shown as current and never applied to a closed seed stage.
 - The prefetch never runs more than one Subsection ahead, never for a Subsection with any Batch, and a writer's open of the same Subsection reuses the in-flight Batch rather than starting another.
 - While a Batch is generating, the Subsection shows *generating* and the writer can navigate elsewhere; the Batch lands when ready, Outdated if the Decision Set changed meanwhile (FR-40).
@@ -252,7 +252,7 @@ The writer can tick any number of Seeds in the Shown Set, including Seeds from e
 The writer can change a Seed's bullets in place; the edited wording is what carries forward. Realizes UJ-1.
 
 **Consequences (testable):**
-- Editing keeps the one-or-two-bullet shape. The 25-word cap and the one-sentence check apply to AI-proposed Seeds only (FR-5); a writer's edit is never blocked by them. The editor shows no word counter; when an edited bullet exceeds 25 words or one sentence, a quiet "Long for a seed" note appears and saving still works. (Owner, 2026-09-23.)
+- Editing keeps the one-or-two-bullet shape. The one-sentence check applies to AI-proposed Seeds only (FR-5); a writer's edit is never blocked by it and is as long as the writer needs, up to a 5,000-character ceiling. The editor shows no counter and no note, except "This box holds up to 5,000 characters." at the ceiling. (Owner, 2026-09-23; amended 2026-10-27, owner approved.)
 - An edited Seed shows "Edited · writer-asserted"; its original AI wording and original citations remain viewable as history ("original source"), and **Restore original wording** is always available.
 - An edit changes the Selection Revision if the Seed is selected (same effects as FR-10).
 
@@ -261,7 +261,7 @@ The writer can change a Seed's bullets in place; the edited wording is what carr
 The writer can attach a short written instruction to a Seed and receive one to three Revised Seeds in the Shown Set. Realizes UJ-2.
 
 **Consequences (testable):**
-- Feedback is at most 300 characters `[ASSUMPTION]`. The request records the target Seed, its wording at request time, the instruction, the consumed revision and the attempt. One AI attempt returns a Feedback Batch of one to three Seeds. They obey the per-Seed rules of FR-5, FR-6 (Tags) and FR-7; Batch-level cardinality and Tag-diversity rules do not apply.
+- Feedback is as long as the writer needs, up to a 5,000-character ceiling (amended 2026-10-27, owner approved; was 300 `[ASSUMPTION]`). The request records the target Seed, its wording at request time, the instruction, the consumed revision and the attempt. One AI attempt returns a Feedback Batch of one to three Seeds. They obey the per-Seed rules of FR-5, FR-6 (Tags) and FR-7; Batch-level cardinality and Tag-diversity rules do not apply.
 - Revised Seeds arrive **unselected**, adjacent to the original, linked to their request; the original keeps its selection state and shows "has revisions". Replacing the original is the writer's explicit tick/untick (FR-10). A Feedback Batch is subject to FR-40: if the Subsection's Context Revision changed while it ran, or the target Seed's wording changed since the request, it is shown Outdated ("the idea you gave feedback on has changed").
 - The instruction is **active** from the request until the writer withdraws it (a visible action on the feedback chip) or the Subsection is skipped. Active instructions are included when this Subsection regenerates. They are also part of every Successor's Decision Set (FR-8); adding or withdrawing one is a Context Revision change (FR-17). Withdrawn instructions remain readable as history and are never sent again.
 
@@ -284,6 +284,7 @@ The writer can mark an Optional Subsection as not applicable, and reverse that. 
 - Skip and Unskip are Decision Set changes: every approved Successor becomes Stale (FR-17).
 - Unskip returns the Subsection to *in progress* with its retained Seed Selections active again (or to *untouched* if it never had a Batch); it never returns directly to *approved*.
 - A skipped Subsection counts as decided for Summary Review readiness (FR-20), is listed as "Skipped" in the Summary, and its Skip is a plan decision carried into Prose Generation (FR-25): the drafter must not cover that role from the Brief or sources.
+- Previous-year status opens skipped when the draft reads nothing from a previous year (the project's first year, or no previous-year files): no previous-year report or note, project or company, and no transcript copied from an earlier fiscal year. The step says why and the writer can Unskip it. (Amended 2026-10-27, owner approved.)
 - Skipping a Stale Subsection disposes its stale episode as *bypassed*; its active Feedback becomes inactive.
 
 #### FR-15: Approve a Subsection
@@ -684,14 +685,14 @@ All nine questions were put to the product owner on 2026-09-17 (chat); the recor
 
 ## 12. Assumptions Index
 
-- §2 Idea Seed — 25-word bullet cap makes "brief bullets" testable.
+- §2 Idea Seed: 25-word bullet cap makes "brief bullets" testable (removed 2026-10-27, owner approved).
 - §2 Positioning Tag — closed six-value set from the handoff (confirmed 2026-09-17).
 - §4.1 — the Brief still derives at start and does not gate; Brief version and settings frozen at start.
 - FR-2 — Work plan is Optional (confirmed 2026-09-17).
 - FR-5 — prefetch is a mechanism choice, droppable.
 - FR-6 — Tag-diversity and form-variety rules inferred from "vary in content and presentation".
 - FR-7 — writer-asserted items treated as Writer's Notes (confirmed 2026-09-17).
-- FR-12 — Feedback ≤ 300 characters.
+- FR-12: Feedback ≤ 300 characters (removed 2026-10-27, owner approved; a 5,000-character ceiling remains).
 - §4.6 / §10 row 8 — no second per-Section prose gate after Sign-off (confirmed 2026-09-17).
 - §8.2 / §10 row 9 — ghost draft retired for this mode (confirmed 2026-09-17).
 - FR-34 — counts are a sufficient reader for v1 (confirmed 2026-09-17).

@@ -184,6 +184,7 @@ function sameSource(a: IntakeSourceDesc, b: IntakeSourceDesc): boolean {
     a.intake === b.intake &&
     a.extractionOutcome === b.extractionOutcome &&
     a.fiscalYear === b.fiscalYear &&
+    a.textFormat === b.textFormat &&
     (a.file ?? null) === (b.file ?? null)
   );
 }
@@ -704,6 +705,7 @@ export class IntakeDraftSync {
           ...(desc.intake ? { intake: desc.intake } : {}),
           ...(desc.extractionOutcome ? { extractionOutcome: desc.extractionOutcome } : {}),
           ...(desc.fiscalYear !== undefined ? { fiscalYear: desc.fiscalYear } : {}),
+          ...(desc.textFormat ? { textFormat: desc.textFormat } : {}),
         });
         this.#sent.set(key, desc);
         this.messages.delete(key);

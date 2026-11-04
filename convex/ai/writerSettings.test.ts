@@ -910,6 +910,7 @@ describe("trust floor and the no-profile line", () => {
       savedProfileSuperseded: true,
       waiverAnalysis: "analyzed",
       noProfileLine: null,
+      savedPreferencesLine: null,
       offer: {
         supplyPath: "writer_notes",
         fileName: FILE,
@@ -1230,5 +1231,51 @@ describe("a resolver failure never fails generation", () => {
         },
       ],
     ]);
+  });
+
+  it("records the saved preferences the fallback style carries (E1b review)", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const context: OrderedProfileContext = {
+      profileState: "missing",
+      categoryOutcomes: [],
+      buildOrder: ["242", "244", "246"],
+      selfCheckRules: [],
+    };
+    const mutations: Array<[string, unknown]> = [];
+    const savedPreferences = { count: 2, textHash: "h", ids: [] };
+    const ctx = {
+      runQuery: async (reference: unknown) => {
+        const name = getFunctionName(reference as never);
+        if (name === "writerProfiles:getSettingsDocumentCandidate") throw new Error("candidate read failed");
+        if (name === "writerProfiles:getProfileForGeneration") {
+          return {
+            customInstructions: "Saved preferences:\n- Keeps it short.\n- Uses we.",
+            styleOverrides: NO_STYLE_OVERRIDES,
+            profileInstructions: null,
+            savedPreferences,
+          };
+        }
+        if (name === "writerProfiles:getGenerationProfileContext") return context;
+        throw new Error(`unexpected query ${name}`);
+      },
+      runMutation: async (reference: unknown, args: unknown) => {
+        mutations.push([getFunctionName(reference as never), args]);
+        return null;
+      },
+    } as unknown as Parameters<typeof resolveGenerationWriterSettings>[0];
+    const result = await resolveGenerationWriterSettings(ctx, {
+      generationId: "generations-id" as Id<"generations">,
+      projectId: "projects-id" as Id<"projects">,
+      requestedBy: undefined,
+      clientFor: () => {
+        throw new Error("no model call on the degrade path");
+      },
+      log: async () => undefined,
+    });
+    quiet.mockRestore();
+    expect(result.writerFlavor).toBe("Saved preferences:\n- Keeps it short.\n- Uses we.");
+    expect(result.orderedContext).toMatchObject({ profileState: "missing", savedPreferencesApplied: true });
+    expect(result).not.toHaveProperty("savedPreferences");
+    expect(mutations[0]?.[1]).toMatchObject({ writerSettings: { profileState: "missing", savedPreferences } });
   });
 });

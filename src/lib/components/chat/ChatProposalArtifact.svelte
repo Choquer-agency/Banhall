@@ -9,26 +9,9 @@
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
-    onReviewReplacements?: (
-      pairs: { find: string; replaceWith: string }[],
-      proposalId: string
-    ) => void;
-    onPreviewProposal?: (
-      pairs: { find: string; replaceWith: string }[],
-      on: boolean
-    ) => void;
-    reviewing?: boolean;
   }
 
-  let {
-    proposal: p,
-    onRefine,
-    onBeforeApply,
-    onReferenceText,
-    onReviewReplacements,
-    onPreviewProposal,
-    reviewing,
-  }: Props = $props();
+  let { proposal: p, onRefine, onBeforeApply, onReferenceText }: Props = $props();
 </script>
 
 {#if p.kind === "references"}
@@ -53,13 +36,5 @@
     </div>
   {/if}
 {:else}
-  <ProposalCard
-    proposal={p}
-    {onBeforeApply}
-    {onReferenceText}
-    {onReviewReplacements}
-    {onPreviewProposal}
-    {onRefine}
-    {reviewing}
-  />
+  <ProposalCard proposal={p} {onBeforeApply} {onRefine} />
 {/if}

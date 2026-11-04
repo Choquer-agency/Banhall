@@ -1,6 +1,6 @@
 /**
- * Round 2 shell captures (WS1): the frame, rail, menus, View as and toasts
- * rendered with the real stylesheet, written under an ignored
+ * Round 2 shell captures (WS1), in the page frame of 2026-10-28: the Admin
+ * sidebar, menus, View as and toasts rendered with the real stylesheet, written under an ignored
  * `.vitest-attachments/` directory for review against the boards. Each
  * capture also asserts the state it shows.
  */
@@ -13,6 +13,7 @@ import ToastCheckIcon from "$lib/components/shell/ToastCheckIcon.svelte";
 import ToastEyeIcon from "$lib/components/shell/ToastEyeIcon.svelte";
 import { IconShield } from "$lib/components/icons";
 import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
+import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
 import ToastHarness from "$lib/test/ToastHarness.svelte";
 import { captureOwner } from "$lib/test/captureOwner";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
@@ -52,32 +53,16 @@ describe("round 2 shell captures", () => {
     await page.viewport(1440, 900);
   });
 
-  it("B2 and B3: developer admin, Admin open on House rules", async () => {
+  it("B2 and B3 in the page frame: developer admin on House rules, the Admin sidebar with the developer pages at its foot", async () => {
     seed(developer);
     __setPageUrl("/admin/house-rules");
-    await render(WorkspaceChrome, {
-      title: "House rules",
-      icon: IconShield,
-      breadcrumb: { label: "Admin", href: "/admin/house-rules" },
-      padding: "admin",
-      children: body,
-    });
-    await expect.poll(() => document.querySelector("[data-rail-admin-links]")).not.toBeNull();
+    await render(AdminWorkspacePage, { title: "House rules", children: body });
+    await expect.poll(() => document.querySelector('[data-admin-link="/admin/house-rules"]')?.getAttribute("aria-current")).toBe("page");
+    await expect.poll(() => document.querySelector('[data-admin-developer-link="alerts"] [data-rail-badge]')?.textContent).toBe("4");
+    expect(document.querySelector('[data-admin-link="/admin/ingestion"] [data-rail-attention]')).not.toBeNull();
+    expect(document.querySelector('[data-frame-rail] [data-rail-item="admin"] [data-rail-attention]')).not.toBeNull();
     await settle();
     await page.screenshot({ path: await captures.path("b3-admin-house-rules") });
-  });
-
-  it("A5: collapsed developer rail with the Admin flyout", async () => {
-    seed(developer);
-    localStorage.setItem("banhall.workspaceRail.v3", JSON.stringify({ width: 224, hidden: true, adminOpen: false }));
-    __setPageUrl("/settings");
-    await render(WorkspaceChrome, { title: "Settings", children: body });
-    await expect.poll(() => document.querySelector<HTMLElement>('[data-rail-item="admin"]')).not.toBeNull();
-    document.querySelector<HTMLElement>('[data-rail-item="admin"]')!.click();
-    await expect.poll(() => document.querySelector("[data-admin-flyout]")).not.toBeNull();
-    expect(document.querySelector("[data-admin-flyout-attention]")?.textContent).toBe("1 needs a look");
-    await settle();
-    await page.screenshot({ path: await captures.path("a5-collapsed-flyout") });
   });
 
   it("D1: identity menu", async () => {

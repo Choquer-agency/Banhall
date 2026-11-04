@@ -35,6 +35,7 @@ describe("markCitations", () => {
   it("leaves gaps, inventory ids, other numbers, links and code exactly as written", () => {
     const untouched = [
       "[GAP: need 2 load results]",
+      "[INFERRED: the source asks for 2 readings over time]",
       "Item [r-242-3] and [c-1] stay.",
       "A number the turn never gave [9].",
       "A link [1](https://example.org) and a reference [text][2].",

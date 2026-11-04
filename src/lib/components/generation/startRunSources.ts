@@ -73,14 +73,26 @@ export type ProjectDocumentRow = {
   createdAt: number;
 };
 
+export type CompanyFileRow = { _id: string; fileName: string; wordCount: number };
+
+/**
+ * 2026-10-28 (third, owner): a draft reads company files after everything
+ * else, newest first, and stops at the first that does not fit, so a ticked
+ * company file may still be left out (even a short one after a long one that
+ * did not fit). The Inputs band names the ones that were.
+ */
+export const COMPANY_FILE_ROOM_NOTE = "Read last, newest first, while there is room";
+
 /**
  * A project's start dialog rows: its transcripts in list order, then its
  * files that are not archived, in SR&ED weight order (oldest first within
- * a category). Archived files are never read, so they are not offered.
+ * a category), then its company's files, newest first (Phase C). Archived
+ * files are never read, so they are not offered.
  */
 export function projectStartSources(
   transcripts: readonly ProjectTranscriptRow[],
-  documents: readonly ProjectDocumentRow[]
+  documents: readonly ProjectDocumentRow[],
+  companyFiles: readonly CompanyFileRow[] = []
 ): StartRunSource[] {
   const rank = (document: ProjectDocumentRow) => {
     const index = CATEGORY_ORDER.indexOf(document.category ?? "");
@@ -103,6 +115,13 @@ export function projectStartSources(
       name: document.fileName,
       typeLabel: documentTypeLabel(document),
       meta: words(document.wordCount ?? 0),
+    })),
+    ...companyFiles.map((file) => ({
+      id: file._id,
+      kind: "companyFile" as const,
+      name: file.fileName,
+      typeLabel: "Company file",
+      meta: `${words(file.wordCount)} · ${COMPANY_FILE_ROOM_NOTE}`,
     })),
   ];
 }

@@ -412,8 +412,6 @@
                 <ProposalCard
                   proposal={details.proposal}
                   {onBeforeApply}
-                  {onReferenceText}
-                  {onPreviewProposal}
                   onRefine={onRefineProposal ? () => onRefineProposal(details.proposal!) : undefined}
                 />
               </div>

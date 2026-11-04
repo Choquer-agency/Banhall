@@ -17,6 +17,7 @@ import type {
   failAttempt,
 } from "../seedRuns";
 import type { GenerationClient } from "./openrouterCore";
+import type { recordSourceUse } from "../generations";
 import { MalformedOutputError, OutputLimitError, messageText } from "./openrouterCore";
 import { STRUCTURED_OUTPUT_PROGRAM, StructuredValidationError, generateStructured } from "./structured";
 import { startActionDeadline } from "./actionDeadline";
@@ -26,6 +27,7 @@ import {
   registerGenerationModels,
 } from "./providers";
 import { resolveGenerationCall, stepRequestFields } from "../lib/generationSteps";
+import { withWriteRetries } from "../lib/writeRetry";
 import { SEED_PROMPT_PROGRAM } from "./promptDefinitions";
 import {
   buildSeedPrompt,
@@ -34,7 +36,9 @@ import {
   seedExperimentLinkIds,
   seedPromptProjection,
   seedResultLinkIds,
+  seedSentRanges,
 } from "./trustedContext";
+import { maskOutside } from "../../shared/evidenceChoice";
 import {
   MAX_SEED_PROMPT_UTF8_BYTES,
   SeedContextLimitError,
@@ -43,7 +47,6 @@ import {
 } from "../lib/seedRevisions";
 import {
   MAX_BATCH_SEEDS,
-  MAX_BULLET_WORDS,
   MAX_FEEDBACK_SEEDS,
   MIN_BATCH_SEEDS,
   MIN_FEEDBACK_SEEDS,
@@ -109,6 +112,13 @@ const completeAttemptRef = makeFunctionReference<
   FunctionArgs<CompleteAttemptRef>,
   FunctionReturnType<CompleteAttemptRef>
 >("seedRuns:completeAttempt");
+type RecordSourceUseRef = FunctionReferenceFromExport<typeof recordSourceUse>;
+const recordSourceUseRef = makeFunctionReference<
+  "mutation",
+  FunctionArgs<RecordSourceUseRef>,
+  FunctionReturnType<RecordSourceUseRef>
+>("generations:recordSourceUse");
+
 const failAttemptRef = makeFunctionReference<
   "mutation",
   FunctionArgs<FailAttemptRef>,
@@ -120,6 +130,8 @@ const quoteRepairContextRef = makeFunctionReference<
   {
     batchId: Id<"seedBatches">;
     generationId: Id<"generations">;
+    /** Phase D, step 1: the sources sent only in part, and what was sent. */
+    sentRanges?: Array<{ sourceId: Id<"generationSources">; ranges: Array<{ start: number; end: number }> }>;
     seeds: Array<{
       provenance: Array<{
         sourceId: Id<"generationSources">;
@@ -148,11 +160,15 @@ async function quoteReview(
     seeds: readonly ValidatedSeedCandidate[];
     factMode: boolean;
     mode: SeedBatchMode;
+    sentRanges?: Array<{ sourceId: string; ranges: Array<{ start: number; end: number }> }>;
   }
 ): Promise<{ writerWaiting: boolean; issues: QuoteCheckIssue[] }> {
   const context = await ctx.runQuery(quoteRepairContextRef, {
     batchId: args.batchId,
     generationId: args.generationId,
+    ...(args.sentRanges && args.sentRanges.length > 0
+      ? { sentRanges: args.sentRanges.map((entry) => ({ sourceId: validatedId<"generationSources">(entry.sourceId), ranges: entry.ranges })) }
+      : {}),
     seeds: args.factMode
       ? []
       : args.seeds.map((seed) => ({
@@ -249,7 +265,6 @@ function seedIssueHints(mode: SeedBatchMode, minimum?: number): Record<SeedValid
   return {
     INVALID_SHAPE: "wrong fields or tag",
     INVALID_BULLET_COUNT: "use one or two bullets",
-    BULLET_TOO_LONG: `a bullet is over ${MAX_BULLET_WORDS} words`,
     BULLET_NOT_ONE_SENTENCE: "a bullet is not one sentence ending in a full stop",
     BULLET_TYPOGRAPHIC_DASH: "use a plain hyphen",
     INVALID_TAG_COUNT: "use one or two tags",
@@ -590,7 +605,11 @@ function failureCode(error: unknown):
  */
 export const generateBatch = internalAction({
   args: { batchId: v.id("seedBatches") },
-  handler: async (ctx, args) => {
+  handler: async (actionCtx, args) => {
+    // Owner, 2026-10-28 (question 14): a claim or settle the write rate
+    // refuses is sent again, so a busy deployment does not leave the Batch
+    // waiting for its lease to run out (seen live under a write flood).
+    const ctx = withWriteRetries(actionCtx);
     // Every request ends inside the Convex action limit (actionDeadline.ts).
     startActionDeadline(ctx);
     const claim = await ctx.runMutation(claimAttemptRef, {
@@ -641,11 +660,36 @@ export const generateBatch = internalAction({
           content: source.content,
           contentHash: source.contentHash,
           ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
+          ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
         })),
         projection: seedPromptProjection(claim.context, claim.batch.roleId, claim.uncertaintyRoots),
         writerSettings: claim.input.writerSettings,
         lengthTarget: claim.input.lengthTarget,
+        // Phase D, step 1: over the allowance, the parts that best match the Brief.
+        chooseParts: true,
+        // 2026-10-30 (owner, item 2): the claimant line.
+        ...(claim.input.claimantName ? { claimantName: claim.input.claimantName } : {}),
       });
+      // Phase D, step 1: a source sent only in part is citable only in what
+      // was sent, plus the spans the Brief's entries cite on it; the rest
+      // of its text is blanked for every check of this answer, positions
+      // kept, and completeAttempt gets the same ranges.
+      const sentRanges = seedSentRanges(
+        request.sources,
+        claim.input.briefEntries,
+        new Map(claim.input.sources.map((source) => [source._id as string, source.contentHash]))
+      );
+      const sentBy = new Map(sentRanges.map((entry) => [entry.sourceId, entry.ranges]));
+      const sentOnly = (sourceId: string, content: string) => {
+        const ranges = sentBy.get(sourceId);
+        return ranges ? maskOutside(content, ranges) : content;
+      };
+      for (const source of sources) source.content = sentOnly(source.sourceId, source.content);
+      for (const source of factSources ?? []) {
+        if (source.kind === "project_document" || source.kind === "company_file") {
+          source.content = sentOnly(source.sourceId, source.content);
+        }
+      }
       // Owner decision 43: the batch was dispatched on its step's model;
       // the step's request settings come from the same frozen routing.
       const freeze = await registerGenerationModels(ctx, claim.batch.generationId);
@@ -680,6 +724,7 @@ export const generateBatch = internalAction({
           seeds,
           factMode,
           mode,
+          sentRanges,
         });
       const quoteRepair = () => {
         let firstIssues = 0;
@@ -780,13 +825,36 @@ export const generateBatch = internalAction({
           : {}),
       }));
 
-      await ctx.runMutation(completeAttemptRef, {
+      const completed = await ctx.runMutation(completeAttemptRef, {
         batchId: claim.batch.batchId,
         attemptId: claim.batch.attemptId,
         requestsMade,
         seeds,
         seedsDropped: output.dropped,
+        ...(sentRanges.length > 0
+          ? { sentRanges: sentRanges.map((entry) => ({ sourceId: validatedId<"generationSources">(entry.sourceId), ranges: entry.ranges })) }
+          : {}),
       });
+      // Phase D (step 2): what this Batch's prompt carried of each frozen
+      // row, once its Seeds were saved, by its step (review: a retried,
+      // failed or prefetched Batch of the same step is one step; re-check:
+      // a completion refused as late, missing or invalid records nothing).
+      // Telemetry only.
+      if (completed?.kind === "completed") await ctx
+        .runMutation(recordSourceUseRef, {
+          generationId: claim.batch.generationId,
+          step: "seeds",
+          run: claim.batch.roleId,
+          uses: request.sources.map((entry) => ({
+            sourceId: validatedId<"generationSources">(entry.sourceId),
+            sent: entry.included ? entry.includedBytes : 0,
+            total: entry.originalBytes,
+            unit: "bytes" as const,
+            // Phase D, step 1: the parts of a source sent in part.
+            ...(entry.included && entry.truncated && entry.ranges?.length ? { ranges: entry.ranges } : {}),
+          })),
+        })
+        .catch((error: unknown) => console.warn("Seed source use not recorded", String(error).slice(0, 200)));
     } catch (error) {
       const detail = failureDetail(error, lastRejection);
       await ctx.runMutation(failAttemptRef, {

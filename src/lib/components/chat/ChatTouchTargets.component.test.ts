@@ -82,8 +82,9 @@ describe(`report chat touch targets (${pointer} pointer)`, () => {
     await page.viewport(480, 900);
     await render(AgentChatPanel, { reportId, projectId });
     await expect.element(page.getByRole("button", { name: "Copy", exact: true })).toBeVisible();
-    const square = ["Copy", "Mark response helpful", "Mark response not helpful", "More actions for this suggestion"];
-    const tall = ["Regenerate", "Apply", "Dismiss"];
+    // Owner 2026-10-28: a folded card offers Review and its open toggle.
+    const square = ["Copy", "Mark response helpful", "Mark response not helpful", "Show the suggestion"];
+    const tall = ["Regenerate", "Review"];
     await expect.poll(() => square.map((name) => Math.round(box(button(name)).height)))
       .toEqual(coarse ? square.map(() => TOUCH) : [28, 28, 28, 28]);
     for (const name of square) expect(Math.round(box(button(name)).width), name).toBe(coarse ? TOUCH : Math.round(box(button(name)).height));
@@ -115,9 +116,8 @@ describe(`report chat touch targets (${pointer} pointer)`, () => {
   it("sizes the conversation menu's items", async () => {
     await page.viewport(480, 900);
     await render(AgentChatPanel, { reportId, projectId });
-    await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+    await page.getByRole("button", { name: "Chat history", exact: true }).click();
     const items = [
-      page.getByRole("menuitem", { name: "New conversation" }).element(),
       page.getByRole("menuitem", { name: "Kiln drying review" }).element(),
       page.getByRole("menuitem", { name: "Conversation actions", exact: true }).element(),
     ];

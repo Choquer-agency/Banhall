@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -7,6 +8,7 @@ import type { DomainErrorCode } from "./lib/contracts";
 import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
 import { agentOutputsOf } from "./lib/generationOutputs";
+import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
 
 const modules = import.meta.glob("./**/*.ts");
 const AUTH_ID = "lifecycle-writer";
@@ -861,6 +863,52 @@ describe("approveSectionDraft", () => {
     const jobs = await scheduledJobs(t, "generateSection");
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.args[0]).toMatchObject({ generationId, section: "s244" });
+  });
+
+  // 2026-10-23 (owner, second): the next section and a redraft run off a
+  // model its tier was moved back from; approved sections keep theirs.
+  it("queues the next section, and a redraft, on the tier's current model after a move back", async () => {
+    const { t, authed, generationId, sectionRunIds } = await setupIterative({
+      sections: {
+        s242: { status: "awaiting_review", draftText: "alpha beta gamma" },
+        s244: { status: "pending" },
+        s246: { status: "pending" },
+      },
+    });
+    rateLimiterTest.register(t);
+    await t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      for (const id of Object.values(sectionRunIds)) {
+        await ctx.db.patch(id, { model: "claude-sonnet-5-5", label: "Sonnet 5.5" });
+      }
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    await authed.mutation(api.generations.approveSectionDraft, {
+      generationId,
+      section: "s242",
+      text: "alpha beta delta",
+      attempt: 1,
+    });
+    const rows = async () =>
+      await t.run(async (ctx) => ({
+        s242: await ctx.db.get(sectionRunIds.s242),
+        s244: await ctx.db.get(sectionRunIds.s244),
+        generation: await ctx.db.get(generationId),
+      }));
+    const approved = await rows();
+    expect([approved.s242?.model, approved.s242?.label]).toEqual(["claude-sonnet-5-5", "Sonnet 5.5"]);
+    expect([approved.s244?.model, approved.s244?.label]).toEqual(["claude-sonnet-5", "Sonnet 5"]);
+    expect(approved.generation?.singleModelId).toBe("claude-sonnet-5");
+    // The section fails; its redraft keeps the model it now runs on.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(sectionRunIds.s244, { status: "awaiting_review", draftText: "draft" });
+      await ctx.db.patch(generationId, { status: "awaiting_input" });
+    });
+    await authed.mutation(api.generations.regenerateSectionDraft, { generationId, section: "s244" });
+    const redrafted = await rows();
+    expect(redrafted.s244).toMatchObject({ status: "queued", model: "claude-sonnet-5", attempt: 2 });
+    expect(redrafted.generation?.modelMoves).toHaveLength(1);
   });
 
   it("assembles the report and hands off to post-QA on the final approval", async () => {

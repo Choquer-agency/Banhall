@@ -110,6 +110,22 @@ function document_(
   };
 }
 
+/** A finished copy whose named files were marked "could not copy" (Greptile review, 2026-11-02). */
+function copiedWithout(fileNames: string[]) {
+  return {
+    documents: [],
+    documentsCopied: 2,
+    filesCopied: 0,
+    transcriptOriginalsCopied: 0,
+    evidenceCopied: 0,
+    pdReviewsCopied: 0,
+    reportCopied: false,
+    previousYearReportCopied: false,
+    originalsNotCopied: 0,
+    filesNotCopied: fileNames.map((fileName, index) => ({ documentId: `not-copied-${index}`, fileName })),
+  };
+}
+
 function seedSource(mode: "generate" | "review" = "generate") {
   __setQueryData("projects:getProject", {
     _id: "project-1",
@@ -744,6 +760,116 @@ describe("/project/new Review PD duplicate", () => {
     expect(copyArgs()).toMatchObject({ includeReport: false, includeReviews: true });
     expect(__mutationCalls("projects:createProject")[0]).toMatchObject({ mode: "review" });
     expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+  });
+
+  it("saves the written PD but starts no review when a copied file could not be copied (Greptile review)", async () => {
+    const warning = vi.spyOn(toast, "warning");
+    seedSource("review");
+    __setMutationResult("documents:uploadDocument", "review-doc");
+    __setMutationResult("projectDuplication:copyProjectContent", copiedWithout(["Furnace log.txt"]));
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Project mode", "Review a written PD")).toBe("true");
+    await dropPd("Revised PD.txt");
+    await startFromPage();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(__mutationCalls("documents:uploadDocument")).toContainEqual(
+      expect.objectContaining({ fileName: "Revised PD.txt", source: "review_pd" })
+    );
+    expect(__mutationCalls("pdReviews:startPdReview")).toEqual([]);
+    expect(warning.mock.calls.map((call) => call[0])).toContain(
+      "1 file could not be copied from Alloy furnace and holds no text here: Furnace log.txt. Nothing was started. Add it again on the project page if you need it, then start the PD review there."
+    );
+    warning.mockRestore();
+  });
+});
+
+describe("/project/new copy still running (F2 review)", () => {
+  it("starts nothing, opens the project and says to start the draft once its files are copied", async () => {
+    const info = vi.spyOn(toast, "info");
+    const error = vi.spyOn(toast, "error");
+    seedSource();
+    __setMutationResult("projectDuplication:copyProjectContent", {
+      documents: [],
+      documentsCopied: 2,
+      filesCopied: 0,
+      transcriptOriginalsCopied: 0,
+      evidenceCopied: 0,
+      pdReviewsCopied: 0,
+      reportCopied: false,
+      previousYearReportCopied: false,
+      originalsNotCopied: 0,
+      stillCopying: true,
+    });
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+    await commitFromReviewStep();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    expect(info.mock.calls.map((call) => call[0])).toContain(
+      "The project is saved, but its files are still being copied. When they are, start the draft from the project page."
+    );
+    expect(error).not.toHaveBeenCalled();
+    info.mockRestore();
+    error.mockRestore();
+  });
+});
+
+describe("/project/new files that could not be copied (Greptile review, 2026-11-02)", () => {
+  it("starts no draft, opens the project and names the file", async () => {
+    const warning = vi.spyOn(toast, "warning");
+    const error = vi.spyOn(toast, "error");
+    seedSource();
+    __setMutationResult("projectDuplication:copyProjectContent", copiedWithout(["Furnace log.txt"]));
+    __setPageUrl("/project/new?from=project-1&drafts=iterative");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => checked("Draft generation mode", "Step by step")).toBe("true");
+    await commitFromReviewStep();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(__mutationCalls("generations:requestGeneration")).toEqual([]);
+    expect(warning.mock.calls.map((call) => call[0])).toEqual([
+      "1 file could not be copied from Alloy furnace and holds no text here: Furnace log.txt. Nothing was started. Add it again on the project page if you need it, then start the draft there.",
+    ]);
+    expect(error).not.toHaveBeenCalled();
+    warning.mockRestore();
+    error.mockRestore();
+  });
+
+  it("names three files and how many more on the plain ?from= link, which starts nothing anyway", async () => {
+    const warning = vi.spyOn(toast, "warning");
+    seedSource();
+    __setMutationResult(
+      "projectDuplication:copyProjectContent",
+      copiedWithout(["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"])
+    );
+    __setPageUrl("/project/new?from=project-1");
+    await render(NewProjectPage, {});
+
+    await expect.poll(() => document.querySelector<HTMLInputElement>("#title")?.value).toBe(
+      "Alloy furnace (copy)"
+    );
+    await commitFromReviewStep();
+
+    await expect
+      .poll(() => __navigationCalls.map((call) => call.url))
+      .toContain("/project/project-copy");
+    expect(warning.mock.calls.map((call) => call[0])).toEqual([
+      "5 files could not be copied from Alloy furnace and hold no text here: a.txt, b.txt, c.txt and 2 more. Add them again on the project page if you need them.",
+    ]);
+    warning.mockRestore();
   });
 });
 

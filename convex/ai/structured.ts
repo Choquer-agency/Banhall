@@ -2,6 +2,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { MODEL } from "./model";
 import {
+  alwaysThinkingMaxTokens,
+  gatewayForModel,
+  maxTokensWithReasoningHeadroom,
+  modelOutputCap,
+} from "../../shared/generationModels";
+import {
+  CONTEXT_WINDOW_STOP_REASON,
   MalformedOutputError,
   OutputLimitError,
   isCutOffStopReason,
@@ -9,6 +16,41 @@ import {
   type GenerationMessageContent,
   type GenerationResponse,
 } from "./openrouterCore";
+
+/**
+ * The top-level fields a tool schema requires that an answer object left
+ * out. An answer that is not an object (a legacy JSON string, recovered
+ * later) is not checked here.
+ */
+export function missingRequiredFields(schema: unknown, input: unknown): string[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
+  const required =
+    schema && typeof schema === "object" && Array.isArray((schema as { required?: unknown }).required)
+      ? ((schema as { required: unknown[] }).required.filter((key): key is string => typeof key === "string"))
+      : [];
+  return required.filter((key) => !(key in input));
+}
+
+/**
+ * The object an answer wrapped in one extra key holds: `input` has exactly
+ * one key, the tool schema does not name it, and its value is an object.
+ * Null otherwise, so an answer whose one key is a real field is never read
+ * from inside it.
+ */
+export function wrappedAnswer(input: unknown, schema: unknown): { key: string; value: Record<string, unknown> } | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const keys = Object.keys(input);
+  if (keys.length !== 1) return null;
+  const properties =
+    schema && typeof schema === "object" && (schema as { properties?: unknown }).properties &&
+    typeof (schema as { properties?: unknown }).properties === "object"
+      ? ((schema as { properties: Record<string, unknown> }).properties)
+      : {};
+  const key = keys[0]!;
+  if (Object.hasOwn(properties, key)) return null;
+  const value = (input as Record<string, unknown>)[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? { key, value: value as Record<string, unknown> } : null;
+}
 
 export const STRUCTURED_OUTPUT_PROGRAM = {
   attempts: 2,
@@ -18,10 +60,16 @@ export const STRUCTURED_OUTPUT_PROGRAM = {
       ". Return the complete tool object and include every required field.",
     runtimeSentinel: "{{runtime.validationSummary}}",
     // 2026-09-25: the validation summary for an answer the provider stopped
-    // at the output token limit, on either gateway. The repair runs with the
-    // same limit, so it asks for a shorter answer.
+    // at the output token limit, on either gateway, when the repair runs
+    // with the same limit (`cutOffRetry: "shorter"`, or a model already
+    // asked for its whole allowance), so it asks for a shorter answer.
     cutOffSummary:
       "it was cut off at the output token limit before it finished, so write a shorter answer",
+    // 2026-10-26: the repair after a cut-off asks for the model's whole
+    // output allowance (modelOutputCap) and says so, so nothing is dropped
+    // to make the answer fit.
+    cutOffMoreRoomSummary:
+      "it was cut off at the output token limit before it finished; this attempt has more room, so give the complete answer",
   },
   request: {
     defaultMaxTokens: 8192,
@@ -420,11 +468,32 @@ export async function generateStructured<T>(
      */
     encodedFieldRecovery?: boolean;
     /**
+     * 2026-10-26: treat an answer that leaves out a field the tool schema
+     * requires as invalid, even when `validate` would default it. For an
+     * answer whose defaults would hide skipped work (the Brief); calls whose
+     * lists may be empty on purpose (the analyzer) leave it off.
+     */
+    requireEveryField?: boolean;
+    /**
      * Called each time an answer is cut off at the output token limit, on
      * either gateway, even when the repair then succeeds or fails another
      * way. Request bytes are unchanged.
      */
     onCutOff?: () => void;
+    /**
+     * 2026-10-26: what the repair after a cut-off asks for. `shorter` (the
+     * default, as before) keeps the same limit and asks for a shorter
+     * answer. `more_room` sends the model's whole output allowance
+     * (modelOutputCap) and asks for the complete answer: for a step whose
+     * answer grows with the report and whose time limit can take a long
+     * answer. Only on the Anthropic Messages gateway, whose long answers
+     * stream; an OpenRouter model (GPT, Gemini) keeps the shorter repair. A model with no known cap, or one already asked for its whole
+     * allowance, gets the shorter repair either way. When the provider
+     * refuses the larger request for its size (a 402: OpenRouter holds
+     * credit against `max_tokens`), it is sent once more at the step's own
+     * limit with the shorter repair, and that refusal spends no attempt.
+     */
+    cutOffRetry?: "more_room" | "shorter";
     /**
      * Round 2 (F2, decision 57): stream the first attempt and report the
      * tool input written so far (see GenerationStreamHandlers). Only when the
@@ -483,6 +552,11 @@ export async function generateStructured<T>(
   }
 }
 
+/** A provider refusal for payment or credit (HTTP 402), on either gateway. */
+function isPaymentRefusal(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { status?: unknown }).status === 402);
+}
+
 async function structuredAttempts<T>(
   rawClient: GenerationClient | Anthropic,
   opts: Parameters<typeof generateStructured<T>>[1],
@@ -503,6 +577,39 @@ async function structuredAttempts<T>(
         },
       ];
   let validationSummary = "";
+  const model = opts.model ?? MODEL;
+  let maxTokens = opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens;
+  // The limit a request is actually sent with, after the gateway's room
+  // for thinking (instrument.ts adaptAnthropicRequest, OpenRouter headroom).
+  const sentLimit = (limit: number) =>
+    gatewayForModel(model) === "anthropic"
+      ? alwaysThinkingMaxTokens(model, limit)
+      : maxTokensWithReasoningHeadroom(model, limit);
+  // The step's own limit while the next attempt asks for the model's
+  // whole allowance, so a refusal of the larger request can fall back.
+  let raisedFrom: number | null = null;
+  /**
+   * The repair text for a cut-off, raising the next attempt's limit when it
+   * can. An answer that filled the context window gets no more room: it
+   * would fill the window again.
+   */
+  const afterCutOff = (stopReason?: string | null): string => {
+    // Code review (2026-10-26): only the Anthropic Messages gateway streams
+    // a long answer; an OpenRouter model's retry (GPT, Gemini) still has 240
+    // seconds for its whole answer, so it keeps the shorter repair.
+    const cap =
+      opts.cutOffRetry === "more_room" &&
+      stopReason !== CONTEXT_WINDOW_STOP_REASON &&
+      gatewayForModel(model) === "anthropic"
+        ? modelOutputCap(model)
+        : null;
+    if (cap !== null && cap > sentLimit(maxTokens)) {
+      raisedFrom = maxTokens;
+      maxTokens = cap;
+      return STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffMoreRoomSummary;
+    }
+    return STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+  };
   // Set when the soft repair asked for the next attempt: its own text.
   let softRepairText: string | null = null;
   // Set when the last answer failed validation and the caller adds text.
@@ -555,9 +662,8 @@ async function structuredAttempts<T>(
       stream && onToolInput ? stream(params, { onToolInput }) : client.messages.create(params);
     try {
       res = await send({
-        model: opts.model ?? MODEL,
-        max_tokens:
-          opts.maxTokens ?? STRUCTURED_OUTPUT_PROGRAM.request.defaultMaxTokens,
+        model,
+        max_tokens: maxTokens,
         system: opts.system,
         tools,
         tool_choice: {
@@ -569,6 +675,19 @@ async function structuredAttempts<T>(
         ],
       });
     } catch (error) {
+      // 2026-10-26: the request with the model's whole allowance was refused
+      // for its size (a 402). It was never answered, so the attempt is sent
+      // again at the step's own limit with the shorter repair.
+      if (raisedFrom !== null && isPaymentRefusal(error)) {
+        console.warn(
+          `${opts.toolName}: the repair with the model's whole output allowance was refused (402); retrying at the step's own limit`
+        );
+        maxTokens = raisedFrom;
+        raisedFrom = null;
+        validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+        attempt -= 1;
+        continue;
+      }
       // The OpenRouter adapter decodes tool-call JSON inside create(), so a
       // truncated/malformed candidate response throws here instead of
       // returning an invalid block — the same class of failure as a zod
@@ -577,10 +696,7 @@ async function structuredAttempts<T>(
       // and keep failing fast; the transport already retries rate limits.
       if (error instanceof OutputLimitError) opts.onCutOff?.();
       if (lastAttempt || !(error instanceof MalformedOutputError)) throw error;
-      validationSummary =
-        error instanceof OutputLimitError
-          ? STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary
-          : error.message;
+      validationSummary = error instanceof OutputLimitError ? afterCutOff() : error.message;
       console.warn(
         `${opts.toolName}: retrying after malformed provider output — ${error.message}`
       );
@@ -601,7 +717,7 @@ async function structuredAttempts<T>(
     if (isCutOffStopReason(res.stop_reason)) {
       opts.onCutOff?.();
       await settle({ ok: false, code: "output_limit" });
-      validationSummary = STRUCTURED_OUTPUT_PROGRAM.repairScaffold.cutOffSummary;
+      validationSummary = afterCutOff(res.stop_reason);
       console.warn(
         `${opts.toolName}: answer cut off at the output token limit (stop reason: ${res.stop_reason})`
       );
@@ -647,7 +763,43 @@ async function structuredAttempts<T>(
         [{ path: "(root)", code: "wrong_tool", message: validationSummary }]
       );
     }
+    // 2026-10-26 (live check): a model may call a tool with fields left out
+    // (Sonnet 5.5 without a forced call did), or wrap its answer in one more
+    // key (Sonnet 5 did), and a schema that defaults missing lists reads
+    // either as a complete answer. For a call that sets `requireEveryField`,
+    // on any model (review round 3), whatever form of the answer would be
+    // kept (as sent, read from JSON text, from inside a wrapper key, or with
+    // fields read from JSON text) must hold every field the tool schema
+    // requires; otherwise the answer spends the repair, which names the
+    // fields, and fails if the repair leaves fields out too.
+    const requiresEvery = opts.requireEveryField === true;
+    const requiredSchema = tools.find((tool) => tool.name === opts.toolName)?.input_schema;
+    let leftOut: string[] | null = null;
+    const complete = (candidate: unknown): boolean => {
+      if (!requiresEvery) return true;
+      const missing = missingRequiredFields(requiredSchema, candidate);
+      if (missing.length === 0) return true;
+      // The repair names what the most complete form still lacks.
+      if (!leftOut || missing.length < leftOut.length) leftOut = missing;
+      return false;
+    };
+    const failLeftOut = async (missing: string[]): Promise<void> => {
+      await settle({ ok: false, code: "invalid_output" });
+      validationSummary = `it left out required fields: ${missing.join(", ")}`;
+      console.error(`${opts.toolName}: the answer left out required fields (${missing.join(", ")})`);
+      if (lastAttempt) {
+        throw new StructuredValidationError(
+          `${opts.toolName}: model returned an unexpected shape: ${validationSummary}`,
+          missing.map((field) => ({ path: field, code: "missing_required" }))
+        );
+      }
+    };
+
     if (!opts.validate) {
+      if (!complete(block.input)) {
+        await failLeftOut(leftOut!);
+        continue;
+      }
       await settle({ ok: true });
       return block.input as T;
     }
@@ -656,7 +808,7 @@ async function structuredAttempts<T>(
     // a JSON-looking string must not be silently parsed into an object.
     // Unwrapping is a recovery path, not a preprocessing step.
     const asReturned = opts.validate.safeParse(block.input);
-    if (asReturned.success) {
+    if (asReturned.success && complete(block.input)) {
       await settle({ ok: true });
       if (!(await askedSoftRepair(asReturned.data, block.input, lastAttempt))) return await settled(asReturned.data);
       continue;
@@ -669,9 +821,20 @@ async function structuredAttempts<T>(
       unwrapped === block.input
         ? asReturned
         : opts.validate.safeParse(unwrapped);
-    if (parsed.success) {
+    if (parsed.success && complete(unwrapped)) {
       await settle({ ok: true });
       if (!(await askedSoftRepair(parsed.data, block.input, lastAttempt))) return await settled(parsed.data);
+      continue;
+    }
+    // 2026-10-26 (live check): Sonnet 5 sometimes wraps its whole answer in
+    // one more key ({"analysis": {...}}), which cost a repair in about half
+    // the drafts. Such an answer is read from inside that key.
+    const wrapped = wrappedAnswer(unwrapped, tools.find((tool) => tool.name === opts.toolName)?.input_schema);
+    const inner = wrapped ? opts.validate.safeParse(wrapped.value) : null;
+    if (inner?.success && complete(wrapped!.value)) {
+      console.warn(`${opts.toolName}: read the answer inside its one key "${wrapped!.key}"`);
+      await settle({ ok: true });
+      if (!(await askedSoftRepair(inner.data, block.input, lastAttempt))) return await settled(inner.data);
       continue;
     }
     // Round 3 (opt-in): fields sent as JSON text, read and validated as usual.
@@ -679,10 +842,15 @@ async function structuredAttempts<T>(
       ? decodeEncodedToolFields(unwrapped, opts.schema)
       : null;
     const decoded = fields && fields.paths.length > 0 ? opts.validate.safeParse(fields.value) : null;
-    if (decoded?.success) {
+    if (decoded?.success && complete(fields!.value)) {
       console.warn(`${opts.toolName}: read ${fields!.paths.join(", ")} sent as JSON text`);
       await settle({ ok: true });
       if (!(await askedSoftRepair(decoded.data, block.input, lastAttempt))) return await settled(decoded.data);
+      continue;
+    }
+    // An answer that would otherwise be kept but left fields out.
+    if (leftOut) {
+      await failLeftOut(leftOut);
       continue;
     }
     await settle({ ok: false, code: "invalid_output" });
@@ -695,6 +863,8 @@ async function structuredAttempts<T>(
     // answer still fails, report what fails once read (a missing category,
     // say), not the encoding the decode already undid.
     const failed = decoded && !decoded.success ? decoded : parsed;
+    // A form that validated was either kept or left fields out (above).
+    if (failed.success) throw new Error(`${opts.toolName}: an answer that validated was not kept`);
 
     try {
       invalidAnswerText = opts.invalidAnswerRepair?.(block.input) ?? null;

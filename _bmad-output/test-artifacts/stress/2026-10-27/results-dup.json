@@ -1,0 +1,22 @@
+{
+  "startedAt": "2026-10-28T04:08:47.297Z",
+  "fromProjectId": "k97az88avq96qen9j8er2f8c9x8h5thf",
+  "projectId": "k974a47xj23fsb2w793750nbd98h4g06",
+  "createMs": 100,
+  "copyMs": 5991,
+  "copied": {
+    "documents": 51,
+    "stillCopying": null,
+    "keys": [
+      "documents",
+      "documentsCopied",
+      "evidenceCopied",
+      "filesCopied",
+      "originalsNotCopied",
+      "pdReviewsCopied",
+      "previousYearReportCopied",
+      "reportCopied",
+      "transcriptOriginalsCopied"
+    ]
+  }
+}

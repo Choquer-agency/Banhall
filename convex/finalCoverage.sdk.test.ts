@@ -39,6 +39,7 @@ import {
   type FrozenSummaryPlanCheck,
 } from "./lib/seedRevisions";
 import type { OrderedPayload } from "./lib/orderedChain";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -59,7 +60,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -200,9 +201,7 @@ function schemaOf(sent: Sent) {
 function installFetch(script: { repair?: string; checks: Array<PlanAnswer[] | { raw: unknown }> }): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== "https://api.anthropic.com/v1/messages") {
         throw new Error(`Unexpected HTTP transport ${request.url}`);
@@ -466,9 +465,10 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
   // Release suite run 4 (withdrawn-feedback, Line 246): the final answer's
   // verdict for a merged item repeated only its own id, and that one verdict
   // rejected the whole final check, so every plan row read "Not checked".
-  // Now the verdict is dropped and the item asked for once (2026-09-28,
-  // run 4).
-  it("drops a final verdict with incomplete merged ids and asks once for that item", async () => {
+  // 2026-09-28 (run 4) dropped the verdict and asked for the item once.
+  // Since 2026-10-22 (third) the answer no longer repeats merged ids, so the
+  // same answer is accepted in one request and the row keeps the frozen ids.
+  it("accepts a final verdict that repeats only its own merged id, in one request", async () => {
     const mergedPartner = "item-marlow-bench-log" as Id<"summaryItems">;
     const merged = PLAN_CHECKS.map((check) =>
       check.itemId === ITEM_HYPOTHESIS
@@ -483,7 +483,6 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
         checks: [
           [skipHonoured, workplanCovered(1), mergedMissing],
           [skipHonoured, workplanCovered(1), { ...mergedCovered, mergedItemIds: [ITEM_HYPOTHESIS] }],
-          [mergedCovered],
         ],
       });
       const result = await draft(merged);
@@ -493,21 +492,12 @@ describe("coverage is checked on the final text (real SDK, fetch stubbed)", () =
         "selfCheck",
         "repair",
         "finalCoverage",
-        "finalCoverage",
       ]);
-      // The list names the merged ids the verdict must repeat.
-      expect(sent[3]!.user).toContain(
-        `- itemId ${ITEM_HYPOTHESIS} with mergedItemIds [${ITEM_HYPOTHESIS}, ${mergedPartner}] in that order`
-      );
-      const followUp = sent[4]!;
-      expect(followUp.user).toContain(
-        "Return exactly 1 planVerdict, one for each plan check below:\n" +
-          `- itemId ${ITEM_HYPOTHESIS} with mergedItemIds [${ITEM_HYPOTHESIS}, ${mergedPartner}] in that order`
-      );
+      // A merged item is listed like any other; the list asks for no ids.
+      expect(sent[3]!.user).toContain(`- itemId ${ITEM_HYPOTHESIS}`);
+      expect(sent[3]!.user).not.toContain("with mergedItemIds");
       const logged = warn.mock.calls.map((call) => call.join(" ")).join("\n");
-      expect(logged).toContain(
-        `plan verdict 3 (item ${ITEM_HYPOTHESIS}): mergedItemIds has 1 ids, expected [${ITEM_HYPOTHESIS}, ${mergedPartner}] in that order`
-      );
+      expect(logged).not.toContain("mergedItemIds has");
       expect(logged).not.toContain("P2 states the hypothesis");
       expect(result.draftText).toBe(REPAIRED);
       expect(rowFor(result, ITEM_HYPOTHESIS)).toMatchObject({

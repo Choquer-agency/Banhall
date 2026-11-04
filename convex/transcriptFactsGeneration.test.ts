@@ -6,6 +6,7 @@
  * `fetch` stubbed. Covers facts that are ready before the generation, facts
  * extracted inside it, the fallback when extraction fails, and the flag off.
  */
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,9 @@ import schema from "./schema";
 import { allGenerationProgress } from "./lib/generationProgress";
 import type { Id } from "./_generated/dataModel";
 import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
+import { transcriptHash } from "./lib/transcriptFactRows";
+import { FACTS_VERSION } from "./lib/transcriptFacts";
 
 // The credit latch read (decision 64) runs before or after each Anthropic
 // request; load its module first so a cold import cannot race the fake clock.
@@ -126,9 +130,7 @@ type Network = {
 };
 
 function stubNetwork(network: Network) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  stubFetchStreaming(vi, vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
       if (!request.url.includes("anthropic")) return new Response("offline", { status: 503 });
       const body = (await request.json()) as Body;
@@ -186,7 +188,7 @@ async function setup(mode: "off" | "long" | "all") {
     return { writerId, projectId };
   });
   const writer = t.withIdentity({ subject: "gf-writer" });
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
   const transcriptId = await writer.mutation(api.transcripts.addTranscript, {
     projectId: ids.projectId,
     content: CONTENT,
@@ -209,10 +211,10 @@ async function generate(f: Awaited<ReturnType<typeof setup>>) {
   const state = await f.t.run(async (ctx) => ({
     generation: await ctx.db.get(generationId),
     progress: await allGenerationProgress(ctx, generationId),
-    sources: await ctx.db
+    sources: (await withSourceTexts(ctx, await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-      .collect(),
+      .collect())),
     entries: await ctx.db.query("generationBriefEntries").collect(),
     subsections: await ctx.db
       .query("seedSubsections")
@@ -278,7 +280,7 @@ describe("a generation frozen to read facts", () => {
     expect(cited.map((entry) => entry.exactExcerpt)).not.toContain("What made the forecast hard?");
     for (const entry of cited) {
       expect(entry.sourceId).toBe(transcriptRow._id);
-      expect(transcriptRow.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(transcriptRow.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
     expect(result.subsections).toHaveLength(13);
   });
@@ -305,6 +307,42 @@ describe("a generation frozen to read facts", () => {
     // Today's path: the retrieval brief call runs as before.
     expect(network.calls.map((call) => call.kind)).toContain("submit_retrieval_brief");
     expect(result.subsections).toHaveLength(13);
+  });
+
+  // Code review (gpt-6-astra, 2026-10-26): a text background extraction
+  // could not read even in pieces is neither extracted nor queued again.
+  it("reads a transcript known to be too dense the usual way, with no facts call and nothing queued", async () => {
+    const f = await setup("all");
+    await f.t.run(async (ctx) => {
+      const transcript = (await ctx.db.get(f.transcriptId))!;
+      await ctx.db.insert("transcriptFactRuns", {
+        transcriptId: f.transcriptId,
+        projectId: f.projectId,
+        sourceContentHash: await transcriptHash(transcript),
+        factsVersion: FACTS_VERSION,
+        model: "claude-sonnet-5-5",
+        adapter: "citations",
+        status: "failed",
+        counts: { proposed: 0, verified: 0, dropped: 0 },
+        error: "too dense",
+        startedAt: 1,
+        finishedAt: 2,
+        ...(transcript.parserVersion !== undefined ? { parserVersion: transcript.parserVersion } : {}),
+        tooDense: true,
+      });
+    });
+    const network: Network = { calls: [], failFacts: false };
+    stubNetwork(network);
+    const result = await generate(f);
+    expect(network.calls.map((call) => call.kind)).not.toContain("facts");
+    expect(result.sources.some((row) => row.kind === "transcript_facts")).toBe(false);
+    expect(result.progress.some((line) => String(line).includes("more facts than the AI can extract"))).toBe(true);
+    const queued = await f.t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+        (job) => job.name === "ai/condense:extractTranscriptFactsInBackground" && job.state.kind === "pending"
+      )
+    );
+    expect(queued).toEqual([]);
   });
 
   it("changes nothing while the setting is off, and small projects wait for `all`", async () => {

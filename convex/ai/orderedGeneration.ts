@@ -29,7 +29,7 @@ import { parseTranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
-import { runQAAgent } from "./qaAgent";
+import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import {
   buildStyleGuidance,
@@ -39,6 +39,7 @@ import {
   lengthBudgetBlock,
   quotedTerms,
   limitOverage,
+  overCeiling,
   type LimitFit,
   provenanceDrafts,
   recordCandidateProvenance,
@@ -59,6 +60,7 @@ import {
   summarizeSlotUsage,
 } from "./instrument";
 import {
+  gapsAlreadyAskedBlock,
   ORDERED_PROMPT_SCAFFOLDS,
   ORDERED_SECTION_TITLES,
 } from "./promptDefinitions";
@@ -89,6 +91,7 @@ import {
 } from "../lib/orderedChain";
 import {
   assembleSectionNotes,
+  rowsWithRepairLosses,
   consistencyNoteDrafts,
   consistencySummaryNote,
   glossaryTermOf,
@@ -98,12 +101,14 @@ import {
   settleGlossaryForWriterTerms,
   settleWriterSettingsVerdicts,
   SOURCE_TALK_KEY,
+  NOTES_TO_WRITER_KEY,
+  WEB_ONLY_KEY,
   type DeterministicSelfCheck,
   type ModelVerdict,
 } from "../lib/selfCheckRules";
 import { noteDraft, type ComplianceNoteDraft } from "../lib/complianceNote";
 import { containsTerm } from "../lib/editedTerms";
-import { extractWriterWordingRules, unreadWritingRules } from "../lib/settingsExtraction";
+import { unreadWritingRules, writerWordingRulesFor } from "../lib/settingsExtraction";
 import { hasWriterWordingRules, wordingLossDetails, type WriterWordingRules } from "../lib/writerWording";
 import {
   confirmedConflictParagraph,
@@ -164,9 +169,17 @@ export const startSummaryRecovery = internalAction({
 /** Prompt block carrying this candidate's prior DRAFTED sections (ungated:
  * context for consistency, never iterative's "approved" canonical text). */
 export function draftedPriorSectionsBlock(
-  priorSections: Array<{ section: SectionNumber; text: string }>
+  priorSections: Array<{ section: SectionNumber; text: string }>,
+  /**
+   * 2026-10-29 (third), review round 1: on a redraft, the Lines after this
+   * one already in the report; only their gap notes are sent.
+   */
+  laterSections: Array<{ section: SectionNumber; text: string }> = []
 ): string {
-  if (priorSections.length === 0) return "";
+  const gaps = gapsAlreadyAskedBlock(
+    [...priorSections, ...laterSections].map((other) => ({ title: ORDERED_SECTION_TITLES[other.section], text: other.text }))
+  );
+  if (priorSections.length === 0) return gaps;
   const scaffold = ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections;
   const body = priorSections
     .map(
@@ -174,7 +187,7 @@ export function draftedPriorSectionsBlock(
         `${scaffold.itemTitlePrefix}${ORDERED_SECTION_TITLES[prior.section]}${scaffold.itemTitleSuffix}${prior.text}`
     )
     .join(scaffold.separator);
-  return `${scaffold.prefix}${body}`;
+  return `${scaffold.prefix}${body}${gaps}`;
 }
 
 /**
@@ -552,13 +565,31 @@ export const TARGETS_INSTRUCTION =
  * were over the check's budget, so it read the quotes and the analysis.
  */
 export function factsDocumentsLeftOutNote(documents: FactsSourceDocuments): string {
-  if (documents.leftOut.length === 0) {
+  const readInPart = documents.readInPart ?? [];
+  if (documents.leftOut.length === 0 && readInPart.length === 0) {
     return "(No source document was frozen for this check, so it read the signed-off items' quotes and the analysis.)";
   }
   // Round 2 review, P2-4: each document left out is named.
-  return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
-    .map((document) => `${document.label} (${document.bytes} bytes)`)
-    .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
+  if (readInPart.length === 0) {
+    return `(Over this check's ${documents.budget}-byte budget it did not read ${documents.leftOut
+      .map((document) => `${document.label} (${document.bytes} bytes)`)
+      .join(", ")}, so it let the signed-off items, their quotes and the analysis stand for them.)`;
+  }
+  // Phase D, step 1 (2026-10-28, fourth): so is each one read only in the
+  // parts that best match the Line.
+  const named = (list: ReadonlyArray<{ label: string; bytes: number }>) =>
+    list.map((document) => `${document.label} (${document.bytes} bytes)`).join(", ");
+  // "Best match" only where a part matched the Line (review round 2).
+  const matched = readInPart.filter((document) => !document.start && document.matched);
+  const unmatched = readInPart.filter((document) => !document.start && !document.matched);
+  const started = readInPart.filter((document) => document.start);
+  const parts = [
+    ...(matched.length > 0 ? [`read only the parts of ${named(matched)} that best match this Line`] : []),
+    ...(unmatched.length > 0 ? [`read only parts of ${named(unmatched)}`] : []),
+    ...(started.length > 0 ? [`read only the start of ${named(started)}`] : []),
+    ...(documents.leftOut.length > 0 ? [`did not read ${named(documents.leftOut)}`] : []),
+  ];
+  return `(Over this check's ${documents.budget}-byte budget it ${parts.join(" and ")}, so it let the signed-off items, their quotes and the analysis stand for the rest.)`;
 }
 
 /** 2026-10-04 (second): the Compliance Note instruction for the facts check. */
@@ -1189,7 +1220,7 @@ export async function draftCheckedSection(input: {
   payload: OrderedPayload;
   section: SectionNumber;
   clientFor: SectionClients;
-}): Promise<SectionCompletion> {
+}): Promise<SectionCompletion & { factsCheckRan: boolean }> {
   const { claim, payload, section, clientFor } = input;
   const analysis = parseTranscriptAnalysis(payload.analysis);
   const styleOverrides = normalizeStyleOverrides(payload.styleOverrides);
@@ -1198,7 +1229,7 @@ export async function draftCheckedSection(input: {
   const styleGuidance =
     (payload.frozenStyleGuidance ??
       buildStyleGuidance(payload.draftStyle, payload.writerFlavor, styleOverrides)) +
-    draftedPriorSectionsBlock(claim.priorSections);
+    draftedPriorSectionsBlock(claim.priorSections, claim.laterSections ?? []);
   const styleDigestIds =
     payload.draftStyleDigestId && payload.draftStyle?.trim()
       ? [payload.draftStyleDigestId]
@@ -1240,8 +1271,9 @@ export async function draftCheckedSection(input: {
     : "";
   // Review P3-6: the checked text is over a Locked limit and further over
   // it than the other text, which must never be traded back for it.
+  // 2026-10-29 (third, item 7): over the drafting ceiling, not the export limit.
   const overLimitMore = (checked: string, other: string) =>
-    sectionMetrics(checked, key).overLimit && limitOverage(checked, key) > limitOverage(other, key);
+    overCeiling(checked, key) && limitOverage(checked, key) > limitOverage(other, key);
   // 2026-10-04 (first): the writer's whole-Line cap below the Locked cap
   // (null without one). The draft, its repair and every shortening pass aim
   // under it; the Self-check measures the same rules (writerLineCap.ts).
@@ -1263,7 +1295,11 @@ export async function draftCheckedSection(input: {
         claim.planBlock
           ? claim.briefBlock + reportFacts + decisions + answers242 + editedTermsBlock(claim.editedTerms) + planLengthBudgetBlock(key, lengthTarget, writerCap)
           : claim.briefBlock,
-        claim.planBlock
+        claim.planBlock,
+        // 2026-10-30 (owner, item 2): the claimant line, in every draft and repair.
+        claim.claimantName,
+        // 2026-11-02 (proposed): public background, in every draft and repair.
+        payload.webBackground ?? ""
       ),
       styleOverrides.bannedWords
     );
@@ -1286,8 +1322,13 @@ export async function draftCheckedSection(input: {
   // 2026-10-04 (first), Round 5: the writer's wording rules code measures,
   // read from the instruction text the Writer Profile applied. Absent for a
   // writer with no such rule, so every row and request stays as before.
-  const extractedWording = payload.orderedContext.profileState === "applied" && payload.writerFlavor?.trim()
-    ? extractWriterWordingRules(payload.writerFlavor)
+  // E1b review: also when only the writer's saved preferences applied.
+  // Sixth re-check: each rule knows whether a saved preference holds it,
+  // from the texts frozen beside the composed text (writerWordingRulesFor).
+  const extractedWording =
+    (payload.orderedContext.profileState === "applied" || payload.orderedContext.savedPreferencesApplied === true) &&
+    payload.writerFlavor?.trim()
+    ? writerWordingRulesFor(payload.writerFlavor, payload.savedPreferenceTexts)
     : null;
   const writerWording = hasWriterWordingRules(extractedWording) ? extractedWording : undefined;
   // Re-check P1-1 (b): what of the settings the extractor left to the model.
@@ -1314,7 +1355,7 @@ export async function draftCheckedSection(input: {
     // fails the Section when no pass was kept. A draft within the Locked
     // caps, shortened only for the writer's cap, is kept as drafted and the
     // failure is recorded on the cap row (compression.failure).
-    if (firstFit.text === text && sectionMetrics(text, key).overLimit) throw firstFit.error;
+    if (firstFit.text === text && overCeiling(text, key)) throw firstFit.error;
     console.warn(
       `generation:compression:${section}: a later pass failed (${normalizeProviderError(firstFit.error).code}); the best pass so far is kept`
     );
@@ -1324,10 +1365,23 @@ export async function draftCheckedSection(input: {
   let keptFit: LimitFit = firstFit;
 
   const brief = claim.brief;
-  const check = (draft: string): DeterministicSelfCheck =>
+  // 2026-10-30: the check of the final text keeps the notes-to-the-writer
+  // row when the checked draft had one, so it says whether the repair fixed it.
+  // 2026-11-02 (proposed): with public background, the evidence the drafter
+  // read, for the web-only detail check.
+  const webOnly = payload.webBackgroundAnswers?.trim()
+    ? {
+        answers: payload.webBackgroundAnswers,
+        evidence: [payload.analysis, claim.briefBlock, claim.planBlock ?? "", reportFacts, decisions, answers242].join("\n"),
+      }
+    : undefined;
+  const check = (draft: string, notesToWriterRow = false, webOnlyRow = false): DeterministicSelfCheck =>
     runDeterministicSelfCheck({
       section,
       text: draft,
+      ...(notesToWriterRow ? { notesToWriterRow } : {}),
+      ...(webOnly ? { webOnly, ...(webOnlyRow ? { webOnlyRow } : {}) } : {}),
+      ...(claim.claimantName ? { claimantName: claim.claimantName } : {}),
       brief,
       profile: payload.orderedContext,
       isFirstInOrder: claim.isFirstInOrder,
@@ -1408,9 +1462,18 @@ export async function draftCheckedSection(input: {
     ...(writerFeedback.length > 0 ? { writerFeedback } : {}),
     ...(feedbackTerms.length > 0 ? { feedbackTerms } : {}),
     ...(sourceFacts !== undefined ? { sourceFacts } : {}),
+    // 2026-10-30 (owner, item 1): the report's uncertainties, chosen once
+    // for all three Lines. A signed-off plan sets the scope instead.
+    ...(planRun
+      ? {}
+      : { reportUncertainties: { passive: analysis.passive_uncertainties ?? [], active: analysis.active_uncertainties ?? [] } }),
   };
+  // Phase D (step 2, re-check): whether the facts check read its sources,
+  // so the caller records them only for a check that answered.
+  let factsCheckRan = false;
   try {
     const result = await runModelSelfCheck(clientFor(`generation:selfCheck:${section}`), selfCheckInput);
+    factsCheckRan = sourceFacts !== undefined;
     // Round 5 follow-up: the settings row never contradicts what code measured.
     verdicts = writerWording || writerCap || payload.orderedContext.selfCheckRules.length > 0
       ? settleWriterSettingsVerdicts(result.verdicts, before, payload.writerFlavor, settleContext)
@@ -1539,10 +1602,13 @@ export async function draftCheckedSection(input: {
   );
   // Final re-check P2-C1 (lead decision, owner informed): what outranks the
   // Writer Profile: a signed-off plan issue (an item, a Skip, a leave-out,
-  // Rule B or C, a target or a fact) or a Locked Rule.
+  // Rule B or C, a target or a fact) or a Locked Rule. 2026-10-30, review
+  // round 1 (P1-b): every failed Locked row, read by its tier, so the notes
+  // to the writer check outranks a writer's required wording as the Locked
+  // caps do.
   const outranksWriterProfile =
     planIssues.length > 0 ||
-    before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied");
+    before.entries.some((entry) => entry.row.tier === "locked" && entry.repairable && entry.row.outcome === "not_applied");
   // Round 5 (Rule 12): the repair fixes a figure, a signed-off item or a
   // rule code measured (any plan issue, or any deterministic issue).
   const fixesMeasuredOrPlan =
@@ -1550,6 +1616,15 @@ export async function draftCheckedSection(input: {
     before.entries.some((entry) => entry.repairable && entry.row.outcome === "not_applied");
   const sourceTalkIssue = before.entries.find(
     (entry) => entry.key === SOURCE_TALK_KEY && entry.repairable && entry.row.outcome === "not_applied"
+  )?.guidance;
+  // 2026-10-30: the notes-to-the-writer fix takes words out too, so it is
+  // never a Must keep line either.
+  const notesToWriterIssue = before.entries.find(
+    (entry) => entry.key === NOTES_TO_WRITER_KEY && entry.repairable && entry.row.outcome === "not_applied"
+  )?.guidance;
+  // 2026-11-02 (proposed): the web-only fix takes words out too.
+  const webOnlyIssue = before.entries.find(
+    (entry) => entry.key === WEB_ONLY_KEY && entry.repairable && entry.row.outcome === "not_applied"
   )?.guidance;
   // Round 5: a measured wording fix asks to change words, so, like the
   // source-talk fix, it is never a Must keep line of the repair's
@@ -1603,6 +1678,8 @@ export async function draftCheckedSection(input: {
             !leaveOutIssues.has(issue) &&
             !factsIssues.has(issue) &&
             issue !== sourceTalkIssue &&
+            issue !== notesToWriterIssue &&
+            issue !== webOnlyIssue &&
             !wordingIssues.has(issue) &&
             !claim.editedTerms.some((term) => containsTerm(issue, term))
         );
@@ -1731,7 +1808,11 @@ export async function draftCheckedSection(input: {
           finalText = fit.text;
           repair.succeeded = true;
           keptFit = fit;
-          after = check(finalText);
+          after = check(
+            finalText,
+            before.entries.some((entry) => entry.key === NOTES_TO_WRITER_KEY),
+            before.entries.some((entry) => entry.key === WEB_ONLY_KEY)
+          );
         }
       } else {
         // An empty repair never replaces the draft it was meant to fix.
@@ -1905,7 +1986,8 @@ export async function draftCheckedSection(input: {
   // text shows such an issue fixed: a signed-off plan check it was sent for
   // now applied, or the Locked row now held. Otherwise it is treated like
   // any other repair that breaks a writer's rule: not used, and the row
-  // says why.
+  // says why. 2026-10-30, review round 1 (P1-b): every Locked row, read by
+  // its tier, so a note to the writer the repair took out counts as fixed.
   const repairLosses = repair.succeeded && writerWording
     ? wordingLossDetails(text, finalText, writerWording, section)
     : [];
@@ -1916,9 +1998,9 @@ export async function draftCheckedSection(input: {
       if (first?.outcome !== "not_applied" || first.actionableRepair === false) return false;
       return planVerdictFor(coverage.verdicts, planCheck)?.outcome === "applied";
     });
-    const lockedFixed =
-      before.entries.some((entry) => entry.key === "locked" && entry.repairable && entry.row.outcome === "not_applied") &&
-      after?.entries.some((entry) => entry.key === "locked" && entry.row.outcome === "applied") === true;
+    const lockedFixed = before.entries.some((entry) =>
+      entry.row.tier === "locked" && entry.repairable && entry.row.outcome === "not_applied" &&
+      after?.entries.some((later) => later.key === entry.key && later.row.outcome === "applied") === true);
     if (!planFixed && !lockedFixed) {
       console.warn(`generation:repair:${section}: a repair broke a writer's rule and fixed nothing that outranks it; the checked draft is kept`);
       finalText = text;
@@ -1944,7 +2026,7 @@ export async function draftCheckedSection(input: {
     storylineQuestion && storylineQuestion.confidenceEntryIndex !== null
       ? brief?.confidenceMap[storylineQuestion.confidenceEntryIndex]
       : undefined;
-  const { rows: baseRows, summary: baseSummary } = assembleSectionNotes({
+  const { rows: baseRows, summary: baseSummary, rowIndexByKey } = assembleSectionNotes({
     section,
     before,
     after,
@@ -1970,22 +2052,13 @@ export async function draftCheckedSection(input: {
     ...(payload.writerFlavor ? { writerInstructions: payload.writerFlavor } : {}),
     ...(finalOrdinary ? { finalVerdicts: finalOrdinary } : {}),
   });
-  const rows = [...baseRows];
   // Final re-check P2-C1 (lead decision, owner informed): a used repair that
   // broke a measured rule of the writer's was kept for what outranks the
   // Writer Profile; that rule's row names the loss plainly, as Rule 12 does
   // for the cap.
   // Greptile on PR #27 (P2): every loss, each on its own rule's row.
   const keptLosses = repair.succeeded && writerWording ? wordingLossDetails(text, finalText, writerWording, section) : [];
-  for (const loss of keptLosses) {
-    const index = rows.findIndex((row) => row.instruction === loss.instruction);
-    if (index >= 0) {
-      rows[index] = {
-        ...rows[index]!,
-        reason: `${rows[index]!.reason}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
-      };
-    }
-  }
+  const rows = rowsWithRepairLosses(baseRows, rowIndexByKey, keptLosses);
   let planRows: ComplianceNoteDraft[] = [];
   if (payload.summaryVersionId) {
     planRows = planComplianceNoteDrafts({
@@ -2052,6 +2125,7 @@ export async function draftCheckedSection(input: {
       : {}),
   };
   return {
+    factsCheckRan,
     draftText: finalText,
     metrics: JSON.stringify(sectionMetrics(finalText, key)),
     selfCheck: JSON.stringify(summary),
@@ -2067,6 +2141,29 @@ export async function draftCheckedSection(input: {
         }
       : {}),
   };
+}
+
+/**
+ * Phase D (step 2, re-check): what a Line's facts check read of each frozen
+ * row, recorded once the Line has completed with its check answered.
+ * Telemetry: a record that cannot be written never fails the Line.
+ */
+async function recordFactsCheckUse(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  claim: SectionClaim
+): Promise<void> {
+  if (!claim.factsCheckUse) return;
+  try {
+    await ctx.runMutation(internal.generations.recordSourceUse, {
+      generationId,
+      step: "facts_check",
+      run: claim.factsCheckUse.run,
+      uses: claim.factsCheckUse.uses,
+    });
+  } catch (error) {
+    console.warn("Facts check source use not recorded", String(error).slice(0, 200));
+  }
 }
 
 /**
@@ -2147,7 +2244,7 @@ export const generateOrderedSection = internalAction({
         },
         slotCounts
       );
-      const completion = await draftCheckedSection({
+      const { factsCheckRan, ...completion } = await draftCheckedSection({
         claim,
         payload,
         section: args.section,
@@ -2161,6 +2258,7 @@ export const generateOrderedSection = internalAction({
         slotCounts: JSON.stringify(slotCounts),
         ...payloadRef,
       });
+      if (factsCheckRan) await recordFactsCheckUse(ctx, args.generationId, claim);
     } catch (error) {
       await ctx.runMutation(internal.generations.failOrderedSectionRun, {
         generationId: args.generationId,
@@ -2304,8 +2402,14 @@ export const finalizeOrderedCandidate = internalAction({
       const seedRun = payload.summaryVersionId !== undefined;
       // QA scores a complete draft; a stopped draft skips it rather than be
       // scored on empty sections. Both stay advisory, as in the one-shot path.
+      // 2026-10-29 (third): QA reads the source evidence too; a failed read
+      // leaves it to the analysis, as before.
+      const scoreQa = allDrafted && !seedRun;
+      const qaSourceEvidence = scoreQa
+        ? await qaSourceEvidenceFor(ctx, args.generationId, [s242 ?? "", s244 ?? "", s246 ?? ""])
+        : null;
       const [qaSettled, chronologySettled] = await Promise.allSettled([
-        allDrafted && !seedRun
+        scoreQa
           ? runQAAgent(
               clientFor("generation:qa", qaDigestIds),
               analysis,
@@ -2315,7 +2419,10 @@ export const finalizeOrderedCandidate = internalAction({
               clientFor.modelFor("generation:qa"),
               payload.qaCalibration,
               styleOverrides,
-              detectFirstPersonPreference(payload.writerFlavor)
+              detectFirstPersonPreference(payload.writerFlavor),
+              qaSourceEvidence,
+              // 2026-10-30 (owner, item 2): the claimant line.
+              input.claimantName
             )
           : Promise.resolve(null),
         seedRun
@@ -2453,7 +2560,7 @@ export const redraftSeedSection = internalAction({
         },
         slotCounts
       );
-      const completion = await draftCheckedSection({
+      const { factsCheckRan, ...completion } = await draftCheckedSection({
         claim,
         payload,
         section: args.section,
@@ -2468,6 +2575,7 @@ export const redraftSeedSection = internalAction({
         slotCounts: JSON.stringify(slotCounts),
         ...payloadRef,
       });
+      if (factsCheckRan) await recordFactsCheckUse(ctx, args.generationId, claim);
     } catch (error) {
       await fail(error);
     }

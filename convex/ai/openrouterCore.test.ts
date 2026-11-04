@@ -11,7 +11,9 @@ import {
   isAbortLikeError,
   MalformedOutputError,
   OutputLimitError,
+  RefusalOutputError,
   isCutOffStopReason,
+  isRefusalStopReason,
   RETRY_MAX_DELAY_MS,
 } from "./openrouterCore";
 import {
@@ -48,6 +50,26 @@ describe("toChatCompletions", () => {
     // Unforced, every fallback stays.
     const unforced = toChatCompletions(params, { fallbackModels });
     expect(unforced.models).toEqual(["anthropic/claude-sonnet-5", ...fallbackModels]);
+  });
+
+  it("sends the forced tool strict to a model that refuses a forced call, and nothing else changes (review round 3)", () => {
+    const schema = {
+      type: "object" as const,
+      properties: { storyline: { type: "string" }, claims: { type: "array", maxItems: 3, items: { type: "string" } } },
+      required: ["storyline", "claims"],
+    };
+    const params = {
+      max_tokens: 100,
+      messages: [{ role: "user" as const, content: "Judge it." }],
+      tools: [{ name: "submit", description: "Submit.", input_schema: schema }],
+      tool_choice: { type: "tool" as const, name: "submit" },
+    };
+    const refusing = toChatCompletions({ ...params, model: "anthropic/claude-sonnet-5.5" });
+    expect(refusing.tool_choice).toBe("auto");
+    expect(refusing.tools?.[0]?.function).toMatchObject({ name: "submit", strict: true });
+    expect(refusing.tools?.[0]?.function.parameters).toMatchObject({ additionalProperties: false });
+    const forcing = toChatCompletions({ ...params, model: "anthropic/claude-sonnet-5" });
+    expect(forcing.tools?.[0]?.function).toEqual({ name: "submit", description: "Submit.", parameters: schema });
   });
 
   it("keeps cache breakpoints for Anthropic models and joins blocks for the rest", () => {
@@ -288,6 +310,27 @@ describe("fromChatCompletions", () => {
     expect(() =>
       fromChatCompletions({ choices: [{ message: { content: "" } }] })
     ).toThrow(/empty completion/);
+  });
+
+  it("names an empty refused answer a refusal, with the same words for the repair (owner, 2026-10-28)", () => {
+    let thrown: unknown;
+    try {
+      fromChatCompletions({ choices: [{ message: { content: null }, finish_reason: "content_filter" }] });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(RefusalOutputError);
+    expect(thrown).toBeInstanceOf(MalformedOutputError);
+    expect((thrown as Error).message).toBe("OpenRouter returned an empty completion");
+    // An empty answer that was not refused is not one.
+    expect(() => fromChatCompletions({ choices: [{ message: { content: "" }, finish_reason: "stop" }] })).not.toThrow(
+      RefusalOutputError
+    );
+    expect(isRefusalStopReason("refusal")).toBe(true);
+    expect(isRefusalStopReason("content_filter")).toBe(true);
+    for (const reason of ["end_turn", "tool_use", "stop", "max_tokens", "length", null, undefined]) {
+      expect(isRefusalStopReason(reason)).toBe(false);
+    }
   });
 });
 

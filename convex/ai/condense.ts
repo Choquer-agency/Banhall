@@ -10,6 +10,9 @@ import { withPlaceholders } from "./placeholderClient";
 import {
   callSlots,
   citationsExtractor,
+  FactWindowCutOffError,
+  FactWindowTimeoutError,
+  FactWindowTooDenseError,
   extractTranscriptFacts,
   FACTS_CONCURRENCY,
   FACTS_TIMEOUT_MS,
@@ -20,7 +23,7 @@ import {
 } from "./transcriptFactsAgent";
 import type { FunctionReturnType } from "convex/server";
 import { instrumentedAnthropic } from "./instrument";
-import { startActionDeadline } from "./actionDeadline";
+import { actionDeadline, startActionDeadline } from "./actionDeadline";
 import { gatewayForModel, registerModelEntries } from "../../shared/generationModels";
 import { entryFromFrozen } from "../lib/modelRoles";
 import { roleModelEntryRef } from "../lib/modelCatalogRefs";
@@ -519,6 +522,14 @@ export async function ensureTranscriptFacts(
     excludedLabels: input.excludedLabels,
     ...(input.parserVersion !== undefined ? { parserVersion: input.parserVersion } : {}),
   });
+  if (claim.kind === "dense") {
+    // 2026-10-26 (failure 6): background extraction already split this
+    // text's dense stretch and still could not read it.
+    await options.log?.(
+      `Part of "${input.label}" has more facts than the AI can extract, even in pieces, so this draft reads the transcript the usual way.`
+    );
+    return "failed";
+  }
   if (claim.kind !== "claimed") return claim.kind;
   try {
     await options.log?.(`Extracting verified facts from "${input.label}".`);
@@ -529,6 +540,10 @@ export async function ensureTranscriptFacts(
       extractWindow: extractor,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.slots ? { slots: options.slots } : {}),
+      // 2026-10-26 (failure 6): only background extraction splits a dense
+      // window, and only while two of its pieces still fit the action's
+      // deadline; a generation's time check counted its planned windows.
+      ...(caller.kind === "background" ? { splitDenseWindows: { deadline: actionDeadline(ctx) } } : {}),
     });
     await writeFacts(ctx, claim.runId, result.facts);
     await ctx.runMutation(internal.transcripts.completeFactRun, {
@@ -545,10 +560,25 @@ export async function ensureTranscriptFacts(
     );
     return "ready";
   } catch (error) {
+    // 2026-10-26 (failure 6): a stretch too dense for one answer fails a
+    // generation's extraction instead of losing the end of its facts, and
+    // background extraction, which splits such a stretch, gets it ready for
+    // the next draft. Only a stretch still cut off at its smallest pieces
+    // marks the run too dense, so no draft tries this text again; running
+    // out of time does not (code review, 2026-10-26).
+    const dense = error instanceof FactWindowCutOffError || error instanceof FactWindowTimeoutError;
     await ctx.runMutation(internal.transcripts.failFactRun, {
       runId: claim.runId,
       error: describeGenerationFailure(error),
+      ...(error instanceof FactWindowTooDenseError && caller.kind === "background" ? { tooDense: true } : {}),
     });
+    if (dense && caller.kind === "generation") {
+      await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, { transcriptId });
+      await options.log?.(
+        `Part of "${input.label}" had more facts than one answer holds, so this draft reads the transcript the usual way. Its facts are being prepared in smaller pieces for the next draft.`
+      );
+      return "failed";
+    }
     await options.log?.(`Facts could not be extracted from "${input.label}"; using today's transcript path.`);
     return "failed";
   }
@@ -654,6 +684,14 @@ export async function ensureFactInputs(
   const missing = input.transcripts.filter((transcript) => !transcript.frozen && !transcript.ready);
   if (missing.some((transcript) => transcript.busy)) {
     await log("Verified facts are still being prepared for a transcript, so this draft reads the transcripts the usual way.");
+    return false;
+  }
+  // 2026-10-26 (code review): a text known to be too dense is neither
+  // extracted nor queued again.
+  if (missing.some((transcript) => transcript.tooDense)) {
+    await log(
+      "Part of a transcript has more facts than the AI can extract, even in pieces, so this draft reads the transcripts the usual way."
+    );
     return false;
   }
   const inputs = await Promise.all(

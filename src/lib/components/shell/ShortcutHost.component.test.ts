@@ -15,9 +15,9 @@ describe("ShortcutHost (I4, I5)", () => {
   });
 
   function mount(overrides: Record<string, unknown> = {}) {
-    const onToggleRail = vi.fn();
+    const onToggleSidebar = vi.fn();
     const onOpenViewAs = vi.fn();
-    return render(Harness, { onToggleRail, onOpenViewAs, ...overrides }).then(() => ({ onToggleRail, onOpenViewAs }));
+    return render(Harness, { onToggleSidebar, onOpenViewAs, ...overrides }).then(() => ({ onToggleSidebar, onOpenViewAs }));
   }
 
   it("C opens New project and ? opens the shortcuts page", async () => {
@@ -29,14 +29,14 @@ describe("ShortcutHost (I4, I5)", () => {
     await expect.poll(gotos).toEqual(["/project/new", "/settings/shortcuts"]);
   });
 
-  it("Mod \\ toggles the rail, but not inside the editor", async () => {
-    const { onToggleRail } = await mount();
+  it("Mod \\ toggles the section sidebar, but not inside the editor", async () => {
+    const { onToggleSidebar } = await mount();
     focus("plain");
     await userEvent.keyboard("{Control>}\\{/Control}");
-    expect(onToggleRail).toHaveBeenCalledOnce();
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
     focus("editor");
     await userEvent.keyboard("{Control>}\\{/Control}");
-    expect(onToggleRail).toHaveBeenCalledOnce();
+    expect(onToggleSidebar).toHaveBeenCalledOnce();
   });
 
   it("G then A goes to Admin only for a viewer with settings.configure", async () => {

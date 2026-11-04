@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { MAX_EDITED_BULLET_CHARS } from "./seedContract";
 import {
   ADVANCEMENTS_ANSWER_242_RULE_ID,
+  MAX_REFERENCE_BULLET_CHARS,
+  clipReferenceBullet,
   ANSWERS_242_WORST_CASE_REFERENCE,
   FROZEN_SUMMARY_PLAN_SCAFFOLD,
   MAX_ANSWERS_242_REFERENCE_ESCAPED_UTF8_BYTES,
@@ -20,7 +23,9 @@ import {
   MAX_FACTS_FINDINGS,
   MAX_FACTS_SOURCE_QUOTE_ESCAPED_UTF8_BYTES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_BATCHES,
   SeedContextLimitError,
+  assertSummarySelfCheckBatchFits,
   assertSummaryPlanCheckInputWithinLimit,
   assertSummarySelfCheckResponseWithinLimit,
   assertSeedPromptWithinLimit,
@@ -47,6 +52,7 @@ import {
   jsonEscapedUtf8Bytes,
   materializeFinalWording,
   orderShownSet,
+  planSummarySelfCheckBatches,
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
@@ -63,6 +69,8 @@ import {
   type FrozenSummaryPlanCheck,
   type SeedContextItem,
   type SeedContextSnapshot,
+  type SummaryOrdinaryCheck,
+  type SummarySelfCheckBatch,
 } from "./seedRevisions";
 
 const bytes = (text: string) => new TextEncoder().encode(text).byteLength;
@@ -128,7 +136,11 @@ function literalSummaryEnvelopeOracle(args: {
   ordinaryLabels: readonly string[];
   planChecks: readonly FrozenSummaryPlanCheck[];
   includeStorylineQuestion: boolean;
-  mutation?: "omit_storyline" | "omit_repeated_merge" | "short_reason";
+  /**
+   * "repeat_merged_ids" puts back the merged-id echo every plan verdict
+   * carried before 2026-10-22 (third).
+   */
+  mutation?: "omit_storyline" | "repeat_merged_ids" | "short_reason";
 }): string {
   assertClosedPlanFixture(args.planChecks);
   const paragraph = 9_999_999_999;
@@ -142,21 +154,15 @@ function literalSummaryEnvelopeOracle(args: {
     reason,
     repairGuidance,
   }));
-  let removedRepeatedMerge = false;
   const planRows = args.planChecks.map((check) => {
-    const mergedItemIds = [...check.mergedItemIds];
-    if (
-      args.mutation === "omit_repeated_merge" &&
-      !removedRepeatedMerge &&
-      mergedItemIds.length > 1
-    ) {
-      mergedItemIds.pop();
-      removedRepeatedMerge = true;
-    }
+    // 2026-10-22 (third): a plan verdict names only its own reference.
+    const echo = args.mutation === "repeat_merged_ids"
+      ? { mergedItemIds: [...check.mergedItemIds] }
+      : {};
     return check.itemId
       ? JSON.stringify({
           itemId: check.itemId,
-          mergedItemIds,
+          ...echo,
           outcome: "not_applied",
           paragraph,
           reason,
@@ -165,7 +171,7 @@ function literalSummaryEnvelopeOracle(args: {
       : check.droppedSeedId
         ? JSON.stringify({
             droppedSeedId: check.droppedSeedId,
-            mergedItemIds,
+            ...echo,
             outcome: "not_applied",
             paragraph,
             reason,
@@ -173,7 +179,7 @@ function literalSummaryEnvelopeOracle(args: {
           })
         : check.ruleId
           ? JSON.stringify({
-              mergedItemIds,
+              ...echo,
               outcome: "not_applied",
               paragraph,
               reason,
@@ -181,7 +187,7 @@ function literalSummaryEnvelopeOracle(args: {
               ruleId: check.ruleId,
             })
           : JSON.stringify({
-              mergedItemIds,
+              ...echo,
               outcome: "not_applied",
               paragraph,
               reason,
@@ -907,7 +913,7 @@ describe("seed revisions", () => {
     };
     for (const mutation of [
       "omit_storyline",
-      "omit_repeated_merge",
+      "repeat_merged_ids",
       "short_reason",
     ] as const) {
       const replay = literalSummaryEnvelopeOracle({
@@ -919,11 +925,13 @@ describe("seed revisions", () => {
       expect(replay).not.toBe(projected);
       oracleMutationHashes[mutation] = await testSha256(replay);
     }
+    // 2026-10-22 (third): the envelope with the merged-id echo put back is
+    // byte for byte the envelope pinned before (restored 6eb9f7df...).
     expect(oracleMutationHashes).toEqual({
-      restored: "6eb9f7dfd21fc4bfe480978805eddb75c9d9f7ea5cbd46361f594d58e7d926fb",
-      omit_storyline: "a27c1366027d30e5572e425e1610eb9cc5254bb859fa9f8ec283915274864122",
-      omit_repeated_merge: "642ec120b6e08de5cc9b4728a8a00b3fea6cf2fa15ac947e0d165ba0cb528fb2",
-      short_reason: "3ff6e138af257344cc22f2d40ec6dbc99f710cd6a7d625ed3d2f67410e139104",
+      restored: "8d91abc6dfbc475a184e928dd2adda31f8037e0978c359d34e398c49cc41b373",
+      omit_storyline: "72b5ec8736df712e502a7c333187f1a74c5b6dafbacf5403cc44ecefd48c3e18",
+      repeat_merged_ids: "6eb9f7dfd21fc4bfe480978805eddb75c9d9f7ea5cbd46361f594d58e7d926fb",
+      short_reason: "2277f8c3279f051df186ac8e5395eafcf89eada39e5731e67af66031e3a24a26",
     });
     expect(literalSummaryEnvelopeOracle({
       ordinaryLabels: ordinary.map((check) => check.label),
@@ -1364,7 +1372,9 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     expect(bytes(buildFrozenSummaryPlan({ section: "s246", items: all, skippedRoleIds: [], answers242: {} }).checksBlock))
       .toBeLessThan(bytes(admitted.checksBlock));
     // The exact boundary with every item counted: a cited excerpt fills the
-    // admitted checks block to exactly 64,000 bytes, and one more byte is refused.
+    // admitted checks block to exactly 64,000 bytes, and one more byte no
+    // longer fits one request. Since 2026-10-26 (P0 item 2) that Line is
+    // checked in two, the advancement check (with every item) in the first.
     const withExcerpt = (excerpt: string) => buildFrozenSummaryPlan({
       section: "s246",
       items: all,
@@ -1377,7 +1387,15 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     // The excerpt appears in the drafting block and the checks block; only
     // the checks block has the 64,000-byte limit.
     expect(bytes(withExcerpt("x".repeat(fill)).checksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
-    expect(() => withExcerpt("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
+    const batchesOf = (plan: ReturnType<typeof withExcerpt>) =>
+      planSummarySelfCheckBatches({ ordinaryChecks: [], planChecks: plan.checks, includeStorylineQuestion: false });
+    expect(batchesOf(withExcerpt("x".repeat(fill)))).toHaveLength(1);
+    const over = withExcerpt("x".repeat(fill + 1));
+    expect(() => serializeFrozenSummaryPlanChecks(over.checks)).toThrow("Expanded Summary plan checks");
+    const split = batchesOf(over);
+    expect(split).toHaveLength(2);
+    expect(split[0]!.planChecks[0]!.ruleId).toBe(ADVANCEMENTS_ANSWER_242_RULE_ID);
+    expect(split.flatMap((batch) => batch.planChecks)).toHaveLength(over.checks.length);
     // A Line 242 at its Locked cap (50 lines of 78 characters) is never clipped.
     const atCap = Array.from({ length: 50 }, (_, index) => `L${String(index).padStart(2, "0")} ${"w".repeat(74)}`).join(" ");
     expect(atCap).toHaveLength(50 * 78 + 49);
@@ -1501,7 +1519,13 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
     const fill = MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES - bytes(admitted().checksBlock);
     expect(fill).toBeGreaterThan(0);
     expect(bytes(admitted("x".repeat(fill)).checksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
-    expect(() => admitted("x".repeat(fill + 1))).toThrow("Expanded Summary plan checks");
+    // One byte more no longer fits one request; since 2026-10-26 (P0 item 2)
+    // it is checked in two, the work check (with every item) in the first.
+    const over = admitted("x".repeat(fill + 1));
+    expect(() => serializeFrozenSummaryPlanChecks(over.checks)).toThrow("Expanded Summary plan checks");
+    const split = planSummarySelfCheckBatches({ ordinaryChecks: [], planChecks: over.checks, includeStorylineQuestion: false });
+    expect(split).toHaveLength(2);
+    expect(split[0]!.planChecks.map((check) => check.ruleId)).toContain(WORK_ANSWERS_242_RULE_ID);
   });
 
   it("counts LEAVE OUT and advancement verdicts in the exact 32,768-byte response envelope", () => {
@@ -1558,14 +1582,15 @@ describe("what the writer dropped stays out (2026-09-30, first)", () => {
       fillers.push(item(`i${fillers.length}`));
     }
     let gap = MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES - bytes(envelope([...fillers, leaveOut("d"), rule]));
-    // A dropped id appears once in its verdict; an item id twice.
+    // A dropped id and an item id each appear once in their verdict (since
+    // 2026-10-22, third, an item id is no longer repeated as a merged id).
     let droppedId = "d";
-    const grow = Math.min(gap % 2 === 0 ? 60 : 61, gap);
+    const grow = Math.min(60, gap);
     droppedId += "d".repeat(grow);
     gap -= grow;
     const padded = fillers.map((check) => {
-      const extra = Math.min(gap / 2, 60);
-      gap -= extra * 2;
+      const extra = Math.min(gap, 60);
+      gap -= extra;
       return item(`${check.itemId}${"p".repeat(extra)}`);
     });
     expect(gap).toBe(0);
@@ -1614,7 +1639,7 @@ describe("results stated against their targets (2026-09-30, third)", () => {
 
   it("adds one targets check to Lines 244 and 246 only, when asked, before Rule B, with no plan entry", () => {
     // 2026-10-04 (second): v5 took the facts check; the targets check is unchanged.
-    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v5");
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v6");
     for (const section of ["s242", "s244", "s246"] as const) {
       const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const withTargets = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], resultsAgainstTargets: true });
@@ -1643,8 +1668,8 @@ describe("results stated against their targets (2026-09-30, third)", () => {
     // since the repair text comes from the entries.
     // Review P3-5: a 64-byte draft quote, an 80-byte target and correction.
     const entry = { correction: "c".repeat(80), draftQuote: "d".repeat(64), sourceQuote: "s".repeat(160), targetQuote: "t".repeat(80) };
+    // 2026-10-22 (third): no merged ids, 19 bytes fewer than before.
     const verdict = JSON.stringify({
-      mergedItemIds: [],
       outcome: "not_applied",
       paragraph: 9_999_999_999,
       reason: "r".repeat(64),
@@ -1653,7 +1678,7 @@ describe("results stated against their targets (2026-09-30, third)", () => {
     });
     expect([MAX_TARGET_FINDINGS, MAX_TARGET_QUOTE_ESCAPED_UTF8_BYTES]).toEqual([2, 80]);
     expect(bytes(envelope([...plan.checks, targets("s244")])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
-    expect(bytes(verdict) + 1).toBe(1_102);
+    expect(bytes(verdict) + 1).toBe(1_083);
     expect(envelope([...plan.checks, targets("s244")])).toContain(verdict);
   });
 });
@@ -1676,7 +1701,7 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
   });
 
   it("adds one facts check to every Line, when asked, with no plan entry, serialized exactly", () => {
-    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v5");
+    expect(SUMMARY_PLAN_SERIALIZER_VERSION).toBe("summary-plan-jsonl-v6");
     for (const section of ["s242", "s244", "s246"] as const) {
       const without = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [] });
       const withFacts = buildFrozenSummaryPlan({ section, items, skippedRoleIds: [], factsMatchSources: true });
@@ -1720,15 +1745,15 @@ describe("figures and details as the sources give them (2026-10-04, second)", ()
       // Round 2 review (P3-1): no paragraph per finding, a 160-byte source
       // quote, two findings and no repairGuidance: about half the size.
       const finding = { correction: "c".repeat(120), draftQuote: "d".repeat(128), sourceQuote: "s".repeat(160) };
+      // 2026-10-22 (third): no merged ids, 19 bytes fewer than before.
       const verdict = JSON.stringify({
         findings: [finding, finding],
-        mergedItemIds: [],
         outcome: "not_applied",
         paragraph: 9_999_999_999,
         reason: "r".repeat(64),
         ruleId: FACTS_MATCH_SOURCES_RULE_ID,
       });
-      expect(bytes(verdict) + 1).toBe(1_106);
+      expect(bytes(verdict) + 1).toBe(1_087);
       expect(bytes(envelope([...plan.checks, facts(section)])) - bytes(envelope(plan.checks))).toBe(bytes(verdict) + 1);
       expect(envelope([...plan.checks, facts(section)])).toContain(verdict);
     }
@@ -1850,17 +1875,30 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
       };
     });
 
+  // 2026-10-22 (third): a plan verdict no longer repeats its step's merged
+  // ids. The bytes each echo took, so the figures recorded before the change
+  // can be checked against today's projection.
+  const echoBytes = (checks: readonly FrozenSummaryPlanCheck[]) =>
+    checks.reduce((total, check) =>
+      total + bytes(`"mergedItemIds":${JSON.stringify(check.mergedItemIds)},`), 0);
+
   it("admits every Line of the refused plan, whose Line 244 was 741 bytes over the old 16,384-byte limit", () => {
-    expect(ordinary).toHaveLength(MAX_SUMMARY_ORDINARY_VERDICTS);
+    // The Brief was exactly at the old limit of 30 ordinary checks.
+    expect(ordinary).toHaveLength(30);
     // Two advancements answer the first uncertainty, one each the others.
     const lines = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
     expect(lines.map((line) => line.checks.length)).toEqual([12, 17, 15]);
-    expect(lines.map((line) => line.bytes)).toEqual([14_651, 17_125, 16_316]);
-    // The cause: Line 244 crossed the old limit by 741 bytes, and Line 246
+    // With the echo put back, the figures read from the dev deployment on
+    // 2026-10-22: Line 244 crossed the old limit by 741 bytes, and Line 246
     // was 68 bytes under it.
-    expect(lines[1]!.bytes - 16_384).toBe(741);
-    expect(16_384 - lines[2]!.bytes).toBe(68);
+    const withEcho = lines.map((line) => line.bytes + echoBytes(line.checks));
+    expect(withEcho).toEqual([14_651, 17_125, 16_316]);
+    expect(withEcho[1]! - 16_384).toBe(741);
+    expect(16_384 - withEcho[2]!).toBe(68);
+    // Without it, every Line of that plan fits the old 16,384-byte limit.
+    expect(lines.map((line) => line.bytes)).toEqual([13_419, 15_626, 15_063]);
     for (const line of lines) {
+      expect(line.bytes).toBeLessThanOrEqual(16_384);
       expect(() => summarySelfCheckWorstCaseResponse({
         ordinaryChecks: ordinary,
         planChecks: line.checks,
@@ -1872,8 +1910,318 @@ describe("a real writer's full plan signs off (alerts triage 2026-10-22)", () =>
   it("still admits the same Brief with five picks in every step", () => {
     const five = Object.fromEntries(Object.keys(picks).map((roleId) => [roleId, 5]));
     const lines = lineEnvelopes(planShape(five, (index) => index));
-    expect(Math.max(...lines.map((line) => line.bytes))).toBe(22_253);
-    expect(Math.max(...lines.map((line) => line.bytes)))
-      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    const largest = lines.reduce((top, line) => (line.bytes > top.bytes ? line : top));
+    expect(largest.bytes).toBe(17_409);
+    // 22,253 with the echo, as recorded on 2026-10-22 (first).
+    expect(largest.bytes + echoBytes(largest.checks)).toBe(22_253);
+    expect(largest.bytes).toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+  });
+
+  // 2026-10-22 (third): one more pick adds the same bytes however many picks
+  // already share its step: its own verdict, with no merged ids.
+  it("adds the same bytes for a pick however many picks share its step", () => {
+    const pickBytes = bytes(JSON.stringify({
+      itemId: realId("it", 0),
+      outcome: "not_applied",
+      paragraph: 9_999_999_999,
+      reason: "r".repeat(64),
+      repairGuidance: "g".repeat(96),
+    })) + 1;
+    expect(pickBytes).toBe(285);
+    const line242 = (goalPicks: number) =>
+      lineEnvelopes(planShape({ ...picks, goal_problem: goalPicks }, (index) => [0, 0, 1, 2][index]!))[0]!;
+    for (const [from, to] of [[1, 2], [5, 6], [19, 20], [29, 30]] as const) {
+      expect(line242(to).bytes - line242(from).bytes).toBe(pickBytes);
+    }
+    // 30 picks in one step fit the budget; with the echo they did not.
+    const thirty = line242(30);
+    expect(thirty.bytes).toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    expect(thirty.bytes + echoBytes(thirty.checks)).toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+  });
+
+  // 2026-10-22 (third), known limitation: the CONTENT PLAN CHECKS block sent
+  // to the model still lists each check's merged ids, so one very large step
+  // reaches the 64,000-byte input limit first. 2026-10-26 (P0 item 2): such a
+  // Line is checked in several requests instead of being refused.
+  it("checks one step of 40 picks in several requests, each within the plan-check input limit", () => {
+    const fits = lineEnvelopes(planShape({ ...picks, goal_problem: 30 }, (index) => [0, 0, 1, 2][index]!))[0]!;
+    expect(bytes(projectFrozenSummaryPlanChecks(fits.checks))).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    const forty = lineEnvelopes(planShape({ ...picks, goal_problem: 40 }, (index) => [0, 0, 1, 2][index]!))[0]!;
+    expect(bytes(projectFrozenSummaryPlanChecks(forty.checks))).toBeGreaterThan(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(() => serializeFrozenSummaryPlanChecks(forty.checks))
+      .toThrow(expect.objectContaining({ limit: "summary_plan_check_input_utf8_bytes" }));
+    const batches = planSummarySelfCheckBatches({
+      ordinaryChecks: ordinary,
+      planChecks: forty.checks,
+      includeStorylineQuestion: true,
+    });
+    expect(batches).toHaveLength(2);
+    expectWellFormedBatches(batches, ordinary, forty.checks);
+  });
+
+  // ─── 2026-10-26 (P0 item 2): a Line checked in several requests ─────────
+
+  /** Every check exactly once, in order; rules and the Storyline question in the first request. */
+  function expectWellFormedBatches(
+    batches: SummarySelfCheckBatch[],
+    ordinaryChecks: readonly SummaryOrdinaryCheck[],
+    planChecks: readonly FrozenSummaryPlanCheck[]
+  ): void {
+    expect(batches.length).toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_BATCHES);
+    expect(batches.flatMap((batch) => batch.ordinaryChecks)).toEqual([...ordinaryChecks]);
+    const rules = planChecks.filter((check) => check.ruleId !== undefined);
+    const others = planChecks.filter((check) => check.ruleId === undefined);
+    // One request keeps the frozen order; several put the rules first.
+    expect(batches.flatMap((batch) => batch.planChecks)).toEqual(
+      batches.length === 1 ? [...planChecks] : [...rules, ...others]
+    );
+    if (batches.length > 1) expect(batches[0]!.planChecks.slice(0, rules.length)).toEqual(rules);
+    expect(batches.slice(1).every((batch) => !batch.includeStorylineQuestion)).toBe(true);
+    for (const batch of batches) {
+      expect(batch.ordinaryChecks.length + batch.planChecks.length).toBeGreaterThan(0);
+      expect(() => assertSummarySelfCheckBatchFits(batch)).not.toThrow();
+    }
+    // Each request is as full as it goes: the next one's first check would
+    // not have fit it.
+    for (let index = 0; index + 1 < batches.length; index += 1) {
+      const [current, next] = [batches[index]!, batches[index + 1]!];
+      const moved = next.ordinaryChecks.length > 0
+        ? { ...current, ordinaryChecks: [...current.ordinaryChecks, next.ordinaryChecks[0]!] }
+        : { ...current, planChecks: [...current.planChecks, next.planChecks[0]!] };
+      expect(() => assertSummarySelfCheckBatchFits(moved)).toThrow(SeedContextLimitError);
+    }
+  }
+
+  it("keeps a Line that fits one request in one request, holding everything as before", () => {
+    const lines = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    for (const line of lines) {
+      expect(planSummarySelfCheckBatches({
+        ordinaryChecks: ordinary,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      })).toEqual([{ ordinaryChecks: [...ordinary], planChecks: [...line.checks], includeStorylineQuestion: true }]);
+    }
+  });
+
+  it("checks a 101-entry Brief beside the 2026-10-09 plan in several requests, every label once and in order", () => {
+    const brief = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: Array.from({ length: 50 }, () => ({ text: "Confidence" })),
+      glossaryTerms: Array.from({ length: 50 }, () => "Term"),
+      writerFlavor: undefined,
+      rules: [],
+    });
+    expect(brief).toHaveLength(101);
+    for (const line of lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!))) {
+      // One request no longer holds it: more than 64 labels.
+      expect(() => summarySelfCheckWorstCaseResponse({
+        ordinaryChecks: brief,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      })).toThrow(expect.objectContaining({ limit: "summary_self_check_ordinary_count" }));
+      const batches = planSummarySelfCheckBatches({
+        ordinaryChecks: brief,
+        planChecks: line.checks,
+        includeStorylineQuestion: true,
+      });
+      expect(batches.length).toBeGreaterThanOrEqual(2);
+      expectWellFormedBatches(batches, brief, line.checks);
+    }
+  });
+
+  // Round 2 design review (Claude Opus 5.5, M1): the case that motivated
+  // batching needs few requests, all sent at once.
+  it("checks a 46-entry Brief beside 30 picks in one step in one request, and beside 40 in two", () => {
+    const brief = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: Array.from({ length: 23 }, () => ({ text: "Confidence" })),
+      glossaryTerms: Array.from({ length: 23 }, () => "Term"),
+      writerFlavor: "Plain words.",
+      rules: Array.from({ length: 3 }, () => ({ instruction: "Rule." })),
+    });
+    expect(brief).toHaveLength(51);
+    const batchesFor = (goalPicks: number) => {
+      const [line] = lineEnvelopes(planShape({ ...picks, goal_problem: goalPicks }, (index) => [0, 0, 1, 2][index]!));
+      const batches = planSummarySelfCheckBatches({ ordinaryChecks: brief, planChecks: line!.checks, includeStorylineQuestion: true });
+      expectWellFormedBatches(batches, brief, line!.checks);
+      return batches;
+    };
+    expect(batchesFor(30)).toHaveLength(1);
+    expect(batchesFor(40)).toHaveLength(2);
+  });
+
+  it("checks 30 picks in every step of a Line in several requests, the same split every time", () => {
+    const thirty = Object.fromEntries(Object.keys(picks).map((roleId) => [roleId, 30]));
+    for (const line of lineEnvelopes(planShape(thirty, (index) => index % 30))) {
+      const args = { ordinaryChecks: ordinary, planChecks: line.checks, includeStorylineQuestion: true };
+      const batches = planSummarySelfCheckBatches(args);
+      expect(batches.length).toBeGreaterThanOrEqual(2);
+      expectWellFormedBatches(batches, ordinary, line.checks);
+      expect(planSummarySelfCheckBatches(args)).toEqual(batches);
+    }
+  });
+
+  // 2026-10-27 (eleventh, owner): a writer's edit is no longer held to 600
+  // characters. A plan where every pick is two bullets at the 5,000 ceiling
+  // still signs off: Rule B, Rule C and relationship references carry other
+  // items' bullets clipped at MAX_REFERENCE_BULLET_CHARS, and each item's
+  // own check carries its wording whole.
+  it("signs off a plan where every pick is two bullets at the edit ceiling", () => {
+    const long = `${"word ".repeat(1_000).slice(0, MAX_EDITED_BULLET_CHARS - 1)}.`;
+    expect(long).toHaveLength(MAX_EDITED_BULLET_CHARS);
+    const items = planShape(picks, (index) => [0, 0, 1, 2][index]!).map((item) => ({ ...item, bullets: [long, long] }));
+    const lines = lineEnvelopes(items);
+    for (const line of lines) {
+      const batches = planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: line.checks, includeStorylineQuestion: true });
+      expectWellFormedBatches(batches, ordinary, line.checks);
+      for (const check of line.checks) {
+        if (check.itemId) expect(check.wording).toEqual([long, long]);
+        for (const reference of check.relationshipReferences) {
+          for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
+        }
+      }
+    }
+    const chainRules = lines
+      .flatMap((line) => line.checks)
+      .filter((check) => check.ruleId === ADVANCEMENTS_ANSWER_242_RULE_ID || check.ruleId === WORK_ANSWERS_242_RULE_ID);
+    expect(chainRules).toHaveLength(2);
+    for (const rule of chainRules) {
+      expect(rule.wording[0]).toContain("…");
+      expect(rule.wording[0]).not.toContain(long);
+    }
+  });
+
+  // Review round 2: a LEAVE OUT check carries its dropped uncertainty's
+  // experiments and advancements as references, clipped the same way.
+  it("signs off with three dropped uncertainties whose related items are at the edit ceiling", () => {
+    const long = `${"word ".repeat(1_000).slice(0, MAX_EDITED_BULLET_CHARS - 1)}.`;
+    const items = planShape(picks, (index) => [0, 0, 1, 2][index]!).map((item) => ({ ...item, bullets: [long, long] }));
+    const related = (prefix: string) => Array.from({ length: 3 }, (_, index) => ({ seedId: realId(prefix, index), wording: [long, long] }));
+    const droppedUncertainties = Array.from({ length: 3 }, (_, index) => ({
+      seedId: realId("du", index),
+      wording: [long, long],
+      experiments: related(`de${index}`),
+      advancements: related(`da${index}`),
+    }));
+    for (const section of ["242", "244", "246"] as const) {
+      const plan = buildFrozenSummaryPlan({
+        section: `s${section}`,
+        items,
+        skippedRoleIds: [],
+        referencesBySeedId: new Map(items.map((item) => [item.seedId, item.bullets] as const)),
+        droppedUncertainties,
+        ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        resultsAgainstTargets: true,
+        factsMatchSources: true,
+      });
+      const leaveOuts = plan.checks.filter((check) => check.instruction === "leave_out");
+      expect(leaveOuts).toHaveLength(3);
+      for (const check of leaveOuts) {
+        expect(check.wording).toEqual([long, long]);
+        expect(check.relationshipReferences).toHaveLength(6);
+        for (const reference of check.relationshipReferences) {
+          for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
+        }
+      }
+      // The plan entries drafting reads are clipped the same way.
+      const entries = plan.block
+        .split("\n")
+        .filter((line) => line.startsWith("{"))
+        .map((line) => JSON.parse(line) as { kind: string; wording: string[]; relationshipReferences?: Array<{ wording: string[] }> })
+        .filter((entry) => entry.kind === "leave_out");
+      expect(entries).toHaveLength(3);
+      for (const entry of entries) {
+        expect(entry.wording).toEqual([long, long]);
+        for (const reference of entry.relationshipReferences ?? []) {
+          for (const bullet of reference.wording) expect(Array.from(bullet).length).toBeLessThanOrEqual(MAX_REFERENCE_BULLET_CHARS);
+        }
+        expect(entry.relationshipReferences).toHaveLength(6);
+      }
+      const batches = planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: plan.checks, includeStorylineQuestion: true });
+      expectWellFormedBatches(batches, ordinary, plan.checks);
+    }
+  });
+
+  it("clips a reference bullet past 600 characters with a mark, and leaves one within it alone", () => {
+    expect(MAX_REFERENCE_BULLET_CHARS).toBe(600);
+    for (const within of ["a".repeat(600), "é".repeat(600), "Short wording."]) expect(clipReferenceBullet(within)).toBe(within);
+    const clipped = clipReferenceBullet(`${"word ".repeat(200)}end.`);
+    expect(clipped.endsWith("…")).toBe(true);
+    expect(Array.from(clipped).length).toBeLessThanOrEqual(600);
+    expect(clipped.startsWith("word word")).toBe(true);
+  });
+
+  it("refuses a check that does not fit a request on its own, naming its limit", () => {
+    const [line] = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    const huge: FrozenSummaryPlanCheck = {
+      ...line!.checks.find((check) => check.itemId)!,
+      sourceReferences: [{ originatingItemId: "x", sourceId: "source", exactExcerpt: "x".repeat(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES) }],
+    };
+    const checks = line!.checks.map((check) => (check.itemId === huge.itemId ? huge : check));
+    expect(() => planSummarySelfCheckBatches({ ordinaryChecks: ordinary, planChecks: checks, includeStorylineQuestion: true }))
+      .toThrow(expect.objectContaining({ limit: "summary_plan_check_input_utf8_bytes" }));
+  });
+
+  it("refuses a Line that needs more than 8 requests", () => {
+    expect(MAX_SUMMARY_SELF_CHECK_BATCHES).toBe(8);
+    const rules = (count: number) => projectSummaryOrdinaryChecks({
+      storylineText: "",
+      confidenceMap: [],
+      glossaryTerms: [],
+      rules: Array.from({ length: count }, () => ({ instruction: "Rule." })),
+    });
+    const [line] = lineEnvelopes(planShape(picks, (index) => [0, 0, 1, 2][index]!));
+    // 64 labels a request; the plan's checks fit beside the last 64.
+    const fitting = planSummarySelfCheckBatches({ ordinaryChecks: rules(64 * 8), planChecks: line!.checks, includeStorylineQuestion: false });
+    expect(fitting).toHaveLength(8);
+    expectWellFormedBatches(fitting, rules(64 * 8), line!.checks);
+    expect(() => planSummarySelfCheckBatches({ ordinaryChecks: rules(64 * 8 + 1), planChecks: line!.checks, includeStorylineQuestion: false }))
+      .toThrow(expect.objectContaining({ limit: "summary_self_check_batches" }));
+  });
+
+  // 2026-10-22 (third): older Briefs on the dev deployment carry 37 to 46
+  // Confidence Map entries and Glossary Terms, which 30 refused.
+  it("admits a 46-entry Brief beside the refused plan, and refuses 65 ordinary checks", () => {
+    const large = projectSummaryOrdinaryChecks({
+      storylineText: "Storyline",
+      confidenceMap: Array.from({ length: 23 }, () => ({ text: "Confidence" })),
+      glossaryTerms: Array.from({ length: 23 }, () => "Term"),
+      writerFlavor: "Plain words.",
+      rules: Array.from({ length: 3 }, () => ({ instruction: "Rule." })),
+    });
+    expect(large).toHaveLength(51);
+    for (const section of ["242", "244", "246"] as const) {
+      const plan = buildFrozenSummaryPlan({
+        section: `s${section}`,
+        items: planShape(picks, (index) => [0, 0, 1, 2][index]!),
+        skippedRoleIds: [],
+        referencesBySeedId: new Map(planShape(picks, (index) => [0, 0, 1, 2][index]!)
+          .map((item) => [item.seedId, item.bullets] as const)),
+        droppedUncertainties: [],
+        ...(section === "246" ? { answers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        ...(section === "244" ? { workAnswers242: { line242Text: ANSWERS_242_WORST_CASE_REFERENCE } } : {}),
+        resultsAgainstTargets: true,
+        factsMatchSources: true,
+      });
+      expect(() => summarySelfCheckWorstCaseResponse({
+        ordinaryChecks: large,
+        planChecks: plan.checks,
+        includeStorylineQuestion: true,
+      })).not.toThrow();
+    }
+    expect(MAX_SUMMARY_ORDINARY_VERDICTS).toBe(64);
+    const rules = (count: number) => projectSummaryOrdinaryChecks({
+      storylineText: "",
+      confidenceMap: [],
+      glossaryTerms: [],
+      rules: Array.from({ length: count }, () => ({ instruction: "Rule." })),
+    });
+    expect(() => summarySelfCheckWorstCaseResponse({
+      ordinaryChecks: rules(64), planChecks: [], includeStorylineQuestion: false,
+    })).not.toThrow();
+    expect(() => summarySelfCheckWorstCaseResponse({
+      ordinaryChecks: rules(65), planChecks: [], includeStorylineQuestion: false,
+    })).toThrow(expect.objectContaining({ limit: "summary_self_check_ordinary_count" }));
   });
 });

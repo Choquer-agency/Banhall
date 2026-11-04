@@ -2,7 +2,7 @@ import {
   matchesClaimExclusion,
   normalizeExclusionMatch,
 } from "./claimExclusionMatcher";
-import { LINE_LIMITS, WORD_CAPS, sectionMetrics } from "./lineLimits";
+import { LINE_LIMITS, WORD_CAPS, generationCeiling, overGenerationCeiling, sectionMetrics } from "./lineLimits";
 import { STORYLINE_QUESTION_WITHHELD_REASON } from "./storylineQuestionNote";
 import { sectionParagraphs } from "./tiptapReport";
 import { matchGlossaryTerms } from "./glossaryMatcher";
@@ -30,6 +30,7 @@ import {
   type GovernedTermState,
 } from "./writerPrecedence";
 import { findSourceTalk, SOURCE_TALK } from "../../shared/humanProse";
+import { findNotesToWriter, findWebOnlyDetails, NOTES_TO_WRITER, WEB_ONLY_DETAIL } from "../ai/qaChecks";
 import { capWithinLocked, ruleBearsOnLine } from "./writerLineCap";
 import {
   bannedRuleHits,
@@ -42,9 +43,19 @@ import {
   openingRowInstruction,
   openingStatement,
   termRowInstruction,
+  wordingRuleKey,
+  SAVED_PREFERENCE_ROW_INSTRUCTION,
   type RequiredTermRule,
+  type WordingLoss,
   type WriterWordingRules,
 } from "./writerWording";
+
+/**
+ * 2026-10-29 (third, item 7): the Locked row's words for a Line over its CRA
+ * limits but within its drafting ceiling: it passes, and must be trimmed
+ * before export.
+ */
+export const LOCKED_WITHIN_ALLOWANCE = "over the CRA limit but within the drafting allowance";
 
 /**
  * Story 2 (CAP-9, AD-25): the deterministic half of a section's Self-check.
@@ -288,6 +299,36 @@ export const REPAIR_LEFT_CHECKED_TEXT = "; the repair left the checked text as i
 export const ORG_ENFORCED_WAIVER_REASON =
   "org-enforced: this House Rule applies regardless of the Writer Profile";
 
+/**
+ * Fifth re-check (2026-10-27): the row of a wording rule read from a saved
+ * preference. People other than the writer read Compliance Notes, so it
+ * says only what code measured: the outcome and the paragraph.
+ */
+function savedPreferenceRuleRow(row: ComplianceNoteDraft): ComplianceNoteDraft {
+  const where = row.paragraphIndex !== undefined ? ` in paragraph ${row.paragraphIndex + 1}` : "";
+  return noteDraft({
+    section: row.section,
+    ...(row.paragraphIndex !== undefined ? { paragraphIndex: row.paragraphIndex } : {}),
+    source: "deterministic",
+    instruction: SAVED_PREFERENCE_ROW_INSTRUCTION,
+    outcome: row.outcome,
+    tier: row.tier,
+    // "Not measured: the House Rule openers apply ..." holds none of the rule's
+    // words. No full stop, as other measured rows, so a note can follow it.
+    reason: row.reason.startsWith("Not measured")
+      ? row.reason
+      : row.outcome === "applied"
+        ? "Followed, as measured by code"
+        : `Not followed${where}, as measured by code`,
+    repaired: row.repaired,
+  });
+}
+
+/** How the Writer Profile row and the Self-check's row name a broken saved preference. */
+function savedPreferenceRuleFailure(row: ComplianceNoteDraft): string {
+  return `a saved preference is not followed${row.paragraphIndex !== undefined ? ` in paragraph ${row.paragraphIndex + 1}` : ""}`;
+}
+
 export function runDeterministicSelfCheck(input: {
   section: SectionNumber;
   text: string;
@@ -319,6 +360,27 @@ export function runDeterministicSelfCheck(input: {
    * and Compare keep their rows and requests.
    */
   sourceTalk?: { subjectText: readonly string[] };
+  /**
+   * 2026-10-30 (owner, "please fix all properly", item 3): the Locked check
+   * for notes to the writer in report text (findNotesToWriter) runs in every
+   * mode. Its row is added only when it finds one, or when `notesToWriterRow`
+   * is set: the check of the final text after a repair sets it when the
+   * checked draft had the row, so the row then says whether the repair
+   * fixed it. A Line with no such note keeps its rows and requests as before.
+   */
+  notesToWriterRow?: boolean;
+  /** After the live rerun (R1): the claimant's name, so attribution to it is a note too. */
+  claimantName?: string;
+  /**
+   * 2026-11-02 (proposed): when the draft read public background, its
+   * answers and the evidence the drafter read (analysis, Brief, plan). A
+   * sentence that states a figure or name found only in the answers gets a
+   * Locked row and goes to the repair (findWebOnlyDetails). Absent: no such
+   * check and no row, so a draft without background keeps its rows.
+   */
+  webOnly?: { answers: string; evidence: string };
+  /** The final text's check keeps the row when the checked draft had one. */
+  webOnlyRow?: boolean;
   /**
    * 2026-10-04 (first), Round 5: the writer's wording rules code measures
    * (extractWriterWordingRules), when the Writer Profile applied. Absent or
@@ -410,21 +472,30 @@ export function runDeterministicSelfCheck(input: {
     }
   }
 
-  // Locked caps (never overridable).
+  // Locked caps (never overridable). 2026-10-29 (third, item 7, owner):
+  // they apply at export. While drafting, a Line within its drafting
+  // ceiling (the caps plus GENERATION_LIMIT_ALLOWANCE) passes, with a note
+  // that it must be trimmed before export; only a Line over the ceiling
+  // fails and is shortened, to under the ceiling.
   const metrics = sectionMetrics(text, key);
   const lockedCap = `${metrics.wordCap} words and ${metrics.limit} form lines`;
+  const ceiling = generationCeiling(key);
+  const overCeiling = overGenerationCeiling(metrics, key);
+  const counts = `${metrics.words}/${metrics.wordCap} words, ${metrics.lines}/${metrics.limit} lines`;
   add(
     "locked",
     {
       instruction: `Locked Rule: Line ${section} holds at most ${lockedCap}`,
-      outcome: metrics.overLimit ? "not_applied" : "applied",
+      outcome: overCeiling ? "not_applied" : "applied",
       tier: "locked",
-      reason: metrics.overLimit
-        ? `cap breach at ${metrics.words}/${metrics.wordCap} words, ${metrics.lines}/${metrics.limit} lines`
-        : `within cap at ${metrics.words}/${metrics.wordCap} words, ${metrics.lines}/${metrics.limit} lines`,
+      reason: overCeiling
+        ? `cap breach at ${counts}, over the drafting limit of ${ceiling.wordCap} words and ${ceiling.lineLimit} lines`
+        : metrics.overLimit
+          ? `${LOCKED_WITHIN_ALLOWANCE} at ${counts}; trim Line ${section} to ${lockedCap} before export`
+          : `within cap at ${counts}`,
     },
-    metrics.overLimit,
-    `Shorten Line ${section} to at most ${lockedCap} (now ${metrics.words} words, ${metrics.lines} lines).`
+    overCeiling,
+    `Shorten Line ${section} to at most ${ceiling.wordCap} words and ${ceiling.lineLimit} form lines (now ${metrics.words} words, ${metrics.lines} lines); it must fit ${lockedCap} before export.`
   );
   entries[entries.length - 1]!.measuredCap = {
     kind: "locked",
@@ -529,7 +600,9 @@ export function runDeterministicSelfCheck(input: {
   // measured here, on this text, as the caps are. Each rule gets its own
   // row naming the paragraph and the words, a break goes to the repair as an
   // exact issue, and the Writer Profile row's caveat below covers it.
-  if (profile.profileState === "applied" && input.writerWording) {
+  // E1b review: saved preferences' wording rules are measured too, with or
+  // without a Writer Profile.
+  if ((profile.profileState === "applied" || profile.savedPreferencesApplied === true) && input.writerWording) {
     const wording = input.writerWording;
     const measuredEntry = (source: string, failure?: string, opening?: string) => {
       const entry = entries[entries.length - 1]!;
@@ -544,7 +617,7 @@ export function runDeterministicSelfCheck(input: {
       const used = holdsPhrase(text, rule.term);
       const instruction = termRowInstruction(rule);
       if (hits.length === 0) {
-        add(`wording:term:${index}`, {
+        add(wordingRuleKey("term", index), {
           instruction,
           outcome: "applied",
           tier: "none",
@@ -555,7 +628,7 @@ export function runDeterministicSelfCheck(input: {
       }
       const found = hitsPhrase(hits);
       add(
-        `wording:term:${index}`,
+        wordingRuleKey("term", index),
         {
           instruction,
           paragraphIndex: hits[0]!.paragraphIndex,
@@ -576,13 +649,13 @@ export function runDeterministicSelfCheck(input: {
       const hits = bannedRuleHits(text, rule, requiredTerms);
       const instruction = bannedRowInstruction(rule);
       if (hits.length === 0) {
-        add(`wording:banned:${index}`, { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
+        add(wordingRuleKey("banned", index), { instruction, outcome: "applied", tier: "none", reason: `"${rule.phrase}" not used` });
         measuredEntry(rule.source);
         return;
       }
       const found = hitsPhrase(hits);
       add(
-        `wording:banned:${index}`,
+        wordingRuleKey("banned", index),
         {
           instruction,
           paragraphIndex: hits[0]!.paragraphIndex,
@@ -604,7 +677,7 @@ export function runDeterministicSelfCheck(input: {
       const instruction = openingRowInstruction(rule);
       // The House Rule openers outrank the writer's opening unless waived.
       if (openers && !openers.effective) {
-        add(`wording:opening:${index}`, {
+        add(wordingRuleKey("opening", index), {
           instruction,
           outcome: "not_applied",
           tier: openers.tier,
@@ -614,7 +687,7 @@ export function runDeterministicSelfCheck(input: {
       }
       const at = openingAt(text, rule.opening);
       if (at) {
-        add(`wording:opening:${index}`, {
+        add(wordingRuleKey("opening", index), {
           instruction,
           paragraphIndex: at.paragraphIndex,
           outcome: "applied",
@@ -625,7 +698,7 @@ export function runDeterministicSelfCheck(input: {
         return;
       }
       add(
-        `wording:opening:${index}`,
+        wordingRuleKey("opening", index),
         {
           instruction,
           outcome: "not_applied",
@@ -639,6 +712,17 @@ export function runDeterministicSelfCheck(input: {
       );
       measuredEntry(rule.source, `no sentence of Line ${section} opens with "${rule.opening}"`, rule.opening);
     });
+    // Fifth re-check: a rule read from a saved preference keeps its outcome
+    // and paragraph, and its row and its failure name it only as a saved
+    // preference. The repair guidance, sent only to the model, keeps the words.
+    for (const entry of entries) {
+      const match = /^wording:(term|banned|opening):(\d+)$/.exec(entry.key);
+      if (!match) continue;
+      const rules = match[1] === "term" ? wording.terms : match[1] === "banned" ? wording.banned : wording.openings;
+      if (!rules[Number(match[2])]?.savedPreference) continue;
+      entry.row = savedPreferenceRuleRow(entry.row);
+      if (entry.profileRuleFailure) entry.profileRuleFailure = savedPreferenceRuleFailure(entry.row);
+    }
   }
 
   // 2026-10-04 (first): the Writer Profile row says the profile was used to
@@ -801,7 +885,83 @@ export function runDeterministicSelfCheck(input: {
     }
   }
 
+  // 2026-10-30: notes to the writer in report text, Locked. In a signed-off
+  // plan run a phrase the source-talk check already names is left to it,
+  // so one fix never asks for the same words twice.
+  const sourceTalkAt = input.sourceTalk
+    ? paragraphs.map((paragraph) => findSourceTalk(paragraph, { subjectText: input.sourceTalk!.subjectText }))
+    : [];
+  const notes = paragraphs.flatMap((paragraph, index) =>
+    findNotesToWriter(paragraph, input.claimantName ? { claimantName: input.claimantName } : {})
+      .filter((hit) => !(sourceTalkAt[index] ?? []).some((talk) =>
+        talk.index < hit.index + hit.phrase.length && hit.index < talk.index + talk.phrase.length))
+      .map((hit) => ({ index, phrase: hit.phrase })));
+  if (notes.length > 0) {
+    add(
+      NOTES_TO_WRITER_KEY,
+      {
+        instruction: NOTES_TO_WRITER.instruction,
+        paragraphIndex: notes[0]!.index,
+        outcome: "not_applied",
+        tier: "locked",
+        reason: `a note to the writer in ${sourceTalkPlaces(notes)}`,
+      },
+      true,
+      notesToWriterRepairIssue(notes)
+    );
+  } else if (input.notesToWriterRow) {
+    add(NOTES_TO_WRITER_KEY, {
+      instruction: NOTES_TO_WRITER.instruction,
+      outcome: "applied",
+      tier: "locked",
+      reason: NOTES_TO_WRITER.applied,
+    });
+  }
+
+  if (input.webOnly) {
+    const webOnly = paragraphs.flatMap((paragraph, index) =>
+      findWebOnlyDetails(paragraph, input.webOnly!.answers, input.webOnly!.evidence).map((hit) => ({
+        index,
+        phrase: hit.phrase,
+      }))
+    );
+    if (webOnly.length > 0) {
+      add(
+        WEB_ONLY_KEY,
+        {
+          instruction: WEB_ONLY_DETAIL.instruction,
+          paragraphIndex: webOnly[0]!.index,
+          outcome: "not_applied",
+          tier: "locked",
+          reason: `a detail found only in the public background in ${sourceTalkPlaces(webOnly)}`,
+        },
+        true,
+        webOnlyRepairIssue(webOnly)
+      );
+    } else if (input.webOnlyRow) {
+      add(WEB_ONLY_KEY, {
+        instruction: WEB_ONLY_DETAIL.instruction,
+        outcome: "applied",
+        tier: "locked",
+        reason: WEB_ONLY_DETAIL.applied,
+      });
+    }
+  }
+
   return { entries, glossaryCandidates, modelRules, paragraphs };
+}
+
+/** 2026-11-02 (proposed): the deterministic entry key of the web-only detail check. */
+export const WEB_ONLY_KEY = "webOnlyDetail";
+
+/** The repair fix for a web-only detail: the paragraphs, the details and the rule. */
+export function webOnlyRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where} states as a fact about the work a detail found only in the public background (${phrases.join(", ")}): ${WEB_ONLY_DETAIL.fix}. ${WEB_ONLY_DETAIL.rule}`;
 }
 
 /**
@@ -1325,6 +1485,22 @@ export function sourceTalkRepairIssue(found: ReadonlyArray<{ index: number; phra
   return `${where}: ${SOURCE_TALK.fix} (${phrases.join(", ")}). ${SOURCE_TALK.rule}`;
 }
 
+/** The deterministic entry key of the notes-to-the-writer check (2026-10-30). */
+export const NOTES_TO_WRITER_KEY = "notesToWriter";
+
+/**
+ * The repair fix for notes to the writer: the paragraphs, the words as
+ * written and the rule, in fixed words (NOTES_TO_WRITER in qaChecks.ts).
+ */
+export function notesToWriterRepairIssue(found: ReadonlyArray<{ index: number; phrase: string }>): string {
+  const paragraphs = [...new Set(found.map((hit) => hit.index + 1))];
+  const where = paragraphs.length === 1
+    ? `Paragraph ${paragraphs[0]}`
+    : `Paragraphs ${joinedList(paragraphs.map(String))}`;
+  const phrases = [...new Set(found.map((hit) => `"${hit.phrase}"`))].slice(0, SOURCE_TALK_NAMED);
+  return `${where}: ${NOTES_TO_WRITER.fix} (${phrases.join(", ")}). ${NOTES_TO_WRITER.rule}`;
+}
+
 /**
  * Every issue a repair must fix: deterministic guidance plus model verdicts.
  * A Glossary Term the writer's Feedback governs is repaired toward that
@@ -1470,7 +1646,12 @@ export function assembleSectionNotes(input: {
         sameAsChecked?: true;
       }
     | { ok: false; reason: string };
-}): { rows: ComplianceNoteDraft[]; summary: SelfCheckSummary } {
+}): {
+  rows: ComplianceNoteDraft[];
+  summary: SelfCheckSummary;
+  /** Sixth re-check: each code check's row by its entry key (a wording rule's key is wordingRuleKey). */
+  rowIndexByKey: Record<string, number>;
+} {
   const { section, before, verdicts, repair } = input;
   const failedBefore = new Set(
     before.entries
@@ -1512,7 +1693,7 @@ export function assembleSectionNotes(input: {
       ...rows[lockedIndex],
       reason: `${rows[lockedIndex].reason}; still over after ${passes} shortening ${
         passes === 1 ? "pass" : "passes"
-      }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before filing`,
+      }${failure}. The text was not cut to fit: shorten Line ${section} to ${metrics.wordCap} words and ${metrics.limit} lines before export`,
     };
   }
   // 2026-10-04 (first): a writer's whole-Line cap still not met after the
@@ -1553,8 +1734,14 @@ export function assembleSectionNotes(input: {
   ).length;
   // 2026-10-04 (first): the caps code measured and found not met on the
   // final text. No model row may vouch for one of them (writerRowGuard).
+  // 2026-10-29 (third, item 7): a Line over the CRA cap but within its
+  // drafting allowance passes its Locked row, and is still over the cap it
+  // must meet at export, so no model row vouches for its length either.
   const failedCaps = finalEntries.flatMap((entry) =>
-    entry.measuredCap && entry.row.outcome === "not_applied" ? [entry.measuredCap] : []
+    entry.measuredCap &&
+    (entry.row.outcome === "not_applied" || (entry.measuredCap.kind === "locked" && entry.measuredCap.over.length > 0))
+      ? [entry.measuredCap]
+      : []
   );
   // Round 5: the writer's wording rules code measured as broken on the
   // final text, which the model's row for the settings never contradicts.
@@ -1873,6 +2060,7 @@ export function assembleSectionNotes(input: {
       : "repair_attempted";
   return {
     rows,
+    rowIndexByKey: Object.fromEntries(finalEntries.map((entry, index) => [entry.key, index])),
     summary: {
       status,
       repairAttempted: repair.attempted,
@@ -1887,6 +2075,29 @@ export function assembleSectionNotes(input: {
         : {}),
     },
   };
+}
+
+/**
+ * Final re-check P2-C1, sixth re-check: each loss of a kept repair, on its
+ * own rule's row, found by the rule's key (never by the row's instruction,
+ * which saved-preference rows share).
+ */
+export function rowsWithRepairLosses(
+  rows: readonly ComplianceNoteDraft[],
+  rowIndexByKey: Readonly<Record<string, number>>,
+  losses: readonly WordingLoss[]
+): ComplianceNoteDraft[] {
+  const out = [...rows];
+  for (const loss of losses) {
+    const index = rowIndexByKey[loss.key] ?? -1;
+    if (index < 0) continue;
+    out[index] = {
+      ...out[index]!,
+      // Seventh re-check: never ".;" after a reason that ends a sentence.
+      reason: `${out[index]!.reason.replace(/\.$/, "")}; the repair, kept for what it fixed (which outranks the writer's settings), ${loss.reason}`,
+    };
+  }
+  return out;
 }
 
 const CONSISTENCY_KIND_LABELS: Record<ConsistencyFinding["kind"], string> = {

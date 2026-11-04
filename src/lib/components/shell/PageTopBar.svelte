@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  /** The top bar's one filled button (Rail v3 top bar: 38px, radius 9, 15/500). */
+  /** The top bar's one filled button (38px, radius 9, 15/500). */
   export type TopBarPrimaryAction = {
     label: string;
     /** A link when set; otherwise a button that calls `onclick`. */
@@ -12,32 +12,30 @@
 <script lang="ts">
   import type { PageIcon } from "$lib/components/shell/pageIcon";
   /**
-   * The standard top bar (owner rule, Paper "Top bar" on board Z11a,
-   * 2026-10-19 amendment in docs/design-system.md): a 64px row, 8px sides,
-   * the page title at 20/26 500 in ink (owner, 2026-10-19: a step smaller), then a muted 14px count (or a muted
-   * subtitle), or a breadcrumb ("Admin / House rules"). Right: a status slot,
-   * the bell (What's new, with the unseen dot), the page actions and the
-   * primary button. The centre stays free for the View as pill, which the
-   * shell layers over this bar. Every workspace screen uses it.
+   * The page top bar (the page frame, owner 2026-10-28; Paper S9 and S11):
+   * a 64px row at the top of the white card, sharing the content's side
+   * inset (32px on a desktop). The page title at 22/28 500 in ink, then a
+   * muted 15/20 count ("7 people") or a muted line, then on the right the
+   * status slot, the page actions and one primary button. The bell moved to
+   * the global bar; below 1024px, where there is no global bar, the bar keeps
+   * the hamburger and the bell as before. While the page's section sidebar is
+   * collapsed, its expand button leads the bar.
    *
-   * `variant="bleed"` (H1, tablet): the bar sits on white over a full-bleed
-   * page with a soft line under it, 20px sides, and no bell.
-   * `variant="phone"` (H2): a 52px bar with a back arrow (when `onBack` is
-   * set) and the page title in 16px, no breadcrumb or bell.
-   *
-   * `icon` and `iconSnippet` are still accepted but draw nothing: the
-   * standard bar has no page tile.
+   * `variant="bleed"` (H1, tablet): a soft line under the bar, 20px sides,
+   * no bell. `variant="phone"` (H2): a 52px bar with a back arrow (when
+   * `onBack` is set) and the page title in 16px, no breadcrumb or bell.
    */
   import type { Snippet } from "svelte";
-  import { resolve } from "$app/paths";
-  import { IconArrowLeft, IconBell } from "$lib/components/icons";
-  import { useQuery } from "convex-svelte";
-  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { api } from "../../../../convex/_generated/api";
+  import { IconArrowLeft } from "$lib/components/icons";
+  import TopBarBell from "$lib/components/shell/TopBarBell.svelte";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import SectionSidebarExpand from "$lib/components/workspace/SectionSidebarExpand.svelte";
+  import { topBarPrimary } from "$lib/components/shell/topBar";
+  import { sidebarHoldsAction } from "$lib/workspace/sectionSidebar.svelte";
 
   let {
     title,
+    titlePending = false,
     count = null,
     subtitle = null,
     breadcrumb = null,
@@ -46,45 +44,57 @@
     status = undefined,
     actions = undefined,
     primaryAction = null,
+    primaryActionInSidebar = false,
+    sidebarToggle = false,
     variant = "default",
     onBack = null,
+    titleTag = "h1",
+    class: className = "",
   }: {
     title: string;
-    /** Muted count after the title ("42", "1000+"). */
+    /** The title is not known yet (a company page loading): a quiet block holds its place. */
+    titlePending?: boolean;
+    /** Muted count after the title ("7 people", "42"). */
     count?: string | number | null;
     subtitle?: string | null;
     /** Parent page link shown before the title ("Admin /"). */
     breadcrumb?: { label: string; href: string } | null;
-    /** @deprecated The standard bar draws no page tile (2026-10-19). */
+    /** @deprecated The bar draws no page tile (2026-10-19). */
     icon?: PageIcon;
-    /** @deprecated The standard bar draws no page tile (2026-10-19). */
+    /** @deprecated The bar draws no page tile (2026-10-19). */
     iconSnippet?: Snippet;
     tone?: "light" | "dark";
-    /** @deprecated The rail draws its own collapse control (2026-10-19). */
-    railHidden?: boolean;
     onOpenNavigation: () => void;
-    /** @deprecated The rail draws its own collapse control (2026-10-19). */
-    onToggleRail?: (() => void) | null;
     status?: Snippet;
     actions?: Snippet;
-    /** The filled button at the right edge ("New project"). */
+    /** The filled button at the right edge ("Invite people"). */
     primaryAction?: TopBarPrimaryAction | null;
+    /**
+     * The section sidebar carries the same action from 768px ("New project",
+     * "Invite people"), so the bar shows it only below that, or while the
+     * sidebar is collapsed or not drawn. The server always counts the
+     * sidebar as drawn and open, so set this only where the server draws the
+     * sidebar whenever it draws the action; otherwise the button is hidden
+     * from 768px until the page is live.
+     */
+    primaryActionInSidebar?: boolean;
+    /** The page has a section sidebar: lead with its expand button while it is collapsed. */
+    sidebarToggle?: boolean;
     variant?: "default" | "bleed" | "phone";
     /** Phone variant: the back arrow's action, in place of the shell controls. */
     onBack?: (() => void) | null;
+    /** `p` when the page's h1 is elsewhere (the phone bar over a company on Projects). */
+    titleTag?: "h1" | "p";
+    class?: string;
   } = $props();
 
+  // Only small screens draw the bell here; the plain variants never do.
   const plain = $derived(variant !== "default");
-
-  const auth = useAuth();
-  // The plain variants draw no bell, so they read no unseen count.
-  const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated && !plain ? {} : "skip"));
-  const unseen = $derived(unseenQ.data ?? 0);
 
   const focusRing =
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
-  const primaryClass =
-    "inline-flex h-[2.375rem] shrink-0 items-center rounded-[0.5625rem] bg-primary-selected px-4 text-[0.9375rem] font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11";
+  const holdsAction = $derived(primaryActionInSidebar && sidebarHoldsAction());
+  const primaryClass = $derived(`${topBarPrimary} ${holdsAction ? "md:hidden" : ""}`);
 </script>
 
 <header
@@ -96,8 +106,8 @@
       ? "h-[3.25rem] gap-2 border-b border-line-soft bg-surface pr-3 pl-2"
       : variant === "bleed"
         ? "h-16 gap-2.5 border-b border-line-soft bg-surface px-5"
-        : "h-16 gap-2.5 px-2"
-  }`}
+        : "h-16 gap-3 px-4 sm:px-6 lg:px-8"
+  } ${className}`}
 >
   {#if variant === "phone" && onBack}
     <button
@@ -112,11 +122,12 @@
   {:else}
     <WorkspaceShellControls {tone} {onOpenNavigation} />
   {/if}
+  {#if sidebarToggle && !plain}<SectionSidebarExpand />{/if}
   {#if variant === "phone"}
     <h1 class="min-w-0 flex-1 truncate text-base leading-[1.375] font-medium text-ink">{title}</h1>
   {:else if breadcrumb}
     <!-- B3: "Admin /" is one muted run, then the bar gap, then the page. -->
-    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-xl leading-[1.3]">
+    <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-[1.375rem] leading-[calc(14/11)]">
       <span class="shrink-0 whitespace-pre text-ink-muted"><a
           href={breadcrumb.href}
           data-page-breadcrumb
@@ -124,10 +135,13 @@
         >{breadcrumb.label}</a><span aria-hidden="true">{" /"}</span></span>
       <h1 aria-current="page" class="min-w-0 truncate font-medium text-ink">{title}</h1>
     </nav>
+  {:else if titlePending}
+    <span data-page-title-pending aria-hidden="true" class="h-7 w-48 max-w-[40%] shrink animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></span>
   {:else}
-    <h1 class="min-w-0 shrink truncate text-xl font-medium leading-[1.3] text-ink">{title}</h1>
+    <!-- Focusable from script only (a rename, a selection that ends), never by Tab. -->
+    <svelte:element this={titleTag} data-page-title tabindex="-1" class="min-w-0 shrink truncate text-[1.375rem] font-medium leading-[calc(14/11)] text-ink outline-none">{title}</svelte:element>
     {#if count !== null && count !== undefined && count !== ""}
-      <span data-page-count class="shrink-0 text-sm leading-[calc(10/7)] text-ink-muted">{count}</span>
+      <span data-page-count class="shrink-0 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted">{count}</span>
     {/if}
     {#if subtitle}
       <p data-page-subtitle class="min-w-0 truncate text-sm leading-[calc(10/7)] text-ink-muted max-sm:hidden">{subtitle}</p>
@@ -136,17 +150,8 @@
   {#if variant !== "phone"}<div class="flex-1"></div>{/if}
   {@render status?.()}
   {#if !plain}
-  <a
-    href={resolve("/changelog")}
-    data-top-bar-bell
-    aria-label={unseen > 0 ? `What's new, ${unseen} new update${unseen === 1 ? "" : "s"}` : "What's new"}
-    class={`relative flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink ${focusRing} motion-reduce:transition-none pointer-coarse:size-11`}
-  >
-    <IconBell size={16} strokeWidth={1.5} />
-    {#if unseen > 0}
-      <span aria-hidden="true" class="absolute right-2.5 top-2 size-1.5 rounded-full bg-primary"></span>
-    {/if}
-  </a>
+    <!-- Below 1024px only: from there the global bar holds the bell. -->
+    <TopBarBell />
   {/if}
   {@render actions?.()}
   {#if primaryAction}

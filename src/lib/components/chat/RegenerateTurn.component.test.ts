@@ -159,7 +159,8 @@ it.each(["queued", "researching", "reviewing", "streaming"])("disables historica
 it("preserves an active proposal refinement and its draft", async () => {
   __setQueryData("chatV2:listProposals", [{ _id: "proposal-1", _creationTime: 1000, agentThreadId: "thread-1", projectId, reportId, kind: "edit", targetText: "Existing wording", newText: "Candidate wording", state: "pending", createdAt: 1000 }]);
   await render(AgentChatPanel, { reportId, projectId });
-  // Refine lives in the suggested-edit card's More menu (board 2.1).
+  // Refine lives in the opened card's More menu.
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
   await page.getByRole("menuitem", { name: "Refine with AI", exact: true }).click();
   const composer = page.getByRole("textbox");
@@ -180,7 +181,7 @@ it("returns to the original thread and waits for loaded idle timing before retry
   __setMutationError("chatV2:sendAlternative", new Error("Please retry resend"));
   await regenerate().click();
   await expect.element(page.getByRole("alert")).toHaveTextContent("Please retry resend");
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   await page.getByRole("textbox").fill("Second thread draft");
   expect(page.getByRole("button", { name: "Retry", exact: true }).elements()).toHaveLength(0);
@@ -317,6 +318,7 @@ it("preserves Copy, proposal contents, Brain sources and feedback after regenera
   await page.getByRole("button", { name: "Copy", exact: true }).click();
   expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("Original answer remains.");
   await expect.element(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   await expect.element(page.getByText("Candidate wording", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "More actions for this suggestion", exact: true })).toBeEnabled();
   await expect.element(page.getByRole("button", { name: "Mark response helpful", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -370,14 +372,14 @@ it("reconciles a pending send outside the loaded messages after in-flight naviga
   ]);
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   await page.getByRole("textbox").fill("Second thread draft");
   settle({ threadId: "thread-1", messageId: "offscreen-prompt" });
   await expect.poll(() => __activeQueryArgs("chatV2:listProposals")).toEqual([{ threadId: "thread-2" }]);
   await expect.element(page.getByRole("textbox")).toHaveValue("Second thread draft");
   await expect.element(regenerate()).toBeEnabled();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Original conversation", exact: false }).click();
   // The pending prompt has fallen outside the newest message page.
   __setPaginatedRows("chatV2:listMessages", [row("user", { order: 5 }), row("assistant", { order: 5 })]);
@@ -410,7 +412,7 @@ it("preserves the visible conversation and draft when an offscreen regeneration 
   ]);
   await render(AgentChatPanel, { reportId, projectId });
   await regenerate().click();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   await page.getByRole("textbox").fill("Second thread draft");
   rejectSend(new Error("Delayed resend failure"));

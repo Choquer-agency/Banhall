@@ -46,7 +46,7 @@ import { resolveGenerationStep } from "./lib/generationSteps";
 import { MODEL } from "../shared/generationModels";
 import { anthropicConfiguration, openRouterConfiguration } from "./lib/providerConfig";
 import { briefPreparationKey } from "./lib/briefPreparationKey";
-import { buildBriefUserMessage } from "./lib/briefRequest";
+import { briefRequestCharsUpperBound, briefSourcesFit, buildBriefUserMessage } from "./lib/briefRequest";
 import {
   preparationDay,
   preparationLimitRefusal,
@@ -82,6 +82,7 @@ import {
   requestBriefPreparation,
 } from "./lib/briefPreparationTrigger";
 import { validatedExcludedSources } from "./lib/generations/reservation";
+import { projectCopyInProgress } from "./lib/projectCopy";
 
 /** How long one attempt may run: the action limit plus room to write. */
 export const PREPARATION_LEASE_MS = 11 * 60 * 1000;
@@ -464,6 +465,12 @@ async function readProjectEvidence(
     await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
     return null;
   }
+  // F2 (2026-10-27): files still being copied into the project are files
+  // still arriving; their text is not there yet.
+  if (await projectCopyInProgress(ctx, project._id)) {
+    await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
+    return null;
+  }
 
   // From here on the start has read the evidence: however it ends, a
   // ready copy made from older evidence is not kept (it may hold text the
@@ -472,6 +479,7 @@ async function readProjectEvidence(
   const evidence = await selectFrozenEvidence(ctx, project._id, {
     transcriptIds: preparation.excludedTranscriptIds ?? [],
     documentIds: preparation.excludedDocumentIds ?? [],
+    companyFileIds: preparation.excludedCompanyFileIds ?? [],
   });
   const cancel = async (reason: string) => {
     await obsoleteReady(ctx, scope);
@@ -607,7 +615,8 @@ async function readDraftEvidence(
         ctx,
         draft,
         evidence.transcripts,
-        evidence.fields.map((field) => field.content)
+        evidence.fields.map((field) => field.content),
+        evidence.companyNames
       ),
   };
 }
@@ -712,7 +721,14 @@ async function runPreparationStart(
   // the call against $0.50 per project (or draft) and $5 per user per
   // firm day.
   const firmDay = firmDayNumber(now);
-  const reservedUsd = reservePreparationUsd(pricing, route.model, buildBriefUserMessage(fields).length);
+  // Phase D, step 1: the parts are chosen once, for the key. When the
+  // sources do not all fit, the reservation counts an upper bound on the
+  // request (the whole budget, every rule, frame and notice), rather than
+  // choosing the parts a second time inside this transaction (review).
+  const requestChars = briefSourcesFit(fields)
+    ? buildBriefUserMessage(fields).length
+    : briefRequestCharsUpperBound(fields);
+  const reservedUsd = reservePreparationUsd(pricing, route.model, requestChars);
   const refusal = preparationLimitRefusal(
     await preparationDay(ctx, { userId: preparation.triggeredBy, scope, firmDay }),
     reservedUsd
@@ -839,7 +855,7 @@ async function currentProjectSelection(
   ctx: MutationCtx,
   projectId: Id<"projects">,
   now: number
-): Promise<{ transcriptIds: string[]; documentIds: string[] }> {
+): Promise<{ transcriptIds: string[]; documentIds: string[]; companyFileIds: string[] }> {
   const queued = await scopeRows(ctx, { projectId }, "queued", 1);
   const latest =
     queued[0] ??
@@ -852,6 +868,7 @@ async function currentProjectSelection(
   return {
     transcriptIds: fresh ? [...(latest?.excludedTranscriptIds ?? [])].sort() : [],
     documentIds: fresh ? [...(latest?.excludedDocumentIds ?? [])].sort() : [],
+    companyFileIds: fresh ? [...(latest?.excludedCompanyFileIds ?? [])].sort() : [],
   };
 }
 
@@ -870,6 +887,8 @@ export const setProjectStartSelection = mutation({
     projectId: v.id("projects"),
     excludedTranscriptIds: v.array(v.id("transcripts")),
     excludedDocumentIds: v.array(v.id("projectDocuments")),
+    // Phase C: the company's files left out (absent from older pages).
+    excludedCompanyFileIds: v.optional(v.array(v.id("companyFiles"))),
     confirm: v.optional(v.boolean()),
     // Cancel (review P3-5): a queued start for the unticked files ends, so
     // closing the dialog spends nothing, and the list no longer applies.
@@ -890,6 +909,7 @@ export const setProjectStartSelection = mutation({
           await ctx.db.patch(row._id, {
             excludedTranscriptIds: undefined,
             excludedDocumentIds: undefined,
+            excludedCompanyFileIds: undefined,
             selectionAt: undefined,
             updatedAt: now,
           });
@@ -911,10 +931,12 @@ export const setProjectStartSelection = mutation({
     const excluded = await validatedExcludedSources(ctx, project._id, {
       excludeTranscriptIds: args.excludedTranscriptIds,
       excludeDocumentIds: args.excludedDocumentIds,
+      excludeCompanyFileIds: args.excludedCompanyFileIds,
     });
     const next = {
       transcriptIds: [...new Set(excluded?.transcriptIds ?? [])].sort(),
       documentIds: [...new Set(excluded?.documentIds ?? [])].sort(),
+      companyFileIds: [...new Set(excluded?.companyFileIds ?? [])].sort(),
     };
     const now = Date.now();
     const current = await currentProjectSelection(ctx, project._id, now);
@@ -929,6 +951,7 @@ export const setProjectStartSelection = mutation({
         await ctx.db.patch(queuedId, {
           excludedTranscriptIds: next.transcriptIds.length ? (next.transcriptIds as Id<"transcripts">[]) : undefined,
           excludedDocumentIds: next.documentIds.length ? (next.documentIds as Id<"projectDocuments">[]) : undefined,
+          excludedCompanyFileIds: next.companyFileIds.length ? (next.companyFileIds as Id<"companyFiles">[]) : undefined,
           selectionAt: now,
         });
       }

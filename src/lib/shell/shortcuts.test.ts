@@ -34,7 +34,7 @@ describe("detectPlatform", () => {
 describe("keysFor and shortcutHint", () => {
   it("uses Mac symbols on a Mac (board I4)", () => {
     expect(keysFor("search", "mac")).toEqual(["⌘", "K"]);
-    expect(keysFor("collapseRail", "mac")).toEqual(["⌘", "\\"]);
+    expect(keysFor("collapseSidebar", "mac")).toEqual(["⌘", "\\"]);
     expect(keysFor("approveContinue", "mac")).toEqual(["⌘", "Enter"]);
     expect(keysFor("viewAs", "mac")).toEqual(["⇧", "V"]);
     expect(shortcutHint("search", "mac")).toBe("⌘K");
@@ -58,7 +58,7 @@ describe("keysFor and shortcutHint", () => {
 
   it("covers every shortcut named on the boards", () => {
     expect(Object.keys(SHORTCUTS).sort()).toEqual(
-      ["approveContinue", "collapseRail", "goAdmin", "help", "newProject", "search", "viewAs"].sort()
+      ["approveContinue", "collapseSidebar", "goAdmin", "help", "newProject", "search", "viewAs"].sort()
     );
   });
 });

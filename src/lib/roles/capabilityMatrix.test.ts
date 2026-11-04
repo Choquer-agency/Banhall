@@ -19,6 +19,8 @@ const expected: Record<Capability, Record<CapabilityRole, CapabilityLevel>> = {
   "project.transferOwnership": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "project.setStage": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "report.editProse": { writer: "own", manager: "all", admin: "all", financial: "none" },
+  // 2026-11-02 (client meeting): rule overrides on chat cards.
+  "report.overrideRules": { writer: "none", manager: "all", admin: "all", financial: "none" },
   "workItem.create": { writer: "own", manager: "all", admin: "all", financial: "none" },
   "workItem.completeOwn": { writer: "own", manager: "own", admin: "all", financial: "none" },
   "workItem.completeOthers": { writer: "none", manager: "all", admin: "all", financial: "none" },
@@ -36,6 +38,10 @@ const expected: Record<Capability, Record<CapabilityRole, CapabilityLevel>> = {
   "settings.configure": { writer: "none", manager: "none", admin: "all", financial: "none" },
   "ops.viewAlerts": { writer: "none", manager: "none", admin: "all", financial: "none" },
   "analytics.viewManager": { writer: "none", manager: "all", admin: "all", financial: "none" },
+  // Decision "2026-10-26", part 1: company files.
+  "companyFiles.read": { writer: "all", manager: "all", admin: "all", financial: "none" },
+  "companyFiles.add": { writer: "all", manager: "all", admin: "all", financial: "none" },
+  "companyFiles.manage": { writer: "none", manager: "all", admin: "all", financial: "none" },
 };
 
 describe("role capability matrix", () => {
@@ -78,5 +84,19 @@ describe("role capability matrix", () => {
     expect(hasCapability("writer", "project.readInternal")).toBe(true);
     expect(hasCapability("manager", "project.readInternal")).toBe(true);
     expect(hasCapability("admin", "project.readInternal")).toBe(true);
+  });
+});
+
+describe("company file quotes in drafts (Phase C review 2, 2026-10-26)", () => {
+  it("every role that may read a project's drafts may also read company files", () => {
+    // Seed and Summary provenance and Brief entry text show company file
+    // quotes to anyone who may read the draft; only file names and Brief
+    // quotes are hidden without companyFiles.read. A role that may read
+    // drafts but not company files needs those hidden first.
+    for (const role of roles) {
+      if (getEffectiveCapabilityLevel(role, "project.readInternal") !== "none") {
+        expect(hasCapability(role, "companyFiles.read"), role).toBe(true);
+      }
+    }
   });
 });

@@ -141,3 +141,35 @@ describe("helpers", () => {
     expect(sectionsFoundLabel(0)).toBeNull();
   });
 });
+
+describe("detectPdSections on Word Markdown (2026-10-26)", () => {
+  it("finds Lines written as Markdown headings or in bold", () => {
+    const text = [
+      "# Seal project",
+      "## Line 242 Technological uncertainty",
+      "Uncertainty body.",
+      "**Line 244**",
+      "Work body.",
+      "### **246**",
+      "Advancement body.",
+    ].join("\n\n");
+    const found = detectPdSections(text);
+    expect(found.map((s) => s.section)).toEqual(["s242", "s244", "s246"]);
+    expect(text.slice(found[0]!.bodyStart, found[0]!.end).trim()).toBe("Uncertainty body.");
+    expect(text.slice(found[1]!.bodyStart, found[1]!.end).trim().startsWith("Work body.")).toBe(true);
+    expect(text.slice(found[2]!.bodyStart).trim()).toBe("Advancement body.");
+  });
+
+  it("keeps prose before a bold Line number in the section before it", () => {
+    const text = "Line 242 Technological uncertainty\nIt held. As **Line 244** shows, the seal held.";
+    const [first, second] = detectPdSections(text);
+    expect(first!.section).toBe("s242");
+    expect(second!.section).toBe("s244");
+    expect(text.slice(first!.bodyStart, first!.end)).toBe("It held. As ");
+  });
+
+  it("finds a section after an empty one in Markdown", () => {
+    const text = ["## Line 242 Technological uncertainty", "## Line 244 Work performed", "Work.", "## Line 246 Technological advancement", "Advance."].join("\n\n");
+    expect(detectPdSections(text).map((s) => s.section)).toEqual(["s242", "s244", "s246"]);
+  });
+});

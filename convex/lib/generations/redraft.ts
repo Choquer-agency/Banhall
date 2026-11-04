@@ -6,6 +6,9 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { closeEditBurst } from "../editDistance";
+import { savedPreferenceMatchOfGeneration } from "../savedPreferenceNotes";
+import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
@@ -41,6 +44,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { domainError, sha256 } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
+import { continuedModelEntry, leaveMovedBackModels } from "../modelRoles";
 import { findActiveGeneration } from "../activeGeneration";
 import { ACTIVE_GENERATION_STATUSES } from "../../../shared/generationTransitions";
 import {
@@ -549,6 +553,9 @@ export async function redraftMissingSectionsHandler(
   // Audit wave 2: "Draft the rest" counts as a generation start when it
   // drafts something; finishing carried Sections alone makes no model call.
   if (missing.length > 0) await limitGenerationStart(ctx, user._id, project._id);
+  // 2026-10-23 (owner, second): Sections drafted again run off a model its
+  // tier was moved back from, on the model the generation continues on.
+  const current = missing.length > 0 ? await leaveMovedBackModels(ctx, generation) : generation;
   const summaryVersionId = generation.summaryVersionId as Id<"summaryVersions">;
   const payload = await frozenOrderedPayload(ctx, generation, summaryVersionId);
   const carriedKeys = new Set<string>(carried.map((row) => row.section));
@@ -557,8 +564,10 @@ export async function redraftMissingSectionsHandler(
     .map(sectionNumberOfRow);
   const attemptStartedAt = Math.max(now, (previous?.attemptStartedAt ?? 0) + 1);
   for (const [index, row] of missing.entries()) {
+    const model = continuedModelEntry(current, row.model);
     await ctx.db.patch(row._id, {
       status: index === 0 ? "queued" : "pending",
+      ...(model ? { model: model.id, label: model.label } : {}),
       attempt: row.attempt + 1,
       queuedAt: now,
       draftText: undefined,
@@ -664,11 +673,22 @@ export async function claimRedraftSectionHandler(
         (prior.status === "drafted" ? (prior.draftText ?? null) : null);
       return text ? [{ section, text }] : [];
     });
+  // 2026-10-29 (third), review round 1: the Lines after this one already in
+  // the report (the writer's text). Their gap notes are asked already, so
+  // this Line does not ask them again.
+  const laterSections = chainRows
+    .filter((later) => (later.orderIndex ?? 0) > orderIndex)
+    .flatMap((later) => {
+      const section = sectionNumberOfRow(later);
+      const text = presentReportSection(current, section);
+      return text ? [{ section, text }] : [];
+    });
   return await orderedSectionClaim(ctx, {
     generation: fence.generation,
     row,
     section: args.section,
     priorSections,
+    laterSections,
     executionBrief,
   });
 }
@@ -793,6 +813,9 @@ export async function settleSeedRedraft(
     filled = merged.filled.map((key) => key.slice(1) as SectionNumber);
     skipped = merged.skipped.map((key) => key.slice(1) as SectionNumber);
     if (merged.filled.length > 0) {
+      // Phase E (E3, review): a person's open editing burst is read before
+      // the AI's Sections land, never after.
+      await closeEditBurst(ctx, report);
       await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
       await ctx.db.patch(report._id, {
         content: merged.content,
@@ -1073,8 +1096,10 @@ export async function applySeedRedraftHandler(
     generationId: fence.generation._id,
     candidateRunId: fence.run._id,
   };
+  // E1b review: a row quoting a saved preference names it only as one.
+  const saved = await savedPreferenceMatchOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved), owner));
   }
   if (args.notes.length > 0) {
     await ctx.db.patch(fence.run._id, { consistencyCheckedAt: Date.now() });

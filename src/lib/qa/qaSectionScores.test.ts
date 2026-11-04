@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { qaFinishedAgo, qaSectionScores } from "./qaSectionScores";
+import { chatQaIssues, qaFinishedAgo, qaSectionScores, qaTopIssues } from "./qaSectionScores";
 
 const scorecard = {
   overall_score: 78,
@@ -77,5 +77,87 @@ describe("qaFinishedAgo", () => {
     expect(qaFinishedAgo(now - 5 * 60_000, now)).toBe("5 minutes ago");
     expect(qaFinishedAgo(now - 2 * 3_600_000, now)).toBe("2 hours ago");
     expect(qaFinishedAgo(now - 3 * 86_400_000, now)).toBe("3 days ago");
+  });
+});
+
+describe("qaTopIssues", () => {
+  const card = (sections: Record<string, Array<{ text: string; severity?: "deduction" | "warning"; deduction?: number } | string>>) => ({
+    qa: {
+      overall_score: 80,
+      section_scores: Object.fromEntries(
+        Object.entries(sections).map(([key, issues]) => [key, { score: 80, issues, strengths: [] }])
+      ),
+    },
+  });
+
+  it("takes each Line's costliest deduction, costliest Line first", () => {
+    const outputs = JSON.stringify(card({
+      "242": [
+        { text: "Minor wording.", severity: "deduction", deduction: 2 },
+        { text: "The uncertainty restates the goal.", severity: "deduction", deduction: 5 },
+      ],
+      "244": [{ text: "No baseline for the first test. It matters.", severity: "deduction", deduction: 8 }],
+      "246": [{ text: "Only a warning.", severity: "warning", deduction: 0 }],
+    }));
+    expect(qaTopIssues(outputs)).toEqual([
+      { line: "244", text: "No baseline for the first test." },
+      { line: "242", text: "The uncertainty restates the goal." },
+    ]);
+  });
+
+  it("drops an older scorecard's Deduct lead and cuts a long sentence on a word", () => {
+    const long = `Deduct 4 points: ${"the work performed lists tasks without saying what each one tested ".repeat(4)}`;
+    const [issue] = qaTopIssues(card({ "244": [long] }));
+    expect(issue.line).toBe("244");
+    expect(issue.text.startsWith("The work performed")).toBe(true);
+    expect(issue.text.length).toBeLessThanOrEqual(161);
+    expect(issue.text.endsWith("…")).toBe(true);
+    expect(issue.text).not.toMatch(/ …$/);
+  });
+
+  it("strips Deduct only as a lead, keeps e.g. inside a sentence, and starts with a capital", () => {
+    expect(qaTopIssues(card({ "242": [{ text: "Missing baseline, so deduct 5 points. Add it.", severity: "deduction", deduction: 5 }] })))
+      .toEqual([{ line: "242", text: "Missing baseline, so deduct 5 points." }]);
+    expect(qaTopIssues(card({ "244": [{ text: "the tests, e.g. the pH runs, lack a control. More text.", severity: "deduction", deduction: 3 }] })))
+      .toEqual([{ line: "244", text: "The tests, e.g. the pH runs, lack a control." }]);
+  });
+
+  it("leaves out an issue the writer marked a warning, and offers the next costliest", () => {
+    const outputs = card({
+      "242": [
+        { text: "Costliest.", severity: "deduction", deduction: 6 },
+        { text: "Next.", severity: "deduction", deduction: 3 },
+      ],
+    });
+    expect(qaTopIssues(outputs, new Map([["issue:242:0", "warning"]]))).toEqual([{ line: "242", text: "Next." }]);
+  });
+
+  it("offers QA issues only from a finished run whose result still describes the report", () => {
+    const outputs = card({ "246": [{ text: "Advancement is vague.", severity: "deduction", deduction: 4 }] });
+    const base = { agentOutputs: outputs, qaDone: true, result: { status: "done", current: true }, overrides: [] };
+    expect(chatQaIssues(base)).toEqual([{ line: "246", text: "Advancement is vague." }]);
+    expect(chatQaIssues({ ...base, result: { status: "done", current: false } })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: { status: "failed", current: true } })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: null })).toEqual([]);
+    expect(chatQaIssues({ ...base, result: undefined })).toEqual([]);
+    expect(chatQaIssues({ ...base, qaDone: false })).toEqual([]);
+  });
+
+  it("holds QA issues until the person's reclassifications answer, and offers them when that read fails", () => {
+    const outputs = card({ "246": [
+      { text: "Costliest.", severity: "deduction", deduction: 6 },
+      { text: "Next.", severity: "deduction", deduction: 2 },
+    ] });
+    const base = { agentOutputs: outputs, qaDone: true, result: { status: "done", current: true } };
+    expect(chatQaIssues({ ...base, overrides: undefined })).toEqual([]);
+    expect(chatQaIssues({ ...base, overrides: undefined, overridesFailed: true })).toEqual([{ line: "246", text: "Costliest." }]);
+    expect(chatQaIssues({ ...base, overrides: [{ itemKey: "issue:246:0", overrideSeverity: "warning" }] }))
+      .toEqual([{ line: "246", text: "Next." }]);
+  });
+
+  it("returns nothing without a readable scorecard or outside Lines 242 to 246", () => {
+    expect(qaTopIssues(null)).toEqual([]);
+    expect(qaTopIssues("not json")).toEqual([]);
+    expect(qaTopIssues(card({ "248": [{ text: "Elsewhere.", severity: "deduction", deduction: 9 }] }))).toEqual([]);
   });
 });

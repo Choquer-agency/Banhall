@@ -1,3 +1,4 @@
+import { getSourceRowWithText, withSourceTexts } from "./lib/sourceText";
 import {
   query,
   mutation,
@@ -66,7 +67,9 @@ import {
   type SettingsSupplyPath,
 } from "./lib/settingsDocument";
 import { extractSettingsRules } from "./lib/settingsExtraction";
-import { MAX_TRANSCRIPTS_PER_PROJECT } from "./lib/transcripts";
+import { composeWithSavedPreferences, savedPreferencesLine } from "./lib/savedPreferences";
+import { isEvaluationProject } from "./lib/evaluationProjects";
+import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 
 /**
  * Per-writer "flavor" (Phase A): free-text personal writing instructions,
@@ -516,6 +519,14 @@ export type EffectiveWriterStyle = {
   savedProfileSuperseded: boolean;
   /** A settings document equals the enabled saved profile, which applies. */
   matchesProfile: boolean;
+  /** Phase E (E1b): the writer's saved preferences joined to the instructions, when any. */
+  savedPreferences?: { count: number; textHash: string; ids?: Id<"writerMemories">[] };
+  /**
+   * Sixth re-check: those preferences' texts, as composed into
+   * customInstructions, so a reader can tell which rules are theirs
+   * without looking for a heading inside the writer's text.
+   */
+  savedPreferenceTexts?: string[];
 } & OrderedProfileContext;
 
 const effectiveWriterStyleValidator = v.object({
@@ -524,6 +535,8 @@ const effectiveWriterStyleValidator = v.object({
   settingsSource: writerSettingsSourceValidator,
   savedProfileSuperseded: v.boolean(),
   matchesProfile: v.boolean(),
+  savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
+  savedPreferenceTexts: v.optional(v.array(v.string())),
   ...orderedProfileContextValidator.fields,
 });
 
@@ -560,7 +573,12 @@ function overridesFromCategories(
 export async function getEffectiveWriterStyle(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users"> | undefined,
-  settingsDocument?: SettingsDocumentInput
+  settingsDocument?: SettingsDocumentInput,
+  /**
+   * Phase E (E3): a release suite --compare arm's saved preferences, used in
+   * place of the writer's own under the same rules ([] for none).
+   */
+  options: { savedPreferences?: readonly string[] } = {}
 ): Promise<EffectiveWriterStyle> {
   const [modes, profile] = await Promise.all([
     getHouseRuleModes(ctx),
@@ -641,17 +659,48 @@ export async function getEffectiveWriterStyle(
     ? (storedSelfCheckRules ?? extracted?.selfCheckRules ?? [])
     : [];
 
+  // Phase E (E1b): the writer's saved preferences follow the saved profile:
+  // used when it applies or the writer has none (no row counts as on), not
+  // when it is switched off or a settings document replaces it.
+  const savedApply = userId !== undefined && document === undefined && (profile === null || profile.enabled);
+  // E1b review: the ids too, so a draft records which preferences it used.
+  const savedRows = !savedApply
+    ? []
+    : options.savedPreferences !== undefined
+      ? options.savedPreferences.filter((text) => text.trim().length > 0).map((text) => ({ text, id: undefined }))
+      : (
+          await ctx.db
+            .query("writerMemories")
+            .withIndex("by_userId_and_state", (q) => q.eq("userId", userId).eq("state", "on"))
+            .take(50)
+        )
+          .sort((a, b) => (a.decidedAt ?? a.createdAt) - (b.decidedAt ?? b.createdAt))
+          .filter((row) => row.text.trim().length > 0)
+          .map((row) => ({ text: row.text, id: row._id as Id<"writerMemories"> | undefined }));
+  const savedTexts = savedRows.map((row) => row.text);
+  const savedIds = savedRows.flatMap((row) => (row.id ? [row.id] : []));
+  const effectiveInstructions = composeWithSavedPreferences(instructions, savedTexts);
+  const savedPreferences =
+    savedTexts.length > 0
+      ? {
+          count: savedTexts.length,
+          textHash: await sha256(savedTexts.join("\n")),
+          ...(savedIds.length > 0 ? { ids: savedIds } : {}),
+        }
+      : undefined;
+
   const savedProfileSuperseded = document !== undefined && savedEnabled;
   const profileReason =
     document && savedProfileSuperseded
       ? `Writer Profile applied from the settings document${document.fileName ? ` ${document.fileName}` : ""} ${settingsSupplyLabel(document.supplyPath)}; the saved Writer Profile was superseded for this generation`
       : undefined;
   return {
-    customInstructions: instructions.length > 0 ? instructions : null,
+    customInstructions: effectiveInstructions.length > 0 ? effectiveInstructions : null,
     styleOverrides,
     settingsSource,
     savedProfileSuperseded,
     matchesProfile,
+    ...(savedPreferences ? { savedPreferences, savedPreferenceTexts: savedTexts } : {}),
     profileState,
     categoryOutcomes,
     buildOrder: order.buildOrder,
@@ -673,26 +722,56 @@ export async function getEffectiveWriterStyle(
  * try/catch — a failure here must never break generation. The ordered
  * generation context is a separate read (getGenerationProfileContext).
  */
+/**
+ * Phase E (E3): a release suite --compare arm's saved preferences, by the
+ * generation's project; undefined for any other project (the writer's own).
+ */
+async function evaluationPreferencesOf(
+  ctx: QueryCtx,
+  projectId: Id<"projects"> | undefined
+): Promise<{ savedPreferences?: readonly string[] }> {
+  const project = projectId ? await ctx.db.get(projectId) : null;
+  const savedPreferences = isEvaluationProject(project) ? project?.evaluation?.preferences : undefined;
+  return savedPreferences !== undefined ? { savedPreferences } : {};
+}
+
 export const getProfileForGeneration = internalQuery({
-  args: { userId: v.optional(v.id("users")) },
+  // E3 review: the project too, so the fallback path honours a --compare arm.
+  args: { userId: v.optional(v.id("users")), projectId: v.optional(v.id("projects")) },
   returns: v.union(
     v.object({
       customInstructions: v.union(v.string(), v.null()),
       styleOverrides: normalizedStyleOverridesValidator,
+      // E1b review: the stored Writer Profile text alone, which settings
+      // document matching reads; customInstructions also holds the saved
+      // preferences.
+      profileInstructions: v.union(v.string(), v.null()),
+      // E1b review: how many saved preferences joined, so the fallback path
+      // records them too.
+      savedPreferences: v.optional(v.object({ count: v.number(), textHash: v.string(), ids: v.optional(v.array(v.id("writerMemories"))) })),
+      savedPreferenceTexts: v.optional(v.array(v.string())),
     }),
     v.null()
   ),
   handler: async (ctx, args) => {
-    const style = await getEffectiveWriterStyle(ctx, args.userId);
+    const style = await getEffectiveWriterStyle(ctx, args.userId, undefined, await evaluationPreferencesOf(ctx, args.projectId));
     if (
       style.customInstructions === null &&
       !hasAnyStyleOverride(style.styleOverrides)
     ) {
       return null;
     }
+    const userId = args.userId;
+    const profile = userId
+      ? await ctx.db.query("writerProfiles").withIndex("by_userId", (q) => q.eq("userId", userId)).unique()
+      : null;
+    const stored = profile?.enabled ? profile.customInstructions.trim() : "";
     return {
       customInstructions: style.customInstructions,
       styleOverrides: style.styleOverrides,
+      profileInstructions: stored.length > 0 ? stored : null,
+      ...(style.savedPreferences ? { savedPreferences: style.savedPreferences } : {}),
+      ...(style.savedPreferenceTexts ? { savedPreferenceTexts: style.savedPreferenceTexts } : {}),
     };
   },
 });
@@ -704,10 +783,10 @@ export const getProfileForGeneration = internalQuery({
  * missing or disabled profile still yields the House Rules default order.
  */
 export const getGenerationProfileContext = internalQuery({
-  args: { userId: v.optional(v.id("users")) },
+  args: { userId: v.optional(v.id("users")), projectId: v.optional(v.id("projects")) },
   returns: orderedProfileContextValidator,
   handler: async (ctx, args): Promise<OrderedProfileContext> => {
-    const style = await getEffectiveWriterStyle(ctx, args.userId);
+    const style = await getEffectiveWriterStyle(ctx, args.userId, undefined, await evaluationPreferencesOf(ctx, args.projectId));
     return pickOrderedProfileContext(style);
   },
 });
@@ -716,6 +795,8 @@ export const getGenerationProfileContext = internalQuery({
 
 /** Story 4's "no Writer Profile applied" line. */
 export const NO_PROFILE_LINE = "No Writer Profile applied — House Rules in full.";
+/** E1b review: the same, beside "N saved preferences used." (no dash). */
+export const NO_PROFILE_WITH_SAVED_LINE = "No Writer Profile applied. House Rules apply in full, with the saved preferences below.";
 
 const settingsCandidateValidator = v.object({
   generationSourceId: v.id("generationSources"),
@@ -731,7 +812,7 @@ const settingsCandidateValidator = v.object({
 // Every frozen source a generation can hold: one transcript, one digest and
 // (2026-09-24) one fact pack row per transcript, 50 context documents, and
 // a writer Storyline.
-const MAX_GENERATION_SOURCES = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 52;
+const MAX_GENERATION_SOURCES = MAX_FROZEN_SOURCE_ROWS + 1;
 
 /** A cached waiver analysis at exactly this classifier version, or null. */
 async function readSettingsAnalysis(
@@ -770,10 +851,14 @@ export const getSettingsDocumentCandidate = internalQuery({
     const none = { document: null, matchesProfile: false, cachedAddressed: null };
     const generation = await ctx.db.get(args.generationId);
     if (!generation) return none;
-    const sources = await ctx.db
-      .query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(MAX_GENERATION_SOURCES);
+    // B1, second part: each row with its text, in the old shape.
+    const sources = await withSourceTexts(
+      ctx,
+      await ctx.db
+        .query("generationSources")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(MAX_GENERATION_SOURCES)
+    );
     const detected = detectSettingsDocument(sources);
     if (!detected) return none;
     const contentHash = await sha256(detected.text);
@@ -835,10 +920,13 @@ export const getGenerationWriterStyle = internalQuery({
   args: {
     userId: v.optional(v.id("users")),
     settingsDocument: v.optional(settingsDocumentInputValidator),
+    // Phase E (E3): the generation's project, for a release suite --compare
+    // arm's saved preferences.
+    projectId: v.optional(v.id("projects")),
   },
   returns: effectiveWriterStyleValidator,
   handler: async (ctx, args): Promise<EffectiveWriterStyle> => {
-    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument);
+    return await getEffectiveWriterStyle(ctx, args.userId, args.settingsDocument, await evaluationPreferencesOf(ctx, args.projectId));
   },
 });
 
@@ -860,6 +948,8 @@ export const getGenerationWriterSettings = query({
       savedProfileSuperseded: v.boolean(),
       waiverAnalysis: waiverAnalysisValidator,
       noProfileLine: v.union(v.string(), v.null()),
+      /** Phase E (E1b): "3 saved preferences used.", or null. */
+      savedPreferencesLine: v.union(v.string(), v.null()),
       offer: v.union(
         v.null(),
         v.object({
@@ -894,7 +984,7 @@ export const getGenerationWriterSettings = query({
         ? record.source
         : null;
     if (supplyPath && record.generationSourceId) {
-      const source = await ctx.db.get(record.generationSourceId);
+      const source = await getSourceRowWithText(ctx, record.generationSourceId);
       const text = source ? settingsDocumentText(source.content) : "";
       if (source && text) {
         offer = {
@@ -917,7 +1007,13 @@ export const getGenerationWriterSettings = query({
       matchesProfile: record.matchesProfile,
       savedProfileSuperseded: record.savedProfileSuperseded,
       waiverAnalysis: record.waiverAnalysis,
-      noProfileLine: record.profileState === "applied" ? null : NO_PROFILE_LINE,
+      noProfileLine:
+        record.profileState === "applied"
+          ? null
+          : (record.savedPreferences?.count ?? 0) > 0
+            ? NO_PROFILE_WITH_SAVED_LINE
+            : NO_PROFILE_LINE,
+      savedPreferencesLine: savedPreferencesLine(record.savedPreferences?.count ?? 0),
       offer,
     };
   },

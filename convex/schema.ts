@@ -27,6 +27,10 @@ import { styleOverridesValidator } from "./lib/styleOverrides";
 import { writerCoverageValidator } from "./lib/writerCoverage";
 import { brainProvenanceEntryValidator } from "./lib/generationOutputs";
 import { draftingInputsFailureCodeValidator } from "./lib/draftingInputsFailure";
+import {
+  draftWebBackgroundRecordValidator,
+  draftWebResultValidator,
+} from "./lib/draftWebBackgroundValidators";
 import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
   sectionMetricsValidator,
@@ -49,6 +53,7 @@ import {
   evalSummaryValidator,
   gateResultValidator,
   modelFreezeValidator,
+  modelMoveValidator,
   modelRedirectValidator,
   modelRoleValidator,
   modelTrackValidator,
@@ -327,6 +332,26 @@ export default defineSchema({
     // here so the transcript history cap never reads archived text; absent
     // means none.
     archivedTranscriptCount: v.optional(v.number()),
+    // 2026-10-27 (Phase E, E3), widen only: a release suite project, left out
+    // of learning, writer memory, edit size and Brain nomination
+    // (convex/lib/evaluationProjects.ts). Set only by the suite through
+    // seedPlanEval.markEvaluationProject, never on production.
+    evaluation: v.optional(
+      v.object({
+        markedAt: v.number(),
+        // The release suite's --compare arm (seedPlanEval.setEvaluationCompare):
+        // the lesson set of one kind its drafts use (null: none), and the
+        // saved preferences they use ([]: none), in place of the published
+        // set and the writer's own. Absent: as usual.
+        lessons: v.optional(
+          v.object({
+            kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+            learningDigestId: v.union(v.id("learningDigests"), v.null()),
+          })
+        ),
+        preferences: v.optional(v.array(v.string())),
+      })
+    ),
   })
     .index("by_createdBy", ["createdBy"])
     .index("by_status", ["status"])
@@ -398,16 +423,49 @@ export default defineSchema({
     fiscalYearEndMonth: v.optional(v.number()),
     fiscalYearEndDay: v.optional(v.number()),
     industry: v.optional(v.string()),
+    // 2026-10-29 (owner: "We can include the company website field"): the
+    // company's website, a normalized absolute http(s) address
+    // (shared/companyWebsite.ts). Saving one reads it into a company file.
+    website: v.optional(v.string()),
+    // The latest read of `website`: requested, read or failed with a plain
+    // reason. Written by the server only; never part of Edit company's
+    // stale check (`updatedAt` does not move).
+    websiteRead: v.optional(
+      v.object({
+        url: v.string(),
+        status: v.union(v.literal("reading"), v.literal("read"), v.literal("failed")),
+        requestedAt: v.number(),
+        finishedAt: v.optional(v.number()),
+        reason: v.optional(v.string()),
+      })
+    ),
+    // The company file the website was last read into; archived when a new
+    // website replaces it or the website is removed.
+    websiteFileId: v.optional(v.id("companyFiles")),
     status: v.union(v.literal("active"), v.literal("merged")),
     mergedIntoClientId: v.optional(v.id("clients")),
     mergedAt: v.optional(v.number()),
     mergedBy: v.optional(v.id("users")),
+    // 2026-10-28 (the company page): on a merge tombstone, how many live
+    // projects moved from it, for the note an old link shows ("Its 2
+    // projects are here now."). Absent on tombstones made before.
+    mergedProjectCount: v.optional(v.number()),
+    // 2026-10-26 (Phase C): every name this company had before a rename,
+    // and every name of the companies merged into it (theirs included),
+    // so company file labels hide them all. Written by mergeClients.
+    formerNames: v.optional(v.array(v.string())),
+    // True when formerNames holds the whole history (set by mergeClients and
+    // on rows made since); older rows also walk their merge tombstones.
+    nameHistoryComplete: v.optional(v.boolean()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_status_and_nameKey", ["status", "nameKey"])
-    .index("by_nameKey", ["nameKey"]),
+    .index("by_nameKey", ["nameKey"])
+    // 2026-10-26 (Phase C): the companies merged into one, whose names its
+    // files may still carry (company file labels hide them).
+    .index("by_mergedIntoClientId", ["mergedIntoClientId"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
@@ -716,6 +774,11 @@ export default defineSchema({
     // time from the request to the first output block. Absent elsewhere.
     effort: v.optional(v.string()),
     firstTokenMs: v.optional(v.number()),
+    // 2026-10-27 widen (F1, step 1): an Anthropic request's characters as
+    // sent, as text (system, messages, tools), and the part in user turns.
+    // Absent on older rows and on other providers' calls.
+    requestChars: v.optional(v.number()),
+    evidenceChars: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_createdAt", ["createdAt"])
@@ -869,6 +932,11 @@ export default defineSchema({
     // 2026-09-25 widen: the parser version of the turns the facts index. A
     // ready run is stale once the transcript is rebuilt with another one.
     parserVersion: v.optional(v.string()),
+    // 2026-10-26 widen (failure 6): background extraction failed on a
+    // stretch too dense for one answer even after splitting it. While the
+    // text, FACTS_VERSION and parser version stay the same, no extraction
+    // is tried again; drafts read the transcript the usual way.
+    tooDense: v.optional(v.boolean()),
   })
     .index("by_transcriptId_and_sourceContentHash_and_factsVersion", [
       "transcriptId",
@@ -1021,6 +1089,17 @@ export default defineSchema({
     generatedAt: v.number(),
   }).index("by_projectId", ["projectId"]),
 
+  // 2026-11-02: a writer's private star on a project (the Projects page's
+  // Starred view and the star on cards and the project top bar). One row per
+  // person and project; it goes with the project (PROJECT_SCOPED_TABLES).
+  projectStars: defineTable({
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    createdAt: v.number(),
+  })
+    .index("by_projectId_and_userId", ["projectId", "userId"])
+    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+
   reportViews: defineTable({
     projectId: v.id("projects"),
     viewerName: v.string(),
@@ -1057,6 +1136,18 @@ export default defineSchema({
     placeholders: v.optional(
       placeholderMapValidator
     ),
+    // 2026-10-30 widen (owner, "please fix all properly", item 2): the
+    // project record's company name, frozen with the placeholder map, for
+    // the claimant line the analysis, every Line draft and repair, the Seeds
+    // and QA carry (claimantNameFor in lib/transcriptPlaceholders.ts).
+    // Summary recovery copies it. Absent on generations reserved before,
+    // which send no claimant line.
+    claimantName: v.optional(v.string()),
+    // 2026-10-30 widen, review round 1 (P1-a): true when an admin had
+    // switched placeholders off at reservation, so names are sent as written.
+    // Frozen beside the map, since an empty map does not say the switch was
+    // off. Summary recovery copies it.
+    placeholdersOff: v.optional(v.boolean()),
     status: v.union(
       v.literal("reserved"),
       v.literal("running"),
@@ -1114,12 +1205,17 @@ export default defineSchema({
     singleModelId: v.optional(v.string()),
     // 2026-09-24 widen (model catalog): every model this generation uses,
     // frozen at reservation. Absent on older rows, which resolve from the
-    // seed registry exactly as before.
+    // seed registry exactly as before. Rewritten only to leave a model its
+    // tier was moved back from (modelMoves, 2026-10-23 second).
     modelFreeze: v.optional(modelFreezeValidator),
     // 2026-10-22 widen (model tracks): frozen models whose provider stopped
     // listing them, and the track model their calls went to instead. At
-    // most one per frozen model. modelFreeze itself is never rewritten.
+    // most one per frozen model. A redirect never rewrites modelFreeze.
     modelRedirects: v.optional(v.array(modelRedirectValidator)),
+    // 2026-10-23 widen (owner, second): each model this generation left,
+    // before a step the writer started, because its tier was moved back
+    // from it, and the model it continues on. Absent: never rewritten.
+    modelMoves: v.optional(v.array(modelMoveValidator)),
     // Compare mode's persisted model pair (exactly 2 ids). Absent on legacy
     // rows, which fall back to the full candidate roster.
     compareModelIds: v.optional(v.array(v.string())),
@@ -1134,8 +1230,28 @@ export default defineSchema({
       v.object({
         documentIds: v.array(v.id("projectDocuments")),
         transcriptIds: v.array(v.id("transcripts")),
+        // 2026-10-26 (Phase C): company files left out.
+        companyFileIds: v.optional(v.array(v.id("companyFiles"))),
       })
     ),
+    // 2026-10-26 (Phase C, review round 3): the company whose files this
+    // draft froze, when it froze any. Lets a reader that cannot afford to
+    // read every frozen row tell whether the project has left that company.
+    companyFilesFrom: v.optional(v.id("clients")),
+    // 2026-10-28 (third, owner): the company files this draft could read but
+    // did not fit in the frozen total (at most FROZEN_COMPANY_FILES), so the
+    // Inputs band lists them as not captured.
+    companyFilesLeftOut: v.optional(v.array(v.id("companyFiles"))),
+    // 2026-10-27 (twelfth, owner): whether the draft froze anything from a
+    // previous year (a file in the previous-year category, or a transcript a
+    // duplicate copied from an earlier fiscal year). False: the Seed stage
+    // opens with Previous-year status skipped. Absent (older drafts): no
+    // automatic skip.
+    previousYearMaterial: v.optional(v.boolean()),
+    // 2026-10-26 (Phase D, step 2, re-check): a Summary recovery could not
+    // copy every record of what the draft it recovers read, so the Inputs
+    // band says its records were cut short. Carried to later recoveries.
+    sourceUseTruncated: v.optional(v.literal(true)),
     seededCandidates: v.optional(v.number()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     previousProjectStatus: v.optional(
@@ -1192,6 +1308,13 @@ export default defineSchema({
     // The Haiku-extracted retrieval brief (JSON) behind the section queries —
     // kept for retrieval-quality evals.
     brainRetrievalBrief: v.optional(v.string()),
+    // 2026-11-02 (proposed): public background from the web. The writer's
+    // choice at start ("Look up public background", absent = on), and what
+    // the step did: the queries sent (no names), the sources given to the
+    // drafter, or why nothing was used. The block text itself is carried to
+    // the drafter with the Brain blocks (`saveIterativeArtifacts`).
+    webBackgroundRequested: v.optional(v.boolean()),
+    webBackground: v.optional(draftWebBackgroundRecordValidator),
     // Story 1 (CAP-1/2/4): the generation's Brief (Storyline, Claim Exclusions,
     // Confidence Map, Glossary Terms). Optional; keyed to inputs via inputsHash
     // so identical inputs reuse the same Brief.
@@ -1709,6 +1832,8 @@ export default defineSchema({
   )
     .index("by_generationId_and_at", ["generationId", "at"])
     .index("by_at", ["at"])
+    // 2026-10-27 (Phase E, E2b review): who asked for a Seed's Feedback.
+    .index("by_feedbackRequestId", ["feedbackRequestId"])
     .index("by_generationId_and_roleId_and_kind_and_at", ["generationId", "roleId", "kind", "at"])
     .index("by_batchId_and_actorUserId_and_kind", ["batchId", "actorUserId", "kind"])
     .index("by_projectId", ["projectId"]),
@@ -1855,6 +1980,9 @@ export default defineSchema({
     // The oldest message `order` the model read for this turn. Absent means
     // it read the whole thread.
     historyStartOrder: v.optional(v.number()),
+    // 2026-10-26 (Phase E, E2b): the published style lesson set its system
+    // text carried. Absent when none was published.
+    learningDigestId: v.optional(v.id("learningDigests")),
     // Server only, never sent to the browser: when the turn's searchBrain
     // tool first ran a search. Reasoning summaries of such a turn are not
     // shown (convex/lib/chatPublicOutput.ts).
@@ -1971,6 +2099,24 @@ export default defineSchema({
     requireUniqueTarget: v.optional(v.boolean()),
     // A coordinated revision: every passage must still match exactly once.
     requireUniqueTargets: v.optional(v.boolean()),
+    // Owner 2026-10-28: the Line this card edits. Every edit card covers one
+    // Line; a change across Lines is saved as one card per Line, and a
+    // report-wide find/replace card applies inside its own Line only. Absent
+    // on older rows, highlights and record-only revisions.
+    section: v.optional(sectionNumberValidator),
+    // Owner 2026-10-28: up to two more versions of the same edit, shown as
+    // Option 2 and Option 3. The card's own fields are Option 1, the one the
+    // AI recommends. Each version is a passage set: every target matches
+    // exactly once, inside this card's Line.
+    alternatives: v.optional(
+      v.array(
+        v.object({
+          replacements: v.array(v.object({ find: v.string(), replaceWith: v.string() })),
+        })
+      )
+    ),
+    // Which version the writer applied: 0 is Option 1. Cleared by Undo.
+    appliedOption: v.optional(v.number()),
     // Writer-authored wording revisions made directly in the proposal card.
     // The canonical target never changes; these fields make the learning event
     // auditable without conflating it with model-generated candidates.
@@ -2004,6 +2150,32 @@ export default defineSchema({
     appliedChangeId: v.optional(v.id("chatProposalAppliedChanges")),
     undoneAt: v.optional(v.number()),
     undoneBy: v.optional(v.id("users")),
+    // 2026-11-02 (client meeting, rule overrides; shared/ruleOverride.ts):
+    // the house rules, template rules or CRA limits this card goes against,
+    // named by the Assistant because the writer explicitly asked for the
+    // change. Only a holder of `report.overrideRules` applies such a card, and
+    // only after confirming these names. Absent on every other card.
+    rulesBroken: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit"), v.literal("banned_words")),
+          name: v.string(),
+          reason: v.string(),
+        })
+      )
+    ),
+    // One entry per confirmed apply of a rule-breaking card: who, when and
+    // which rules. Appended, never rewritten, so an Undo and a second apply
+    // keep the first record for audit.
+    ruleOverrides: v.optional(
+      v.array(
+        v.object({
+          userId: v.id("users"),
+          at: v.number(),
+          rules: v.array(v.string()),
+        })
+      )
+    ),
   })
     .index("by_agentThreadId", ["agentThreadId"])
     // Exact per-turn proposal reads for chatV2.listProposals, which joins
@@ -2114,6 +2286,20 @@ export default defineSchema({
     .index("by_agentThreadId", ["agentThreadId"])
     .index("by_projectId", ["projectId"]),
 
+  // 2026-11-02 (proposed): public background for drafting, cached per
+  // project and source fingerprint so a rerun on the same sources does not
+  // search again. Only searches that returned something are cached. Holds
+  // the queries as sent (no names, see convex/ai/draftWebBackground.ts), the
+  // public answers and their sources. Erased with the project.
+  draftWebBackgrounds: defineTable({
+    projectId: v.id("projects"),
+    fingerprint: v.string(),
+    version: v.string(),
+    results: v.array(draftWebResultValidator),
+    droppedQueries: v.number(),
+    createdAt: v.number(),
+  }).index("by_projectId_and_fingerprint", ["projectId", "fingerprint"]),
+
   chatMessages: defineTable({
     threadId: v.id("chatThreads"),
     projectId: v.id("projects"),
@@ -2182,10 +2368,78 @@ export default defineSchema({
       v.literal("image"),
       v.literal("other")
     ),
-    content: v.string(),
+    // 2026-10-22 (fourth), step 3: optional. New rows keep their text in
+    // `projectDocumentTexts`; older rows keep it here until the backfill moves
+    // it. Read it only through convex/lib/documentText.ts.
+    content: v.optional(v.string()),
     // 2026-09-27 (fourth) widen: words in `content`, stored at upload for the
     // start dialog; older rows are counted when listed.
     wordCount: v.optional(v.number()),
+    // 2026-10-22 (fourth) widen: facts about the text, set when it moves to
+    // `projectDocumentTexts`, so lists and checks never read it. Read them
+    // through convex/lib/documentText.ts, which falls back to `content` for a
+    // row whose text has not moved (`textMovedAt` absent).
+    textLength: v.optional(v.number()),
+    /** Whether the text holds anything other than whitespace. */
+    hasText: v.optional(v.boolean()),
+    /** sha256 hex of the exact stored text (UTF-8). */
+    textHash: v.optional(v.string()),
+    /** The opening characters of the text, leading whitespace removed. */
+    textPreview: v.optional(v.string()),
+    textMovedAt: v.optional(v.number()),
+    // 2026-10-26 widen (Phase B2): the server's reading of the stored
+    // original (convex/documentReading.ts): the reader version of the latest
+    // attempt, when it started, and when it finished (kept or not). Started
+    // without finishing: the reading was stopped, and this version does not
+    // try it again. Absent: never read on the server.
+    serverReader: v.optional(v.string()),
+    serverReadStartedAt: v.optional(v.number()),
+    serverReadAt: v.optional(v.number()),
+    // 2026-10-26 widen (B1, live check): the server reader that wrote the
+    // file's current text. Absent when the browser read it, or when a server
+    // reading wrote it before this field existed. `serverReader` names the
+    // latest attempt, which may have kept the text it found.
+    textReader: v.optional(v.string()),
+    // 2026-10-26 widen (owner): "markdown" when the text is Word Markdown
+    // (shared/wordMarkdown.ts). Drafts freeze it without its bold and italic
+    // marks (quotableWordText), so quotes are checked as before. Absent:
+    // plain text, as every file read before.
+    textFormat: v.optional(v.literal("markdown")),
+    // 2026-10-26 widen (Phase B4): search pieces (documentSearchPieces).
+    // Every text write marks the file due, to be tried from
+    // searchPiecesNextAt on; the sweep claims it by moving that time on,
+    // cuts its pieces and records the text and splitter they were cut
+    // with. Absent: never indexed.
+    searchPiecesDue: v.optional(v.literal(true)),
+    searchPiecesNextAt: v.optional(v.number()),
+    /** Failed tries of the current text; after four the file leaves the queue. */
+    searchPiecesAttempts: v.optional(v.number()),
+    searchPiecesTextHash: v.optional(v.string()),
+    searchPiecesVersion: v.optional(v.number()),
+    // 2026-10-26 widen (Phase B4): labels from the file_labels model role
+    // (convex/fileLabels.ts): what the file is, for the file list drafting
+    // and chat read. Never evidence: no draft or quote may cite them. They
+    // describe the text, name and prompt version recorded with them.
+    labels: v.optional(
+      v.object({
+        documentType: v.string(),
+        /** The year the fiscal year the file is about ends in; null when it does not say. */
+        fiscalYear: v.union(v.number(), v.null()),
+        title: v.string(),
+        summary: v.string(),
+        model: v.string(),
+        promptVersion: v.string(),
+        textHash: v.string(),
+        fileName: v.string(),
+        labeledAt: v.number(),
+      })
+    ),
+    // Due to be labelled, from labelsNextAt on (a claim or a retry moves it on).
+    labelsDue: v.optional(v.literal(true)),
+    labelsNextAt: v.optional(v.number()),
+    labelsAttempts: v.optional(v.number()),
+    /** Why the last label call failed (a provider error code or a schema failure), never file text. */
+    labelsLastError: v.optional(v.string()),
     // Original file bytes in Convex storage (for preview/download).
     storageId: v.optional(v.id("_storage")),
     mimeType: v.optional(v.string()),
@@ -2251,12 +2505,310 @@ export default defineSchema({
     uploaderRole: v.optional(
       v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))
     ),
+    // 2026-10-27 widen (F2, project copies file by file): a copied file's
+    // row is made first with the facts about its text (length, fingerprint,
+    // preview) and no text; its copy job (`textCopyJobId`) then copies the
+    // text whole. "pending" until then; "failed" when the original file was
+    // removed or changed meanwhile (shown as "Could not copy"; the row then
+    // holds no text). Absent: an ordinary file. `copiedFromDocumentId` names
+    // the original project's file the copy came from, kept after the copy.
+    textCopyState: v.optional(v.union(v.literal("pending"), v.literal("failed"))),
+    textCopyJobId: v.optional(v.id("projectCopyJobs")),
+    /** Copy steps of this file that failed with an error (F2 review): at two it is given up. */
+    textCopyAttempts: v.optional(v.number()),
+    copiedFromDocumentId: v.optional(v.id("projectDocuments")),
     createdAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
     .index("by_projectId", ["projectId"])
+    // 2026-10-27 (F2): a project's files still being copied, and a job's.
+    .index("by_projectId_and_textCopyState", ["projectId", "textCopyState"])
+    .index("by_textCopyJobId_and_textCopyState", ["textCopyJobId", "textCopyState"])
+    .index("by_projectId_and_copiedFromDocumentId", ["projectId", "copiedFromDocumentId"])
+    // 2026-10-22 (fourth): duplicate uploads are found by fingerprint.
+    .index("by_projectId_and_textHash", ["projectId", "textHash"])
+    // 2026-10-26 (Phase B4): files waiting for their search pieces.
+    .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])
+    .index("by_projectId_and_searchPiecesDue", ["projectId", "searchPiecesDue"])
+    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"])
     .searchIndex("search_content", {
       searchField: "content",
+      filterFields: ["projectId"],
+    }),
+
+  // 2026-10-26 (Phase B4): a project file's search pieces, about 600 tokens
+  // each, cut along its structure (shared/searchPieces.ts), covering its
+  // text exactly once. `start`/`end` are positions in the text whose
+  // fingerprint is `textHash`; a search drops a piece when its file's text
+  // changed since. `searchText` is the label and sheet header (its first
+  // `prefixChars` characters) then the piece as the AI reads it. Written
+  // only by convex/searchPieces.ts.
+  documentSearchPieces: defineTable({
+    // The file the piece is cut from: a project file (documentId, projectId)
+    // or, since Phase C, a company file (companyFileId, clientId); exactly
+    // one pair is set.
+    documentId: v.optional(v.id("projectDocuments")),
+    projectId: v.optional(v.id("projects")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
+    textHash: v.string(),
+    order: v.number(),
+    start: v.number(),
+    end: v.number(),
+    page: v.optional(v.number()),
+    pageEnd: v.optional(v.number()),
+    label: v.optional(v.string()),
+    searchText: v.string(),
+    prefixChars: v.number(),
+  })
+    .index("by_documentId_and_order", ["documentId", "order"])
+    .index("by_companyFileId_and_order", ["companyFileId", "order"])
+    .index("by_projectId", ["projectId"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["projectId", "clientId"],
+    }),
+
+  // 2026-10-26 (Phase C; decision "2026-10-26", part 1): a file a company
+  // (a `clients` row) holds, for every project linked to it. Its text is in
+  // companyFileTexts; search pieces and labels work as for project files.
+  // Read and add: companyFiles.read / companyFiles.add; archive, restore and
+  // remove: companyFiles.manage. Written only by convex/companyFiles.ts and
+  // the merge in convex/clients.ts.
+  companyFiles: defineTable({
+    clientId: v.id("clients"),
+    fileName: v.string(),
+    fileType: v.union(
+      v.literal("txt"),
+      v.literal("md"),
+      v.literal("pdf"),
+      v.literal("docx"),
+      v.literal("msg"),
+      v.literal("eml"),
+      v.literal("xlsx"),
+      v.literal("image"),
+      v.literal("other")
+    ),
+    category: v.optional(
+      v.union(
+        v.literal("previous_pd"),
+        v.literal("scoping_notes"),
+        v.literal("writer_notes"),
+        v.literal("background"),
+        v.literal("other")
+      )
+    ),
+    mimeType: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    textFormat: v.optional(v.literal("markdown")),
+    textLength: v.number(),
+    hasText: v.boolean(),
+    textHash: v.string(),
+    textPreview: v.string(),
+    wordCount: v.number(),
+    pageCount: v.optional(v.number()),
+    // The server's reading of the original, as for project files
+    // (convex/lib/serverReading.ts).
+    serverReader: v.optional(v.string()),
+    serverReadStartedAt: v.optional(v.number()),
+    serverReadAt: v.optional(v.number()),
+    processingStatus: v.union(
+      v.literal("ready"),
+      v.literal("ready_truncated"),
+      v.literal("reference_only"),
+      v.literal("could_not_read"),
+      v.literal("skipped_unsupported")
+    ),
+    processingDetail: v.optional(v.string()),
+    archived: v.optional(v.boolean()),
+    uploadedBy: v.id("users"),
+    uploaderRole: v.optional(v.union(v.literal("writer"), v.literal("manager"), v.literal("admin"))),
+    createdAt: v.number(),
+    searchPiecesDue: v.optional(v.literal(true)),
+    searchPiecesNextAt: v.optional(v.number()),
+    searchPiecesAttempts: v.optional(v.number()),
+    searchPiecesTextHash: v.optional(v.string()),
+    searchPiecesVersion: v.optional(v.number()),
+    labels: v.optional(
+      v.object({
+        documentType: v.string(),
+        fiscalYear: v.union(v.number(), v.null()),
+        title: v.string(),
+        summary: v.string(),
+        model: v.string(),
+        promptVersion: v.string(),
+        textHash: v.string(),
+        fileName: v.string(),
+        labeledAt: v.number(),
+      })
+    ),
+    labelsDue: v.optional(v.literal(true)),
+    labelsNextAt: v.optional(v.number()),
+    labelsAttempts: v.optional(v.number()),
+    labelsLastError: v.optional(v.string()),
+    /** The browser's key for the save that made this row, so a retried save finds it. */
+    attemptKey: v.optional(v.string()),
+  })
+    .index("by_clientId_and_archived", ["clientId", "archived"])
+    // The same file: one company, text, name, not archived.
+    .index("by_clientId_and_textHash_and_fileName_and_archived", ["clientId", "textHash", "fileName", "archived"])
+    .index("by_clientId_and_attemptKey", ["clientId", "attemptKey"])
+    .index("by_clientId_and_searchPiecesDue", ["clientId", "searchPiecesDue"])
+    .index("by_storageId", ["storageId"])
+    .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])
+    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"]),
+
+  // A company file's text, in pieces (as projectDocumentTexts), keyed by the
+  // file only, so moving a file to another company moves no text.
+  companyFileTexts: defineTable({
+    companyFileId: v.id("companyFiles"),
+    start: v.number(),
+    text: v.string(),
+  }).index("by_companyFileId_and_start", ["companyFileId", "start"]),
+
+  // Every add, archive, restore, removal and merge move of a company file,
+  // with who and when; the file name is kept because removal deletes the row.
+  companyFileEvents: defineTable({
+    clientId: v.id("clients"),
+    companyFileId: v.id("companyFiles"),
+    fileName: v.string(),
+    action: v.union(
+      v.literal("add"),
+      v.literal("archive"),
+      v.literal("restore"),
+      v.literal("remove"),
+      v.literal("merge_in"),
+      v.literal("merge_out")
+    ),
+    /** The other company of a merge move. */
+    otherClientId: v.optional(v.id("clients")),
+    userId: v.id("users"),
+    at: v.number(),
+  }).index("by_clientId_and_at", ["clientId", "at"]),
+
+  // 2026-10-26 (B1, first part): a file's earlier text, kept when a better
+  // reading replaces it (part 4 of the first 2026-10-26 entry: "upgrading a
+  // reader makes a new version instead of overwriting"). The file's current
+  // text stays in `projectDocumentTexts`; each earlier one is a version here,
+  // its text in `projectDocumentTextVersionPieces`, never changed.
+  projectDocumentTextVersions: defineTable({
+    documentId: v.id("projectDocuments"),
+    projectId: v.id("projects"),
+    /** 1 for the first text kept, then up. */
+    version: v.number(),
+    textHash: v.string(),
+    textLength: v.number(),
+    textFormat: v.optional(v.literal("markdown")),
+    /** The server reader that had read it, when one had. */
+    reader: v.optional(v.string()),
+    /** Why it was replaced. */
+    why: v.union(v.literal("word_markdown"), v.literal("server_reading")),
+    keptAt: v.number(),
+  })
+    .index("by_documentId_and_version", ["documentId", "version"])
+    .index("by_projectId", ["projectId"]),
+
+  projectDocumentTextVersionPieces: defineTable({
+    versionId: v.id("projectDocumentTextVersions"),
+    projectId: v.id("projects"),
+    start: v.number(),
+    text: v.string(),
+  })
+    .index("by_versionId_and_start", ["versionId", "start"])
+    .index("by_projectId", ["projectId"]),
+
+  // 2026-10-22 (fourth): a project file's text, in pieces of at most
+  // DOCUMENT_TEXT_PIECE_CHARS characters that never split a character, each
+  // with its exact starting position. Written and read only through
+  // convex/lib/documentText.ts.
+  // 2026-10-27 (F2, `docs/todos/phase-f-scale.md`): one project copy (the
+  // duplicate wizard, review from project). It makes the new project's rows
+  // first, then copies each file's text whole in its own transaction. The
+  // action that started it waits for it; after a crash it continues itself
+  // under its lease, and a cron resumes a stalled one. Deleted with the new
+  // project; the original project's reference is cleared if that project is
+  // erased first, and its remaining files are then marked "could not copy".
+  projectCopyJobs: defineTable({
+    toProjectId: v.id("projects"),
+    fromProjectId: v.optional(v.id("projects")),
+    /** Who copies: their access is checked again on every step. */
+    userId: v.id("users"),
+    scope: v.object({
+      targetTranscriptId: v.optional(v.id("transcripts")),
+      includeReport: v.boolean(),
+      includeReviews: v.boolean(),
+      excludeDocumentIds: v.array(v.id("projectDocuments")),
+      previousYearReport: v.boolean(),
+    }),
+    status: v.union(v.literal("preparing"), v.literal("copying"), v.literal("done"), v.literal("failed")),
+    /** While preparing: the kind of row being made and the last source row made. */
+    phase: v.optional(
+      v.union(
+        v.literal("files"),
+        v.literal("previous_year_report"),
+        v.literal("evidence"),
+        v.literal("report"),
+        v.literal("reviews")
+      )
+    ),
+    cursorCreationTime: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    leaseUntil: v.optional(v.number()),
+    /** Times a stalled job was taken up again. */
+    resumes: v.optional(v.number()),
+    filesMade: v.number(),
+    filesCopied: v.number(),
+    filesFailed: v.number(),
+    evidenceCopied: v.number(),
+    pdReviewsCopied: v.number(),
+    /** Originals cloned and attached: files', transcripts'. */
+    originalsAttached: v.optional(v.number()),
+    transcriptOriginalsAttached: v.optional(v.number()),
+    /** Originals whose bytes could not be read twice: the file or transcript came without one. */
+    originalsNotCopied: v.optional(v.number()),
+    /** Copied transcripts whose original the job has dealt with, attached or not (round 2: one step each). */
+    transcriptOriginalsDone: v.optional(v.array(v.id("transcripts"))),
+    reportId: v.optional(v.id("reports")),
+    previousYearReportId: v.optional(v.id("projectDocuments")),
+    /** Why a job stopped before its end (a code, never file text). */
+    stopReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  })
+    .index("by_toProjectId_and_status", ["toProjectId", "status"])
+    .index("by_fromProjectId", ["fromProjectId"])
+    .index("by_status_and_leaseUntil", ["status", "leaseUntil"]),
+
+  // F2 review (2026-10-27): an original being cloned for a project copy,
+  // written before the copy action stores the clone and deleted in the step
+  // that attaches or releases it. One left behind marks a runner that
+  // stopped between the two; the cron then deletes the clone it may have
+  // stored, found by its fingerprint, size and time, once every file in the
+  // record's window is too old for any save to attach (an hour,
+  // `FRESH_UPLOAD_MS`) and nothing holds it.
+  projectCopyClones: defineTable({
+    jobId: v.id("projectCopyJobs"),
+    /** The original's fingerprint and size, which its clone shares. */
+    sha256: v.string(),
+    size: v.number(),
+    startedAt: v.number(),
+    /** The cleanup's place in the record's window: the last stored file it looked at. */
+    scannedThrough: v.optional(v.number()),
+  })
+    .index("by_startedAt", ["startedAt"])
+    .index("by_jobId", ["jobId"]),
+
+  projectDocumentTexts: defineTable({
+    documentId: v.id("projectDocuments"),
+    projectId: v.id("projects"),
+    start: v.number(),
+    text: v.string(),
+  })
+    .index("by_documentId_and_start", ["documentId", "start"])
+    .index("by_projectId", ["projectId"])
+    .searchIndex("search_text", {
+      searchField: "text",
       filterFields: ["projectId"],
     }),
 
@@ -2556,13 +3108,37 @@ export default defineSchema({
     trigger: v.union(
       v.literal("candidate_selection"),
       v.literal("milestone"),
-      v.literal("client_publish")
+      v.literal("client_publish"),
+      // 2026-10-27 (Phase E, E3), widen only: a chat card applied, and the
+      // end of an editing burst (convex/lib/editDistance.ts).
+      v.literal("chat_apply"),
+      v.literal("edit")
     ),
+    // 2026-10-27 (Phase E, E3), widen only. Who made the change read
+    // (writerUserId stays the project owner); absent on older rows.
+    editorUserId: v.optional(v.id("users")),
+    // A chat apply's reading: the style lesson set its chat turn used.
+    learningDigestId: v.optional(v.id("learningDigests")),
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
     .index("by_writerUserId_and_computedAt", ["writerUserId", "computedAt"])
-    .index("by_computedAt", ["computedAt"]),
+    .index("by_computedAt", ["computedAt"])
+    // E3 review: Learning health's chart reads the three milestones only.
+    .index("by_trigger_and_computedAt", ["trigger", "computedAt"]),
+
+  // 2026-10-27 (Phase E, E3): one row per report while an editing burst is
+  // open. The first save of a burst writes it and schedules the burst's
+  // reading 10 minutes later; saves never read reportEditDistance.
+  reportEditSizeDue: defineTable({
+    reportId: v.id("reports"),
+    projectId: v.id("projects"),
+    // The latest editor in the burst.
+    editorUserId: v.id("users"),
+    dueAt: v.number(),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"]),
 
   // Human-verified claimant/participant identity and relationship evidence.
   // Rows are retained and rejected/superseded rather than deleted.
@@ -2740,6 +3316,35 @@ export default defineSchema({
     .index("by_generationId_and_completedAt", ["generationId", "completedAt"])
     .index("by_projectId", ["projectId"]),
 
+  // 2026-10-26 (Phase D, step 2): what each step of a draft sent of each
+  // frozen row, one row per source per step run, written once and never
+  // patched (Seed Batches run at once). Read by the Inputs band.
+  generationSourceUse: defineTable({
+    generationId: v.id("generations"),
+    projectId: v.id("projects"),
+    step: v.union(v.literal("analyzer"), v.literal("brief"), v.literal("seeds"), v.literal("facts_check")),
+    /** The run within the step: a Seed step (its role), a Line's facts check ("line:242"), or "reused" for a reused Brief. */
+    run: v.optional(v.string()),
+    sourceId: v.id("generationSources"),
+    /** The source's content fingerprint, so a reused Brief's record is copied to rows with the same text. */
+    contentHash: v.optional(v.string()),
+    state: v.union(v.literal("whole"), v.literal("part"), v.literal("left_out")),
+    /** How much of the source was sent, and its size, in `unit`. */
+    sent: v.number(),
+    total: v.number(),
+    unit: v.union(v.literal("chars"), v.literal("bytes")),
+    /**
+     * 2026-10-28 widen (Phase D, step 1): for a source read in part, the
+     * parts of its frozen text that were sent (string positions, start
+     * inclusive, end exclusive, in order), when the step knows them. At
+     * most 256; absent on older records and whole or left-out reads.
+     */
+    ranges: v.optional(v.array(v.object({ start: v.number(), end: v.number() }))),
+    at: v.number(),
+  })
+    .index("by_generationId", ["generationId"])
+    .index("by_generationId_and_step_and_run", ["generationId", "step", "run"])
+    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
   // Immutable source text captured before candidate fan-out.
   generationSources: defineTable({
     generationId: v.id("generations"),
@@ -2755,7 +3360,10 @@ export default defineSchema({
       // 2026-09-24 widen (transcript method): one rendered fact pack per
       // transcript, frozen next to that transcript's full-text row. Citations
       // always validate against the transcript row, never the pack.
-      v.literal("transcript_facts")
+      v.literal("transcript_facts"),
+      // 2026-10-26 widen (Phase C): a file of the project's company, frozen
+      // after the project's own files. Client trust always (no uploaderRole).
+      v.literal("company_file")
     ),
     transcriptId: v.optional(v.id("transcripts")),
     digestId: v.optional(v.id("transcriptDigests")),
@@ -2784,8 +3392,19 @@ export default defineSchema({
       )
     ),
     projectDocumentId: v.optional(v.id("projectDocuments")),
+    // A company_file row's file and the company it came from at the freeze.
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
     label: v.string(),
-    content: v.string(),
+    // B1, second part (2026-10-27), widen only: the text the draft read.
+    // Present on every row written before the change; a new project file or
+    // company file row refers to a stored version instead (`textVersionId`),
+    // and a new transcript row to its transcript; `textLength` is how many
+    // characters it read. Read through `sourceRowText`
+    // (convex/lib/sourceText.ts), never directly.
+    content: v.optional(v.string()),
+    textVersionId: v.optional(v.id("sourceTextVersions")),
+    textLength: v.optional(v.number()),
     contentHash: v.string(),
     truncated: v.boolean(),
     originalLength: v.number(),
@@ -2828,7 +3447,40 @@ export default defineSchema({
     ),
   })
     .index("by_generationId", ["generationId"])
-    .index("by_projectId_and_generationId", ["projectId", "generationId"]),
+    .index("by_projectId_and_generationId", ["projectId", "generationId"])
+    // B1, second part: which draft rows use a stored text version.
+    .index("by_textVersionId", ["textVersionId"]),
+
+  // B1, second part (2026-10-27): text a draft read from a project file or a
+  // company file, stored once and never changed: the exact text after the
+  // cut to its length limit and, for a Word file, with its Markdown marks
+  // taken out. A project's versions go with the project; a company file's
+  // go once the file is removed and no draft row refers to them
+  // (convex/lib/sourceText.ts).
+  sourceTextVersions: defineTable({
+    projectId: v.optional(v.id("projects")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
+    textHash: v.string(),
+    textLength: v.number(),
+    // UTF-8 bytes, so a reader can tell a version will not fit its budget
+    // without reading it.
+    textBytes: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_projectId_and_textHash", ["projectId", "textHash"])
+    .index("by_companyFileId_and_textHash", ["companyFileId", "textHash"]),
+
+  sourceTextVersionPieces: defineTable({
+    versionId: v.id("sourceTextVersions"),
+    projectId: v.optional(v.id("projects")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    start: v.number(),
+    text: v.string(),
+  })
+    .index("by_versionId_and_start", ["versionId", "start"])
+    .index("by_projectId", ["projectId"])
+    .index("by_companyFileId", ["companyFileId"]),
 
   // Immutable claim-to-source bundle for one exact report content hash.
   reportProvenance: defineTable({
@@ -3135,10 +3787,21 @@ export default defineSchema({
     reviewedBy: v.optional(v.string()),
     reviewNote: v.optional(v.string()),
     createdAt: v.number(),
+    // 2026-10-26 widen (Phase E, E2a): the Brain source approving this item
+    // nominated (or the existing one it deduplicated into), and when removing
+    // that source withdrew the item from the lesson sets.
+    brainSourceId: v.optional(v.id("brainSources")),
+    withdrawnAt: v.optional(v.number()),
+    // The approval time builds used for it (review): a set with no admission
+    // record is matched by its cutoff with one indexed read.
+    withdrawnApprovedAt: v.optional(v.number()),
   })
     .index("by_status", ["status"])
     // Story 0 (AD-19): project deletion detaches the optional project link.
-    .index("by_projectId", ["projectId"]),
+    .index("by_projectId", ["projectId"])
+    .index("by_brainSourceId", ["brainSourceId"])
+    .index("by_withdrawnAt", ["withdrawnAt"])
+    .index("by_withdrawnApprovedAt", ["withdrawnApprovedAt"]),
 
   // BNH-39: full audit trail + revert log. Every approve/revoke/reweight/unlearn
   // is recorded so the admin can see (and undo) what changed the Brain.
@@ -3205,7 +3868,109 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_generationId", ["generationId"])
+    .index("by_projectId", ["projectId"])
+    // 2026-10-27 (Phase E, E1a): a writer's own section edits, newest first.
+    .index("by_userId_and_createdAt", ["userId", "createdAt"]),
+
+  // 2026-10-27 (Phase E, E1a; part 5 of the first 2026-10-26 entry): a
+  // writer's saved preferences, private to that writer (convex/writerMemory.ts).
+  // No project, company or draft id: the style-only check keeps project
+  // facts out (convex/lib/preferenceCheck.ts).
+  writerMemories: defineTable({
+    userId: v.id("users"),
+    /** At most 160 characters; "" once a dismissed text is cleared after 90 days. */
+    text: v.string(),
+    /** The folded text, so the same preference is never suggested twice. */
+    textKey: v.string(),
+    // "cleared": dismissed more than 90 days ago, text gone, key kept (review:
+    // a cleared row leaves the cleanup's range).
+    state: v.union(v.literal("suggested"), v.literal("on"), v.literal("off"), v.literal("dismissed"), v.literal("cleared")),
+    origin: v.union(v.literal("suggested"), v.literal("written")),
+    /** How many of the writer's own signals backed a suggestion. */
+    support: v.optional(v.number()),
+    /** How many request texts a suggestion keeps while it is open. */
+    sourceCount: v.optional(v.number()),
+    /** The text key the model's style-only check passed. */
+    checkedTextKey: v.optional(v.string()),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_userId_and_state", ["userId", "state"])
+    .index("by_userId_and_textKey", ["userId", "textKey"])
+    .index("by_state_and_decidedAt", ["state", "decidedAt"]),
+
+  // An open suggestion's whole request, masked, so approval can check it
+  // again; deleted on the writer's decision and with each project.
+  writerMemorySources: defineTable({
+    memoryId: v.id("writerMemories"),
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    /** The signal: a learning signal, a chat card rewording, a section edit or a chat message. */
+    ref: v.string(),
+    text: v.string(),
+    /** The company the text came from (its client key), for the vocabulary rule. */
+    company: v.string(),
+  })
+    .index("by_memoryId", ["memoryId"])
     .index("by_projectId", ["projectId"]),
+
+  // One suggestion run per writer at a time, and when the last one ran.
+  writerMemoryRuns: defineTable({
+    userId: v.id("users"),
+    leaseUntil: v.number(),
+    /** The run holding the lease (review: an older run never clears a newer one's). */
+    leaseId: v.optional(v.string()),
+    /** When a run last answered (the sign-off run waits a day after it). */
+    lastRunAt: v.optional(v.number()),
+    /** The newest signal a run that answered read; moves only then (review). */
+    cursorAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
+
+  // 2026-10-26 (Phase E, E2b): Step-by-step choices and reviewer outcomes
+  // as learning signals, one masked copy per source row (convex/learningSignals.ts).
+  // The rows themselves are never changed; a signal goes with its project.
+  learningSignals: defineTable({
+    kind: v.union(
+      v.literal("seed_rewording"),
+      v.literal("seed_feedback"),
+      v.literal("seed_choices"),
+      v.literal("review_decision"),
+      v.literal("review_comment")
+    ),
+    /** The row it was made from, so it is made once and replaced with it. */
+    sourceKey: v.string(),
+    projectId: v.id("projects"),
+    generationId: v.optional(v.id("generations")),
+    /** Who acted: the writer, the requester, the reviewer or the commenter. */
+    producerId: v.id("users"),
+    /** Masked: the names the app knows are placeholders, the record's names removed. */
+    payload: v.object({
+      roleId: v.optional(v.string()),
+      before: v.optional(v.string()),
+      after: v.optional(v.string()),
+      instruction: v.optional(v.string()),
+      about: v.optional(v.string()),
+      note: v.optional(v.string()),
+      decision: v.optional(v.union(v.literal("approve"), v.literal("return"))),
+      tags: v.optional(v.array(v.object({ tag: v.string(), offered: v.number(), chosen: v.number() }))),
+      newIdeas: v.optional(v.number()),
+      skipped: v.optional(v.number()),
+    }),
+    at: v.number(),
+  })
+    .index("by_sourceKey", ["sourceKey"])
+    .index("by_kind_and_at", ["kind", "at"])
+    .index("by_producerId_and_at", ["producerId", "at"])
+    .index("by_projectId", ["projectId"]),
+
+  // When the learning signals last changed (one row). A signal written with
+  // an old time (the one-off pass) or removed moves it, so the next style
+  // build is not taken for unchanged inputs (E2b review).
+  learningSignalChanges: defineTable({
+    key: v.literal("signals"),
+    at: v.number(),
+  }).index("by_key", ["key"]),
 
   learningDigests: defineTable({
     kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
@@ -3215,6 +3980,10 @@ export default defineSchema({
     feedbackCutoff: v.number(), // newest feedback updatedAt included
     model: v.string(), // model that produced the digest
     createdAt: v.number(),
+    // 2026-10-26 widen (Phase E, E2a): the learning revision (the latest
+    // feedback withdrawal) the build read, so a rebuild after a withdrawal
+    // is not taken for unchanged inputs. Absent on older candidates (0).
+    learningRevision: v.optional(v.number()),
     // Per-writer flavor Phase B prep. Global publication rejects these rows
     // until per-writer activation semantics are separately approved.
     userId: v.optional(v.id("users")),
@@ -3243,7 +4012,10 @@ export default defineSchema({
     action: v.union(
       v.literal("compatibility_freeze"),
       v.literal("select"),
-      v.literal("disable")
+      v.literal("disable"),
+      // 2026-10-26 widen (Phase E, E2a): turned off because a Brain source
+      // the published set drew on was removed.
+      v.literal("source_withdrawn")
     ),
     reason: v.optional(v.string()),
     selectedAt: v.number(),
@@ -3516,6 +4288,11 @@ export default defineSchema({
     storylineOrigin: v.optional(
       v.union(v.literal("writer"), v.literal("derived"), v.literal("edited"))
     ),
+    // 2026-10-30 widen (review round 4, A1): the Brief derivation version a
+    // model-derived Brief was made under (BRIEF_DERIVATION_VERSION). Absent
+    // on Briefs made before; a derived Brief from an earlier version is not
+    // reused for the same inputs, while one a writer shaped still is.
+    derivationVersion: v.optional(v.number()),
     // 2026-09-26 widen (decision 65): a Brief adopted from a preparation
     // names it, its attempt, its key, the planning model it ran on and when
     // it finished. Usage stays on the preparation's own rows; adoption made
@@ -3595,6 +4372,7 @@ export default defineSchema({
     // when it was set (a new queued row takes it over while it is fresh).
     excludedTranscriptIds: v.optional(v.array(v.id("transcripts"))),
     excludedDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
+    excludedCompanyFileIds: v.optional(v.array(v.id("companyFiles"))),
     selectionAt: v.optional(v.number()),
     // The report editor whose evidence change asked for it; rechecked
     // before the paid call.
@@ -3665,9 +4443,11 @@ export default defineSchema({
     preparationId: v.id("briefPreparations"),
     projectId: v.optional(v.id("projects")),
     intakeDraftId: v.optional(v.id("intakeDrafts")),
-    kind: v.union(v.literal("transcript"), v.literal("project_document")),
+    kind: v.union(v.literal("transcript"), v.literal("project_document"), v.literal("company_file")),
     transcriptId: v.optional(v.id("transcripts")),
     projectDocumentId: v.optional(v.id("projectDocuments")),
+    companyFileId: v.optional(v.id("companyFiles")),
+    clientId: v.optional(v.id("clients")),
     // A draft's frozen row names its intake source; promotion adds the
     // project's transcript or file id through the exact source-key link.
     intakeSourceId: v.optional(v.id("intakeSources")),
@@ -3848,6 +4628,8 @@ export default defineSchema({
     // The names and text the model look was asked (or answered) for: a
     // later change of either asks again.
     speakerModelKey: v.optional(v.string()),
+    // 2026-10-26 widen (owner): Word Markdown, as projectDocuments.textFormat.
+    textFormat: v.optional(v.literal("markdown")),
     fileType: v.optional(
       v.union(
         v.literal("txt"),
@@ -4162,6 +4944,11 @@ export default defineSchema({
     // Last admin log line about this track's error rate while automatic
     // updates were off, so it is written at most once a day.
     errorNoticeAt: v.optional(v.number()),
+    // 2026-10-23 widen (review): true on a row first written for the
+    // deploy-day move, which happened before the row existed, so the new
+    // model's calls count over the whole last day rather than from
+    // `switchedAt`. Cleared by the next move.
+    deployMove: v.optional(v.boolean()),
   }).index("by_track", ["track"]),
 
   // 2026-10-22: the admin-only model log on /admin/models. Catalog

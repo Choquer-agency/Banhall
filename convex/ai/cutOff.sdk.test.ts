@@ -29,6 +29,7 @@ import { OutputLimitError, type GenerationClient } from "./openrouterCore";
 import { normalizeProviderError, withOutcomeRecording } from "./providers";
 import { STRUCTURED_OUTPUT_PROGRAM, generateStructured } from "./structured";
 import { compressSection } from "./pipeline";
+import { streamWhenAsked } from "../anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before each Anthropic request;
 // load its module first so a cold import cannot race the fake clock.
@@ -83,7 +84,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-cutoff-key");
   vi.stubEnv("OPENROUTER_API_KEY", "synthetic-cutoff-openrouter");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn(() => { throw new Error("Unexpected HTTP transport"); })));
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -113,10 +114,10 @@ test("a cut-off tool answer that would validate spends the repair, then fails cl
   expect(validate.safeParse(PARTIAL).success).toBe(true);
   const t = convexTest(schema, modules);
   const bodies: WireBody[] = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     bodies.push(await new Request(input, init).json() as WireBody);
     return anthropicMessage([toolUse(PARTIAL)], "max_tokens", options.maxTokens);
-  }));
+  })));
 
   const outcome = await runAction(t, async (ctx) => {
     const client = withOutcomeRecording(
@@ -169,12 +170,12 @@ test("a cut-off tool answer that would validate spends the repair, then fails cl
 test("a cut-off tool answer followed by a complete one returns the complete answer, never the partial", async () => {
   const t = convexTest(schema, modules);
   const bodies: WireBody[] = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     bodies.push(await new Request(input, init).json() as WireBody);
     return bodies.length === 1
       ? anthropicMessage([toolUse(PARTIAL)], "max_tokens", options.maxTokens)
       : anthropicMessage([toolUse(COMPLETE)], "tool_use", 90);
-  }));
+  })));
 
   const value = await runAction(t, async (ctx) =>
     generateStructured(instrumentedAnthropic(ctx, { callSite: "cutoff-contract" }), options)
@@ -191,10 +192,10 @@ test("a cut-off tool answer followed by a complete one returns the complete answ
 test("an uncut tool answer is accepted exactly as before, in one request, with its stop reason recorded", async () => {
   const t = convexTest(schema, modules);
   const bodies: unknown[] = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     bodies.push(await new Request(input, init).json());
     return anthropicMessage([toolUse(COMPLETE)], "tool_use", 90);
-  }));
+  })));
 
   const value = await runAction(t, async (ctx) =>
     generateStructured(instrumentedAnthropic(ctx, { callSite: "cutoff-contract" }), options)
@@ -218,7 +219,7 @@ test("an uncut tool answer is accepted exactly as before, in one request, with i
 test("OpenRouter: a length-truncated tool answer gets the same shorter-answer repair and records its finish reason", async () => {
   const t = convexTest(schema, modules);
   const bodies: Array<{ messages: Array<{ role: string; content: unknown }> }> = [];
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init);
     expect(request.url).toBe("https://openrouter.ai/api/v1/chat/completions");
     bodies.push(await request.json() as (typeof bodies)[number]);
@@ -240,7 +241,7 @@ test("OpenRouter: a length-truncated tool answer gets the same shorter-answer re
       }],
       usage: { prompt_tokens: 40, completion_tokens: cut ? 1024 : 90, cost: 0.001 },
     });
-  }));
+  })));
 
   const value = await runAction(t, async (ctx) =>
     generateStructured(instrumentedOpenRouter(ctx, { callSite: "cutoff-contract" }), {
@@ -257,15 +258,88 @@ test("OpenRouter: a length-truncated tool answer gets the same shorter-answer re
   expect(usage.map((row) => row.stopReason)).toEqual(["length", "tool_calls"]);
 });
 
+// 2026-10-26 (code review): an OpenRouter model's answer does not stream, so
+// even a step that opts in keeps the shorter repair at the same limit there.
+test("OpenRouter models keep the shorter repair after a cut-off, even for a step that opts in to more room", async () => {
+  const t = convexTest(schema, modules);
+  const bodies: Array<{ max_tokens: number; messages: Array<{ role: string; content: unknown }> }> = [];
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+    bodies.push(await new Request(input, init).json() as (typeof bodies)[number]);
+    const cut = bodies.length === 1;
+    return Response.json({
+      model: "openai/gpt-6-sol",
+      choices: [{
+        message: {
+          content: null,
+          tool_calls: [{
+            id: "call_synthetic",
+            function: { name: options.toolName, arguments: cut ? '{"summary":"The seal fa' : JSON.stringify(COMPLETE) },
+          }],
+        },
+        finish_reason: cut ? "length" : "tool_calls",
+      }],
+      usage: { prompt_tokens: 40, completion_tokens: cut ? 1024 : 90, cost: 0.001 },
+    });
+  }));
+
+  const value = await runAction(t, async (ctx) =>
+    generateStructured(instrumentedOpenRouter(ctx, { callSite: "cutoff-contract" }), {
+      ...options,
+      model: "openai/gpt-6-sol",
+      cutOffRetry: "more_room",
+    })
+  );
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(value).toEqual(COMPLETE);
+  // 256 with the reasoning room (x4), both times.
+  expect(bodies.map((body) => body.max_tokens)).toEqual([1024, 1024]);
+  expect(bodies[1].messages.at(-1)).toEqual({ role: "user", content: `${options.user}${REPAIR_NOTE}` });
+});
+
+// OpenRouter holds credit against max_tokens and can refuse a Claude request
+// sent over its transport for its size with a 402; the repair is then sent
+// once more at the step's own limit, and the refusal spends no attempt.
+test("Claude over the OpenRouter transport: a whole-allowance repair refused with a 402 is sent again at the step's limit", async () => {
+  vi.stubEnv("ANTHROPIC_TRANSPORT", "openrouter");
+  const t = convexTest(schema, modules);
+  const bodies: Array<{ max_tokens: number; stream?: boolean; messages: Array<{ role: string; content: unknown }> }> = [];
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
+    const request = new Request(input, init);
+    expect(request.url).toBe("https://openrouter.ai/api/v1/messages");
+    bodies.push(await request.json() as (typeof bodies)[number]);
+    if (bodies.length === 2) {
+      return Response.json(
+        { error: { code: 402, message: "Request weight exceeds the budget", metadata: { reason: "weight_exceeds_budget" } } },
+        { status: 402 }
+      );
+    }
+    return bodies.length === 1
+      ? anthropicMessage([toolUse(PARTIAL)], "max_tokens", options.maxTokens)
+      : anthropicMessage([toolUse(COMPLETE)], "tool_use", 90);
+  })));
+
+  const value = await runAction(t, async (ctx) =>
+    generateStructured(instrumentedAnthropic(ctx, { callSite: "cutoff-contract" }), { ...options, cutOffRetry: "more_room" })
+  );
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(value).toEqual(COMPLETE);
+  // The step's 256, the model's whole 128,000 (streamed), then 256 again.
+  expect(bodies.map((body) => [body.max_tokens, body.stream === true])).toEqual([[256, false], [128_000, true], [256, false]]);
+  expect(JSON.stringify(bodies[1].messages)).toContain("this attempt has more room, so give the complete answer");
+  expect(bodies[2].messages.at(-1)).toEqual({ role: "user", content: `${options.user}${REPAIR_NOTE}` });
+});
+
 test("a section draft cut off at the output limit is refused, never delivered; an uncut draft is unchanged", async () => {
   const t = convexTest(schema, modules);
   let call = 0;
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async () => {
     call += 1;
     return call === 1
       ? anthropicMessage([{ type: "text", text: "The team measured seal fatigue at" }], "max_tokens", 8192)
       : anthropicMessage([{ type: "text", text: "  The team measured seal fatigue at 400 kPa.  " }], "end_turn", 12);
-  }));
+  })));
   const { runSection242Agent } = await import("./section242Agent");
   const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
 
@@ -296,7 +370,7 @@ test("a section draft cut off at the output limit is refused, never delivered; a
 test("a cut-off compression keeps the section it was given, on both gateways", async () => {
   const t = convexTest(schema, modules);
   const original = "The original, longer section text about seal fatigue.";
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const url = new Request(input, init).url;
     if (url.startsWith("https://openrouter.ai/")) {
       return Response.json({
@@ -306,7 +380,7 @@ test("a cut-off compression keeps the section it was given, on both gateways", a
       });
     }
     return anthropicMessage([{ type: "text", text: "The shorter sec" }], "max_tokens", 4096);
-  }));
+  })));
 
   const outputs = await runAction(t, async (ctx) => [
     await compressSection(
@@ -334,7 +408,7 @@ test("a cut-off compression keeps the section it was given, on both gateways", a
 test("a cut-off section draft or tool answer records the same output-limit failure on both gateways (cutoff review P3-1)", async () => {
   const t = convexTest(schema, modules);
   let openRouterCalls = 0;
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init);
     if (!request.url.startsWith("https://openrouter.ai/")) {
       return anthropicMessage([{ type: "text", text: "The team measured seal fatigue at" }], "max_tokens", 8192);
@@ -359,7 +433,7 @@ test("a cut-off section draft or tool answer records the same output-limit failu
       }],
       usage: { prompt_tokens: 40, completion_tokens: 256, cost: 0.001 },
     });
-  }));
+  })));
   const { runSection242Agent } = await import("./section242Agent");
   const analysis = { uncertainties: ["Seal fatigue under cyclic load."] } as never;
 
@@ -394,7 +468,7 @@ test("a cut-off compression is not counted toward rollback on either gateway; an
   const t = convexTest(schema, modules);
   const original = "The original, longer section text about seal fatigue.";
   let cut = true;
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const url = new Request(input, init).url;
     if (url.startsWith("https://openrouter.ai/")) {
       return Response.json({
@@ -406,7 +480,7 @@ test("a cut-off compression is not counted toward rollback on either gateway; an
     return cut
       ? anthropicMessage([{ type: "text", text: "The shorter sec" }], "max_tokens", 4096)
       : anthropicMessage([{ type: "text", text: "The shorter section." }], "end_turn", 12);
-  }));
+  })));
 
   const compress = (t: TestConvex) => runAction(t, async (ctx) => {
     const callSite = "generation:compression:242";
@@ -440,7 +514,7 @@ test("a cut-off compression is not counted toward rollback on either gateway; an
 
 test("a cut-off repair keeps its draft and is not counted toward rollback on either gateway; a cut-off section draft is", async () => {
   const t = convexTest(schema, modules);
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const url = new Request(input, init).url;
     if (url.startsWith("https://openrouter.ai/")) {
       return Response.json({
@@ -450,7 +524,7 @@ test("a cut-off repair keeps its draft and is not counted toward rollback on eit
       });
     }
     return anthropicMessage([{ type: "text", text: "The repaired sec" }], "max_tokens", 4096);
-  }));
+  })));
   const send = (callSite: string) => runAction(t, async (ctx) => {
     const anthropic = withOutcomeRecording(ctx, "claude-sonnet-5", callSite,
       instrumentedAnthropic(ctx, { callSite }) as unknown as GenerationClient);
@@ -477,7 +551,7 @@ test("a cut-off repair keeps its draft and is not counted toward rollback on eit
 });
 
 test("a cut-off answer counts toward rollback only where it fails its step, the same on both gateways (sweep review P2-1)", async () => {
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn<typeof fetch>(async (input, init) => {
     const request = new Request(input, init);
     const body = (await request.json()) as { model: string; tools?: unknown[] };
     if (request.url.startsWith("https://openrouter.ai/")) {
@@ -495,7 +569,7 @@ test("a cut-off answer counts toward rollback only where it fails its step, the 
     return body.tools
       ? anthropicMessage([toolUse(PARTIAL)], "max_tokens", 100)
       : anthropicMessage([{ type: "text", text: "The team measured seal fatigue at" }], "max_tokens", 100);
-  }));
+  })));
   // One cut-off request per gateway under the call site's own label, in a
   // fresh deployment, so the buckets are that call site's counts.
   const counted = async (callSite: string, structured = false) => {

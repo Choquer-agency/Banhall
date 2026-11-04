@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * D1 identity menu, opened from the rail identity row (expanded: above the
-   * row; collapsed: to the right of the avatar). Account, View as another
+   * D1 identity menu. The page frame (owner, 2026-10-28) opens it below the
+   * account button at the right of the global bar; the drawer keeps it above
+   * its identity row. Account, View as another
    * role (developers only, decision 53), Flag an issue (everyone, decision
    * 53), then Sign out. Sign out follows the board: no confirm step.
    */
@@ -37,7 +38,7 @@
     tone?: AvatarTone;
     /** The real developer flag (View as never hides its own way back). */
     isDeveloper?: boolean;
-    placement?: "above" | "right";
+    placement?: "above" | "right" | "below";
     layer?: "app" | "drawer";
     onNavigate?: () => void;
     trigger: Snippet<[{ props: Record<string, unknown>; open: boolean }]>;
@@ -73,7 +74,7 @@
   <DropdownMenu.Portal>
     <DropdownMenu.Content
       data-identity-menu
-      side={placement === "above" ? "top" : "right"}
+      side={placement === "above" ? "top" : placement === "below" ? "bottom" : "right"}
       align={placement === "above" ? "start" : "end"}
       sideOffset={8}
       preventScroll={false}

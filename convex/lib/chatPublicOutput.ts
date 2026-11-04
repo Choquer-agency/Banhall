@@ -16,6 +16,27 @@ export const MAX_PUBLIC_REASONING_CHARS = 4_000;
 /** The tool whose results may hold other clients' approved reports. */
 const BRAIN_TOOL = "searchBrain";
 
+/**
+ * 2026-11-03 (lab run): askWriter's question is written for the writer, and
+ * the panel above the message box reads it from the call's input
+ * (`openWriterQuestion`). Its question and options cross the boundary, cut
+ * to the tool's own limits; nothing else of any tool input does. Before
+ * this the input was emptied like every other tool's, so the question never
+ * showed and a reply that ended on it read as empty. Must match
+ * chatAgentV2's ASK_WRITER_TOOL (a test pins it).
+ */
+export const PUBLIC_INPUT_TOOL = "askWriter";
+
+/** askWriter's question and at most three options, as plain strings. */
+export function publicAskWriterInput(input: unknown): { question: string; options: string[] } {
+  const raw = (input && typeof input === "object" ? input : {}) as { question?: unknown; options?: unknown };
+  const question = typeof raw.question === "string" ? raw.question.slice(0, 200) : "";
+  const options = Array.isArray(raw.options)
+    ? raw.options.filter((option): option is string => typeof option === "string").slice(0, 3).map((option) => option.slice(0, 120))
+    : [];
+  return { question, options };
+}
+
 export type PublicChatOptions = {
   /**
    * The turn ran a Brain search (`chatTurns.brainSearchedAt`). Its reasoning
@@ -42,7 +63,7 @@ function publicToolPart(part: LoosePart): LoosePart {
   if (part.type === "dynamic-tool" && typeof part.toolName === "string") visible.toolName = part.toolName;
   if (typeof part.state === "string") visible.state = part.state;
   if (typeof part.providerExecuted === "boolean") visible.providerExecuted = part.providerExecuted;
-  visible.input = {};
+  visible.input = toolNameOf(part) === PUBLIC_INPUT_TOOL ? publicAskWriterInput(part.input) : {};
   if (part.state === "output-available") visible.output = STEP_COMPLETE;
   if (part.state === "output-error") visible.errorText = STEP_FAILED;
   return visible;
@@ -131,8 +152,12 @@ function publicStreamPart(part: unknown, state: { reasoningHidden: boolean }): u
       return [{ ...visible,
         ...("delta" in part && typeof part.delta === "string" ? { delta: capReasoning(part.delta) } : {}),
         ...("text" in part && typeof part.text === "string" ? { text: capReasoning(part.text) } : {}) }];
-    case "tool-input-available": case "tool-call":
-      return [{ ...visible, input: {}, ...(part.type === "tool-call" ? { args: {} } : {}) }];
+    case "tool-input-available": case "tool-call": {
+      const asks = "toolName" in part && part.toolName === PUBLIC_INPUT_TOOL;
+      const raw = "input" in part ? part.input : "args" in part ? part.args : undefined;
+      const input = asks ? publicAskWriterInput(raw) : {};
+      return [{ ...visible, input, ...(part.type === "tool-call" ? { args: input } : {}) }];
+    }
     case "tool-input-error":
       return [{ ...visible, input: {}, errorText: STEP_FAILED }];
     case "tool-output-available":

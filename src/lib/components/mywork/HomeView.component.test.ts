@@ -83,7 +83,6 @@ async function mount(recentProjects: RecentProject[] = []) {
   await browserPage.viewport(1440, 900);
   return await render(HomeView, {
     recentProjects,
-    onToggleRail: () => {},
     onOpenNavigation: () => {},
   });
 }
@@ -102,41 +101,44 @@ describe("Home", () => {
     document.body.innerHTML = "";
   });
 
-  it("shows the top bar with Home, the greeting, the bell and New project", async () => {
+  it("sits in the white card with the Projects sidebar (Home marked) and the top bar: Home and the greeting", async () => {
     seed();
     __setPaginatedRows("myWork:listAssignedToMe", []);
     __setPaginatedRows("dashboard:listFlatProjects", []);
+    __setQueryData("dashboard:getFacets", { total: 42, truncated: false, stageCounts: {} });
+    __setQueryData("clients:listClients", {
+      clients: [{ key: "cedarline systems", clientId: null, name: "Cedarline Systems", projectCount: 10 }],
+      truncated: false,
+    });
     await mount();
 
-    const bar = document.querySelector<HTMLElement>("[data-home-top-bar]")!;
+    const home = document.querySelector<HTMLElement>("[data-home]")!;
+    expect(home.hasAttribute("data-frame-card")).toBe(true);
+    expect(home.hasAttribute("data-work-panel")).toBe(true);
+    const bar = home.querySelector<HTMLElement>("[data-page-top-bar]")!;
     expect(bar.querySelector("h1")?.textContent).toBe("Home");
     await expect
-      .poll(() => bar.querySelector("[data-home-greeting]")?.textContent)
+      .poll(() => bar.querySelector("[data-page-subtitle]")?.textContent)
       .toMatch(/^Good (morning|afternoon|evening), Jordan$/);
-    expect(bar.querySelector('a[href="/changelog"][data-top-bar-bell]')).not.toBeNull();
-    const newProject = bar.querySelector<HTMLAnchorElement>("[data-home-new-project]")!;
-    expect(newProject.getAttribute("href")).toBe("/project/new");
-    expect(newProject.textContent?.trim()).toBe("New project");
-    // The standard top bar (2026-10-19): no page tile, 64px, the 22/28
-    // title, and the 38px primary button (radius 9, 15/500), no plus.
+    // The page frame: a 64px bar with the 22/28 title, no page tile.
     expect(bar.querySelector("[data-home-page-icon]")).toBeNull();
-    expect(document.querySelector("[data-home]")?.className).toContain("bg-workspace-shell");
-    expect(document.querySelector("[data-home-panel]")?.hasAttribute("data-work-panel")).toBe(true);
     expect(bar.getBoundingClientRect().height).toBe(board(64));
-    expect(getComputedStyle(bar.querySelector("h1")!).fontSize).toBe(boardPx(20));
-    expect(newProject.getBoundingClientRect().height).toBe(board(38));
-    expect(getComputedStyle(newProject).borderRadius).toBe(boardPx(9));
-    expect(getComputedStyle(newProject).fontSize).toBe(boardPx(15));
-    expect(newProject.querySelector("svg")).toBeNull();
-    const bell = bar.querySelector<HTMLElement>("[data-top-bar-bell]")!;
-    expect(bell.getBoundingClientRect().width).toBe(board(36));
-    expect(bell.querySelector("svg")?.getAttribute("width")).toBe("16");
-    expect(bell.querySelector("path")?.getAttribute("d")).toBe("M5 17h14l-2-3V9a5 5 0 0 0-10 0v5Z M10 21h4");
-    const panel = document.querySelector<HTMLElement>("[data-home-panel]")!;
-    expect(getComputedStyle(panel).borderRadius).toBe(boardPx(12));
-    expect(getComputedStyle(panel).borderTopColor).toBe("rgb(218, 229, 227)");
-    // Home stays simple: no search field on the dashboard.
-    expect(document.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();
+    expect(getComputedStyle(bar.querySelector("h1")!).fontSize).toBe(boardPx(22));
+    // From 768px New project lives in the sidebar, and the bell in the global bar.
+    const barNew = bar.querySelector<HTMLElement>("[data-top-bar-primary]")!;
+    expect(barNew.getBoundingClientRect().width).toBe(0);
+    expect(bar.querySelector<HTMLElement>("[data-top-bar-bell]")!.getBoundingClientRect().width).toBe(0);
+    const sidebar = home.querySelector<HTMLElement>('[data-section-sidebar="projects"]')!;
+    const newProject = sidebar.querySelector<HTMLAnchorElement>("[data-section-sidebar-action]")!;
+    expect([newProject.getAttribute("href"), newProject.textContent?.trim()]).toEqual(["/project/new", "New project"]);
+    expect(sidebar.querySelector("[data-projects-sidebar-home]")?.getAttribute("aria-current")).toBe("page");
+    await expect.poll(() => sidebar.querySelector('[data-client-row="all"] [data-section-sidebar-count]')?.textContent).toBe("42");
+    expect(sidebar.querySelector('[data-client-row="all"]')?.getAttribute("aria-current")).toBeNull();
+    await expect.poll(() => sidebar.querySelector('[data-client-row="cedarline systems"]')?.getAttribute("href")).toBe(
+      "/projects?client=cedarline+systems"
+    );
+    // Home stays simple: no search field on the page itself.
+    expect(home.querySelector('[data-home-panel] input[type="search"], [data-home-panel] [role="searchbox"]')).toBeNull();
   });
 
   it("lists work with you once per project with client, stage and last edited", async () => {
@@ -335,16 +337,15 @@ describe("Home", () => {
     // to 20px at 2560 (layout.css), so every rem below scales with it.
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
     expect(rem).toBeCloseTo(rootFontSize(width), 3);
-    // Sides come from the shared --page-gutter token (2.25rem from 1024px up).
-    const gutter = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--page-gutter")) * rem;
-    expect(gutter).toBeCloseTo(2.25 * rem, 3);
-    expect(Math.round(tables.left - panel.left)).toBe(Math.round(gutter + 1));
-    expect(Math.round(panel.right - column.right)).toBe(Math.round(gutter + 1));
+    // Sides are the card's shared content inset (2rem from 1024px up, the page frame).
+    const gutter = 2 * rem;
+    expect(Math.round(tables.left - panel.left)).toBe(Math.round(gutter));
+    expect(Math.round(panel.right - column.right)).toBe(Math.round(gutter));
     // Tables fill everything between the gutter and the fixed right column
     // (a 2rem gap and a 24rem column: 32 and 384 at 1440).
     expect(Math.round(column.left - tables.right)).toBe(Math.round(2 * rem));
     expect(Math.round(column.width)).toBe(Math.round(24 * rem));
-    expect(Math.abs(tables.width - (panel.width - 2 - 2 * gutter - 2 * rem - 24 * rem))).toBeLessThan(1);
+    expect(Math.abs(tables.width - (panel.width - 2 * gutter - 2 * rem - 24 * rem))).toBeLessThan(1);
     // The rows stretch with their table.
     const withYou = table("home-with-you").querySelector("table")!.getBoundingClientRect();
     expect(Math.round(withYou.width)).toBe(Math.round(tables.width));
@@ -533,7 +534,7 @@ describe("Home", () => {
     __setPaginatedRows("myWork:listAssignedToMe", [assigned("a")]);
     __setPaginatedRows("dashboard:listFlatProjects", []);
     await browserPage.viewport(390, 844);
-    await render(HomeView, { recentProjects: [], onToggleRail: () => {}, onOpenNavigation: () => {} });
+    await render(HomeView, { recentProjects: [], onOpenNavigation: () => {} });
 
     await expect.poll(() => table("home-with-you").querySelector("table")).not.toBeNull();
     const headers = [...table("home-with-you").querySelectorAll("th")].filter(
@@ -545,7 +546,7 @@ describe("Home", () => {
     expect(continueBox.top).toBeGreaterThanOrEqual(tables.bottom);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
     expect(
-      document.querySelector('[data-home-top-bar] button[aria-label="Open workspace navigation"]')
+      document.querySelector('[data-home] [data-page-top-bar] button[aria-label="Open workspace navigation"]')
     ).not.toBeNull();
   });
 });

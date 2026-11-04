@@ -1,0 +1,24 @@
+{
+  "byHour": {
+    "2026-10-28T02:00Z": {
+      "outcomeFailures": 5,
+      "outcomeRows": 56,
+      "usageRefusals": 26,
+      "usageRows": 56
+    },
+    "2026-10-28T03:00Z": {
+      "outcomeFailures": 17,
+      "outcomeRows": 180,
+      "usageRefusals": 54,
+      "usageRows": 180
+    },
+    "2026-10-28T04:00Z": {
+      "outcomeFailures": 0,
+      "outcomeRows": 156,
+      "usageRefusals": 2,
+      "usageRows": 156
+    }
+  },
+  "note": "Haiku 5.5 per-call outcome rows (modelCallOutcomes, what the tier check counts) beside its usage rows (aiUsage), by hour, from an hour before the run. The counts match hour by hour, so they are very likely the same calls; 82 were refused and 22 recorded as failures. The structured call path counts a refusal as a failure only when it carries no usable tool call, and the label path had no refusal check until 9826fea0 (committed 03:24Z, partway through the run), so refused answers that still held a usable answer were most likely counted as successes. That was not shown call by call.",
+  "readAt": "2026-10-28T04:59:06.693Z"
+}

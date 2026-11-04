@@ -1,5 +1,5 @@
+import type { SourceRowWithText } from "./sourceText";
 import { sha256 } from "./contracts";
-import type { Doc } from "../_generated/dataModel";
 import { readsFactPacks } from "./seedFacts";
 import { FACTS_VERSION } from "./transcriptFacts";
 import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
@@ -26,7 +26,7 @@ import { BRIEF_WRITER_WORDING, briefSettingsSource } from "./briefRequest";
  * the hash is exactly what it was.
  */
 export async function briefInputsHash(
-  sources: Array<Omit<Doc<"generationSources">, "_id" | "_creationTime">>
+  sources: Array<Omit<SourceRowWithText, "_id" | "_creationTime">>
 ): Promise<string> {
   // Filter to only the kinds that matter for input matching
   const relevantSources = sources.filter(
@@ -52,6 +52,9 @@ export async function briefInputsHash(
     // even for the same content (a client's copy of the document has no
     // rule). Without such a document the hash is exactly what it was.
     (briefSettingsSource(relevantSources) ? `|writerWording:${BRIEF_WRITER_WORDING.version}` : "");
+  // Phase D, step 1 (2026-10-28, sixth, review): no marker for a Brief
+  // chosen by relevance. A Brief made before is still reused for the same
+  // sources, writers' edits included; its quotes are all in the sources.
 
   // Return the hash of the concatenated hashes
   return await sha256(concatenated);

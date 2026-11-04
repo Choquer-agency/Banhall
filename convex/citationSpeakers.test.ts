@@ -9,6 +9,7 @@
  * stored turns exactly as before. The fixture follows the Meridian demo
  * project, whose Brief cited the interviewer's question.
  */
+import { withStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -167,7 +168,7 @@ async function speakersOf(
     if (!source) throw new Error("source missing");
     const speakerOf = citationSpeakerReader(ctx);
     const out: CitationSpeaker[] = [];
-    for (const span of spans) out.push(await speakerOf(source, span.startOffset, span.endOffset));
+    for (const span of spans) out.push(await speakerOf(withStoredText(source), span.startOffset, span.endOffset));
     return out;
   });
 }
@@ -269,8 +270,8 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
         const speakerOf = citationSpeakerReader(ctx);
         const unknown = at(UNKNOWN);
         return [
-          await speakerOf(source, unknown.startOffset, unknown.endOffset, at(QUESTION)),
-          await speakerOf(source, unknown.startOffset, unknown.endOffset, ECHO_INTERVIEWER),
+          await speakerOf(withStoredText(source), unknown.startOffset, unknown.endOffset, at(QUESTION)),
+          await speakerOf(withStoredText(source), unknown.startOffset, unknown.endOffset, ECHO_INTERVIEWER),
         ];
       })
     ).toEqual(["needs_check", "excluded"]);
@@ -279,8 +280,8 @@ describe("the speaker check (convex/lib/citationSpeakers.ts)", () => {
       const speakerOf = citationSpeakerReader(ctx);
       const short = at("the standard cure");
       return [
-        await evidenceSpan(speakerOf, source, ECHO_INTERVIEWER),
-        await evidenceSpan(speakerOf, source, short),
+        await evidenceSpan(speakerOf, withStoredText(source), ECHO_INTERVIEWER),
+        await evidenceSpan(speakerOf, withStoredText(source), short),
       ];
     });
     expect(kept).toEqual([
@@ -590,6 +591,58 @@ async function deriveBrief(
       .collect(),
   }));
 }
+
+describe("the Brief records what it read (Phase D, step 2)", () => {
+  it("a derived Brief records what its request sent of each frozen row, and a reuse records it again", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    await deriveBrief(t, f);
+    const briefUses = async () =>
+      (
+        await t.run((ctx) =>
+          ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", f.generationId)).collect()
+        )
+      ).filter((use) => use.step === "brief");
+    const derived = await briefUses();
+    expect(derived.map((use) => [use.sourceId, use.state, use.unit])).toEqual([[f.sourceId, "whole", "chars"]]);
+    vi.stubGlobal("fetch", vi.fn());
+    // The same draft reusing its own Brief keeps its one record.
+    await runAction(t, async (ctx) =>
+      deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: f.generationId })
+    );
+    expect((await briefUses()).length).toBe(1);
+  });
+
+  it("a later draft that reuses the Brief copies its record onto its own row with the same text (review)", async () => {
+    const t = convexTest(schema, modules);
+    const f = await meridian(t, { turns: true });
+    await deriveBrief(t, f);
+    const later = await t.run(async (ctx) => {
+      const now = Date.now();
+      const generationId = await ctx.db.insert("generations", {
+        projectId: f.projectId, transcriptId: f.transcriptId, transcriptIds: [f.transcriptId],
+        status: "running", lengthTarget: "standard", requestedBy: f.userId, startedAt: now, previousProjectStatus: "draft",
+      });
+      const sourceId = await ctx.db.insert("generationSources", {
+        generationId, projectId: f.projectId, kind: "transcript", transcriptId: f.transcriptId,
+        label: "Meridian interview", content: MERIDIAN, contentHash: await sha256(MERIDIAN),
+        truncated: false, originalLength: MERIDIAN.length, capturedAt: now,
+      });
+      return { generationId, sourceId };
+    });
+    vi.stubGlobal("fetch", vi.fn());
+    const outcome = await runAction(t, async (ctx) =>
+      deriveOrReuseBrief(ctx, briefClient(), { projectId: f.projectId, generationId: later.generationId })
+    );
+    expect(outcome.kind).toBe("reused");
+    const copied = await t.run((ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", later.generationId)).collect()
+    );
+    expect(copied.map((use) => [use.step, use.run, use.sourceId, use.state])).toEqual([
+      ["brief", "reused", later.sourceId, "whole"],
+    ]);
+  });
+});
 
 describe("Brief entries keep only client turns as evidence outside facts mode", () => {
   it("drops the interviewer-backed exclusion and the vendor's words, and moves the glossary term to the client", async () => {

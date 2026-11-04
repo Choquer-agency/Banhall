@@ -341,7 +341,7 @@ describe("one tool list whatever the message options", () => {
     const names = (body: Body) => (body.tools as Array<{ name: string }>).map((tool) => tool.name);
     expect(names(plainSent[0]!)).toEqual([
       "proposeEdit", "proposeReplacements", "proposeBulkEdits", "deviationInventory",
-      "compareReferencePd", "highlightPassages", "searchBrain", "searchWeb",
+      "compareReferencePd", "highlightPassages", "askWriter", "searchBrain", "searchWeb",
       "readDocument", "searchDocuments", "readTranscript", "viewFile",
     ]);
     expect(JSON.stringify(toggledSent[0]!.tools)).toBe(JSON.stringify(plainSent[0]!.tools));

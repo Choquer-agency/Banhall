@@ -3,6 +3,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import type { UIMessage } from "@convex-dev/agent";
 import type { Id } from "../../../../convex/_generated/dataModel";
+import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
 import AgentChatPanel from "./AgentChatPanel.svelte";
 import MessageContent from "./primitives/MessageContent.svelte";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
@@ -75,6 +76,29 @@ it("never shows the welcome to a report with a conversation while it loads", asy
   watch.stop();
 });
 
+// 2026-10-28 (owner): reopening a chat on a report with a Line over its limit
+// briefly showed a new conversation's "Get started" options and title.
+it("never shows a new conversation's options or title while an earlier chat loads", async () => {
+  const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
+  const overLimit = JSON.stringify(buildTiptapDocument("Report", words(385), words(20), words(30)));
+  const seen = { getStarted: false, newTitle: false };
+  const observer = new MutationObserver(() => {
+    if (document.body.textContent?.includes("Get started")) seen.getStarted = true;
+    if (document.querySelector("[data-conversation-title]")?.textContent === "New conversation") seen.newTitle = true;
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  await render(AgentChatPanel, { ...ids, reportContent: overLimit });
+  await expect.element(loading()).toBeInTheDocument();
+  __setQueryData("chatV2:listThreads", [{ _id: "mapping-1", agentThreadId: "thread-1", title: "Earlier" }]);
+  await expect.element(page.getByText("Earlier", { exact: true })).toBeVisible();
+  await expect.element(loading()).toBeInTheDocument();
+  __setPaginatedRows("chatV2:listMessages", rows);
+  await expect.element(page.getByText("Stored answer", { exact: true })).toBeVisible();
+  await expect.element(composer()).toBeVisible();
+  observer.disconnect();
+  expect(seen).toEqual({ getStarted: false, newTitle: false });
+});
+
 it("says a conversation could not load instead of loading forever, and holds Send", async () => {
   const watch = watchWelcome();
   __setQueryData("chatV2:listThreads", [{ _id: "mapping-1", agentThreadId: "thread-1", title: "Earlier" }]);
@@ -103,8 +127,7 @@ it("says the conversation list could not load, holds Send, and lets New conversa
   expect(watch.seen.welcome).toBe(false);
   watch.stop();
   // Choosing New conversation is an explicit choice to start one.
-  await page.getByRole("button", { name: "Conversation menu" }).click();
-  await page.getByRole("menuitem", { name: "New conversation" }).click();
+  await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await composer().fill("Start fresh");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect.poll(() => __mutationCalls("chatV2:sendMessage").length).toBe(1);
@@ -127,4 +150,33 @@ it("never loads an image from a reply", async () => {
   await render(MessageContent, { markdown: true, text: "Here ![chart](https://outside.example/p.png?d=secret) it is." });
   await expect.element(page.getByText(/Image blocked/)).toBeVisible();
   expect(document.querySelector('img[src*="outside.example"]')).toBeNull();
+});
+
+// Review, 2026-10-26: Streamdown showed any image whose URL starts with "/",
+// whatever the allowed prefixes said, and "//host/x" is another site.
+it("never loads an image from a path or a protocol-relative URL", async () => {
+  await render(MessageContent, {
+    markdown: true,
+    text: "A ![pixel](//outside.example/p.png?d=secret) and ![local](/favicon.png) here.",
+  });
+  await expect.element(page.getByText("[Image blocked: pixel]")).toBeVisible();
+  await expect.element(page.getByText("[Image blocked: local]")).toBeVisible();
+  expect(document.querySelector("img")).toBeNull();
+});
+
+// Live check, 2026-10-26: Streamdown rendered nothing for a backslash escape.
+it("shows an escaped character in a reply as itself, and keeps real emphasis", async () => {
+  const screen = await render(MessageContent, { markdown: true, text: "Use 5 \\* 3, a literal \\_name\\_, and **bold**." });
+  await expect.element(page.getByText("bold", { exact: true })).toBeVisible();
+  const shown = screen.container.textContent ?? "";
+  expect(shown).toContain("5 * 3");
+  expect(shown).toContain("_name_");
+  expect(screen.container.querySelector("strong")?.textContent).toBe("bold");
+  expect(screen.container.querySelector("em")).toBeNull();
+});
+
+it("a whole file's Markdown gets no closing marks added", async () => {
+  const screen = await render(MessageContent, { markdown: true, complete: true, text: "One * alone, then 5 \\* 3 = 15." });
+  await expect.element(page.getByText(/One/)).toBeVisible();
+  expect(screen.container.textContent?.trim().endsWith("= 15.")).toBe(true);
 });

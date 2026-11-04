@@ -1,15 +1,20 @@
 <!--
-  Project top bar (ui-design-final.md section 2; round 2 boards F2 to F5):
-  the 26px page icon tile, "Projects /" and the project title (the route's
-  single h1) on the left, 10px apart; on the right the bell, then the page
-  actions. On a phone (H4) it is a back arrow, the title and the More menu.
-  Tools the screens do not show (AI review, Share, Compare, History,
-  Financial) sit in a More menu (decision 19).
+  Project top bar (the page frame, owner 2026-10-28; Paper A1, S12, P0):
+  52px inside the white card, 12px sides, 8px gaps and a soft line under it.
+  The 30px outlined back button on every width, "Projects /" in muted ink
+  and the project title (the route's single h1) at 14/20 500, then 6px
+  apart the page actions (Export, Send for review) and the "..." More menu
+  last. Tools the screens do not show (AI review, Share, Compare, History,
+  Financial) sit in the More menu (decision 19). The bell lives in the
+  global bar; below 1024px, with no global bar, the bar keeps the hamburger
+  (from 640px) and the bell as before. A phone (H4) shows the back button,
+  the title and More.
 
-  `flush` (Reading the interview, H3 and H4): below 1280px the panel under
-  the bar is flush, so the bar becomes a white strip with a hairline; on a
-  tablet it drops the page tile and the bell, as H3 draws it. Only the phone
-  keeps the More dots there (H4); F2 and H3 show none.
+  `flush` (Reading the interview, H3 and H4): only the phone keeps the More
+  dots there (H4); F2 and H3 show none.
+
+  Star (2026-11-02): with `projectId`, the person's private star sits right
+  after the title (`ProjectStarButton`, 30px, 44px on touch screens).
 -->
 <script lang="ts" module>
   export type TopBarMoreItem = {
@@ -27,59 +32,65 @@
   import type { Snippet } from "svelte";
   import { DropdownMenu } from "bits-ui";
   import { TrashIcon } from "phosphor-svelte";
-  import { IconArrowLeft, IconBell, IconMore } from "$lib/components/icons";
+  import { IconBell } from "$lib/components/icons";
+  import FrameIcon from "$lib/components/workspace/FrameIcon.svelte";
   import { resolve } from "$app/paths";
   import { useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../../convex/_generated/api";
+  import type { Id } from "../../../../../convex/_generated/dataModel";
+  import { whatsNewLabel } from "$lib/shell/navigation";
   import WorkspaceShellControls from "$lib/components/workspace/WorkspaceShellControls.svelte";
+  import ProjectStarButton from "$lib/components/projects/ProjectStarButton.svelte";
 
   let {
     title,
     projectsHref,
-    railHidden = false,
-    onToggleRail,
     onOpenNavigation,
     leading,
     status,
     actions,
     moreItems = [],
     flush = false,
+    projectId = null,
   }: {
     title: string;
     projectsHref: string;
-    railHidden?: boolean;
-    onToggleRail?: () => void;
     onOpenNavigation: () => void;
     /** Extra controls right after the rail controls (e.g. reopen a closed pane). */
     leading?: Snippet;
-    /** Quiet state before the bell (saving, errors, list paging). */
+    /** Quiet state before the actions (saving, errors, list paging). */
     status?: Snippet;
-    /** Page actions after the bell (Export, Send for review, Cancel generation). */
+    /** Page actions (Export, Send for review, Cancel generation), before More. */
     actions?: Snippet;
     moreItems?: TopBarMoreItem[];
-    /** The panel below is flush under 1280px (H3, H4). */
+    /** Reading the interview (H3, H4): More on a phone only. */
     flush?: boolean;
+    /** The project, for the star after the title; none without it. */
+    projectId?: string | null;
   } = $props();
 
   const auth = useAuth();
   const unseenQ = useQuery(api.changelog.unseenCount, () => (auth.isAuthenticated ? {} : "skip"));
   const unseen = $derived(unseenQ.data ?? 0);
+  const starQ = useQuery(api.projects.isProjectStarred, () =>
+    auth.isAuthenticated && projectId ? { projectId: projectId as Id<"projects"> } : "skip"
+  );
 
-  // Board F2: 36px icon buttons, radius 7; 44px on a phone (H4) and on
-  // coarse pointers.
-  const iconButton =
-    "flex size-9 shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash pointer-coarse:size-11";
+  const focusRing =
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir";
+  // Paper A1: 30px buttons, radius 7; 44px on a phone (H4) and on coarse pointers.
+  const iconButton = `flex size-[1.875rem] shrink-0 items-center justify-center rounded-[0.4375rem] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink ${focusRing} data-[state=open]:bg-primary-wash max-sm:size-11 pointer-coarse:size-11`;
 </script>
 
-{#snippet moreMenu(placement: "desktop" | "phone")}
+{#snippet moreMenu()}
   <DropdownMenu.Root>
     <DropdownMenu.Trigger
       aria-label="More actions"
-      class={`${iconButton} ${placement === "phone" ? "size-11! text-ink! sm:hidden" : flush ? "hidden" : "max-sm:hidden"}`}
-      data-top-bar-more={placement}
+      class={`${iconButton} max-sm:text-ink ${flush ? "sm:hidden" : ""}`}
+      data-top-bar-more
     >
-      <IconMore size={placement === "phone" ? 18 : 16} />
+      <FrameIcon name="more" />
     </DropdownMenu.Trigger>
     <DropdownMenu.Portal>
       <DropdownMenu.Content
@@ -124,60 +135,50 @@
 
 <header
   data-workspace-page-header
+  data-project-top-bar
   data-top-bar-flush={flush || undefined}
-  class={`flex shrink-0 items-center gap-2 px-2 max-sm:h-[3.25rem] sm:h-14 sm:gap-2.5 sm:px-5 ${
-    flush ? "max-xl:border-b max-xl:border-line-soft max-xl:bg-surface" : ""
-  }`}
+  class="flex h-[3.25rem] shrink-0 items-center gap-2 border-b border-line-soft bg-surface px-3"
 >
-  <!-- Phone (H4): a back arrow to Projects replaces the menu button and the
-       breadcrumb; from 640px the workspace controls return. -->
+  <!-- From 640px to 1024px the drawer's hamburger leads, as before. -->
+  <div class="contents max-sm:hidden">
+    <WorkspaceShellControls tone="light" {onOpenNavigation} />
+  </div>
   <a
     href={projectsHref}
     aria-label="Back to projects"
     data-top-bar-back
-    class="flex size-11 shrink-0 items-center justify-center rounded-lg text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none sm:hidden"
+    class={`flex size-[1.875rem] shrink-0 items-center justify-center rounded-[0.4375rem] border border-line bg-surface text-ink transition-colors hover:bg-primary-wash ${focusRing} motion-reduce:transition-none max-sm:size-11 pointer-coarse:size-11`}
   >
-    <IconArrowLeft size={20} strokeWidth={1.8} />
+    <FrameIcon name="back" />
   </a>
-  <div class="contents max-sm:hidden">
-    <WorkspaceShellControls
-      tone="light"
-      {onOpenNavigation}
-      {railHidden}
-      onToggleRail={onToggleRail ?? null}
-    />
-  </div>
   {@render leading?.()}
-  <div class="flex min-w-0 flex-1 items-center gap-2.5 text-sm leading-[calc(10/7)]">
-    <span class="shrink-0 text-ink-muted max-sm:hidden" data-top-bar-breadcrumb>
-      <a href={projectsHref} class="rounded-sm transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir">Projects</a>
-      <span aria-hidden="true">/</span>
-    </span>
+  <div class="flex min-w-0 flex-1 items-center gap-2 text-sm leading-[calc(10/7)]">
+    <span class="shrink-0 whitespace-pre text-ink-muted max-sm:hidden" data-top-bar-breadcrumb><a
+        href={projectsHref}
+        class={`rounded-sm transition-colors hover:text-ink ${focusRing}`}
+      >Projects</a><span aria-hidden="true">{" /"}</span></span>
     <h1 data-project-heading class="min-w-0 truncate font-medium text-ink max-sm:text-base max-sm:leading-[1.375]">{title}</h1>
+    {#if projectId && starQ.data !== undefined}
+      <ProjectStarButton {projectId} projectTitle={title} starred={starQ.data} variant="bar" class="-ml-1" />
+    {/if}
   </div>
-  <div class="flex shrink-0 items-center gap-2.5">
+  <div class="flex shrink-0 items-center gap-1.5">
     {@render status?.()}
     <a
       href={resolve("/changelog")}
       data-top-bar-bell
-      aria-label={unseen > 0 ? `Notifications, ${unseen} new update${unseen === 1 ? "" : "s"}` : "Notifications"}
-      class={`relative max-sm:hidden ${flush ? "max-xl:hidden" : ""} ${iconButton}`}
+      aria-label={whatsNewLabel(unseen)}
+      class={`relative max-sm:hidden lg:hidden ${iconButton}`}
     >
       <IconBell size={16} strokeWidth={1.5} />
       {#if unseen > 0}
-        <span aria-hidden="true" data-top-bar-bell-dot class="absolute top-2 right-[0.5625rem] size-1.5 rounded-full bg-primary"></span>
+        <span aria-hidden="true" data-top-bar-bell-dot class="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-primary"></span>
       {/if}
     </a>
-    <!-- Desktop keeps Send for review at the right edge (board 2.1); the
-         phone puts the More dots at the far right (H4). Each sits
-         in the markup where it shows, so tab order matches the eye; the
-         other is display:none. -->
-    {#if moreItems.length > 0}
-      {@render moreMenu("desktop")}
-    {/if}
     {@render actions?.()}
+    <!-- Paper A1: "..." last, after the page actions, on every width. -->
     {#if moreItems.length > 0}
-      {@render moreMenu("phone")}
+      {@render moreMenu()}
     {/if}
   </div>
 </header>

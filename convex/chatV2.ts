@@ -1,4 +1,7 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { closeEditBurst, noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
+import { chatCompanyFilesFor } from "./chatDocuments";
+import { quotableFileText } from "../shared/wordMarkdown";
 import {
   query,
   mutation,
@@ -26,10 +29,53 @@ import {
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
-import { requireReportEditAccess } from "./lib/roleCapabilities";
+import { withCurrentCompanyFiles } from "./lib/briefEvidence";
+import { hasCapability, requireReportEditAccess } from "./lib/roleCapabilities";
+import {
+  RULE_OVERRIDE_CONFIRM_MESSAGE,
+  RULE_OVERRIDE_NOT_ALLOWED_MESSAGE,
+  brokenRuleNames,
+  describeBrokenRules,
+  normalizeBrokenRules,
+  rulesNeedManager,
+  approvedBannedTerms,
+  unlistedBannedWord,
+  holdsListLines,
+  LIST_NOT_ALLOWED_MESSAGE,
+  overrideConfirmationMatches,
+} from "../shared/ruleOverride";
 import { provenanceForEdit } from "./lib/editProvenance";
 import {
+  documentHasText,
+  documentTextLength,
+  documentTextPreview,
+  readDocumentText,
+  readDocumentTextOrNull,
+} from "./lib/documentText";
+
+/**
+ * 2026-10-22 (fourth): characters a shown chat file is read past its share,
+ * so the word-boundary cut and marker neutralizing see what they did when
+ * the whole text was read.
+ */
+const CHAT_DOCUMENT_READ_SLACK_CHARS = 1_000;
+/**
+ * 2026-10-26 (Phase D, step 1): the most file text a chat turn carries
+ * whole (about 20,000 tokens). Past it, the turn lists the files and the
+ * assistant searches and opens them.
+ */
+export const CHAT_WHOLE_FILES_CHARS = 80_000;
+
+/**
+ * 2026-11-03 (owner): Assistant cards may add, split and merge whole
+ * top-level paragraphs (`applyReplacements` paragraphs option). Research
+ * edits and client suggestions keep the old behaviour.
+ */
+const CARD_PARAGRAPHS = { paragraphs: true } as const;
+import {
+  PARAGRAPH_BREAK,
   applyReplacements,
+  changesParagraphs,
   headingEditRefusal,
   highlightLocation,
   locateSelection,
@@ -38,9 +84,11 @@ import {
   scrubBannedWords,
   type PMNode,
 } from "./lib/reportEdits";
+import { bannedTermsIn } from "../shared/bannedWords";
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { selectedCandidateRunId } from "./complianceNotes";
 import { applyPassageEdits } from "./lib/passageEdits";
+import { applyReplacementsInLine, groupPairsByLine, REPORT_LINES, type LineGroup } from "./lib/reportLines";
 import { lineLengthsAfterEdit } from "./ai/chatLineLengths";
 import {
   MAX_COMPLETION_REPORT_FINDINGS,
@@ -97,10 +145,13 @@ import { isRecordOnlyProposal, proposalPairs } from "../shared/chatProposals";
 import { MAX_CHAT_HIGHLIGHT_CHARS, MAX_CHAT_MESSAGE_CHARS } from "../shared/chatLimits";
 import { chatAdmissionLimits, chatEvidenceBudget } from "./appSettings";
 import {
+  chatFileOrder,
   DEFAULT_CHAT_EVIDENCE_BUDGET,
+  type ChatEvidenceDoc,
   type ChatOpenQuestion,
   type ChatOpenQuestionsOmitted,
 } from "./ai/chatEvidence";
+import { CHARS_PER_TOKEN } from "./ai/trustedContext";
 import { projectRollingCostUsdUnits, usdDecimalUnits } from "./aiUsage";
 import type { Doc, Id } from "./_generated/dataModel";
 import { outputArtifact, outputsInArtifacts } from "./lib/generationOutputs";
@@ -152,6 +203,7 @@ import {
   threadTitleFrom,
 } from "./lib/chatThreads";
 import { PURGE_STALL_MS, purgeStepValidator, purgeThreadRows } from "./lib/chatThreadPurge";
+import { textCopyPending } from "./lib/projectCopy";
 
 // ─── Agent-based chat plumbing (BNH-10 P2; sole pipeline since Jul 22) ───────
 // The @convex-dev/agent component owns threads/messages/stream deltas.
@@ -1146,7 +1198,9 @@ export const abortStreaming = mutation({
 async function markAppliedWithRecord(
   ctx: MutationCtx,
   proposal: Doc<"chatProposals">,
-  change: AppliedChange | undefined
+  change: AppliedChange | undefined,
+  appliedOption?: number,
+  override?: { userId: Id<"users">; at: number; rules: string[] }
 ): Promise<void> {
   if (proposal.appliedChangeId !== undefined) {
     const leftover = await ctx.db.get(proposal.appliedChangeId);
@@ -1159,11 +1213,51 @@ async function markAppliedWithRecord(
         ...change,
       })
     : undefined;
-  await ctx.db.patch(proposal._id, { state: "applied", appliedChangeId });
+  await ctx.db.patch(proposal._id, {
+    state: "applied",
+    appliedChangeId,
+    appliedOption,
+    // Appended, never rewritten: an Undo and a second apply keep the first.
+    ...(override ? { ruleOverrides: [...(proposal.ruleOverrides ?? []), override] } : {}),
+  });
+}
+
+/**
+ * 2026-11-02 (client meeting, rule overrides): a card that goes against a
+ * house rule, the template or a CRA limit is applied only by a holder of
+ * `report.overrideRules` (Managers and Admins) who confirmed those rules by
+ * name. Re-checked here on every apply path, never trusted from the client.
+ * Returns the confirmed rule names, or null for a card that breaks no rule.
+ */
+function requireRuleOverride(
+  proposal: Doc<"chatProposals">,
+  applier: Doc<"users">,
+  confirmed: ReadonlyArray<string> | undefined
+): string[] | null {
+  const rules = proposal.rulesBroken ?? [];
+  if (rules.length === 0) return null;
+  // Owner, 2026-11-02 (second): a template rule or an approved banned word
+  // is the writer's call; a house rule or a CRA limit needs a manager.
+  if (rulesNeedManager(rules) && !hasCapability(applier.role, "report.overrideRules")) {
+    domainError("NOT_AUTHORIZED", `${RULE_OVERRIDE_NOT_ALLOWED_MESSAGE} ${describeBrokenRules(rules)}`, {
+      capability: "report.overrideRules",
+    });
+  }
+  if (!overrideConfirmationMatches(rules, confirmed)) {
+    domainError("INVALID_INPUT", `${RULE_OVERRIDE_CONFIRM_MESSAGE} ${describeBrokenRules(rules)}`);
+  }
+  return brokenRuleNames(rules);
 }
 
 export const applyProposal = mutation({
-  args: { proposalId: v.id("chatProposals") },
+  args: {
+    proposalId: v.id("chatProposals"),
+    // Owner 2026-10-28: which version to apply, 0 for Option 1 (the default).
+    option: v.optional(v.number()),
+    // 2026-11-02: the rule names the person confirmed, for a card that goes
+    // against a rule. Ignored for a card that breaks none.
+    overrideRules: v.optional(v.array(v.string())),
+  },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
     if (!proposal) domainError("NOT_FOUND", "Proposal not found");
@@ -1196,12 +1290,20 @@ export const applyProposal = mutation({
           : "This suggestion is no longer available to apply."
       );
     }
+    const overriddenRules = requireRuleOverride(proposal, applier, args.overrideRules);
     const report = await ctx.db.get(proposal.reportId);
     if (!report || report.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
 
-    let pairs = proposalPairs(proposal);
+    const option = args.option ?? 0;
+    const alternatives = proposal.alternatives ?? [];
+    if (!Number.isInteger(option) || option < 0 || option > alternatives.length) {
+      domainError("INVALID_INPUT", "That option is not part of this suggestion.");
+    }
+    // Option 2 and Option 3 are passage sets: every target matches once.
+    const alternative = option > 0 ? alternatives[option - 1] : undefined;
+    let pairs = alternative ? alternative.replacements.filter((pair) => pair.find) : proposalPairs(proposal);
     if (pairs.length === 0) {
       domainError("INVALID_INPUT", "This edit has nothing to replace.");
     }
@@ -1210,13 +1312,24 @@ export const applyProposal = mutation({
     // banned-words waiver, but threads are shared per report — text entering
     // the report must also pass the APPLYING user's policy. Re-scrubbing an
     // already-clean proposal is a no-op (the scrub is idempotent); a waived
-    // applier keeps the proposal verbatim.
+    // applier keeps the proposal verbatim. A confirmed override keeps only the
+    // banned words it approved by name (owner, 2026-11-02 second; review
+    // 2026-11-03): every other banned word, including one a rewording added,
+    // is still scrubbed, except one the replaced passage already held
+    // (owner, 2026-11-03, option C).
+    const keepTerms = overriddenRules ? approvedBannedTerms(proposal.rulesBroken) : [];
+    // A card's passages move text between pairs (a merge, a removed
+    // paragraph), so for an edit or a passage set every target counts; a
+    // multi-instance find/replace keeps each pair to its own target.
+    const wholeCard = proposal.kind === "edit" || proposal.requireUniqueTargets === true || alternative !== undefined;
+    const cardTerms = wholeCard ? bannedTermsIn(pairs.map((pair) => pair.find).join("\n")) : [];
+    const keepFor = (pair: { find: string }) => [...keepTerms, ...(wholeCard ? cardTerms : bannedTermsIn(pair.find))];
     try {
       const style = await getEffectiveWriterStyle(ctx, applier._id);
       if (!style.styleOverrides.bannedWords) {
         pairs = pairs.map((pair) => ({
           ...pair,
-          replaceWith: scrubBannedWords(pair.replaceWith),
+          replaceWith: scrubBannedWords(pair.replaceWith, keepFor(pair)),
         }));
       }
     } catch (err) {
@@ -1224,7 +1337,7 @@ export const applyProposal = mutation({
       console.error("apply-time scrub policy lookup failed", safeErrorDetails(err));
       pairs = pairs.map((pair) => ({
         ...pair,
-        replaceWith: scrubBannedWords(pair.replaceWith),
+        replaceWith: scrubBannedWords(pair.replaceWith, keepFor(pair)),
       }));
     }
 
@@ -1237,14 +1350,21 @@ export const applyProposal = mutation({
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       domainError("INVALID_INPUT", "The report content is not a valid editor document");
     }
-    const bulkResult = proposal.requireUniqueTargets
-      ? applyPassageEdits(parsed as PMNode, pairs)
+    const paragraphOptions = proposal.researchSessionId === undefined ? CARD_PARAGRAPHS : {};
+    const bulkResult = proposal.requireUniqueTargets || alternative
+      ? applyPassageEdits(parsed as PMNode, pairs, paragraphOptions)
       : null;
     if (bulkResult && !bulkResult.ok) {
       await ctx.db.patch(args.proposalId, { state: "stale" });
       return { applied: false as const, count: 0, reason: bulkResult.reason };
     }
-    const direct = bulkResult ? null : applyReplacements(parsed as PMNode, pairs);
+    // Owner 2026-10-28: a find/replace card belongs to one Line and replaces
+    // only inside it; the same text in another Line has its own card.
+    const direct = bulkResult
+      ? null
+      : proposal.section && proposal.kind === "replacements"
+        ? applyReplacementsInLine(parsed as PMNode, pairs, proposal.section, paragraphOptions)
+        : applyReplacements(parsed as PMNode, pairs, paragraphOptions);
     const { doc: updated, count } = bulkResult ?? direct!;
     // Producer-declared single-target proposals (older research proposals
     // predate the flag, hence the researchSessionId fallback).
@@ -1270,7 +1390,7 @@ export const applyProposal = mutation({
         // edit targets it.
         const highlight = await turnHighlight(ctx, proposal.agentThreadId, proposal.promptMessageId);
         for (const pair of highlight ? pairs : []) {
-          const probe = applyReplacements(parsed as PMNode, [pair]);
+          const probe = applyReplacements(parsed as PMNode, [pair], paragraphOptions);
           const found = highlightLocation(
             parsed as PMNode,
             highlight!,
@@ -1306,6 +1426,9 @@ export const applyProposal = mutation({
     const content = JSON.stringify(updated);
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
+    // Phase E (E3, re-check): a person's open editing burst is read at their
+    // own revision before the card's change lands.
+    await closeEditBurst(ctx, report);
     await writePreEditSnapshot(ctx, report, "pre_chat_edit", {
       createdAt: now,
       ...(proposal.researchSessionId
@@ -1335,12 +1458,47 @@ export const applyProposal = mutation({
           appliedAt: now,
           appliedBy: applier._id,
         });
-    await markAppliedWithRecord(ctx, proposal, appliedChange);
+    await markAppliedWithRecord(
+      ctx,
+      proposal,
+      appliedChange,
+      alternatives.length ? option : undefined,
+      overriddenRules ? { userId: applier._id, at: now, rules: overriddenRules } : undefined
+    );
+    await recordChatApplySize(ctx, proposal, report._id, applier._id);
     await pruneSnapshots(ctx, report._id);
 
     return { applied: true, count };
   },
 });
+
+/**
+ * Phase E (E3): the report's edit size once a chat card applied, named for
+ * who applied it and carrying the style lesson set its chat turn used (none
+ * for a research card or a turn without one).
+ */
+async function recordChatApplySize(
+  ctx: MutationCtx,
+  proposal: Doc<"chatProposals">,
+  reportId: Id<"reports">,
+  applierId: Id<"users">
+): Promise<void> {
+  const applied = await ctx.db.get(reportId);
+  if (!applied) return;
+  const promptMessageId = proposal.promptMessageId;
+  const turn = promptMessageId
+    ? await ctx.db
+        .query("chatTurns")
+        .withIndex("by_agentThreadId_and_promptMessageId", (q) =>
+          q.eq("agentThreadId", proposal.agentThreadId).eq("promptMessageId", promptMessageId)
+        )
+        .first()
+    : null;
+  await recordReportEditDistance(ctx, applied, "chat_apply", {
+    editorUserId: applierId,
+    ...(turn?.learningDigestId ? { learningDigestId: turn.learningDigestId } : {}),
+  });
+}
 
 /**
  * Reject editor content the same way `reports.updateReportContent` does
@@ -1384,6 +1542,8 @@ export const markProposalApplied = mutation({
     proposalId: v.id("chatProposals"),
     content: v.string(),
     expectedRevisionNumber: v.number(),
+    // 2026-11-02: as `applyProposal`, for a card that goes against a rule.
+    overrideRules: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const proposal = await ctx.db.get(args.proposalId);
@@ -1425,6 +1585,7 @@ export const markProposalApplied = mutation({
           : "This suggestion is no longer available to apply."
       );
     }
+    const overriddenRules = requireRuleOverride(proposal, user, args.overrideRules);
     assertEditorDocument(args.content);
     const revisionNumber = report.revisionNumber ?? 0;
     if (args.expectedRevisionNumber !== revisionNumber) {
@@ -1435,6 +1596,8 @@ export const markProposalApplied = mutation({
     }
 
     const now = Date.now();
+    // Phase E (E3, re-check): an open burst is read before the card lands.
+    await closeEditBurst(ctx, report);
     await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
     await ctx.db.patch(report._id, {
       content: args.content,
@@ -1461,7 +1624,14 @@ export const markProposalApplied = mutation({
           // Review R2 P3-1: only the runs this card's pairs touched.
           touchedBy: proposalPairs(proposal),
         });
-    await markAppliedWithRecord(ctx, proposal, appliedChange);
+    await markAppliedWithRecord(
+      ctx,
+      proposal,
+      appliedChange,
+      undefined,
+      overriddenRules ? { userId: user._id, at: now, rules: overriddenRules } : undefined
+    );
+    await recordChatApplySize(ctx, proposal, report._id, user._id);
     await pruneSnapshots(ctx, report._id);
 
     return {
@@ -1495,6 +1665,14 @@ export const updateProposalWording = mutation({
     }
     if (proposal.kind === "references") {
       domainError("INVALID_INPUT", "A highlight suggestion has no wording to edit.");
+    }
+    // Review round 2 (Opus 5.5): a card that goes against a rule is applied
+    // with its wording kept as is, so only someone who may apply it may
+    // reword it.
+    if (rulesNeedManager(proposal.rulesBroken ?? []) && !hasCapability(user.role, "report.overrideRules")) {
+      domainError("NOT_AUTHORIZED", `${RULE_OVERRIDE_NOT_ALLOWED_MESSAGE} ${describeBrokenRules(proposal.rulesBroken ?? [])}`, {
+        capability: "report.overrideRules",
+      });
     }
 
     const originalText = proposalPairs(proposal)
@@ -1535,6 +1713,34 @@ export const updateProposalWording = mutation({
     }
 
     if (editedText === originalText) return { updated: false as const };
+    // Owner, 2026-11-02 (second): no list enters report text, reworded or not.
+    if ([patch.newText ?? "", ...(patch.replacements ?? []).map((pair) => pair.replaceWith)].some(holdsListLines)) {
+      domainError("INVALID_INPUT", LIST_NOT_ALLOWED_MESSAGE);
+    }
+    // Review 2026-11-03: a blank line starts a new paragraph, which only a
+    // card over a whole paragraph can do; otherwise the card would never
+    // apply.
+    const editedPairs =
+      proposal.kind === "edit"
+        ? [{ find: proposal.targetText ?? "", replaceWith: patch.newText ?? "" }]
+        : (patch.replacements ?? []);
+    if (editedPairs.some((pair) => PARAGRAPH_BREAK.test(pair.replaceWith))) {
+      const report = await ctx.db.get(proposal.reportId);
+      let doc: unknown = null;
+      try {
+        doc = report ? JSON.parse(report.content) : null;
+      } catch {
+        doc = null;
+      }
+      const whole = (pair: { find: string; replaceWith: string }) =>
+        !PARAGRAPH_BREAK.test(pair.replaceWith) || (doc !== null && changesParagraphs(doc as PMNode, pair));
+      if (proposal.researchSessionId !== undefined || !editedPairs.every(whole)) {
+        domainError(
+          "INVALID_INPUT",
+          "A blank line starts a new paragraph, which this suggestion can't do here. Remove the blank line, or ask the Assistant to add the paragraph."
+        );
+      }
+    }
     const now = Date.now();
     await ctx.db.patch(proposal._id, {
       ...patch,
@@ -1651,12 +1857,15 @@ export const undoProposal = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, report._id);
+    // Phase E (E3): an Undo is part of an editing burst.
+    await noteReportEditForSize(ctx, report, user._id);
     // The record is spent: applying the card again writes a new one.
     if (record) await ctx.db.delete(record._id);
     await ctx.db.patch(proposal._id, {
       state: "pending",
       appliedChangeId: undefined,
       appliedChange: undefined,
+      appliedOption: undefined,
       undoneAt: now,
       undoneBy: user._id,
     });
@@ -1926,6 +2135,22 @@ export const markTurnProgress = internalMutation({
     const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
     if (!turn || !turnIsActive(turn)) return false;
     await ctx.db.patch(turn._id, { progress: args.progress });
+    return true;
+  },
+});
+
+/** Phase E (E2b): the published style lesson set the turn's system text carried. */
+export const setTurnLearningDigest = internalMutation({
+  args: {
+    agentThreadId: v.string(),
+    promptMessageId: v.string(),
+    learningDigestId: v.id("learningDigests"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const turn = await turnByPrompt(ctx, args.agentThreadId, args.promptMessageId);
+    if (!turn || !turnIsActive(turn)) return false;
+    await ctx.db.patch(turn._id, { learningDigestId: args.learningDigestId });
     return true;
   },
 });
@@ -2428,6 +2653,26 @@ export const saveProposal = internalMutation({
     // One `chatProposalItems` child row per item, written in this transaction
     // and nowhere else. Absent for every other proposal producer.
     items: v.optional(v.array(completionReportItemValidator)),
+    // Owner 2026-10-28: Option 2 and Option 3 of the same edit, each a
+    // passage set inside the same Line as Option 1.
+    alternatives: v.optional(
+      v.array(
+        v.object({
+          replacements: v.array(v.object({ find: v.string(), replaceWith: v.string() })),
+        })
+      )
+    ),
+    // 2026-11-02 (rule overrides): the rules this edit goes against, named by
+    // the Assistant because the writer explicitly asked for the change.
+    rulesBroken: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("house_rule"), v.literal("template"), v.literal("cra_limit"), v.literal("banned_words")),
+          name: v.string(),
+          reason: v.string(),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     const thread = await threadRow(ctx, args.agentThreadId);
@@ -2467,13 +2712,22 @@ export const saveProposal = internalMutation({
     }
 
     if (args.toolCallId) {
+      // One tool call saves one card per Line it touches, so a retried call
+      // finds them all.
       const existing = await ctx.db
         .query("chatProposals")
         .withIndex("by_agentThreadId_and_toolCallId", (q) =>
           q.eq("agentThreadId", args.agentThreadId).eq("toolCallId", args.toolCallId)
         )
-        .unique();
-      if (existing) return { ok: true as const, proposalId: existing._id, lengths: null };
+        .take(REPORT_LINES.length + 1);
+      if (existing.length) {
+        return {
+          ok: true as const,
+          proposalId: existing[0]._id,
+          proposalIds: existing.map((row) => row._id),
+          lengths: null,
+        };
+      }
     }
 
     const report = await ctx.db.get(thread.reportId);
@@ -2511,7 +2765,7 @@ export const saveProposal = internalMutation({
       if (issue) return { ok: false as const, reason: issue };
     } else if (args.requireUniqueTargets) {
       if (args.kind !== "replacements") return { ok: false as const, reason: "A passage set must use replacements." };
-      const result = applyPassageEdits(parsed as PMNode, pairs);
+      const result = applyPassageEdits(parsed as PMNode, pairs, CARD_PARAGRAPHS);
       if (!result.ok) return { ok: false as const, reason: result.reason };
     }
     if (recordOnly) {
@@ -2521,7 +2775,7 @@ export const saveProposal = internalMutation({
         return { ok: false as const, reason: "The suggestion did not include text to replace." };
       }
       for (const pair of pairs) {
-        const probe = applyReplacements(parsed as PMNode, [pair]);
+        const probe = applyReplacements(parsed as PMNode, [pair], CARD_PARAGRAPHS);
         const { count } = probe;
         // Heading and title text is never edited. An edit aimed at the text
         // the writer highlighted is judged by where the highlight sits; any
@@ -2538,6 +2792,13 @@ export const saveProposal = internalMutation({
             ok: false as const,
             reason:
               refusal === SELECTION_GONE ? refusal : `${refusal} Target the passage in the report prose instead.`,
+          };
+        }
+        if (count === 0 && PARAGRAPH_BREAK.test(pair.replaceWith)) {
+          return {
+            ok: false as const,
+            reason:
+              "Adding, splitting or merging paragraphs needs whole paragraphs: copy each paragraph of targetText in full, exactly as the CURRENT REPORT has it.",
           };
         }
         if (count === 0) {
@@ -2570,6 +2831,37 @@ export const saveProposal = internalMutation({
       args.references = references;
     }
 
+    // Owner, 2026-11-02 (second): no list ever enters report text, whoever
+    // asks, because the CRA form takes plain paragraphs only.
+    const proposedTexts = [
+      ...(args.newText !== undefined ? [args.newText] : []),
+      ...(args.replacements ?? []).map((pair) => pair.replaceWith),
+      ...(args.alternatives ?? []).flatMap((option) => option.replacements.map((pair) => pair.replaceWith)),
+    ];
+    if (proposedTexts.some(holdsListLines)) {
+      return { ok: false as const, reason: LIST_NOT_ALLOWED_MESSAGE };
+    }
+
+    // 2026-11-02 (rule overrides): only an edit a person applies can go
+    // against a rule; a highlight or a record of findings changes nothing.
+    const brokenRules = normalizeBrokenRules(args.rulesBroken);
+    if (!brokenRules.ok) return { ok: false as const, reason: brokenRules.reason };
+    // Review 2026-11-03: a banned_words rule names one word from the banned
+    // list, so the kind cannot switch off the scrub for anything else.
+    const unlisted = unlistedBannedWord(brokenRules.rules);
+    if (unlisted !== null) {
+      return {
+        ok: false as const,
+        reason: `"${unlisted}" is not on the banned words list. Name the one banned word the writer approved, such as "novel", or use another kind.`,
+      };
+    }
+    if (brokenRules.rules.length && (recordOnly || args.kind === "references")) {
+      return {
+        ok: false as const,
+        reason: "Only an edit can go against a rule. Leave breaksRules out of a revision with no edits.",
+      };
+    }
+
     // CAP-12/CAP-13: every Completion Report item must name a paragraph the
     // CURRENT report actually has. Checked before the parent insert, so a bad
     // anchor writes neither the proposal nor a single item row, and the reason
@@ -2588,46 +2880,108 @@ export const saveProposal = internalMutation({
       }
     }
 
-    const proposalId = await ctx.db.insert("chatProposals", {
-      agentThreadId: args.agentThreadId,
-      toolCallId: args.toolCallId,
-      promptMessageId: args.promptMessageId,
-      messageId: args.messageId,
-      projectId: thread.projectId,
-      reportId: thread.reportId,
-      kind: args.kind,
-      targetText: args.targetText,
-      newText: args.newText,
-      replacements: args.replacements,
-      references: args.references,
-      requireUniqueTarget: args.kind === "edit" ? true : undefined,
-      requireUniqueTargets: args.requireUniqueTargets,
-      // Highlights and record-only revisions have no state machine: nothing
-      // for a human to apply or reject, so they are terminal on creation.
-      state: args.kind === "references" || recordOnly ? "applied" : "pending",
-      createdAt: Date.now(),
-    });
+    // Owner 2026-10-28: one card per Line, each reviewed and accepted on its
+    // own. A change that touches several Lines becomes one card for each, in
+    // build order; a find/replace that recurs in several Lines applies inside
+    // each card's own Line.
+    const groups: LineGroup[] =
+      recordOnly || args.kind === "references"
+        ? [{ line: undefined, pairs }]
+        : groupPairsByLine(parsed as PMNode, pairs, CARD_PARAGRAPHS);
+    const split = groups.length > 1;
+    // Review 2026-11-03: a merge or an added paragraph split into one card
+    // per Line could lose or repeat text when only one card is accepted.
+    if (split && pairs.some((pair) => changesParagraphs(parsed as PMNode, pair) || PARAGRAPH_BREAK.test(pair.replaceWith))) {
+      return {
+        ok: false as const,
+        reason: "Adding, splitting or merging paragraphs works inside one Line. Propose a separate change for each Line.",
+      };
+    }
+
+    // Owner 2026-10-28: Option 2 and Option 3, only for an edit inside one
+    // Line, each checked the way a passage set is.
+    const alternatives = (args.alternatives ?? []).filter((option) => option.replacements.length > 0);
+    if (alternatives.length) {
+      if (args.kind === "references" || recordOnly) {
+        return { ok: false as const, reason: "Only an edit can offer other options." };
+      }
+      if (alternatives.length > 2) {
+        return { ok: false as const, reason: "Give at most three options in all." };
+      }
+      const line = groups[0]?.line;
+      if (split || !line) {
+        return {
+          ok: false as const,
+          reason:
+            "Options are only for an edit inside one Line. Propose this edit without other options, or edit one Line at a time.",
+        };
+      }
+      for (const [index, option] of alternatives.entries()) {
+        const checked = applyPassageEdits(parsed as PMNode, option.replacements, CARD_PARAGRAPHS);
+        if (!checked.ok) return { ok: false as const, reason: `Option ${index + 2}: ${checked.reason}` };
+        const optionLines = groupPairsByLine(parsed as PMNode, option.replacements, CARD_PARAGRAPHS);
+        if (optionLines.length !== 1 || optionLines[0].line !== line) {
+          return { ok: false as const, reason: `Option ${index + 2} must edit the same Line as Option 1.` };
+        }
+      }
+    }
+
+    const createdAt = Date.now();
+    const proposalIds: Id<"chatProposals">[] = [];
+    for (const group of groups) {
+      const proposalId = await ctx.db.insert("chatProposals", {
+        agentThreadId: args.agentThreadId,
+        toolCallId: args.toolCallId,
+        promptMessageId: args.promptMessageId,
+        messageId: args.messageId,
+        projectId: thread.projectId,
+        reportId: thread.reportId,
+        kind: args.kind,
+        // A split card keeps only its own Line's passages. An edit is one
+        // passage, so it never splits.
+        targetText: args.targetText,
+        newText: args.newText,
+        replacements: split ? group.pairs : args.replacements,
+        references: args.references,
+        requireUniqueTarget: args.kind === "edit" ? true : undefined,
+        requireUniqueTargets: args.requireUniqueTargets,
+        section: group.line,
+        alternatives: alternatives.length ? alternatives : undefined,
+        // Every card of a split edit carries the rules the whole edit names.
+        rulesBroken: brokenRules.rules.length ? brokenRules.rules : undefined,
+        // Highlights and record-only revisions have no state machine: nothing
+        // for a human to apply or reject, so they are terminal on creation.
+        state: args.kind === "references" || recordOnly ? "applied" : "pending",
+        createdAt,
+      });
+      proposalIds.push(proposalId);
+    }
     // AD-28: the findings persist as child rows, one per item, in input order.
     // `saveProposal` is the only writer of this table, and the `toolCallId`
     // short-circuit above returns before here, so a retried tool call cannot
-    // double-write them.
-    for (const row of completionReportRows(items, {
-      proposalId,
-      projectId: thread.projectId,
-      createdAt: Date.now(),
-    })) {
-      await ctx.db.insert("chatProposalItems", row);
+    // double-write them. A split revision files each finding under its Line's
+    // card; a finding for a Line no card edits goes with the first card.
+    for (const item of items) {
+      const index = split ? groups.findIndex((group) => group.line === item.section) : 0;
+      for (const row of completionReportRows([item], {
+        proposalId: proposalIds[Math.max(0, index)],
+        projectId: thread.projectId,
+        createdAt,
+      })) {
+        await ctx.db.insert("chatProposalItems", row);
+      }
     }
+    const proposalId = proposalIds[0];
     // Owner 2026-10-21: the meters as they would read once the card is
     // applied, so the model checks a trim against them instead of counting.
     let lengths: string | null = null;
     if (!recordOnly && args.kind !== "references") {
       const after = args.requireUniqueTargets
-        ? applyPassageEdits(parsed as PMNode, pairs)
-        : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs) };
+        ? applyPassageEdits(parsed as PMNode, pairs, CARD_PARAGRAPHS)
+        : { ok: true as const, ...applyReplacements(parsed as PMNode, pairs, CARD_PARAGRAPHS) };
       if (after.ok) lengths = lineLengthsAfterEdit(report.content, JSON.stringify(after.doc));
     }
-    return { ok: true as const, proposalId, lengths };
+    return { ok: true as const, proposalId, proposalIds, lengths };
   },
 });
 
@@ -2856,11 +3210,13 @@ type ReferenceStatus =
 function isComparableReference(row: Doc<"projectDocuments">): boolean {
   if (
     row.processingStatus === "could_not_read" ||
-    row.processingStatus === "reference_only"
+    row.processingStatus === "reference_only" ||
+    // F2 review: a file still being copied has no text yet.
+    textCopyPending(row)
   ) {
     return false;
   }
-  return (row.content ?? "").trim().length > 0;
+  return documentHasText(row);
 }
 
 /**
@@ -3050,7 +3406,9 @@ export const getDeviationInventoryContext = internalQuery({
 
     let reference: { fileName: string; sections: InventorySections } | null = null;
     if (selected) {
-      const parsed = extractReportSections(selected.content ?? "");
+      // 2026-10-26: Word Markdown without its marks (bold headings parse, no
+      // mark reaches the model).
+      const parsed = extractReportSections(quotableFileText(await readDocumentText(ctx, selected), selected.textFormat));
       // Text that carries no `Line 242/244/246` skeleton has nothing this
       // comparison can anchor. Saying so beats inventing a difference per
       // paragraph against an empty section.
@@ -3125,7 +3483,16 @@ async function openQuestionsFor(
     MAX_BRIEF_ENTRY_SCAN,
     isOpen
   );
-  const labels = new Map<Id<"generationSources">, string>();
+  // A label, or null for a company file of a company the project has left.
+  const labels = new Map<Id<"generationSources">, string | null>();
+  // Review round 3: when this draft froze the files of a company the project
+  // has left, a question whose source cannot be read is left out too, since
+  // it may come from those files.
+  const companyLeft =
+    generation.companyFilesFrom !== undefined &&
+    (await withCurrentCompanyFiles(ctx, generation.projectId, [{ kind: "company_file", clientId: generation.companyFilesFrom }]))
+      .length === 0;
+  let unverified = false;
   for (const entry of rows) {
     if (open.length >= MAX_OPEN_QUESTIONS) {
       omitted += 1;
@@ -3137,7 +3504,18 @@ async function openQuestionsFor(
     // unavailable label rather than read (Astra review 2 of DW-138).
     if (!labels.has(entry.sourceId)) {
       const source = await budget.read(() => ctx.db.get(entry.sourceId));
-      if (source.ok && source.value) labels.set(entry.sourceId, source.value.label);
+      if (source.ok && source.value) {
+        // Phase C review 2: a question from the files of a company the
+        // project has left is not shown.
+        const kept = await withCurrentCompanyFiles(ctx, generation.projectId, [source.value]);
+        labels.set(entry.sourceId, kept.length > 0 ? source.value.label : null);
+      }
+    }
+    if (labels.get(entry.sourceId) === null) continue;
+    if (companyLeft && labels.get(entry.sourceId) === undefined) {
+      omitted += 1;
+      unverified = true;
+      continue;
     }
     open.push({
       text: entry.text,
@@ -3145,12 +3523,18 @@ async function openQuestionsFor(
       sourceLabel: labels.get(entry.sourceId) ?? null,
     });
   }
-  return { questions: open, omitted: { count: omitted, exact: complete } };
+  return { questions: open, omitted: { count: omitted, exact: complete && !unverified } };
 }
 
 /** Grounding context for streamChatReply — thread history stays componentside. */
 export const getChatContextV2 = internalQuery({
-  args: { reportId: v.id("reports"), agentThreadId: v.string() },
+  args: {
+    reportId: v.id("reports"),
+    agentThreadId: v.string(),
+    // 2026-10-26 (Phase C): the sender; the company's files are listed only
+    // for one who may read them.
+    userId: v.optional(v.id("users")),
+  },
   handler: async (ctx, args) => {
     // Charged in read order so the Brief walk at the end stops with headroom.
     // The document `.collect()` predates this budget and is charged, not
@@ -3238,6 +3622,10 @@ export const getChatContextV2 = internalQuery({
         candidate:
           p.newText ??
           (p.replacements ? p.replacements.map((r) => r.replaceWith).join(" | ") : ""),
+        // 2026-11-02: an applied override is kept, never re-flagged.
+        ...(p.state === "applied" && p.ruleOverrides?.length
+          ? { overriddenRules: p.ruleOverrides[p.ruleOverrides.length - 1].rules }
+          : {}),
       }));
 
     const openQuestions = await openQuestionsFor(ctx, ownGeneration, budget);
@@ -3250,29 +3638,92 @@ export const getChatContextV2 = internalQuery({
     const documentToolsRead = await budget.read(() => chatDocumentToolsEnabled(ctx), 1024);
     // Phase C (W1): whether the chat may see PDFs and images.
     const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
+    // 2026-10-26 (Phase C): the company's files, facts only (at most 30).
+    const companyFilesRead = await budget.read(() => chatCompanyFilesFor(ctx, report.projectId, args.userId), 64 * 1024);
+
+    // BNH-24: archived docs are out of AI context.
+    const activeDocuments = documents.filter((d) => !d.archived);
+    // CAP-3/CAP-4: provenance travels with the document. Trust and the
+    // marker label are derived from stored facts, so the action never
+    // invents them; absent fields fail closed in `chatEvidence`.
+    const documentViews: ChatEvidenceDoc[] = activeDocuments.map((d) => ({
+      fileName: d.fileName,
+      content: documentTextPreview(d),
+      ...(d.category ? { category: d.category } : {}),
+      ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
+      // 2026-10-19 (chat parity Phase A): stored facts for the FILES IN
+      // THIS PROJECT list. The id and the original's presence are for the
+      // later file tools; the list renders name, category, status, size.
+      documentId: d._id,
+      fileType: d.fileType,
+      ...(d.processingStatus ? { processingStatus: d.processingStatus } : {}),
+      textLength: documentTextLength(d),
+      hasOriginal: d.storageId !== undefined,
+    }));
+    // 2026-10-22 (fourth): text only for the files the turn shows, in the
+    // order and by the rule `buildChatEvidence` spends them: the settings
+    // document whole, then the first `maxDocuments` files with text, each to
+    // just past the part shown so its cut and notice match the whole text.
+    // Bounded without the read budget: the settings document (at most
+    // 1,000,000 characters) and 12 files of about 21,000 characters each.
+    const shownText = new Map<number, string>();
+    const perDocumentChars = evidenceBudget.perDocumentTokens * CHARS_PER_TOKEN;
+    // 2026-10-26 (Phase D, step 1): with the reading tools on, the files go
+    // in whole or not at all, never the first ones in upload order: whole
+    // when every file with text is at most one file's allowance and all of
+    // them together at most CHAT_WHOLE_FILES_CHARS (`buildChatEvidence`
+    // then checks they fit the turn), otherwise none, and the assistant
+    // finds and opens them with its tools. With the tools off, as before.
+    const toolsOn = documentToolsRead.ok ? documentToolsRead.value : true;
+    const readableFiles = chatFileOrder(documentViews)
+      .filter((entry) => !entry.settings)
+      .map((entry) => activeDocuments[entry.index])
+      // F2 review: a file still being copied has no text to show yet.
+      .filter((document): document is Doc<"projectDocuments"> => !!document && !textCopyPending(document) && documentTextLength(document) > 0);
+    const whole =
+      readableFiles.length <= evidenceBudget.maxDocuments &&
+      readableFiles.every((document) => documentTextLength(document) <= perDocumentChars) &&
+      readableFiles.reduce((total, document) => total + documentTextLength(document), 0) <= CHAT_WHOLE_FILES_CHARS;
+    let readable = 0;
+    for (const entry of chatFileOrder(documentViews)) {
+      const document = activeDocuments[entry.index];
+      if (!document) continue;
+      // F2 review: a file still being copied is shown with no text yet.
+      if (textCopyPending(document)) {
+        shownText.set(entry.index, "");
+        continue;
+      }
+      // A file whose pieces are incomplete is shown with no text, so one
+      // damaged file never stops the turn.
+      // 2026-10-26: Word Markdown without its marks.
+      if (entry.settings) {
+        shownText.set(entry.index, quotableFileText((await readDocumentTextOrNull(ctx, document)) ?? "", document.textFormat));
+      } else if (toolsOn) {
+        // Whole, or nothing (not even an older row's inline preview).
+        shownText.set(
+          entry.index,
+          whole && documentTextLength(document) > 0
+            ? quotableFileText((await readDocumentTextOrNull(ctx, document)) ?? "", document.textFormat)
+            : ""
+        );
+      } else if (documentTextLength(document) > 0 && readable++ < evidenceBudget.maxDocuments) {
+        shownText.set(
+          entry.index,
+          quotableFileText(
+            (await readDocumentTextOrNull(ctx, document, 0, perDocumentChars + CHAT_DOCUMENT_READ_SLACK_CHARS)) ?? "",
+            document.textFormat
+          )
+        );
+      }
+    }
 
     return {
       reportContent: report.content ?? null,
       agentOutputs: agentOutputs ?? null,
-      documents: documents
-        .filter((d) => !d.archived) // BNH-24: archived docs are out of AI context
-        // CAP-3/CAP-4: provenance travels with the document. Trust and the
-        // marker label are derived from stored facts, so the action never
-        // invents them; absent fields fail closed in `chatEvidence`.
-        .map((d) => ({
-          fileName: d.fileName,
-          content: d.content,
-          ...(d.category ? { category: d.category } : {}),
-          ...(d.uploaderRole ? { uploaderRole: d.uploaderRole } : {}),
-          // 2026-10-19 (chat parity Phase A): stored facts for the FILES IN
-          // THIS PROJECT list. The id and the original's presence are for the
-          // later file tools; the list renders name, category, status, size.
-          documentId: d._id,
-          fileType: d.fileType,
-          ...(d.processingStatus ? { processingStatus: d.processingStatus } : {}),
-          textLength: d.content.length,
-          hasOriginal: d.storageId !== undefined,
-        })),
+      documents: documentViews.map((view, index) => ({
+        ...view,
+        content: shownText.get(index) ?? view.content,
+      })),
       decisions,
       // CAP-14: the unresolved and unreliable Confidence Map facts of THIS
       // report's Brief. The trigger is a question, so under the prompt's own
@@ -3293,6 +3744,7 @@ export const getChatContextV2 = internalQuery({
       // A setting the budget could not read stays on, as the setting does.
       documentTools: documentToolsRead.ok ? documentToolsRead.value : true,
       chatVision: chatVisionRead.ok ? chatVisionRead.value : true,
+      ...(companyFilesRead.ok && companyFilesRead.value.length > 0 ? { companyFiles: companyFilesRead.value } : {}),
     };
   },
 });

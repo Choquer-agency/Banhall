@@ -31,7 +31,9 @@ import {
   retryFailedCandidatesHandler,
   activeRunSummary,
 } from "./lib/generations/reservation";
-import { getInternalProjectAccessOrNull } from "./lib/auth";
+import { getCurrentUserOrNull, getInternalProjectAccessOrNull } from "./lib/auth";
+import { deploymentDraftWebBackgroundOn } from "./lib/draftWebBackgroundSetting";
+import { draftWebBackgroundRecordValidator } from "./lib/draftWebBackgroundValidators";
 import {
   adoptPreparedBriefArgs,
   adoptPreparedBriefHandler,
@@ -129,6 +131,12 @@ import {
   renderBriefForGenerationHandler,
 } from "./lib/generations/brief";
 import {
+  copyBriefSourceUseArgs,
+  copyBriefSourceUseHandler,
+  recordSourceUseArgs,
+  recordSourceUseHandler,
+} from "./lib/generations/sourceUse";
+import {
   pinSeedBriefArgs,
   pinSeedBriefHandler,
   initializeSeedStageArgs,
@@ -163,6 +171,8 @@ import {
   getPostQaAttemptHandler,
   getPostQaInputArgs,
   getPostQaInputHandler,
+  getQaSourceEvidenceArgs,
+  getQaSourceEvidenceHandler,
   saveReportQaArgs,
   saveReportQaHandler,
   requestReportQaArgs,
@@ -454,6 +464,20 @@ export const getCitationSpeakers = internalQuery({
   handler: getCitationSpeakersHandler,
 });
 
+/** Phase D (step 2): what one step of a draft sent of each frozen row. */
+export const recordSourceUse = internalMutation({
+  args: recordSourceUseArgs,
+  returns: v.null(),
+  handler: recordSourceUseHandler,
+});
+
+/** Phase D (step 2, review): a reused Brief's record, copied from the run that derived it. */
+export const copyBriefSourceUse = internalMutation({
+  args: copyBriefSourceUseArgs,
+  returns: v.null(),
+  handler: copyBriefSourceUseHandler,
+});
+
 /** MAX(version) Brief for (projectId, inputsHash), regardless of origin — a
  * writer-edited version is reused too (CAP-4: "the next generation with the
  * same inputsHash reuses that version"). */
@@ -731,6 +755,15 @@ export const getPostQaAttempt = internalQuery({
 export const getPostQaInput = internalQuery({
   args: getPostQaInputArgs,
   handler: getPostQaInputHandler,
+});
+
+/**
+ * 2026-10-29 (third): the source evidence QA checks claims against, chosen
+ * as the facts check chooses its own.
+ */
+export const getQaSourceEvidence = internalQuery({
+  args: getQaSourceEvidenceArgs,
+  handler: getQaSourceEvidenceHandler,
 });
 
 /** Merge the post-assembly QA scorecard + chronology into agentOutputs. */
@@ -1208,4 +1241,35 @@ export const backfillGenerationOutputs = internalMutation({
 export const getGenerationQaResult = query({
   args: getGenerationQaResultArgs,
   handler: getGenerationQaResultHandler,
+});
+
+/**
+ * 2026-11-02 (proposed): whether the start dialog offers "Look up public
+ * background" (the deployment setting, convex/lib/draftWebBackgroundSetting.ts).
+ * Says nothing else about the deployment. False when signed out.
+ */
+export const webBackgroundAvailable = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx): Promise<boolean> => {
+    if (!(await getCurrentUserOrNull(ctx))) return false;
+    return deploymentDraftWebBackgroundOn();
+  },
+});
+
+/**
+ * 2026-11-02 (proposed): what public background a draft used, for the
+ * writer: the queries as sent (no names) and the sources given to the
+ * drafter, or why none were. Never the answers. Null for a draft with no
+ * record (made before) or a viewer without access.
+ */
+export const getWebBackground = query({
+  args: { generationId: v.id("generations") },
+  returns: v.union(v.null(), draftWebBackgroundRecordValidator),
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation?.webBackground) return null;
+    if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
+    return generation.webBackground;
+  },
 });

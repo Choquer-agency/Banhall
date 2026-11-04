@@ -121,6 +121,12 @@ const TOOL_COPY: Record<string, ToolCopy> = {
     done: "Found passages",
     error: "Couldn’t find those passages",
   },
+  // Owner 2026-10-28: the question shows in the panel above the message box.
+  askWriter: {
+    running: "Writing a question…",
+    done: "Asked you a question",
+    error: "Couldn’t ask that question",
+  },
   proposeBulkEdits: {
     running: "Writing a coordinated suggestion…",
     done: "Suggested a coordinated revision",
@@ -303,6 +309,8 @@ const ARTIFACT_TOOLS = new Set([
   // the other two edit tools.
   "proposeBulkEdits",
   "highlightPassages",
+  // Its question and options show in the panel above the message box.
+  "askWriter",
 ]);
 // `deviationInventory` and `compareReferencePd` are deliberately NOT artifact
 // tools: they produce no card. Their results are written for the model (they
@@ -577,7 +585,12 @@ function supersededProposals(proposals: readonly Doc<"chatProposals">[]): Set<nu
       .slice(index + 1)
       .filter(
         (other) =>
-          other.state === "pending" && other.promptMessageId === proposal.promptMessageId
+          other.state === "pending" &&
+          other.promptMessageId === proposal.promptMessageId &&
+          // Owner 2026-10-28: one tool call saves one card per Line, and a
+          // card for another Line never refines this one.
+          !(proposal.toolCallId && other.toolCallId === proposal.toolCallId) &&
+          (!proposal.section || !other.section || other.section === proposal.section)
       )
       .map((other) => ({ keys: passageKeys(other), unique: hasUniqueTargets(other) }));
     const covered = targets.filter((own) =>
@@ -792,7 +805,10 @@ export function humanizeItemIds(text: string): string {
     // Owner, 2026-10-21: the bare token "[GAP]" (no colon, no text) is the
     // model talking about gap notes, never a placeholder ("[GAP: ...]"),
     // which keeps its brackets; it reads as "gap" ("the gap note").
-    .replace(/\[GAP\](?!:)/g, "gap");
+    .replace(/\[GAP\](?!:)/g, "gap")
+    // 2026-10-29: the same for the bare "[INFERRED]", which reads as
+    // "inference" ("the inference note"); "[INFERRED: ...]" keeps its brackets.
+    .replace(/\[INFERRED\](?!:)/g, "inference");
 }
 
 /**
@@ -823,6 +839,7 @@ const TOOL_WORDS: Record<string, [string, string]> = {
   proposeBulkEdits: ["coordinated edit", "coordinated edits"],
   proposeReplacements: ["replacement", "replacements"],
   highlightPassages: ["highlight", "highlights"],
+  askWriter: ["question", "questions"],
   deviationInventory: ["deviation list", "deviation lists"],
   compareReferencePd: ["comparison with the reference PD", "comparisons with the reference PD"],
   searchBrain: ["Brain search", "Brain searches"],

@@ -83,5 +83,9 @@
     "Is any work the settings document excludes (the powder booth extraction upgrade, colour matching of the customer's catalogue shades) claimed or described in any Line?",
     "Do the Compliance Note rows say plainly that the settings document was applied, and do their verdicts match what the Lines actually do?",
     "Does every drafted Section read as a finished PD in plain language, with no Subsection titles used as headings?"
+  ],
+  "preferences": [
+    "Prefers 'we' to 'the team' or the company's name.",
+    "Keeps sentences under 25 words."
   ]
 }

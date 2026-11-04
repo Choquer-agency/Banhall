@@ -1,9 +1,10 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { makeFunctionReference, type FunctionReference } from "convex/server";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { internal } from "./_generated/api";
 import {
   CHAT_READ_PART_CHARS,
   activeTranscriptsWithin,
@@ -11,6 +12,7 @@ import {
   chatTranscriptSummaries,
   chunkSpans,
   documentReadBudget,
+  excerptWindow,
   safeRange,
   transcriptTurnLine,
   type ReadDocumentResult,
@@ -18,6 +20,7 @@ import {
   type SearchDocumentsResult,
 } from "./chatDocuments";
 import { CHAT_DOCUMENT_TOOLS_KEY } from "./appSettings";
+import { insertDocumentWithText } from "./lib/documentText";
 
 /**
  * Chat parity Phase B (2026-10-20): the reads behind the chat's reading
@@ -200,6 +203,154 @@ describe("searchForChat", () => {
     expect(turns.status === "ok" && turns.excerpts[0]).toMatchObject({
       kind: "transcript", transcriptId: f.transcriptId, firstIndex: 0, lastIndex: 4,
     });
+  });
+
+  test("searches a file with current pieces through them, keeping the piece's place; one whose pieces are stale the old way (Phase D, step 1)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => ctx.db.patch(f.notesId, { searchPiecesDue: true, searchPiecesNextAt: 0 }));
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      const viaPieces = await f.t.query(search, { agentThreadId: "thread-ok", query: "etalonnage capteur", maxChars: 12_000 });
+      if (viaPieces.status !== "ok") throw new Error(viaPieces.status);
+      const piece = viaPieces.excerpts[0]!;
+      expect(piece).toMatchObject({ kind: "file", documentId: f.notesId, textHash: expect.any(String), end: expect.any(Number) });
+      expect(piece.text).toContain("Le contrôle de l'étalonnage du capteur a dérivé.");
+      expect(piece.text.length).toBeLessThanOrEqual(1_500);
+      // Pieces cut from an older text are not used: the file is read the old way.
+      await f.t.run(async (ctx) => ctx.db.patch(f.notesId, { searchPiecesTextHash: "an-older-text" }));
+      const viaOld = await f.t.query(search, { agentThreadId: "thread-ok", query: "etalonnage capteur", maxChars: 12_000 });
+      if (viaOld.status !== "ok") throw new Error(viaOld.status);
+      expect(viaOld.excerpts[0]).toMatchObject({ kind: "file", documentId: f.notesId });
+      expect(viaOld.excerpts[0]).not.toHaveProperty("end");
+      expect(viaOld.excerpts[0]!.text).toContain("Le contrôle de l'étalonnage du capteur a dérivé.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("says the search was not complete when files with current pieces crowd the old path's places (review)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      const ids = await f.t.run(async (ctx) => {
+        const made = [];
+        for (let index = 0; index < 17; index += 1) {
+          made.push(
+            await ctx.db.insert("projectDocuments", {
+              projectId: f.projectId, fileName: `graphite-${index}.txt`, fileType: "txt", content: `Graphite packing note ${index}.`,
+              source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+            })
+          );
+        }
+        // Sixteen get their pieces; the last waits for them.
+        for (const id of made.slice(0, 16)) await ctx.db.patch(id, { searchPiecesDue: true, searchPiecesNextAt: 0 });
+        return made;
+      });
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      expect(ids).toHaveLength(17);
+      const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
+      if (result.status !== "ok") throw new Error(result.status);
+      expect(result.complete).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("says the search was not complete when more old-path files match than it reads (re-check)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => {
+        // Ten files moved to pieces, found through the pieces' index only;
+        // their pieces go stale below. Ten still on their rows, with no
+        // pieces, found through the old index only. Neither list fills its
+        // 16 places, but together they name 20 files.
+        for (let index = 0; index < 10; index += 1) {
+          const id = await insertDocumentWithText(ctx, {
+            projectId: f.projectId, fileName: `graphite-moved-${index}.txt`, fileType: "txt",
+            source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+          }, `Graphite packing note ${index}.`);
+          // convex-test's search index cannot skip a row with no `content`, as
+          // Convex does; an empty one matches nothing, as a missing one would.
+          await ctx.db.patch(id, { content: "" });
+        }
+        for (let index = 0; index < 10; index += 1) {
+          await ctx.db.insert("projectDocuments", {
+            projectId: f.projectId, fileName: `graphite-row-${index}.txt`, fileType: "txt", content: `Graphite packing note ${index + 10}.`,
+            source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+          });
+        }
+      });
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      await f.t.run(async (ctx) => {
+        for (const doc of await ctx.db.query("projectDocuments").collect()) {
+          if (doc.searchPiecesTextHash) await ctx.db.patch(doc._id, { searchPiecesTextHash: "an-older-text" });
+        }
+      });
+      const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
+      if (result.status !== "ok") throw new Error(result.status);
+      expect(result.complete).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("stays complete when files with current pieces leave every old-path file its place (review)", async () => {
+    vi.useFakeTimers();
+    try {
+      const f = await setup();
+      await f.t.run(async (ctx) => {
+        const made = [];
+        for (let index = 0; index < 4; index += 1) {
+          made.push(
+            await ctx.db.insert("projectDocuments", {
+              projectId: f.projectId, fileName: `graphite-${index}.txt`, fileType: "txt", content: `Graphite packing note ${index}.`,
+              source: "upload", uploadedBy: "writer", uploaderRole: "writer", category: "other", createdAt: Date.now(),
+            })
+          );
+        }
+        // Three get their pieces; the last waits for them and is still read.
+        for (const id of made.slice(0, 3)) await ctx.db.patch(id, { searchPiecesDue: true, searchPiecesNextAt: 0 });
+      });
+      await f.t.mutation(internal.searchPieces.sweepDueSearchPieces, {});
+      await f.t.finishAllScheduledFunctions(vi.runAllTimers);
+      const result = await f.t.query(search, { agentThreadId: "thread-ok", query: "graphite packing", maxChars: 20_000 });
+      if (result.status !== "ok") throw new Error(result.status);
+      expect(result.complete).toBe(true);
+      expect(result.excerpts.some((excerpt) => excerpt.text.includes("Graphite packing note 3."))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("finds a Greek word ending in final sigma when the file writes it in capitals (review)", () => {
+    const text = `${"Intro paragraph about the fictional rig. ".repeat(60)}Η ΔΟΚΙΜΗ ΤΗΣ ΑΝΤΛΙΑΣ ΑΠΕΤΥΧΕ. ${"tail ".repeat(40)}`;
+    const { terms } = chatSearchTerms("αντλίας");
+    const window = excerptWindow(text, terms, 1_500);
+    expect(text.length).toBeGreaterThan(2_500);
+    expect(window).toContain("Η ΔΟΚΙΜΗ ΤΗΣ ΑΝΤΛΙΑΣ ΑΠΕΤΥΧΕ.");
+  });
+
+  test("finds an accented word late in a long piece, by the folded terms search uses (review)", () => {
+    const text = `${"Intro paragraph about the fictional rig. ".repeat(60)}Le contrôle de l'étalonnage du capteur a dérivé. ${"tail ".repeat(40)}`;
+    const { terms } = chatSearchTerms("étalonnage capteur");
+    const window = excerptWindow(text, terms, 1_500);
+    expect(text.length).toBeGreaterThan(2_500);
+    expect(window).toContain("Le contrôle de l'étalonnage du capteur a dérivé.");
+  });
+
+  test("cuts an excerpt around its match, from a word, at most the size asked", () => {
+    const text = `${"filler words here ".repeat(200)}the gasket crept at 3.1 bar ${"after text ".repeat(100)}`;
+    const window = excerptWindow(text, ["gasket"], 500);
+    expect(window.length).toBeLessThanOrEqual(500);
+    expect(window).toContain("the gasket crept at 3.1 bar");
+    expect(window.startsWith(" ")).toBe(false);
+    expect(excerptWindow("short text", ["gasket"], 500)).toBe("short text");
+    expect(excerptWindow(text, ["absent"], 500)).toBe(text.slice(0, 500));
   });
 
   test("returns no_terms for a query with no word to search", async () => {

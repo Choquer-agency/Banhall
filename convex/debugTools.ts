@@ -8,6 +8,7 @@ import { internalQuery } from "./_generated/server";
 import { readGenerationProgress } from "./lib/generationProgress";
 import { v } from "convex/values";
 import { listProjectTranscripts } from "./lib/transcripts";
+import { documentHasText, documentTextLength } from "./lib/documentText";
 
 export const findProjectsByClient = internalQuery({
   args: { needle: v.string() },
@@ -56,13 +57,13 @@ export const generationPostmortem = internalQuery({
       documents: documents.map((d) => ({
         fileName: d.fileName,
         fileType: d.fileType,
-        contentChars: d.content.length,
+        contentChars: documentTextLength(d),
         category: d.category ?? null,
         hasStoredFile: Boolean(d.storageId),
       })),
       documentTotals: {
         count: documents.length,
-        totalContentChars: documents.reduce((n, d) => n + d.content.length, 0),
+        totalContentChars: documents.reduce((n, d) => n + documentTextLength(d), 0),
       },
       generations: await Promise.all(generations.map(async (g) => ({
         _id: g._id,
@@ -141,8 +142,8 @@ export const bigDocProjects = internalQuery({
           status: p.status,
           createdAt: new Date(p.createdAt).toISOString(),
           docCount: docs.length,
-          totalChars: docs.reduce((n, d) => n + d.content.length, 0),
-          emptyDocs: docs.filter((d) => !d.content.trim()).length,
+          totalChars: docs.reduce((n, d) => n + documentTextLength(d), 0),
+          emptyDocs: docs.filter((d) => !documentHasText(d)).length,
         });
       }
     }
@@ -217,8 +218,8 @@ export const orphanTrace = internalQuery({
       if (!p) {
         const cur = orphanDocsByProject.get(d.projectId) ?? { count: 0, chars: 0, names: [] };
         cur.count += 1;
-        cur.chars += d.content.length;
-        if (cur.names.length < 40) cur.names.push(`${d.fileName} (${d.fileType}, ${d.content.length}ch)`);
+        cur.chars += documentTextLength(d);
+        if (cur.names.length < 40) cur.names.push(`${d.fileName} (${d.fileType}, ${documentTextLength(d)}ch)`);
         orphanDocsByProject.set(d.projectId, cur);
       }
     }

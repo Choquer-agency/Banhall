@@ -18,6 +18,7 @@
  * A Brief the startup pin already chose (existing reuse, including a
  * writer's edited version) always wins over a preparation.
  */
+import type { SourceRowWithText } from "../sourceText";
 import { internal } from "../../_generated/api";
 import { v, type ObjectType } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
@@ -71,16 +72,16 @@ async function releaseAttachment(ctx: MutationCtx, generation: Doc<"generations"
 
 /**
  * The preparation's frozen rows mapped onto the run's, position by
- * position: same count, and each pair the same kind, the same transcript
- * or file, the same label, trust, cut and content hash. Equal text alone
+ * position: same count, and each pair the same kind, the same transcript,
+ * file or company file, the same label, trust, cut and content hash. Equal text alone
  * never maps a row. Null when any pair disagrees.
  */
 export function verifiedSourceMapping(
   preparationSources: readonly Doc<"briefPreparationSources">[],
-  generationSources: readonly Doc<"generationSources">[]
-): Map<Id<"briefPreparationSources">, Doc<"generationSources">> | null {
+  generationSources: readonly SourceRowWithText[]
+): Map<Id<"briefPreparationSources">, SourceRowWithText> | null {
   if (preparationSources.length !== generationSources.length) return null;
-  const mapping = new Map<Id<"briefPreparationSources">, Doc<"generationSources">>();
+  const mapping = new Map<Id<"briefPreparationSources">, SourceRowWithText>();
   for (let index = 0; index < preparationSources.length; index += 1) {
     const from = preparationSources[index];
     const to = generationSources[index];
@@ -88,6 +89,7 @@ export function verifiedSourceMapping(
       from.kind !== to.kind ||
       (from.transcriptId ?? null) !== (to.transcriptId ?? null) ||
       (from.projectDocumentId ?? null) !== (to.projectDocumentId ?? null) ||
+      (from.companyFileId ?? null) !== (to.companyFileId ?? null) ||
       from.label !== to.label ||
       (from.uploaderRole ?? null) !== (to.uploaderRole ?? null) ||
       from.truncated !== to.truncated ||
@@ -137,7 +139,8 @@ async function attachToQueued(ctx: MutationCtx, generation: Doc<"generations">):
       row.confirmedAt !== undefined &&
       row.confirmedAt > now - QUEUED_WAITER_DEADLINE_MS &&
       sorted(row.excludedTranscriptIds) === sorted(generation.excludedSources?.transcriptIds) &&
-      sorted(row.excludedDocumentIds) === sorted(generation.excludedSources?.documentIds)
+      sorted(row.excludedDocumentIds) === sorted(generation.excludedSources?.documentIds) &&
+      sorted(row.excludedCompanyFileIds) === sorted(generation.excludedSources?.companyFileIds)
   );
   if (!queued) return null;
   const deadlineAt = now + QUEUED_WAITER_DEADLINE_MS;
@@ -161,7 +164,7 @@ async function adopt(
   ctx: MutationCtx,
   generation: Doc<"generations">,
   preparation: Preparation,
-  sources: Doc<"generationSources">[],
+  sources: SourceRowWithText[],
   args: ObjectType<typeof adoptPreparedBriefArgs>
 ): Promise<PreparedBriefAdoption> {
   const preparationSources = await ctx.db
@@ -175,6 +178,10 @@ async function adopt(
     .withIndex("by_preparationId", (q) => q.eq("preparationId", preparation._id))
     .take(MAX_BRIEF_ENTRY_ROWS + 1);
   if (entries.length > MAX_BRIEF_ENTRY_ROWS) return { kind: "miss" };
+  // Review round 3: a head start that came back with nothing in it is not
+  // adopted; the run derives its own Brief, as for a stored one
+  // (latestBriefForInputs).
+  if (entries.length === 0 && !preparation.storylineText?.trim()) return { kind: "miss" };
   // Every entry again, on the run's own rows: the mapped row must hold the
   // cited bytes, and the span must still be evidence under decision 25.
   const speakerOf = citationSpeakerReader(ctx);

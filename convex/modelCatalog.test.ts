@@ -17,8 +17,10 @@ import fixture from "../shared/__fixtures__/openrouter-models-2026-10-22.json";
 import { MODEL_ROLES, ROLE_POLICIES, directRowFromListing, parseOpenRouterModels } from "../shared/modelCatalog";
 import { MODEL_TRACK_IDS, TRACK_SEED_MODEL_IDS } from "../shared/modelTracks";
 import { requestModelId, resetRegisteredModelEntries } from "../shared/generationModels";
+import crons from "./crons";
 import {
   adminStateRef,
+  allowTrackModelAgainRef,
   applyCatalogRefreshRef,
   applyTrackUpgradeRef,
   checkProductionErrorsRef,
@@ -33,7 +35,9 @@ import {
   setRoleTrackRef,
 } from "./lib/modelCatalogRefs";
 import {
+  continuedModelEntry,
   freezeModelsForGeneration,
+  leaveMovedBackModels,
   listSelectableModels,
   moveTrack,
   raiseAdminNotice,
@@ -202,7 +206,7 @@ describe("catalog refresh", () => {
     expect(argon?.missingSince).toBeUndefined();
   });
 
-  it("runs the daily job end to end: every track is checked, none moves while each is newest, nothing is evaluated", async () => {
+  it("runs the Monday job end to end: every track is checked, none moves while each is newest, nothing is evaluated", async () => {
     const { t } = await setup();
     const urls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -216,7 +220,7 @@ describe("catalog refresh", () => {
       }
       throw new Error(`Unexpected request to ${url}`);
     }));
-    const result = await t.action(refreshCatalogRef, {});
+    const result = await t.action(refreshCatalogRef, { moveTiers: true });
     expect(result.fetched).toBe(parsed.length);
     expect(result.tracksMoved).toBe(0);
     expect(urls[0]).toBe("https://openrouter.ai/api/v1/models");
@@ -229,6 +233,50 @@ describe("catalog refresh", () => {
       expect(await ctx.db.query("modelSwitchEvents").collect()).toEqual([]);
       expect(await ctx.db.query("errorReports").collect()).toEqual([]);
     });
+  });
+
+  // 2026-10-23 (owner): tiers move weekly, not daily.
+  it("refreshes every day but checks and moves tiers only on the Monday run", async () => {
+    const { t } = await setup();
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith("/api/v1/models")) return Response.json({ data: [...rawRows, { ...rawRows.find((item) => item.id === "openai/gpt-6.1-sol")!, id: "openai/gpt-6.2-sol", canonical_slug: "openai/gpt-6.2-sol-20261101", name: "OpenAI: GPT-6.2 Sol" }] });
+      if (url.includes("/endpoints")) return Response.json({ data: { endpoints: [] } });
+      throw new Error(`Unexpected request to ${url}`);
+    }));
+    const result = await t.action(refreshCatalogRef, {});
+    expect(result.tracksMoved).toBe(0);
+    // No track was checked and no readiness request went out.
+    for (const track of MODEL_TRACK_IDS) expect((await trackRow(t, track))?.lastCheckedAt, track).toBeUndefined();
+    expect(urls.every((url) => url.startsWith("https://openrouter.ai/api/v1/models"))).toBe(true);
+    expect(await row(t, "openai/gpt-6.2-sol")).toMatchObject({ status: "candidate" });
+  });
+
+  it("schedules the refresh daily except Monday, the tier move on Monday, and the rollback check hourly", () => {
+    const jobs = (crons as unknown as {
+      crons: Record<string, { name: string; args: unknown[]; schedule: { type: string; cron?: string } }>;
+    }).crons;
+    const job = (identifier: string) => jobs[identifier];
+    expect(job("refresh model catalog")).toMatchObject({
+      name: "modelCatalog:refreshCatalog",
+      args: [{}],
+      schedule: { type: "cron", cron: "45 8 * * 0,2-6" },
+    });
+    expect(job("move model tiers to their newest version")).toMatchObject({
+      name: "modelCatalog:refreshCatalog",
+      args: [{ moveTiers: true }],
+      schedule: { type: "cron", cron: "45 8 * * 1" },
+    });
+    expect(job("move a failing model tier back")).toMatchObject({
+      name: "modelCatalog:checkProductionErrors",
+      args: [{}],
+      schedule: { type: "cron", cron: "15 * * * *" },
+    });
+    // No other job moves tiers.
+    const movers = Object.values(jobs).filter((item) => item.name === "modelCatalog:refreshCatalog");
+    expect(movers.filter((item) => (item.args[0] as { moveTiers?: boolean } | undefined)?.moveTiers === true)).toHaveLength(1);
   });
 });
 
@@ -304,6 +352,16 @@ describe("tracks and the picker", () => {
       modelId: "claude-sonnet-5-5",
       previousModelId: "xiaomi/mimo-v2.6-pro",
     });
+  });
+
+  // 2026-10-23 (review): running the migration again never undoes an admin's choice.
+  it("leaves a role an admin pointed at another tier when the migration runs again", async () => {
+    const { t, admin } = await setup();
+    await evaluationSwitchedRoles(t);
+    await t.mutation(pointRolesAtTracksRef, {});
+    await admin.mutation(setRoleTrackRef, { role: "writing", track: "claude-opus" });
+    expect(await t.mutation(pointRolesAtTracksRef, {})).toBe(0);
+    expect(await t.run(async (ctx) => await roleModelId(ctx, "writing"))).toBe("claude-opus-5-5");
   });
 
   it("lets an admin point the writing role at another track, and keeps chat on Claude", async () => {
@@ -407,6 +465,293 @@ describe("reservation and frozen generations", () => {
     // A new reservation picks up the moved track.
     const next = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
     expect((await t.run((ctx) => ctx.db.get(next)))?.singleModelId).toBe("claude-sonnet-6");
+  });
+
+  // 2026-10-23 (owner): a writer never starts over because a tier moved back.
+  it("retries a failed generation on the tier's current model when its tier was moved back from the frozen one", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const frozen = (await t.run((ctx) => ctx.db.get(first)))?.modelFreeze;
+    expect(frozen?.entries.map((entry) => entry.id)).toContain("claude-sonnet-5-5");
+    await freshGeneration(t, projectId, first);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    // The failed generation itself is never rewritten.
+    expect((await t.run((ctx) => ctx.db.get(first)))?.modelFreeze).toEqual(frozen);
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    const retried = await t.run((ctx) => ctx.db.get(retry));
+    expect(retried?.singleModelId).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+    expect(retried?.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    const progress = await t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", retry)).collect()
+    );
+    expect(progress.map((line) => line.message)).toEqual([
+      "Generation request reserved.",
+      "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.",
+    ]);
+    // A second retry inherits the first retry's freeze, which holds no model
+    // its tier moved back from.
+    await freshGeneration(t, projectId, retry);
+    const again = await writer.mutation(api.generations.retryGeneration, { generationId: retry });
+    expect((await t.run((ctx) => ctx.db.get(again)))?.modelFreeze).toEqual(retried?.modelFreeze);
+  });
+
+  it("retries on fresh helper models when only a helper role's model was moved back, keeping the writer's model", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "single",
+      singleModelId: "claude-opus-5-5",
+    });
+    expect((await t.run((ctx) => ctx.db.get(first)))?.modelFreeze?.roles.planning).toBe("claude-sonnet-5-5");
+    await freshGeneration(t, projectId, first);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    const retried = await t.run((ctx) => ctx.db.get(retry));
+    expect(retried?.singleModelId).toBe("claude-opus-5-5");
+    expect(retried?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+  });
+
+  it("retries a failed comparison with the moved-back slot on its tier's current model", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "compare",
+      compareModelIds: ["claude-opus-5-5", "claude-sonnet-5-5"],
+    });
+    await freshGeneration(t, projectId, first);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    expect((await t.run((ctx) => ctx.db.get(retry)))?.compareModelIds).toEqual(["claude-opus-5-5", "claude-sonnet-5"]);
+  });
+
+  // 2026-10-23 (owner, second): a step the writer starts in a generation
+  // leaves a model its tier was moved back from, in the generation's own
+  // freeze, so the writer never starts over.
+  it("moves an open generation's roles and writer model off a model its tier moved back from, once, keeping earlier entries", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const id = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const before = await t.run((ctx) => ctx.db.get(id));
+    const frozen = before!.modelFreeze!;
+    // Nothing moved back: nothing is written.
+    const unchanged = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    expect(unchanged).toEqual(before);
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const left = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    const stored = await t.run((ctx) => ctx.db.get(id));
+    expect(left).toEqual(stored);
+    expect(stored?.singleModelId).toBe("claude-sonnet-5");
+    expect(stored?.modelFreeze?.roles).toEqual({
+      writing: "claude-sonnet-5",
+      condense: "claude-sonnet-5",
+      retrieval_brief: "claude-haiku-5-5",
+      analysis: "claude-sonnet-5",
+      planning: "claude-sonnet-5",
+      checking: "claude-sonnet-5",
+    });
+    // The moved-back entry stays, so a step already running still resolves it.
+    expect(stored?.modelFreeze?.entries.map((entry) => entry.id)).toEqual(
+      [...frozen.entries.map((entry) => entry.id), "claude-sonnet-5"].sort()
+    );
+    expect(stored?.modelFreeze?.entries.find((entry) => entry.id === "claude-sonnet-5")).toMatchObject({
+      gateway: "anthropic",
+      label: "Sonnet 5",
+    });
+    expect(stored?.modelFreeze).toMatchObject({ frozenAt: frozen.frozenAt, stepPolicyVersion: frozen.stepPolicyVersion });
+    expect(stored?.modelMoves).toEqual([
+      {
+        fromModelId: "claude-sonnet-5-5",
+        toModelId: "claude-sonnet-5",
+        at: expect.any(Number),
+        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        writer: true,
+      },
+    ]);
+    const progress = await t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", id)).collect()
+    );
+    expect(progress.map((line) => line.message)).toContain(
+      "Sonnet 5.5 is no longer used for its tier, so this generation continues on Sonnet 5."
+    );
+    // Once moved, a second step finds nothing to change.
+    const again = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    expect(again).toEqual(stored);
+    expect((await t.run((ctx) => ctx.db.get(id)))?.modelMoves).toHaveLength(1);
+  });
+
+  it("moves only the helper roles of a comparison, never its pair, and leaves a row without a freeze alone", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const pair = await writer.mutation(api.generations.requestGeneration, {
+      projectId,
+      candidateMode: "compare",
+      compareModelIds: ["claude-opus-5-5", "claude-sonnet-5-5"],
+    });
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const moved = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(pair))!));
+    expect(moved.compareModelIds).toEqual(["claude-opus-5-5", "claude-sonnet-5-5"]);
+    expect(moved.singleModelId).toBeUndefined();
+    expect(moved.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    await freshGeneration(t, projectId, pair);
+    const legacy = await t.run(async (ctx) => {
+      const legacyId = await ctx.db.insert("generations", {
+        projectId,
+        status: "failed",
+        candidateMode: "single",
+        singleModelId: "claude-sonnet-5-5",
+        requestedAt: NOW,
+        startedAt: NOW,
+      });
+      return await leaveMovedBackModels(ctx, (await ctx.db.get(legacyId))!);
+    });
+    expect(legacy.modelFreeze).toBeUndefined();
+    expect(legacy.singleModelId).toBe("claude-sonnet-5-5");
+    expect(legacy.modelMoves).toBeUndefined();
+  });
+
+  it("reads a generation's freeze afresh in each new action, so a step started after the move routes on the new model", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const id = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const read = () => t.action(async (ctx) => (await registerGenerationModels(ctx, id))?.roles.checking);
+    expect(await read()).toBe("claude-sonnet-5-5");
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      await leaveMovedBackModels(ctx, (await ctx.db.get(id))!);
+    });
+    // No cache reset: the next action is a new invocation.
+    expect(await read()).toBe("claude-sonnet-5");
+  });
+
+  it("keeps a model the generation already had exactly as frozen, and a QA run leaves the writer model alone", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const id = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    // A generation that already froze Sonnet 5 for one use (a role pinned to
+    // it); the marker shows whether its entry is rebuilt.
+    const marked = await t.run(async (ctx) => {
+      const generation = (await ctx.db.get(id))!;
+      const freeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5", "claude-sonnet-5"], NOW);
+      const modelFreeze = {
+        ...freeze,
+        entries: freeze.entries.map((entry) => (entry.id === "claude-sonnet-5" ? { ...entry, maxCompletionTokens: 12_345 } : entry)),
+      };
+      await ctx.db.patch(generation._id, { modelFreeze });
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      return modelFreeze;
+    });
+    const qa = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!, { writer: false }));
+    expect(qa.modelFreeze?.entries).toEqual(marked.entries);
+    expect(qa.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    // The QA run moves the helper roles only: not the writer model, nor the
+    // writing role that names it.
+    expect(qa.singleModelId).toBe("claude-sonnet-5-5");
+    expect(qa.modelFreeze?.roles.writing).toBe("claude-sonnet-5-5");
+    expect(qa.modelMoves).toEqual([
+      {
+        fromModelId: "claude-sonnet-5-5",
+        toModelId: "claude-sonnet-5",
+        at: expect.any(Number),
+        roles: ["planning", "checking", "condense", "analysis"],
+      },
+    ]);
+    // A later writer-started step moves the writer model too, once.
+    const next = await t.run(async (ctx) => await leaveMovedBackModels(ctx, (await ctx.db.get(id))!));
+    expect(next.singleModelId).toBe("claude-sonnet-5");
+    expect(next.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    expect(next.modelMoves?.[1]).toMatchObject({ fromModelId: "claude-sonnet-5-5", roles: ["writing"], writer: true });
+    expect(next.modelFreeze?.entries).toEqual(marked.entries);
+  });
+
+  it("retries a generation that already left a moved-back model on its own freeze, with no move line", async () => {
+    const { t, writer, projectId } = await setup();
+    await t.mutation(pointRolesAtTracksRef, {});
+    const first = await writer.mutation(api.generations.requestGeneration, { projectId, candidateMode: "single" });
+    const left = await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      return await leaveMovedBackModels(ctx, (await ctx.db.get(first))!);
+    });
+    await freshGeneration(t, projectId, first);
+    const retry = await writer.mutation(api.generations.retryGeneration, { generationId: first });
+    const retried = await t.run((ctx) => ctx.db.get(retry));
+    expect(retried?.singleModelId).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze).toEqual(left.modelFreeze);
+    const progress = await t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", retry)).collect()
+    );
+    expect(progress.map((line) => line.message)).toEqual(["Generation request reserved."]);
+  });
+
+  it("follows every later move to the model a pinned row runs on now", () => {
+    const entry = (id: string) => ({ id, label: id, provider: "anthropic" as const, gateway: "anthropic" as const, reasoning: true });
+    const generation = {
+      modelFreeze: { entries: [entry("a"), entry("b"), entry("c")], roles: { writing: "c", condense: "c", retrieval_brief: "c", analysis: "c" }, frozenAt: 1 },
+      modelMoves: [
+        { fromModelId: "a", toModelId: "b", at: 1, roles: [], writer: true },
+        { fromModelId: "b", toModelId: "c", at: 2, roles: [], writer: true },
+      ],
+    };
+    expect(continuedModelEntry(generation, "a")?.id).toBe("c");
+    expect(continuedModelEntry(generation, "b")?.id).toBe("c");
+    expect(continuedModelEntry(generation, "c")).toBeNull();
+    expect(continuedModelEntry({ modelFreeze: generation.modelFreeze, modelMoves: undefined }, "a")).toBeNull();
+    // Back on a model it left earlier: a row on it runs on it again.
+    const returned = { ...generation, modelMoves: [generation.modelMoves[0], { fromModelId: "b", toModelId: "a", at: 2, roles: [], writer: true }] };
+    expect(continuedModelEntry(returned, "a")).toBeNull();
+    expect(continuedModelEntry(returned, "b")?.id).toBe("a");
+    // A QA run moved helper roles only, then a later step moved the writer
+    // elsewhere: a Section row follows the writer's move, not the QA one.
+    const afterQa = {
+      ...generation,
+      modelMoves: [
+        { fromModelId: "a", toModelId: "b", at: 1, roles: ["checking"] },
+        { fromModelId: "a", toModelId: "c", at: 2, roles: ["writing"], writer: true },
+      ],
+    };
+    expect(continuedModelEntry(afterQa, "a")?.id).toBe("c");
+    expect(continuedModelEntry({ ...generation, modelMoves: [afterQa.modelMoves[0]] }, "a")).toBeNull();
+  });
+
+  it("still redirects a model the generation left once OpenRouter stops listing it, for work queued before the move", async () => {
+    const { t, projectId, writerId } = await setup();
+    const generationId = await t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["openai/gpt-5.6-sol", "openai/gpt-6-luna"], NOW);
+      return await ctx.db.insert("generations", {
+        projectId,
+        status: "completed",
+        candidateMode: "compare",
+        compareModelIds: ["openai/gpt-5.6-sol", "openai/gpt-6-luna"],
+        requestedAt: NOW,
+        startedAt: NOW,
+        requestedBy: writerId,
+        previousProjectStatus: "draft",
+        modelFreeze,
+        modelMoves: [{ fromModelId: "openai/gpt-5.6-sol", toModelId: "openai/gpt-6.1-sol", at: NOW, roles: ["writing"] }],
+      });
+    });
+    await t.mutation(applyCatalogRefreshRef, {
+      models: parsed.filter((model) => model.openRouterId !== "openai/gpt-5.6-sol"),
+      fetchedAt: NOW,
+      complete: true,
+    });
+    expect((await t.query(generationModelRedirectsRef, { generationId })).map((redirect) => redirect.fromModelId)).toEqual([
+      "openai/gpt-5.6-sol",
+    ]);
   });
 
   it("runs a frozen model OpenRouter no longer lists on its track's current model, recorded once, without touching the freeze", async () => {
@@ -571,6 +916,166 @@ describe("track upgrades and rollback", () => {
     expect((await trackRow(t, "claude-haiku"))?.modelId).toBe("claude-haiku-4-5-20251001");
     expect(await errorReports(t)).toEqual([]);
   });
+
+  // 2026-10-23 (owner and review): the hourly check watches the deploy-day
+  // move from its first run, without waiting for the one-off migration.
+  it("watches the deploy-day move from the first hourly check, with no migration run", async () => {
+    const { t } = await setup(parsed);
+    expect(await trackRow(t, "claude-sonnet")).toBeNull();
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    expect(await trackRow(t, "claude-sonnet")).toMatchObject({
+      modelId: "claude-sonnet-5-5",
+      previousModelId: "claude-sonnet-5",
+      switchedAt: NOW,
+    });
+    vi.setSystemTime(NOW + 60 * 60 * 1000);
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model: "claude-sonnet-5-5",
+        callSite: "generation:analyzer",
+        outcome: i % 4 === 0 ? "failure" : "success",
+        code: "malformed_output",
+      });
+    }
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    expect((await trackRow(t, "claude-sonnet"))?.modelId).toBe("claude-sonnet-5");
+    expect(await errorReports(t)).toEqual([]);
+  });
+
+  it("counts the deploy-day model's failures from before the first hourly check", async () => {
+    const { t } = await setup(parsed);
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, {
+        model: "claude-sonnet-5-5",
+        callSite: "generation:analyzer",
+        outcome: i % 4 === 0 ? "failure" : "success",
+        code: "malformed_output",
+      });
+    }
+    vi.setSystemTime(NOW + 50 * 60 * 1000);
+    expect(await trackRow(t, "claude-sonnet")).toBeNull();
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    expect((await trackRow(t, "claude-sonnet"))?.modelId).toBe("claude-sonnet-5");
+  });
+
+  it("keeps counting the deploy-day model's earlier failures when the migration writes the rows first, across checks", async () => {
+    const { t } = await setup(parsed);
+    const record = async (outcome: "failure" | "success", times: number) => {
+      for (let i = 0; i < times; i += 1) {
+        await t.mutation(recordCallOutcomeRef, { model: "claude-sonnet-5-5", callSite: "generation:analyzer", outcome, code: "malformed_output" });
+      }
+    };
+    await record("failure", 19);
+    vi.setSystemTime(NOW + 10 * 60 * 1000);
+    await t.mutation(pointRolesAtTracksRef, {});
+    expect(await trackRow(t, "claude-sonnet")).toMatchObject({ deployMove: true, switchedAt: NOW + 10 * 60 * 1000 });
+    vi.setSystemTime(NOW + 20 * 60 * 1000);
+    // 19 calls: under the minimum, so nothing moves yet.
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([]);
+    vi.setSystemTime(NOW + 30 * 60 * 1000);
+    await record("success", 1);
+    vi.setSystemTime(NOW + 80 * 60 * 1000);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toContainEqual(
+      { track: "claude-sonnet", modelId: "claude-sonnet-5-5", rolledBack: true },
+    );
+    // The move back clears the flag.
+    expect((await trackRow(t, "claude-sonnet"))?.deployMove).toBeUndefined();
+  });
+
+  it("still moves a failing tier back on day 6, and after day 7 only tells admins", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const failingAt = async (at: number) => {
+      vi.setSystemTime(at);
+      for (let i = 0; i < 20; i += 1) {
+        await t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+      }
+    };
+    const { t } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    await failingAt(NOW + 6.9 * day);
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: true },
+    ]);
+    // Later, a tier that moved more than 7 days ago only gets a notice.
+    const late = await setup([SOL_62, ...parsed]);
+    vi.setSystemTime(NOW);
+    const [lateCandidate] = await late.t.mutation(planTrackUpgradesRef, {});
+    await late.t.mutation(applyTrackUpgradeRef, { candidate: lateCandidate, readiness: passed });
+    vi.setSystemTime(NOW + 8 * day);
+    for (let i = 0; i < 20; i += 1) {
+      await late.t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+    }
+    expect(await late.t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: false },
+    ]);
+    expect((await trackRow(late.t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.2-sol");
+    // The next hourly check does not repeat it.
+    vi.setSystemTime(NOW + 8 * day + 60 * 60 * 1000);
+    await late.t.mutation(checkProductionErrorsRef, {});
+    expect((await adminNotices(late.t)).filter((message) => message.includes("moved more than 7 days ago"))).toHaveLength(1);
+    expect(await errorReports(late.t)).toEqual([]);
+  });
+
+  it("moves a tier back on its own only in the first 7 days after its move", async () => {
+    const { t } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    const failing = async () => {
+      for (let i = 0; i < 20; i += 1) {
+        await t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+      }
+    };
+    vi.setSystemTime(NOW + 8 * 24 * 60 * 60 * 1000);
+    await failing();
+    expect(await t.mutation(checkProductionErrorsRef, {})).toEqual([
+      { track: "gpt-sol", modelId: "openai/gpt-6.2-sol", rolledBack: false },
+    ]);
+    expect((await trackRow(t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.2-sol");
+    // An admin can still move it back by hand.
+    expect((await trackRow(t, "gpt-sol"))?.previousModelId).toBe("openai/gpt-6.1-sol");
+  });
+
+  it("with automatic updates off, the hourly check logs a failing model about once a day, not an hour earlier each day", async () => {
+    const { t, admin } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    await admin.mutation(setAutoSwitchRef, { enabled: false });
+    for (let i = 0; i < 20; i += 1) {
+      await t.mutation(recordCallOutcomeRef, { model: "openai/gpt-6.2-sol", callSite: "x", outcome: i < 10 ? "failure" : "success" });
+    }
+    const notices = async () => (await adminNotices(t)).filter((message) => message.includes("not moved back")).length;
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await notices()).toBe(1);
+    vi.setSystemTime(NOW + 23 * 60 * 60 * 1000);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await notices()).toBe(1);
+    vi.setSystemTime(NOW + (23 * 60 + 56) * 60 * 1000);
+    await t.mutation(checkProductionErrorsRef, {});
+    expect(await notices()).toBe(2);
+  });
+
+  it("lets a model its tier moved back from be chosen again at the next Monday check", async () => {
+    const { t } = await setup([SOL_62, ...parsed]);
+    const [candidate] = await t.mutation(planTrackUpgradesRef, {});
+    await t.mutation(applyTrackUpgradeRef, { candidate, readiness: passed });
+    await t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "gpt-sol", toModelId: "openai/gpt-6.1-sol", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    expect(await t.mutation(planTrackUpgradesRef, {})).toEqual([]);
+    expect(await t.mutation(allowTrackModelAgainRef, { track: "gpt-sol", modelId: "openai/gpt-6.2-sol" })).toBe(true);
+    expect(await t.mutation(allowTrackModelAgainRef, { track: "gpt-sol", modelId: "openai/gpt-6.2-sol" })).toBe(false);
+    expect((await trackRow(t, "gpt-sol"))?.rolledBackFrom).toEqual([]);
+    // The track stays put until the Monday check moves it after a fresh readiness check.
+    expect((await trackRow(t, "gpt-sol"))?.modelId).toBe("openai/gpt-6.1-sol");
+    expect((await t.mutation(planTrackUpgradesRef, {})).map((item) => item.toModelId)).toEqual(["openai/gpt-6.2-sol"]);
+    expect((await adminNotices(t)).filter((message) => message.includes("may be chosen again"))).toHaveLength(1);
+    expect(await errorReports(t)).toEqual([]);
+  });
 });
 
 // ─── The admin log and the alerts board ─────────────────────────────────────
@@ -622,9 +1127,119 @@ describe("admin log", () => {
 describe("prompt versions", () => {
   it("leave the program and every generation reserved before the change exactly as they were", async () => {
     // Read on e6e287d4, the commit before tracks: the program hash and the
-    // version of a generation with no freeze (Sonnet 5, Haiku 4.5).
-    expect(await hashPromptProgram()).toBe("sha256:af60a9729413c53458ae2221eae8fc43b9a382955b4f2f2f8f8388d165fd4520");
-    expect(await legacyPromptVersion()).toBe("sha256:3be5d07a3053f50cfe0ec6ce18d325267017498caaf55fc2bd7ab3c69f5000a0");
+    // version of a generation with no freeze (Sonnet 5, Haiku 4.5). Re-read
+    // after 2026-10-22 (third), which moves the Summary Self-check program on
+    // purpose (no merged-id echo, 64 ordinary checks, the answer's own
+    // ceiling); at e6e287d4 they were sha256:af60a972... and
+    // sha256:3be5d07a.... Re-read after 2026-10-26 (Phase A), which moves
+    // the program on purpose (the judges' 16,384-token answers, the repair
+    // with more room, the Summary Self-check in several requests); before
+    // it they were sha256:3f2fa8ea... and sha256:1612a2fd.... Re-read after
+    // 2026-10-26 (Phase C), which adds the company files note to the program
+    // on purpose (prompts without a company file are unchanged); before it
+    // they were sha256:9e7bbee8... and sha256:b72505c9.... Re-read after
+    // 2026-10-27 (ninth), which records the Self-check's rule for an unknown
+    // top-level property in the program on purpose; before it they were
+    // sha256:ebd32cd8... and sha256:fd39c17f.... Re-read after 2026-10-27
+    // (tenth), which moves the Hypothesis objective and the Seed version on
+    // purpose (`.1`, then `.2` for its repair hint); before they were
+    // sha256:6a92224a... and sha256:2a6958bb.... Re-read after 2026-10-27
+    // (eleventh), which drops the bullet word limit from the Seed guidance
+    // and the quote rules (`.3`), and moves the Summary plan serializer to v6
+    // (reference bullets clipped at 600 characters); before it they were
+    // sha256:9190ac69... and sha256:f82b7ed7.... Re-read after 2026-10-28
+    // (fifth), which adds the facts check's words for a document read in
+    // part on purpose; before it they were sha256:8a41a05e... and
+    // sha256:8de53993....
+    // Re-read after 2026-10-28 (seventh): the Seed prompt's words for a
+    // source sent in parts, and its version, move on purpose; before it they
+    // were sha256:a9410c25... and sha256:f8e3a157....
+    // Re-read after 2026-10-28 (eighth): the analysis's words for a document
+    // sent in parts move on purpose; before it they were sha256:f7709e4b...
+    // and sha256:2ecfaf15....
+    // Re-read after 2026-10-29 (inference marker): the shared writing rules'
+    // stated, inferred or missing block and the check, compression and
+    // Assistant lines on [INFERRED] notes move on purpose; before it they
+    // were sha256:9bb679f8... and sha256:c93316ea.... Re-read after its
+    // review round 1, which adds the pointer after each Line's instructions
+    // and moves the rule's examples and two check lines on purpose; before
+    // it they were sha256:f8b22f23... and sha256:2ab7a8e3.... Re-read after
+    // its review round 2, which says an event is never inferred and puts the
+    // gap first in the rule, the pointer and three check lines, on purpose;
+    // before it they were sha256:c03ace4c... and sha256:f648e3fb.... Re-read
+    // after its review round 3, which adds "first approach" to the four
+    // event lists and a marked first approach as a Bad example, on
+    // purpose; before it they were sha256:c1e5249c... and sha256:8daa03ec....
+    // Re-read after 2026-10-29 (third, the honest drafting rules): the
+    // general rule, the analyzer, Line 242's limitations, Line 244's
+    // hypothesis and experiments, Line 246, QA's checks and its source
+    // evidence, the goal-as-result check lines, the gaps already asked,
+    // the Assistant's skeleton and three Seed objectives move on purpose;
+    // before it they were sha256:06c66f89... and sha256:a18aa300....
+    // Re-read after its item 7: the drafting allowance over the CRA limits,
+    // the compression wording that names it and the Assistant's words on
+    // the limits move on purpose; before it they were sha256:b501156e...
+    // and sha256:e828e9f7.... Re-read after its review round 1: Line 246's
+    // paragraph with nothing learned yet, the general-practice scope, the
+    // pointer, Line 242's opening, the examples, QA's opener note and its
+    // unreadable-source line, the Assistant's retry rule, the gaps heading,
+    // two Seed objectives and the Seed version move on purpose; before it
+    // they were sha256:0ec90d51... and sha256:ed39c6c1.... Re-read after its
+    // review round 2: the no-finding exception for Line 246's paragraphs,
+    // its opening and QA's note, the report skeleton, the locked length
+    // summary and Line 242's general-practice line move on purpose; before
+    // it they were sha256:316935b9... and sha256:3f48ba26....
+    // Re-read after 2026-10-30 (one set of uncertainties, the claimant
+    // named, Lines 242 and 246 tightened, no notes in report text): the
+    // analyzer's chosen uncertainties, company line and gap rules, the
+    // claimant line, the drafts' scope rule, the Self-check's scope and
+    // notes rules and its uncertainty block, Line 242's general practice,
+    // Line 244's work in full, Line 246's rule for no result, QA's notes
+    // and Line 246 lines, the evidence and human prose rules and the Seed
+    // version move on purpose; before it they were sha256:e0daa1ce... and
+    // sha256:8d059f84.... Re-read after its review round 1: Line 246's
+    // shared paragraph for uncertainties with no result, its result
+    // definition, PROJECT STATUS's two branches and the count and role lists
+    // per uncertainty with a result, the analyzer's lists, the claimant
+    // line's short forms, Line 242's step 1 and further limitations, the
+    // status sentence in the notes rules, QA's scoped flags and the acronym
+    // rule move on purpose; before it they were sha256:2510d1dd... and
+    // sha256:53813edf.... Re-read after its review round 2: the result
+    // definition, the shared paragraph's gap covering the hypotheses,
+    // PROJECT STATUS's first branch, the goal close with no result, the
+    // further-limitation gap and the report skeleton move on purpose; before
+    // it they were sha256:f8a27d21... and sha256:55a62e9a.... Re-read after
+    // its review round 3: the observation rule, the opening's hypothesis
+    // sentence, PROJECT STATUS's first branch and next period's plan, the
+    // goal close with no result and the shared gap move on purpose; before
+    // it they were sha256:a72253a2... and sha256:05b3aa3f.... Re-read
+    // after its live rerun fixes: the Self-check's and the repair's rule on
+    // attribution, the analyzer's and the Storyline's one underlying
+    // uncertainty, Line 244's validation work, plan estimates and hypothesis,
+    // Line 246's status only from the evidence, general practice for the
+    // company's own approach, QA's gap and hypothesis lines, the BECAUSE scan
+    // words, gaps once in a Line, the acronym examples and the Seed version move on purpose;
+    // before it they were sha256:afec5d93... and sha256:07fef1df.... Re-read
+    // after its review round 4: the BECAUSE scan words (a gap that asks why),
+    // the analyzer's and the Storyline's trigger and specific framing, Line
+    // 244's hypothesis form, gaps once in a Line, PROJECT STATUS's prefix and
+    // status rule, the goal close, the first Good example and the
+    // Self-check's attribution rule move on purpose; before it they were
+    // sha256:6352e9e6... and sha256:e0489c96.... Re-read after its review
+    // round 5: the Self-check's attribution rule (unresolved or unreliable
+    // only), the analyzer's and the Storyline's rule for each chosen
+    // uncertainty and gaps once in a Line move on purpose, and with them,
+    // after rerun C, the status rule every Line gets, Line 242's closing
+    // sentence on knowledge and QA's lines on the next sentence's reason, a
+    // status the evidence does not give, the named methods' conclusion and
+    // source-stated claims; before it they were sha256:11c95142... and
+    // sha256:17d46e45.... Re-read after its review round 6: Line 244's
+    // year-end close, the Assistant's outline and the skeleton (the status
+    // only where the evidence gives it), the status rule's ending and QA's
+    // line on the next sentence's reason move on purpose; before it they
+    // were sha256:b6b137cb... and sha256:6210a515....
+    expect(await hashPromptProgram()).toBe("sha256:583428e91384b485b6220bf7c8d7e94e7ad59e55315b3f041db9e50265e78f9e");
+    expect(await legacyPromptVersion()).toBe("sha256:f7f54caf8fdaaaffa13b454d94fb75896cd76d302afe597c405d1c65d041bcfe");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

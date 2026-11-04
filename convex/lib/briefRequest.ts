@@ -7,9 +7,12 @@
  * mutations, hashes exactly the request the model is sent. convex/ai/brief.ts
  * re-exports every name, so callers are unchanged.
  */
+import type { SourceRowWithText } from "./sourceText";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Doc, Id } from "../_generated/dataModel";
+import { chooseEvidence, subjectOf, utf16Size } from "../../shared/evidenceChoice";
 import {
+  documentTrust,
   CHARS_PER_TOKEN,
   cutToBudget,
   formatCount,
@@ -18,6 +21,7 @@ import {
 } from "../ai/trustedContext";
 import { HUMAN_PROSE_FOR_OWN_WORDING } from "../../shared/humanProse";
 import { chooseSettingsSource } from "./settingsDocument";
+import { COMPANY_FILES_NOTE } from "./companyEvidence";
 
 export const CLAIM_EXCLUSION_REASONS = [
   "business_risk",
@@ -32,10 +36,23 @@ export const CONFIDENCE_LEVELS = [
   "unreliable",
 ] as const;
 
+/**
+ * 2026-10-30, after the live rerun (R2): the Storyline chose the narrowest
+ * challenge as the one main uncertainty, as the analyzer did, and the
+ * Self-check judges every Line against the Storyline, so a draft framed
+ * around the shared problem failed it. The Storyline follows the analyzer's
+ * rule (ANALYZER_CHOSEN_UNCERTAINTIES). Review round 4 (wording P2-3): only
+ * when the notes give a count without naming which, and as specifically as
+ * the evidence allows, never as the project goal. Review round 5 (P3-4):
+ * each chosen uncertainty, so a count of two reads as two.
+ */
+export const BRIEF_STORYLINE_MAIN_UNCERTAINTY =
+  " When the writer's notes give only a count (for example \"one main uncertainty\") and do not name which, the Storyline frames each chosen uncertainty as the underlying technological problem its related challenges share, not the narrowest of them (for a count of one, the one question the work set out to answer), stated as specifically as the evidence allows (the technical question, the conditions, why standard practice does not answer it), never as the project goal: its related challenges are parts of it, the work on them (validation checks, thresholds and measurements included) stays in the Storyline, and a challenge related to no chosen uncertainty stays out.";
+
 export const BRIEF_SYSTEM_PROMPT = `You derive a Generation Brief for a Canadian SR&ED (Scientific Research & Experimental Development) project description, before any section is drafted.
 
 The Brief has four parts:
-1. Storyline: the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.
+1. Storyline: the most defensible narrative account of the project against the CRA's Five Questions (technological uncertainty, hypotheses, systematic investigation, technological advancement, records kept). Write it as flowing prose, then restate its individual claims with the exact supporting quote from the evidence.${BRIEF_STORYLINE_MAIN_UNCERTAINTY}
 2. Claim Exclusions: statements in the evidence that must NEVER be claimed as SR&ED work, however prominent, because they fall outside eligible work. Every exclusion needs a reason: business_risk, routine_engineering, outside_claim_period, or not_technological.
 3. Confidence Map: the evidence's facts classified established (directly and clearly supported), partial (supported but incomplete or hedged), unresolved (evidence conflicts or is silent), or unreliable (independent evidence shows the source itself is suspect, e.g. it contradicts itself, was explicitly invalidated, or is otherwise independently discredited).
 4. Glossary Terms: the handful of technical phrases the project description should use consistently, one name per concept.
@@ -83,6 +100,61 @@ export const BRIEF_OMITTED_SOURCES_NOTICE = {
 export function briefOmittedSourcesNotice(count: number): string {
   return `${BRIEF_OMITTED_SOURCES_NOTICE.prefix}${formatCount(count)}${BRIEF_OMITTED_SOURCES_NOTICE.suffix}`;
 }
+
+/**
+ * Phase D, step 1 (2026-10-28, fourth): a source sent in excerpts, the
+ * parts that best match the interviews, when the frozen sources do not all
+ * fit. Between two excerpts the separator; after them the notice.
+ */
+export const BRIEF_EXCERPTS = {
+  separator: "\n[...]\n",
+  noticePrefix: "[EXCERPTS: only the parts of this source that best match the interviews were sent, ",
+  // When no part matched the interviews, they came in order (review).
+  noticeUnmatchedPrefix: "[EXCERPTS: only parts of this source were sent, ",
+  noticeSuffix: " characters; the text between them was left out.]",
+} as const;
+
+export function briefExcerptsNotice(sent: number, total: number, matched = true): string {
+  return `${matched ? BRIEF_EXCERPTS.noticePrefix : BRIEF_EXCERPTS.noticeUnmatchedPrefix}${formatCount(sent)} of ${formatCount(total)}${BRIEF_EXCERPTS.noticeSuffix}`;
+}
+
+/**
+ * Whether the request sends every source as before (Phase D, step 1): the
+ * evidence it weighs, each counted up to the per-source limit, within the
+ * total. Shared with the inputs hash, so a Brief chosen by relevance is
+ * never reused for one that was not.
+ */
+export function briefSourcesFit(
+  sources: ReadonlyArray<Pick<BriefMessageSource, "kind" | "content" | "transcriptId">>,
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
+): boolean {
+  const evidence = preferFactSources(sources.filter((s) => s.kind !== "writer_storyline"));
+  const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
+  const total = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
+  return evidence.reduce((sum, s) => sum + Math.min(s.content.length, perSource), 0) <= total;
+}
+
+/**
+ * An upper bound on the request's characters when the sources do not all
+ * fit, without choosing the parts (a preparation reserves its spend from
+ * it, review): the whole budget, the guidance and every rule or notice it
+ * may carry, and each source's two marker lines and a notice.
+ */
+export function briefRequestCharsUpperBound(
+  sources: ReadonlyArray<Pick<BriefMessageSource, "kind" | "label">>,
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
+): number {
+  const fixed =
+    BRIEF_TASK_GUIDANCE.length +
+    BRIEF_WRITER_WORDING.prefix.length + BRIEF_WRITER_WORDING.suffix.length + 200 +
+    COMPANY_FILES_NOTE.length +
+    briefOmittedSourcesNotice(sources.length).length;
+  const perSource = sources.reduce((sum, s) => sum + 2 * (s.label.length + s.kind.length + 40) + 200, 0);
+  return Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN + fixed + perSource;
+}
+
+/** The kinds that always go in whole (cut only at the per-source limit): the interviews. */
+const TRANSCRIPT_KINDS: ReadonlySet<string> = new Set(["transcript", "transcript_digest", "transcript_facts"]);
 
 const strArray = { type: "array", items: { type: "string" } } as const;
 
@@ -177,7 +249,7 @@ export const BRIEF_WRITER_WORDING = {
 } as const;
 
 /** The frozen source the Brief's wording rule names, or null. */
-export function briefSettingsSource<Source extends Pick<Doc<"generationSources">, "label" | "content" | "kind"> & { uploaderRole?: string }>(
+export function briefSettingsSource<Source extends Pick<SourceRowWithText, "label" | "content" | "kind"> & { uploaderRole?: string }>(
   sources: readonly Source[]
 ): Source | null {
   return chooseSettingsSource(sources)?.source ?? null;
@@ -188,15 +260,42 @@ export function briefSettingsSource<Source extends Pick<Doc<"generationSources">
  * writer, not evidence to derive Claim Exclusions/Confidence Map/Glossary
  * from, and is never fed to this call. */
 export function buildBriefUserMessage(
-  sources: Array<
-    Pick<Doc<"generationSources">, "label" | "content" | "kind"> & {
-      transcriptId?: Id<"transcripts">;
-      /** 2026-10-04 (first, round 2): the trust floor of the wording rule. */
-      uploaderRole?: string;
-    }
-  >,
+  sources: BriefMessageSource[],
   budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
 ): string {
+  return briefMessageWithReport(sources, budget).message;
+}
+
+type BriefMessageSource = Pick<SourceRowWithText, "label" | "content" | "kind"> & {
+  transcriptId?: Id<"transcripts">;
+  /** 2026-10-04 (first, round 2): the trust floor of the wording rule. */
+  uploaderRole?: string;
+};
+
+/**
+ * `buildBriefUserMessage`, with what it sent of each source it considered
+ * (Phase D, step 2): characters kept of the source's characters, 0 for one
+ * left out, and the ranges sent (Phase D, step 1). A Storyline and a
+ * transcript read through its digest or fact pack are not considered, so
+ * they get no entry.
+ *
+ * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when the sources
+ * fit (`briefSourcesFit`: each counted up to the per-source limit, all
+ * within the total), the message is exactly as before. When they do not,
+ * the interviews, the settings document and writer's notes an internal user
+ * uploaded go in whole (cut only at the per-source limit, or where the total
+ * runs out), and every other source sends the parts that best match the
+ * interviews and the writer's Storyline (`chooseEvidence`), joined by a
+ * separator and followed by a notice; a source with no part sent is counted
+ * as omitted, as before. Files are frozen at 200,000 characters at most, so
+ * none passes the per-source limit. Notices and block frames are not
+ * counted against the total, as before.
+ */
+export function briefMessageWithReport<S extends BriefMessageSource>(
+  sources: S[],
+  budget: { totalTokens: number; perSourceTokens: number } = BRIEF_INPUT_BUDGET
+): { message: string; report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> } {
+  const report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> = [];
   const settings = briefSettingsSource(sources);
   let settingsSent = false;
   // Digest mode means digests: a transcript with a frozen digest is read
@@ -207,24 +306,36 @@ export function buildBriefUserMessage(
   );
   const perSource = Math.max(0, budget.perSourceTokens) * CHARS_PER_TOKEN;
   let remaining = Math.max(0, budget.totalTokens) * CHARS_PER_TOKEN;
+  if (!briefSourcesFit(sources, budget)) return briefMessageByRelevance(sources, evidence, settings, perSource, remaining);
   let omitted = 0;
   const blocks: string[] = [];
+  // Phase C: one note before the first company file the request carries.
+  let companyNoted = false;
+  const noteCompany = (kind: string) => {
+    if (kind !== "company_file" || companyNoted) return;
+    blocks.push(COMPANY_FILES_NOTE);
+    companyNoted = true;
+  };
   for (const s of evidence) {
     const block = (body: string) =>
       `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${body}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`;
     if (!s.content.length) {
+      noteCompany(s.kind);
       blocks.push(block(s.content));
+      report.push({ source: s, sent: 0, total: 0, ranges: [] });
       continue;
     }
     // A cut keeps a prefix of the frozen text, so every quote the model
     // takes from it is still a verbatim substring of the source.
     const kept = cutToBudget(s.content, Math.min(perSource, remaining));
+    report.push({ source: s, sent: kept.length, total: s.content.length, ranges: kept.length ? [{ start: 0, end: kept.length }] : [] });
     if (!kept.length) {
       omitted += 1;
       continue;
     }
     remaining -= kept.length;
     if (s === settings) settingsSent = true;
+    noteCompany(s.kind);
     blocks.push(
       block(
         kept.length < s.content.length
@@ -237,6 +348,78 @@ export function buildBriefUserMessage(
   const wording = settings && settingsSent
     ? `${BRIEF_WRITER_WORDING.prefix}${settings.label.toUpperCase()}${BRIEF_WRITER_WORDING.suffix}`
     : "";
-  return `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`;
+  return { message: `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`, report };
+}
+
+/** `briefMessageWithReport` when the sources do not all fit: see there. */
+function briefMessageByRelevance<S extends BriefMessageSource>(
+  sources: S[],
+  evidence: S[],
+  settings: S | null,
+  perSource: number,
+  total: number
+): { message: string; report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> } {
+  const report: Array<{ source: S; sent: number; total: number; ranges: Array<{ start: number; end: number }> }> = [];
+  // Writer's notes go in whole only when an internal user uploaded them; a
+  // client's copy is demoted, as the analyzer and the facts check do.
+  const mustBeWhole = (s: S) =>
+    TRANSCRIPT_KINDS.has(s.kind) ||
+    s === settings ||
+    (s.label.startsWith("writer_notes:") && documentTrust("writer_notes", s.uploaderRole) === "internal");
+  // A source that goes in whole is first cut at the per-source limit, as before.
+  const candidates = evidence.map((s) => (mustBeWhole(s) ? cutToBudget(s.content, perSource) : s.content));
+  const subject = subjectOf([
+    ...evidence.filter((s) => TRANSCRIPT_KINDS.has(s.kind)).map((s) => s.content),
+    ...sources.filter((s) => s.kind === "writer_storyline").map((s) => s.content),
+  ]);
+  const chosen = chooseEvidence({
+    rows: candidates.map((text, index) => ({ text, ...(mustBeWhole(evidence[index]!) ? { whole: true } : {}) })),
+    subject,
+    budget: total,
+    size: utf16Size,
+    excerptCost: BRIEF_EXCERPTS.separator.length,
+  });
+  let omitted = 0;
+  let settingsSent = false;
+  const blocks: string[] = [];
+  let companyNoted = false;
+  evidence.forEach((s, index) => {
+    const block = (body: string) =>
+      `--- BEGIN [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---\n${body}\n--- END [SOURCE_KIND=${s.kind}] [${s.label.toUpperCase()}] ---`;
+    const noteCompany = () => {
+      if (s.kind !== "company_file" || companyNoted) return;
+      blocks.push(COMPANY_FILES_NOTE);
+      companyNoted = true;
+    };
+    if (!s.content.length) {
+      noteCompany();
+      blocks.push(block(s.content));
+      report.push({ source: s, sent: 0, total: 0, ranges: [] });
+      return;
+    }
+    const { ranges } = chosen[index]!;
+    const sent = ranges.reduce((sum, range) => sum + range.end - range.start, 0);
+    report.push({ source: s, sent, total: s.content.length, ranges });
+    if (sent === 0) {
+      omitted += 1;
+      return;
+    }
+    if (s === settings) settingsSent = true;
+    noteCompany();
+    const prefix = ranges.length === 1 && ranges[0]!.start === 0;
+    if (mustBeWhole(s) || prefix) {
+      // Whole, or a prefix cut at a word: as before.
+      const kept = s.content.slice(0, ranges[0]!.end);
+      blocks.push(block(kept.length < s.content.length ? `${kept}\n${truncationNotice(s.content.length - kept.length, s.content.length)}` : kept));
+      return;
+    }
+    const excerpts = ranges.map((range) => s.content.slice(range.start, range.end)).join(BRIEF_EXCERPTS.separator);
+    blocks.push(block(`${excerpts}\n${briefExcerptsNotice(sent, s.content.length, chosen[index]!.matched === true)}`));
+  });
+  if (omitted > 0) blocks.push(briefOmittedSourcesNotice(omitted));
+  const wording = settings && settingsSent
+    ? `${BRIEF_WRITER_WORDING.prefix}${settings.label.toUpperCase()}${BRIEF_WRITER_WORDING.suffix}`
+    : "";
+  return { message: `${BRIEF_TASK_GUIDANCE}${wording}\n\n${blocks.join("\n\n")}`, report };
 }
 

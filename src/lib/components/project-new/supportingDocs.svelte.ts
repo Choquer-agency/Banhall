@@ -233,7 +233,12 @@ export class SupportingDocs {
         finishedAt: now,
         parsed:
           entry.pastedText === null && !entry.failed
-            ? { fileName: entry.name, fileType: entry.fileType as ParsedDocument["fileType"], content: entry.body }
+            ? {
+                fileName: entry.name,
+                fileType: entry.fileType as ParsedDocument["fileType"],
+                content: entry.body,
+                ...(entry.textFormat ? { textFormat: entry.textFormat } : {}),
+              }
             : null,
         transcript: null,
         error: entry.failed ? "We could not read this file." : null,

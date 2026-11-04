@@ -2,11 +2,16 @@ import { describe, expect, test } from "vitest";
 import {
   CHARS_PER_LINE,
   GAP_MARKER_RE,
+  INFERRED_MARKER_RE,
   LINE_LIMITS,
+  NOTE_MARKER_RE,
   WORD_CAPS,
+  findReportNotes,
   overflowStartOffset,
   sectionMetrics,
   stripGapMarkers,
+  stripInferredMarkers,
+  stripNoteMarkers,
 } from "./lineLimits";
 
 /** A single physical line of exactly `n` form lines (78-char words wrap 1:1). */
@@ -224,5 +229,118 @@ describe("GAP_MARKER_RE", () => {
   test("does not match across paragraphs (no ] until later)", () => {
     const re = new RegExp(GAP_MARKER_RE.source, "i");
     expect(re.test("[GAP: unterminated")).toBe(false);
+  });
+});
+
+// 2026-10-29 (owner): a claim that follows from the evidence but is not
+// stated in it is written and marked [INFERRED: what it rests on]. The
+// marker is a note to the writer: it never counts toward a Line's words or
+// form lines, and deleting it changes no count.
+describe("INFERRED_MARKER_RE and the note helpers", () => {
+  const MARK = "[INFERRED: the source asks for stability over time, not single-point checks]";
+
+  test("matches empty and non-empty markers, case-insensitive, and never a gap", () => {
+    for (const sample of ["[INFERRED: text]", "[INFERRED:]", "[inferred: x]", "[Inferred:  y ]"]) {
+      expect(new RegExp(INFERRED_MARKER_RE.source, "i").test(sample)).toBe(true);
+    }
+    expect(new RegExp(INFERRED_MARKER_RE.source, "i").test("[GAP: x]")).toBe(false);
+    expect(new RegExp(INFERRED_MARKER_RE.source, "i").test("[INFERRED: unterminated")).toBe(false);
+    expect(new RegExp(INFERRED_MARKER_RE.source, "i").test("[INFERRED]")).toBe(false);
+    expect(new RegExp(GAP_MARKER_RE.source, "i").test(MARK)).toBe(false);
+  });
+
+  test("NOTE_MARKER_RE matches both kinds, and only them", () => {
+    const text = `a [GAP: one] b ${MARK} c [CLIENT_1] d [1]`;
+    expect([...text.matchAll(NOTE_MARKER_RE)].map((m) => m[0])).toEqual(["[GAP: one]", MARK]);
+  });
+
+  test("strip helpers remove their own kind and collapse the doubled space", () => {
+    const text = `Readiness was first judged from single readings. ${MARK} Then [GAP: the hold time] passed.`;
+    expect(stripInferredMarkers(text)).toBe("Readiness was first judged from single readings. Then [GAP: the hold time] passed.");
+    expect(stripGapMarkers(text)).toBe(`Readiness was first judged from single readings. ${MARK} Then passed.`);
+    expect(stripNoteMarkers(text)).toBe("Readiness was first judged from single readings. Then passed.");
+    // Global regexes: a second call strips as well (no lastIndex leakage).
+    expect(stripInferredMarkers(text)).toBe(stripInferredMarkers(text));
+    expect(stripInferredMarkers("a [INFERRED: x]\nb")).toBe("a \nb");
+  });
+
+  test("findReportNotes lists every marker in text order with its kind and note", () => {
+    const text = `One. ${MARK} Two [GAP: the load]. Three. [inferred:] [GAP:  ]`;
+    expect(findReportNotes(text)).toEqual([
+      { kind: "inferred", text: MARK, note: "the source asks for stability over time, not single-point checks", index: 5 },
+      { kind: "gap", text: "[GAP: the load]", note: "the load", index: text.indexOf("[GAP: the load]") },
+      { kind: "inferred", text: "[inferred:]", note: "", index: text.indexOf("[inferred:]") },
+      { kind: "gap", text: "[GAP:  ]", note: "", index: text.indexOf("[GAP:  ]") },
+    ]);
+    expect(findReportNotes("No notes here.")).toEqual([]);
+  });
+
+  test("marker text never counts toward words or lines, and adds nothing to the with-gaps figure", () => {
+    const clean = "Readiness was first judged from single readings. The team then held each sample for an hour.";
+    const marked = `Readiness was first judged from single readings. ${MARK} The team then held each sample for an hour.`;
+    const mClean = sectionMetrics(clean, "s244");
+    const mMarked = sectionMetrics(marked, "s244");
+    expect(mMarked.words).toBe(mClean.words);
+    expect(mMarked.lines).toBe(mClean.lines);
+    // Deleting the marker (accepting the inference) adds nothing: no "+ with gaps".
+    expect(mMarked.rawWords).toBe(mMarked.words);
+    expect(mMarked.rawLines).toBe(mMarked.lines);
+    expect(mMarked.overLimitWithGaps).toBe(mMarked.overLimit);
+  });
+
+  test("with gaps and inferences together, only the gap text is in the raw counts", () => {
+    const gapOnly = "Readiness was judged from single readings [GAP: the reading interval] before the change.";
+    const both = `${gapOnly} ${MARK}`;
+    const mGap = sectionMetrics(gapOnly, "s242");
+    const mBoth = sectionMetrics(both, "s242");
+    expect(mBoth.words).toBe(mGap.words);
+    expect(mBoth.rawWords).toBe(mGap.rawWords);
+    expect(mBoth.rawWords).toBeGreaterThan(mBoth.words);
+  });
+
+  test("an inference marker alone never pushes a Line over its limits", () => {
+    const atLimit = exactLines(LINE_LIMITS.s242);
+    const text = `${atLimit} ${MARK} ${MARK}`;
+    const m = sectionMetrics(text, "s242");
+    expect(m.lines).toBe(LINE_LIMITS.s242);
+    expect(m.overLimit).toBe(false);
+    expect(m.overLimitWithGaps).toBe(false);
+    expect(overflowStartOffset(text, "s242")).toBeNull();
+  });
+
+  // Review round 2 (P3-2): an opening left unclosed swallows nothing after it.
+  test("an unclosed note never swallows the text after it, in its paragraph or the next", () => {
+    // The probe: 11 words, which the old match counted as 3.
+    const probe = "One two [INFERRED: three four five\n\nsix seven eight nine ten eleven] end";
+    expect(sectionMetrics(probe, "s244").words).toBe(sectionMetrics(probe.replace(/[[\]]/g, ""), "s244").words);
+    expect(findReportNotes(probe)).toEqual([]);
+    // Another opening bracket ends it too, so the later marker is still found whole.
+    const nested = "Alpha [INFERRED: beta gamma [GAP: the load] delta.";
+    expect(findReportNotes(nested).map((note) => note.text)).toEqual(["[GAP: the load]"]);
+    expect(sectionMetrics(nested, "s244").words).toBe(5);
+    // A single line break (a hard break) may still sit inside a note.
+    expect(findReportNotes("A [INFERRED: one\ntwo] b").map((note) => note.note)).toEqual(["one\ntwo"]);
+    expect(findReportNotes("A [GAP: one\n  \ntwo] b")).toEqual([]);
+  });
+
+  // Review round 3 (P3-1): a gap with a citation in it is still one gap.
+  test("a note may hold one level of plain brackets, such as a citation", () => {
+    const text = "Alpha beta. [GAP: the load figure, see test log [3], and the date] Gamma.";
+    expect(findReportNotes(text).map((note) => note.text)).toEqual(["[GAP: the load figure, see test log [3], and the date]"]);
+    expect(sectionMetrics(text, "s244").words).toBe(3);
+    // Another note's opening inside it still ends it.
+    expect(findReportNotes("A [INFERRED: one [GAP: two] three").map((note) => note.text)).toEqual(["[GAP: two]"]);
+    // Still linear on a long run of nested openings and plain brackets.
+    const flood = `[GAP: ${"[x] ".repeat(200_000)}`;
+    const started = performance.now();
+    expect(findReportNotes(flood)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  test("word-cap overflow ignores inference marker words", () => {
+    const words = Array.from({ length: WORD_CAPS.s242 }, () => "w").join(" ");
+    expect(overflowStartOffset(`${words} ${MARK}`, "s242")).toBeNull();
+    const over = `${words} ${MARK} extra`;
+    expect(overflowStartOffset(over, "s242")).toBe(over.lastIndexOf("extra"));
   });
 });

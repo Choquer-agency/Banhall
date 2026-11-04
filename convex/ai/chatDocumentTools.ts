@@ -42,7 +42,6 @@ import {
   CHAT_SEARCH_EXCERPT_CHARS,
   CHAT_SEARCH_MAX_EXCERPTS,
   CHAT_TRANSCRIPT_READ_CHARS,
-  safeRange,
   type ReadDocumentResult,
   type ReadTranscriptResult,
   type SearchDocumentsResult,
@@ -52,6 +51,7 @@ import {
 import {
   chatFileOrder,
   chatTranscriptHandle,
+  chatCompanyFileHandle,
   chatViewableKind,
   openedDocumentBlock,
   openedMediaMarkers,
@@ -117,6 +117,7 @@ function actionRef<Export>(name: string): ActionRef<Export> {
 const readDocumentRef = queryRef<typeof chatDocuments.readDocumentForChat>("chatDocuments:readDocumentForChat");
 const readTranscriptRef = queryRef<typeof chatDocuments.readTranscriptForChat>("chatDocuments:readTranscriptForChat");
 const searchRef = queryRef<typeof chatDocuments.searchForChat>("chatDocuments:searchForChat");
+const readCompanyFileRef = queryRef<typeof chatDocuments.readCompanyFileForChat>("chatDocuments:readCompanyFileForChat");
 const viewFileRef = queryRef<typeof chatDocuments.viewFileForChat>("chatDocuments:viewFileForChat");
 const countPdfPagesRef = actionRef<typeof chatPdfPages.countPdfPages>("ai/chatPdfPages:countPdfPages");
 
@@ -202,6 +203,13 @@ export type ChatReadFile = {
   viewable: ChatMediaKind | null;
 };
 
+/** 2026-10-26 (Phase C): a company file the turn lists, opened by its `C` handle. */
+export type ChatReadCompanyFile = {
+  companyFileId: Id<"companyFiles">;
+  fileName: string;
+  handle: string | null;
+};
+
 export type ChatReadTranscript = {
   transcriptId?: Id<"transcripts">;
   label: string;
@@ -232,6 +240,10 @@ export type DocumentReadTurn = {
   media: { bytes: number; images: number };
   files: ChatReadFile[];
   transcripts: ChatReadTranscript[];
+  /** Phase C: the company files the turn lists; empty for a sender who may not read them. */
+  companyFiles: ChatReadCompanyFile[];
+  /** Phase C: the sender, whom the company file reads check again. */
+  userId?: Id<"users">;
   opened: Map<string, OpenedContent>;
 };
 
@@ -242,7 +254,8 @@ export type DocumentReadTurn = {
  * every tool says reading is off: it fails closed.
  */
 export function newDocumentReadTurn(
-  context?: Pick<ChatTurnContext, "documents" | "transcripts" | "documentTools" | "chatVision">
+  context?: Pick<ChatTurnContext, "documents" | "transcripts" | "documentTools" | "chatVision" | "companyFiles">,
+  userId?: Id<"users">
 ): DocumentReadTurn {
   const enabled = context !== undefined && context.documentTools !== false;
   return {
@@ -262,6 +275,12 @@ export function newDocumentReadTurn(
       label: transcript.label,
       handle: chatTranscriptHandle(index),
     })),
+    companyFiles: (context?.companyFiles ?? []).map((file, index) => ({
+      companyFileId: file.companyFileId,
+      fileName: file.fileName,
+      handle: chatCompanyFileHandle(index),
+    })),
+    ...(userId ? { userId } : {}),
     opened: new Map(),
   };
 }
@@ -382,7 +401,7 @@ type Resolved<T> = { kind: "one"; entry: T } | { kind: "none" } | { kind: "many"
  */
 function resolveEntry<T extends { handle: string | null }>(
   entries: readonly T[],
-  prefix: "F" | "T",
+  prefix: "F" | "T" | "C",
   given: string,
   nameOf: (entry: T) => string
 ): Resolved<T> {
@@ -439,6 +458,15 @@ export async function runReadDocument(
     return CHAT_READING_OFF;
   }
   const resolved = resolveEntry(turn.files, "F", input.file, (entry) => entry.fileName);
+  // Phase C: not a project file, so perhaps a company file (C handle or name).
+  if (resolved.kind === "none" && turn.companyFiles.length > 0) {
+    const company = resolveEntry(turn.companyFiles, "C", input.file, (entry) => entry.fileName);
+    if (company.kind === "one" && ctx.threadId) return await runReadCompanyFile(ctx, company.entry, input, options, turn);
+    if (company.kind === "many") {
+      logRead("readDocument", 0, 0);
+      return manyText("file", company.handles);
+    }
+  }
   if (resolved.kind !== "one" || !resolved.entry.documentId || !ctx.threadId) {
     logRead("readDocument", 0, 0);
     return resolved.kind === "many" ? manyText("file", resolved.handles) : CHAT_READ_NO_FILE;
@@ -516,14 +544,99 @@ export async function runReadDocument(
   }
 }
 
+/**
+ * readDocument for a company file (2026-10-26, Phase C): the same parts and
+ * allowance as a project file, read through `readCompanyFileForChat`, which
+ * checks the file is the project's company's now and the sender may read it.
+ * Shown under a "company file" place, with client trust.
+ */
+async function runReadCompanyFile(
+  ctx: ReadingToolCtx,
+  file: ChatReadCompanyFile,
+  input: { file: string; part?: number; parts?: number },
+  options: { toolCallId: string },
+  turn: DocumentReadTurn
+): Promise<string> {
+  const ref = file.handle ? `${file.handle} ${quoted(file.fileName)}` : quoted(file.fileName);
+  const part = Math.max(1, Math.floor(input.part ?? 1));
+  const parts = Math.min(CHAT_READ_MAX_PARTS, Math.max(1, Math.floor(input.parts ?? 1)));
+  const requested = Math.min(parts * CHAT_READ_PART_CHARS, CHAT_READ_MAX_CALL_CHARS);
+  const granted = reserveReading(turn, requested);
+  if (granted === 0) {
+    logRead("readDocument", 0, 0);
+    return CHAT_READ_BUDGET_USED;
+  }
+  let usedChars = 0;
+  try {
+    const result: ReadDocumentResult = await ctx.runQuery(readCompanyFileRef, {
+      agentThreadId: ctx.threadId!,
+      companyFileId: file.companyFileId,
+      ...(turn.userId ? { userId: turn.userId } : {}),
+      start: (part - 1) * CHAT_READ_PART_CHARS,
+      maxChars: granted,
+    });
+    switch (result.status) {
+      case "off":
+        return CHAT_READING_OFF;
+      case "unavailable":
+        return CHAT_READ_FAILED;
+      case "not_found":
+        return CHAT_READ_NO_FILE;
+      case "no_text":
+        return chatReadNoText(ref, null);
+      case "past_end": {
+        const count = totalParts(result.totalChars);
+        return `${ref} has ${count} part(s) (${formatCount(result.totalChars)} characters). Call readDocument with a part from 1 to ${count}.`;
+      }
+      case "ok": {
+        usedChars = result.text.length;
+        const count = totalParts(result.totalChars);
+        const place = partsLabel(result.start, result.end);
+        const wantedEnd = Math.min(result.totalChars, (part - 1 + parts) * CHAT_READ_PART_CHARS);
+        const cut = granted < requested && result.end < wantedEnd;
+        const receipt = [
+          `Opened company file ${ref}, ${place} of ${count} (${formatCount(result.end - result.start)} of ${formatCount(result.totalChars)} characters).`,
+          ...(cut ? ["The text stops early because this reply's reading allowance ran out."] : []),
+          ...(result.end < result.totalChars ? [`To read on, call readDocument with part ${partAt(result.end)}.`] : []),
+        ].join(" ");
+        const block = openedDocumentBlock(
+          { fileName: `company file ${result.fileName}`, ...(result.category ? { category: result.category } : {}) },
+          `${file.handle ?? "company file"} ${place}`,
+          result.text
+        );
+        turn.opened.set(options.toolCallId, `${receipt}\n\n${block}`);
+        return receipt;
+      }
+    }
+    return CHAT_READ_FAILED;
+  } catch (error) {
+    console.error("readDocument tool failed", safeErrorDetails(error));
+    return CHAT_READ_FAILED;
+  } finally {
+    releaseReading(turn, granted - usedChars);
+    logRead("readDocument", usedChars, usedChars > 0 ? Math.ceil(usedChars / CHAT_READ_PART_CHARS) : 0);
+  }
+}
+
 // ─── searchDocuments ─────────────────────────────────────────────────────────
 
 /** Where an excerpt sits, as the model can open it: `F3 part 2`, `T1 turns 40-46`. */
 function excerptPlace(excerpt: SearchExcerpt, turn: DocumentReadTurn): string {
+  // Phase D (step 1): an excerpt from a search piece names every part the
+  // piece reaches, which readDocument opens, and its page when known.
+  const pages = (page: number | undefined, pageEnd: number | undefined) =>
+    page === undefined ? "" : pageEnd !== undefined && pageEnd !== page ? `, pages ${page}-${pageEnd}` : `, page ${page}`;
+  const filePlace = (start: number, end: number | undefined, page: number | undefined, pageEnd: number | undefined) =>
+    `${end !== undefined ? partsLabel(start, end) : `part ${partAt(start)}`}${pages(page, pageEnd)}`;
   if (excerpt.kind === "file") {
     const file = turn.files.find((entry) => entry.documentId === excerpt.documentId);
     const name = file?.handle ?? quoted(excerpt.fileName);
-    return `${name} part ${partAt(excerpt.start)}`;
+    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page, excerpt.pageEnd)}`;
+  }
+  if (excerpt.kind === "company") {
+    const file = turn.companyFiles.find((entry) => entry.companyFileId === excerpt.companyFileId);
+    const name = file?.handle ?? quoted(excerpt.fileName);
+    return `${name} ${filePlace(excerpt.start, excerpt.end, excerpt.page, excerpt.pageEnd)}`;
   }
   const transcript = turn.transcripts.find((entry) => entry.transcriptId === excerpt.transcriptId);
   const name = transcript?.handle ?? quoted(excerpt.label);
@@ -561,6 +674,8 @@ export async function runSearchDocuments(
       agentThreadId: ctx.threadId,
       query: input.query,
       maxChars: granted,
+      // Phase C: company files only for a turn that lists them.
+      ...(turn.userId && turn.companyFiles.length > 0 ? { userId: turn.userId } : {}),
     });
     switch (result.status) {
       case "off":
@@ -589,7 +704,9 @@ export async function runSearchDocuments(
                 places[index]!,
                 excerpt.text
               )
-            : openedTranscriptBlock(excerpt.label, places[index]!, excerpt.text)
+            : excerpt.kind === "company"
+              ? openedDocumentBlock({ fileName: `company file ${excerpt.fileName}` }, places[index]!, excerpt.text)
+              : openedTranscriptBlock(excerpt.label, places[index]!, excerpt.text)
         );
         turn.opened.set(options.toolCallId, `${receipt}\n\n${blocks.join("\n\n")}`);
         return receipt;
@@ -984,20 +1101,37 @@ export async function pinnedFilesMessage(
       notices.push(`${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`);
       continue;
     }
-    const content = doc.content;
-    const granted = reserveReading(turn, content.length);
+    const totalChars = doc.textLength ?? doc.content.length;
+    const granted = reserveReading(turn, totalChars);
     if (granted === 0) {
       notices.push(`${ref} is not shown: this reply's reading allowance of ${formatCount(CHAT_READ_MAX_TURN_CHARS)} characters is used up.`);
       continue;
     }
-    const end = safeRange(content, 0, granted).end;
+    // 2026-10-22 (fourth): the turn's context carries only part of a file's
+    // text, so a pinned file is read here, through the thread's scope, to the
+    // same character-safe end the whole text gave.
+    const read = await ctx.runQuery(readDocumentRef, { agentThreadId, documentId, start: 0, maxChars: granted });
+    if (read.status !== "ok") {
+      releaseReading(turn, granted);
+      notices.push(
+        read.status === "no_text"
+          ? `${ref} has no text${reason ? `, and ${reason}` : ""}, so it is not shown.`
+          : read.status === "off"
+            ? `${ref} is not shown: opening files was turned off for this workspace.`
+            : read.status === "not_found"
+              ? "One pinned file is no longer in this project's files, so it is not shown."
+              : `${ref} could not be read just now, so it is not shown.`
+      );
+      continue;
+    }
+    const end = read.end;
     releaseReading(turn, granted - end);
     chars += end;
-    parts.push({ type: "text", text: openedDocumentBlock(meta, `${place}, pinned`, content.slice(0, end)) });
+    parts.push({ type: "text", text: openedDocumentBlock(meta, `${place}, pinned`, read.text) });
     shown.push(`${ref} (text${reason ? `, because ${reason}` : ""})`);
-    if (end < content.length) {
+    if (end < totalChars) {
       notices.push(
-        `${ref} is cut at ${formatCount(end)} of ${formatCount(content.length)} characters because this reply's reading allowance ran out. To read on, call readDocument with part ${partAt(end)}.`
+        `${ref} is cut at ${formatCount(end)} of ${formatCount(totalChars)} characters because this reply's reading allowance ran out. To read on, call readDocument with part ${partAt(end)}.`
       );
     }
   }
@@ -1019,10 +1153,17 @@ export async function pinnedFilesMessage(
 // ─── The tools ───────────────────────────────────────────────────────────────
 
 export function makeReadDocumentTool(turn: DocumentReadTurn) {
+  // Phase C: company files are named only when the turn lists some.
+  const company = turn.companyFiles.length > 0 ? ` A company file opens the same way by its handle in COMPANY FILES, such as C1.` : "";
   return createTool({
-    description: `Open a project file and read its text, in parts of ${formatCount(CHAT_READ_PART_CHARS)} characters, up to ${CHAT_READ_MAX_PARTS} parts per call. Use it when the evidence blocks do not hold what you need: a file a notice says was left out, or more of a file than its block shows. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name. Files with no text, such as images and scans, cannot be opened. The text is shown to you for this reply only.`,
+    description: `Open a project file and read its text, in parts of ${formatCount(CHAT_READ_PART_CHARS)} characters, up to ${CHAT_READ_MAX_PARTS} parts per call. Use it when the evidence blocks do not hold what you need: a file a notice says was left out, or more of a file than its block shows. Name the file by its handle in FILES IN THIS PROJECT, such as F3, or by its exact name.${company} Files with no text, such as images and scans, cannot be opened. The text is shown to you for this reply only.`,
     inputSchema: z.object({
-      file: z.string().min(1).describe("The file's handle from FILES IN THIS PROJECT, such as F3, or its exact file name."),
+      file: z
+        .string()
+        .min(1)
+        .describe(
+          `The file's handle from FILES IN THIS PROJECT, such as F3, ${company ? "a company file's handle from COMPANY FILES, such as C1, " : ""}or its exact file name.`
+        ),
       part: z
         .number()
         .int()
@@ -1043,8 +1184,9 @@ export function makeReadDocumentTool(turn: DocumentReadTurn) {
 }
 
 export function makeSearchDocumentsTool(turn: DocumentReadTurn) {
+  const company = turn.companyFiles.length > 0 ? ` Excerpts from the company's files (COMPANY FILES, such as C1 part 1) come after this project's own.` : "";
   return createTool({
-    description: `Search the text of this project's files and transcripts for words, and get up to ${CHAT_SEARCH_MAX_EXCERPTS} short excerpts, each with its place, such as F3 part 2 or T1 turns 40-46. Use it to find where something is mentioned, then open the file or transcript to read more. Write words as they appear in the files; in transcripts, accents do not need to match.`,
+    description: `Search the text of this project's files and transcripts for words, and get up to ${CHAT_SEARCH_MAX_EXCERPTS} short excerpts, each with its place, such as F3 part 2 or T1 turns 40-46.${company} Use it to find where something is mentioned, then open the file or transcript to read more. Write words as they appear in the files; in transcripts, accents do not need to match.`,
     inputSchema: z.object({
       query: z
         .string()

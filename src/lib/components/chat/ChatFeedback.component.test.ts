@@ -236,7 +236,7 @@ it("does not attach an old pending vote to another conversation", async () => {
   await render(AgentChatPanel, { reportId, projectId });
   const helpful = page.getByRole("button", { name: "Mark response helpful", exact: true });
   await helpful.click();
-  await page.getByRole("button", { name: "Conversation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Chat history", exact: true }).click();
   await page.getByRole("menuitem", { name: "Second conversation", exact: false }).click();
   settle(1);
   await expect.element(helpful).toHaveAttribute("aria-disabled", "false");

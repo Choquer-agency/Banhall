@@ -18,6 +18,7 @@ import {
 import { generateShareToken } from "./projects";
 import { activeClientIdForName } from "./lib/clients";
 import { copyProjectContentBetween } from "./projectDuplication";
+import { insertDocumentWithText } from "./lib/documentText";
 import {
   copyTranscriptRow,
   listProjectTranscripts,
@@ -187,11 +188,11 @@ export const createReviewProjectRecord = internalMutation({
       extractionFailed: false,
       intake: "file",
     });
-    const documentId = await ctx.db.insert("projectDocuments", {
+    // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+    const documentId = await insertDocumentWithText(ctx, {
       projectId,
       fileName,
       fileType: "txt",
-      content: pdText,
       source: "review_pd",
       processingStatus: derived.status,
       processingDetail: derived.detail,
@@ -199,7 +200,7 @@ export const createReviewProjectRecord = internalMutation({
       // CAP-3: the acting internal user authored this review PD.
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: now,
-    });
+    }, pdText, now);
 
     // Start the review through the same guarded path startPdReview uses. The
     // double-run guard is vacuous on a project created in this transaction
@@ -230,12 +231,32 @@ export const createReviewProjectRecord = internalMutation({
       detail: fileName,
       at: now,
     });
-    await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {
-      reviewId,
-      projectId,
-    });
+    // F2 review: the review runs once the support files are copied
+    // (`startCopiedReview`, called by the action after the copy). If the
+    // action dies first, the stale-review reaper fails the row and the
+    // writer retries.
 
     return { projectId, transcriptIds, documentId, reviewId };
+  },
+});
+
+/**
+ * F2 review: starts the review project's AI review after its files are
+ * copied, so it reads them. A review the reaper has failed meanwhile is
+ * left alone; one whose copy goes on after the action waits for it
+ * (`reviewAgent.runPdReview`).
+ */
+export const startCopiedReview = internalMutation({
+  args: { reviewId: v.id("pdReviews"), projectId: v.id("projects") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const review = await ctx.db.get(args.reviewId);
+    if (!review || review.projectId !== args.projectId || review.status !== "running") return null;
+    await ctx.scheduler.runAfter(0, internal.ai.reviewAgent.runPdReview, {
+      reviewId: args.reviewId,
+      projectId: args.projectId,
+    });
+    return null;
   },
 });
 
@@ -259,13 +280,22 @@ export const createReviewFromProject = action({
       internal.reviewFromProject.createReviewProjectRecord,
       { sourceProjectId: args.projectId }
     );
-    await copyProjectContentBetween(ctx, {
-      fromProjectId: args.projectId,
-      toProjectId: created.projectId,
-      ...(created.transcriptIds[0]
-        ? { targetTranscriptId: created.transcriptIds[0] }
-        : {}),
-    });
+    try {
+      await copyProjectContentBetween(ctx, {
+        fromProjectId: args.projectId,
+        toProjectId: created.projectId,
+        ...(created.transcriptIds[0]
+          ? { targetTranscriptId: created.transcriptIds[0] }
+          : {}),
+      });
+    } finally {
+      // F2 review: the review starts after the copy, as it did when the
+      // copy was one transaction; a copy that failed still has its review.
+      await ctx.runMutation(internal.reviewFromProject.startCopiedReview, {
+        reviewId: created.reviewId,
+        projectId: created.projectId,
+      });
+    }
     return { projectId: created.projectId };
   },
 });

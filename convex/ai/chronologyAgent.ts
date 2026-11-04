@@ -60,7 +60,11 @@ export const CHRONOLOGY_REQUEST = {
   toolName: "submit_chronology_table",
   toolDescription: "Submit the SR&ED chronology table.",
   jsonIndentation: 2,
-  maxTokens: 4096,
+  // 2026-10-26 (P0 item 4): 16,384, up from 4,096. The answer grows with the
+  // report, and post-draft QA was cut off at 4,096 on 2026-10-22 and 10-23.
+  // The first attempt's limit only guards against a runaway answer; a
+  // cut-off is retried with the model's whole allowance (cutOffRetry).
+  maxTokens: 16_384,
   modelSelector: "candidate-model-or-default",
 } as const;
 
@@ -105,6 +109,7 @@ export async function runChronologyAgent(
     schema: CHRONOLOGY_SCHEMA,
     maxTokens: CHRONOLOGY_REQUEST.maxTokens,
     model,
+    cutOffRetry: "more_room",
   });
   return normalizeChronology(raw);
 }

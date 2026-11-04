@@ -1,152 +1,62 @@
 /**
- * Desktop workspace-rail ergonomics preferences (2026-08-08 amendment,
- * docs/product-domain.md + docs/design-system.md): the fir navigation rail
- * is pointer- and keyboard-resizable and can fully hide/show. Width and
- * hidden state are browser-local presentation preferences (like the board
- * layout preference) and fail closed to the documented defaults — never a
- * server-side or domain concern.
+ * The drawer rail's one remembered choice: whether its Admin group is open
+ * (round 2, B1 and B2). The desktop rail's width and collapse are gone (the
+ * page frame, owner 2026-10-28): the rail is a fixed 80px and Mod \ collapses
+ * the section sidebar instead (`sectionSidebar.svelte.ts`). Browser-local
+ * presentation only, failing closed to the default.
  *
- * Contract:
- * - width clamps to [RAIL_MIN_WIDTH, RAIL_MAX_WIDTH]; default 224 (Rail v3,
- *   Paper board Z11a, 2026-10-19 amendment in docs/design-system.md).
- * - hidden is independent of width: showing the rail restores the previously
- *   persisted expanded width.
- * - parse is fail-closed: any malformed/foreign value yields the defaults.
+ * The key stays `banhall.workspaceRail.v3`; any `width` and `hidden` values an
+ * older build stored there are read past and dropped on the next write.
  */
 
-export const RAIL_MIN_WIDTH = 180;
-export const RAIL_DEFAULT_WIDTH = 224;
-export const RAIL_MAX_WIDTH = 288;
-
-/**
- * Collapsed desktop rail: an icons-only column (ui-design-final.md section 2,
- * board 1.2). The persisted `hidden` key keeps its name for compatibility and
- * now means "collapsed"; expanding restores the last expanded width.
- * 60px since the owner's laptop density pass (2026-09-29, was 56), so the
- * 36px tiles keep 12px sides like the expanded rail's rows.
- */
-export const RAIL_COLLAPSED_WIDTH = 60;
-
-/** Arrow-key resize step on the keyboard separator; Shift multiplies. */
-export const RAIL_KEYBOARD_STEP = 8;
-export const RAIL_KEYBOARD_STEP_LARGE = 32;
-
-/**
- * v2 (2026-09-25): the default width moved from 275px to the boards' 200px.
- * v3 (2026-10-19, Rail v3): the default moved again, to 224px. Every browser
- * had persisted the old default, so widths saved under an older key are
- * dropped; the collapsed choice (and, from v2, the Admin group choice)
- * carries over.
- */
 export const RAIL_PREFERENCES_KEY = "banhall.workspaceRail.v3";
 export const PREVIOUS_RAIL_PREFERENCES_KEY = "banhall.workspaceRail.v2";
-export const LEGACY_RAIL_PREFERENCES_KEY = "banhall.workspaceRail";
 
 export type RailPreferences = {
-  /** Expanded rail width in px, always within [min, max]. */
-  width: number;
-  /** Rail fully hidden (desktop only; the mobile drawer is independent). */
-  hidden: boolean;
   /**
-   * Admin group open in the expanded rail (round 2, B1 and B2). Only the
-   * last choice made off the admin pages; on `/admin/*` the group opens
-   * regardless. Absent in older payloads, so it defaults to closed.
+   * Admin group open in the drawer. Only the last choice made off the admin
+   * pages; on `/admin/*` the group opens regardless. Closed by default.
    */
   adminOpen: boolean;
 };
 
 export function defaultRailPreferences(): RailPreferences {
-  return { width: RAIL_DEFAULT_WIDTH, hidden: false, adminOpen: false };
+  return { adminOpen: false };
 }
 
-/** Clamp + round any candidate width; non-finite input falls to the default. */
-export function clampRailWidth(width: number): number {
-  if (!Number.isFinite(width)) return RAIL_DEFAULT_WIDTH;
-  return Math.min(RAIL_MAX_WIDTH, Math.max(RAIL_MIN_WIDTH, Math.round(width)));
-}
-
-/** Fail-closed parse of the persisted preference payload. */
+/** Fail-closed parse of the stored preference payload. */
 export function parseRailPreferences(raw: string | null | undefined): RailPreferences {
-  const defaults = defaultRailPreferences();
-  if (!raw) return defaults;
+  if (!raw) return defaultRailPreferences();
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return defaults;
-    const candidate = parsed as { width?: unknown; hidden?: unknown; adminOpen?: unknown };
-    return {
-      width:
-        typeof candidate.width === "number" ? clampRailWidth(candidate.width) : defaults.width,
-      hidden: candidate.hidden === true,
-      adminOpen: candidate.adminOpen === true,
-    };
+    if (typeof parsed !== "object" || parsed === null) return defaultRailPreferences();
+    return { adminOpen: (parsed as { adminOpen?: unknown }).adminOpen === true };
   } catch {
-    return defaults;
+    return defaultRailPreferences();
   }
 }
 
 export function serializeRailPreferences(preferences: RailPreferences): string {
-  return JSON.stringify({
-    width: clampRailWidth(preferences.width),
-    hidden: preferences.hidden === true,
-    adminOpen: preferences.adminOpen === true,
-  });
+  return JSON.stringify({ adminOpen: preferences.adminOpen === true });
 }
 
 export function loadRailPreferences(): RailPreferences {
   try {
     const current = localStorage.getItem(RAIL_PREFERENCES_KEY);
-    if (current === null) {
-      const previous = localStorage.getItem(PREVIOUS_RAIL_PREFERENCES_KEY);
-      if (previous !== null) {
-        const carried = parseRailPreferences(previous);
-        return { width: RAIL_DEFAULT_WIDTH, hidden: carried.hidden, adminOpen: carried.adminOpen };
-      }
-      const legacy = parseRailPreferences(localStorage.getItem(LEGACY_RAIL_PREFERENCES_KEY));
-      return { width: RAIL_DEFAULT_WIDTH, hidden: legacy.hidden, adminOpen: false };
-    }
-    return parseRailPreferences(current);
+    if (current !== null) return parseRailPreferences(current);
+    return parseRailPreferences(localStorage.getItem(PREVIOUS_RAIL_PREFERENCES_KEY));
   } catch {
-    // Storage blocked (private mode, embedded contexts) — session-only prefs.
+    // Storage blocked (private mode, embedded contexts): session-only prefs.
     return defaultRailPreferences();
   }
 }
 
-/**
- * Persist a change. The shell writes width and collapse and the rail writes
- * the Admin group choice, so each update merges over what is stored.
- */
+/** Persist a change, merged over what is stored. */
 export function persistRailPreferences(update: Partial<RailPreferences>): void {
   try {
     const preferences = { ...loadRailPreferences(), ...update };
     localStorage.setItem(RAIL_PREFERENCES_KEY, serializeRailPreferences(preferences));
   } catch {
-    // Storage blocked — the in-memory preference still applies for the session.
-  }
-}
-
-/**
- * Resolve an arrow/Home/End key on the separator to the next width, or null
- * when the key is not a resize key. Directions follow the visual edge: the
- * separator sits on the rail's right edge, so ArrowRight widens.
- */
-export function railWidthForKey(
-  key: string,
-  currentWidth: number,
-  shiftKey: boolean
-): number | null {
-  const step = shiftKey ? RAIL_KEYBOARD_STEP_LARGE : RAIL_KEYBOARD_STEP;
-  switch (key) {
-    case "ArrowRight":
-    case "ArrowUp":
-      return clampRailWidth(currentWidth + step);
-    case "ArrowLeft":
-    case "ArrowDown":
-      return clampRailWidth(currentWidth - step);
-    case "Home":
-      return RAIL_MIN_WIDTH;
-    case "End":
-      return RAIL_MAX_WIDTH;
-    default:
-      return null;
+    // Storage blocked: the in-memory preference still applies for the session.
   }
 }

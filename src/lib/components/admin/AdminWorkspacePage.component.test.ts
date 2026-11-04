@@ -28,6 +28,7 @@ describe("AdminWorkspacePage", () => {
 
   it("renders the standard frame: the title alone in the top bar, the action there, the description in the panel", async () => {
     __setPageUrl("/admin/models");
+    __setQueryData("users:getCurrentUser", { _id: "a", role: "admin", firstName: "Ada", lastName: "Admin" });
     await render(AdminWorkspacePage, {
       title: "Models",
       description: "Operational model evidence.",
@@ -54,19 +55,38 @@ describe("AdminWorkspacePage", () => {
     expect(getComputedStyle(description).fontSize).toBe("14px");
     expect(getComputedStyle(description).lineHeight).toBe("20px");
     expect(getComputedStyle(description).color).toBe("rgb(107, 127, 123)");
-    // The shared panel inset: 20px top, 32px bottom (sides are 16px on this
-    // narrow test frame, 24px from 640px up); radius 12.
-    const panel = root.querySelector<HTMLElement>("[data-work-panel]")!;
-    expect(getComputedStyle(panel).paddingTop).toBe("20px");
-    expect(getComputedStyle(panel).paddingBottom).toBe("32px");
-    expect(["16px", "24px"]).toContain(getComputedStyle(panel).paddingLeft);
-    expect(getComputedStyle(panel).borderRadius).toBe("12px");
+    // The shared content inset: 4px under the bar, 32px foot (sides are 16px
+    // on this narrow test frame, 24px from 640px up, 32px from 1024px).
+    const main = root.querySelector<HTMLElement>("[data-chrome-main]")!;
+    expect(getComputedStyle(main).paddingTop).toBe("4px");
+    expect(getComputedStyle(main).paddingBottom).toBe("32px");
+    expect(["16px", "24px"]).toContain(getComputedStyle(main).paddingLeft);
     expect(root.querySelector("[data-work-panel] [data-testid=route-content]")).not.toBeNull();
+    // The Admin sidebar lists the admin pages with this one marked.
+    await expect.poll(() => root.querySelector('[data-section-sidebar="admin"]')).not.toBeNull();
+    const sidebar = root.querySelector<HTMLElement>('[data-section-sidebar="admin"]')!;
+    expect(sidebar.querySelector("[data-section-sidebar-title]")?.textContent).toBe("Admin");
+    expect(sidebar.querySelector('[data-admin-link="/admin/models"]')?.getAttribute("aria-current")).toBe("page");
     expect(root.querySelector('a[href="/my-work"]')).not.toBeNull();
     // Full width: the width prop remains data for the ?workspace=current branch.
     const adminContent = root.querySelector("[data-admin-content-width=compact]");
     expect(adminContent?.className).toContain("w-full");
     expect(adminContent?.className).not.toContain("max-w-");
+  });
+
+  it.each([
+    ["a Consultant", { _id: "c", role: "writer", firstName: "Jane" }],
+    ["a Manager", { _id: "m", role: "manager", firstName: "Mo" }],
+    ["someone not yet known", undefined],
+  ])("draws no Admin sidebar for %s (review round 1, finding 1)", async (_who, user) => {
+    __setPageUrl("/admin/house-rules");
+    __setQueryData("users:getCurrentUser", user);
+    await render(AdminWorkspacePage, { title: "House rules", children: content });
+    await expect.poll(() => document.querySelector("[data-testid=route-content]")).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector("[data-section-sidebar]")).toBeNull();
+    expect(document.querySelector("[data-admin-link]")).toBeNull();
+    expect(document.querySelector("[data-section-sidebar-expand]")).toBeNull();
   });
 
   it("D4: shows the hidden state while a developer views as a role without Admin", async () => {

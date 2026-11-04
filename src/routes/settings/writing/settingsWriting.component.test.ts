@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
@@ -67,6 +68,49 @@ describe("/settings/writing (I2)", () => {
       cached: false,
       paragraphs: ["Cedarline did not know.", "The team ran three builds."],
     });
+  });
+
+  it("shows the writer's saved preferences above the instructions (Phase E, E1b)", async () => {
+    seedProfile();
+    __setQueryData("writerMemory:listMine", {
+      suggestions: [{ _id: "s1", text: "Keeps each idea to one sentence.", support: 4 }],
+      saved: [{ _id: "p1", text: "Uses Canadian spelling.", on: true, origin: "written" }],
+      limit: 30,
+    });
+    await render(SettingsWritingPage, {});
+    await expect.poll(() => document.querySelector("[data-saved-preferences]")).not.toBeNull();
+    expect(document.querySelector("[data-suggestion]")?.textContent).toContain("Keeps each idea to one sentence.");
+    expect(document.querySelector("[data-preference]")?.textContent).toContain("Uses Canadian spelling.");
+    // Above the instructions card.
+    const card = document.querySelector("[data-saved-preferences]")!;
+    const side = document.querySelector("[data-writing-side]")!;
+    expect(card.compareDocumentPosition(side) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows a refusal the server throws, and says when an approved suggestion was withdrawn (E1b review)", async () => {
+    seedProfile();
+    __setQueryData("writerMemory:listMine", {
+      suggestions: [{ _id: "s1", text: "Keeps each idea to one sentence.", support: 4 }],
+      saved: [],
+      limit: 30,
+    });
+    __setMutationResult("writerMemory:approve", "withdrawn");
+    __setMutationError(
+      "ai/writerMemory:saveText",
+      new ConvexError({ code: "INVALID_INPUT", message: "A preference cannot hold a code or model name." })
+    );
+    await render(SettingsWritingPage, {});
+    await expect.poll(() => document.querySelector("[data-suggestion]")).not.toBeNull();
+    await page.getByRole("button", { name: "Approve: Keeps each idea to one sentence.", exact: true }).click();
+    await expect
+      .poll(() => document.querySelector("[data-preference-error]")?.textContent)
+      .toBe("The work this suggestion came from was removed, so it was withdrawn.");
+    await page.getByLabelText("Add a preference").fill("Calls the XR-200 rig the bench.");
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect
+      .poll(() => document.querySelector("[data-preference-error]")?.textContent)
+      .toBe("A preference cannot hold a code or model name.");
+    expect((document.querySelector("#new-preference") as HTMLInputElement).value).toBe("Calls the XR-200 rig the bench.");
   });
 
   it("sums up coverage with the ring and the heading", async () => {

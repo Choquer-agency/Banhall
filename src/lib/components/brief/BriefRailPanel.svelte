@@ -4,6 +4,7 @@
   import type { Id } from "../../../../convex/_generated/dataModel";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import BriefRail from "./BriefRail.svelte";
+  import PublicSourcesList from "./PublicSourcesList.svelte";
   import type { BriefEntryLike } from "$lib/brief";
 
   /**
@@ -40,6 +41,8 @@
   const briefQ = useQuery(api.briefs.getBrief, () => ({ generationId }));
   const inclusionQ = useQuery(api.generations.getContextInclusion, () => ({ generationId }));
   const writerQ = useQuery(api.writerProfiles.getGenerationWriterSettings, () => ({ generationId }));
+  // 2026-11-02 (proposed): the draft's public background, when it kept a record.
+  const webQ = useQuery(api.generations.getWebBackground, () => ({ generationId }));
   const saveEntryEdit = useMutation(api.briefs.saveEntryEdit);
 
   let saveError = $state<string | null>(null);
@@ -145,6 +148,13 @@
 {/snippet}
 
 {#snippet rail(showHeading: boolean)}
+  {@render railBody(showHeading)}
+  {#if webQ.data}
+    <PublicSourcesList record={webQ.data} />
+  {/if}
+{/snippet}
+
+{#snippet railBody(showHeading: boolean)}
   <BriefRail
     {brief}
     {inclusion}

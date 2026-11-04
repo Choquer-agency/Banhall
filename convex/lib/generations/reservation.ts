@@ -7,7 +7,10 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
-import { v, type ObjectType } from "convex/values";
+import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
+import { TransactionGuard, countedRows } from "../readMeter";
+import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "../projectCopy";
+import { getDocumentSize, v, type ObjectType, type Value } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
 import { type ModelEntry, MODEL } from "../../../shared/generationModels";
@@ -18,15 +21,17 @@ import {
   listSelectableModels,
   freezeModelsForGeneration,
   generationModelFreeze,
+  movedBackModels,
+  movedBackProgress,
+  movedBackReplacement,
+  retryComparePair,
+  compareRetryProgress,
 } from "../modelRoles";
 import { domainError, sha256 } from "../contracts";
 import { resolveCompareModels, randomComparePair } from "../../ai/model";
-import {
-  scheduleStructureRebuildIfStale,
-  MAX_TRANSCRIPTS_PER_PROJECT,
-} from "../transcripts";
+import { structureRebuildDue } from "../transcripts";
 import type { Doc, Id } from "../../_generated/dataModel";
-import { defaultModelId, transcriptFactsMode } from "../../appSettings";
+import { defaultModelId, transcriptFactsMode, transcriptPlaceholdersEnabled } from "../../appSettings";
 import { normalizeCraScienceCode } from "../../../shared/craScienceCodes";
 import {
   isPreviousYearDocument,
@@ -46,7 +51,10 @@ import {
   frozenPlaceholders,
   frozenSourceFields,
   frozenTranscriptChars,
+  MAX_FROZEN_SOURCE_ROWS,
   selectFrozenEvidence,
+  refuseWhenCompanyLeft,
+  type FrozenEvidence,
 } from "../briefEvidence";
 import { appendGenerationProgress } from "../generationProgress";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
@@ -62,11 +70,41 @@ import { transitionGeneration } from "../generationTransitions";
 import { restorableProjectStatus } from "./restoreStatus";
 import { userDisplayLabel } from "../teamRoster";
 import type { QueryCtx } from "../../_generated/server";
+import { copyRecoverySourceUses } from "./sourceUse";
+import { frozenClaimantName } from "../transcriptPlaceholders";
 
 /**
  * The user-safe summary of a project's active run (F6): who started it, which
  * mode and when. No model, source or error detail.
  */
+
+/**
+ * B1, second part, after its review (2026-10-27): freezing a draft's
+ * evidence (every transcript row, file row and text piece read, and the new
+ * stored text written) stays within a transaction's 16 MiB of reads and of
+ * writes. Before each read and each stored text, the transaction's real
+ * usage is checked: once what remains could not take one more largest
+ * document and this margin for the rest of the work, the draft is refused by
+ * name, before the platform's limit, and nothing is written. Where the
+ * runtime cannot report its usage, reads and writes are counted instead and
+ * refused past the estimate limit.
+ */
+export const FROZEN_MARGIN_BYTES = 256 * 1024;
+export const FROZEN_ESTIMATE_LIMIT_BYTES = 15 * 1024 * 1024;
+/**
+ * Every current transcript and file row is read whether it is left out or
+ * not, so the way out is removing what the project no longer needs (round 2
+ * of the review).
+ */
+export const FROZEN_TEXT_TOO_LARGE_MESSAGE =
+  "This project's files are too large to read at once. Remove files or transcripts you no longer need, then start again.";
+/**
+ * B1 review, round 3: a Summary recovery copies the failed draft's frozen
+ * rows, and older rows hold their own copies, so removing project files
+ * cannot make it smaller.
+ */
+export const RECOVERY_TOO_LARGE_MESSAGE =
+  "This draft's frozen files are too large to recover at once. Start a new draft instead; you will sign off its Summary again.";
 export async function activeRunSummary(
   ctx: QueryCtx,
   active: Doc<"generations">
@@ -120,11 +158,15 @@ export const MAX_EXCLUDED_SOURCES = 250;
 export const excludedIdsArgs = {
   excludeDocumentIds: v.optional(v.array(v.id("projectDocuments"))),
   excludeTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+  // 2026-10-26 (Phase C): the project's company's files left out.
+  excludeCompanyFileIds: v.optional(v.array(v.id("companyFiles"))),
 };
 
 export type ExcludedSources = {
   documentIds: Id<"projectDocuments">[];
   transcriptIds: Id<"transcripts">[];
+  /** Present only when a company file is left out. */
+  companyFileIds?: Id<"companyFiles">[];
 };
 
 /**
@@ -139,15 +181,32 @@ export async function validatedExcludedSources(
   args: {
     excludeDocumentIds?: Id<"projectDocuments">[];
     excludeTranscriptIds?: Id<"transcripts">[];
-  }
+    excludeCompanyFileIds?: Id<"companyFiles">[];
+  },
+  /**
+   * False for a draft's start: reservation checks the file and transcript
+   * ids against the rows it reads anyway (`confirmedExcludedRows`), so no
+   * left-out row is read twice (B1 review, round 2).
+   */
+  options: { checkProjectRows?: boolean } = {}
 ): Promise<ExcludedSources | undefined> {
+  const checkProjectRows = options.checkProjectRows ?? true;
   const documentIds = [...new Set(args.excludeDocumentIds ?? [])];
   const transcriptIds = [...new Set(args.excludeTranscriptIds ?? [])];
-  if (documentIds.length > MAX_EXCLUDED_SOURCES || transcriptIds.length > MAX_EXCLUDED_SOURCES) {
+  const companyFileIds = [...new Set(args.excludeCompanyFileIds ?? [])];
+  if (
+    documentIds.length > MAX_EXCLUDED_SOURCES ||
+    transcriptIds.length > MAX_EXCLUDED_SOURCES ||
+    companyFileIds.length > MAX_EXCLUDED_SOURCES
+  ) {
     domainError("INVALID_INPUT", `Leave out at most ${MAX_EXCLUDED_SOURCES} files of each kind`);
   }
   const keptDocuments: Id<"projectDocuments">[] = [];
   for (const id of documentIds) {
+    if (!checkProjectRows) {
+      keptDocuments.push(id);
+      continue;
+    }
     const row = await ctx.db.get(id);
     if (!row) continue;
     if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out file belongs to another project");
@@ -155,13 +214,34 @@ export async function validatedExcludedSources(
   }
   const keptTranscripts: Id<"transcripts">[] = [];
   for (const id of transcriptIds) {
+    if (!checkProjectRows) {
+      keptTranscripts.push(id);
+      continue;
+    }
     const row = await ctx.db.get(id);
     if (!row) continue;
     if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out transcript belongs to another project");
     keptTranscripts.push(id);
   }
-  if (keptDocuments.length === 0 && keptTranscripts.length === 0) return undefined;
-  return { documentIds: keptDocuments, transcriptIds: keptTranscripts };
+  // A company file must be the project's company's (Phase C).
+  const keptCompanyFiles: Id<"companyFiles">[] = [];
+  if (companyFileIds.length > 0) {
+    const project = await ctx.db.get(projectId);
+    for (const id of companyFileIds) {
+      const row = await ctx.db.get(id);
+      if (!row) continue;
+      if (!project?.clientId || row.clientId !== project.clientId) {
+        domainError("INVALID_INPUT", "A left-out file belongs to another company");
+      }
+      keptCompanyFiles.push(id);
+    }
+  }
+  if (keptDocuments.length === 0 && keptTranscripts.length === 0 && keptCompanyFiles.length === 0) return undefined;
+  return {
+    documentIds: keptDocuments,
+    transcriptIds: keptTranscripts,
+    ...(keptCompanyFiles.length > 0 ? { companyFileIds: keptCompanyFiles } : {}),
+  };
 }
 
 /**
@@ -242,6 +322,48 @@ export async function validatedCompareModelIds(
  */
 export { decideInputMode } from "../briefEvidence";
 
+/**
+ * A draft's leave-out list, checked as `validatedExcludedSources` checks it,
+ * against the file and transcript rows reservation already read under its
+ * guard: an id among them is the project's; any other id is read under the
+ * guard, refused when it is another project's and dropped when it is gone.
+ */
+async function confirmedExcludedRows(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  excluded: ExcludedSources,
+  evidence: FrozenEvidence,
+  guard: TransactionGuard
+): Promise<ExcludedSources | undefined> {
+  const documentsRead = new Set<string>(evidence.documentIdsRead ?? []);
+  const transcriptsRead = new Set<string>(evidence.transcriptIdsRead ?? []);
+  const documentIds: Id<"projectDocuments">[] = [];
+  for (const id of excluded.documentIds) {
+    if (!documentsRead.has(id)) {
+      await guard.beforeRead();
+      const row = await ctx.db.get(id);
+      guard.read(row);
+      if (!row) continue;
+      if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out file belongs to another project");
+    }
+    documentIds.push(id);
+  }
+  const transcriptIds: Id<"transcripts">[] = [];
+  for (const id of excluded.transcriptIds) {
+    if (!transcriptsRead.has(id)) {
+      await guard.beforeRead();
+      const row = await ctx.db.get(id);
+      guard.read(row);
+      if (!row) continue;
+      if (row.projectId !== projectId) domainError("INVALID_INPUT", "A left-out transcript belongs to another project");
+    }
+    transcriptIds.push(id);
+  }
+  const companyFileIds = excluded.companyFileIds ?? [];
+  if (documentIds.length === 0 && transcriptIds.length === 0 && companyFileIds.length === 0) return undefined;
+  return { documentIds, transcriptIds, ...(companyFileIds.length > 0 ? { companyFileIds } : {}) };
+}
+
 export async function reserveGeneration(
   ctx: MutationCtx,
   project: Doc<"projects">,
@@ -266,7 +388,12 @@ export async function reserveGeneration(
   // Audit wave 2: spend the caller's generation-start tokens once every
   // refusal below has had its say, just before the first write. False when
   // the caller already spent them before writes of its own.
-  spendRateLimit = true
+  spendRateLimit = true,
+  // B1 review, round 3: true only for a leave-out list the writer just
+  // sent (a draft's start), whose file and transcript ids are checked here
+  // against the rows read anyway. A retry's stored list was checked when it
+  // was made and is kept as it is.
+  confirmExcludedRows = false
 ) {
   // "Default" in single/iterative modes resolves to the writing role's model
   // (model catalog), persisted here so retries reuse the same model even if
@@ -277,23 +404,42 @@ export async function reserveGeneration(
       : (explicitSingleModelId ?? (await defaultModelId(ctx)));
   const retried = retryOfGenerationId ? await ctx.db.get(retryOfGenerationId) : null;
   const retriedFreeze = retried?.modelFreeze;
-  const excludedDocuments = new Set<Id<"projectDocuments">>(excludedSources?.documentIds ?? []);
+  // F2 (2026-10-27, owner question 3 pending): a draft never reads a
+  // project whose files are still being copied into it.
+  if (await projectCopyInProgress(ctx, project._id)) {
+    domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+  }
   // The source rules below and the frozen sources run on what remains after
   // the leave-out list (decision 56). Shared with the Brief preparation
   // (decision 65), so both freeze the same bytes in the same order.
-  const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources);
+  const frozenLimits = new TransactionGuard(
+    ctx,
+    { marginBytes: FROZEN_MARGIN_BYTES, estimateLimitBytes: FROZEN_ESTIMATE_LIMIT_BYTES },
+    () => domainError("INVALID_INPUT", FROZEN_TEXT_TOO_LARGE_MESSAGE)
+  );
+  const evidence = await selectFrozenEvidence(ctx, project._id, excludedSources, frozenLimits);
   const { transcripts } = evidence;
+  const confirmedExcluded =
+    excludedSources && confirmExcludedRows
+      ? await confirmedExcludedRows(ctx, project._id, excludedSources, evidence, frozenLimits)
+      : excludedSources;
   // Jul 17 meeting: some engagements have no interview at all (spreadsheet
   // only, drawings, a single email). A transcript-less generation is allowed
   // as long as there's at least one readable context document to work from.
-  if ((await currentYearTranscripts(ctx, project, transcripts)).length === 0) {
-    const docs = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", project._id))
-      .collect();
-    const usable = docs.filter(
-      (d) => !d.archived && d.content.trim() && !excludedDocuments.has(d._id)
-    );
+  const thisYearTranscripts = await currentYearTranscripts(ctx, project, transcripts, frozenLimits);
+  // 2026-10-27 (twelfth, owner): Previous-year status is skipped when the
+  // draft reads nothing from a previous year (the project's first year, or
+  // no previous-year files): no previous-year report or note, project or
+  // company, and no transcript copied from an earlier fiscal year.
+  const previousYearMaterial =
+    evidence.frozenDocuments.some((item) => isPreviousYearDocument(item.document)) ||
+    evidence.frozenCompanyFiles.some((item) => isPreviousYearDocument(item.file)) ||
+    thisYearTranscripts.length < transcripts.length;
+  if (thisYearTranscripts.length === 0) {
+    // The files this draft reads (not archived, with text, not left out),
+    // already loaded: reading every row again could pass a transaction's
+    // reads (B1 review, 2026-10-27).
+    const usable = evidence.frozenDocuments.map((item) => item.document);
     if (usable.length === 0 && transcripts.length === 0) {
       domainError(
         "INVALID_INPUT",
@@ -352,10 +498,13 @@ export async function reserveGeneration(
       : [singleModelId ?? MODEL]; // singleModelId is always resolved here; ?? is a type guard
   const now = Date.now();
   // Every model this generation will call, frozen now (owner decision 21):
-  // a retry inherits its original's freeze when it runs the same models.
+  // a retry inherits its original's freeze when it runs the same models,
+  // unless the freeze holds a model its tier was moved back from
+  // (2026-10-23): then the retry freezes today's models.
   const modelFreeze =
     retriedFreeze &&
-    requestedModelIds.every((id) => retriedFreeze.entries.some((entry) => entry.id === id))
+    requestedModelIds.every((id) => retriedFreeze.entries.some((entry) => entry.id === id)) &&
+    (await movedBackModels(ctx, retried)).length === 0
       ? retriedFreeze
       : await freezeModelsForGeneration(ctx, requestedModelIds, now);
   if (
@@ -398,7 +547,13 @@ export async function reserveGeneration(
   if (transcriptFacts) {
     // Turns an older parser built are not read as facts: this draft falls
     // back for them, and their rebuild starts now for the next one.
-    for (const row of transcripts) await scheduleStructureRebuildIfStale(ctx, row);
+    // Started in their own transactions (B1 review, round 2): marking a row
+    // here would read each whole transcript a second time.
+    for (const row of transcripts) {
+      if (structureRebuildDue(row)) {
+        await ctx.scheduler.runAfter(0, internal.transcripts.rebuildStructureIfStale, { transcriptId: row._id });
+      }
+    }
   }
   const generationId = await ctx.db.insert("generations", {
     projectId: project._id,
@@ -407,6 +562,10 @@ export async function reserveGeneration(
     inputMode,
     ...(transcriptFacts ? { transcriptFacts: true } : {}),
     ...(placeholders.length > 0 ? { placeholders } : {}),
+    // 2026-10-30 (owner, item 2): the claimant's name, frozen with the map
+    // and, review round 1 (P1-a), with the placeholder switch.
+    ...(frozenClaimantName(project.clientName) ? { claimantName: frozenClaimantName(project.clientName) } : {}),
+    ...((await transcriptPlaceholdersEnabled(ctx)) ? {} : { placeholdersOff: true }),
     status: "reserved",
     // 2026-09-25: this generation's outputs live in generationArtifacts rows.
     outputsInArtifactsAt: now,
@@ -427,7 +586,10 @@ export async function reserveGeneration(
     retryOfGenerationId,
     retryModelIds: persistedRetryModelIds,
     seededCandidates: seededCandidates || undefined,
-    ...(excludedSources ? { excludedSources } : {}),
+    ...(confirmedExcluded ? { excludedSources: confirmedExcluded } : {}),
+    ...(evidence.frozenCompanyFiles[0] ? { companyFilesFrom: evidence.frozenCompanyFiles[0].file.clientId } : {}),
+    ...(evidence.companyFilesLeftOut?.length ? { companyFilesLeftOut: evidence.companyFilesLeftOut } : {}),
+    previousYearMaterial,
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Queued",
     candidatesDone: seededCandidates,
@@ -435,11 +597,31 @@ export async function reserveGeneration(
     startedAt: now,
   });
   await appendGenerationProgress(ctx, { _id: generationId, projectId: project._id }, initialProgress, now);
+  // B1, second part (2026-10-27): a project file or company file row refers
+  // to the stored version of the text it read (written once, reused by
+  // every later draft with the same text), and a transcript row to its
+  // transcript, instead of holding its own copy. What this draft writes is
+  // counted, and refused by name before the transaction's limit.
+  let writtenBytes = 0;
   for (const fields of await frozenSourceFields(evidence)) {
+    const { content, ...rest } = fields;
+    let reference: { textVersionId?: Id<"sourceTextVersions">; textLength: number } = { textLength: content.length };
+    if (fields.kind === "project_document" || fields.kind === "company_file") {
+      const owner: SourceTextOwner =
+        fields.kind === "company_file" && fields.companyFileId
+          ? { companyFileId: fields.companyFileId, ...(fields.clientId ? { clientId: fields.clientId } : {}) }
+          : { projectId: project._id };
+      // At most 3 UTF-8 bytes a UTF-16 unit, and the rows' own fields.
+      await frozenLimits.beforeWrite(writtenBytes, content.length * 3 + 64 * 1024);
+      const stored = await storedSourceTextVersion(ctx, owner, content, fields.contentHash);
+      writtenBytes += stored.writtenBytes;
+      reference = { textVersionId: stored.versionId, textLength: content.length };
+    }
     await ctx.db.insert("generationSources", {
       generationId,
       projectId: project._id,
-      ...fields,
+      ...rest,
+      ...reference,
       capturedAt: now,
     });
   }
@@ -487,6 +669,10 @@ export const requestGenerationArgs = {
   writerSuppliedStoryline: v.optional(v.string()),
   // Decision 56: files unticked in the start dialog are left out of this run.
   ...excludedIdsArgs,
+  // 2026-11-02 (proposed): "Look up public background" in the start
+  // dialog. Absent means on (an older browser), as the tick defaults to on;
+  // the deployment setting still decides whether anything is searched.
+  webBackground: v.optional(v.boolean()),
 };
 
 /** Handler of generations.requestGeneration. */
@@ -513,8 +699,8 @@ export async function requestGenerationHandler(
     );
   }
   const candidateMode = args.candidateMode ?? "compare";
-  const excludedSources = await validatedExcludedSources(ctx, project._id, args);
-  return await reserveGeneration(
+  const excludedSources = await validatedExcludedSources(ctx, project._id, args, { checkProjectRows: false });
+  const generationId = await reserveGeneration(
     ctx,
     project,
     user._id,
@@ -528,8 +714,13 @@ export async function requestGenerationHandler(
     args.writerSuppliedStoryline,
     undefined,
     undefined,
-    excludedSources
+    excludedSources,
+    true,
+    true
   );
+  // Same transaction as the reservation, so the scheduled run reads it.
+  await ctx.db.patch(generationId, { webBackgroundRequested: args.webBackground !== false });
+  return generationId;
 }
 
 /** Argument validators of generations.retryGeneration. */
@@ -550,7 +741,19 @@ export async function retryGenerationHandler(
     domainError("INVALID_INPUT", "Use Summary recovery for a signed-off seed generation");
   }
   const { project, user } = await requireReportEditAccess(ctx, failed.projectId);
-  return await reserveGeneration(
+  // 2026-10-23 (owner): a model its tier was moved back from is replaced by
+  // the tier's current model, so the retry can finish instead of the writer
+  // starting over. Every other model runs as frozen.
+  const replaced = async (id: string | undefined) =>
+    id === undefined ? undefined : ((await movedBackReplacement(ctx, id)) ?? id);
+  const comparePair = failed.compareModelIds
+    ? await retryComparePair(ctx, failed.compareModelIds)
+    : undefined;
+  const moved = await movedBackModels(ctx, failed);
+  const movedLines = comparePair
+    ? compareRetryProgress(moved, comparePair.pair, new Set(comparePair.pair))
+    : movedBackProgress(moved);
+  const retryId = await reserveGeneration(
     ctx,
     project,
     user._id,
@@ -559,18 +762,23 @@ export async function retryGenerationHandler(
     await persistedSingleModelId(
       ctx,
       failed.candidateMode ?? "compare",
-      failed.singleModelId,
+      await replaced(failed.singleModelId),
       failed.modelFreeze
     ),
-    failed.compareModelIds,
+    comparePair?.pair,
     failed._id,
     undefined,
     0,
     undefined,
     resolveGatedWorkflow(failed),
-    undefined,
+    ["Generation request reserved.", ...movedLines],
     failed.excludedSources
   );
+  // A retry keeps the writer's public background choice.
+  if (failed.webBackgroundRequested !== undefined) {
+    await ctx.db.patch(retryId, { webBackgroundRequested: failed.webBackgroundRequested });
+  }
+  return retryId;
 }
 
 /** Argument validators of generations.retryFromSummary. */
@@ -606,48 +814,94 @@ export async function retryFromSummaryHandler(
     domainError("INVALID_STATE", "Frozen Summary lineage is unavailable");
   }
   // One transcript, digest and fact pack row per transcript (2026-09-24).
-  const maxFrozenSources = 3 * MAX_TRANSCRIPTS_PER_PROJECT + 51;
-  const [originSources, currentSources, analysisArtifacts, brainArtifacts] = await Promise.all([
-    ctx.db.query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", originGenerationId))
-      .take(maxFrozenSources + 1),
-    ctx.db.query("generationSources")
-      .withIndex("by_generationId", (q) => q.eq("generationId", failed._id))
-      .take(maxFrozenSources + 1),
-    // Only the two frozen drafting inputs are copied: the chain's stored
-    // payload (kind ordered_payload, 2026-09-25) belongs to the failed
-    // chain and is rebuilt for the recovery chain from these two.
-    ctx.db.query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", failed._id).eq("kind", "analysis"))
-      .take(2),
-    ctx.db.query("generationArtifacts")
-      .withIndex("by_generationId_and_kind", (q) =>
-        q.eq("generationId", failed._id).eq("kind", "brain_blocks"))
-      .take(2),
-  ]);
-  const artifacts = [...analysisArtifacts, ...brainArtifacts];
+  const maxFrozenSources = MAX_FROZEN_SOURCE_ROWS;
+  // B1 review, round 3: older rows hold their own copies, so the rows are
+  // read one at a time under a guard, once when the failed draft is its own
+  // origin, and every copy written is checked first.
+  const recoveryLimits = new TransactionGuard(
+    ctx,
+    { marginBytes: FROZEN_MARGIN_BYTES, estimateLimitBytes: FROZEN_ESTIMATE_LIMIT_BYTES },
+    () => domainError("INVALID_STATE", RECOVERY_TOO_LARGE_MESSAGE)
+  );
+  const frozenRowsOf = async (generationId: Id<"generations">) => {
+    const rows: Doc<"generationSources">[] = [];
+    for await (const row of countedRows(
+      ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)),
+      recoveryLimits
+    )) {
+      rows.push(row);
+      if (rows.length > maxFrozenSources) break;
+    }
+    return rows;
+  };
+  const currentSources = await frozenRowsOf(failed._id);
+  // Round 4: a recovery of a recovery needs only the origin's row ids, which
+  // its stored map holds (written with the copies it maps), so the origin's
+  // rows are not read again. Every map since recovery shipped (2026-09-22)
+  // holds the original draft's row ids, written only here.
+  const originIds: Id<"generationSources">[] =
+    originGenerationId === failed._id
+      ? currentSources.map((source) => source._id)
+      : (failed.sourceIdMap ?? []).map((entry) => entry.originSourceId);
+  // Only the two frozen drafting inputs are copied: the chain's stored
+  // payload (kind ordered_payload, 2026-09-25) belongs to the failed chain
+  // and is rebuilt for the recovery chain from these two.
+  const artifactsOf = async (kind: "analysis" | "brain_blocks") => {
+    const rows: Doc<"generationArtifacts">[] = [];
+    for await (const row of countedRows(
+      ctx.db.query("generationArtifacts").withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", failed._id).eq("kind", kind)),
+      recoveryLimits
+    )) {
+      rows.push(row);
+      if (rows.length >= 2) break;
+    }
+    return rows;
+  };
+  const artifacts = [...(await artifactsOf("analysis")), ...(await artifactsOf("brain_blocks"))];
+  if (originGenerationId !== failed._id && originIds.length === 0) {
+    domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+  }
   if (
-    originSources.length === 0 ||
+    originIds.length === 0 ||
     currentSources.length === 0 ||
-    originSources.length > maxFrozenSources ||
+    originIds.length > maxFrozenSources ||
     currentSources.length > maxFrozenSources ||
     artifacts.length !== 2
   ) {
     domainError("INVALID_STATE", "Frozen recovery inputs are incomplete");
   }
-  const priorMap = failed.sourceIdMap ?? originSources.map((source) => ({
-    originSourceId: source._id,
-    recoverySourceId: source._id,
+  const priorMap = failed.sourceIdMap ?? originIds.map((id) => ({
+    originSourceId: id,
+    recoverySourceId: id,
   }));
   try {
     assertFrozenSourceBijection({
-      originSourceIds: originSources.map((source) => source._id),
+      originSourceIds: originIds,
       recoverySourceIds: currentSources.map((source) => source._id),
       sourceIdMap: priorMap,
     });
   } catch {
     domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+  }
+  // Summary recovery drafts on exactly the models the original froze, except
+  // a model its tier was moved back from (2026-10-23, owner): then it
+  // freezes today's models, the single model replaced by its tier's current
+  // one, so the recovery can finish instead of the writer starting over.
+  const freezeAt = Date.now();
+  const moved = await movedBackModels(ctx, failed);
+  const singleModelId =
+    moved.length === 0
+      ? failed.singleModelId
+      : failed.singleModelId === undefined
+        ? await defaultModelId(ctx)
+        : ((await movedBackReplacement(ctx, failed.singleModelId)) ?? failed.singleModelId);
+  const modelFreeze =
+    moved.length > 0 && singleModelId !== undefined
+      ? await freezeModelsForGeneration(ctx, [singleModelId], freezeAt)
+      : failed.modelFreeze;
+  if (moved.length > 0 && modelFreeze?.entries.some((entry) => entry.gateway === "openrouter")) {
+    requireOpenRouterConfigured();
   }
   // Audit wave 2: spent once every refusal above has had its say.
   await limitGenerationStart(ctx, user._id, project._id);
@@ -655,6 +909,11 @@ export async function retryFromSummaryHandler(
   const now = Date.now();
   const generationId = await ctx.db.insert("generations", {
     projectId: failed.projectId,
+    // A recovery keeps the writer's public background choice, and the record
+    // of what was looked up: it drafts from the frozen inputs, whose public
+    // background block names those sources W1, W2... (Greptile, PR #30).
+    ...(failed.webBackgroundRequested !== undefined ? { webBackgroundRequested: failed.webBackgroundRequested } : {}),
+    ...(failed.webBackground !== undefined ? { webBackground: failed.webBackground } : {}),
     transcriptId: failed.transcriptId,
     transcriptIds: failed.transcriptIds,
     inputMode: failed.inputMode,
@@ -662,6 +921,11 @@ export async function retryFromSummaryHandler(
     // Summary recovery reads the same fact packs and placeholders.
     ...(failed.transcriptFacts !== undefined ? { transcriptFacts: failed.transcriptFacts } : {}),
     ...(failed.placeholders ? { placeholders: failed.placeholders } : {}),
+    // 2026-10-30: and the same claimant name, so recovery sends the same requests.
+    ...(failed.claimantName !== undefined ? { claimantName: failed.claimantName } : {}),
+    ...(failed.placeholdersOff !== undefined ? { placeholdersOff: failed.placeholdersOff } : {}),
+    ...(failed.companyFilesFrom ? { companyFilesFrom: failed.companyFilesFrom } : {}),
+    ...(failed.companyFilesLeftOut ? { companyFilesLeftOut: failed.companyFilesLeftOut } : {}),
     status: "reserved",
     // 2026-09-25: this generation's outputs live in generationArtifacts rows.
     outputsInArtifactsAt: now,
@@ -675,9 +939,8 @@ export async function retryFromSummaryHandler(
     briefVersionId: failed.briefVersionId,
     summaryVersionId: failed.summaryVersionId,
     originGenerationId,
-    singleModelId: failed.singleModelId,
-    // Summary recovery drafts on exactly the models the original froze.
-    ...(failed.modelFreeze ? { modelFreeze: failed.modelFreeze } : {}),
+    singleModelId,
+    ...(modelFreeze ? { modelFreeze } : {}),
     retryOfGenerationId: failed._id,
     previousProjectStatus: restorableProjectStatus(project.status),
     currentStep: "Preparing Summary recovery",
@@ -690,17 +953,27 @@ export async function retryFromSummaryHandler(
   await appendGenerationProgress(
     ctx,
     { _id: generationId, projectId: failed.projectId },
-    ["Summary recovery reserved from frozen inputs."],
+    ["Summary recovery reserved from frozen inputs.", ...movedBackProgress(moved)],
     now
   );
   const nextMap: Array<{
     originSourceId: Id<"generationSources">;
     recoverySourceId: Id<"generationSources">;
   }> = [];
-  for (const origin of originSources) {
-    const currentId = resolveFrozenSourceId(origin._id, priorMap);
+  const recoveryCopyOf = new Map<Id<"generationSources">, Id<"generationSources">>();
+  // Phase C: a draft that read another company's files is not recovered
+  // once the project has left that company; a new draft reads its own.
+  // The failed draft's rows carry the origin's kinds and companies.
+  await refuseWhenCompanyLeft(ctx, failed.projectId, currentSources);
+  let recoveryWritten = 0;
+  for (const originId of originIds) {
+    const currentId = resolveFrozenSourceId(originId, priorMap);
     const current = currentById.get(currentId as Id<"generationSources">);
     if (!current) domainError("INVALID_STATE", "Frozen recovery source map is incomplete");
+    // The copy is the same document under the new draft.
+    const rowBytes = getDocumentSize(current as unknown as Record<string, Value>);
+    await recoveryLimits.beforeWrite(recoveryWritten, rowBytes);
+    recoveryWritten += rowBytes;
     const recoverySourceId = await ctx.db.insert("generationSources", {
       generationId,
       projectId: current.projectId,
@@ -712,8 +985,13 @@ export async function retryFromSummaryHandler(
       // is identical, so every fact id still resolves.
       ...(current.factSpans ? { factSpans: current.factSpans } : {}),
       projectDocumentId: current.projectDocumentId,
+      companyFileId: current.companyFileId,
+      clientId: current.clientId,
       label: current.label,
-      content: current.content,
+      // B1, second part: an old row's own copy, or a new row's reference.
+      ...(current.content !== undefined ? { content: current.content } : {}),
+      ...(current.textVersionId ? { textVersionId: current.textVersionId } : {}),
+      ...(current.textLength !== undefined ? { textLength: current.textLength } : {}),
       contentHash: current.contentHash,
       truncated: current.truncated,
       originalLength: current.originalLength,
@@ -721,14 +999,18 @@ export async function retryFromSummaryHandler(
       uploaderRole: current.uploaderRole,
       contextBudget: current.contextBudget,
     });
-    nextMap.push({ originSourceId: origin._id, recoverySourceId });
+    nextMap.push({ originSourceId: originId, recoverySourceId });
+    recoveryCopyOf.set(current._id, recoverySourceId);
   }
   assertFrozenSourceBijection({
-    originSourceIds: originSources.map((source) => source._id),
+    originSourceIds: originIds,
     recoverySourceIds: nextMap.map((entry) => entry.recoverySourceId),
     sourceIdMap: nextMap,
   });
   for (const artifact of artifacts) {
+    const artifactBytes = getDocumentSize(artifact as unknown as Record<string, Value>);
+    await recoveryLimits.beforeWrite(recoveryWritten, artifactBytes);
+    recoveryWritten += artifactBytes;
     await ctx.db.insert("generationArtifacts", {
       generationId,
       kind: artifact.kind,
@@ -736,6 +1018,19 @@ export async function retryFromSummaryHandler(
     });
   }
   await ctx.db.patch(generationId, { sourceIdMap: nextMap });
+  // Phase D (step 2): the steps it reuses keep their record on its rows,
+  // and the band says so when some could not be copied (re-check).
+  const copied = await copyRecoverySourceUses(
+    ctx,
+    failed._id,
+    { _id: generationId, projectId: failed.projectId },
+    recoveryCopyOf,
+    {
+      hasRoom: (kind, bytes, written = 0) => recoveryLimits.hasRoom(kind, bytes, recoveryWritten + written),
+      read: (doc) => recoveryLimits.read(doc),
+    }
+  );
+  if (copied.truncated || failed.sourceUseTruncated) await ctx.db.patch(generationId, { sourceUseTruncated: true });
   await ctx.db.patch(project._id, {
     activeGenerationId: generationId,
     status: "generating",
@@ -799,6 +1094,17 @@ export async function retryFailedCandidatesHandler(
       "This older comparison cannot retry individual drafts. Start a fresh generation instead"
     );
   }
+  // 2026-10-23 (owner): a failed draft whose model its tier was moved back
+  // from is retried on the tier's current model, unless both drafts would
+  // then share one model (it keeps its frozen model). Completed drafts and
+  // their models are kept as they are.
+  const retryPair = await retryComparePair(ctx, compareModelIds, new Set(failedModelIds));
+  const retryModelIds = failedModelIds.map((id) => retryPair.replaced.get(id) ?? id);
+  const movedLines = compareRetryProgress(
+    await movedBackModels(ctx, generation, generationModelFreeze(generation)),
+    retryPair.pair,
+    new Set(retryModelIds)
+  );
   const sourceCandidates = await ctx.db
     .query("reportCandidates")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
@@ -845,9 +1151,9 @@ export async function retryFailedCandidatesHandler(
     generation.lengthTarget ?? "standard",
     "compare",
     undefined,
-    compareModelIds,
+    retryPair.pair,
     generation._id,
-    failedModelIds,
+    retryModelIds,
     successfulCandidates.length,
     undefined,
     undefined,
@@ -856,10 +1162,15 @@ export async function retryFailedCandidatesHandler(
       successfulCandidates.length > 0
         ? `Kept ${successfulCandidates.length} completed draft${successfulCandidates.length === 1 ? "" : "s"}.`
         : "Retrying all failed drafts.",
+      ...movedLines,
     ],
     generation.excludedSources,
     false
   );
+  // A recovery keeps the writer's public background choice.
+  if (generation.webBackgroundRequested !== undefined) {
+    await ctx.db.patch(retryId, { webBackgroundRequested: generation.webBackgroundRequested });
+  }
   for (const candidate of successfulCandidates) {
     const candidateId = await ctx.db.insert("reportCandidates", {
       projectId: candidate.projectId,

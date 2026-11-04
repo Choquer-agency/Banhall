@@ -44,7 +44,11 @@ import { resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai
 import { runConsistencyPass } from "./ai/selfCheck";
 import { buildFrozenSummaryPlan } from "./lib/seedRevisions";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
+import { INFERENCE_MARKER_ADDITIONS, withoutInferenceMarker, type InferenceMarkerStage } from "./inferenceMarker.fixture";
+import { withoutHonestDrafting } from "./honestDrafting.fixture";
+import { withoutOneUncertainty } from "./oneUncertainty.fixture";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
+import { streamWhenAsked } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -59,7 +63,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  vi.stubGlobal("fetch", streamWhenAsked(vi.fn(() => { throw new Error("Unexpected HTTP transport"); })));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -172,7 +176,9 @@ function installFetch(script: { repair?: string; checks: unknown[] }): Sent[] {
   const checks = [...script.checks];
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+    // 2026-10-26: a request for a large answer (the Summary-plan
+    // Self-check's 32,768) streams; its JSON answer is sent as a stream.
+    streamWhenAsked<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       const body = await request.text();
       const json = JSON.parse(body) as Record<string, unknown>;
@@ -210,6 +216,19 @@ function installFetch(script: { repair?: string; checks: unknown[] }): Sent[] {
   return sent;
 }
 
+/**
+ * 2026-10-26 (P0 item 4): the older Self-check and the consistency pass ask
+ * for 16,384 answer tokens, up from 4,096, and a request for a large answer
+ * (the Summary-plan Self-check's 32,768) streams. Exactly those bytes are
+ * put back, so every other byte is still pinned. The older Self-check's
+ * limit is put back before the Summary-plan Self-check's 32,768 is taken
+ * to the 16,384 the pins hold.
+ */
+function withoutAnswerRoomOf20261026(body: string): string {
+  const unstreamed = body.endsWith(',"stream":true}') ? `${body.slice(0, -',"stream":true}'.length)}}` : body;
+  return unstreamed.split('"max_tokens":16384').join('"max_tokens":4096');
+}
+
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -227,7 +246,8 @@ function inJson(text: string): string {
 const THIRD_AMENDMENT_ADDITIONS: Record<string, string[]> = {
   section: [inJson(reportFactsBlock())],
   repair: [inJson(reportFactsBlock())],
-  selfCheck: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`)],
+  // 2026-10-29: the bodies are compared with the inference marker's line taken out.
+  selfCheck: [inJson(`\n\n${SUMMARY_PLAN_REPORT_FACTS_RULES}`.split(INFERENCE_MARKER_ADDITIONS.summarySelfCheck).join(""))],
 };
 
 async function draftAndHash(args: {
@@ -250,14 +270,14 @@ async function draftAndHash(args: {
       clientFor,
     });
   });
-  return await hashesOf(sent);
+  return await hashesOf(sent, args.plan !== undefined);
 }
 
 /**
  * Every request's hash as sent, and without exactly the 2026-09-30 (third)
  * additions, each of which must be in its request once.
  */
-async function hashesOf(asSent: Sent[]): Promise<{
+async function hashesOf(asSent: Sent[], signedOff: boolean): Promise<{
   stages: string[];
   hash: string;
   hashWithoutThirdAmendment: string;
@@ -282,11 +302,31 @@ async function hashesOf(asSent: Sent[]): Promise<{
   // allowance moved from 16,384 to 32,768 tokens on purpose, with its
   // response byte limit. The pins hash it at the old allowance, so every
   // other byte of each request is still pinned as before.
+  // 2026-10-22 (third): the Summary-plan Self-check no longer asks the
+  // answer to repeat merged ids, on purpose: its tool schema lost the plan
+  // verdict's mergedItemIds property and required entry, and its system
+  // prompt lost one sentence. Exactly those spans are put back, so every
+  // other byte is still pinned (these fixtures list no merged item, so the
+  // checklist is unchanged).
+  // 2026-10-29 (owner): the inference marker's rule and check lines are put
+  // back to before (convex/inferenceMarker.fixture.ts), so every other byte
+  // is still pinned. 2026-10-29 (third): so are the honest drafting rules
+  // (convex/honestDrafting.fixture.ts).
   const sent = asSent.map((request) => {
-    const body = withPinnedLine242Opening(request.body);
+    const stage: InferenceMarkerStage =
+      request.stage === "selfCheck" ? (signedOff ? "summarySelfCheck" : "selfCheck") : "draft";
+    // 2026-10-30: and this change's additions and its acronym sentence
+    // (convex/oneUncertainty.fixture.ts), last.
+    const body = withoutOneUncertainty(
+      withoutHonestDrafting(withoutInferenceMarker(withPinnedLine242Opening(request.body), stage), stage),
+      stage
+    );
     return {
       ...request,
-      body: request.stage === "selfCheck" ? body.split('"max_tokens":32768').join('"max_tokens":16384') : body,
+      body:
+        request.stage === "selfCheck"
+          ? withPinnedMergedIdEcho(withoutAnswerRoomOf20261026(body).split('"max_tokens":32768').join('"max_tokens":16384'))
+          : body,
     };
   });
   let additionsFound = true;
@@ -303,6 +343,28 @@ async function hashesOf(asSent: Sent[]): Promise<{
     finalIsFirstCheckOnFinalText: firstCheckOnFinalText(sent),
     additionsFound,
   };
+}
+
+/** The plan verdict's mergedItemIds schema property as sent before 2026-10-22 (third). */
+const MERGED_ITEM_IDS_PROPERTY_BEFORE =
+  '"mergedItemIds":{"type":"array","items":{"type":"string","maxLength":64,"description":"Return one exact signed-off merged-item identifier supplied in the input. Return at most 64 JSON-escaped UTF-8 bytes, measured after JSON string escaping and excluding the surrounding quotes. Escapes such as \\\\n count as two bytes, and non-ASCII text counts by its UTF-8 encoding. maxLength=64 is a conservative character bound; the escaped-byte limit is authoritative."}}';
+const PLAN_PARAGRAPH_PROPERTY = ',"paragraph":{"type":"integer","minimum":0,"maximum":9999999999,"description":"Item:';
+const MERGED_ID_SENTENCE_BEFORE = " Preserve every supplied item id in mergedItemIds.";
+const JUDGE_COVERAGE_SENTENCE = "Judge coverage against each item's frozen role, wording and supporting references.";
+
+/**
+ * A Summary-plan Self-check body with the merged-id echo put back as it was
+ * sent before 2026-10-22 (third). A body that is not a Summary-plan request
+ * holds none of these spans and is returned unchanged; each span is put back
+ * only where it is found exactly once.
+ */
+function withPinnedMergedIdEcho(body: string): string {
+  const once = (text: string, find: string, replace: string) =>
+    text.split(find).length === 2 ? text.split(find).join(replace) : text;
+  let restored = once(body, PLAN_PARAGRAPH_PROPERTY, `,${MERGED_ITEM_IDS_PROPERTY_BEFORE}${PLAN_PARAGRAPH_PROPERTY}`);
+  restored = once(restored, '"required":["outcome","reason"],"oneOf"', '"required":["mergedItemIds","outcome","reason"],"oneOf"');
+  restored = once(restored, JUDGE_COVERAGE_SENTENCE, `${JUDGE_COVERAGE_SENTENCE}${MERGED_ID_SENTENCE_BEFORE}`);
+  return restored;
 }
 
 /** Whether the last request is the first Self-check's request on REPAIRED in place of DRAFT. */
@@ -462,7 +524,7 @@ async function draftClaimAndHash(args: {
       clientFor,
     });
   });
-  return await hashesOf(sent);
+  return await hashesOf(sent, true);
 }
 
 async function consistencyHash(): Promise<string> {
@@ -504,7 +566,9 @@ async function consistencyHash(): Promise<string> {
     )
   );
   expect(bodies).toHaveLength(1);
-  return await sha256Hex(JSON.stringify(bodies));
+  // 2026-10-30: the acronym sentence in the human prose rules is put back
+  // (convex/oneUncertainty.fixture.ts); the consistency pass holds no addition.
+  return await sha256Hex(JSON.stringify(bodies.map((body) => withoutAnswerRoomOf20261026(withoutOneUncertainty(body, "none")))));
 }
 
 /**

@@ -152,10 +152,10 @@ async function reserve(
         kind: "project_document",
         projectDocumentId: document._id,
         label: `other:${document.fileName}`,
-        content: document.content,
-        contentHash: await sha256(document.content),
+        content: document.content ?? "",
+        contentHash: await sha256(document.content ?? ""),
         truncated: false,
-        originalLength: document.content.length,
+        originalLength: (document.content ?? "").length,
         capturedAt: now,
       });
     }

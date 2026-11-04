@@ -20,6 +20,17 @@
     allowed && !healthQ.error && !healthQ.isStale && healthQ.data?.window.start === start && healthQ.data.window.end === end
       ? healthQ.data : undefined
   );
+  // Phase E (E3): edit size by version, over the same window.
+  const versionsQ = useQuery(api.learningHealth.getEditSizeByVersion, () => allowed ? { start, end } : "skip");
+  const versions = $derived(
+    allowed && !versionsQ.error && !versionsQ.isStale && versionsQ.data?.window.start === start && versionsQ.data.window.end === end
+      ? versionsQ.data : undefined
+  );
+  // A set not read (past the limit) is told apart by the end of its id.
+  const lessonSetName = (set: { id: string; kind: "qa_calibration" | "draft_style" | null; createdAt: number | null }) =>
+    set.kind === null
+      ? `Lesson set ${set.id.slice(-6)}`
+      : `${set.kind === "qa_calibration" ? "QA lessons" : "Style lessons"}${set.createdAt === null ? "" : ` of ${date(set.createdAt)}`}`;
   function refresh() { end = Math.max(Date.now(), end + 1); }
   function selectRange(value: 30 | 90) { days = value; refresh(); }
   const date = (value: number) => new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -143,6 +154,57 @@
             <p class="mt-2 text-body">Recording is best-effort and can have gaps. Observation dates do not establish continuous coverage or the deployment date; unknown and in-progress outcomes are not completed samples.</p>
           </section>
         </div>
+
+        <section class="card min-w-0 overflow-hidden" aria-labelledby="versions-title" data-edit-size-by-version>
+          <div class="p-5">
+            <h2 id="versions-title" class="text-title font-medium">Edit size by version</h2>
+            <p class="mt-2 text-body">How much writers changed each draft, by the version that made it: the prompt version, the lesson sets it used, and whether the writer's saved preferences were used. Each report counts once per version, with its latest reading in this window.</p>
+          </div>
+          {#if versionsQ.error}
+            <p class="px-5 pb-5 text-body" role="alert">Edit size by version could not be loaded. Refresh to try again.</p>
+          {:else if !versions}
+            <p class="px-5 pb-5 text-body" role="status">Loading edit size by version…</p>
+          {:else}
+            {#if versions.partial}
+              <p class="px-5 pb-3 text-body" role="status">Partial results: only the newest {versions.limits.readings} readings, {versions.limits.generations} drafts and {versions.limits.lessonSets} lesson sets are read, within the page's read budget.{versions.notLoaded > 0 ? ` ${versions.notLoaded} readings of drafts not read are left out.` : ""}</p>
+            {/if}
+            {#if versions.byVersion.length}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div class="overflow-x-auto" role="region" aria-label="Edit size by version table" tabindex="0">
+                <table class="w-full min-w-[42rem] text-left">
+                  <caption class="sr-only">Mean edit size of each draft version</caption>
+                  <thead class="border-y border-line bg-chrome text-label"><tr><th class="px-5 py-3 font-medium">Prompt version</th><th class="px-4 py-3 font-medium">Lesson sets</th><th class="px-4 py-3 font-medium">Saved preferences</th><th class="px-4 py-3 font-medium">Mean edit size</th><th class="px-4 py-3 font-medium">Reports</th><th class="px-4 py-3 font-medium">Readings</th></tr></thead>
+                  <tbody>{#each versions.byVersion as row, index (index)}
+                    <tr class="border-b border-line-soft" data-version-row>
+                      <th scope="row" class="px-5 py-4 font-normal"><span class="break-all text-data">{row.promptVersion ?? (!row.recorded ? "No draft recorded" : row.known ? "Not recorded" : "Draft not found")}</span></th>
+                      <td class="px-4 py-4 text-body">{row.lessonSets.length ? row.lessonSets.map(lessonSetName).join(", ") : "None"}</td>
+                      <td class="px-4 py-4 text-body">{row.savedPreferencesUsed ? "Used" : "Not used"}</td>
+                      <td class="px-4 py-4 text-data">{percent(row.mean)}</td><td class="px-4 py-4 text-data">{row.reports}</td><td class="px-4 py-4 text-data">{row.readings}</td>
+                    </tr>
+                  {/each}</tbody>
+                </table>
+              </div>
+            {:else}
+              <p class="px-5 pb-5 text-body">No edit size readings in this window.</p>
+            {/if}
+            <div class="p-5">
+              <h3 class="text-body font-medium">Chat applies by style lesson set</h3>
+              <p class="mt-1 text-body">The report's edit size after a chat card applied, by the style lessons its chat used. Each report counts once per lesson set, with its latest apply.</p>
+              {#if versions.byChatLessonSet.length}
+                <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+                <div class="mt-3 overflow-x-auto" role="region" aria-label="Chat applies by style lesson set table" tabindex="0">
+                  <table class="w-full text-left">
+                    <caption class="sr-only">Mean edit size after chat applies, by style lesson set</caption>
+                    <thead><tr class="border-b border-line"><th class="py-2 font-medium">Style lessons</th><th class="py-2 font-medium">Mean edit size</th><th class="py-2 font-medium">Reports</th><th class="py-2 font-medium">Applies</th></tr></thead>
+                    <tbody>{#each versions.byChatLessonSet as row, index (index)}<tr class="border-b border-line-soft" data-chat-lesson-row><td class="py-2 text-body">{row.lessonSet ? lessonSetName(row.lessonSet) : "None"}</td><td class="text-data">{percent(row.mean)}</td><td class="text-data">{row.reports}</td><td class="text-data">{row.readings}</td></tr>{/each}</tbody>
+                  </table>
+                </div>
+              {:else}
+                <p class="mt-3 text-body">No chat applies in this window.</p>
+              {/if}
+            </div>
+          {/if}
+        </section>
 
         <section class="card min-w-0 overflow-hidden" aria-labelledby="sources-title">
           <div class="p-5">

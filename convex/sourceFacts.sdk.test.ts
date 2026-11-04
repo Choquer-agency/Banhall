@@ -65,6 +65,7 @@ import { sectionMetrics } from "./lib/lineLimits";
 import type { OrderedPayload, SectionNumber } from "./lib/orderedChain";
 import { FACT_RULES, TARGET_MET_RULE } from "../shared/humanProse";
 import { unbackedBullets } from "./lib/seedQuoteSupport";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 const SONNET = "claude-sonnet-5";
@@ -80,7 +81,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -229,9 +230,7 @@ function userOf(json: Record<string, unknown>): string {
 function installFetch(script: { draft: string; repair?: string; compressed?: string; checks: unknown[] }): Sent[] {
   const sent: Sent[] = [];
   const checks = [...script.checks];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       const json = JSON.parse(await request.text()) as Record<string, unknown>;
       const user = userOf(json);
@@ -475,6 +474,23 @@ describe("figures stay with their group, and no detail beyond the sources (real 
     });
   });
 
+  it("says the facts check read its sources only when its Self-check answered (Phase D, step 2, re-check)", async () => {
+    installFetch({
+      draft: FAITHFUL_244,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] }],
+    });
+    expect((await draft(claimFor(plan244(), withSources), SUMMARY_VERSION)).factsCheckRan).toBe(true);
+    // No answer: the Self-check fails, so nothing was read by the check.
+    installFetch({ draft: FAITHFUL_244, checks: [] });
+    expect((await draft(claimFor(plan244(), withSources), SUMMARY_VERSION)).factsCheckRan).toBe(false);
+    // A Line with no source documents to check against.
+    installFetch({
+      draft: FAITHFUL_244,
+      checks: [{ verdicts: ordinary, planVerdicts: [...covered, factsMatch, targetsMet] }],
+    });
+    expect((await draft(claimFor(plan244()), SUMMARY_VERSION)).factsCheckRan).toBe(true);
+  });
+
   it("lets a figure for the same group and a rounded figure pass with no repair", async () => {
     const sent = installFetch({
       draft: FAITHFUL_244,
@@ -589,6 +605,10 @@ describe("figures stay with their group, and no detail beyond the sources (real 
       checks: [
         { verdicts: ordinary, planVerdicts: [...covered, factsWrong, targetsMet] },
         { verdicts: ordinary, planVerdicts: [covered[0], pilotLost, factsMatch, targetsMet] },
+        // The one-paragraph repair makes the Storyline verdict's paragraph 2
+        // invalid, so the check asks for it again (2026-10-26: a follow-up
+        // that fails for the transport now fails the whole check).
+        { verdicts: [{ ...ordinary[0]!, paragraph: 1 }], planVerdicts: [] },
       ],
     });
     const result = await draft(claimFor(plan244(), withSources), SUMMARY_VERSION);
@@ -1073,9 +1093,7 @@ describe("the Self-check with both the writer's measured caps and the facts chec
     const sent: Sent[] = [];
     const checks = [...script.checks];
     const compressions = [...(script.compressions ?? [])];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>(async (input, init) => {
+    stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
         const json = JSON.parse(await new Request(input, init).text()) as Record<string, unknown>;
         const user = userOf(json);
         const system = typeof json.system === "string"
@@ -1584,7 +1602,15 @@ describe("round 4 review: the targets check's evidence and fixed rows (real SDK,
       // text as it was" to the row (2026-10-04 first, Round 2 follow-up).
       [error, { outcome: "not_applied", reason: expect.stringContaining(targetFindingsReason([{ paragraphIndex: 0, ...entry }], 0)) }],
     ] as const) {
-      installFetch({ draft: line246, checks: [{ verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, verdict] }] });
+      installFetch({
+        draft: line246,
+        checks: [
+          { verdicts: [...ordinary, writerProfile], planVerdicts: [statusCovered, factsMatch, verdict] },
+          // The Storyline verdict's paragraph 2 is invalid on one paragraph,
+          // so the check asks for it again (see above).
+          { verdicts: [{ ...ordinary[0]!, paragraph: 1 }], planVerdicts: [] },
+        ],
+      });
       const result = await draft(claimFor(plan246(), { planItemSources: PLAN_ITEM_SOURCES, factsSourceDocuments: documents }), SUMMARY_VERSION, { section: "246", writerFlavor: WRITER_FLAVOR });
       expect(result.notes.find((note) => note.planRef?.ruleId === RESULTS_AGAINST_TARGETS_RULE_ID)).toMatchObject({ section: "246", ...expected });
     }

@@ -7,6 +7,7 @@ import { buildStylePreviewPrompt } from "./stylePreview";
 import { NO_STYLE_OVERRIDES } from "../../shared/styleOverrides";
 import { ROLE_POLICIES } from "../../shared/modelCatalog";
 import { alwaysThinkingMaxTokens } from "../../shared/generationModels";
+import { stubFetchStreaming } from "../anthropicSse.fixture";
 
 // Keep the model catalog, the Anthropic SDK and Convex persistence real;
 // replace only the HTTP transport (AGENTS pitfall: prove the request body at
@@ -21,7 +22,7 @@ const modules = Object.fromEntries(
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-preview-key");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -50,7 +51,7 @@ test("sends the house preview request through the real SDK and stores the decode
       usage: { input_tokens: 40, output_tokens: 12 },
     }, { headers: { "request-id": "req_preview" } });
   });
-  vi.stubGlobal("fetch", transport);
+  stubFetchStreaming(vi, transport);
 
   const result = await t
     .withIdentity({ subject: "sdk-writer", tokenIdentifier: "sdk|writer" })

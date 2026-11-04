@@ -9,16 +9,19 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { extractWriterWordingRules, unreadWritingRules } from "./settingsExtraction";
+import { everyWordingRuleEntry, extractWordingRulesBySource, extractWriterWordingRules, unreadWritingRules, writerWordingRulesFor } from "./settingsExtraction";
 import {
   assembleSectionNotes,
   repairIssues,
+  rowsWithRepairLosses,
   runDeterministicSelfCheck,
   settleGlossaryForWriterTerms,
   settleWriterSettingsVerdicts,
   type ModelVerdict,
 } from "./selfCheckRules";
-import { bannedRuleHits, openingAt, termRuleHits, wordingLoss, type WriterWordingRules } from "./writerWording";
+import { bannedRuleHits, openingAt, termRuleHits, wordingLoss, wordingLossDetails, type WriterWordingRules } from "./writerWording";
+import { composeWithSavedPreferences } from "./savedPreferences";
+import { repairGuidanceBlock } from "../ai/orderedGeneration";
 import type { CategoryOutcome, OrderedProfileContext, SectionNumber } from "./orderedChain";
 
 const SETTINGS_TEXT = readFileSync(
@@ -86,6 +89,10 @@ describe("the matcher (Round 5)", () => {
     expect(openingAt("Context first. The aim of this work was to cure it.", "The aim of this work was to")).toEqual({ paragraphIndex: 0, opensParagraph: false });
     expect(openingAt("Its aim was that the aim of this work was to cure it.", "The aim of this work was to")).toBeNull();
     expect(openingAt("[GAP: company size] The aim of this work was to cure it.", "The aim of this work was to")).toEqual({ paragraphIndex: 0, opensParagraph: false });
+    // 2026-10-29: so does the sentence after an [INFERRED: ...] marker.
+    expect(
+      openingAt("It cured slowly. [INFERRED: the source names no faster cure] The aim of this work was to cure it.", "The aim of this work was to")
+    ).toEqual({ paragraphIndex: 0, opensParagraph: false });
   });
 });
 
@@ -547,4 +554,212 @@ describe("final re-check probes (Round 5 follow-up)", () => {
     expect(unreadWritingRules(item).wordBans).toBe(true);
   });
 
+});
+
+describe("saved preferences without a Writer Profile (E1b review)", () => {
+  const missing = (savedPreferencesApplied: boolean): OrderedProfileContext => ({
+    ...profile(),
+    profileState: "missing",
+    ...(savedPreferencesApplied ? { savedPreferencesApplied: true } : {}),
+  });
+
+  it("measures the wording rules when only saved preferences applied", () => {
+    const measured = (context: OrderedProfileContext) =>
+      check("244", LINE_244, RULES, context).entries.filter((entry) => entry.measuredWording).length;
+    expect(measured(missing(true))).toBeGreaterThan(0);
+    expect(measured(missing(true))).toBe(measured(profile()));
+    // No profile and no saved preferences: nothing is measured, as before.
+    expect(measured(missing(false))).toBe(0);
+  });
+});
+
+describe("a wording rule read from a saved preference stays private (fifth and sixth re-checks)", () => {
+  // The reviewer's path: a saved preference composed after the profile, the
+  // texts frozen beside it, then read per source.
+  const PROFILE = "Never use these words:\n- leverage";
+  const SAVED = "Avoid filler.\nNever use these words:\n- optimize";
+  const rules = writerWordingRulesFor(composeWithSavedPreferences(PROFILE, [SAVED]), [SAVED]);
+  const saved = (result: ReturnType<typeof check>) => result.entries.filter((entry) => entry.row.instruction === "Saved preference");
+  const noSavedWords = (result: ReturnType<typeof check>, words: RegExp) =>
+    expect(JSON.stringify(result.entries.map((entry) => entry.row))).not.toMatch(words);
+
+  it("marks the saved preference's rule, and not the profile's", () => {
+    expect(rules.banned).toEqual([
+      { phrase: "leverage", forms: [], source: "leverage" },
+      { phrase: "optimize", forms: [], source: "optimize", savedPreference: true },
+    ]);
+    expect(extractWriterWordingRules("Never use these words:\n- optimize").banned[0]).not.toHaveProperty("savedPreference");
+    // A rule the profile also holds stays the profile's.
+    expect(extractWordingRulesBySource(PROFILE, ["Never use these words:\n- leverage"]).banned).toEqual([
+      { phrase: "leverage", forms: [], source: "leverage" },
+    ]);
+  });
+
+  it("names it only as a saved preference, with its outcome and paragraph", () => {
+    const followed = check("242", "The company tested the coating.", rules);
+    expect(saved(followed).map((entry) => entry.row)).toEqual([
+      expect.objectContaining({ source: "deterministic", outcome: "applied", reason: "Followed, as measured by code" }),
+    ]);
+    // The profile's own rule stays visible.
+    expect(row(followed, "Writer's banned word: leverage")?.row.reason).toBe('"leverage" not used');
+    const broken = check("242", "The company tested the coating.\n\nThe team set out to optimize the cure.", rules);
+    expect(saved(broken).map((entry) => entry.row)).toEqual([
+      expect.objectContaining({ outcome: "not_applied", paragraphIndex: 1, reason: "Not followed in paragraph 2, as measured by code" }),
+    ]);
+    expect(row(broken, "Writer Profile")?.row.reason).toContain("a saved preference is not followed in paragraph 2");
+    noSavedWords(broken, /optimi/i);
+    // The repair still gets the words it must fix.
+    expect(saved(broken)[0]?.guidance).toMatch(/optimize/);
+  });
+
+  it("a heading inside a saved preference moves nothing, and one preference never continues another's list", () => {
+    // The reviewer's two preferences; both pass the preference check.
+    const two = ["Avoid filler.\nNever use these words:\n- optimize", "Keep it plain.\nSaved preferences:\nNever use these words:\n- leverage"];
+    const composed = composeWithSavedPreferences("", two);
+    const read = writerWordingRulesFor(composed, two);
+    expect(read.banned).toEqual([
+      { phrase: "optimize", forms: [], source: "optimize", savedPreference: true },
+      { phrase: "leverage", forms: [], source: "leverage", savedPreference: true },
+    ]);
+    const result = check("242", "The company tested the coating.", read);
+    expect(saved(result)).toHaveLength(2);
+    noSavedWords(result, /optimi|leverage|keep it plain/i);
+    // A style frozen before the texts were kept: split at the first heading,
+    // so every rule after it counts as saved.
+    // Ninth re-check: a style frozen before the texts were kept reads no rule
+    // from its saved block, so none is invented ("Keep it plain").
+    expect(writerWordingRulesFor(composed, undefined)).toEqual({ terms: [], banned: [], openings: [] });
+    // A composed text the texts do not compose counts as saved throughout.
+    expect(writerWordingRulesFor(`${PROFILE}\n\nSaved preferences:\n- changed`, [SAVED]).banned.every((rule) => rule.savedPreference === true)).toBe(true);
+  });
+
+  it("a repair's loss lands on its own rule's row, found by key, and says nothing of the words", () => {
+    const both = writerWordingRulesFor(
+      composeWithSavedPreferences("Never use these words:\n- synergy", ["Avoid filler.\nNever use these words:\n- optimize\n- leverage"]),
+      ["Avoid filler.\nNever use these words:\n- optimize\n- leverage"]
+    );
+    const before = "The company tested the coating.";
+    const after = "The company used leverage to test the coating.";
+    const losses = wordingLossDetails(before, after, both, "242");
+    expect(losses).toEqual([{ key: "wording:banned:2", reason: "broke a saved preference of the writer's", instruction: "Saved preference" }]);
+    const checked = check("242", after, both);
+    const notes = assembleSectionNotes({
+      section: "242",
+      before: checked,
+      after: null,
+      verdicts: [],
+      modelCheck: { ok: true },
+      storylineQuestion: null,
+      repair: { attempted: false, succeeded: false },
+      finalText: after,
+    });
+    const rows = rowsWithRepairLosses(notes.rows, notes.rowIndexByKey, losses);
+    const savedRows = rows.filter((note) => note.instruction === "Saved preference");
+    expect(savedRows).toEqual([
+      expect.objectContaining({ outcome: "applied", reason: "Followed, as measured by code" }),
+      expect.objectContaining({
+        outcome: "not_applied",
+        paragraphIndex: 0,
+        reason: "Not followed in paragraph 1, as measured by code; the repair, kept for what it fixed (which outranks the writer's settings), broke a saved preference of the writer's",
+      }),
+    ]);
+    expect(JSON.stringify(rows)).not.toMatch(/optimi|leverage/i);
+    expect(rows.find((note) => note.instruction === "Writer's banned word: synergy")?.reason).toBe('"synergy" not used');
+  });
+});
+
+describe("the requests drafts send are as before round 7, except where that reading was wrong (seventh re-check)", () => {
+  const PROFILE = "Write plainly.\nNever use these words:\n- synergy\n- leverage";
+  const TEXT = "Keep it plain. We optimize the robust novel coating with synergy and leverage.";
+  const blockFor = (rules: WriterWordingRules) => {
+    const issues = repairIssues(check("242", TEXT, rules), []);
+    return repairGuidanceBlock(issues, TEXT, [], false, false, rules);
+  };
+  // Before round 7 the composed text was read as one; now each source is read
+  // on its own (saved texts frozen beside it). Ninth re-check: a style frozen
+  // before the texts were kept reads the profile's part only, so its requests
+  // carry the Writer Profile's rules and none of the saved preferences'.
+  const readings = (profile: string, saved: string[]) => {
+    const composed = composeWithSavedPreferences(profile, saved);
+    return {
+      before: blockFor(extractWriterWordingRules(composed)),
+      now: blockFor(writerWordingRulesFor(composed, saved)),
+      legacy: blockFor(writerWordingRulesFor(composed, undefined)),
+      profileOnly: blockFor(extractWriterWordingRules(profile)),
+    };
+  };
+
+  it.each([
+    ["a ban list", PROFILE, ["Avoid filler.\nNever use these words:\n- optimize"]],
+    ["two plain preferences", PROFILE, ["Keeps sentences under 25 words.", "Uses Canadian spelling."]],
+    ["an opening", PROFILE, ['Line 242 must open with these exact words: "The aim of this work was to"']],
+    ["a ban the profile also holds", PROFILE, ["Never use these words:\n- synergy"]],
+    ["no profile", "", ["Avoid filler.\nNever use these words:\n- optimize"]],
+  ])("the same request for %s", (_name, profile, saved) => {
+    const { before, now, legacy, profileOnly } = readings(profile, saved);
+    expect(now).toBe(before);
+    expect(legacy).toBe(profileOnly);
+  });
+
+  it("differs only where the composed reading was wrong", () => {
+    // 1. A list ran on into the next preference and invented a ban.
+    const ranOn = readings("", ["Avoid filler.\nNever use these words:\n- optimize", "Keep it plain.\nSaved preferences:\nNever use these words:\n- leverage"]);
+    expect(ranOn.before).toContain('ban "Keep it plain"');
+    expect(ranOn.now).not.toContain("Keep it plain\"");
+    expect(ranOn.legacy).toBe(ranOn.profileOnly);
+    // 2. A preference whose first line opens a list was hidden behind the
+    // bullet the composition adds, so its bans were never read.
+    const lead = readings(PROFILE, ["Never use these words:\n- optimize\n- robust"]);
+    expect(lead.before).not.toContain('"robust"');
+    expect(lead.now).toContain('"robust"');
+    expect(lead.legacy).toBe(lead.profileOnly);
+    // 3. A heading as a preference's first line was hidden the same way, so a
+    // list it scoped to one Line was read as a ban everywhere.
+    const scoped = readings("", ["# Line 244\nNever use these words:\n- novel", "Never use these words:\n- optimize"]);
+    expect(scoped.before).toContain('"novel"');
+    expect(scoped.now).not.toContain('"novel"');
+    expect(scoped.legacy).toBe(scoped.profileOnly);
+    // 4. Eighth re-check: a heading's scope in the Writer Profile, or in an
+    // earlier preference, ran on into a later preference and silenced its bans.
+    const fromProfile = readings("# Line 244\nNever use these words:\n- synergy", ["Avoid filler.\nNever use these words:\n- ornate"]);
+    expect(fromProfile.before).not.toContain('"ornate"');
+    expect(fromProfile.now).toContain('"ornate"');
+    expect(fromProfile.legacy).toBe(fromProfile.profileOnly);
+    const fromPreference = readings("", ["Avoid filler.\n# Line 244\nNever use these words:\n- novel", "Keep it short.\nNever use these words:\n- ornate"]);
+    expect(fromPreference.before).not.toContain('"ornate"');
+    expect(fromPreference.now).toContain('"ornate"');
+    expect(fromPreference.legacy).toBe(fromPreference.profileOnly);
+  });
+});
+
+describe("an older draft reads no rule from its saved block (ninth re-check)", () => {
+  // Only this branch's own test deployments made drafts whose style has no
+  // saved texts beside it; their saved blocks are matched for privacy only.
+  it.each(["Keep verbs crisp", "Be concise", "Omit jargon", "Sound natural"])("never bans %s, and measures only the profile's rules", (line) => {
+    const saved = ["Avoid filler.\nNever use these words:\n- ornate", line];
+    const composed = composeWithSavedPreferences("Never use these words:\n- synergy", saved);
+    const legacy = writerWordingRulesFor(composed, undefined);
+    expect(legacy.banned.map((rule) => rule.phrase)).toEqual(["synergy"]);
+    const draft = `We used ornate wording with synergy. ${line}.`;
+    const request = repairGuidanceBlock(repairIssues(check("242", draft, legacy), []), draft, [], false, false, legacy);
+    expect(request).not.toContain(`ban "${line}"`);
+    expect(request).not.toContain('"ornate"');
+    expect(request).toContain('"synergy"');
+    // Drafts frozen with the texts beside them measure the saved ban as well.
+    expect(writerWordingRulesFor(composed, saved).banned.map((rule) => rule.phrase)).toEqual(["synergy", "ornate"]);
+  });
+});
+
+describe("every rule entry of a text is read for privacy, repeats included (twelfth re-check)", () => {
+  it("keeps a repeated ban's forms and a repeated term's banned words, while measured rules keep the first entry", () => {
+    const repeated = "Never use these words:\n- glimmer\n- glimmer (also glimmering, glimmered)";
+    expect(extractWriterWordingRules(repeated).banned).toEqual([{ phrase: "glimmer", forms: [], source: "glimmer" }]);
+    expect(everyWordingRuleEntry(repeated).banned.map((rule) => [rule.phrase, rule.forms])).toEqual([
+      ["glimmer", []],
+      ["glimmer", ["glimmering", "glimmered"]],
+    ]);
+    const terms = "Required terms:\n- amber lattice: A wording choice. Never write fog.\n- amber lattice: A wording choice. Never write mist.";
+    expect(extractWriterWordingRules(terms).terms.map((rule) => rule.banned)).toEqual([["fog"]]);
+    expect(everyWordingRuleEntry(terms).terms.map((rule) => rule.banned)).toEqual([["fog"], ["mist"]]);
+  });
 });

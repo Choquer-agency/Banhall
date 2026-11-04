@@ -5,6 +5,7 @@ import {
   query,
 } from "./_generated/server";
 import { components, internal } from "./_generated/api";
+import { quotableFileText } from "../shared/wordMarkdown";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import {
@@ -19,10 +20,20 @@ import { limitUserAction } from "./lib/aiRateLimits";
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { requireOpenRouterConfigured } from "./lib/providerConfig";
 import { scrubBannedWordsUnlessWaived } from "./lib/reportEdits";
+import { bannedTermsIn } from "../shared/bannedWords";
 import { getEffectiveWriterStyle } from "./writerProfiles";
 import { transcriptPlaceholdersEnabled } from "./appSettings";
 import { listProjectTranscripts } from "./lib/transcripts";
 import { projectPlaceholderMap } from "./lib/transcriptPlaceholders";
+import {
+  documentHasText,
+  documentTextLength,
+  documentTextMoved,
+  readDocumentTextOrNull,
+  searchProjectDocuments,
+} from "./lib/documentText";
+import { documentReadBudget } from "./chatDocuments";
+
 import { researchWorkflowManager } from "./ai/research/manager";
 import {
   MAX_CONTEXT_TEXT,
@@ -39,6 +50,16 @@ import {
   vetNoteTooLongMessage,
   vetWriterNote,
 } from "../shared/researchPresets";
+
+/**
+ * 2026-10-22 (fourth): research's reads for its project evidence, within the
+ * 16 MiB a function may read: candidate pieces and rows, then the moved files'
+ * text, each counted at its worst case before it is read.
+ */
+const RESEARCH_CANDIDATE_READ_BYTES = 5 * 1024 * 1024;
+/** Of which the matching pieces may take this much, so file rows always fit. */
+const RESEARCH_PIECE_READ_BYTES = 2 * 1024 * 1024;
+const RESEARCH_EVIDENCE_READ_BYTES = 8 * 1024 * 1024;
 
 const ACTIVE_STATUSES = new Set(["queued", "researching", "reviewing"]);
 
@@ -382,29 +403,49 @@ export const collectProjectEvidence = internalMutation({
     if (await isProjectDeleting(ctx, session.projectId)) return null;
     const query = `${session.instruction}\n${session.selectedText}`;
     const evidenceQuery = projectEvidenceSearchQuery(query);
+    // 2026-10-22 (fourth): found through the pieces' index too, and read
+    // through the text helper.
+    // The candidate reads (pieces, rows) share one budget, so a search
+    // during the move cannot pass the function's read limit either.
+    const candidateBudget = documentReadBudget(RESEARCH_CANDIDATE_READ_BYTES);
     const documents = evidenceQuery
-      ? await ctx.db
-          .query("projectDocuments")
-          .withSearchIndex("search_content", (q) =>
-            q.search("content", evidenceQuery).eq("projectId", session.projectId)
-          )
-          .take(12)
-      : await ctx.db
-          .query("projectDocuments")
-          .withIndex("by_projectId", (q) => q.eq("projectId", session.projectId))
-          .order("desc")
-          .take(8);
-    const evidence = selectProjectEvidence(
-      documents
-        .filter((document) => !document.archived && document.content.trim())
-        .map((document) => ({
-          id: document._id,
-          title: document.fileName,
-          content: document.content,
-        })),
-      query,
-      6
-    );
+      ? await searchProjectDocuments(
+          ctx,
+          session.projectId,
+          evidenceQuery,
+          12,
+          candidateBudget,
+          documentReadBudget(RESEARCH_PIECE_READ_BYTES)
+        )
+      : (await candidateBudget.list(
+          ctx.db
+            .query("projectDocuments")
+            .withIndex("by_projectId", (q) => q.eq("projectId", session.projectId))
+            .order("desc"),
+          8
+        )).rows;
+    // At most RESEARCH_EVIDENCE_READ_BYTES of text, each file counted at
+    // its worst case (3 bytes a character) before it is read, so a few very
+    // large files cannot pass the function's read limit. A file whose pieces
+    // are incomplete is left out.
+    const readable = [];
+    let bytesLeft = RESEARCH_EVIDENCE_READ_BYTES;
+    for (const document of documents) {
+      if (document.archived || !documentHasText(document)) continue;
+      // A file whose text has not moved was read with its row already.
+      const worstCase = documentTextMoved(document) ? documentTextLength(document) * 3 : 0;
+      if (worstCase > bytesLeft) {
+        console.warn(`collectProjectEvidence: ${document._id} left out; the evidence read budget is used up`);
+        continue;
+      }
+      const stored = await readDocumentTextOrNull(ctx, document);
+      if (stored === null) continue;
+      // 2026-10-26: Word Markdown without its marks.
+      const content = quotableFileText(stored, document.textFormat);
+      bytesLeft -= worstCase;
+      readable.push({ id: document._id, title: document.fileName, content });
+    }
+    const evidence = selectProjectEvidence(readable, query, 6);
     const now = Date.now();
     for (const item of evidence) {
       const documentId = ctx.db.normalizeId("projectDocuments", item.documentId);
@@ -775,9 +816,11 @@ export const saveReviewResult = internalMutation({
     } catch (err) {
       console.error("writer profile fetch failed for research scrub", err);
     }
+    // 2026-11-03 (owner, option C): a banned word the selection already holds stays.
     const proposedText = scrubBannedWordsUnlessWaived(
       args.proposedText,
-      bannedWordsWaived
+      bannedWordsWaived,
+      bannedTermsIn(session.selectedText)
     ).trim();
     let proposalId = session.proposalId;
     if (proposedText && proposedText !== session.selectedText.trim()) {

@@ -1,6 +1,8 @@
 "use node";
 
 import { internalAction, type ActionCtx } from "../_generated/server";
+import { draftWebBackgroundDeps, runDraftWebBackground } from "./draftWebBackgroundRun";
+import { DRAFT_WEB_QUERIES_CALL_SITE } from "./draftWebBackground";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
@@ -33,7 +35,7 @@ import {
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
-import { runQAAgent } from "./qaAgent";
+import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
 import { runChronologyAgent } from "./chronologyAgent";
 import { MODEL, candidateModelsForMode } from "./model";
 import { modelById, type ModelEntry } from "../../shared/generationModels";
@@ -46,20 +48,25 @@ import {
 import {
   sectionMetrics,
   wordBudget,
-  GAP_MARKER_RE,
+  INFERRED_MARKER_RE,
+  NOTE_MARKER_RE,
+  stripNoteMarkers,
   LINE_LIMITS,
   CHARS_PER_LINE,
+  generationCeiling,
+  overGenerationCeiling,
   type LengthTarget,
   type SectionKey,
 } from "../lib/lineLimits";
 import {
-  effectiveLineLimits,
+  draftingLineLimits,
   writerCapText,
   type WriterLineCap,
 } from "../lib/writerLineCap";
 import { sha256 } from "../lib/contracts";
 import { wordingLoss, type WriterWordingRules } from "../lib/writerWording";
 import type { SectionNumber } from "../lib/orderedChain";
+import type { FactsSourceDocuments } from "../lib/seedRevisions";
 import {
   describeTranscriptInput,
   mapClaimToPart,
@@ -73,6 +80,7 @@ import {
   ensureFactInputs,
 } from "./condense";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { withWriteRetries } from "../lib/writeRetry";
 import {
   scrubBannedWords,
   scrubBannedWordsUnlessWaived,
@@ -152,7 +160,11 @@ export function compressionTargetWords(
   current?: { words: number; lines: number },
   writerCap: WriterLineCap | null = null
 ): number {
-  const limits = effectiveLineLimits(section, writerCap);
+  // 2026-10-29 (third, item 7): a pass runs only over the drafting ceiling
+  // (or the writer's cap) and aims under it. Review round 1: it still aims
+  // at the writer's length choice where that is lower, so a writer who
+  // picked a concise draft gets one.
+  const limits = draftingLineLimits(section, writerCap);
   let words = Math.min(
     wordBudget(section, target),
     Math.floor(limits.wordCap * COMPRESSION_REQUEST.capHeadroom)
@@ -221,11 +233,12 @@ export async function compressSection(
     );
   }
   const scaffold = COMPRESSION_REQUEST.userScaffold;
+  const ceiling = generationCeiling(section);
   return await requestCompression(
     anthropic,
     modelId,
     text,
-    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToAllowance}${ceiling.lineLimit}${scaffold.ceilingLinesToWords}${ceiling.wordCap}${scaffold.ceilingWordsToTarget}${words}${scaffold.targetToCut}${cut}${scaffold.cutToPercent}${cutPercent}${scaffold.percentToText}${text}`
   );
 }
 
@@ -244,7 +257,8 @@ export function finalCutTargetWords(
   writerCap: WriterLineCap | null = null
 ): number {
   const headroom = COMPRESSION_REQUEST.finalCut.capHeadroom;
-  const limits = effectiveLineLimits(section, writerCap);
+  // 2026-10-29 (third, item 7): with no writer's cap, under the drafting ceiling.
+  const limits = draftingLineLimits(section, writerCap);
   let words = Math.floor(limits.wordCap * headroom);
   if (current.lines > limits.lineLimit) {
     words = Math.min(
@@ -258,6 +272,8 @@ export function finalCutTargetWords(
 /**
  * 2026-09-28 (fifth): whether the targeted pass applies: the text is over a
  * Locked limit, and over each limit by at most `finalCut.maxOverage` of it.
+ * 2026-10-29 (third, item 7): the Locked case passes the drafting ceiling as
+ * its limits (ceilingMetrics).
  */
 export function withinFinalCutReach(metrics: {
   overLimit: boolean;
@@ -294,11 +310,12 @@ async function finalCutSection(
     );
   }
   const scaffold = COMPRESSION_REQUEST.finalCut.userScaffold;
+  const ceiling = generationCeiling(section);
   return await requestCompression(
     anthropic,
     modelId,
     text,
-    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
+    `${mustKeepBlock(mustKeep)}${exactTermsBlock(exactTerms)}${scaffold.prefix}${m.lines}${scaffold.linesToWords}${m.words}${scaffold.wordsToLimit}${m.limit}${scaffold.limitToChars}${CHARS_PER_LINE}${scaffold.charsToCap}${m.wordCap}${scaffold.capToAllowance}${ceiling.lineLimit}${scaffold.ceilingLinesToWords}${ceiling.wordCap}${scaffold.ceilingWordsToCut}${cut}${scaffold.cutToTarget}${words}${scaffold.targetToText}${text}`
   );
 }
 
@@ -375,19 +392,51 @@ export function limitOverage(text: string, key: SectionKey): number {
 }
 
 /**
+ * 2026-10-29 (third, item 7): whether `text` is over the drafting ceiling,
+ * the CRA limits plus GENERATION_LIMIT_ALLOWANCE. Compression and the
+ * repair's length choices treat that ceiling as the hard limit while
+ * drafting; the CRA limits apply at export.
+ */
+export function overCeiling(text: string, key: SectionKey): boolean {
+  return overGenerationCeiling(sectionMetrics(text, key), key);
+}
+
+/** How far `text` is from its drafting ceiling: its word and line ratios to it (at most 1 within it). */
+export function ceilingOverage(text: string, key: SectionKey): number {
+  const metrics = sectionMetrics(text, key);
+  const ceiling = generationCeiling(key);
+  return Math.max(metrics.words / ceiling.wordCap, metrics.lines / ceiling.lineLimit);
+}
+
+/** The text's metrics against its drafting ceiling, in the shape withinFinalCutReach reads. */
+function ceilingMetrics(text: string, key: SectionKey) {
+  const metrics = sectionMetrics(text, key);
+  const ceiling = generationCeiling(key);
+  return {
+    words: metrics.words,
+    lines: metrics.lines,
+    wordCap: ceiling.wordCap,
+    limit: ceiling.lineLimit,
+    overLimit: overGenerationCeiling(metrics, key),
+  };
+}
+
+/**
  * 2026-10-04 (first): the metrics of `text` against the limits it must meet,
  * the writer's cap where it is below the Locked cap: `overLimit` is over
  * either, `wordCap` and `limit` are the writer's where set.
  */
 function capMetrics(text: string, key: SectionKey, writerCap: WriterLineCap) {
   const metrics = sectionMetrics(text, key);
-  const limits = effectiveLineLimits(key, writerCap);
+  // 2026-10-29 (third, item 7): the writer's cap, else the drafting ceiling.
+  const limits = draftingLineLimits(key, writerCap);
   return {
     words: metrics.words,
     lines: metrics.lines,
     wordCap: limits.wordCap,
     limit: limits.lineLimit,
-    overLimit: metrics.overLimit || metrics.words > limits.wordCap || metrics.lines > limits.lineLimit,
+    // 2026-10-29 (third, item 7): the drafting ceiling, not the export limit.
+    overLimit: overGenerationCeiling(metrics, key) || metrics.words > limits.wordCap || metrics.lines > limits.lineLimit,
   };
 }
 
@@ -406,8 +455,9 @@ export function closerToLimits(
   writerCap: WriterLineCap | null
 ): boolean {
   if (!writerCap) return limitOverage(out, key) < limitOverage(best, key);
-  const lockedOut = Math.max(1, limitOverage(out, key));
-  const lockedBest = Math.max(1, limitOverage(best, key));
+  // 2026-10-29 (third, item 7): texts within the drafting ceiling are equally placed.
+  const lockedOut = Math.max(1, ceilingOverage(out, key));
+  const lockedBest = Math.max(1, ceilingOverage(best, key));
   if (lockedOut !== lockedBest) return lockedOut < lockedBest;
   const writer = (text: string) => {
     const metrics = capMetrics(text, key, writerCap);
@@ -453,10 +503,78 @@ function useCounts(uses: readonly string[]): Map<string, number> {
   return counts;
 }
 
+/** Words a sentence may end on that are not its end: "e.g.", "approx." and the like. */
+const ABBREVIATION_END = /\b(?:e\.g|i\.e|approx|etc|vs|cf|ca|fig|no|nos|dr|mr|mrs|ms|st)\.$/i;
+
+/** Sentences of one paragraph, never split after an abbreviation (review round 2). */
+function paragraphSentences(paragraph: string): string[] {
+  const sentences: string[] = [];
+  for (const piece of paragraph.split(/(?<=[.!?])\s+/)) {
+    const last = sentences[sentences.length - 1];
+    if (last !== undefined && ABBREVIATION_END.test(last)) sentences[sentences.length - 1] = `${last} ${piece}`;
+    else sentences.push(piece);
+  }
+  return sentences.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+/**
+ * The sentences before an [INFERRED: ...] marker at `index` in its
+ * paragraph, other markers left out: the last is the one it marks.
+ */
+function sentencesBeforeMarker(text: string, index: number): string[] {
+  const head = text.slice(0, index);
+  const paragraph = head.slice(head.search(/\n\s*\n(?![\s\S]*\n\s*\n)/) + 1);
+  return paragraphSentences(stripNoteMarkers(paragraph));
+}
+
+/** How many of `words` the sentence holds, matched loosely (sameWord). */
+function sharedWords(words: readonly string[], sentence: string): number {
+  const other = contentWords(sentence);
+  return words.filter((word) => other.some((candidate) => sameWord(word, candidate))).length;
+}
+
+/**
+ * Review round 1 (P3-11): why a pass kept an [INFERRED: ...] marker but not
+ * the sentence it marks, or null, so a marker never ends up on a stated
+ * sentence that was beside it. Round 2 (P3-3): a squeeze may shorten the
+ * sentence a lot. The marker's sentence in the pass must hold a third of the
+ * content words of the sentence it marked, and at least 2 (all of them when
+ * it has fewer), and must not be closer to the sentence that was before the
+ * marked one than to the marked one itself.
+ */
+export function inferredSentenceLoss(input: string, output: string): string | null {
+  const seen = new Map<string, number>();
+  for (const match of input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
+    const occurrence = seen.get(match[0]) ?? 0;
+    seen.set(match[0], occurrence + 1);
+    const before = sentencesBeforeMarker(input, match.index);
+    const marked = before[before.length - 1];
+    if (!marked) continue;
+    let at = -1;
+    for (let index = 0; index <= occurrence; index += 1) {
+      at = output.indexOf(match[0], at + 1);
+      if (at < 0) break;
+    }
+    if (at < 0) return `dropped the marker ${match[0]}`;
+    const keptBefore = sentencesBeforeMarker(output, at);
+    const kept = keptBefore[keptBefore.length - 1] ?? "";
+    const keptWords = contentWords(kept);
+    const words = contentWords(marked);
+    const required = Math.min(words.length, Math.max(2, Math.ceil(words.length / 3)));
+    const shared = sharedWords(words, kept);
+    const neighbour = before[before.length - 2];
+    const closerToNeighbour =
+      neighbour !== undefined && sharedWords(keptWords, neighbour) > sharedWords(keptWords, marked);
+    if (shared < required || closerToNeighbour) return `dropped the sentence the marker ${match[0]} belongs to`;
+  }
+  return null;
+}
+
 /**
  * Why a compression pass dropped required content, or null when it kept it
  * (review P2-1; 2026-09-28 second, full suite). A pass must keep every [GAP] marker of
- * the text it was given verbatim. A number, or a negation read with the word
+ * the text it was given verbatim, and (2026-10-29) every [INFERRED] marker,
+ * adding none of its own. A number, or a negation read with the word
  * it negates, that the text holds and a Must keep line also holds must still
  * appear somewhere in the pass; any other number or negation may go with the
  * detail it belongs to (the request forbids changing one). A pass under
@@ -472,9 +590,17 @@ export function compressionLoss(
   mustKeep: readonly string[] = [],
   exactTerms: readonly string[] = []
 ): string | null {
-  for (const match of input.matchAll(new RegExp(GAP_MARKER_RE.source, "gi"))) {
+  // 2026-10-29: an [INFERRED: ...] marker is the writer's to accept or
+  // remove, so a pass keeps it verbatim as it keeps a gap, and adds none.
+  for (const match of input.matchAll(new RegExp(NOTE_MARKER_RE.source, "gi"))) {
     if (!output.includes(match[0])) return `dropped the marker ${match[0]}`;
   }
+  const given = new Set([...input.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))].map((match) => match[0]));
+  for (const match of output.matchAll(new RegExp(INFERRED_MARKER_RE.source, "gi"))) {
+    if (!given.has(match[0])) return `added the marker ${match[0]}`;
+  }
+  const lostSentence = inferredSentenceLoss(input, output);
+  if (lostSentence) return lostSentence;
   for (const term of exactTerms) {
     if (containsTerm(input, term) && !containsTerm(output, term)) {
       return `dropped the writer's term "${term}"`;
@@ -588,6 +714,7 @@ export function coverItemLoss(
 export type LimitFit = {
   text: string;
   passes: number;
+  /** Over the drafting ceiling (2026-10-29, third, item 7), not the export limit. */
   overLimit: boolean;
   error?: unknown;
   heldForPlan?: number;
@@ -663,6 +790,12 @@ export function meetsWriterCap(text: string, key: SectionKey, writerCap: WriterL
  * items outrank the writer's cap, so a pass run only for it (its text
  * within the Locked limits) that drops words of a COVER item is not kept
  * (coverItemLoss, counted in `heldForPlan`).
+ *
+ * 2026-10-29 (third, item 7, owner): the CRA limits apply at export. Here a
+ * Line counts as over only above its drafting ceiling (the CRA limits plus
+ * GENERATION_LIMIT_ALLOWANCE, generationCeiling), and every pass and the
+ * targeted pass aim under that ceiling, never down to the export limit. A
+ * writer's own cap below the CRA cap is still met as before.
  */
 export async function compressWithinLimit(
   anthropicFor: (callSite: string) => GenerationClient,
@@ -721,7 +854,7 @@ export async function compressWithinLimit(
     }
     // Signed-off items outrank the writer's cap: a pass that only the
     // writer's cap asked for never takes words of one.
-    const forWriterOnly = writerCap !== null && !sectionMetrics(best, key).overLimit;
+    const forWriterOnly = writerCap !== null && !overCeiling(best, key);
     // Round 5 (rule 11; review P1-2): nor breaks a wording rule its text
     // kept. A pass for a Locked limit is judged as before (Locked outranks
     // both), and a break it brings is measured on the final text.
@@ -759,9 +892,10 @@ export async function compressWithinLimit(
     ...(heldBack > 0 ? { heldBack } : {}),
     ...(heldForFigures > 0 ? { heldForFigures } : {}),
   });
-  // Over a Locked limit, or over the writer's cap where one is set.
+  // Over the drafting ceiling (2026-10-29, third, item 7: the CRA limits
+  // plus GENERATION_LIMIT_ALLOWANCE), or over the writer's cap where one is set.
   const over = (value: string) =>
-    writerCap ? capMetrics(value, key, writerCap).overLimit : sectionMetrics(value, key).overLimit;
+    writerCap ? capMetrics(value, key, writerCap).overLimit : overCeiling(value, key);
   for (const squeeze of COMPRESSION_REQUEST.squeezes) {
     const metrics = sectionMetrics(best, key);
     if (!over(best)) break;
@@ -780,7 +914,7 @@ export async function compressWithinLimit(
         writerCap
       );
     } catch (error) {
-      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
+      return fit({ text: best, passes, overLimit: overCeiling(best, key), error });
     }
     keep(compressed, compressionTargetWords(key, lengthTarget, squeeze, metrics, writerCap), false);
   }
@@ -793,14 +927,14 @@ export async function compressWithinLimit(
   // reach), with the same guards: a pass for the writer's cap alone never
   // takes words of a signed-off item (coverItemLoss), keeps the Must keep
   // figures and never ends a paragraph mid-sentence.
-  const writerOnly = writerCap !== null && !metrics.overLimit && capMetrics(best, key, writerCap).overLimit;
+  const writerOnly = writerCap !== null && !overCeiling(best, key) && capMetrics(best, key, writerCap).overLimit;
   // A targeted pass the old 10 percent reach would not have sent.
   const pastReach = writerOnly && writerCap !== null && !withinFinalCutReach(capMetrics(best, key, writerCap));
   const aim: WriterLineCap | null | undefined = !options.finalCut
     ? undefined
     : writerCap && (writerOnly || withinFinalCutReach(capMetrics(best, key, writerCap)))
       ? writerCap
-      : withinFinalCutReach(metrics)
+      : withinFinalCutReach(ceilingMetrics(best, key))
         ? null
         : undefined;
   if (aim !== undefined) {
@@ -809,11 +943,11 @@ export async function compressWithinLimit(
       passes += 1;
       compressed = await finalCutSection(anthropicFor(callSite), modelId, key, best, mustKeep, exactTerms, aim);
     } catch (error) {
-      return fit({ text: best, passes, overLimit: metrics.overLimit, error });
+      return fit({ text: best, passes, overLimit: overCeiling(best, key), error });
     }
     keep(compressed, finalCutTargetWords(key, metrics, aim), true, pastReach);
   }
-  return fit({ text: best, passes, overLimit: sectionMetrics(best, key).overLimit });
+  return fit({ text: best, passes, overLimit: overCeiling(best, key) });
 }
 
 /** Where a paragraph may end: sentence punctuation, a closing quote or bracket. */
@@ -854,6 +988,7 @@ export function toContextDocs(
     content: string;
     uploaderRole?: string;
     sourceId?: Id<"generationSources">;
+    company?: true;
   }>
 ): ContextDoc[] {
   return documents.map((document) => {
@@ -877,6 +1012,8 @@ export function toContextDocs(
         ? { uploaderRole: document.uploaderRole }
         : {}),
       ...(document.sourceId ? { sourceId: document.sourceId } : {}),
+      // Phase C: a company file never takes an uploader's trust.
+      ...(document.company ? { company: true as const } : {}),
     };
   });
 }
@@ -901,11 +1038,14 @@ export function buildAnalyzerContext(input: {
     sourceId?: Id<"generationSources">;
   }>;
   contextBudget?: ContextBudget;
+  /** 2026-10-30 (owner, item 2): the claimant line's company name. */
+  claimantName?: string;
 }): { userMessage: string; report: TrustedContextReport } {
   return buildTrustedContext({
     transcriptParts: input.transcriptParts,
     documents: toContextDocs(input.contextDocs),
     budget: input.contextBudget ?? DEFAULT_CONTEXT_BUDGET,
+    ...(input.claimantName ? { claimantName: input.claimantName } : {}),
   });
 }
 
@@ -949,6 +1089,42 @@ export async function recordContextBudget(
     maxDocuments: report.budget.maxDocuments,
     applied,
   });
+}
+
+/**
+ * Phase D (step 2): what the analyzer's request sent of each frozen row,
+ * written once it has answered, so a draft whose analysis never ran or
+ * failed records none. Telemetry only: a failure is logged, never thrown.
+ */
+export async function recordAnalyzerUse(
+  ctx: ActionCtx,
+  generationId: Id<"generations">,
+  report: TrustedContextReport
+): Promise<void> {
+  const uses = report.sources.flatMap((source) =>
+    source.sourceId && source.originalLength > 0
+      ? [
+          {
+            sourceId: source.sourceId as Id<"generationSources">,
+            sent: !source.included
+              ? 0
+              : source.truncated
+                ? Math.min(source.includedLength, source.originalLength - 1)
+                : source.originalLength,
+            total: source.originalLength,
+            unit: "chars" as const,
+            // Phase D, step 1: the parts of a document sent in part.
+            ...(source.included && source.truncated && source.ranges ? { ranges: source.ranges } : {}),
+          },
+        ]
+      : []
+  );
+  if (!uses.length) return;
+  try {
+    await ctx.runMutation(internal.generations.recordSourceUse, { generationId, step: "analyzer", uses });
+  } catch (error) {
+    console.warn("Analyzer source use not recorded", String(error).slice(0, 200));
+  }
 }
 
 export type ProvenanceDraft = {
@@ -1138,7 +1314,14 @@ export async function runPipelineForModel(
   // Owner decision 43: the model each call site's request names, from the
   // same step routing as `anthropicFor`. Every call names `modelId` when
   // absent, as before step routing.
-  modelFor: (callSite: string) => string = () => modelId
+  modelFor: (callSite: string) => string = () => modelId,
+  // 2026-10-29 (third), review round 1: reads the source evidence QA checks
+  // the drafted Lines against (qaSourceEvidenceFor). Absent, QA reads the
+  // analysis alone, as before.
+  loadQaSourceEvidence?: (sections: string[]) => Promise<FactsSourceDocuments | null>,
+  // 2026-10-30 (owner, item 2): the claimant line's company name, for the
+  // three drafts and QA. Absent, their requests are as before.
+  claimantName?: string
 ): Promise<{
   content: string;
   agentOutputs: string;
@@ -1164,9 +1347,9 @@ export async function runPipelineForModel(
       ? [qaCalibrationDigestId]
       : undefined;
   const [raw242, raw244, raw246] = await Promise.all([
-    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides, briefBlock),
-    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock),
-    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock),
+    runSection242Agent(anthropicFor("generation:section:242", styleDigestIds), analysis, modelId, brainExemplars.s242, lengthBudgetBlock("s242", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
+    runSection244Agent(anthropicFor("generation:section:244", styleDigestIds), analysis, modelId, brainExemplars.s244, lengthBudgetBlock("s244", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
+    runSection246Agent(anthropicFor("generation:section:246", styleDigestIds), analysis, modelId, brainExemplars.s246, lengthBudgetBlock("s246", lengthTarget), styleGuidance, styleOverrides, briefBlock, "", claimantName),
   ]);
   // PSOS-49: a bannedWords waiver exempts this writer from the mechanical scrub.
   let section242 = scrubBannedWordsUnlessWaived(raw242, styleOverrides.bannedWords);
@@ -1192,8 +1375,11 @@ export async function runPipelineForModel(
   // without them. Neither may fail a generation the writer would otherwise
   // have received — losing a full multi-model draft because a scorecard came
   // back malformed is far worse than shipping the draft with no scorecard.
+  const qaSourceEvidence = loadQaSourceEvidence
+    ? await loadQaSourceEvidence([section242, section244, section246])
+    : undefined;
   const [qaSettled, chronologySettled] = await Promise.allSettled([
-    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor)),
+    runQAAgent(anthropicFor("generation:qa", qaDigestIds), analysis, section242, section244, section246, modelFor("generation:qa"), qaCalibration, styleOverrides, detectFirstPersonPreference(writerFlavor), qaSourceEvidence, claimantName),
     runChronologyAgent(anthropicFor("generation:chronology"), analysis, modelFor("generation:chronology")),
   ]);
   if (qaSettled.status === "rejected") {
@@ -1285,7 +1471,10 @@ export async function beginTrackedGeneration(
  */
 export const generateReport = internalAction({
   args: { generationId: v.id("generations") },
-  handler: async (ctx, args) => {
+  handler: async (actionCtx, args) => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     const actionStartedAt = Date.now();
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx, actionStartedAt);
@@ -1335,6 +1524,8 @@ export const generateReport = internalAction({
     // The Brief while it runs beside the analysis: a failure elsewhere
     // still waits for it before the action ends (its stage never throws).
     let pendingBrief: Promise<void> | undefined;
+    // Never rejects; awaited on failure too, so its record is written.
+    let pendingWebBackground: Promise<unknown> | undefined;
 
     try {
       const scienceCode = normalizeCraScienceCode(input.scienceCode);
@@ -1459,6 +1650,30 @@ export const generateReport = internalAction({
         log,
       });
 
+      // 2026-11-02 (proposed): public background from the web, beside the
+      // analysis. It reads the analyzer's bounded input (names hidden by the
+      // query client), never throws, and the draft continues without it
+      // whatever happens (convex/ai/draftWebBackgroundRun.ts).
+      const webBackgroundStage = runDraftWebBackground(ctx, {
+        generationId: genId,
+        projectId,
+        sources: analyzerContext.userMessage,
+        deps: draftWebBackgroundDeps(ctx, {
+          queriesClient: clientForModel(ctx, retrievalBriefModel, {
+            callSite: DRAFT_WEB_QUERIES_CALL_SITE,
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: genId },
+          }),
+          queriesModel: retrievalBriefModel,
+          projectId,
+          generationId: genId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        }),
+        log,
+      });
+      pendingWebBackground = webBackgroundStage;
+
       // BNH-21: estimate generation time up front so the UI can show a
       // countdown + progress bar. Scales with input volume (transcript +
       // context docs); candidates now run in parallel, so wall-clock ≈ one
@@ -1513,11 +1728,14 @@ export const generateReport = internalAction({
       let draftStyleDigestId: Id<"learningDigests"> | undefined;
       try {
         const [qaDigest, styleDigest] = await Promise.all([
+          // Phase E (E3): a release suite --compare arm's own set, by project.
           ctx.runQuery(internal.learning.getActiveDigest, {
             kind: "qa_calibration",
+            projectId,
           }),
           ctx.runQuery(internal.learning.getActiveDigest, {
             kind: "draft_style",
+            projectId,
           }),
         ]);
         if (qaDigest?.content.trim()) {
@@ -1541,7 +1759,7 @@ export const generateReport = internalAction({
       // Story 2 (CAP-5/6, AD-26): read once, handed to every candidate, so
       // compare candidates share one Build Order. Never silent: a profile
       // that does not apply is reported as "no effective writer profile".
-      const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
+      const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
       if (orderedContext.profileState !== "applied") {
         await log(
           `No effective writer profile (${orderedContext.profileState}): House Rules apply and sections draft in the default order 242 → 244 → 246.`
@@ -1559,7 +1777,13 @@ export const generateReport = internalAction({
         analyzerRoute.model,
         brainBlocks.analyzer
       );
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       const serializedAnalysis = JSON.stringify(analysis);
+      const webBackground = await webBackgroundStage;
+      pendingWebBackground = undefined;
+      const webFields = webBackground.block
+        ? { webBackground: webBackground.block, webBackgroundAnswers: webBackground.answers }
+        : {};
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,
         analysis: serializedAnalysis,
@@ -1568,6 +1792,7 @@ export const generateReport = internalAction({
           styleGuidance: buildStyleGuidance(draftStyle, writerFlavor, styleOverrides ?? NO_STYLE_OVERRIDES),
           ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
           styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
+          ...webFields,
         }),
       });
 
@@ -1599,6 +1824,7 @@ export const generateReport = internalAction({
             generationId: genId,
             brainExemplars: brainBlocks,
             analysis: serializedAnalysis,
+            ...webFields,
             // Retained for legacy analyzer fallback compatibility; shared
             // analysis already reflects this recorded frozen-context budget.
             contextBudget: analyzerContext.report.budget,
@@ -1607,6 +1833,7 @@ export const generateReport = internalAction({
             ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
             ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
+            ...(writerFlavor && savedPreferenceTexts ? { savedPreferenceTexts } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
             orderedContext,
           }
@@ -1626,6 +1853,7 @@ export const generateReport = internalAction({
       // inputs) inside this action's deadline rather than being cut off,
       // even when failGeneration itself throws (review r2 P3).
       await pendingBrief;
+      await pendingWebBackground;
     }
   },
 });
@@ -1647,6 +1875,8 @@ export const generateCandidate = internalAction({
     qaCalibrationDigestId: v.optional(v.id("learningDigests")),
     draftStyleDigestId: v.optional(v.id("learningDigests")),
     writerFlavor: v.optional(v.string()),
+    // Sixth re-check: the saved preference texts composed into writerFlavor.
+    savedPreferenceTexts: v.optional(v.array(v.string())),
     styleOverrides: v.optional(styleOverridesValidator),
     // Resolved by generateReport when it recorded the budget report; absent
     // only for a candidate scheduled before this field existed.
@@ -1654,6 +1884,10 @@ export const generateCandidate = internalAction({
     // Story 2: the ordered profile context generateReport read once; absent
     // for ghost runs and for candidates queued before this field existed.
     orderedContext: v.optional(orderedProfileContextValidator),
+    // 2026-11-02 (proposed): the public background block and its answers
+    // (for the Self-check), when the step found any.
+    webBackground: v.optional(v.string()),
+    webBackgroundAnswers: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // The action's deadline bounds every provider request (actionDeadline.ts).
@@ -1714,7 +1948,7 @@ export const generateCandidate = internalAction({
           args.brainExemplars.analyzer
         );
         const orderedContext =
-          args.orderedContext ?? (await readOrderedProfileContext(ctx, input.requestedBy));
+          args.orderedContext ?? (await readOrderedProfileContext(ctx, input.requestedBy, input.projectId));
         await ctx.runMutation(internal.generations.createOrderedSectionRuns, {
           generationId: args.generationId,
           candidateRunId: args.candidateRunId,
@@ -1730,8 +1964,12 @@ export const generateCandidate = internalAction({
               ? { draftStyleDigestId: args.draftStyleDigestId }
               : {}),
             ...(args.writerFlavor ? { writerFlavor: args.writerFlavor } : {}),
+            ...(args.writerFlavor && args.savedPreferenceTexts ? { savedPreferenceTexts: args.savedPreferenceTexts } : {}),
             ...(args.styleOverrides ? { styleOverrides: args.styleOverrides } : {}),
             orderedContext,
+            ...(args.webBackground
+              ? { webBackground: args.webBackground, webBackgroundAnswers: args.webBackgroundAnswers ?? "" }
+              : {}),
           },
         });
         return;
@@ -1760,7 +1998,9 @@ export const generateCandidate = internalAction({
           sharedAnalysis,
           briefBlock,
           input.factQuotes,
-          (callSite) => steps.route(callSite).model
+          (callSite) => steps.route(callSite).model,
+          (sections) => qaSourceEvidenceFor(ctx, args.generationId, sections),
+          input.claimantName
         );
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: run.projectId,

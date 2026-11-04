@@ -1,0 +1,38 @@
+{
+  "projectId": "k97awqneym0wkgyzdrhrs4je5x8h54kx",
+  "clientId": "j97k2wrfpy67svd1ph9e07z1858h4tzg",
+  "header": {
+    "documentsInContext": 12,
+    "documentsTotal": 103,
+    "documentsTruncated": false
+  },
+  "companyRows": [
+    {
+      "label": "company-background.md",
+      "inclusion": "not_included"
+    },
+    {
+      "label": "last-year-report.md",
+      "inclusion": "not_included",
+      "reason": "not_captured"
+    }
+  ],
+  "notCapturedDocuments": 87,
+  "frozenDocuments": 14,
+  "dialogCompanyFiles": [
+    "company-background.md",
+    "last-year-report.md"
+  ],
+  "generationId": "k57cd90fn9p0vfkk83rxh944098h4jgv",
+  "generationRecord": {
+    "companyFilesFrom": "j97k2wrfpy67svd1ph9e07z1858h4tzg",
+    "companyFilesLeftOut": [
+      "k57h729f9rd9gp13rdfrge8qq18h4gv1"
+    ],
+    "status": "running"
+  },
+  "companyFileIds": {
+    "last-year-report.md": "k57h729f9rd9gp13rdfrge8qq18h4gv1",
+    "company-background.md": "k57hd9j5whzbs5cg6yhxp7zgyn8h4j4g"
+  }
+}

@@ -17,6 +17,10 @@
                                          fills Not drafted Sections); comments stay.
     commentRanges?: CommentRange[]     — comment highlight decorations (re-resolved by text).
     onHoverComment?: (id|null) => void — hover over a comment highlight.
+    evidenceView?: boolean = false     - the Evidence view is on (the page remembers it).
+    onEvidenceViewChange?: (on) => void - shows the Evidence view switch and its key.
+    evidenceClaims?: EvidenceClaim[] | null - the revision's claim record; null when it
+                                         has none, undefined while it loads.
 
   Exported methods — parents `bind:this` the component instance and call these
   (implements WriterEditorHandle from ./types):
@@ -54,8 +58,10 @@
     findAllOccurrencesCI,
     findOccurrencesBatch,
     normalizeForMatch,
+    reviewMarks,
     type Range,
   } from "./docSearch";
+  import { diffWords } from "$lib/diff";
 
   const REPORT_SECTION_DEFINITIONS = [
     { key: "s242", line: "242" },
@@ -273,7 +279,17 @@
     endMarkers: boolean;
     overflow: boolean;
     headingMeters: boolean;
+    /** F2: the Line the Assistant is shortening, whose pill reads "Shortening". */
+    shortening?: string | null;
   };
+
+  /** Owner 2026-10-28 (row 21): "35 words over", or the form lines over. */
+  function limitPill(metric: ReportSectionMetricMap[ReportSectionKey]): string {
+    const wordsOver = metric.words - metric.wordCap;
+    if (wordsOver > 0) return `${wordsOver} word${wordsOver === 1 ? "" : "s"} over`;
+    const linesOver = metric.lines - metric.limit;
+    return `${linesOver} form line${linesOver === 1 ? "" : "s"} over`;
+  }
 
   function limitMeterText(metric: ReportSectionMetricMap[ReportSectionKey]): string {
     const gapLineSuffix =
@@ -283,7 +299,7 @@
 
   function buildSectionLimitDecorations(
     doc: PMNode,
-    { metrics, endMarkers, overflow, headingMeters }: LimitDecorationOptions
+    { metrics, endMarkers, overflow, headingMeters, shortening = null }: LimitDecorationOptions
   ): Decoration[] {
     type OverflowSpan = { from: number; to: number; text: string; start: number };
     type SectionSource = { text: string; spans: OverflowSpan[] };
@@ -387,6 +403,9 @@
             text: limitMeterText(metric),
             description: limitWarning(line, metric),
             percent: Math.max(metric.lines / metric.limit, metric.words / metric.wordCap) * 100,
+            pill: limitPill(metric),
+            line,
+            shortening: shortening === line,
           },
         };
         markers.push(Decoration.node(headingRange.from, headingRange.to, {}, spec));
@@ -449,59 +468,69 @@
     return markers;
   }
 
+  /**
+   * The document range of one Line: its heading through the last block before
+   * the next Line's heading, found the way the Line meters find Sections.
+   */
+  function lineScope(doc: PMNode, line: string): { from: number; to: number } | undefined {
+    const wanted = `s${line}`;
+    let from: number | undefined;
+    let to: number | undefined;
+    doc.forEach((node, offset) => {
+      if (to !== undefined) return;
+      const key = reportSectionKeyForHeading(node.toJSON());
+      if (!key) return;
+      if (from === undefined) {
+        if (key === wanted) from = offset;
+      } else {
+        to = offset;
+      }
+    });
+    return from === undefined ? undefined : { from, to: to ?? doc.content.size };
+  }
+
   function buildDecorationSet(
     doc: PMNode,
     ranges: CommentRange[],
     aiRanges: Range[] = [],
     limitOptions?: LimitDecorationOptions,
-    diffs: DiffPreview[] = []
+    review: ReviewPreview | null = null
   ) {
     const decorations: Decoration[] = [];
     const docSize = doc.content.size;
 
-    // Live proposal preview: strike the text being replaced and show the
-    // proposed text inline after it (green), directly in the document.
-    const previewMatches = diffs.length
-      ? findOccurrencesBatch(doc, diffs.map((d) => d.find))
-      : [];
-    diffs.forEach((d, i) => {
-      for (const m of previewMatches[i]) {
-        decorations.push(
-          Decoration.inline(m.from, m.to, { class: "proposal-removed" })
-        );
-        if (d.replaceWith.trim()) {
-          const insert = d.replaceWith;
-          // Multi-paragraph replacements render as real paragraphs below the
-          // struck text (one <p> per blank-line-separated block, mirroring
-          // the editor's own paragraph rhythm); short swaps stay inline.
-          const block = /\n/.test(insert) || insert.length > 160;
+    // Owner 2026-10-28 (rows 34 and 35): a suggestion under review marks the
+    // words that change, inside its own Line.
+    if (review) {
+      const scope = review.line ? lineScope(doc, review.line) : undefined;
+      const marks = reviewMarks(doc, review.pairs, diffWords, scope);
+      const newAt = new Set(marks.flatMap((mark) => (mark.kind === "new" ? [mark.at] : [])));
+      for (const mark of marks) {
+        if (mark.kind === "cut") {
+          // Hidden old words take one following space with them, so the
+          // report reads without a double space, unless new words go there.
+          let to = mark.to;
+          if (!review.showChanges && !newAt.has(to) && to < docSize && /\s/.test(doc.textBetween(to, to + 1, " "))) to += 1;
           decorations.push(
-            Decoration.widget(
-              m.to,
-              () => {
-                if (!block) {
-                  const el = document.createElement("span");
-                  el.className = "proposal-added";
-                  el.textContent = insert;
-                  return el;
-                }
-                const wrap = document.createElement("div");
-                wrap.className = "proposal-added-paragraphs";
-                for (const para of insert.split(/\n{2,}/)) {
-                  if (!para.trim()) continue;
-                  const p = document.createElement("p");
-                  p.className = "proposal-added";
-                  p.textContent = para.trim();
-                  wrap.appendChild(p);
-                }
-                return wrap;
-              },
-              { side: 1 }
-            )
+            Decoration.inline(mark.from, to, { class: review.showChanges ? "review-cut" : "review-cut-hidden" })
           );
+          continue;
         }
+        const text = mark.text;
+        decorations.push(
+          Decoration.widget(
+            mark.at,
+            () => {
+              const el = document.createElement("span");
+              el.className = review.showChanges ? "review-new" : "review-new-quiet";
+              el.textContent = text;
+              return el;
+            },
+            { side: 1, key: `review-${mark.at}-${review.showChanges ? "on" : "off"}-${text}` }
+          )
+        );
       }
-    });
+    }
 
     // BNH-25: AI-referenced passages — re-resolve by text so they survive drift.
     for (const r of aiRanges) {
@@ -642,14 +671,24 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { createEditor, EditorContent, type Editor } from "svelte-tiptap";
   import type { Editor as CoreEditor } from "@tiptap/core";
   import { getEditorExtensions } from "$lib/tiptapConfig";
+  import { reportNoteRange } from "$lib/components/editor/inferenceNotes";
+  import {
+    evidenceAt,
+    evidenceSummary,
+    setEvidenceView,
+    type EvidenceClaim,
+  } from "$lib/components/editor/evidenceView";
+  import Switch from "$lib/components/ui/Switch.svelte";
+  import type { ReportNote } from "$lib/reportSections";
   import EditorToolbar from "$lib/components/editor/EditorToolbar.svelte";
   import SlashCommandMenu from "$lib/components/editor/SlashCommandMenu.svelte";
   import BlockHandle from "$lib/components/editor/BlockHandle.svelte";
   import type { ResearchSelection } from "$lib/components/editor/types";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
 
   let {
     content,
@@ -662,6 +701,11 @@
     commentRanges = [],
     onHoverComment,
     presentation = "classic",
+    onAskShorten,
+    shorteningLine = null,
+    evidenceView = false,
+    onEvidenceViewChange,
+    evidenceClaims,
   }: {
     content: string;
     onUpdate?: (json: string) => void | Promise<void>;
@@ -685,6 +729,23 @@
      * keeps the earlier look for the rollback report page.
      */
     presentation?: "classic" | "reading";
+    /**
+     * Owner 2026-10-28 (Paper row 21, F1): the over-limit pill's popover
+     * offers "Ask the Assistant to shorten it". `overBy` is the pill's words.
+     */
+    onAskShorten?: (line: string, overBy: string) => void;
+    /** F2: the Line the Assistant is shortening; its pill reads "Shortening". */
+    shorteningLine?: string | null;
+    /**
+     * Client request 2026-11-02: the Evidence view colours sentences linked
+     * to a source green and inferred or unsupported ones red, without
+     * changing the text. The page owns the choice (remembered per user).
+     */
+    evidenceView?: boolean;
+    /** Given: the editor shows the Evidence view switch and, while on, its key. */
+    onEvidenceViewChange?: (on: boolean) => void;
+    /** The revision's claim record: null when it has none, undefined while it loads. */
+    evidenceClaims?: readonly EvidenceClaim[] | null;
   } = $props();
   // svelte-ignore state_referenced_locally -- fixed at mount, like `editable`
   const reading = presentation === "reading";
@@ -706,9 +767,17 @@
     position: { top: number; left: number };
   }>({ isOpen: false, position: { top: 0, left: 0 } });
   let aiHighlights = $state<Range[]>([]);
-  /** Live "Show changes" preview: find → strikethrough, replaceWith → inline green widget. */
-  type DiffPreview = { find: string; replaceWith: string };
-  let previewDiffs = $state<DiffPreview[]>([]);
+  /** Owner 2026-10-28: the suggestion under review, marked word by word. */
+  type ReviewPreview = {
+    pairs: { find: string; replaceWith: string }[];
+    showChanges: boolean;
+    line: string | null;
+    /** The card under review (its proposal id), so its option and Show changes switches are not a new show. */
+    key: string;
+    /** None of its words were inside its Line, so it is marked wherever the report has them. */
+    wholeReport: boolean;
+  };
+  let reviewPreview = $state<ReviewPreview | null>(null);
 
   // BNH-37: canonical Schedule 60 metrics. Recompute only when the ProseMirror
   // document identity changes; selection-only transactions reuse the result.
@@ -865,6 +934,59 @@
     ed.setEditable(next, false);
   });
 
+  // Why the sentence under the pointer, or else at the cursor, has its colour.
+  let evidenceRevision = $state(0);
+  // The Evidence view: hand the switch and the claim record to its plugin.
+  // Drawing only; the document and autosave never see it.
+  $effect(() => {
+    const ed = editor;
+    if (!ed) return;
+    setEvidenceView(ed.view, { enabled: evidenceView, claims: evidenceClaims ?? null });
+    // The status line reads the plugin's new counts.
+    untrack(() => (evidenceRevision += 1));
+  });
+  let evidenceHover = $state<string | null>(null);
+  $effect(() => {
+    const ed = editor;
+    if (!ed || !evidenceView) return;
+    const bump = () => (evidenceRevision += 1);
+    const over = (event: MouseEvent) => {
+      const marked = (event.target as HTMLElement | null)?.closest?.("[data-evidence]");
+      evidenceHover = marked?.getAttribute("title") ?? null;
+    };
+    const leave = () => (evidenceHover = null);
+    const dom = ed.view.dom;
+    ed.on("transaction", bump);
+    ed.on("focus", bump);
+    ed.on("blur", bump);
+    dom.addEventListener("mouseover", over);
+    dom.addEventListener("mouseleave", leave);
+    return () => {
+      ed.off("transaction", bump);
+      ed.off("focus", bump);
+      ed.off("blur", bump);
+      dom.removeEventListener("mouseover", over);
+      dom.removeEventListener("mouseleave", leave);
+      evidenceHover = null;
+    };
+  });
+  const evidenceStatus = $derived.by(() => {
+    void evidenceRevision;
+    if (!editor || !evidenceView) return "";
+    if (evidenceClaims === undefined) return "Loading the claim record...";
+    // The cursor counts only once the writer is in the report.
+    const atCursor = editor.isFocused ? evidenceAt(editor.state, editor.state.selection.from)?.reason : undefined;
+    const why = evidenceHover ?? atCursor;
+    if (why) return why;
+    const { counts } = evidenceSummary(editor.state);
+    const sentences = (count: number) => `${count} ${count === 1 ? "sentence" : "sentences"}`;
+    const inferredOnly = evidenceClaims === null;
+    const found = inferredOnly
+      ? `This version has no claim record, so only sentences with an [INFERRED] note are coloured: ${sentences(counts.unsupported)}.`
+      : `${sentences(counts.supported)} linked to a source, ${sentences(counts.unsupported)} inferred or not backed.`;
+    return `${found} Point at a coloured sentence, or put the cursor in one, to see why.`;
+  });
+
   // Apply external content changes (see lastContent/outstandingSaves above).
   $effect(() => {
     const c = content;
@@ -911,23 +1033,138 @@
           endMarkers: false,
           overflow: limitOverlayVisible,
           headingMeters: true,
+          shortening: shorteningLine,
         }
       : limitOverlayVisible
         ? { metrics: sectionLimitMetrics, endMarkers: true, overflow: true, headingMeters: false }
         : undefined;
-    const diffs = previewDiffs;
+    const review = reviewPreview;
     let decoratedDoc: PMNode | null = null;
     let decorations: DecorationSet | null = null;
     ed.view.setProps({
       decorations: (state) => {
         if (state.doc !== decoratedDoc || !decorations) {
           decoratedDoc = state.doc;
-          decorations = buildDecorationSet(state.doc, ranges, ai, metrics, diffs);
+          decorations = buildDecorationSet(state.doc, ranges, ai, metrics, review);
         }
         return decorations;
       },
     });
   });
+
+  // Owner 2026-10-28 (Paper row 21, F1): the over-limit pill opens a popover
+  // with the Line's word and line bars, "Ask the Assistant to shorten it" and
+  // "Show the words past the limit".
+  let limitPopover = $state<{ line: string; top: number; right: number } | null>(null);
+  let limitPopoverEl = $state<HTMLDivElement | null>(null);
+  let limitPillEl: HTMLElement | null = null;
+  function closeLimitPopover(returnFocus = false, scrollToPill = true) {
+    if (!limitPopover) return;
+    // The report may have redrawn the pill since it opened: find it again.
+    const pill =
+      editor?.view.dom.querySelector<HTMLElement>(`[data-report-limit-pill="${limitPopover.line}"]`) ?? limitPillEl;
+    pill?.setAttribute("aria-expanded", "false");
+    // Focus inside the popover goes back to the pill rather than the page;
+    // a close by scrolling leaves the view where the writer put it.
+    if (returnFocus || limitPopoverEl?.contains(document.activeElement)) pill?.focus({ preventScroll: !scrollToPill });
+    limitPopover = null;
+  }
+  $effect(() => {
+    const ed = editor;
+    if (!ed) return;
+    const dom = ed.view.dom;
+    const pillFrom = (event: Event) =>
+      (event.target as HTMLElement | null)?.closest?.("[data-report-limit-pill]") as HTMLElement | null;
+    // The pill sits in a heading the caret never enters: keep the caret put.
+    const onDown = (event: MouseEvent) => {
+      if (pillFrom(event)) event.preventDefault();
+    };
+    const onClick = (event: MouseEvent) => {
+      const pill = pillFrom(event);
+      if (!pill) return;
+      event.preventDefault();
+      const line = pill.dataset.reportLimitPill ?? "";
+      if (limitPopover?.line === line) {
+        closeLimitPopover();
+        return;
+      }
+      closeLimitPopover();
+      const rect = pill.getBoundingClientRect();
+      limitPillEl = pill;
+      pill.setAttribute("aria-expanded", "true");
+      limitPopover = { line, top: rect.bottom + 8, right: Math.max(8, window.innerWidth - rect.right) };
+      // Keyboard users land in the popover, on its first action.
+      void tick().then(() => limitPopoverEl?.querySelector<HTMLButtonElement>("button")?.focus());
+    };
+    dom.addEventListener("mousedown", onDown);
+    dom.addEventListener("click", onClick);
+    return () => {
+      dom.removeEventListener("mousedown", onDown);
+      dom.removeEventListener("click", onClick);
+    };
+  });
+  $effect(() => {
+    if (!limitPopover) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && (limitPopoverEl?.contains(target) || limitPillEl?.contains(target))) return;
+      closeLimitPopover();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeLimitPopover(true);
+    };
+    const onScroll = () => closeLimitPopover(false, false);
+    // Leaving the popover by keyboard closes it, as leaving by pointer does.
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget as Node | null;
+      if (next && (limitPopoverEl?.contains(next) || limitPillEl?.contains(next))) return;
+      if (next) closeLimitPopover();
+    };
+    limitPopoverEl?.addEventListener("focusout", onFocusOut);
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+      limitPopoverEl?.removeEventListener("focusout", onFocusOut);
+    };
+  });
+  const popoverMetric = $derived(
+    limitPopover ? sectionLimitMetrics[`s${limitPopover.line}` as ReportSectionKey] : null
+  );
+  function askShorten() {
+    if (!limitPopover || !popoverMetric) return;
+    const line = limitPopover.line;
+    const overBy = limitPill(popoverMetric);
+    closeLimitPopover();
+    onAskShorten?.(line, overBy);
+  }
+  function showWordsPastLimit() {
+    if (!limitPopover || !editor) return;
+    const line = limitPopover.line;
+    closeLimitPopover();
+    limitOverlayVisible = true;
+    requestAnimationFrame(() => {
+      const dom = editor?.view.dom;
+      const heading = dom?.querySelector(`[data-report-section-heading="${line}"]`);
+      if (!dom || !heading) return;
+      const headings = [...dom.querySelectorAll("[data-report-section-heading]")];
+      const next = headings[headings.indexOf(heading) + 1];
+      const first = [...dom.querySelectorAll(".cra-limit-overflow")].find(
+        (el) =>
+          heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
+          (!next || next.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)
+      );
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      first?.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+    });
+  }
 
   // BNH-25: clicking inside a highlighted passage clears the highlight, so it
   // gets out of the way the moment the writer goes to edit there.
@@ -1210,23 +1447,81 @@
     scrollContainerToPos(from, 120);
   }
 
-  /** Live "Show changes": render a proposal as strikethrough + inline green
-   * insertions in the document itself; scrolls to the first affected match.
-   * Pass [] to clear. */
-  export function previewProposal(pairs: { find: string; replaceWith: string }[]) {
-    if (!editor) return;
-    previewDiffs = pairs.filter((p) => p.find.trim());
-    if (previewDiffs.length === 0) return;
-    const first = findAllOccurrencesCI(editor.state.doc, previewDiffs[0].find)[0];
-    if (first) scrollContainerToPos(first.from, 120);
+  /**
+   * 2026-10-29 (review round 1, P2-4): one note of the export dialog's
+   * list, its own occurrence in its own Line, so two notes with the same
+   * words each go to their own place.
+   */
+  export function showNote(note: Pick<ReportNote, "section" | "text" | "occurrence">): boolean {
+    if (!editor) return false;
+    const range = reportNoteRange(editor.state.doc, note);
+    if (!range) return false;
+    highlightRange(range.from, range.to, note.text);
+    return true;
+  }
+
+  /**
+   * Owner 2026-10-28 (rows 34 and 35): show a suggestion under review in the
+   * report. Show changes on strikes the old words and adds the new ones; off
+   * shows the report as it would read, the new words lightly marked. `line`
+   * keeps the marks inside the card's Line; `key` names the card. A card's
+   * first show scrolls the report to it and checks that the report still
+   * holds its words: inside its Line, else anywhere (a Line this editor
+   * bounds differently from the server, which decides on Accept). Returns
+   * false, and shows nothing, when the report holds none of them (they were
+   * edited after the suggestion was made), or for []. Switching the card's
+   * option or Show changes never ends the review.
+   */
+  export function previewProposal(
+    pairs: { find: string; replaceWith: string }[],
+    options: { showChanges?: boolean; line?: string | null; key?: string } = {}
+  ): boolean {
+    if (!editor) return true;
+    const kept = pairs.filter((p) => p.find.trim());
+    if (kept.length === 0) {
+      clearProposalPreview();
+      return false;
+    }
+    const doc = editor.state.doc;
+    const key = options.key ?? kept[0].find;
+    const showChanges = options.showChanges ?? true;
+    const previous = reviewPreview;
+    const marksIn = (line: string | null) => reviewMarks(doc, kept, diffWords, line ? lineScope(doc, line) : undefined);
+    if (previous && previous.key === key) {
+      const line = previous.wholeReport ? null : (options.line ?? null);
+      reviewPreview = { pairs: kept, showChanges, line, key, wholeReport: previous.wholeReport };
+      // Another option on another passage: take the writer there.
+      if (previous.pairs[0]?.find !== kept[0].find) {
+        const first = marksIn(line)[0];
+        if (first) scrollContainerToPos(first.kind === "cut" ? first.from : first.at, 120);
+      }
+      return true;
+    }
+    let line = options.line ?? null;
+    let first = marksIn(line)[0];
+    let wholeReport = false;
+    if (!first && line) {
+      first = marksIn(null)[0];
+      if (first) {
+        line = null;
+        wholeReport = true;
+      }
+    }
+    if (!first) {
+      clearProposalPreview();
+      return false;
+    }
+    reviewPreview = { pairs: kept, showChanges, line, key, wholeReport };
+    scrollContainerToPos(first.kind === "cut" ? first.from : first.at, 120);
+    return true;
   }
 
   export function clearProposalPreview() {
-    // Re-anchor on the change site before the widgets unmount, so untoggling
-    // returns the writer to the same passage instead of leaving the viewport
-    // wherever the (now shorter) document happens to land.
-    const anchor = previewDiffs[0]?.find;
-    previewDiffs = [];
+    // Re-anchor on the change site before the marks unmount, so leaving the
+    // review returns the writer to the same passage instead of leaving the
+    // viewport wherever the (now shorter) document happens to land.
+    const anchor = reviewPreview?.pairs[0]?.find;
+    reviewPreview = null;
     if (editor && anchor) {
       // Two frames: decorations unmount on the next render; measure after.
       requestAnimationFrame(() =>
@@ -1239,6 +1534,36 @@
     }
   }
 </script>
+
+{#if limitPopover && popoverMetric}
+  {@const wordsOver = popoverMetric.words > popoverMetric.wordCap}
+  {@const linesOver = popoverMetric.lines > popoverMetric.limit}
+  <div bind:this={limitPopoverEl} role="dialog" aria-label={`Line ${limitPopover.line} is over the CRA limit`}
+    class="fixed z-[90] flex w-[17.5rem] flex-col gap-3 rounded-xl border border-line bg-white p-3 shadow-popover"
+    style={`top: ${limitPopover.top}px; right: ${limitPopover.right}px`} data-limit-popover>
+    <p class="text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">Line {limitPopover.line} is over the CRA limit</p>
+    <div class="flex flex-col gap-2 text-xs leading-[calc(4/3)]">
+      {#each [{ label: "Words", value: popoverMetric.words, cap: popoverMetric.wordCap, over: wordsOver }, { label: "Lines", value: popoverMetric.lines, cap: popoverMetric.limit, over: linesOver }] as row (row.label)}
+        <div class="flex items-center gap-3">
+          <span class="w-10 shrink-0 text-ink-muted">{row.label}</span>
+          <span class="flex h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-line-soft" aria-hidden="true">
+            <span class="h-full rounded-full {row.over ? 'bg-danger' : 'bg-primary'}" style={`width: ${Math.min(100, (row.value / row.cap) * 100)}%`}></span>
+          </span>
+          <span class="shrink-0 tabular-nums {row.over ? 'text-danger-ink' : 'text-ink'}">{row.value} of {row.cap}</span>
+        </div>
+      {/each}
+    </div>
+    {#if onAskShorten}
+      <button type="button" class="inline-flex h-8 w-full items-center justify-center gap-2 rounded-[0.4375rem] bg-primary-selected px-3 text-xs font-medium leading-[calc(4/3)] text-white transition-colors hover:bg-primary-dark pointer-coarse:min-h-11"
+        onclick={askShorten} data-ask-shorten>
+        <AuroraMark size={14} />
+        Ask the Assistant to shorten it
+      </button>
+    {/if}
+    <button type="button" class="self-center text-xs leading-[calc(4/3)] text-ink-secondary hover:text-ink pointer-coarse:min-h-11"
+      onclick={showWordsPastLimit} data-show-past-limit>Show the words past the limit</button>
+  </div>
+{/if}
 
 {#if editor}
   <div class={`group/editor relative ${reading ? "report-reading" : ""}`} data-editor-presentation={presentation}>
@@ -1271,6 +1596,35 @@
         onClose={() => (slashMenu.isOpen = false)}
         position={slashMenu.position}
       />
+    {/if}
+
+    {#if onEvidenceViewChange}
+      <!-- Evidence view (client request 2026-11-02): the switch, and while
+           on, its key and why the sentence at hand has its colour. -->
+      <div class="sticky top-0 z-20 mb-4 border-b border-line-soft bg-surface py-2 font-sans" data-evidence-toolbar>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <label class="inline-flex min-h-8 cursor-pointer items-center gap-2 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink">
+            <Switch checked={evidenceView} label="Evidence view" onCheckedChange={(on) => onEvidenceViewChange?.(on)} />
+            Evidence view
+          </label>
+          {#if evidenceView}
+            <ul class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs leading-[calc(4/3)] text-ink-secondary" aria-label="Evidence view key" data-evidence-legend>
+              <li class="inline-flex items-center gap-1.5" data-evidence-key="supported">
+                <span class="evidence-swatch evidence-swatch--supported" aria-hidden="true"></span>
+                Linked to a source (solid underline)
+              </li>
+              <li class="inline-flex items-center gap-1.5" data-evidence-key="unsupported">
+                <span class="evidence-swatch evidence-swatch--unsupported" aria-hidden="true"></span>
+                Inferred or not backed (dashed underline)
+              </li>
+              <li class="text-ink-muted" data-evidence-key="plain">Plain: no source data to check</li>
+            </ul>
+          {/if}
+        </div>
+        {#if evidenceView}
+          <p class="mt-1.5 text-xs leading-[calc(4/3)] text-ink-muted" aria-live="polite" data-evidence-status>{evidenceStatus}</p>
+        {/if}
+      </div>
     {/if}
 
     <!-- The editor itself -->

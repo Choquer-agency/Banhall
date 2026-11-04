@@ -25,7 +25,8 @@ export const modelRoleValidator = v.union(
   v.literal("chat"),
   v.literal("learning_digest"),
   v.literal("science_code"),
-  v.literal("feedback_summary")
+  v.literal("feedback_summary"),
+  v.literal("file_labels")
 );
 
 /** shared/modelTracks.ts MODEL_TRACK_IDS (2026-10-22 decision). */
@@ -48,6 +49,20 @@ export const modelRedirectValidator = v.object({
   fromModelId: v.string(),
   toModelId: v.string(),
   at: v.number(),
+});
+
+/**
+ * 2026-10-23 (owner, second): a model a generation left because its tier was
+ * moved back from it, and the tier's model it continues on. The freeze was
+ * rewritten at `at`: `roles` are the frozen roles that pointed at the model
+ * and `writer` marks the writer model (`singleModelId`); its entries are kept.
+ */
+export const modelMoveValidator = v.object({
+  fromModelId: v.string(),
+  toModelId: v.string(),
+  at: v.number(),
+  roles: v.array(v.string()),
+  writer: v.optional(v.boolean()),
 });
 
 export const catalogStatusValidator = v.union(

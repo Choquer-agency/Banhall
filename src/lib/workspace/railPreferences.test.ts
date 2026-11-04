@@ -1,105 +1,33 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  LEGACY_RAIL_PREFERENCES_KEY,
   PREVIOUS_RAIL_PREFERENCES_KEY,
   RAIL_PREFERENCES_KEY,
-  loadRailPreferences,
-  RAIL_DEFAULT_WIDTH,
-  RAIL_MAX_WIDTH,
-  RAIL_MIN_WIDTH,
-  clampRailWidth,
   defaultRailPreferences,
+  loadRailPreferences,
   parseRailPreferences,
-  railWidthForKey,
   persistRailPreferences,
   serializeRailPreferences,
 } from "./railPreferences";
 
-describe("clampRailWidth", () => {
-  it("clamps into [min, max] and rounds fractional widths", () => {
-    expect(clampRailWidth(100)).toBe(RAIL_MIN_WIDTH);
-    expect(clampRailWidth(1000)).toBe(RAIL_MAX_WIDTH);
-    expect(clampRailWidth(272.6)).toBe(273);
-    expect(clampRailWidth(RAIL_MIN_WIDTH)).toBe(RAIL_MIN_WIDTH);
-    expect(clampRailWidth(RAIL_MAX_WIDTH)).toBe(RAIL_MAX_WIDTH);
-  });
-
-  it("falls to the default on non-finite input", () => {
-    expect(clampRailWidth(Number.NaN)).toBe(RAIL_DEFAULT_WIDTH);
-    expect(clampRailWidth(Number.POSITIVE_INFINITY)).toBe(RAIL_DEFAULT_WIDTH);
-  });
-});
-
+/**
+ * The drawer rail keeps one choice, the Admin group; the desktop rail's
+ * width and collapse went with the page frame (owner, 2026-10-28).
+ */
 describe("parseRailPreferences (fail-closed)", () => {
-  it("returns defaults for null, garbage, and foreign shapes", () => {
-    expect(parseRailPreferences(null)).toEqual(defaultRailPreferences());
-    expect(parseRailPreferences("")).toEqual(defaultRailPreferences());
-    expect(parseRailPreferences("not json")).toEqual(defaultRailPreferences());
-    expect(parseRailPreferences('"board"')).toEqual(defaultRailPreferences());
-    expect(parseRailPreferences("[1,2]")).toEqual({
-      width: RAIL_DEFAULT_WIDTH,
-      hidden: false,
-      adminOpen: false,
-    });
+  it("returns the closed default for null, garbage and foreign shapes", () => {
+    for (const raw of [null, "", "not json", '"board"', "[1,2]", "{}", '{"adminOpen":"yes"}']) {
+      expect(parseRailPreferences(raw)).toEqual(defaultRailPreferences());
+    }
+    expect(defaultRailPreferences()).toEqual({ adminOpen: false });
   });
 
-  it("clamps persisted widths and coerces hidden strictly to boolean true", () => {
-    expect(parseRailPreferences('{"width": 9999, "hidden": true}')).toEqual({
-      width: RAIL_MAX_WIDTH,
-      hidden: true,
-      adminOpen: false,
-    });
-    expect(parseRailPreferences('{"width": 1, "hidden": "yes"}')).toEqual({
-      width: RAIL_MIN_WIDTH,
-      hidden: false,
-      adminOpen: false,
-    });
-    expect(parseRailPreferences('{"width": "wide"}')).toEqual(defaultRailPreferences());
-  });
-
-  it("round-trips through serialize", () => {
-    const serialized = serializeRailPreferences({ width: 272, hidden: true, adminOpen: true });
-    expect(parseRailPreferences(serialized)).toEqual({ width: 272, hidden: true, adminOpen: true });
-  });
-
-  it("serializes out-of-range widths already clamped", () => {
-    expect(
-      JSON.parse(serializeRailPreferences({ width: 10_000, hidden: false, adminOpen: false }))
-    ).toEqual({
-      width: RAIL_MAX_WIDTH,
-      hidden: false,
-      adminOpen: false,
-    });
+  it("reads the Admin group choice and ignores the old width and collapse", () => {
+    expect(parseRailPreferences(JSON.stringify({ width: 240, hidden: true, adminOpen: true }))).toEqual({ adminOpen: true });
+    expect(serializeRailPreferences({ adminOpen: true })).toBe('{"adminOpen":true}');
   });
 });
 
-describe("railWidthForKey (keyboard separator)", () => {
-  it("steps ±8 on arrows and ±32 with Shift, clamped", () => {
-    expect(railWidthForKey("ArrowRight", RAIL_DEFAULT_WIDTH, false)).toBe(
-      RAIL_DEFAULT_WIDTH + 8
-    );
-    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, false)).toBe(
-      RAIL_DEFAULT_WIDTH - 8
-    );
-    expect(railWidthForKey("ArrowRight", RAIL_DEFAULT_WIDTH, true)).toBe(
-      RAIL_DEFAULT_WIDTH + 32
-    );
-    expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH - 8, true)).toBe(RAIL_MAX_WIDTH);
-    expect(railWidthForKey("ArrowLeft", RAIL_DEFAULT_WIDTH, true)).toBe(RAIL_DEFAULT_WIDTH - 32);
-    expect(railWidthForKey("ArrowLeft", RAIL_MIN_WIDTH + 8, true)).toBe(RAIL_MIN_WIDTH);
-    expect(railWidthForKey("ArrowLeft", RAIL_MIN_WIDTH, true)).toBe(RAIL_MIN_WIDTH);
-    expect(railWidthForKey("ArrowRight", RAIL_MAX_WIDTH, false)).toBe(RAIL_MAX_WIDTH);
-  });
-
-  it("maps Home/End to min/max and ignores non-resize keys", () => {
-    expect(railWidthForKey("Home", 300, false)).toBe(RAIL_MIN_WIDTH);
-    expect(railWidthForKey("End", 300, false)).toBe(RAIL_MAX_WIDTH);
-    expect(railWidthForKey("Enter", 300, false)).toBeNull();
-    expect(railWidthForKey("Escape", 300, false)).toBeNull();
-  });
-});
-
-describe("loadRailPreferences (v3 key)", () => {
+describe("loadRailPreferences", () => {
   const store = new Map<string, string>();
   const storage = {
     getItem: (key: string) => store.get(key) ?? null,
@@ -110,35 +38,32 @@ describe("loadRailPreferences (v3 key)", () => {
     delete (globalThis as { localStorage?: unknown }).localStorage;
   });
 
-  it("uses the 224px Rail v3 default and keeps only the collapsed choice from the legacy key", () => {
+  it("falls back to the v2 key's Admin group choice", () => {
     (globalThis as { localStorage?: unknown }).localStorage = storage;
-    expect(RAIL_DEFAULT_WIDTH).toBe(224);
-    store.set(LEGACY_RAIL_PREFERENCES_KEY, JSON.stringify({ width: 275, hidden: true }));
-    expect(loadRailPreferences()).toEqual({ width: 224, hidden: true, adminOpen: false });
-    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
-    expect(loadRailPreferences()).toEqual({ width: 240, hidden: false, adminOpen: false });
-  });
-
-  it("drops the v2 width but keeps its collapsed and Admin group choices", () => {
-    (globalThis as { localStorage?: unknown }).localStorage = storage;
-    store.set(LEGACY_RAIL_PREFERENCES_KEY, JSON.stringify({ width: 275, hidden: false }));
     store.set(PREVIOUS_RAIL_PREFERENCES_KEY, JSON.stringify({ width: 200, hidden: true, adminOpen: true }));
-    expect(loadRailPreferences()).toEqual({ width: 224, hidden: true, adminOpen: true });
-  });
-
-  it("reads the Admin group choice, defaulting older payloads to closed (B1, B2)", () => {
-    (globalThis as { localStorage?: unknown }).localStorage = storage;
+    expect(loadRailPreferences()).toEqual({ adminOpen: true });
     store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false }));
-    expect(loadRailPreferences().adminOpen).toBe(false);
-    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: false, adminOpen: true }));
-    expect(loadRailPreferences().adminOpen).toBe(true);
+    expect(loadRailPreferences()).toEqual({ adminOpen: false });
   });
 
-  it("merges each persisted update over what is stored", () => {
+  it("persists the choice and drops the stored width and collapse on write", () => {
     (globalThis as { localStorage?: unknown }).localStorage = storage;
-    persistRailPreferences({ width: 240, hidden: false });
+    store.set(RAIL_PREFERENCES_KEY, JSON.stringify({ width: 240, hidden: true }));
     persistRailPreferences({ adminOpen: true });
-    persistRailPreferences({ hidden: true });
-    expect(loadRailPreferences()).toEqual({ width: 240, hidden: true, adminOpen: true });
+    expect(store.get(RAIL_PREFERENCES_KEY)).toBe('{"adminOpen":true}');
+    expect(loadRailPreferences()).toEqual({ adminOpen: true });
+  });
+
+  it("falls closed when storage is blocked", () => {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+    };
+    expect(loadRailPreferences()).toEqual({ adminOpen: false });
+    expect(() => persistRailPreferences({ adminOpen: true })).not.toThrow();
   });
 });

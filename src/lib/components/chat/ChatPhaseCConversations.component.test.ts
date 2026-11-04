@@ -19,13 +19,16 @@ import {
   __setPaginatedRows,
   __setQueryData,
   __setQueryDataForArgs,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import type { TurnWebSearch } from "$lib/chat/webSources";
 import AgentChatPanel from "./AgentChatPanel.svelte";
+import ComposerOptionsPanel from "./ComposerOptionsPanel.svelte";
 import ProposedEditCard from "./ProposedEditCard.svelte";
 import ResearchFeed from "$lib/components/research/ResearchFeed.svelte";
 import { VET_LABEL, VET_NOTE_MAX_CHARS } from "../../../../shared/researchPresets";
 import { clipboardFragment, safeHref } from "$lib/chat/richCopy";
+import { buildTiptapDocument } from "../../../../convex/lib/tiptapReport";
 
 const sonner = vi.hoisted(() => ({
   error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn(), dismiss: vi.fn(),
@@ -36,7 +39,7 @@ const CAPTURES = "../../../../.vitest-attachments/chat-parity-phase-c";
 const reportId = "report-1" as Id<"reports">;
 const projectId = "project-1" as Id<"projects">;
 const composer = () => page.getByRole("textbox", { name: "Message the report assistant" });
-const menu = () => page.getByRole("button", { name: "Conversation menu", exact: true });
+const menu = () => page.getByRole("button", { name: "Chat history", exact: true });
 
 function row(id: string, text: string, order: number, role: UIMessage["role"], extra: Partial<UIMessage> = {}): UIMessage {
   return {
@@ -162,8 +165,12 @@ describe("conversation menu", () => {
       await page.getByRole("menuitem", { name: "Conversation actions", exact: true }).first().click();
       await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
       await expect.element(name).toHaveFocus();
-      await menu().click();
-      await page.getByRole("menuitem", { name: destination }).first().click();
+      if (destination === "New conversation") {
+        await page.getByRole("button", { name: "New conversation", exact: true }).click();
+      } else {
+        await menu().click();
+        await page.getByRole("menuitem", { name: destination }).first().click();
+      }
       await expect.poll(() => document.querySelector("[data-rename-conversation]"), { timeout: 5000 }).toBeNull();
     }
     expect(__mutationCalls("chatV2:renameThread")).toEqual([]);
@@ -336,8 +343,11 @@ describe("copy", () => {
 
   it("Copy wording copies a card's proposed text, on pending, applied and stale cards", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
-    const base = { targetText: "The kiln dried.", newText: "The kiln dried the birch to 8% moisture.", onReplace: vi.fn(), onReject: vi.fn() };
-    const mounted = await render(ProposedEditCard, { ...base, state: "pending" });
+    const props = (wording: string[], extra: { state: "pending" | "applied" | "stale" }) => ({
+      options: [wording], changesFor: () => [], onReview: vi.fn(), onStopReview: vi.fn(), onAccept: vi.fn(async () => {}), ...extra,
+    });
+    const mounted = await render(ProposedEditCard, props(["The kiln dried the birch to 8% moisture."], { state: "pending" }));
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
     await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
     await page.getByRole("menuitem", { name: "Copy wording", exact: true }).click();
     await expect.poll(() => writeText.mock.calls).toEqual([["The kiln dried the birch to 8% moisture."]]);
@@ -345,11 +355,8 @@ describe("copy", () => {
     await mounted.unmount();
 
     for (const state of ["applied", "stale"] as const) {
-      const card = await render(ProposedEditCard, {
-        ...base, state,
-        replacements: [{ find: "kiln", replaceWith: "drying kiln" }, { find: "birch", replaceWith: "white birch" }],
-        newText: undefined, targetText: undefined,
-      });
+      const card = await render(ProposedEditCard, props(["drying kiln", "white birch"], { state }));
+      if (state === "applied") await page.getByRole("button", { name: "Show what was accepted" }).click();
       await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
       await page.getByRole("menuitem", { name: "Copy wording", exact: true }).click();
       await expect.poll(() => writeText.mock.lastCall).toEqual(["drying kiln\n\nwhite birch"]);
@@ -358,22 +365,23 @@ describe("copy", () => {
   });
 });
 
-// Owner, 2026-10-21: a trim across several paragraphs is one edit, not a
-// find-and-replace that touches "every occurrence".
-describe("a passage set reads as one suggested edit", () => {
-  it("labels a paragraph set as one edit and a find set as replacements", async () => {
-    const replacements = [
-      { find: "The kiln dried the birch.", replaceWith: "The kiln dried birch." },
-      { find: "The press shaped the panels.", replaceWith: "The press shaped panels." },
-    ];
-    const base = { section: "Line 242", replacements, state: "pending" as const, onReplace: vi.fn(), onReject: vi.fn() };
-    const set = await render(ProposedEditCard, { ...base, passages: true });
-    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Suggested edit for Line 242");
-    expect(document.body.textContent).not.toContain("applied to every occurrence");
+// Owner 2026-10-28: every card names its Line; a find/replace card says it
+// replaces every match inside that Line.
+describe("a card names its Line", () => {
+  it("labels a passage set and a find set by their Line", async () => {
+    const props = (everyMatch: boolean) => ({
+      line: "242", options: [["The kiln dried birch.", "The press shaped panels."]], changesFor: () => [], everyMatch,
+      state: "pending" as const, onReview: vi.fn(), onStopReview: vi.fn(), onAccept: vi.fn(async () => {}),
+    });
+    const set = await render(ProposedEditCard, props(false));
+    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Line 242");
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
+    expect(document.body.textContent).not.toContain("Replaces every match");
     await set.unmount();
-    await render(ProposedEditCard, base);
-    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("2 suggested replacements in Line 242");
-    expect(document.body.textContent).toContain("2 replacements, applied to every occurrence");
+    await render(ProposedEditCard, props(true));
+    await expect.poll(() => document.querySelector("[data-proposed-edit-label]")?.textContent?.trim()).toBe("Line 242");
+    await page.getByRole("button", { name: "Show the suggestion" }).click();
+    expect(document.body.textContent).toContain("Replaces every match in Line 242.");
   });
 });
 
@@ -404,22 +412,228 @@ describe("rich copy keeps only text, structure and safe links (review R2 P3-6)",
   });
 });
 
-describe("starters", () => {
-  it("fill the empty composer and focus it without sending", async () => {
-    await render(AgentChatPanel, { reportId, projectId });
-    const starter = page.getByRole("button", { name: "Tighten the uncertainty framing in Line 242", exact: true });
-    await expect.element(starter).toBeVisible();
-    for (const text of ["Find every mention of the prototype", "Check this report for banned words", "Make Line 244 (work performed) more chronological"]) {
-      await expect.element(page.getByRole("button", { name: text, exact: true })).toBeVisible();
-    }
+// Owner 2026-10-28 (row 37): options take the message box's place. A new
+// conversation offers one "Shorten Line N" option for each Line over its CRA
+// limit; the AI's question offers its own. A pick is sent at once.
+describe("options above the message box", () => {
+  const words = (count: number) => Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
+  const overLimit = JSON.stringify(buildTiptapDocument("Report", words(385), words(20), words(30)));
+  // Every Line fits and none is under half its word limit.
+  const settled = JSON.stringify(buildTiptapDocument("Report", words(200), words(400), words(200)));
+
+  it("offers a new conversation one Shorten option per Line over its limit, and sends a pick at once", async () => {
+    __setMutationResult("chatV2:sendMessage", { threadId: "thread-new", messageId: "q-new" });
     await page.viewport(480, 760);
-    await page.screenshot({ path: `${CAPTURES}/starters.png` });
-    await starter.click();
-    await expect.element(composer()).toHaveValue("Tighten the uncertainty framing in Line 242");
-    await expect.element(composer()).toHaveFocus();
+    await render(AgentChatPanel, { reportId, projectId, reportContent: overLimit });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("What should we work on?", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /Shorten Line 242 to 350 words/ })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /Something else/ })).toBeVisible();
+    expect(page.getByText("New conversation", { exact: true }).elements().length).toBeGreaterThan(0);
+    await page.screenshot({ path: `${CAPTURES}/get-started.png` });
+    await page.getByRole("option", { name: /Shorten Line 242 to 350 words/ }).click();
+    await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Shorten Line 242 to 350 words");
+  });
+
+  // Owner 2026-10-29: options in every new conversation, built from the report.
+  it("offers the source check when nothing needs work, the QA run's issues, and the message box after Skip", async () => {
+    const first = await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /Check the report for claims the source files don't support/ })).toBeVisible();
+    expect(page.getByRole("option").elements()).toHaveLength(2);
+    await page.getByRole("button", { name: /Skip/ }).click();
+    await expect.element(composer()).toBeVisible();
     expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
-    // With text in the composer the starters step aside.
-    await expect.poll(() => document.querySelector("[data-starters]")).toBeNull();
+    first.unmount();
+
+    await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      qaIssues: [{ line: "244", text: "No baseline is stated for the first experiment." }],
+    });
+    await expect.element(page.getByRole("option", { name: /Fix the QA issue in Line 244: No baseline is stated/ })).toBeVisible();
+    expect(page.getByRole("option", { name: /Check the report for claims/ }).elements()).toHaveLength(0);
+  });
+
+  it("goes to the message box with what is typed on Get started, digits included, and never sends", async () => {
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    await userEvent.keyboard("2 things to fix");
+    await expect.element(composer()).toHaveValue("2 things to fix");
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+  });
+
+  it("keeps the message box once it has held a selection, after the selection is cleared", async () => {
+    // Typing on the panel already skips it; a selection sent from the page
+    // is the path only the message box's own record covers.
+    const view = await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      pendingHighlight: { from: 1, to: 12, text: "word0 word1" },
+    });
+    await expect.element(composer()).toBeVisible();
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await view.rerender({ pendingHighlight: null });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await expect.element(composer()).toBeVisible();
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("offers no options while research the writer started is being published, here or in a new conversation", async () => {
+    __setMutationResult("research:startResearch", "session-1");
+    const view = await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      pendingResearch: { from: 1, to: 20, text: "Kiln drying above 80 C warps birch.", context: "", preset: "vet" },
+    });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect.poll(() => __mutationCalls("research:startResearch").length).toBe(1);
+    // The page clears the selection once research starts.
+    await view.rerender({ pendingResearch: null });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await expect.element(composer()).toBeVisible();
+  });
+
+  it("keeps the message box where research was sent once it finishes, and offers Get started in a fresh conversation", async () => {
+    __setMutationResult("research:startResearch", "session-1");
+    const view = await render(AgentChatPanel, {
+      reportId, projectId, reportContent: settled,
+      pendingResearch: { from: 1, to: 20, text: "Kiln drying above 80 C warps birch.", context: "", preset: "vet" },
+    });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect.poll(() => __mutationCalls("research:startResearch").length).toBe(1);
+    await view.rerender({ pendingResearch: null });
+    // The research finishes: the hold ends.
+    __setQueryData("research:getSessionDetails", null);
+    __setQueryData("research:listSessions", [{ _id: "session-1", selectedText: "Kiln drying above 80 C warps birch.", instruction: "", preset: "vet", status: "completed", createdAt: 1 }]);
+    await expect.poll(() => page.getByRole("button", { name: "Send message", exact: true }).elements().length).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await expect.element(composer()).toBeVisible();
+    await page.getByRole("button", { name: "New conversation", exact: true }).click();
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+  });
+
+  it("shows no options over a conversation list that could not load", async () => {
+    // The list failed before any data (this file's setup seeds an empty one).
+    __setQueryData("chatV2:listThreads", undefined);
+    __setQueryError("chatV2:listThreads", new Error("Threads unavailable"));
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByRole("alert")).toHaveTextContent("Your conversations could not load.");
+    await expect.element(composer()).toBeVisible();
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("shows no options over a conversation that could not load", async () => {
+    __setQueryData("chatV2:listThreads", THREADS);
+    __setQueryError("chatV2:listMessages", new Error("Thread unavailable"));
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByRole("alert")).toHaveTextContent("This conversation could not load.");
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("waits for the page's QA reads before showing Get started", async () => {
+    const view = await render(AgentChatPanel, { reportId, projectId, reportContent: settled, qaLoading: true });
+    await expect.element(composer()).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(page.getByText("Get started", { exact: true }).elements()).toHaveLength(0);
+    await view.rerender({ qaLoading: false, qaIssues: [{ line: "246", text: "Advancement is vague." }] });
+    await expect.element(page.getByRole("option", { name: /Fix the QA issue in Line 246: Advancement is vague\./ })).toBeVisible();
+  });
+
+  it("keeps the highlighted option inside the list when the options shrink", async () => {
+    const picked: unknown[] = [];
+    const view = await render(ComposerOptionsPanel, {
+      label: "Get started", question: "What should we work on?", options: ["First", "Second", "Third"],
+      onSelect: (text: string) => picked.push(text), onSkip: () => {}, onType: () => {},
+    });
+    const list = document.querySelector<HTMLElement>("[role=listbox]")!;
+    list.focus();
+    for (let step = 0; step < 3; step++) await userEvent.keyboard("{ArrowDown}");
+    await view.rerender({ options: ["First"] });
+    await userEvent.keyboard("{Enter}");
+    expect(picked).toEqual(["First"]);
+  });
+
+  it("never picks an option on Ctrl, Cmd or Alt with a digit", async () => {
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    // Ctrl and Cmd are shortcuts: the panel stays and nothing is sent.
+    for (const modifier of ["Control", "Meta"]) await userEvent.keyboard(`{${modifier}>}1{/${modifier}}`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    // Alt is a shortcut outside a Mac and types on one (this browser says
+    // Mac): either way it never picks.
+    await userEvent.keyboard("{Alt>}1{/Alt}");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+  });
+
+  it("offers Get started in a new conversation on a report with research sessions", async () => {
+    __setQueryData("research:listSessions", [{ _id: "session-1", selectedText: "Kiln drying above 80 C warps birch.", instruction: "", preset: "vet", status: "completed", createdAt: 1 }]);
+    __setQueryData("research:getSessionDetails", null);
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+  });
+
+  it("moves to the message box on a space, a dead key or a paste, and lands the pasted text", async () => {
+    for (const key of [" ", "Dead"]) {
+      const view = await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+      await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+      const list = document.querySelector<HTMLElement>("[data-composer-options] [role=listbox]")!;
+      list.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      await expect.element(composer()).toHaveValue("");
+      await expect.element(composer()).toHaveFocus();
+      view.unmount();
+    }
+    await render(AgentChatPanel, { reportId, projectId, reportContent: settled });
+    await expect.element(page.getByText("Get started", { exact: true })).toBeVisible();
+    const data = new DataTransfer();
+    data.setData("text/plain", "Pasted request");
+    document.querySelector<HTMLElement>("[data-composer-options] [role=listbox]")!
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    await expect.element(composer()).toHaveValue("Pasted request");
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+  });
+
+  it("shows the AI's question with its options, and sends the writer's own answer", async () => {
+    __setQueryData("chatV2:listThreads", THREADS);
+    __setPaginatedRows("chatV2:listMessages", [
+      row("q1", "Shorten Line 242.", 1, "user"),
+      row("a1", "Line 242 is 35 words over. I can cut from a few places.", 1, "assistant", {
+        parts: [
+          { type: "text", text: "Line 242 is 35 words over. I can cut from a few places." },
+          { type: "tool-askWriter", toolCallId: "ask-1", state: "output-available",
+            input: { question: "What should I cut first?", options: ["The company background", "The repeated door detail"] }, output: "Shown." },
+        ],
+      } as Partial<UIMessage>),
+    ]);
+    __setQueryData("chatV2:listTurns", [{ _id: "turn-1", promptMessageId: "q1", order: 1, status: "completed", startedAt: 1, endedAt: 2, stepCount: 1 }]);
+    __setMutationResult("chatV2:sendMessage", { threadId: "thread-1", messageId: "q2" });
+    await page.viewport(480, 760);
+    await render(AgentChatPanel, { reportId, projectId });
+    await expect.element(page.getByText("Assistant needs you", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("What should I cut first?", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /The repeated door detail/ })).toBeVisible();
+    await page.screenshot({ path: `${CAPTURES}/assistant-needs-you.png` });
+    // Letters on the AI's question are not a message: it stays up.
+    (document.querySelector("[data-composer-options] [role=listbox]") as HTMLElement).focus();
+    await userEvent.keyboard("x");
+    await expect.element(page.getByText("Assistant needs you", { exact: true })).toBeVisible();
+    expect(composer().elements()).toHaveLength(0);
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+
+    await page.getByRole("option", { name: /Something else/ }).click();
+    const own = page.getByRole("textbox", { name: "Your own answer" });
+    await expect.element(own).toHaveFocus();
+    // Review 2026-10-28 (finding 2): digits typed here are the writer's words.
+    await userEvent.keyboard("Cut to 300 words");
+    expect(__mutationCalls("chatV2:sendMessage")).toEqual([]);
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => (__mutationCalls("chatV2:sendMessage")[0] as { content?: string } | undefined)?.content).toBe("Cut to 300 words");
   });
 });
 

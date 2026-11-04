@@ -340,6 +340,8 @@ async function seedProjectRows(
     });
     await ctx.db.insert("commenters", { projectId, name: "n", color: "#000", createdAt: now });
     await ctx.db.insert("reportViews", { projectId, viewerName: "v", viewerType: "writer", viewedAt: now });
+    // 2026-11-02: a person's private star goes with the project.
+    await ctx.db.insert("projectStars", { userId, projectId, createdAt: now });
     const uploadId = await ctx.db.insert("financialUploads", { projectId, fileName: "t.csv", fileType: "timesheet", content: "c", createdAt: now });
     await ctx.db.insert("timesheetEntries", {
       projectId, uploadId, personName: "p", date: "2026-01-01", hours: 1, description: "d", sredEligible: true, confidence: "high", source: "s",
@@ -365,8 +367,26 @@ async function seedProjectRows(
       projectId, reportId, agentThreadId, promptMessageId: "p1", query: "q", status: "ok",
       sources: [{ n: 1, url: "https://example.org/", title: "t", domain: "example.org" }], createdAt: now,
     });
+    // 2026-11-02 (proposed): drafting's public background cache.
+    await ctx.db.insert("draftWebBackgrounds", {
+      projectId, fingerprint: "f", version: "v", droppedQueries: 0, createdAt: now,
+      results: [{
+        query: "q", kind: "technology", status: "ok", answer: "a",
+        sources: [{ url: "https://example.org/", title: "t", domain: "example.org" }],
+      }],
+    });
     const documentId = await ctx.db.insert("projectDocuments", {
       projectId, fileName: "doc.txt", fileType: "txt", content: "doc", storageId, source: "upload", uploadedBy: "u", createdAt: now,
+    });
+    // 2026-10-22 (fourth): a file's text piece.
+    await ctx.db.insert("projectDocumentTexts", { documentId, projectId, start: 0, text: "doc" });
+    // B1: an earlier text version of the file and its text.
+    const textVersionId = await ctx.db.insert("projectDocumentTextVersions", {
+      documentId, projectId, version: 1, textHash: "h", textLength: 3, why: "word_markdown", keptAt: now,
+    });
+    await ctx.db.insert("projectDocumentTextVersionPieces", { versionId: textVersionId, projectId, start: 0, text: "old" });
+    await ctx.db.insert("documentSearchPieces", {
+      documentId, projectId, textHash: "hash", order: 0, start: 0, end: 3, searchText: "doc", prefixChars: 0,
     });
     await ctx.db.insert("documentUploadAttempts", {
       projectId, attemptKey: "11111111-1111-4111-8111-111111111111", fileName: "doc.txt", origin: "chat_upload",
@@ -401,6 +421,26 @@ async function seedProjectRows(
     const sourceId = await ctx.db.insert("generationSources", {
       generationId, projectId, kind: "transcript", label: "l", content: "c", contentHash: "h", truncated: false, originalLength: 1, capturedAt: now,
     });
+    // Phase D (step 2): what a step sent of the frozen row.
+    await ctx.db.insert("generationSourceUse", {
+      generationId, projectId, step: "brief", sourceId, state: "whole", sent: 1, total: 1, unit: "chars", at: now,
+    });
+    // Phase E (E2b): a learning signal made from the project's rows.
+    await ctx.db.insert("learningSignals", {
+      kind: "review_decision", sourceKey: "reviewDecision:erasure", projectId, producerId: userId,
+      payload: { decision: "return", note: "Tighten the openings." }, at: now,
+    });
+    // Phase E (E1a): an open suggestion's request text from this project.
+    const memoryId = await ctx.db.insert("writerMemories", {
+      userId, text: "Keeps it short.", textKey: "keeps it short", state: "suggested", origin: "suggested",
+      sourceCount: 1, checkedTextKey: "keeps it short", createdAt: now, updatedAt: now,
+    });
+    await ctx.db.insert("writerMemorySources", { memoryId, userId, projectId, ref: "learningSignal:x", text: "t", company: "c" });
+    // Phase E (E3): an open editing burst.
+    await ctx.db.insert("reportEditSizeDue", { reportId, projectId, editorUserId: userId, dueAt: now });
+    // B1, second part: a text version a draft of the project read.
+    const sourceTextVersionId = await ctx.db.insert("sourceTextVersions", { projectId, textHash: "h", textLength: 1, textBytes: 1, createdAt: now });
+    await ctx.db.insert("sourceTextVersionPieces", { versionId: sourceTextVersionId, projectId, start: 0, text: "t" });
     const briefId = await ctx.db.insert("generationBriefs", { projectId, generationId, inputsHash: "h", version: 1, origin: "derived", storylineText: "s", createdAt: now });
     await ctx.db.insert("generationBriefEntries", {
       briefId, projectId, group: "storyline", text: "t", sourceId, sourceContentHash: "h", startOffset: 0, endOffset: 1, exactExcerpt: "c", createdAt: now,
@@ -537,6 +577,17 @@ async function seedProjectRows(
       title: "Review of doomed", clientName: "Erasure Co", status: "draft", createdAt: now, updatedAt: now,
       createdBy: userId, shareToken: `review-${projectId}`, mode: "review", sourceProjectId: projectId,
     });
+    // F2: a copy out of the project into another one (kept, the reference
+    // cleared), and a copy into the project (deleted with it).
+    const copyJob = {
+      userId, status: "copying" as const, filesMade: 0, filesCopied: 0, filesFailed: 0, evidenceCopied: 0, pdReviewsCopied: 0,
+      scope: { includeReport: true, includeReviews: true, excludeDocumentIds: [], previousYearReport: false },
+      createdAt: now, updatedAt: now,
+    };
+    byRef["projectCopyJobs.fromProjectId"] = await ctx.db.insert("projectCopyJobs", {
+      ...copyJob, fromProjectId: projectId, toProjectId: byRef["projects.sourceProjectId"] as Id<"projects">,
+    });
+    await ctx.db.insert("projectCopyJobs", { ...copyJob, toProjectId: projectId });
     // Keep rows.
     byRef["writerReviews.projectId"] = await ctx.db.insert("writerReviews", { projectId, reportId, userId, score: 80, createdAt: now, updatedAt: now });
     byRef["comparisons.projectId"] = await ctx.db.insert("comparisons", {

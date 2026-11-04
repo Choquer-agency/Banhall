@@ -7,6 +7,10 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { withSourceText, type SourceRowWithText } from "../sourceText";
+import { COMPANY_FILE_LABEL_PREFIX } from "../companyEvidence";
+import { scheduleSignalCapture } from "../../learningSignals";
+import { withCurrentCompanyFiles } from "../briefEvidence";
 import { makeFunctionReference } from "convex/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import { type SectionNumber, type OrderedPayload, sectionKeyOf } from "../orderedChain";
@@ -33,6 +37,7 @@ import {
 } from "./brief";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../shared/pdSubsections";
 import {
+  FACTS_PART_FRAME_BYTES,
   emptyContextRevision,
   emptySelectionRevision,
   SeedContextLimitError,
@@ -41,7 +46,7 @@ import {
   sha256Text,
   materializeFinalWording,
   buildFrozenSummaryPlan,
-  summarySelfCheckWorstCaseResponse,
+  planSummarySelfCheckBatches,
   stableSerialize,
   resolveFrozenSourceId,
   MAX_SEED_SNAPSHOT_ROWS,
@@ -59,7 +64,7 @@ import { chooseDroppedUncertainties, deselectedSeedIds, relatedSeedsOfDropped } 
 import { transitionGeneration } from "../generationTransitions";
 import { refreshProjectGenerationActivity } from "../dashboardProjection";
 import { MODEL, seedModelById } from "../../../shared/generationModels";
-import { generationModelFreeze, entryFromFrozen } from "../modelRoles";
+import { generationModelFreeze, entryFromFrozen, leaveMovedBackModels } from "../modelRoles";
 import { persistOrderedPayload } from "../orderedPayloadStore";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
@@ -68,11 +73,12 @@ import { readSeedReadiness } from "../seedReadiness";
 import { matchesSeedExclusion, pickedLinks } from "../seedApproval";
 import { pickedUncertaintyFor } from "../../../shared/advancementLinks";
 import { terminateSeedAttempts } from "../../seedRuns";
-import { bypassSeedEpisodes } from "../seedDecisionWrites";
+import { appendSeedRoleEvent, bypassSeedEpisodes, recomputeSeedDecisions } from "../seedDecisionWrites";
 import { appendGenerationProgress } from "../generationProgress";
 import { isProjectDeleting } from "../projectDeletion";
 import { internal } from "../../_generated/api";
 import { SEED_DECISION_COLLECTION_ROWS } from "../seedDecisionState";
+import { chooseEvidence, subjectOf, utf8Size } from "../../../shared/evidenceChoice";
 import { editedTermsOf, MAX_EDITED_TERMS_PER_LINE } from "../editedTerms";
 import { unbackedBullets } from "../seedQuoteSupport";
 import {
@@ -228,6 +234,20 @@ export async function initializeSeedStageHandler(
     projectId: generation.projectId, generationId: generation._id,
     kind: "initialized", at: Date.now(), actorSystem: true,
   });
+  // 2026-10-27 (twelfth, owner): with nothing from a previous year in the
+  // draft, Previous-year status opens skipped, as the Skip action leaves it
+  // (no Batch is made); the writer can still restore it.
+  if (generation.previousYearMaterial === false) {
+    const row = await ctx.db
+      .query("seedSubsections")
+      .withIndex("by_generationId_and_roleId", q => q.eq("generationId", generation._id).eq("roleId", "prior_year_status"))
+      .unique();
+    if (row) {
+      await ctx.db.patch(row._id, { state: "skipped" });
+      const recomputed = await recomputeSeedDecisions(ctx, generation._id, "prior_year_status", true);
+      await appendSeedRoleEvent(ctx, recomputed, "skip", null);
+    }
+  }
   // Owner decision 65: the first step's Batch starts now, not when a browser
   // mounts the Seed workspace; the browser's open reuses it. Scheduled, so a
   // refused dispatch never undoes the stage opening.
@@ -245,7 +265,11 @@ export type FrozenBrainArtifact = {
   qaCalibrationDigestId?: Id<"learningDigests">;
   draftStyleDigestId?: Id<"learningDigests">;
   writerFlavor?: string;
+  savedPreferenceTexts?: string[];
   styleOverrides?: OrderedPayload["styleOverrides"];
+  /** 2026-11-02 (proposed): the public background block and its answers. */
+  webBackground?: string;
+  webBackgroundAnswers?: string;
 };
 
 export function parseFrozenBrainArtifact(content: string): FrozenBrainArtifact {
@@ -305,10 +329,19 @@ export async function frozenOrderedPayload(
       ? { draftStyleDigestId: artifact.draftStyleDigestId }
       : {}),
     ...(artifact.writerFlavor ? { writerFlavor: artifact.writerFlavor } : {}),
+    ...(artifact.writerFlavor && Array.isArray(artifact.savedPreferenceTexts) && artifact.savedPreferenceTexts.every((text) => typeof text === "string")
+      ? { savedPreferenceTexts: artifact.savedPreferenceTexts }
+      : {}),
     ...(artifact.styleOverrides ? { styleOverrides: artifact.styleOverrides } : {}),
     orderedContext: artifact.orderedContext,
     frozenStyleGuidance: artifact.styleGuidance,
     summaryVersionId,
+    ...(typeof artifact.webBackground === "string" && artifact.webBackground
+      ? {
+          webBackground: artifact.webBackground,
+          webBackgroundAnswers: typeof artifact.webBackgroundAnswers === "string" ? artifact.webBackgroundAnswers : "",
+        }
+      : {}),
   };
 }
 
@@ -625,7 +658,8 @@ export async function signOffSeedStageHandler(
       // advancement check with Line 242 at its reserved worst case, are
       // counted, so the runtime requests never exceed what is admitted.
       // (second, Rule C): so is Line 244's work check, with Line 242 at the
-      // same reservation and Line 246's signed-off items whole.
+      // same reservation and Line 246's signed-off items (each bullet up to
+      // MAX_REFERENCE_BULLET_CHARS since 2026-10-27).
       const plan = buildFrozenSummaryPlan({
         section: `s${section}`,
         items: admittedItems,
@@ -646,7 +680,10 @@ export async function signOffSeedStageHandler(
         briefEntries,
         payload,
       });
-      summarySelfCheckWorstCaseResponse({
+      // 2026-10-26 (P0 item 2): admitted when the Line's checks fit the
+      // requests the Self-check will send (planSummarySelfCheckBatches),
+      // not only one request.
+      planSummarySelfCheckBatches({
         ordinaryChecks,
         planChecks: plan.checks,
         includeStorylineQuestion:
@@ -681,7 +718,16 @@ export async function signOffSeedStageHandler(
   await appendGenerationProgress(ctx, generation, [
     `Summary signed off. Drafting ${payload.orderedContext.buildOrder.join(" → ")} in Build Order.`,
   ]);
-  await transitionGeneration(ctx, generation, "running", {
+  // Phase E (E2b): the stage's choices as a learning signal, by its signer.
+  await scheduleSignalCapture(ctx, { seedChoicesGenerationId: generation._id, producerId: user._id });
+  // Phase E (E1a): a writer-memory suggestion run once the signals are in,
+  // at most one a day per writer.
+  await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.writerMemory.suggestForWriter, { userId: user._id, reason: "sign_off" });
+  // 2026-10-23 (owner, second): the picks above are kept, and the drafting
+  // runs on the models its tiers use now when a tier was moved back from
+  // one this plan froze.
+  const drafting = await leaveMovedBackModels(ctx, generation);
+  await transitionGeneration(ctx, drafting, "running", {
     summaryVersionId,
     currentStep: `Drafting ${payload.orderedContext.buildOrder[0]}…`,
     totalCandidates: 1,
@@ -692,7 +738,7 @@ export async function signOffSeedStageHandler(
   });
   const chain = await createFrozenOrderedChain(
     ctx,
-    generation,
+    drafting,
     summaryVersionId,
     payload
   );
@@ -891,6 +937,8 @@ export async function retryInitializeSeedStageHandler(
   await requireFrozenSeedArtifacts(ctx, generation);
   // Audit wave 2: a retry counts as a generation start.
   await limitGenerationStart(ctx, user._id, existing.projectId);
+  // 2026-10-23 (owner, second): off a model its tier was moved back from.
+  await leaveMovedBackModels(ctx, generation);
   await ctx.db.patch(generation._id, { seedStageError: undefined, currentStep: "Preparing seeds" });
   await ctx.scheduler.runAfter(0, internal.ai.iterative.resumeSeedInitialization, args);
   return null;
@@ -1165,8 +1213,9 @@ export async function loadFrozenSectionPlan(
   // for the drafter's warning in the plan and for the facts check.
   const quoteStates = await itemQuoteStates(ctx, generation, items, quoteMarksByItemId);
   const pdSection = section === "242" ? "s242" : section === "244" ? "s244" : "s246";
-  // 2026-09-30 (first, Rule B): Line 242's signed-off plan items, whole, then
-  // its drafted text, clipped alone (Greptile P1); before it is drafted, the
+  // 2026-09-30 (first, Rule B): Line 242's signed-off plan items (each bullet
+  // up to MAX_REFERENCE_BULLET_CHARS since 2026-10-27), then its drafted
+  // text, clipped (Greptile P1); before it is drafted, the
   // items alone. Admission counts the same items with the text at its
   // reservation (worst_case), so admission and runtime agree.
   const line242Items = line242PlanItems(items, summary.skippedRoleIds);
@@ -1178,7 +1227,8 @@ export async function loadFrozenSectionPlan(
       : { line242Text };
   const answers242 = section === "246" ? line242Reference : undefined;
   // 2026-09-30 (second, Rule C): Line 244's work check reads Line 242 the
-  // same way, then Line 246's signed-off items, whole.
+  // same way, then Line 246's signed-off items, each bullet up to
+  // MAX_REFERENCE_BULLET_CHARS.
   const workAnswers242 = section === "244" ? line242Reference : undefined;
   const line246Items = line246PlanItems(items, summary.skippedRoleIds);
   const plan = buildFrozenSummaryPlan({
@@ -1388,42 +1438,124 @@ function planItemSourcesOf(
 /**
  * 2026-10-04 (second, round 2, owner approved 2026-10-05): the frozen source
  * documents (transcripts and project documents, in the order frozen) the
- * facts check reads in full. Round 2 review: each document is marker-safe
- * before it is counted (P2-1: its text through neutralizeMarkers, its file
- * name through sanitizeFileName, and a writer_notes label an internal user
- * did not upload demoted, as the analyzer's context does), and each one that
- * still fits SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, in order, is included while
- * any that does not is left out and named with its size (P2-4). It reads
- * every row of the generation's sources once (other kinds are read, not
- * counted), as the generation input query does.
+ * facts check reads. Round 2 review: each document is marker-safe before it
+ * is counted (P2-1: its text through neutralizeMarkers, its file name
+ * through sanitizeFileName, and a writer_notes label an internal user did
+ * not upload demoted, as the analyzer's context does). It reads every row of
+ * the generation's sources once (other kinds are read, not counted), as the
+ * generation input query does.
+ *
+ * Phase D, step 1 (owner decision "2026-10-28 (fourth)"): when they all fit
+ * SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES, every document is read whole, as
+ * before. When they do not, the writer's notes go in whole first, then the
+ * parts of every other document that best match `subjectTexts` (the Line's
+ * own plan), each part its own entry; a document read in part is named in
+ * `readInPart`, and one with no part read is left out and named with its
+ * size (P2-4), as before. A quote is then found only in what was read.
  */
 export async function loadFactsSourceDocuments(
   ctx: { db: QueryCtx["db"] },
-  generation: Doc<"generations">
+  generation: Doc<"generations">,
+  /**
+   * Phase D (step 2): filled with what the check sends of each row it
+   * weighs, in UTF-8 bytes, and (step 1) the parts of a row read in part.
+   */
+  uses?: Array<{ sourceId: Id<"generationSources">; sent: number; total: number; ranges?: Array<{ start: number; end: number }> }>,
+  /** Phase D, step 1: what the Line is about, to choose the parts read. */
+  subjectTexts: readonly string[] = [],
+  /**
+   * 2026-10-29 (third), review round 1: QA's read skips a row whose text
+   * cannot be read and names it in `unreadable`, so one bad row does not
+   * cost QA every source. The facts check still refuses by name, as before.
+   */
+  options: { skipUnreadable?: boolean } = {}
 ): Promise<FactsSourceDocuments> {
+  const unreadable: NonNullable<FactsSourceDocuments["unreadable"]> = [];
   const budget = SOURCE_DOCUMENTS_BUDGET_UTF8_BYTES;
-  const documents: FactsSourceDocument[] = [];
-  const leftOut: FactsSourceDocuments["leftOut"] = [];
-  let used = 0;
+  const weighed: Array<{ sourceId: Id<"generationSources">; document: FactsSourceDocument; bytes: number; samePlaces: boolean }> = [];
   for await (const row of ctx.db
     .query("generationSources")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))) {
-    if (row.kind !== "transcript" && row.kind !== "project_document") continue;
-    const document = factsSourceDocumentOf(row);
-    const bytes = new TextEncoder().encode(document.content).byteLength;
-    if (used + bytes > budget) {
-      leftOut.push({ label: document.label, bytes });
+    if (row.kind !== "transcript" && row.kind !== "project_document" && row.kind !== "company_file") continue;
+    // Phase C: no company file of a company the project has left.
+    if (row.kind === "company_file" && (await withCurrentCompanyFiles(ctx, generation.projectId, [row])).length === 0) continue;
+    // B1, second part: the row's text, wherever it is kept.
+    let text: Awaited<ReturnType<typeof withSourceText<typeof row>>>;
+    try {
+      text = await withSourceText(ctx, row);
+    } catch (error) {
+      if (!options.skipUnreadable) throw error;
+      const label = factsSourceDocumentOf({
+        kind: row.kind,
+        label: row.label,
+        content: "",
+        ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
+      }).label;
+      unreadable.push({ label });
       continue;
     }
-    used += bytes;
-    documents.push(document);
+    const document = factsSourceDocumentOf(text);
+    // Parts are chosen on the marker-safe text, which only ever grows, so
+    // its positions are the row's own when its length is unchanged.
+    weighed.push({ sourceId: row._id, document, bytes: utf8Size(document.content), samePlaces: document.content.length === text.content.length });
   }
-  return { documents, leftOut, budget };
+  const chosen = chooseEvidence({
+    rows: weighed.map(({ document }) => ({
+      text: document.content,
+      ...(document.writer ? { whole: true } : {}),
+      // Each excerpt carries its own label line.
+      excerptCost: utf8Size(document.label) + FACTS_PART_FRAME_BYTES,
+    })),
+    subject: subjectOf(subjectTexts),
+    budget,
+    size: utf8Size,
+  });
+  const documents: FactsSourceDocument[] = [];
+  const leftOut: FactsSourceDocuments["leftOut"] = [];
+  const readInPart: NonNullable<FactsSourceDocuments["readInPart"]> = [];
+  weighed.forEach(({ sourceId, document, bytes, samePlaces }, index) => {
+    const { ranges, whole, cut, matched } = chosen[index]!;
+    if (whole) {
+      documents.push(document);
+      uses?.push({ sourceId, sent: bytes, total: bytes });
+      return;
+    }
+    if (ranges.length === 0) {
+      leftOut.push({ label: document.label, bytes });
+      uses?.push({ sourceId, sent: 0, total: bytes });
+      return;
+    }
+    let sent = 0;
+    ranges.forEach((range, part) => {
+      const content = document.content.slice(range.start, range.end);
+      sent += utf8Size(content);
+      documents.push({
+        ...document,
+        label: cut ? `${document.label} (its start)` : `${document.label} (excerpt ${part + 1} of ${ranges.length})`,
+        content,
+      });
+    });
+    readInPart.push({
+      label: document.label,
+      bytes,
+      sent,
+      ...(cut ? { start: true as const } : {}),
+      ...(matched ? { matched: true as const } : {}),
+    });
+    uses?.push({ sourceId, sent, total: bytes, ...(samePlaces ? { ranges } : {}) });
+  });
+  return {
+    documents,
+    leftOut,
+    budget,
+    ...(readInPart.length > 0 ? { readInPart } : {}),
+    ...(unreadable.length > 0 ? { unreadable } : {}),
+  };
 }
 
-/** One frozen transcript or project document, marker-safe, as the facts check reads it. */
+/** One frozen transcript, project document or company file (Phase C), marker-safe, as the facts check reads it. */
 export function factsSourceDocumentOf(
-  row: Pick<Doc<"generationSources">, "kind" | "label" | "content" | "uploaderRole">
+  row: Pick<SourceRowWithText, "kind" | "label" | "content" | "uploaderRole">
 ): FactsSourceDocument {
   const content = neutralizeMarkers(row.content);
   if (row.kind === "transcript") {
@@ -1441,7 +1573,7 @@ export function factsSourceDocumentOf(
     ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
   });
   return {
-    label: `${ANALYZER_CATEGORY_LABELS[shown]}: ${sanitizeFileName(fileName)}`,
+    label: `${row.kind === "company_file" ? COMPANY_FILE_LABEL_PREFIX : ""}${ANALYZER_CATEGORY_LABELS[shown]}: ${sanitizeFileName(fileName)}`,
     content,
     ...(shown === "writer_notes" ? { writer: true } : {}),
   };
@@ -1479,7 +1611,8 @@ export async function assertFrozenSummaryRuntimeAdmission(
         briefEntries: loadedBrief.briefEntries,
         payload,
       });
-      summarySelfCheckWorstCaseResponse({
+      // 2026-10-26 (P0 item 2): the same batches as at sign-off.
+      planSummarySelfCheckBatches({
         ordinaryChecks,
         planChecks: plan.planChecks,
         includeStorylineQuestion:

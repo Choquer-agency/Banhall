@@ -63,6 +63,7 @@ import {
 } from "./lib/writerPrecedence";
 import { buildPlaceholderMap, type PlaceholderMap } from "./lib/deidentify";
 import { withPlaceholders } from "./ai/placeholderClient";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -82,7 +83,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -137,9 +138,7 @@ function installFetch(script: {
   const compressions = [...(script.compressions ?? [])];
   const checks = [...script.checks];
   const ordinaryAnswers = [...(script.ordinaryAnswers ?? [])];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== "https://api.anthropic.com/v1/messages") {
         throw new Error(`Unexpected HTTP transport ${request.url}`);
@@ -550,18 +549,21 @@ describe("an idea kept despite a Claim Exclusion is drafted and kept (real SDK, 
   it("the kept idea stays on the compression's Must keep list", async () => {
     const support =
       "The dryer logs describe how each controller behaved through the season and how the engineers compared every alert with the operator notes.";
+    // 2026-10-29 (third, item 7): over the 840-word drafting ceiling, and
+    // the fitted text over the pass's floor (60 percent of 673 words).
     const long = [
-      `${PLAN_P1} ${Array(11).fill(support).join(" ")}`,
-      `${BASELINE_P2} ${KEPT_SENTENCE} ${Array(11).fill(support).join(" ")}`,
-      `${RESIDUAL_P3} ${Array(11).fill(support).join(" ")}`,
+      `${PLAN_P1} ${Array(15).fill(support).join(" ")}`,
+      `${BASELINE_P2} ${KEPT_SENTENCE} ${Array(15).fill(support).join(" ")}`,
+      `${RESIDUAL_P3} ${Array(15).fill(support).join(" ")}`,
     ].join("\n\n");
     const fitted = [
-      `${PLAN_P1} ${Array(5).fill(support).join(" ")}`,
-      `${BASELINE_P2} ${KEPT_SENTENCE} ${Array(5).fill(support).join(" ")}`,
-      `${RESIDUAL_P3} ${Array(5).fill(support).join(" ")}`,
+      `${PLAN_P1} ${Array(7).fill(support).join(" ")}`,
+      `${BASELINE_P2} ${KEPT_SENTENCE} ${Array(7).fill(support).join(" ")}`,
+      `${RESIDUAL_P3} ${Array(7).fill(support).join(" ")}`,
     ].join("\n\n");
-    expect(sectionMetrics(long, "s244").overLimit).toBe(true);
+    expect(sectionMetrics(long, "s244").words).toBeGreaterThan(840);
     expect(sectionMetrics(fitted, "s244").overLimit).toBe(false);
+    expect(sectionMetrics(fitted, "s244").words).toBeGreaterThan(Math.floor(673 * 0.6));
     const sent = installFetch({
       draft: long,
       compressions: [fitted],

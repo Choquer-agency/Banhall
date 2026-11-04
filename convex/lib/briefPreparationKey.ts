@@ -12,6 +12,7 @@
  * citation's validity. Rules the request bytes do not show are hashed in
  * from convex/lib/briefDerivationPolicy.ts.
  */
+import type { SourceRowWithText } from "./sourceText";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
@@ -50,7 +51,7 @@ export { BRIEF_DERIVATION_VERSION } from "./briefDerivationPolicy";
 
 /** The fields of one frozen row the key reads, from either table. */
 export type BriefKeySource = Pick<
-  Doc<"generationSources">,
+  SourceRowWithText,
   | "kind"
   | "label"
   | "content"
@@ -59,6 +60,7 @@ export type BriefKeySource = Pick<
   | "originalLength"
   | "transcriptId"
   | "projectDocumentId"
+  | "companyFileId"
   | "digestId"
   | "uploaderRole"
   | "factsVersion"
@@ -112,7 +114,7 @@ async function keyNames(ctx: Ctx, scope: BriefKeyScope) {
 }
 
 function rowIdentity(
-  source: Pick<BriefKeySource, "sourceKey" | "transcriptId" | "projectDocumentId">,
+  source: Pick<BriefKeySource, "sourceKey" | "transcriptId" | "projectDocumentId" | "companyFileId">,
   names: { byTranscript: Map<string, string>; byDocument: Map<string, string> }
 ): string | null {
   if (source.sourceKey) return `intake:${source.sourceKey}`;
@@ -124,6 +126,8 @@ function rowIdentity(
     const key = names.byDocument.get(source.projectDocumentId);
     return key ? `intake:${key}` : `document:${source.projectDocumentId}`;
   }
+  // Phase C: a company file is named by its own id (no intake links).
+  if (source.companyFileId) return `company:${source.companyFileId}`;
   return null;
 }
 

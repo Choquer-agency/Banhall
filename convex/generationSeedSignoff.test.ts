@@ -19,13 +19,16 @@ import type { MutationCtx } from "./_generated/server";
 import { AI_RATE_LIMITS, aiRateLimiter } from "./lib/aiRateLimits";
 import { refill, spendAll } from "./aiRateLimits.fixture";
 import { restorePlaceholders } from "./lib/deidentify";
+import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
 import {
   emptyContextRevision,
   emptySelectionRevision,
   MAX_SEED_PROMPT_UTF8_BYTES,
   MAX_SUMMARY_ORDINARY_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_BATCHES,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   ANSWERS_242_WORST_CASE_REFERENCE,
   FROZEN_SUMMARY_PLAN_SCAFFOLD,
@@ -34,8 +37,11 @@ import {
   projectFrozenSummaryPlanChecks,
   projectSummaryOrdinaryChecks,
   projectSummarySelfCheckWorstCaseResponse,
+  planSummarySelfCheckBatches,
   stableSerialize,
   type FrozenSummaryPlanCheck,
+  type SummaryOrdinaryCheck,
+  type SummarySelfCheckBatch,
 } from "./lib/seedRevisions";
 import {
   MalformedOutputError,
@@ -63,6 +69,7 @@ import type {
 import type { completeAttempt, dispatch } from "./seedRuns";
 import { readSeedReadiness } from "./lib/seedReadiness";
 import { factIndex } from "./lib/seedFacts";
+import { withSourceTexts } from "./lib/sourceText";
 import { runSeedDraftingInputs, settleFirstSeedBatch } from "./seedStartup.fixture";
 import schema from "./schema";
 import { agentOutputsOf } from "./lib/generationOutputs";
@@ -99,6 +106,27 @@ vi.mock("./lib/seedRevisions", async (importOriginal) => {
         );
       }
       return serialized;
+    },
+    // 2026-10-26 (P0 item 2): sign-off and runtime admission now admit a
+    // Line by its batches, so the controlled executing program refuses any
+    // one request whose worst-case response is over its limit.
+    planSummarySelfCheckBatches: (
+      args: Parameters<typeof actual.planSummarySelfCheckBatches>[0]
+    ) => {
+      const batches = actual.planSummarySelfCheckBatches(args);
+      const executingLimit = summaryAdmissionProgram.responseUtf8Limit;
+      if (
+        executingLimit !== null &&
+        batches.some((batch) => new TextEncoder().encode(
+          actual.projectSummarySelfCheckWorstCaseResponse(batch)
+        ).byteLength > executingLimit)
+      ) {
+        throw new actual.SeedContextLimitError(
+          "summary_self_check_response_utf8_bytes",
+          `Controlled executing Summary program exceeds ${executingLimit} UTF-8 bytes`
+        );
+      }
+      return batches;
     },
   };
 });
@@ -353,8 +381,9 @@ async function runNextSectionAction(
   generationId: Id<"generations">
 ) {
   vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+  // Sign-off also schedules a learning signal and a writer-memory run (Phase E).
   const job = await s.t.run(async (ctx) =>
-    (await ctx.db.system.query("_scheduled_functions").take(30)).find(
+    (await ctx.db.system.query("_scheduled_functions").take(200)).find(
       (candidate) =>
         candidate.name === "ai/orderedGeneration:generateOrderedSection" &&
         candidate.args[0]?.generationId === generationId &&
@@ -882,10 +911,10 @@ function literalSummaryResponseOracle(args: {
   const paragraph = 9_999_999_999;
   const reason = "r".repeat(64);
   const repairGuidance = "g".repeat(96);
+  // 2026-10-22 (third): a plan verdict names only its own reference.
   const planVerdicts = args.planChecks.map((check) => check.itemId
     ? JSON.stringify({
         itemId: check.itemId,
-        mergedItemIds: [...check.mergedItemIds],
         outcome: "not_applied",
         paragraph,
         reason,
@@ -894,7 +923,6 @@ function literalSummaryResponseOracle(args: {
     : check.droppedSeedId
       ? JSON.stringify({
           droppedSeedId: check.droppedSeedId,
-          mergedItemIds: [],
           outcome: "not_applied",
           paragraph,
           reason,
@@ -914,7 +942,6 @@ function literalSummaryResponseOracle(args: {
                   })),
                 }
               : {}),
-            mergedItemIds: [],
             outcome: "not_applied",
             paragraph,
             reason,
@@ -936,7 +963,6 @@ function literalSummaryResponseOracle(args: {
               : {}),
           })
         : JSON.stringify({
-            mergedItemIds: [],
             outcome: "not_applied",
             paragraph,
             reason,
@@ -982,16 +1008,16 @@ function independentOutputReachability(actualItemId: string) {
   const repairGuidance = "g".repeat(96);
   const idWidth = utf8Bytes(JSON.stringify(actualItemId));
   const placeholderId = "i".repeat(idWidth - 2);
-  const itemRow = (groupSize: number) => JSON.stringify({
+  // 2026-10-22 (third): an item row no longer repeats its group's merged
+  // ids, so every item row has the same width whatever its group's size.
+  const itemRow = () => JSON.stringify({
     itemId: placeholderId,
-    mergedItemIds: Array.from({ length: groupSize }, () => placeholderId),
     outcome: "not_applied",
     paragraph,
     reason,
     repairGuidance,
   });
   const skipRow = (skippedRoleId: string) => JSON.stringify({
-    mergedItemIds: [],
     outcome: "not_applied",
     paragraph,
     reason,
@@ -1022,7 +1048,7 @@ function independentOutputReachability(actualItemId: string) {
       : 0) +
     utf8Bytes(',"verdicts":[') + ordinaryRowsBytes + utf8Bytes("]}");
   const minimumRowBytes = Math.min(
-    utf8Bytes(itemRow(1)),
+    utf8Bytes(itemRow()),
     utf8Bytes(skipRow("workplan"))
   );
   let firstPrunedPlanRows = 1;
@@ -1042,7 +1068,7 @@ function independentOutputReachability(actualItemId: string) {
       const size = index + 1;
       return {
         rows: size,
-        rowBytesWithDelimiters: size * (utf8Bytes(itemRow(size)) + 1),
+        rowBytesWithDelimiters: size * (utf8Bytes(itemRow()) + 1),
         groups: [size],
         skips: [] as string[],
       };
@@ -1099,7 +1125,7 @@ function independentOutputReachability(actualItemId: string) {
     (_, index) => ({
       rows: index + 1,
       rowBytesWithDelimiters:
-        (index + 1) * (utf8Bytes(itemRow(1)) + 1),
+        (index + 1) * (utf8Bytes(itemRow()) + 1),
       groups: Array.from({ length: index + 1 }, () => 1),
       skips: [],
     })
@@ -1118,7 +1144,7 @@ function independentOutputReachability(actualItemId: string) {
         state,
       ])
     );
-    const groupRowBytes = groupSize * (utf8Bytes(itemRow(groupSize)) + 1);
+    const groupRowBytes = groupSize * (utf8Bytes(itemRow()) + 1);
     for (const base of snapshot) {
       for (
         let copies = 1;
@@ -1417,19 +1443,20 @@ async function frozenS244OracleChecks(
 
 function mutateSerializedProductionEnvelope(
   serialized: string,
-  mutation: "omit_storyline" | "omit_repeated_merge" | "short_reason"
+  mutation: "omit_storyline" | "repeat_merged_ids" | "short_reason"
 ): string {
   const envelope = JSON.parse(serialized) as {
     storylineQuestion?: unknown;
-    planVerdicts: Array<{ mergedItemIds: string[]; reason: string }>;
+    planVerdicts: Array<{ itemId?: string; mergedItemIds?: string[]; reason: string }>;
     verdicts: Array<{ reason: string }>;
   };
   if (mutation === "omit_storyline") {
     Reflect.deleteProperty(envelope, "storylineQuestion");
-  } else if (mutation === "omit_repeated_merge") {
-    const repeated = envelope.planVerdicts.find((row) => row.mergedItemIds.length > 1);
-    if (!repeated) throw new Error("Missing repeated merge contribution");
-    repeated.mergedItemIds = repeated.mergedItemIds.slice(0, -1);
+  } else if (mutation === "repeat_merged_ids") {
+    // 2026-10-22 (third): the echo every item verdict carried before.
+    const item = envelope.planVerdicts.find((row) => row.itemId !== undefined);
+    if (!item?.itemId) throw new Error("Missing item verdict");
+    item.mergedItemIds = [item.itemId];
   } else {
     const row = envelope.verdicts[0] ?? envelope.planVerdicts[0];
     if (!row) throw new Error("Missing maximum-text contribution");
@@ -1598,10 +1625,11 @@ async function frozenSectionPlan(
     if (!generation?.summaryVersionId) throw new Error("Missing signed Summary");
     const summary = await ctx.db.get(generation.summaryVersionId);
     if (!summary) throw new Error("Missing Summary version");
+    // 2026-10-22 (third): room for the 110 corrupted experimentation items.
     const items = await ctx.db.query("summaryItems")
       .withIndex("by_summaryVersionId_and_order", (q) =>
         q.eq("summaryVersionId", summary._id))
-      .take(64);
+      .take(300);
     const referencesBySeedId = new Map(
       items.map((item) => [item.seedId, item.bullets] as const)
     );
@@ -1656,6 +1684,17 @@ async function projectedFixtureOutputEnvelope(
   section: "242" | "244" | "246",
   planChecks: readonly FrozenSummaryPlanCheck[]
 ): Promise<string> {
+  return projectSummarySelfCheckWorstCaseResponse({
+    ...(await fixtureOrdinaryAdmission(s, section)),
+    planChecks,
+  });
+}
+
+/** The ordinary checks the persisted Brief and frozen rules give one Line. */
+async function fixtureOrdinaryAdmission(
+  s: Awaited<ReturnType<typeof decisionFixture>>,
+  section: "242" | "244" | "246"
+): Promise<{ ordinaryChecks: SummaryOrdinaryCheck[]; includeStorylineQuestion: boolean }> {
   const context = await s.t.run(async (ctx) => {
     const brief = await ctx.db.get(s.briefId);
     if (!brief) throw new Error("Missing frozen Brief");
@@ -1724,13 +1763,59 @@ async function projectedFixtureOutputEnvelope(
         rule.maxLines === undefined
     ),
   });
-  return projectSummarySelfCheckWorstCaseResponse({
+  return {
     ordinaryChecks,
-    planChecks,
     includeStorylineQuestion:
       context.brief.storylineText.trim().length > 0 &&
       activeEntries.some((entry) => entry.group === "confidenceMap"),
-  });
+  };
+}
+
+/**
+ * 2026-10-26 (P0 item 2): the requests one Line's Summary Self-check is
+ * sent as, from the same checks sign-off and runtime admission read, with
+ * the partition checked: every check in exactly one request, every rule
+ * check in the first, which alone may ask the Storyline question, and each
+ * request within every per-request limit. One request holds everything.
+ */
+async function fixtureSummaryBatches(
+  s: Awaited<ReturnType<typeof decisionFixture>>,
+  section: "242" | "244" | "246",
+  planChecks: readonly FrozenSummaryPlanCheck[]
+): Promise<SummarySelfCheckBatch[]> {
+  const line = { ...(await fixtureOrdinaryAdmission(s, section)), planChecks };
+  const batches = planSummarySelfCheckBatches(line);
+  expect(batches.flatMap((batch) => batch.ordinaryChecks)).toEqual(line.ordinaryChecks);
+  const placed = batches.flatMap((batch) => batch.planChecks);
+  expect(placed).toHaveLength(planChecks.length);
+  for (const check of planChecks) {
+    expect(placed.filter((candidate) => candidate === check)).toHaveLength(1);
+  }
+  expect(batches[0]!.planChecks.filter((check) => check.ruleId !== undefined))
+    .toEqual(planChecks.filter((check) => check.ruleId !== undefined));
+  expect(batches.slice(1).flatMap((batch) => batch.planChecks)
+    .filter((check) => check.ruleId !== undefined)).toEqual([]);
+  expect(batches.map((batch) => batch.includeStorylineQuestion))
+    .toEqual(batches.map((_, index) => index === 0 && line.includeStorylineQuestion));
+  for (const batch of batches) {
+    expect(batch.ordinaryChecks.length + batch.planChecks.length).toBeGreaterThan(0);
+    expect(batch.ordinaryChecks.length).toBeLessThanOrEqual(MAX_SUMMARY_ORDINARY_VERDICTS);
+    expect(batch.planChecks.length).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_VERDICTS);
+    expect(utf8Bytes(projectSummarySelfCheckWorstCaseResponse(batch)))
+      .toBeLessThanOrEqual(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    if (batch.planChecks.length > 0) {
+      expect(utf8Bytes(projectFrozenSummaryPlanChecks(batch.planChecks)))
+        .toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    }
+  }
+  if (batches.length === 1) {
+    expect(batches[0]).toEqual({
+      ordinaryChecks: line.ordinaryChecks,
+      planChecks: [...planChecks],
+      includeStorylineQuestion: line.includeStorylineQuestion,
+    });
+  }
+  return batches;
 }
 
 async function persistedFrozenPlanShape(
@@ -1928,6 +2013,20 @@ async function addFrozenS242Items(
   s: Awaited<ReturnType<typeof decisionFixture>>,
   count: number
 ): Promise<void> {
+  await addFrozenRoleItems(s, "company_context", count);
+}
+
+/**
+ * Frozen items added to one role after sign-off, as a corrupted Summary.
+ * 2026-10-22 (third): Line 244's experimentation role signs off each item on
+ * its own (no merged ids), so many of them reach the response budget before
+ * the plan-check input limit; merged company items no longer can.
+ */
+async function addFrozenRoleItems(
+  s: Awaited<ReturnType<typeof decisionFixture>>,
+  roleId: "company_context" | "experimentation",
+  count: number
+): Promise<void> {
   await s.t.run(async (ctx) => {
     const generation = await ctx.db.get(s.generationId);
     if (!generation?.summaryVersionId) throw new Error("Missing frozen Summary");
@@ -1935,19 +2034,19 @@ async function addFrozenS242Items(
       .withIndex("by_summaryVersionId_and_order", (q) =>
         q.eq("summaryVersionId", generation.summaryVersionId!))
       .take(300);
-    const company = existing.find((item) => item.roleId === "company_context");
-    if (!company) throw new Error("Missing frozen company item");
+    const first = existing.find((item) => item.roleId === roleId);
+    if (!first) throw new Error(`Missing frozen ${roleId} item`);
     const nextOrder = Math.max(...existing.map((item) => item.order)) + 1;
     for (let index = 0; index < count; index += 1) {
       await ctx.db.insert("summaryItems", {
         projectId: s.projectId,
         generationId: s.generationId,
         summaryVersionId: generation.summaryVersionId,
-        roleId: "company_context",
-        kind: "standard",
+        roleId,
+        kind: first.kind,
         order: nextOrder + index,
-        seedId: company.seedId,
-        bullets: [`Additional frozen company item ${index + 1}.`],
+        seedId: first.seedId,
+        bullets: [`Additional frozen ${roleId} item ${index + 1}.`],
         support: "source_supported",
         tags: ["technical"],
       });
@@ -2851,7 +2950,11 @@ describe("seed Summary sign-off and recovery", () => {
     expect(await signoffWriteFootprint(s)).toEqual(before);
   });
 
-  it("commits an exact 64,000-byte persisted plan-check input and rolls 64,001 back with the typed reason", async () => {
+  // 2026-10-26 (P0 item 2; owner, 2026-10-26): a Line over one request's
+  // input is checked in batches instead of refused. One plan check whose
+  // own CONTENT PLAN CHECKS block is over the limit still cannot be sent,
+  // so it is what rolls sign-off back now.
+  it("commits an exact 64,000-byte plan-check input as one request, checks 64,001 in 2, and rolls back one check over 64,000 with the typed reason", async () => {
     const probe = await decisionFixture();
     await makeReady(probe);
     await addCompanyProvenance(probe, "");
@@ -2881,6 +2984,9 @@ describe("seed Summary sign-off and recovery", () => {
     );
     expect(projectFrozenSummaryPlanChecks(acceptedChecks)).toBe(acceptedOracle);
     expect(utf8Bytes(acceptedOracle)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    const acceptedPlan = await frozenSectionPlan(accepted, "s242");
+    expect(projectFrozenSummaryPlanChecks(acceptedPlan.checks)).toBe(acceptedOracle);
+    expect(await fixtureSummaryBatches(accepted, "242", acceptedPlan.checks)).toHaveLength(1);
     const acceptedOutputOracle = literalSummaryResponseOracle({
       ordinaryLabels: ["storyline", "confidence:C1"],
       planChecks: acceptedChecks,
@@ -2908,12 +3014,12 @@ describe("seed Summary sign-off and recovery", () => {
     expect(acceptedAfter.sections).toHaveLength(3);
     expect(acceptedAfter.jobs).toHaveLength(1);
 
-    const refused = await decisionFixture();
-    await makeReady(refused);
-    await addCompanyProvenance(refused, "x".repeat(excerptLength + 1));
-    const refusedPersistedShape = await persistedFrozenPlanShape(refused);
-    expect(refusedPersistedShape.core).toEqual(acceptedPersistedShape.core);
-    expect(refusedPersistedShape.provenance.map((entry) => ({
+    const split = await decisionFixture();
+    await makeReady(split);
+    await addCompanyProvenance(split, "x".repeat(excerptLength + 1));
+    const splitPersistedShape = await persistedFrozenPlanShape(split);
+    expect(splitPersistedShape.core).toEqual(acceptedPersistedShape.core);
+    expect(splitPersistedShape.provenance.map((entry) => ({
       token: entry.token,
       sourceIdEscapedBytes: entry.rows.map((row) => row.sourceIdEscapedBytes),
       rowCount: entry.rows.length,
@@ -2922,49 +3028,79 @@ describe("seed Summary sign-off and recovery", () => {
       sourceIdEscapedBytes: entry.rows.map((row) => row.sourceIdEscapedBytes),
       rowCount: entry.rows.length,
     })));
-    const refusedOutputOracle = literalSummaryResponseOracle({
+    const splitOutputOracle = literalSummaryResponseOracle({
       ordinaryLabels: ["storyline", "confidence:C1"],
       planChecks: fixedWidthChecks,
       includeStorylineQuestion: true,
     });
-    expect(utf8Bytes(refusedOutputOracle)).toBeLessThanOrEqual(
+    expect(utf8Bytes(splitOutputOracle)).toBeLessThanOrEqual(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
-    const refusedBefore = await signoffWriteFootprint(refused);
-    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
-      generationId: refused.generationId,
+    const splitBefore = await signoffWriteFootprint(split);
+    await split.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: split.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const splitChecks = await frozenS242OracleChecks(split);
+    expect(utf8Bytes(literalPlanChecksOracle(splitChecks)))
+      .toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES + 1);
+    const splitPlan = await frozenSectionPlan(split, "s242");
+    expect(projectFrozenSummaryPlanChecks(splitPlan.checks))
+      .toBe(literalPlanChecksOracle(splitChecks));
+    expect(await fixtureSummaryBatches(split, "242", splitPlan.checks)).toHaveLength(2);
+    const splitAfter = await signoffWriteFootprint(split);
+    expect(splitAfter).not.toEqual(splitBefore);
+    expect(splitAfter.generation).toMatchObject({ status: "running" });
+    expect(splitAfter.summaries).toHaveLength(1);
+    expect(splitAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
+    expect(splitAfter.jobs).toHaveLength(1);
+
+    // 2026-10-26: the company item's own block is over 64,000 bytes, so no
+    // request can carry it and the Line cannot be batched.
+    const unsendable = await decisionFixture();
+    await makeReady(unsendable);
+    await addCompanyProvenance(unsendable, "x".repeat(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES));
+    const unsendableBefore = await signoffWriteFootprint(unsendable);
+    await expect(unsendable.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: unsendable.generationId,
       expectedSeedStageVersion: 0,
     })).rejects.toMatchObject({
       data: {
         code: "INVALID_INPUT",
         reason: "SUMMARY_CAPACITY_EXCEEDED",
         limit: "summary_plan_check_input_utf8_bytes",
+        section: "242",
       },
     });
-    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
+    expect(await signoffWriteFootprint(unsendable)).toEqual(unsendableBefore);
   });
 
-  it("commits the exact reachable 32,768-byte persisted response and rolls 32,769 back with the typed reason", async () => {
+  it("commits the exact reachable 32,768-byte persisted response as one request and checks 32,769 in 2", async () => {
     expect(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES).toBe(32_768);
     const selectedShape = {
       extraSelected: {
+        company_context: 6,
+        goal_problem: 7,
+        passive_limitations: 7,
         technological_objective: 13,
         active_uncertainties: 14,
       },
     } as const;
     const accepted = await decisionFixture();
     await makeReady(accepted, selectedShape);
-    // 2026-10-22 (alerts triage): at the 32,768-byte limit, a Line 242 plan
-    // of 32 items (14 and 15 in its two merged roles), its facts verdict
-    // (1,106 bytes with its comma), nine confidence labels (293 each), ten
-    // Glossary labels (nine of 291, one of 292) and three rule labels (287)
-    // keep the response at exactly 32,768 bytes, and swapping the ninth
-    // confidence label (293) for the writer label (294) still adds exactly
-    // one byte.
+    // 2026-10-22 (third): with no merged-id echo, each item verdict is 285
+    // bytes with its comma. At the 32,768-byte limit, a Line 242 plan of 52
+    // items (7, 8, 8, 14 and 15 in its five roles), its facts verdict (1,087
+    // bytes with its comma), two confidence labels (293 each), five Glossary
+    // labels (291) and 49 rule labels (nine of 287, forty of 288) keep the
+    // response at exactly 32,768 bytes, and swapping the second confidence
+    // label (293) for the writer label (294) still adds exactly one byte.
+    // (2026-10-22, first: 32 items, nine confidence, ten Glossary and three
+    // rule labels, when every item repeated its step's merged ids.)
     await configureS242Ordinary(accepted, {
-      additionalConfidence: 8,
-      glossaryTerms: 10,
-      rules: 3,
+      additionalConfidence: 1,
+      glossaryTerms: 5,
+      rules: 49,
     });
     const acceptedPersistedShape = await persistedFrozenPlanShape(accepted);
     const acceptedBefore = await signoffWriteFootprint(accepted);
@@ -2975,7 +3111,7 @@ describe("seed Summary sign-off and recovery", () => {
     const checks = await frozenS242OracleChecks(accepted);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
       checks.filter((check) => check.itemId && check.roleId === role.roleId).length
-    )).toEqual([1, 1, 1, 14, 15]);
+    )).toEqual([7, 8, 8, 14, 15]);
     expect(checks.at(-1)?.ruleId).toBe("facts_match_sources");
     expect(new Set(checks.filter((check) => check.itemId).flatMap((check) => [
       utf8Bytes(JSON.stringify(check.itemId)),
@@ -2986,19 +3122,22 @@ describe("seed Summary sign-off and recovery", () => {
       .toBe(true);
     expect(reachability.reachable.has(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1))
       .toBe(true);
-    // Receipt recomputed 2026-10-22 from the independent formula above at
-    // the 32,768-byte limit (the 16,384-byte receipt was 41,099 plan
-    // lengths, 56/57 enumerated/pruned rows and a 16,391-byte pruning bound;
-    // the 4,096-byte one 535, 14/15 and 4,337).
+    // Receipt recomputed 2026-10-22 (third) from the independent formula
+    // above: 64 ordinary checks and item rows of one width, so far fewer
+    // distinct plan lengths. (2026-10-22, first, with the echo and 30
+    // ordinary checks: 19,871 distributions, 4,930 ordinary and 359,577 plan
+    // lengths, 114/115 rows and a 33,037-byte bound; the 16,384-byte receipt
+    // was 41,099 plan lengths, 56/57 rows and 16,391; the 4,096-byte one 535,
+    // 14/15 and 4,337.)
     expect(reachability.receipt).toMatchObject({
       actualEscapedIdBytes: 34,
-      ordinaryDistributions: 19_871,
-      distinctOrdinaryLengths: 4_930,
-      distinctPlanLengths: 359_577,
-      maximumEnumeratedPlanRows: 114,
-      firstPrunedPlanRows: 115,
+      ordinaryDistributions: 183_105,
+      distinctOrdinaryLengths: 22_346,
+      distinctPlanLengths: 476,
+      maximumEnumeratedPlanRows: 122,
+      firstPrunedPlanRows: 123,
       persistedPlanRowCap: MAX_SUMMARY_PLAN_VERDICTS,
-      pruningLowerBound: 33_037,
+      pruningLowerBound: 32_996,
     });
     expect(reachability.receipt.maximumEnumeratedPlanRows)
       .toBe(reachability.receipt.firstPrunedPlanRows - 1);
@@ -3006,11 +3145,11 @@ describe("seed Summary sign-off and recovery", () => {
       .toBeGreaterThan(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
     const acceptedLabels = [
       "storyline",
-      ...Array.from({ length: 9 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
-      ...Array.from({ length: 3 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 2 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 49 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(acceptedLabels).toHaveLength(23);
+    expect(acceptedLabels).toHaveLength(57);
     const acceptedOracle = literalSummaryResponseOracle({
       ordinaryLabels: acceptedLabels,
       planChecks: checks,
@@ -3030,6 +3169,9 @@ describe("seed Summary sign-off and recovery", () => {
     });
     expect(acceptedProduction).toBe(acceptedOracle);
     expect(utf8Bytes(acceptedOracle)).toBe(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES);
+    const acceptedPlan = await frozenSectionPlan(accepted, "s242");
+    expect(projectFrozenSummaryPlanChecks(acceptedPlan.checks)).toBe(literalPlanChecksOracle(checks));
+    expect(await fixtureSummaryBatches(accepted, "242", acceptedPlan.checks)).toHaveLength(1);
     const acceptedExpandedInputOracle = literalPlanChecksOracle(checks);
     expect(utf8Bytes(acceptedExpandedInputOracle)).toBeLessThanOrEqual(
       MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
@@ -3051,21 +3193,21 @@ describe("seed Summary sign-off and recovery", () => {
 
     // Swapping one 13-byte confidence label for the 14-byte writer label
     // adds exactly one byte and keeps the plan and ordinary count fixed.
-    const refusedLabels = [
+    const splitLabels = [
       "storyline",
-      ...Array.from({ length: 8 }, (_, index) => `confidence:C${index + 1}`),
-      ...Array.from({ length: 10 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 1 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 5 }, (_, index) => `glossary:G${index + 1}`),
       "writer:profile",
-      ...Array.from({ length: 3 }, (_, index) => `rule:R${index + 1}`),
+      ...Array.from({ length: 49 }, (_, index) => `rule:R${index + 1}`),
     ];
-    expect(refusedLabels).toHaveLength(acceptedLabels.length);
-    const refusedOracle = literalSummaryResponseOracle({
-      ordinaryLabels: refusedLabels,
+    expect(splitLabels).toHaveLength(acceptedLabels.length);
+    const splitOracle = literalSummaryResponseOracle({
+      ordinaryLabels: splitLabels,
       planChecks: checks,
       includeStorylineQuestion: true,
     });
-    const refusedProduction = projectSummarySelfCheckWorstCaseResponse({
-      ordinaryChecks: refusedLabels.map((label) => ({
+    const splitProduction = projectSummarySelfCheckWorstCaseResponse({
+      ordinaryChecks: splitLabels.map((label) => ({
         label,
         check: "instruction" as const,
         instruction: label,
@@ -3073,45 +3215,56 @@ describe("seed Summary sign-off and recovery", () => {
       planChecks: checks,
       includeStorylineQuestion: true,
     });
-    expect(refusedProduction).toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
+    expect(splitProduction).toBe(splitOracle);
+    expect(utf8Bytes(splitOracle)).toBe(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
 
-    const refused = await decisionFixture();
-    await makeReady(refused, selectedShape);
-    await configureS242Ordinary(refused, {
-      additionalConfidence: 7,
-      glossaryTerms: 10,
+    const split = await decisionFixture();
+    await makeReady(split, selectedShape);
+    await configureS242Ordinary(split, {
+      additionalConfidence: 0,
+      glossaryTerms: 5,
       writerFlavor: "Profile",
-      rules: 3,
+      rules: 49,
     });
-    const refusedPersistedShape = await persistedFrozenPlanShape(refused);
-    expect(refusedPersistedShape).toEqual(acceptedPersistedShape);
-    expect(await projectedFixtureOutputEnvelope(refused, "242", fixedWidthPlanChecks(checks)))
+    const splitPersistedShape = await persistedFrozenPlanShape(split);
+    expect(splitPersistedShape).toEqual(acceptedPersistedShape);
+    expect(await projectedFixtureOutputEnvelope(split, "242", fixedWidthPlanChecks(checks)))
       .toBe(literalSummaryResponseOracle({
-        ordinaryLabels: refusedLabels,
+        ordinaryLabels: splitLabels,
         planChecks: fixedWidthPlanChecks(checks),
         includeStorylineQuestion: true,
       }));
-    const refusedExpandedInputOracle = literalPlanChecksOracle(fixedWidthChecks);
-    expect(utf8Bytes(refusedExpandedInputOracle)).toBeLessThanOrEqual(
+    const splitExpandedInputOracle = literalPlanChecksOracle(fixedWidthChecks);
+    expect(utf8Bytes(splitExpandedInputOracle)).toBeLessThanOrEqual(
       MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
     );
-    const refusedBefore = await signoffWriteFootprint(refused);
-    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
-      generationId: refused.generationId,
+    // 2026-10-26 (P0 item 2; owner, 2026-10-26): one byte over a single
+    // request is checked in 2 requests instead of split. No response is
+    // unsendable on its own (each verdict is far under the limit), so the
+    // refusal with the Line named is proved by one plan check over the
+    // input limit in the test before this one.
+    const splitBefore = await signoffWriteFootprint(split);
+    await split.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: split.generationId,
       expectedSeedStageVersion: 0,
-    })).rejects.toMatchObject({
-      data: {
-        code: "INVALID_INPUT",
-        reason: "SUMMARY_CAPACITY_EXCEEDED",
-        limit: "summary_self_check_response_utf8_bytes",
-      },
     });
-    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
-  });
+    const splitPlan = await frozenSectionPlan(split, "s242");
+    expect(utf8Bytes(await projectedFixtureOutputEnvelope(split, "242", splitPlan.checks)))
+      .toBe(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1);
+    expect(await fixtureSummaryBatches(split, "242", splitPlan.checks)).toHaveLength(2);
+    const splitAfter = await signoffWriteFootprint(split);
+    expect(splitAfter).not.toEqual(splitBefore);
+    expect(splitAfter.generation).toMatchObject({ status: "running" });
+    expect(splitAfter.summaries).toHaveLength(1);
+    expect(splitAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
+    expect(splitAfter.jobs).toHaveLength(1);
+    // 2026-10-26: the reachability enumeration above takes about 17 s on an
+    // idle machine and passed 30 s on a loaded one (code review), so this
+    // test alone gets more time.
+  }, 90_000);
 
-  it("admits a real Brief's ordinary checks beside a 7-item Section 242 plan and still refuses a response over the limit", async () => {
-    // Regression 2026-09-25: a real end-to-end run was refused at sign-off
+  it("admits a real Brief's ordinary checks beside a 7-item Section 242 plan as one request and checks a response over the limit in 2", async () => {
+    // Regression 2026-09-25: a real end-to-end run was split at sign-off
     // because 4,096 bytes fit only about four ordinary checks beside a
     // 7-item Section 242 plan, while real Briefs carry 10 to 20.
     const realisticOrdinary = {
@@ -3149,13 +3302,17 @@ describe("seed Summary sign-off and recovery", () => {
     expect(await projectedFixtureOutputEnvelope(accepted, "242", checks))
       .toBe(acceptedOracle);
     // 2026-10-04 (second, round 2 review): 1,106 bytes more than 8,150 for
-    // Line 242's facts verdict and its two findings.
-    expect(utf8Bytes(acceptedOracle)).toBe(9_256);
-    // The previous 4,096-byte limit refused this ordinary Brief.
+    // Line 242's facts verdict and its two findings, 9,256 in all; since
+    // 2026-10-22 (third) 530 fewer, with no merged-id echo.
+    expect(utf8Bytes(acceptedOracle)).toBe(8_726);
+    // The previous 4,096-byte limit split this ordinary Brief.
     expect(utf8Bytes(acceptedOracle)).toBeGreaterThan(4_096);
     expect(utf8Bytes(acceptedOracle)).toBeLessThanOrEqual(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
+    const acceptedPlan = await frozenSectionPlan(accepted, "s242");
+    expect(projectFrozenSummaryPlanChecks(acceptedPlan.checks)).toBe(literalPlanChecksOracle(checks));
+    expect(await fixtureSummaryBatches(accepted, "242", acceptedPlan.checks)).toHaveLength(1);
     const acceptedAfter = await signoffWriteFootprint(accepted);
     expect(acceptedAfter).not.toEqual(acceptedBefore);
     expect(acceptedAfter.generation).toMatchObject({ status: "running" });
@@ -3165,23 +3322,44 @@ describe("seed Summary sign-off and recovery", () => {
     expect(acceptedAfter.sections).toHaveLength(3);
     expect(acceptedAfter.jobs).toHaveLength(1);
 
-    // The same Brief beside a larger Section 242 plan still crosses the
-    // limit and refuses with nothing written.
-    const refused = await decisionFixture();
-    await makeReady(refused, {
-      extraSelected: { technological_objective: 15, active_uncertainties: 16 },
+    // A Brief at the 64-label limit beside a 50-item Section 242 plan still
+    // crosses one request's limit. (Since 2026-10-22, third, a pick costs
+    // the same however many share its step, so the realistic Brief above
+    // needs a far larger plan to cross it.) Since 2026-10-26 (P0 item 2;
+    // owner, 2026-10-26) it signs off and is checked in 2 requests.
+    const splitOrdinary = {
+      additionalConfidence: 19,
+      glossaryTerms: 20,
+      rules: 23,
+    } as const;
+    const splitLabels = [
+      "storyline",
+      ...Array.from({ length: 20 }, (_, index) => `confidence:C${index + 1}`),
+      ...Array.from({ length: 20 }, (_, index) => `glossary:G${index + 1}`),
+      ...Array.from({ length: 23 }, (_, index) => `rule:R${index + 1}`),
+    ];
+    expect(splitLabels).toHaveLength(MAX_SUMMARY_ORDINARY_VERDICTS);
+    const split = await decisionFixture();
+    await makeReady(split, {
+      extraSelected: {
+        company_context: 9,
+        goal_problem: 9,
+        passive_limitations: 9,
+        technological_objective: 9,
+        active_uncertainties: 9,
+      },
     });
-    await configureS242Ordinary(refused, realisticOrdinary);
-    const refusedShape = await persistedFrozenPlanShape(refused);
+    await configureS242Ordinary(split, splitOrdinary);
+    const splitShape = await persistedFrozenPlanShape(split);
     expect(PD_SUBSECTIONS.filter((role) => role.section === "s242").map((role) =>
-      refusedShape.core.items.filter((item) => item.roleId === role.roleId).length
-    )).toEqual([1, 1, 1, 16, 17]);
+      splitShape.core.items.filter((item) => item.roleId === role.roleId).length
+    )).toEqual([10, 10, 10, 10, 10]);
     const idWidth = checks[0]!.itemId!.length;
     let nextId = 0;
-    const refusedChecks: FrozenSummaryPlanCheck[] = PD_SUBSECTIONS
+    const splitChecks: FrozenSummaryPlanCheck[] = PD_SUBSECTIONS
       .filter((role) => role.section === "s242")
       .flatMap((role) => {
-        const size = refusedShape.core.items
+        const size = splitShape.core.items
           .filter((item) => item.roleId === role.roleId).length;
         const ids = Array.from({ length: size }, () =>
           `i${(nextId++).toString(36)}`.padEnd(idWidth, "i"));
@@ -3198,7 +3376,7 @@ describe("seed Summary sign-off and recovery", () => {
         }));
       });
     // 2026-10-04 (second): Line 242's facts check, as production adds it.
-    refusedChecks.push({
+    splitChecks.push({
       ruleId: "facts_match_sources",
       roleId: "active_uncertainties",
       mergedItemIds: [],
@@ -3208,29 +3386,32 @@ describe("seed Summary sign-off and recovery", () => {
       relationshipReferences: [],
       sourceReferences: [],
     });
-    const refusedOracle = literalSummaryResponseOracle({
-      ordinaryLabels: realisticLabels,
-      planChecks: refusedChecks,
+    const splitOracle = literalSummaryResponseOracle({
+      ordinaryLabels: splitLabels,
+      planChecks: splitChecks,
       includeStorylineQuestion: true,
     });
-    expect(await projectedFixtureOutputEnvelope(refused, "242", refusedChecks))
-      .toBe(refusedOracle);
-    expect(utf8Bytes(refusedOracle)).toBe(36_838);
-    expect(utf8Bytes(refusedOracle)).toBeGreaterThan(
+    expect(await projectedFixtureOutputEnvelope(split, "242", splitChecks))
+      .toBe(splitOracle);
+    expect(utf8Bytes(splitOracle)).toBe(34_371);
+    expect(utf8Bytes(splitOracle)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
-    const refusedBefore = await signoffWriteFootprint(refused);
-    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
-      generationId: refused.generationId,
+    const splitBefore = await signoffWriteFootprint(split);
+    await split.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: split.generationId,
       expectedSeedStageVersion: 0,
-    })).rejects.toMatchObject({
-      data: {
-        code: "INVALID_INPUT",
-        reason: "SUMMARY_CAPACITY_EXCEEDED",
-        limit: "summary_self_check_response_utf8_bytes",
-      },
     });
-    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
+    const splitPlan = await frozenSectionPlan(split, "s242");
+    expect(utf8Bytes(await projectedFixtureOutputEnvelope(split, "242", splitPlan.checks)))
+      .toBe(utf8Bytes(splitOracle));
+    expect(await fixtureSummaryBatches(split, "242", splitPlan.checks)).toHaveLength(2);
+    const splitAfter = await signoffWriteFootprint(split);
+    expect(splitAfter).not.toEqual(splitBefore);
+    expect(splitAfter.generation).toMatchObject({ status: "running" });
+    expect(splitAfter.summaries).toHaveLength(1);
+    expect(splitAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
+    expect(splitAfter.jobs).toHaveLength(1);
   });
 
   it("matches a fixed complete envelope for a persisted Section 244 merge and Skips", async () => {
@@ -3290,7 +3471,7 @@ describe("seed Summary sign-off and recovery", () => {
     };
     for (const mutation of [
       "omit_storyline",
-      "omit_repeated_merge",
+      "repeat_merged_ids",
       "short_reason",
     ] as const) {
       const mutatedProduction = mutateSerializedProductionEnvelope(
@@ -3310,28 +3491,33 @@ describe("seed Summary sign-off and recovery", () => {
     // again in round 4: the targets verdict reserves its three entries in
     // place of its repairGuidance (shorter fields since its review, P3-5,
     // and two entries since the lead decision on Greptile at 12d67e49).
+    // Re-pinned 2026-10-22 (third): no plan verdict repeats merged ids, and
+    // the old repeat is now one of the mutations. Re-pinned 2026-10-27 (B1
+    // review): the fixture's draft row refers to a transcript row it now
+    // inserts, which shifts every later id; the same extra row with the
+    // text copied on the draft row gives these same hashes (checked by hand
+    // in the review's round 2; without the extra row the old ones).
     // It still equals the independent oracle above, which
     // frozenS244OracleChecks and literalSummaryResponseOracle extend the
     // same way.
     expect(replayHashes).toEqual({
-      restored: "1b7203ec554ce6ec7a8a61a1260929db510f76d30923aaa19cd15f9b81dc36dd",
-      omit_storyline: "5bdd42200702e99c48652723fea883f07fac725e584fcbe1eaaf7d915e558d32",
-      omit_repeated_merge: "57af7b8946c675bd5f8d1a469b90d1ca48099561a587628492b8b6e0f9ed3b77",
-      short_reason: "ffea5ff55ec7579e091e41eda334300e0bcb4f6a4f8167c22d38987282a2c24e",
+      restored: "f6b2079b4e30bb355e3497847092260ae914d4351c4cd71d16f49184d6d05ba2",
+      omit_storyline: "3be6ce6d94aa027c63b2ee44519abc2b28cce65368c6937dcc402606a6ff24d1",
+      repeat_merged_ids: "0cf83ee961ebaa777ae451959aece147891105c18e6ff1c9434ac2edade465cd",
+      short_reason: "d2142dad4b0c756c549483a343e980b016c2d511b8c74534d729edab81b01d10",
     });
   });
 
+  // B1 review (2026-10-27): the draft's transcript row refers to its
+  // transcript; the recovery, and a recovery of the recovery, carry the
+  // reference, not a copy.
   it("copies fact packs and their spans to Summary recovery, so fact ids still resolve (review 2026-09-25)", async () => {
     const s = await decisionFixture();
     const excerpt = "Evidence alpha";
-    await s.t.run(async (ctx) => {
+    const transcriptId = await s.t.run(async (ctx) => {
       const source = (await ctx.db.get(s.sourceId))!;
-      const transcriptId = await ctx.db.insert("transcripts", {
-        projectId: s.projectId,
-        content: source.content,
-        createdAt: 1,
-      });
-      await ctx.db.patch(s.sourceId, { transcriptId });
+      expect(source.content).toBeUndefined();
+      const transcriptId = source.transcriptId!;
       await ctx.db.patch(s.generationId, { transcriptId, transcriptIds: [transcriptId], transcriptFacts: true });
       await ctx.db.insert("generationSources", {
         generationId: s.generationId,
@@ -3353,6 +3539,7 @@ describe("seed Summary sign-off and recovery", () => {
           },
         ],
       });
+      return transcriptId;
     });
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -3366,31 +3553,303 @@ describe("seed Summary sign-off and recovery", () => {
     const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
       failedGenerationId: s.generationId,
     });
-    const recovered = await s.t.run(async (ctx) => ({
-      generation: await ctx.db.get(recoveryId),
-      sources: await ctx.db
-        .query("generationSources")
-        .withIndex("by_generationId", (q) => q.eq("generationId", recoveryId))
-        .collect(),
-    }));
-    expect(recovered.generation?.transcriptFacts).toBe(true);
-    const pack = recovered.sources.find((row) => row.kind === "transcript_facts")!;
-    const transcript = recovered.sources.find((row) => row.kind === "transcript")!;
-    expect(pack.factSpans).toEqual([
-      { id: "F1-1", type: "result", quotes: [{ charStart: 0, charEnd: excerpt.length, speakerLabel: "Priya", role: "client" }] },
-    ]);
-    const facts = factIndex(
-      recovered.sources.map((row) => ({
-        sourceId: row._id,
-        kind: row.kind,
-        content: row.content,
-        transcriptId: row.transcriptId,
-        factSpans: row.factSpans,
-      }))
+    const recoveredFrom = async (generationId: Id<"generations">) =>
+      await s.t.run(async (ctx) => {
+        const rows = await ctx.db
+          .query("generationSources")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+          .collect();
+        return { generation: await ctx.db.get(generationId), rows, sources: await withSourceTexts(ctx, rows) };
+      });
+    const expectRecovered = (recovered: Awaited<ReturnType<typeof recoveredFrom>>) => {
+      expect(recovered.generation?.transcriptFacts).toBe(true);
+      const pack = recovered.sources.find((row) => row.kind === "transcript_facts")!;
+      const transcript = recovered.sources.find((row) => row.kind === "transcript")!;
+      expect(recovered.rows.find((row) => row.kind === "transcript")).toMatchObject({
+        transcriptId,
+        textLength: "Evidence alpha supports the work.".length,
+      });
+      expect(recovered.rows.find((row) => row.kind === "transcript")?.content).toBeUndefined();
+      expect(pack.factSpans).toEqual([
+        { id: "F1-1", type: "result", quotes: [{ charStart: 0, charEnd: excerpt.length, speakerLabel: "Priya", role: "client" }] },
+      ]);
+      const facts = factIndex(
+        recovered.sources.map((row) => ({
+          sourceId: row._id,
+          kind: row.kind,
+          content: row.content,
+          transcriptId: row.transcriptId,
+          factSpans: row.factSpans,
+        }))
+      );
+      const fact = facts.get("F1-1")!;
+      expect(fact.transcript.sourceId).toBe(transcript._id);
+      expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+    };
+    expectRecovered(await recoveredFrom(recoveryId));
+    // A recovery of the recovery.
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: recoveryId,
+      error: "prepare a second Summary recovery",
+    });
+    const secondRecoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: recoveryId,
+    });
+    expectRecovered(await recoveredFrom(secondRecoveryId));
+  });
+
+  // 2026-10-23 (owner): a writer never starts over on a signed-off plan
+  // because the tier of its frozen model was moved back.
+  it("carries the public background record into a Summary recovery, which drafts from the same frozen block (Greptile, PR #30)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const record = {
+      status: "used" as const,
+      queries: [{ query: "How does CRA define standard practice?", kind: "cra" as const, status: "ok" as const }],
+      sources: [{ n: 1, url: "https://www.canada.ca/sred", title: "SR&ED glossary", domain: "canada.ca" }],
+      droppedQueries: 0,
+      cached: false,
+    };
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.generationId, { webBackgroundRequested: true, webBackground: record });
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.webBackgroundRequested).toBe(true);
+    expect(recovery?.webBackground).toEqual(record);
+  });
+
+  it("recovers a signed-off plan on the tier's current model when its tier was moved back from the frozen one", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const frozen = await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      return modelFreeze;
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.singleModelId).toBe("claude-sonnet-5");
+    expect(recovery?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+    expect(recovery?.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    // Everything else the writer signed off is carried as before.
+    expect(recovery).toMatchObject({
+      summaryVersionId: (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.summaryVersionId,
+      gatedWorkflow: "seeds",
+      candidateMode: "iterative",
+    });
+    expect((await s.t.run((ctx) => ctx.db.get(s.generationId)))?.modelFreeze).toEqual(frozen);
+    const progress = await s.t.run((ctx) =>
+      ctx.db.query("generationProgress").withIndex("by_generationId_and_at", (q) => q.eq("generationId", recoveryId)).collect()
     );
-    const fact = facts.get("F1-1")!;
-    expect(fact.transcript.sourceId).toBe(transcript._id);
-    expect(transcript.content.slice(fact.span.quotes[0].charStart, fact.span.quotes[0].charEnd)).toBe(excerpt);
+    expect(progress.map((line) => line.message)).toEqual([
+      "Summary recovery reserved from frozen inputs.",
+      "Sonnet 5.5 is no longer used for its tier, so this attempt runs on Sonnet 5.",
+    ]);
+  });
+
+  it("recovers a plan with no stored single model on the writing role's current model after a move back", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: undefined, modelFreeze });
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.singleModelId).toBe("claude-sonnet-5");
+    expect(recovery?.modelFreeze?.roles.writing).toBe("claude-sonnet-5");
+    expect(recovery?.modelFreeze?.entries.map((entry) => entry.id)).not.toContain("claude-sonnet-5-5");
+  });
+
+  it("recovers a signed-off plan on exactly its frozen models while no tier moved back from them", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const frozen = await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      // A tier moving forward is not a move back: the freeze is kept.
+      await moveTrack(ctx, { track: "claude-opus", toModelId: "claude-opus-5-5", kind: "upgrade", reason: "newer_version", actor: "system" });
+      return modelFreeze;
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const recovery = await s.t.run((ctx) => ctx.db.get(recoveryId));
+    expect(recovery?.singleModelId).toBe("claude-sonnet-5-5");
+    expect(recovery?.modelFreeze).toEqual(frozen);
+  });
+
+  // 2026-10-23 (owner, second): a plan not yet signed off keeps the writer's
+  // picks when the tier of its frozen model is moved back, and its drafting
+  // runs on the tier's current model.
+  const freezeOnSonnet55 = async (s: ReadyFixture, moveBack: boolean) =>
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+      if (moveBack) {
+        await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+      }
+      return modelFreeze;
+    });
+  const pickedSeedIds = async (s: ReadyFixture) =>
+    (await s.t.run(async (ctx) =>
+      await ctx.db.query("seedSelections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId))
+        .take(100)))
+      .filter((row) => row.selected)
+      .map((row) => row.seedId)
+      .sort();
+
+  it("keeps the writer's picks and drafts on the tier's current model when its tier moved back before sign-off", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    await freezeOnSonnet55(s, true);
+    const picked = await pickedSeedIds(s);
+    expect(picked.length).toBeGreaterThan(0);
+    // Beside sign-off the writer already sees the model drafting will use.
+    const outline = await s.writer.query(api.seeds.getOutline, { generationId: s.generationId });
+    expect(outline.frozen.modelId).toBe("claude-sonnet-5");
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const state = await signoffState(s);
+    // No start over: the signed-off plan is exactly the writer's picks.
+    expect(state.items.map((item) => item.seedId).sort()).toEqual(picked);
+    expect(state.generation?.singleModelId).toBe("claude-sonnet-5");
+    expect(state.generation?.modelFreeze?.roles).toMatchObject({
+      writing: "claude-sonnet-5",
+      planning: "claude-sonnet-5",
+      checking: "claude-sonnet-5",
+    });
+    expect(state.generation?.modelMoves).toEqual([
+      {
+        fromModelId: "claude-sonnet-5-5",
+        toModelId: "claude-sonnet-5",
+        at: expect.any(Number),
+        roles: ["writing", "planning", "checking", "condense", "analysis"],
+        writer: true,
+      },
+    ]);
+    expect(state.candidates.map((run) => run.model)).toEqual(["claude-sonnet-5"]);
+    expect(state.sections.map((row) => row.model)).toEqual(["claude-sonnet-5", "claude-sonnet-5", "claude-sonnet-5"]);
+    const lines = (await s.t.run((ctx) =>
+      ctx.db.query("generationProgress")
+        .withIndex("by_generationId_and_at", (q) => q.eq("generationId", s.generationId))
+        .collect())).map((line) => line.message);
+    expect(lines.slice(-2)).toEqual([
+      "Summary signed off. Drafting 246 → 242 → 244 in Build Order.",
+      "Sonnet 5.5 is no longer used for its tier, so this generation continues on Sonnet 5.",
+    ]);
+    // Every request of the first Line, its checks included, goes to Sonnet 5.
+    configureSuccessfulSummaryFinalization("Moved");
+    await runNextSectionAction(s, s.generationId);
+    const models = network.create.mock.calls.map(([params]) => (params as GenerationMessageParams).model);
+    expect(models.length).toBeGreaterThan(1);
+    expect(new Set(models)).toEqual(new Set(["claude-sonnet-5"]));
+    expect(await s.t.run(async (ctx) => (await ctx.db.get(s.generationId))?.status)).toBe("running");
+    vi.useRealTimers();
+  });
+
+  it("signs off on exactly its frozen models while no tier moved back from them", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    const frozen = await freezeOnSonnet55(s, false);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    const state = await signoffState(s);
+    expect(state.generation?.modelFreeze).toEqual(frozen);
+    expect(state.generation?.singleModelId).toBe("claude-sonnet-5-5");
+    expect(state.generation?.modelMoves).toBeUndefined();
+    expect(state.sections.map((row) => row.model)).toEqual(["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-sonnet-5-5"]);
+    vi.useRealTimers();
+  });
+
+  it("queues a new Seeds request on the tier's current model after a move back, keeping the writer's picks", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    await freezeOnSonnet55(s, true);
+    const picked = await pickedSeedIds(s);
+    const result = await s.t.mutation(dispatchRef, {
+      generationId: s.generationId,
+      roleId: "company_context",
+      operation: "regenerate",
+      commandId: "after-move-back",
+      actorUserId: s.userId,
+    });
+    expect(result).toMatchObject({ kind: "dispatched" });
+    const batch = await s.t.run(async (ctx) =>
+      "batchId" in result ? await ctx.db.get(result.batchId) : null);
+    expect(batch?.model).toBe("claude-sonnet-5");
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.status).toBe("awaiting_input");
+    expect(generation?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(await pickedSeedIds(s)).toEqual(picked);
+    vi.useRealTimers();
+  });
+
+  it("retries the drafting inputs on the tier's current model after a move back", async () => {
+    vi.useFakeTimers();
+    const s = await decisionFixture();
+    await makeReady(s);
+    await freezeOnSonnet55(s, true);
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.generationId, {
+        draftingInputs: { status: "failed", attempt: 1, startedAt: Date.now() - 1_000, settledAt: Date.now(), failureCode: "unknown" },
+      });
+    });
+    await s.writer.mutation(api.generations.retryDraftingInputs, { generationId: s.generationId });
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.draftingInputs).toMatchObject({ status: "preparing", attempt: 2 });
+    expect(generation?.singleModelId).toBe("claude-sonnet-5");
+    expect(generation?.modelFreeze?.roles.analysis).toBe("claude-sonnet-5");
+    vi.useRealTimers();
   });
 
   it("carries the failed generation's placeholder map to Summary recovery as frozen, mark or no mark (review 2026-09-25)", async () => {
@@ -3422,6 +3881,128 @@ describe("seed Summary sign-off and recovery", () => {
       expect(restorePlaceholders(echo, recovered)).toBe(
         map === legacy ? "PERSON_1 confirmed it at Verdant Grid." : "Tom Lee confirmed it at Verdant Grid."
       );
+    }
+  });
+
+  it("a Summary recovery keeps the reused steps' records on its own rows, and a Line's claim hands its facts check's reads to the action (Phase D, step 2, review)", async () => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.run(async (ctx) => {
+      const recorded = [["analyzer", undefined], ["brief", undefined], ["seeds", "key_uncertainties"], ["facts_check", "line:242"]] as const;
+      for (const [step, run] of recorded) {
+        await ctx.db.insert("generationSourceUse", {
+          generationId: s.generationId, projectId: s.projectId, step, ...(run ? { run } : {}),
+          sourceId: s.sourceId as Id<"generationSources">, state: "whole", sent: 5, total: 5, unit: "bytes", at: 1,
+        });
+      }
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare Summary recovery",
+    });
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    const usesOf = async () => await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", recoveryId)).collect());
+    const recoverySources = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", recoveryId)).collect());
+    const copy = recoverySources.find((row) => row.kind === "transcript")!;
+    // The facts check is not copied: the recovery runs its own.
+    expect((await usesOf()).map((use) => [use.step, use.run ?? null, use.sourceId])).toEqual([
+      ["analyzer", null, copy._id],
+      ["brief", null, copy._id],
+      ["seeds", "key_uncertainties", copy._id],
+    ]);
+
+    await s.t.action(internal.ai.orderedGeneration.startSummaryRecovery, { generationId: recoveryId });
+    const job = await s.t.run(async (ctx) => {
+      const pending = (await ctx.db.system.query("_scheduled_functions").take(30)).find(
+        (candidate) =>
+          candidate.name === "ai/orderedGeneration:generateOrderedSection" &&
+          candidate.args[0]?.generationId === recoveryId &&
+          candidate.state.kind === "pending"
+      );
+      if (pending) await ctx.scheduler.cancel(pending._id);
+      return pending;
+    });
+    if (!job) throw new Error("Missing first ordered action");
+    const actionArgs = job.args[0] as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>;
+    const claim = await s.t.mutation(internal.generations.claimOrderedSectionRun, {
+      generationId: recoveryId,
+      candidateRunId: actionArgs.candidateRunId,
+      section: actionArgs.section,
+      ...(actionArgs.payload !== undefined ? { payload: actionArgs.payload } : {}),
+      ...(actionArgs.payloadId !== undefined ? { payloadId: actionArgs.payloadId } : {}),
+    });
+    // Re-check: the claim records nothing; the action records once the
+    // Line has completed with its facts check answered.
+    expect((await usesOf()).filter((use) => use.step === "facts_check")).toEqual([]);
+    const textRows = recoverySources.filter(
+      (row) => row.kind === "transcript" || row.kind === "project_document" || row.kind === "company_file"
+    );
+    expect(textRows.length).toBeGreaterThan(0);
+    if (!claim || "stopped" in claim) throw new Error("The claim stopped");
+    expect(claim.factsCheckUse).toEqual({
+      run: `line:${actionArgs.section.replace(/^s/, "")}`,
+      uses: textRows.map((row) => ({ sourceId: row._id, sent: expect.any(Number), total: expect.any(Number), unit: "bytes" })),
+    });
+  });
+
+  it("starts a Summary recovery of a draft whose Brief was reused from an earlier draft, only on the original's pin (2026-10-28, ninth, review)", async () => {
+    for (const pinned of [true, false]) {
+      const s = await decisionFixture();
+      // The Brief came from an earlier draft of the same texts, so its entry
+      // names that draft's row, which the recovery's map does not hold.
+      await s.t.run(async (ctx) => {
+        const earlier = await ctx.db.insert("generations", {
+          projectId: s.projectId, status: "completed", requestedBy: s.userId, startedAt: 0,
+        });
+        const earlierRow = await ctx.db.insert("generationSources", {
+          generationId: earlier, projectId: s.projectId, kind: "transcript", label: "Interview",
+          content: "Evidence alpha supports the work.", contentHash: "source-hash",
+          truncated: false, originalLength: 33, capturedAt: 0,
+        });
+        await ctx.db.insert("generationBriefEntries", {
+          briefId: s.briefId, projectId: s.projectId, group: "confidenceMap", text: "Evidence alpha supports the work.",
+          confidence: "established", sourceId: earlierRow, sourceContentHash: "source-hash",
+          startOffset: 0, endOffset: 14, exactExcerpt: "Evidence alpha", createdAt: 0,
+        });
+        await ctx.db.patch(s.generationId, { seedBriefInputsHash: pinned ? "brief-inputs" : "other-inputs" });
+      });
+      await makeReady(s);
+      await s.writer.mutation(api.generations.signOffSeedStage, {
+        generationId: s.generationId,
+        expectedSeedStageVersion: 0,
+      });
+      await s.t.mutation(internal.generations.failGeneration, {
+        generationId: s.generationId,
+        error: "prepare Summary recovery",
+      });
+      const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+        failedGenerationId: s.generationId,
+      });
+      await s.t.action(internal.ai.orderedGeneration.startSummaryRecovery, { generationId: recoveryId });
+      const state = await s.t.run(async (ctx) => {
+        const pending = (await ctx.db.system.query("_scheduled_functions").take(30)).find(
+          (candidate) =>
+            candidate.name === "ai/orderedGeneration:generateOrderedSection" &&
+            candidate.args[0]?.generationId === recoveryId &&
+            candidate.state.kind === "pending"
+        );
+        if (pending) await ctx.scheduler.cancel(pending._id);
+        const generation = await ctx.db.get(recoveryId);
+        return { status: generation?.status, started: pending !== undefined, error: generation?.error ?? "" };
+      });
+      // Pinned: the recovery drafts. Not pinned: the map still refuses the row.
+      expect({ status: state.status, started: state.started }).toEqual(
+        pinned ? { status: "running", started: true } : { status: "failed", started: false }
+      );
+      if (!pinned) expect(state.error).toContain("Frozen source map is missing");
     }
   });
 
@@ -3546,7 +4127,7 @@ describe("seed Summary sign-off and recovery", () => {
   });
 
   it.each(["initial", "recovered"] as const)(
-    "rejects a queued $phase chain after frozen Summary corruption before provider work",
+    "rejects a queued $phase chain after frozen Summary corruption no request can carry, before provider work",
     async (phase) => {
       const s = await decisionFixture();
       await makeReady(s);
@@ -3567,16 +4148,28 @@ describe("seed Summary sign-off and recovery", () => {
           generationId: targetGenerationId,
         });
       }
-      await addFrozenS242Items(s, 25);
-      const plan = await frozenSectionPlan(s, "s242");
-      const expandedInput = literalPlanChecksOracle(plan.checks);
-      const output = await projectedFixtureOutputEnvelope(s, "242", plan.checks);
-      expect(utf8Bytes(expandedInput)).toBeLessThanOrEqual(
-        MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
-      );
-      expect(utf8Bytes(output)).toBeGreaterThan(
-        MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
-      );
+      // 2026-10-26 (P0 item 2; owner, 2026-10-26): a Line over one
+      // request is now checked in batches, so 110 experimentation items
+      // (2026-10-22, third) no longer refuse. The corruption is one frozen
+      // item whose own CONTENT PLAN CHECKS block is over 64,000 bytes,
+      // which no request can carry.
+      await addFrozenRoleItems(s, "experimentation", 1);
+      await s.t.run(async (ctx) => {
+        const items = await ctx.db.query("summaryItems")
+          .withIndex("by_projectId", (q) => q.eq("projectId", s.projectId))
+          .take(300);
+        const added = items.find((item) =>
+          item.bullets[0] === "Additional frozen experimentation item 1.");
+        if (!added) throw new Error("Missing corrupted experimentation item");
+        await ctx.db.patch(added._id, {
+          bullets: ["x".repeat(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES)],
+        });
+      });
+      // Freezing the Line refuses it at once: buildFrozenSummaryPlan splits
+      // the plan checks into requests (2026-10-26, round 2 code fix).
+      await expect(frozenSectionPlan(s, "s244")).rejects.toMatchObject({
+        limit: "summary_plan_check_input_utf8_bytes",
+      });
       const job = await s.t.run(async (ctx) => {
         await ctx.db.patch(targetGenerationId, { promptVersion: "previous-program" });
         const pending = (await ctx.db.system.query("_scheduled_functions").take(50)).find(
@@ -3615,7 +4208,9 @@ describe("seed Summary sign-off and recovery", () => {
       expect(state.project?.activeGenerationId).toBeUndefined();
       expect(state.candidate).toMatchObject({
         status: "failed",
-        error: expect.stringContaining("Summary Self-check worst-case response exceeds"),
+        error: expect.stringContaining(
+          `Expanded Summary plan checks exceed ${MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES} UTF-8 bytes`
+        ),
       });
       expect(state.sections.every((row) => row.status === "failed")).toBe(true);
       expect(state.notes).toEqual([]);
@@ -3658,9 +4253,13 @@ describe("seed Summary sign-off and recovery", () => {
           generationId: targetGenerationId,
         });
       }
+      // 2026-10-26 (P0 item 2): each Line is one request here, so the
+      // largest admitted response is the largest request the executing
+      // program must accept.
       const admittedOutputs = await Promise.all(
         (["242", "244", "246"] as const).map(async (section) => {
           const plan = await frozenSectionPlan(s, `s${section}`);
+          expect(await fixtureSummaryBatches(s, section, plan.checks)).toHaveLength(1);
           return projectedFixtureOutputEnvelope(s, section, plan.checks);
         })
       );
@@ -3835,7 +4434,7 @@ describe("seed Summary sign-off and recovery", () => {
     }
   );
 
-  it("rejects current-program output incompatibility in recovery startup before any provider call", async () => {
+  it("rejects current-program rules that need more than 8 Self-check requests in recovery startup before any provider call", async () => {
     const s = await decisionFixture();
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -3862,11 +4461,18 @@ describe("seed Summary sign-off and recovery", () => {
       const content = JSON.parse(artifact.content) as {
         orderedContext: { selfCheckRules: unknown[] };
       };
+      // 2026-10-26 (P0 item 2; owner, 2026-10-26): 65 rules are now
+      // checked in 2 requests, so the current program's rules need more
+      // than 8 requests of 64 checks each to be refused.
       content.orderedContext.selfCheckRules = Array.from(
-        { length: MAX_SUMMARY_ORDINARY_VERDICTS + 1 },
+        { length: MAX_SUMMARY_ORDINARY_VERDICTS * MAX_SUMMARY_SELF_CHECK_BATCHES + 1 },
         (_, index) => ({ section: "246", instruction: `Current rule ${index + 1}` })
       );
       await ctx.db.patch(artifact._id, { content: JSON.stringify(content) });
+    });
+    const grownPlan = await frozenSectionPlan(s, "s246");
+    await expect(fixtureSummaryBatches(s, "246", grownPlan.checks)).rejects.toMatchObject({
+      limit: "summary_self_check_batches",
     });
     const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
       failedGenerationId: s.generationId,
@@ -3888,7 +4494,7 @@ describe("seed Summary sign-off and recovery", () => {
     }));
     expect(state.generation).toMatchObject({ status: "failed" });
     expect(state.generation?.error).toContain(
-      `Summary Self-check requires more than ${MAX_SUMMARY_ORDINARY_VERDICTS} ordinary verdicts`
+      `Summary Self-check needs more than ${MAX_SUMMARY_SELF_CHECK_BATCHES} requests for one Line`
     );
     expect(state.project?.activeGenerationId).toBeUndefined();
     expect(state.candidates).toEqual([]);
@@ -3898,7 +4504,12 @@ describe("seed Summary sign-off and recovery", () => {
     })).resolves.toEqual(expect.any(String));
   });
 
-  it("rejects recovered response-byte overflow with admitted counts and expanded input", async () => {
+  // 2026-10-26 (P0 item 2; owner, 2026-10-26): a recovered Line whose
+  // response is over one request is checked in 2 requests instead of being
+  // refused at recovery startup. No response is unsendable on its own, so
+  // recovery startup's refusal is proved by more than 8 requests (the test
+  // before this one) and by one Line's input overflow (below).
+  it("admits recovered response-byte overflow with admitted counts and expanded input, checked in 2 requests", async () => {
     const s = await decisionFixture();
     await makeReady(s);
     await s.writer.mutation(api.generations.signOffSeedStage, {
@@ -3909,16 +4520,19 @@ describe("seed Summary sign-off and recovery", () => {
       generationId: s.generationId,
       error: "prepare byte-incompatible recovery",
     });
-    await addFrozenS242Items(s, 25);
-    const plan = await frozenSectionPlan(s, "s242");
+    // 2026-10-22 (third): experimentation items, each its own check, cross
+    // the response budget before the plan-check input limit.
+    await addFrozenRoleItems(s, "experimentation", 110);
+    const plan = await frozenSectionPlan(s, "s244");
     expect(plan.checks.length).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_VERDICTS);
     expect(utf8Bytes(literalPlanChecksOracle(plan.checks))).toBeLessThanOrEqual(
       MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES
     );
-    const projectedOutput = await projectedFixtureOutputEnvelope(s, "242", plan.checks);
+    const projectedOutput = await projectedFixtureOutputEnvelope(s, "244", plan.checks);
     expect(utf8Bytes(projectedOutput)).toBeGreaterThan(
       MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES
     );
+    expect(await fixtureSummaryBatches(s, "244", plan.checks)).toHaveLength(2);
     const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
       failedGenerationId: s.generationId,
     });
@@ -3936,22 +4550,68 @@ describe("seed Summary sign-off and recovery", () => {
       sections: await ctx.db.query("generationSectionRuns")
         .withIndex("by_generationId", (q) => q.eq("generationId", recoveryId))
         .take(4),
-      notes: await ctx.db.query("complianceNotes")
-        .withIndex("by_generationId_and_section", (q) =>
-          q.eq("generationId", recoveryId).eq("section", "242"))
-        .take(30),
     }));
-    expect(state.generation).toMatchObject({ status: "failed" });
-    expect(state.generation?.error).toContain(
-      `Summary Self-check worst-case response exceeds ${MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES} UTF-8 bytes`
-    );
-    expect(state.project?.activeGenerationId).toBeUndefined();
-    expect(state.candidates).toEqual([]);
-    expect(state.sections).toEqual([]);
-    expect(state.notes).toEqual([]);
-    await expect(s.writer.mutation(api.generations.retryFromSummary, {
-      failedGenerationId: recoveryId,
-    })).resolves.toEqual(expect.any(String));
+    expect(state.generation?.status).toBe("running");
+    expect(state.generation?.error).toBeUndefined();
+    expect(state.project?.activeGenerationId).toBe(recoveryId);
+    expect(state.candidates).toHaveLength(1);
+    expect(state.sections).toHaveLength(3);
+  });
+
+  // 2026-10-22 (third): runtime admission counts ordinary checks the way
+  // sign-off does. 2026-10-26 (P0 item 2; owner, 2026-10-26): 64 fit one
+  // request, and a Brief grown past that since sign-off is checked in 2
+  // requests instead of refused; one request still cannot hold 65.
+  it.each([
+    { total: 64, requests: 1 },
+    { total: 65, requests: 2 },
+  ])("admits $total ordinary checks at Summary recovery in $requests Self-check request(s)", async ({ total, requests }) => {
+    const s = await decisionFixture();
+    await makeReady(s);
+    await s.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: s.generationId,
+      expectedSeedStageVersion: 0,
+    });
+    await s.t.mutation(internal.generations.failGeneration, {
+      generationId: s.generationId,
+      error: "prepare a Brief grown since sign-off",
+    });
+    // The Storyline, 31 Confidence Map entries, 30 Glossary Terms and the
+    // rest as writer rules.
+    await configureS242Ordinary(s, {
+      additionalConfidence: 30,
+      glossaryTerms: 30,
+      rules: total - 62,
+    });
+    const plan = await frozenSectionPlan(s, "s242");
+    const output = await projectedFixtureOutputEnvelope(s, "242", plan.checks)
+      .then((envelope) => envelope, (error: unknown) => error);
+    if (requests === 1) {
+      expect(typeof output).toBe("string");
+      expect(JSON.parse(output as string).verdicts).toHaveLength(total);
+    } else {
+      expect(output).toMatchObject({ limit: "summary_self_check_ordinary_count" });
+    }
+    const batches = await fixtureSummaryBatches(s, "242", plan.checks);
+    expect(batches).toHaveLength(requests);
+    expect(batches.map((batch) => batch.ordinaryChecks.length))
+      .toEqual(requests === 1 ? [total] : [MAX_SUMMARY_ORDINARY_VERDICTS, 1]);
+    const recoveryId = await s.writer.mutation(api.generations.retryFromSummary, {
+      failedGenerationId: s.generationId,
+    });
+    network.create.mockReset();
+    await s.t.action(internal.ai.orderedGeneration.startSummaryRecovery, {
+      generationId: recoveryId,
+    });
+    expect(network.create).not.toHaveBeenCalled();
+    const state = await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(recoveryId),
+      sections: await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", recoveryId))
+        .take(4),
+    }));
+    expect(state.generation?.status).not.toBe("failed");
+    expect(state.sections).toHaveLength(3);
   });
 
   it("rejects a nonfirst Section expanded-input overflow during recovery startup while output remains admitted", async () => {
@@ -5653,19 +6313,6 @@ describe("seed Summary sign-off and recovery", () => {
         "itemId of 21 escaped bytes matches no plan check",
     },
     {
-      name: "empty mergedItemIds",
-      mutate: (input: SummaryCheckInput, checks: ProviderPlanCheck[]) => {
-        const index = checks.findIndex((check) => check.itemId);
-        Object.assign(input.planVerdicts[index] ?? {}, { mergedItemIds: [] });
-      },
-      detail: (checks: ProviderPlanCheck[]) => {
-        const index = checks.findIndex((check) => check.itemId);
-        const check = checks[index];
-        return `plan verdict ${index + 1} (item ${check?.itemId}): mergedItemIds has 0 ids, ` +
-          `expected [${check?.mergedItemIds.join(", ")}] in that order`;
-      },
-    },
-    {
       name: "a duplicate label",
       mutate: (input: SummaryCheckInput) => {
         input.verdicts[1] = { ...input.verdicts[0]! };
@@ -5734,7 +6381,7 @@ describe("seed Summary sign-off and recovery", () => {
     expect(summary.modelCheck).toBe("ok");
     const notChecked = state.rows.filter((row) => row.reason.startsWith("Not checked:"));
     expect(notChecked).toHaveLength(1);
-    const planTarget = name === "a wrong item id" || name === "empty mergedItemIds";
+    const planTarget = name === "a wrong item id";
     expect(Boolean(notChecked[0]?.planRef)).toBe(planTarget);
     expect(notChecked[0]).toMatchObject({ outcome: "not_applied", repaired: false });
     // Only a plan check left not checked keeps Line 246's coverage
@@ -5749,12 +6396,14 @@ describe("seed Summary sign-off and recovery", () => {
 
   it.each([
     {
-      name: "a response over 32,768 bytes",
+      // 2026-10-22 (third): the answer's own ceiling, four times the
+      // admission budget; an answer over the budget alone is accepted.
+      name: "an answer over 131,072 bytes",
       mutate: (input: SummaryCheckInput) => {
-        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(960);
+        input.verdicts[0]!.reason = "The section matches the Storyline. ".repeat(3_760);
       },
       detail: () =>
-        "response failed validation: (root) Summary Self-check response exceeds its UTF-8 byte budget",
+        "response failed validation: (root) Summary Self-check answer exceeds its UTF-8 byte ceiling",
     },
   ])("keeps plan coverage unavailable for $name and records why", async ({ mutate, detail }) => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -6291,7 +6940,10 @@ describe("seed Summary sign-off and recovery", () => {
     });
   });
 
-  it("accepts an admitted decoded Summary control and rejects its exact 16,385-byte encoded form", async () => {
+  // 2026-10-22 (third): the encoded string is rejected because its root is
+  // not an object (encodedJsonRecovery is off), not for its size, which is
+  // under the answer's ceiling; "oversized encoded root" below covers size.
+  it("accepts an admitted decoded Summary control and rejects the same answer sent as an encoded string", async () => {
     const execute = async (encoded: boolean) => {
       const s = await decisionFixture();
       await makeReady(s);
@@ -6518,9 +7170,10 @@ describe("seed Summary sign-off and recovery", () => {
           outcome: "applied",
           reason: "Covered.",
         }));
+        // 2026-10-22 (third): "oversized" is over the answer's own ceiling.
         if (failureMode === "oversized nested extras") {
           Object.assign(planVerdicts[0] ?? {}, {
-            unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
+            unknownNested: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1),
           });
         }
         const validInput = {
@@ -6530,14 +7183,14 @@ describe("seed Summary sign-off and recovery", () => {
         const input = failureMode === "oversized raw extras"
           ? {
               ...validInput,
-              unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1),
+              unknownRoot: "x".repeat(MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1),
             }
           : failureMode === "encoded root"
             ? JSON.stringify(validInput)
             : failureMode === "oversized encoded root"
               ? encodedSummaryInputAtRawBytes(
                   validInput,
-                  MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES + 1
+                  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES + 1
                 )
               : validInput;
         return {
@@ -8756,6 +9409,78 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(await pendingJobs(s, "ai/orderedGeneration:redraftSeedSection")).toHaveLength(0);
   });
 
+  // 2026-10-23 (owner, second): after a move back, "Draft the rest" and a
+  // QA run leave the moved-back model; the drafted Line keeps its model.
+  it("drafts the rest and runs QA again on the tier's current model after a move back", async () => {
+    const { s } = await stopAfterFirstSection("MovedRest");
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze, postQaStatus: "failed" });
+      for (const row of await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10)) {
+        await ctx.db.patch(row._id, { model: "claude-sonnet-5-5", label: "Sonnet 5.5" });
+      }
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    configureSuccessfulSummaryFinalization("MovedRest redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toEqual({ status: "started", sections: ["242", "244"] });
+    const rows = await s.t.run(async (ctx) =>
+      await ctx.db.query("generationSectionRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
+        .take(10));
+    expect(Object.fromEntries(rows.map((row) => [row.section, [row.model, row.label]]))).toEqual({
+      s246: ["claude-sonnet-5-5", "Sonnet 5.5"],
+      s242: ["claude-sonnet-5", "Sonnet 5"],
+      s244: ["claude-sonnet-5", "Sonnet 5"],
+    });
+    network.create.mockClear();
+    await runRedraftSection(s);
+    const models = network.create.mock.calls.map(([params]) => (params as GenerationMessageParams).model);
+    expect(models.length).toBeGreaterThan(0);
+    expect(new Set(models)).toEqual(new Set(["claude-sonnet-5"]));
+    // The QA panel's run again: the checking role left Sonnet 5.5 already.
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(generation?.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    expect(generation?.modelMoves).toHaveLength(1);
+  });
+
+  it("runs QA again off a moved-back helper model while the report keeps its writer model, and moves nothing while Draft the rest drafts", async () => {
+    const { s } = await stopAfterFirstSection("MovedQa");
+    await s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze, postQaStatus: "failed" });
+    });
+    // Draft the rest starts before the move back, then QA is asked for
+    // while it is still drafting: the freeze stays as it is.
+    configureSuccessfulSummaryFinalization("MovedQa redraft");
+    expect(await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    })).toMatchObject({ status: "started" });
+    const before = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    await s.t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const during = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(during?.modelFreeze).toEqual(before?.modelFreeze);
+    expect(during?.modelMoves).toBeUndefined();
+    // Once the redraft is over, a QA run moves the helper roles only.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.generationId, { redraft: undefined, postQaStatus: "failed" });
+    });
+    await s.writer.mutation(api.generations.requestReportQa, { generationId: s.generationId });
+    const after = await s.t.run((ctx) => ctx.db.get(s.generationId));
+    expect(after?.modelFreeze?.roles.checking).toBe("claude-sonnet-5");
+    expect(after?.singleModelId).toBe("claude-sonnet-5-5");
+    expect(after?.modelMoves).toHaveLength(1);
+    expect(after?.modelMoves?.[0]).toMatchObject({ fromModelId: "claude-sonnet-5-5", toModelId: "claude-sonnet-5" });
+    expect(after?.modelMoves?.[0]?.writer).toBeUndefined();
+  });
+
   it("redrafts only the Not drafted Sections into the same report and keeps the writer's edits", async () => {
     const { s } = await stopAfterFirstSection("Stopped");
     const stoppedReport = await reportOf(s);
@@ -9043,6 +9768,35 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
     expect(report.content).not.toContain("RaceRedraft draft 2.");
     const generation = await s.t.run((ctx) => ctx.db.get(s.generationId));
     expect(generation?.redraft).toMatchObject({ status: "completed", filledSections: ["242"] });
+  });
+
+  // 2026-10-29 (third, item 5), review round 1: a redrafted Line also gets
+  // the gap notes of a Line after it that is already in the report, so it
+  // does not ask the client the same question again.
+  it("sends a redrafted Line the gap notes of a later Line the writer already filled", async () => {
+    const { s } = await stopAfterFirstSection("Gaps");
+    configureSuccessfulSummaryFinalization("GapsRedraft");
+    await s.writer.mutation(api.generations.redraftMissingSections, {
+      generationId: s.generationId,
+    });
+    // This fixture drafts in the order 246, 242, 244, and stopped after 246.
+    // The writer fills the 244 placeholder, with a gap note, before the 242
+    // redraft runs: 244 comes after 242 in the build order.
+    await writerTypes(s, "[NOT GENERATED]", "Writer wrote 244. [GAP: how many trials ran]");
+    network.create.mockClear();
+    await runRedraftSection(s);
+    const draft = network.create.mock.calls
+      .map(([params]) => params as GenerationMessageParams)
+      .find((params) => !params.tool_choice);
+    if (!draft) throw new Error("The redraft made no drafting call");
+    const user = providerUser(draft);
+    expect(user).toContain(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.gapsAsked.prefix);
+    expect(user).toContain("Your task is to draft Line 242");
+    expect(user).toContain("- Line 244 (Work performed): how many trials ran");
+    expect(user).toContain(ORDERED_PROMPT_SCAFFOLDS.draftedPriorSections.gapsAsked.rule);
+    // Only its gap notes: the later Line's text is not sent as an earlier Line.
+    expect(user).not.toContain("### Line 244 (Work performed) (DRAFTED)");
+    expect(user).not.toContain("Writer wrote 244.");
   });
 
   /** Replace the report's last "[NOT GENERATED]" body with `text` (or, when
@@ -9457,6 +10211,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       summaryVersionId: signed.summaryVersionId,
       // Capability only; the stage gate is getOutline.canEdit.
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: { draftMs: expect.any(Number), stepByStepMs: null },
     });
     expect(newer).toEqual({
       _id: newerId,
@@ -9464,6 +10220,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "initializing",
       summaryVersionId: null,
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: null,
     });
     // The project's latest read model now describes the newer run, so the
     // older view above is that generation's own row and never "latest".
@@ -9546,6 +10304,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "draftFailed",
       summaryVersionId: signed.summaryVersionId,
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: null,
     });
     expect(recovery).toEqual({
       _id: recoveryId,
@@ -9553,6 +10313,8 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "drafting",
       summaryVersionId: signed.summaryVersionId,
       seedCanEdit: true,
+      // 2026-11-02: how long the finished draft took (null until it is).
+      draftTiming: null,
     });
 
     const recovered = await s.writer.query(getSummaryRef, {
@@ -9719,6 +10481,7 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "closed",
       summaryVersionId: null,
       seedCanEdit: true,
+      draftTiming: null,
     });
     expect(closed.iterative).toMatchObject({
       gatedWorkflow: "seeds",
@@ -9778,6 +10541,7 @@ describe("Seed workspace read models (stories 5-6)", () => {
       seedPhase: "drafting",
       summaryVersionId: signed.summaryVersionId,
       seedCanEdit: true,
+      draftTiming: null,
     });
     expect(drafting.iterative).toMatchObject({ gatedWorkflow: "seeds", seedPhase: "drafting" });
   });
@@ -10917,7 +11681,7 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     expect(frozen.s242.planWording).toEqual(frozen.s244Claimed.planWording);
   });
 
-  it("admits Line 246 with Line 242 reserved at its cap: exactly 64,000 plan-check bytes commit and 64,001 roll back", async () => {
+  it("admits Line 246 with Line 242 reserved at its cap: exactly 64,000 plan-check bytes commit as one request and 64,001 commit as 2", async () => {
     const probe = await decisionFixture();
     await makeReady(probe);
     await addProvenance(probe, "overall_advancement", "");
@@ -10943,6 +11707,7 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     });
     const acceptedPlan = await frozenSectionPlan(accepted, "s246");
     expect(utf8Bytes(projectFrozenSummaryPlanChecks(acceptedPlan.checks))).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(await fixtureSummaryBatches(accepted, "246", acceptedPlan.checks)).toHaveLength(1);
     // At runtime Line 242's real text is shorter than the reservation, and
     // a Line 242 far over its cap is clipped to it: never over what was admitted.
     const runtime = await accepted.t.run(async (ctx) => {
@@ -10956,24 +11721,27 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     expect(utf8Bytes(runtime.short.planChecksBlock)).toBeLessThan(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
     expect(utf8Bytes(runtime.long.planChecksBlock)).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
 
-    const refused = await decisionFixture();
-    await makeReady(refused);
-    await addProvenance(refused, "overall_advancement", "x".repeat(excerptLength + 1));
-    const refusedBefore = await signoffWriteFootprint(refused);
-    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
-      generationId: refused.generationId,
+    // 2026-10-26 (P0 item 2; owner, 2026-10-26): one byte over a single
+    // request signs off and is checked in 2 requests instead of rolling back.
+    const split = await decisionFixture();
+    await makeReady(split);
+    await addProvenance(split, "overall_advancement", "x".repeat(excerptLength + 1));
+    const splitBefore = await signoffWriteFootprint(split);
+    await split.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: split.generationId,
       expectedSeedStageVersion: 0,
-    })).rejects.toMatchObject({
-      data: {
-        code: "INVALID_INPUT",
-        reason: "SUMMARY_CAPACITY_EXCEEDED",
-        limit: "summary_plan_check_input_utf8_bytes",
-      },
     });
-    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
+    const splitPlan = await frozenSectionPlan(split, "s246");
+    expect(utf8Bytes(projectFrozenSummaryPlanChecks(splitPlan.checks))).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES + 1);
+    expect(await fixtureSummaryBatches(split, "246", splitPlan.checks)).toHaveLength(2);
+    const splitAfter = await signoffWriteFootprint(split);
+    expect(splitAfter).not.toEqual(splitBefore);
+    expect(splitAfter.generation).toMatchObject({ status: "running" });
+    expect(splitAfter.summaries).toHaveLength(1);
+    expect(splitAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
   });
 
-  it("admits Line 244 with Line 242 reserved at its cap and Line 246's items whole: exactly 64,000 plan-check bytes commit and 64,001 roll back (Rule C)", async () => {
+  it("admits Line 244 with Line 242 reserved at its cap and Line 246's items whole: exactly 64,000 plan-check bytes commit as one request and 64,001 commit as 2 (Rule C)", async () => {
     const probe = await decisionFixture();
     await makeReady(probe);
     await addProvenance(probe, "hypothesis", "");
@@ -11003,6 +11771,7 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     });
     const acceptedPlan = await frozenSectionPlan(accepted, "s244");
     expect(utf8Bytes(projectFrozenSummaryPlanChecks(acceptedPlan.checks))).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
+    expect(await fixtureSummaryBatches(accepted, "244", acceptedPlan.checks)).toHaveLength(1);
     const runtime = await accepted.t.run(async (ctx) => {
       const generation = await ctx.db.get(accepted.generationId);
       if (!generation) throw new Error("Missing generation");
@@ -11014,20 +11783,23 @@ describe("what the writer dropped stays out of every Line (2026-09-30, first)", 
     expect(utf8Bytes(runtime.worst.planChecksBlock)).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
     expect(utf8Bytes(runtime.long.planChecksBlock)).toBeLessThanOrEqual(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES);
 
-    const refused = await decisionFixture();
-    await makeReady(refused);
-    await addProvenance(refused, "hypothesis", "x".repeat(excerptLength + 1));
-    const refusedBefore = await signoffWriteFootprint(refused);
-    await expect(refused.writer.mutation(api.generations.signOffSeedStage, {
-      generationId: refused.generationId,
+    // 2026-10-26 (P0 item 2; owner, 2026-10-26): one byte over a single
+    // request signs off and is checked in 2 requests instead of rolling back.
+    const split = await decisionFixture();
+    await makeReady(split);
+    await addProvenance(split, "hypothesis", "x".repeat(excerptLength + 1));
+    const splitBefore = await signoffWriteFootprint(split);
+    await split.writer.mutation(api.generations.signOffSeedStage, {
+      generationId: split.generationId,
       expectedSeedStageVersion: 0,
-    })).rejects.toMatchObject({
-      data: {
-        code: "INVALID_INPUT",
-        reason: "SUMMARY_CAPACITY_EXCEEDED",
-        limit: "summary_plan_check_input_utf8_bytes",
-      },
     });
-    expect(await signoffWriteFootprint(refused)).toEqual(refusedBefore);
+    const splitPlan = await frozenSectionPlan(split, "s244");
+    expect(utf8Bytes(projectFrozenSummaryPlanChecks(splitPlan.checks))).toBe(MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES + 1);
+    expect(await fixtureSummaryBatches(split, "244", splitPlan.checks)).toHaveLength(2);
+    const splitAfter = await signoffWriteFootprint(split);
+    expect(splitAfter).not.toEqual(splitBefore);
+    expect(splitAfter.generation).toMatchObject({ status: "running" });
+    expect(splitAfter.summaries).toHaveLength(1);
+    expect(splitAfter.events.filter((event) => event.kind === "signOff")).toHaveLength(1);
   });
 });

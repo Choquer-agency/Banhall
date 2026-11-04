@@ -1,4 +1,6 @@
 import { query, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { visibleSourceLabel } from "./lib/companyEvidence";
+import { hasCapability } from "../shared/capabilities";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { domainError } from "./lib/contracts";
@@ -144,12 +146,12 @@ export const getBrief = query({
   },
   handler: async (ctx, args) => {
     const generation = await ctx.db.get(args.generationId);
-    if (
-      !generation ||
-      !(await getInternalProjectAccessOrNull(ctx, generation.projectId))
-    ) {
+    const access = generation ? await getInternalProjectAccessOrNull(ctx, generation.projectId) : null;
+    if (!generation || !access) {
       return null;
     }
+    // Phase C: a company file's name and quoted words only for a viewer who may read them.
+    const mayReadCompanyFiles = hasCapability(access.user.role ?? null, "companyFiles.read");
     if (!generation.briefId) return null;
     const generationBrief = await ctx.db.get(generation.briefId);
     if (!generationBrief) return null;
@@ -163,16 +165,19 @@ export const getBrief = query({
     >();
     for (const sourceId of sourceIds) {
       const source = await ctx.db.get(sourceId);
-      if (source) sources.set(sourceId, { label: source.label, kind: source.kind });
+      if (source) {
+        sources.set(sourceId, { label: visibleSourceLabel(source.kind, source.label, mayReadCompanyFiles), kind: source.kind });
+      }
     }
 
     return {
       ...latest,
       storylineOrigin: storylineOriginOf(latest),
-      entries: entries.map((entry) => ({
-        ...entry,
-        source: sources.get(entry.sourceId) ?? null,
-      })),
+      entries: entries.map((entry) => {
+        const source = sources.get(entry.sourceId) ?? null;
+        const hidden = source?.kind === "company_file" && !mayReadCompanyFiles;
+        return { ...entry, ...(hidden ? { exactExcerpt: "" } : {}), source };
+      }),
       generationBriefId: generationBrief._id,
       editedSinceGeneration: latest._id !== generation.briefId,
       runBriefVersionId: generation.briefVersionId ?? generation.briefId,

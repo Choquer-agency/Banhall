@@ -1,5 +1,8 @@
 "use node";
 
+import { draftWebBackgroundDeps, runDraftWebBackground } from "./draftWebBackgroundRun";
+import { DRAFT_WEB_QUERIES_CALL_SITE } from "./draftWebBackground";
+
 // Iterative (section-by-section) PD generation.
 //
 // The writer's workflow: analyzer + Brain retrieval run ONCE (frozen as
@@ -52,6 +55,7 @@ import {
   compressToFit,
   includedDocumentCount,
   lengthBudgetBlock,
+  recordAnalyzerUse,
   recordContextBudget,
 } from "./pipeline";
 import { describeContextCuts } from "./trustedContext";
@@ -59,6 +63,7 @@ import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { sectionDeterministicFindings } from "./qaChecks";
 import { sectionMetrics, type LengthTarget, type SectionKey } from "../lib/lineLimits";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { withWriteRetries } from "../lib/writeRetry";
 import {
   NO_STYLE_OVERRIDES,
   normalizeStyleOverrides,
@@ -73,6 +78,7 @@ import {
   type FrozenWriterStyle,
 } from "../lib/frozenWriterStyle";
 import {
+  gapsAlreadyAskedBlock,
   ITERATIVE_PROMPT_SCAFFOLDS,
   ITERATIVE_SECTION_TITLES,
 } from "./promptDefinitions";
@@ -213,11 +219,14 @@ async function resolveFrozenWriterStyle(
   let qaCalibrationDigestId: Id<"learningDigests"> | undefined;
   try {
     const [qaDigest, styleDigest] = await Promise.all([
+      // Phase E (E3): a release suite --compare arm's own set, by project.
       ctx.runQuery(internal.learning.getActiveDigest, {
         kind: "qa_calibration",
+        projectId,
       }),
       ctx.runQuery(internal.learning.getActiveDigest, {
         kind: "draft_style",
+        projectId,
       }),
     ]);
     if (qaDigest?.content.trim()) {
@@ -234,7 +243,7 @@ async function resolveFrozenWriterStyle(
   } catch (err) {
     console.error("learning digest fetch failed for generation", genId, err);
   }
-  const { writerFlavor, styleOverrides, orderedContext } = await writerStylePromise;
+  const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
   return {
     style: {
       styleGuidance: buildStyleGuidance(
@@ -248,6 +257,7 @@ async function resolveFrozenWriterStyle(
       ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
       ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
       ...(writerFlavor ? { writerFlavor } : {}),
+      ...(writerFlavor && savedPreferenceTexts ? { savedPreferenceTexts } : {}),
       styleOverrides: styleOverrides ?? NO_STYLE_OVERRIDES,
     },
     ...(styleOverrides ? { resolvedStyleOverrides: styleOverrides } : {}),
@@ -313,7 +323,10 @@ async function startSeedStage(
 export const resumeSeedInitialization = internalAction({
   args: { generationId: v.id("generations") },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  handler: async (actionCtx, args): Promise<null> => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
     const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
@@ -335,7 +348,10 @@ export const resumeSeedInitialization = internalAction({
 export const continueAfterBriefPreparation = internalAction({
   args: { generationId: v.id("generations") },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  handler: async (actionCtx, args): Promise<null> => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     startActionDeadline(ctx);
     try {
       const input = await ctx.runQuery(internal.generations.getGenerationInput, args);
@@ -409,7 +425,10 @@ export const prepareSeedDraftingInputs = internalAction({
     shorterAnalysis: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  handler: async (actionCtx, args): Promise<null> => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx);
     const attemptArgs = { generationId: args.generationId, attempt: args.attempt };
@@ -420,6 +439,9 @@ export const prepareSeedDraftingInputs = internalAction({
     // whether the next attempt asks for a shorter analysis.
     let analyzerModel: string | undefined;
     let sawCutOff = false;
+    // Review round 2 (Opus 5.5): the web lookup runs beside the analysis; a
+    // failed analysis still waits for it, so its record and cache land.
+    let pendingWebBackground: Promise<unknown> | undefined;
     try {
       // Model catalog: routing and output budgets read the frozen models.
       const freeze = await registerGenerationModels(ctx, args.generationId);
@@ -466,6 +488,27 @@ export const prepareSeedDraftingInputs = internalAction({
         },
       });
       if (!(await stillCurrent())) return null;
+      // 2026-11-02 (proposed): public background from the web, beside the
+      // analysis; never throws, and the draft continues without it.
+      const webBackgroundStage = runDraftWebBackground(ctx, {
+        generationId: genId,
+        projectId,
+        sources: analyzerContext.userMessage,
+        deps: draftWebBackgroundDeps(ctx, {
+          queriesClient: clientForModel(ctx, briefModel, {
+            callSite: DRAFT_WEB_QUERIES_CALL_SITE,
+            projectId,
+            ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+            attribution: { generationId: genId },
+          }),
+          queriesModel: briefModel,
+          projectId,
+          generationId: genId,
+          ...(input.requestedBy ? { userId: input.requestedBy } : {}),
+        }),
+        log,
+      });
+      pendingWebBackground = webBackgroundStage;
       // Owner decision 43: the analysis runs on the frozen planning model.
       const analyzerRoute = resolveGenerationStep({ freeze, step: "analyzer", writerModel: model.id });
       analyzerModel = analyzerRoute.model;
@@ -486,10 +529,15 @@ export const prepareSeedDraftingInputs = internalAction({
           },
         }
       );
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
+      const webBackground = await webBackgroundStage;
       await ctx.runMutation(internal.generations.completeDraftingInputs, {
         ...attemptArgs,
         analysis: JSON.stringify(analysis),
         brainBlocks: JSON.stringify(brainBlocks),
+        ...(webBackground.block
+          ? { webBackground: webBackground.block, webBackgroundAnswers: webBackground.answers }
+          : {}),
         ...(brainProvenance ? { brainProvenance } : {}),
       });
     } catch (error) {
@@ -497,6 +545,7 @@ export const prepareSeedDraftingInputs = internalAction({
       const code = draftingInputsFailureCode(error);
       const shorterAnalysis = draftingInputsNeedShorterAnalysis({ code, sawCutOff, analyzerModel });
       console.error("drafting inputs failed for generation", args.generationId, code);
+      await pendingWebBackground?.catch(() => undefined);
       await ctx.runMutation(internal.generations.failDraftingInputs, {
         ...attemptArgs,
         code,
@@ -517,7 +566,10 @@ export const prepareSeedDraftingInputs = internalAction({
  */
 export const startIterativeGeneration = internalAction({
   args: { generationId: v.id("generations") },
-  handler: async (ctx, args) => {
+  handler: async (actionCtx, args) => {
+    // Owner, 2026-10-28 (question 14): every write of a draft's start is
+    // sent again while the deployment's write rate refuses it.
+    const ctx = withWriteRetries(actionCtx);
     const actionStartedAt = Date.now();
     // The action's deadline bounds every provider request (actionDeadline.ts).
     startActionDeadline(ctx, actionStartedAt);
@@ -679,6 +731,7 @@ export const startIterativeGeneration = internalAction({
         qaCalibrationDigestId,
         draftStyleDigestId,
         writerFlavor,
+        savedPreferenceTexts,
       } = style;
 
       // Frozen once: analyzer output shared by every section draft.
@@ -689,6 +742,7 @@ export const startIterativeGeneration = internalAction({
         steps.route("generation:analyzer").model,
         brainBlocks.analyzer
       );
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
 
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,
@@ -735,6 +789,7 @@ export const startIterativeGeneration = internalAction({
             ...(qaCalibrationDigestId ? { qaCalibrationDigestId } : {}),
             ...(draftStyleDigestId ? { draftStyleDigestId } : {}),
             ...(writerFlavor ? { writerFlavor } : {}),
+            ...(writerFlavor && savedPreferenceTexts ? { savedPreferenceTexts } : {}),
             ...(styleOverrides ? { styleOverrides } : {}),
           }
         );
@@ -774,7 +829,10 @@ export function priorSectionsBlock(
         `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.itemTitlePrefix}${SECTION_TITLES[p.section]}${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.itemTitleSuffix}${p.text}`
     )
     .join(ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.separator);
-  return `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.prefix}${body}`;
+  // 2026-10-29 (third, item 5): no question an approved Line already asks.
+  return `${ITERATIVE_PROMPT_SCAFFOLDS.approvedPriorSections.prefix}${body}${gapsAlreadyAskedBlock(
+    priorSections.map((p) => ({ title: SECTION_TITLES[p.section], text: p.text }))
+  )}`;
 }
 
 /** Draft (or redraft) one section, fenced by its durable section-run row. */
@@ -869,7 +927,10 @@ export const generateSection = internalAction({
         budget,
         styleGuidance,
         styleOverrides,
-        briefBlock
+        briefBlock,
+        "",
+        // 2026-10-30 (owner, item 2): the claimant line.
+        input.claimantName
       );
       let text = scrubBannedWordsUnlessWaived(raw, styleOverrides.bannedWords);
       text = await compressToFit(
@@ -885,7 +946,8 @@ export const generateSection = internalAction({
       const findings = sectionDeterministicFindings(
         args.section as IterativeSection,
         text,
-        styleOverrides
+        styleOverrides,
+        input.claimantName ? { claimantName: input.claimantName } : {}
       );
       await ctx.runMutation(internal.generations.completeSectionRun, {
         generationId: args.generationId,

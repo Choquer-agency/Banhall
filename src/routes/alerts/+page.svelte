@@ -50,7 +50,8 @@
 
 {#snippet alertsContent(showHeading: boolean)}
     <!-- In the workspace the work panel already pads its content (2026-10-19). -->
-    <main class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-8" : ""}`}>
+    <!-- In the page frame the card already holds the page's one <main>. -->
+    <svelte:element this={showHeading ? "main" : "div"} class={`w-full flex-1 ${showHeading ? "page-gutter page-gutter-y mx-auto max-w-[var(--container-shell)] pb-8" : ""}`}>
       <!-- Alert rows read best at a threads-list width inside the shared shell. -->
       <div class={`w-full ${showHeading ? "mx-auto max-w-3xl" : ""}`}>
       <div class={`flex items-center ${showHeading ? "justify-between" : "justify-end"}`}>
@@ -118,7 +119,7 @@
         {/if}
       </div>
       </div>
-    </main>
+    </svelte:element>
 {/snippet}
 
 {#if auth.isLoading || !auth.isAuthenticated}

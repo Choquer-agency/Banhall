@@ -44,8 +44,12 @@
   import { api } from "../../../../convex/_generated/api";
   import HomeView from "$lib/components/mywork/HomeView.svelte";
   import ProjectsPage from "$lib/components/projects/ProjectsPage.svelte";
-  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import WorkspaceShell from "$lib/components/workspace/WorkspaceShell.svelte";
+  import FrameCard from "$lib/components/workspace/FrameCard.svelte";
+  import ProjectsSectionSidebar from "$lib/components/projects/ProjectsSectionSidebar.svelte";
+  import ProjectsLoadingHeader from "$lib/components/projects/ProjectsLoadingHeader.svelte";
+  import { CLIENT_PARAM } from "$lib/projects/clientList";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
   import { resolveDashboardView, type DashboardView } from "$lib/dashboard/viewMode";
   import { preloadOnProjectLinkIntent, preloadProjectPage } from "$lib/components/project/projectPageModules";
   import {
@@ -91,9 +95,6 @@
     if (configQ.data) cachedViewConfig = configQ.data;
   });
   let navigationOpen = $state(false);
-  // Desktop rail visibility — persisted by WorkspaceShell (railPreferences);
-  // this host only wires the header toggle to the shell's bindable state.
-  let railHidden = $state(false);
   // Search typed from My Work navigates to /projects, which remounts this
   // component (separate routes). The handoff restores the in-flight query
   // so the first keystroke is never dropped.
@@ -126,10 +127,6 @@
   const facetsQ = useQuery(api.dashboard.getFacets, () =>
     auth.isAuthenticated && displayedView === "all_projects" ? {} : "skip"
   );
-  // /my-work presents as Home (2026-08-08 amendment) — the canonical URL,
-  // WorkspaceGate, /dashboard compatibility, and query semantics are
-  // unchanged; only the presentation label moves.
-  const activeLabel = $derived(displayedView === "all_projects" ? "Projects" : "Home");
   // Truthful count in the heading: exact when facets are exhaustive, `N+`
   // when bounded. My work gets no number until its groups can report one.
   const headerCount = $derived.by(() => {
@@ -147,6 +144,11 @@
     if (displayedView) url.searchParams.set("view", displayedView);
     return `${resolve("/dashboard")}${url.search}`;
   });
+
+  // The rollout skeleton draws Home or Projects as the route will, phone
+  // layout included (the company list fills a phone until a company is chosen).
+  const skeletonHome = $derived(view === "my_work");
+  const skeletonPhoneList = $derived(!skeletonHome && !page.url.searchParams.get(CLIENT_PARAM));
 
   // Real typed navigation between the canonical routes: the rail renders
   // these as plain anchors (history entries, middle-click, copy-link all
@@ -237,7 +239,6 @@
   kind="dashboard"
   theme="light"
   bind:navigationOpen
-  bind:railHidden
   {displayedView}
   {myWorkAvailable}
   myWorkHref={viewHref("my_work")}
@@ -246,60 +247,73 @@
   onFocusSearch={focusSearch}
   drawerDescription="Navigate between work, projects, and project creation."
 >
-  <div class="relative flex min-h-0 min-w-0 flex-col overflow-hidden">
-    {#if displayedView === "all_projects"}
-      <!-- Rail v3 (2026-10-19): the standard 64px top bar, "Projects" with
-           the truthful count and New project. The page below draws its own
-           white panel; this frame keeps 12px to the rail, the right edge and
-           the foot, like every other workspace screen. -->
-      <div data-projects-top-bar class="shrink-0 bg-workspace-shell px-3">
-        <PageTopBar
-          title={activeLabel}
-          count={headerCount}
-          primaryAction={{ label: "New project", href: resolve("/project/new") }}
-          onOpenNavigation={() => (navigationOpen = true)}
-        />
-      </div>
-    {/if}
+  {#if displayedView === "my_work"}
+    <!-- Home (ui-design-final.md section 9; the page frame, 2026-10-28): the
+         card with the Projects sidebar, Home's top bar and its tables. -->
+    <HomeView
+      recentProjects={recents}
+      homeHref={viewHref("my_work")}
+      onOpenNavigation={() => (navigationOpen = true)}
+    />
+  {:else}
+    <div data-projects-frame class="flex min-h-0 min-w-0 flex-col overflow-hidden max-lg:bg-surface">
+      {#if configQ.error}
+        <p class="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800" role="status">
+          Home is temporarily unavailable. Projects remains available.
+        </p>
+      {/if}
 
-    {#if configQ.error}
-      <p class="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800" role="status">
-        Home is temporarily unavailable. Projects remains available.
-      </p>
-    {/if}
-
-    {#if displayedView === "my_work"}
-      <!-- Home (ui-design-final.md section 9): its own top bar with the
-           greeting and New project, then the tables and Continue working. -->
-      <HomeView
-        recentProjects={recents}
-        {railHidden}
-        onToggleRail={() => (railHidden = !railHidden)}
-        onOpenNavigation={() => (navigationOpen = true)}
-      />
-    {:else}
-      <main
-        data-projects-work-surface={displayedView === "all_projects" ? "" : undefined}
-        class={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${displayedView === "all_projects" ? "bg-workspace-shell px-3 pb-3" : ""}`}
-      >
-        {#if displayedView === null}
-          <!-- Neutral skeleton while the rollout decision loads: the top bar
-               height and one panel, so neither Home nor Projects flashes. -->
-          <div class="flex min-h-0 flex-1 flex-col bg-workspace-shell" role="status" aria-label="Loading workspace">
-            <div class="flex h-16 shrink-0 items-center px-5">
-              <div class="h-6 w-28 animate-pulse rounded bg-chrome motion-reduce:animate-none"></div>
-            </div>
-            <div class="mx-3 mb-3 flex-1 rounded-xl border border-workspace-rail-line bg-surface p-6">
-              <div class="h-[1.625rem] w-32 animate-pulse rounded-md bg-chrome motion-reduce:animate-none"></div>
-              <div class="mt-6 h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>
+      {#if displayedView === null}
+        <!-- Neutral skeleton while the rollout decision loads: the card and
+             its Projects sidebar, so neither Home nor Projects jumps. -->
+        {#if !skeletonHome}
+          <!-- A phone's Projects bar, as the loaded page draws it. -->
+          <PageTopBar
+            class="md:hidden"
+            title="Projects"
+            titleTag={skeletonPhoneList ? "h1" : "p"}
+            primaryAction={{ label: "New project", href: resolve("/project/new") }}
+            onOpenNavigation={() => (navigationOpen = true)}
+          />
+        {/if}
+        <FrameCard class="flex-1" data-projects-work-surface mainClass={skeletonPhoneList ? "max-md:hidden" : ""}>
+          {#snippet sidebar()}
+            <ProjectsSectionSidebar
+              current={skeletonHome ? "home" : "projects"}
+              homeHref={viewHref("my_work")}
+              phone={skeletonPhoneList ? "full" : "hidden"}
+            />
+          {/snippet}
+          <div class="flex min-h-0 flex-1 flex-col" role="status" aria-label="Loading workspace">
+            {#if skeletonHome}
+              <PageTopBar
+                title="Home"
+                sidebarToggle
+                primaryAction={{ label: "New project", href: resolve("/project/new") }}
+                primaryActionInSidebar
+                onOpenNavigation={() => (navigationOpen = true)}
+              />
+            {:else}
+              <ProjectsLoadingHeader onOpenNavigation={() => (navigationOpen = true)} />
+            {/if}
+            <div class="px-4 pt-3 sm:px-6 lg:px-8">
+              <div class="h-32 animate-pulse rounded-lg bg-chrome/40 motion-reduce:animate-none"></div>
             </div>
           </div>
-        {:else}
-          <!-- 2026-10-14 redesign: the client list and the selected client.
-               ProjectsTableView stays in the repository, unmounted. -->
-          <ProjectsPage bind:this={projectsPage} initialSearch={search} totalLabel={headerCount} />
-        {/if}
-      </main>
-    {/if}
-  </div>
+        </FrameCard>
+      {:else}
+        <!-- 2026-10-14 redesign in the 2026-10-28 frame: the Projects sidebar
+             and the selected company. ProjectsTableView stays in the
+             repository, unmounted. -->
+        <ProjectsPage
+          bind:this={projectsPage}
+          initialSearch={search}
+          totalLabel={headerCount}
+          homeHref={viewHref("my_work")}
+          homeAvailable={myWorkAvailable}
+          onOpenNavigation={() => (navigationOpen = true)}
+        />
+      {/if}
+    </div>
+  {/if}
 </WorkspaceShell>

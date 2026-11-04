@@ -8,6 +8,7 @@
  * retention (discard, idle and absolute expiry), usage counted once, the
  * request at the SDK's HTTP boundary, and the Duplicate copy receipt.
  */
+import { withSourceTexts } from "./lib/sourceText";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -22,6 +23,7 @@ import { PREPARATION_PROJECT_DAILY_USD, preparationDay } from "./lib/briefPrepar
 import { BRIEF_REQUEST } from "./lib/briefRequest";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import { INTAKE_DEBOUNCE_MS, INTAKE_IDLE_MS, INTAKE_LIFETIME_MS } from "./lib/intakeDrafts";
+import { readDocumentText } from "./lib/documentText";
 import { deriveOrAdoptSeedBrief, deriveOrReuseBrief } from "./ai/brief";
 import { clientForStep, resetGenerationModelCache, resetGenerationPlaceholderCache } from "./ai/providers";
 import { resolveGenerationStep } from "./lib/generationSteps";
@@ -411,7 +413,9 @@ describe("promotion and adoption", () => {
     expect(state.transcripts.map((row) => row._id)).toEqual([byKey.get("transcript-key-1")?.transcriptId]);
     expect(state.documents.map((row) => row._id)).toEqual([byKey.get("document-key-1")?.projectDocumentId]);
     expect(state.transcripts[0]).toMatchObject({ content: TRANSCRIPT, label: "Interview", parserVersion: TRANSCRIPT_PARSER_VERSION });
-    expect(state.documents[0]).toMatchObject({ content: DOCUMENT, fileName: "cold-soak.txt", category: "background", uploaderRole: "writer" });
+    // 2026-10-22 (fourth): a document's text is stored as pieces.
+    expect(await s.t.run(async (ctx) => await readDocumentText(ctx, state.documents[0]!))).toBe(DOCUMENT);
+    expect(state.documents[0]).toMatchObject({ fileName: "cold-soak.txt", category: "background", uploaderRole: "writer" });
     expect(state.generations).toHaveLength(0);
     // The preparation moved to the project; its frozen rows name the project's rows.
     expect(state.preparation.projectId).toBe(receipt.projectId);
@@ -424,13 +428,13 @@ describe("promotion and adoption", () => {
     const adopted = await s.t.run(async (ctx) => {
       const generation = (await ctx.db.get(generationId))!;
       const entries = await ctx.db.query("generationBriefEntries").withIndex("by_briefId", (q) => q.eq("briefId", generation.briefId!)).collect();
-      const sources = await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect();
+      const sources = (await withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()));
       return { generation, entries, sources };
     });
     expect(adopted.generation.briefPreparation).toMatchObject({ preparationId: prepared._id, state: "adopted" });
     for (const entry of adopted.entries) {
       const source = adopted.sources.find((row) => row._id === entry.sourceId)!;
-      expect(source.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(source.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
   });
 
@@ -915,7 +919,12 @@ describe("Duplicate copy receipt", () => {
     const source = await s.t.run(async (ctx) => ({ first: (await ctx.db.get(firstId))!, second: (await ctx.db.get(secondId))! }));
     for (const { row, copy } of copies) {
       expect(copy.projectId).toBe(toId);
-      expect(copy.content).toBe(row.sourceId === firstId ? source.first.content : source.second.content);
+      // 2026-10-22 (fourth): both texts read through the text helper.
+      const [copied, original] = await s.t.run(async (ctx) => [
+        await readDocumentText(ctx, copy),
+        await readDocumentText(ctx, row.sourceId === firstId ? source.first : source.second),
+      ]);
+      expect(copied).toBe(original);
     }
   });
 });
@@ -1137,7 +1146,9 @@ describe("review fixes (2026-09-26, Opus 5.5 and Fable 5.1)", () => {
       ["big-doc-key-0", "big-doc-key-1", "big-doc-key-2", "transcript-key-1"],
     ]);
     const stored = await s.t.run(async (ctx) => ctx.db.get(done.sources.find((row) => row.sourceKey === "big-doc-key-1")!.projectDocumentId!));
-    expect(stored?.content).toBe(big("b"));
+    // 2026-10-22 (fourth): read through the text helper, from its pieces.
+    expect(stored?.content).toBeUndefined();
+    expect(stored && (await s.t.run(async (ctx) => await readDocumentText(ctx, stored)))).toBe(big("b"));
   });
 
   test("a second file with the same name and text merges into the first, as uploads do", async () => {

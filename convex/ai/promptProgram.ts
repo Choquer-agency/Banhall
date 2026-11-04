@@ -1,5 +1,6 @@
 "use node";
 
+import { COMPANY_FILE_LABEL_PREFIX, COMPANY_FILES_NOTE } from "../lib/companyEvidence";
 import { sha256 } from "../lib/contracts";
 import {
   ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
@@ -21,13 +22,14 @@ import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { ModelFreeze } from "../lib/modelCatalogValidators";
 import { generationModelFreeze } from "../lib/modelRoles";
-import { generationModelsRef } from "../lib/modelCatalogRefs";
+import { readGenerationFreeze } from "./generationFreezeRead";
 import {
   CHARS_PER_LINE,
   DRAFT_WORD_CAP_SHARE,
   LENGTH_TARGETS,
   LINE_LIMITS,
   WORD_CAPS,
+  GENERATION_LIMIT_ALLOWANCE,
   WORD_BUDGET_USABLE_LINE_FACTOR,
   WORD_BUDGET_WORDS_PER_LINE,
   wordBudget,
@@ -122,6 +124,9 @@ import {
   MAX_SUMMARY_ORDINARY_VERDICTS,
   MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
   MAX_SUMMARY_PLAN_VERDICTS,
+  MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
+  MAX_SUMMARY_SELF_CHECK_BATCHES,
+  SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
   MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
   SUMMARY_ORDINARY_LABEL_PROJECTION_VERSION,
   SUMMARY_PLAN_SERIALIZER_VERSION,
@@ -196,8 +201,15 @@ const CANDIDATE_MODE_ROUTING = {
   single: { ...LIVE_CANDIDATE_MODE_ROUTING.single, fallbackModelId: LEGACY_MODEL },
   iterative: { ...LIVE_CANDIDATE_MODE_ROUTING.iterative, fallbackModelId: LEGACY_MODEL },
 } as const;
+/**
+ * Roles added after the program's role defaults were recorded that no
+ * generation step uses (2026-10-26: file_labels labels files, outside any
+ * generation). They stay out of the program, so adding one does not move
+ * every generation's prompt version.
+ */
+const ROLES_OUTSIDE_PROGRAM: ReadonlySet<string> = new Set(["file_labels"]);
 const LEGACY_ROLE_DEFAULTS = Object.fromEntries(
-  MODEL_ROLES.map((role) => [
+  MODEL_ROLES.filter((role) => !ROLES_OUTSIDE_PROGRAM.has(role)).map((role) => [
     role,
     ROLE_POLICIES[role].track === "claude-haiku" ? LEGACY_RETRIEVAL_BRIEF_MODEL : LEGACY_MODEL,
   ])
@@ -726,6 +738,9 @@ export const generationPromptProgram = {
       // 2026-10-04 (first), Round 4: within the Locked caps it runs toward
       // the writer's cap whatever the overage.
       finalCut: "ordered-chain-one-targeted-pass-when-at-most-10-percent-over-or-over-only-the-writers-cap",
+      // 2026-10-29 (third, item 7): every pass runs only over the drafting
+      // ceiling and aims under it (or under the writer's cap).
+      runsOver: "drafting-ceiling-cra-limits-plus-allowance-or-the-writers-cap",
     },
     // Story 2 (CAP-9, AD-25/27): one structured Self-check per section.
     selfCheck: {
@@ -756,6 +771,9 @@ export const generationPromptProgram = {
         // list is read as empty and its checks asked for in the follow-up;
         // an answer with neither list is still rejected whole.
         unreadableLists: "read-as-empty-and-asked-for-unless-neither-is-a-list",
+        // 2026-10-27 (ninth, release suite): an unknown top-level property
+        // under the answer's byte ceiling is ignored and logged by name only.
+        unknownRootProperties: "ignored-logged-by-name-unless-neither-list-or-over-ceiling",
         // 2026-09-28 (second, edited terms): the Line's edited terms are
         // allowed word for word; an objection to one as invented is set aside.
         editedTerms: "allowed-word-for-word-invention-objections-set-aside",
@@ -912,6 +930,15 @@ export const generationPromptProgram = {
     },
   },
   templates: {
+    // 2026-10-26 (Phase C): a draft's company files. The note goes before
+    // the first company file in the analyzer, Brief and Seed prompts, only
+    // when the draft froze one; the analyzer labels each, after every
+    // project file, and the facts check names them the same way.
+    companyFiles: {
+      note: COMPANY_FILES_NOTE,
+      analyzerLabelPrefix: COMPANY_FILE_LABEL_PREFIX,
+      placement: "after-every-project-file-only-when-frozen",
+    },
     writing: GENERATION_WRITING_PROMPT_PROGRAM,
     lengthBudget: LENGTH_BUDGET_SCAFFOLD,
     styleGuidance: STYLE_GUIDANCE_SCAFFOLDS,
@@ -937,6 +964,12 @@ export const generationPromptProgram = {
           maxPlanVerdicts: MAX_SUMMARY_PLAN_VERDICTS,
           maxCheckInputUtf8Bytes: MAX_SUMMARY_PLAN_CHECK_INPUT_UTF8_BYTES,
           maxResponseUtf8Bytes: MAX_SUMMARY_SELF_CHECK_RESPONSE_UTF8_BYTES,
+          // 2026-10-22 (third): the raw answer's own ceiling.
+          maxAnswerUtf8Bytes: MAX_SUMMARY_SELF_CHECK_ANSWER_UTF8_BYTES,
+          // 2026-10-26 (P0 item 2): a Line too big for one request is
+          // checked in up to this many, all at once.
+          maxRequests: MAX_SUMMARY_SELF_CHECK_BATCHES,
+          parallelRequests: SUMMARY_SELF_CHECK_PARALLEL_REQUESTS,
         },
       },
     },
@@ -972,6 +1005,10 @@ export const generationPromptProgram = {
       charsPerLine: CHARS_PER_LINE,
       lineLimits: LINE_LIMITS,
       wordCaps: WORD_CAPS,
+      // 2026-10-29 (third, item 7): the CRA limits apply at export; while
+      // drafting a Line may run this share over them before it is compressed.
+      generationLimitAllowance: GENERATION_LIMIT_ALLOWANCE,
+      generationCeilingRounding: "floor",
       lengthTargets: LENGTH_TARGETS,
       wordBudgetFormula: {
         usableLineFactor: WORD_BUDGET_USABLE_LINE_FACTOR,
@@ -1094,7 +1131,8 @@ export async function generationPromptVersion(
   ctx: Pick<ActionCtx, "runQuery">,
   generationId: Id<"generations">
 ): Promise<string> {
-  const freeze = await ctx.runQuery(generationModelsRef, { generationId });
+  // The same read the action's routing uses (2026-10-23, second).
+  const freeze = await readGenerationFreeze(ctx, generationId);
   if (!freeze) throw new Error("Generation not found for its prompt version");
   return await promptVersionForModels(freeze);
 }

@@ -6,6 +6,8 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { savedPreferenceMatchOfGeneration } from "../savedPreferenceNotes";
+import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import {
@@ -43,6 +45,7 @@ import { ORDERED_SECTION_TITLES } from "../../ai/promptDefinitions";
 import { settleCandidateRun } from "./candidates";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { getInternalProjectAccessOrNull } from "../auth";
+import { claimantNameFor } from "../transcriptPlaceholders";
 
 // ─── Story 2: ordered, ungated section chain (single/compare, AD-24) ─────────
 //
@@ -297,6 +300,12 @@ export async function orderedSectionClaim(
     row: Doc<"generationSectionRuns">;
     section: SectionNumber;
     priorSections: Array<{ section: SectionNumber; text: string }>;
+    /**
+     * 2026-10-29 (third), review round 1: on a redraft, the Lines after this
+     * one that are already in the report. Only their [GAP: ...] notes reach
+     * the request, so the Line asks none of them again.
+     */
+    laterSections?: Array<{ section: SectionNumber; text: string }>;
     executionBrief?: Awaited<ReturnType<typeof loadBriefCheck>>;
   }
 ) {
@@ -316,12 +325,37 @@ export async function orderedSectionClaim(
     },
   });
   // 2026-10-04 (second, round 2): a signed-off plan's facts check reads the
-  // source documents in full when they fit its budget.
+  // source documents in full when they fit its budget. Phase D, step 1
+  // (2026-10-28, fourth): when they do not, the parts that best match this
+  // Line's own plan.
+  const factsUses: Array<{ sourceId: Id<"generationSources">; sent: number; total: number; ranges?: Array<{ start: number; end: number }> }> = [];
+  // The subject is what the Line must cover: each cover item's wording, the
+  // wording it relates to and its quotes, never a Skip or a LEAVE OUT entry
+  // nor the plan's own scaffold (Phase D review).
+  // Each text once: the items of a merged group share their relationship
+  // wording, which would otherwise outweigh the Line's own (review round 2).
+  const factsSubject = [...new Set(plan.planChecks
+    .filter((check) => check.instruction === "cover")
+    .flatMap((check) => [
+      ...check.wording,
+      ...check.relationshipReferences.flatMap((reference) => reference.wording),
+      ...check.sourceReferences.map((reference) => reference.exactExcerpt),
+    ]))];
   const factsSourceDocuments = args.generation.summaryVersionId
-    ? await loadFactsSourceDocuments(ctx, args.generation)
+    ? await loadFactsSourceDocuments(ctx, args.generation, factsUses, factsSubject)
     : undefined;
+  // Phase D (step 2): what this Line's facts check reads of each frozen row,
+  // only for a Line whose plan runs it (the action sends the documents to a
+  // match_sources check alone). The action records it once the Line has
+  // completed with its check answered (re-check: not at the claim).
+  const runsFactsCheck = factsSourceDocuments !== undefined && plan.planChecks.some((check) => check.instruction === "match_sources");
+  // 2026-10-30 (owner, item 2): the claimant's name frozen at reservation,
+  // for the claimant line every draft and repair sends, when the
+  // generation's frozen map hides it.
+  const claimantName = claimantNameFor(args.generation.claimantName, args.generation.placeholders, args.generation.placeholdersOff);
   return {
     projectId: args.generation.projectId,
+    ...(claimantName !== undefined ? { claimantName } : {}),
     model: args.row.model,
     label: args.row.label,
     requestedBy: args.generation.requestedBy,
@@ -329,10 +363,14 @@ export async function orderedSectionClaim(
     orderIndex,
     isFirstInOrder: orderIndex === 0,
     priorSections: args.priorSections,
+    ...(args.laterSections && args.laterSections.length > 0 ? { laterSections: args.laterSections } : {}),
     briefBlock,
     brief,
     ...plan,
     ...(factsSourceDocuments ? { factsSourceDocuments } : {}),
+    ...(runsFactsCheck && factsUses.length > 0
+      ? { factsCheckUse: { run: `line:${args.section}`, uses: factsUses.map((use) => ({ ...use, unit: "bytes" as const })) } }
+      : {}),
   };
 }
 
@@ -361,10 +399,12 @@ export async function persistSectionNotes(
     generationId: args.generation._id,
     candidateRunId: args.run._id,
   };
+  // E1b review: a row quoting a saved preference names it only as one.
+  const saved = await savedPreferenceMatchOfGeneration(ctx, args.generation);
   for (const note of args.notes) {
     // A section's rows belong to that section only.
     if (note.section !== args.section) continue;
-    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved), owner));
   }
   // AD-23/AD-25: the chain's one write outside complianceNotes. The
   // question cites the Confidence Map entry the section's stronger evidence
@@ -634,8 +674,9 @@ export async function insertConsistencyNotesHandler(
     generationId: fence.generation._id,
     candidateRunId: fence.run._id,
   };
+  const saved = await savedPreferenceMatchOfGeneration(ctx, fence.generation);
   for (const note of args.notes) {
-    await ctx.db.insert("complianceNotes", complianceNoteRow(note, owner));
+    await ctx.db.insert("complianceNotes", complianceNoteRow(withoutSavedPreferenceText(note, saved.texts, saved), owner));
   }
   const now = Date.now();
   await ctx.db.patch(fence.run._id, { consistencyCheckedAt: now });

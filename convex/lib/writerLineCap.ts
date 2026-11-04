@@ -18,6 +18,7 @@ import {
   WORD_BUDGET_WORDS_PER_LINE,
   WORD_CAPS,
   draftWordTarget,
+  generationCeiling,
   type LengthTarget,
   type SectionKey,
 } from "./lineLimits";
@@ -84,6 +85,23 @@ export function effectiveLineLimits(
   return {
     wordCap: cap?.words ?? WORD_CAPS[key],
     lineLimit: cap?.lines ?? LINE_LIMITS[key],
+  };
+}
+
+/**
+ * 2026-10-29 (third, item 7, owner): the limits a Line's text must meet while
+ * drafting: the writer's cap where it sets one, else the drafting ceiling
+ * (the CRA limits plus GENERATION_LIMIT_ALLOWANCE), since the CRA limits
+ * apply at export. Compression and its targets read these.
+ */
+export function draftingLineLimits(
+  key: SectionKey,
+  cap: WriterLineCap | null
+): { wordCap: number; lineLimit: number } {
+  const ceiling = generationCeiling(key);
+  return {
+    wordCap: cap?.words ?? ceiling.wordCap,
+    lineLimit: cap?.lines ?? ceiling.lineLimit,
   };
 }
 

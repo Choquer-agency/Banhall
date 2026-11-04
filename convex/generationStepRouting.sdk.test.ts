@@ -24,20 +24,31 @@ import type { ModelFreeze } from "./lib/modelCatalogValidators";
 import { alwaysThinkingMaxTokens } from "../shared/generationModels";
 import {
   CONSISTENCY_REQUEST,
+  CONSISTENCY_SCHEMA,
   COMPRESSION_REQUEST,
   ORDERED_PROMPT_SCAFFOLDS,
   SEED_FACT_QUOTE_RULES,
   SEED_PROMPT_PROGRAM,
   SEED_QUOTE_RULES,
   SELF_CHECK_REQUEST,
+  SELF_CHECK_SCHEMA,
 } from "./ai/promptDefinitions";
-import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
-import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
+import { ANALYSIS_SCHEMA, ANALYZER_REQUEST } from "./ai/analyzerAgent";
+import { BRIEF_SCHEMA } from "./lib/briefRequest";
+import { strictToolSchema } from "./ai/strictTools";
+import { seedTools } from "./ai/seeds";
+import { seedToolSchema } from "./lib/seedContract";
+import { seedToolSchemaForFacts } from "./lib/seedFacts";
+import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
+import { withoutInferenceMarkerJson, type InferenceMarkerStage } from "./inferenceMarker.fixture";
+import { withoutHonestDraftingJson, type HonestDraftingStage } from "./honestDrafting.fixture";
+import { withoutOneUncertaintyJson } from "./oneUncertainty.fixture";
 import { BRIEF_REQUEST } from "./ai/brief";
 import { describeBriefOutcome } from "./lib/briefRender";
 import { QA_REQUEST } from "./ai/qaAgent";
-import { CHRONOLOGY_REQUEST } from "./ai/chronologyAgent";
+import { CONTEXT_SCAFFOLDS } from "./ai/trustedContext";
+import { CHRONOLOGY_REQUEST, CHRONOLOGY_SCHEMA } from "./ai/chronologyAgent";
 import {
   ANTHROPIC_TIMEOUT_MS,
   SEED_PROVIDER_TIMEOUT_MS,
@@ -45,7 +56,7 @@ import {
   resetGenerationPlaceholderCache,
   withStepRequest,
 } from "./ai/providers";
-import { GENERATION_CALL_SLOTS } from "./ai/instrument";
+import { GENERATION_CALL_SLOTS, sendsLargeAnswer } from "./ai/instrument";
 import type { GenerationClient, GenerationMessageParams } from "./ai/openrouterCore";
 import {
   GENERATION_STEP_POLICY,
@@ -57,9 +68,9 @@ import {
   type GenerationStep,
 } from "./lib/generationSteps";
 import { runSeedDraftingInputs } from "./seedStartup.fixture";
-import { anthropicToolSse, sseResponse } from "./anthropicSse.fixture";
+import { anthropicToolSse, sseResponse, streamWhenAsked } from "./anthropicSse.fixture";
 import { compressionTargetWords, lengthBudgetBlock } from "./ai/pipeline";
-import { draftWordTarget, wordBudget } from "./lib/lineLimits";
+import { draftWordTarget, generationCeiling, wordBudget } from "./lib/lineLimits";
 import { RULES_ANALYSIS_FIGURES, RULES_HUMAN_PROSE } from "../shared/humanProse";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -209,7 +220,9 @@ function installFetch(options: { hold?: Partial<Record<string, () => Promise<voi
   const wire: Wire = { sent: [], events: [] };
   vi.stubGlobal(
     "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+    // 2026-10-26: a request for a large answer streams; its JSON answer is
+    // sent back as a stream (streamWhenAsked).
+    vi.fn<typeof fetch>(streamWhenAsked<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== "https://api.anthropic.com/v1/messages") {
         throw new Error(`Unexpected HTTP transport ${request.url}`);
@@ -254,7 +267,7 @@ function installFetch(options: { hold?: Partial<Record<string, () => Promise<voi
         content: [{ type: "text", text: stage === "section" ? LONG_DRAFT : stage === "compression" ? COMPRESSED_TEXT : SHORT_TEXT }],
         stop_reason: "end_turn",
       });
-    })
+    }))
   );
   return wire;
 }
@@ -275,15 +288,98 @@ type Pin = { count: number; hash: string; models: string[] };
  * Round 2 (decision 57): the Step-by-step Brief request is streamed. It gains
  * `stream: true` and, on the direct API, `eager_input_streaming: true` on its
  * tool (fidelity broken behaviour 9) and nothing else, so with those taken
- * out every body is the pinned one. Single and Compare never stream.
+ * out every body is the pinned one. 2026-10-26: so does every request for a
+ * large answer (instrument.ts sendsLargeAnswer), in every mode.
  */
 const withoutBriefStream = (json: Record<string, unknown>) => {
-  if (toolOf(json) !== "submit_generation_brief" || !("stream" in json)) return json;
+  if (!("stream" in json)) return json;
   const { stream: _stream, ...rest } = json;
   return {
     ...rest,
-    tools: (rest.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool),
+    ...(Array.isArray(rest.tools)
+      ? { tools: (rest.tools as Array<Record<string, unknown>>).map(({ eager_input_streaming: _eager, ...tool }) => tool) }
+      : {}),
   };
+};
+/**
+ * 2026-10-26 (live check): a model that refuses a forced tool call is sent
+ * its tools strict (convex/ai/strictTools.ts): each gains `strict: true` and
+ * each object in its schema `additionalProperties: false`. With those taken
+ * out, the body is the pinned one.
+ */
+const withoutStrictTools = (json: Record<string, unknown>) => {
+  if (!Array.isArray(json.tools) || !(json.tools as Array<{ strict?: unknown }>).some((tool) => tool.strict === true)) return json;
+  // A schema whose bounds strict refuses was changed more than that: it is
+  // put back from the app's own schema, once the sent one is shown to be
+  // exactly that schema's strict form.
+  const original = (name: unknown, sent: unknown): unknown => {
+    for (const candidate of STRICT_ORIGINALS.filter((item) => item.name === name)) {
+      if (JSON.stringify(strictToolSchema(candidate.schema)?.schema) === JSON.stringify(sent)) return candidate.schema;
+    }
+    return open(sent);
+  };
+  const open = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(open);
+    if (!node || typeof node !== "object") return node;
+    return Object.fromEntries(
+      Object.entries(node as Record<string, unknown>)
+        .filter(([key, value]) => !(key === "additionalProperties" && value === false))
+        .map(([key, value]) => [key, open(value)])
+    );
+  };
+  return {
+    ...json,
+    tools: (json.tools as Array<Record<string, unknown>>).map(({ strict, ...tool }) =>
+      strict === true ? { ...tool, input_schema: original(tool.name, tool.input_schema) } : tool
+    ),
+  };
+};
+/**
+ * The app's schemas by tool name, put back exactly (review round 3), so a
+ * change that dropped one of their own closed objects would not still match
+ * the pin. A tool missing here (the Summary Self-check, whose schema is
+ * built per request) has only the closed objects taken out.
+ */
+const STRICT_ORIGINALS: Array<{ name: string; schema: unknown }> = [
+  { name: "submit_self_check", schema: SELF_CHECK_SCHEMA },
+  { name: "submit_consistency_findings", schema: CONSISTENCY_SCHEMA },
+  { name: "submit_generation_brief", schema: BRIEF_SCHEMA },
+  { name: "submit_transcript_analysis", schema: ANALYSIS_SCHEMA },
+  { name: "submit_chronology_table", schema: CHRONOLOGY_SCHEMA },
+  ...[seedToolSchema(), seedToolSchemaForFacts()].flatMap((base) =>
+    seedTools(base, "shared").tools.map((tool) => ({ name: tool.name, schema: tool.input_schema }))
+  ),
+];
+/**
+ * Every request to a model that refuses a forced tool call sends its tools
+ * strict, but for a schema strict cannot hold (QA's, with too many optional
+ * fields), which is sent as before.
+ */
+function expectStrictTools(sent: Sent[], models: readonly string[]) {
+  for (const request of sent.filter((item) => models.includes(String(item.json.model)) && Array.isArray(item.json.tools))) {
+    const tools = (request.json.tools as Array<{ strict?: boolean; input_schema?: unknown }>).filter((tool) => tool.input_schema);
+    expect(
+      tools.every((tool) => (tool.strict === true) === (strictToolSchema(tool.input_schema) !== null)),
+      stageOf(request.json)
+    ).toBe(true);
+  }
+}
+/**
+ * 2026-10-26 (P0 item 4): the judges' first-attempt answer limit is 16,384,
+ * up from 4,096 (65,536 with a model's thinking room, up from 16,384). It is
+ * the only byte these requests gained; with it put back, the body is the
+ * pinned one.
+ */
+const JUDGE_STAGES: ReadonlySet<string> = new Set([
+  "submit_self_check",
+  "submit_consistency_findings",
+  "submit_qa_scorecard",
+  "submit_chronology_table",
+]);
+const withoutJudgeAnswerRoom = (json: Record<string, unknown>) => {
+  if (!JUDGE_STAGES.has(stageOf(json))) return json;
+  if (json.max_tokens !== 16_384 && json.max_tokens !== 65_536) return json;
+  return { ...json, max_tokens: (json.max_tokens as number) / 4 };
 };
 /**
  * The Seed quote rules (2026-09-27, third amendment) are the only bytes a
@@ -292,7 +388,8 @@ const withoutBriefStream = (json: Record<string, unknown>) => {
 const withoutQuoteRules = (json: Record<string, unknown>) => {
   if (toolOf(json) !== "submit_seed_batch") return json;
   // 2026-09-28 (fourth): the link sentence changed; the pins hold the old one.
-  let body = withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(json)));
+  // 2026-10-27 (eleventh): so did the bullet sentence.
+  let body = withPinnedBulletSentence(withPinnedAdvancementLinkRules(JSON.stringify(withSharedSeedToolOnly(json))));
   for (const rules of [SEED_QUOTE_RULES, SEED_FACT_QUOTE_RULES]) {
     body = body.replace(JSON.stringify(rules).slice(1, -1), "");
   }
@@ -307,8 +404,11 @@ const withoutQuoteRules = (json: Record<string, unknown>) => {
  */
 const COMPRESSION_SYSTEM_771AF202 =
   "You compress SR&ED report sections to fit CRA form limits. Preserve every distinct technical claim, uncertainty, iteration, and result; cut repetition, filler, and scene-setting. Never invent content. [GAP: …] markers must be preserved verbatim: never remove or reword them. Keep the same paragraph conventions (blank line between paragraphs). Return ONLY the compressed section text.\n\n";
+// 2026-10-29 (third, item 7): the request names the drafting ceiling after
+// the CRA limits, and aims under it; the normalizer below checks both and
+// puts the pinned wording back.
 const COMPRESSION_USER_NOW =
-  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words\. Rewrite it to AT MOST (\d+) words: cut at least (\d+) words, about (\d+) percent of it, while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
+  /^This section is (\d+) lines and (\d+) words, but the CRA field allows at most (\d+) lines of (\d+) characters \(blank lines between paragraphs each cost one line\) and at most (\d+) words, which it must meet before export\. While drafting it may run up to (\d+) percent over them, to (\d+) lines and (\d+) words, and it is over that\. Rewrite it to AT MOST (\d+) words: cut at least (\d+) words, about (\d+) percent of it, while preserving the technical substance\. Merge paragraphs where natural; fewer paragraph breaks save lines\.\n\n([\s\S]*)$/;
 /**
  * 2026-09-28 (second, full suite): ordered-chain drafts and repairs ask for the draft
  * target, 85 percent of the word cap, where the pins asked for the length
@@ -336,8 +436,13 @@ const withoutLengthFix = (json: Record<string, unknown>) => {
   const block = edited.messages[0].content[0];
   const match = COMPRESSION_USER_NOW.exec(block.text);
   if (!match) throw new Error("Unexpected compression request wording");
-  const [, lines, words, limit, chars, cap, target, cut, , text] = match;
+  const [, lines, words, limit, chars, cap, allowance, ceilingLines, ceilingWords, target, cut, , text] = match;
   const key = cap === "700" ? "s244" : "s242";
+  expect([Number(allowance), Number(ceilingLines), Number(ceilingWords)]).toEqual([
+    20,
+    generationCeiling(key).lineLimit,
+    generationCeiling(key).wordCap,
+  ]);
   expect(Number(target)).toBe(compressionTargetWords(key, "standard"));
   expect(Number(cut)).toBe(Number(words) - Number(target));
   block.text = `This section is ${lines} lines / ${words} words, but the CRA field allows only ${limit} lines of ${chars} characters (blank lines between paragraphs each cost one line). Rewrite it to AT MOST ${wordBudget(key, "standard")} words while preserving all technical substance. Merge paragraphs where natural; fewer paragraph breaks save lines.\n\n${text}`;
@@ -375,9 +480,53 @@ const withoutLine242Opening = (json: Record<string, unknown>) => {
   const pinned = withPinnedLine242Opening(body);
   return pinned === body ? json : (JSON.parse(pinned) as Record<string, unknown>);
 };
+/**
+ * 2026-10-29 (owner): the inference marker's rule and check lines are the
+ * only bytes it added (convex/inferenceMarker.fixture.ts). Applied last:
+ * the compression line it added sits in the system text withoutLengthFix
+ * replaces whole.
+ */
+/**
+ * Which of the inference marker's additions a request of this stage holds
+ * (convex/inferenceMarker.fixture.ts). Compression's line is gone once
+ * withoutLengthFix has put the old system text back.
+ */
+function markerStage(json: Record<string, unknown>, compressionPinned = true): InferenceMarkerStage {
+  const stage = stageOf(json);
+  if (stage === "section" || stage === "repair") return "draft";
+  if (stage === "compression") return compressionPinned ? "none" : "compression";
+  if (stage === "submit_self_check") return "selfCheck";
+  if (stage === "submit_qa_scorecard") return "qa";
+  return "none";
+}
+/**
+ * Which of the honest drafting changes (convex/honestDrafting.fixture.ts) a
+ * request of this stage holds: the marker's stages, and the analysis.
+ */
+function honestStage(json: Record<string, unknown>, compressionPinned = true): HonestDraftingStage {
+  return stageOf(json) === "submit_transcript_analysis" ? "analysis" : markerStage(json, compressionPinned);
+}
+/**
+ * 2026-10-29 (third): the honest drafting rules are put back to before,
+ * last, after the marker's lines are taken out. 2026-10-30: then this
+ * change's additions and its acronym sentence (convex/oneUncertainty.fixture.ts),
+ * with the honest drafting stages; a Seed request and a signed-off draft are
+ * told apart by their own text.
+ */
 const asPinned = (json: Record<string, unknown>) =>
-  withoutLine242Opening(
-    withPinnedCompressionAnswer(withoutLengthFix(withoutQuoteRules(withoutBriefStream(withoutAnalysisFigureRules(json)))))
+  withoutOneUncertaintyJson(
+    withoutHonestDraftingJson(
+      withoutInferenceMarkerJson(
+        withoutLine242Opening(
+          withPinnedCompressionAnswer(
+            withoutLengthFix(withoutQuoteRules(withoutJudgeAnswerRoom(withoutBriefStream(withoutAnalysisFigureRules(withoutStrictTools(json))))))
+          )
+        ),
+        markerStage(json)
+      ),
+      honestStage(json)
+    ),
+    honestStage(json)
   );
 
 /**
@@ -391,7 +540,10 @@ const asPinned = (json: Record<string, unknown>) =>
 const isFinalTextCheck = (request: Sent) => stageOf(request.json) === "submit_self_check" && request.body.includes(SHORT_TEXT);
 const beforeFinalTextChecks = (sent: Sent[]) => sent.filter((request) => !isFinalTextCheck(request));
 async function finalTextChecks(sent: Sent[]): Promise<Pin | undefined> {
-  return (await stagesOf(sent.filter(isFinalTextCheck))).submit_self_check;
+  // 2026-10-26: captured before the judges' larger limit and streaming.
+  return (await stagesOf(sent.filter(isFinalTextCheck), (json) =>
+    withoutOneUncertaintyJson(withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutJudgeAnswerRoom(withoutBriefStream(withoutStrictTools(json))), "selfCheck"), "selfCheck"), "selfCheck")))
+    .submit_self_check;
 }
 
 function expectBriefStreaming(sent: Sent[], streamed: boolean) {
@@ -403,12 +555,19 @@ function expectBriefStreaming(sent: Sent[], streamed: boolean) {
       expect(request.json.stream).toBe(true);
       expect(tools.map((tool) => tool.eager_input_streaming)).toEqual(tools.map(() => true));
     } else {
-      expect(request.json).not.toHaveProperty("stream");
+      // 2026-10-26: outside Step by step the Brief streams only for its
+      // size (16,000 with a model's thinking room), and then without eager
+      // tool input.
+      if (sendsLargeAnswer(request.json)) expect(request.json.stream).toBe(true);
+      else expect(request.json).not.toHaveProperty("stream");
       for (const tool of tools) expect(tool).not.toHaveProperty("eager_input_streaming");
     }
   }
+  // 2026-10-26: any other request streams exactly when it asks for a large
+  // answer.
   for (const request of sent.filter((item) => toolOf(item.json) !== "submit_generation_brief")) {
-    expect(request.json).not.toHaveProperty("stream");
+    if (sendsLargeAnswer(request.json)) expect(request.json.stream).toBe(true);
+    else expect(request.json).not.toHaveProperty("stream");
   }
 }
 type Scenario = `${"seeds" | "single" | "compare"}:${typeof SONNET | typeof OPUS}`;
@@ -661,7 +820,13 @@ async function runStepByStep(model: string, freeze: FreezeKind = "current", role
     return await ctx.db.query("seedBatches").first();
   });
   if (!batch) throw new Error("Opening the first role dispatched no batch");
-  await f.t.action(generateBatchRef, { batchId: batch._id });
+  // 2026-10-26: only Date is faked, so the scheduled Batch job can start on
+  // its own before the loop above cancels it; then it has claimed the Batch
+  // and is the one sending its request. Wait for it instead of claiming again.
+  await f.t.finishInProgressScheduledFunctions();
+  if ((await f.t.run(async (ctx) => ctx.db.get(batch._id)))?.status === "queued") {
+    await f.t.action(generateBatchRef, { batchId: batch._id });
+  }
   return { ...f, wire, batch };
 }
 
@@ -722,13 +887,18 @@ describe("the step table and its resolver (owner decision 43)", () => {
       post_qa: "postQa",
       post_chronology: "postChronology",
       retrieval_brief: null,
+      // 2026-11-02: the public background queries use the frozen retrieval
+      // brief model, as the retrieval brief does.
+      web_background_queries: null,
+      // The search itself runs on the chat web search model.
+      web_background_search: null,
       condense: null,
       facts: null,
       settings: null,
     });
     // Every other slot is a seed, Section, repair, compression or Self-check slot.
     for (const [slot, step] of Object.entries(routed)) {
-      if (["retrieval_brief", "condense", "facts", "settings"].includes(slot)) continue;
+      if (["retrieval_brief", "web_background_queries", "web_background_search", "condense", "facts", "settings"].includes(slot)) continue;
       expect(step, slot).not.toBeNull();
     }
     expect(generationStepOf("chat")).toBeNull();
@@ -879,6 +1049,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     // those fields set aside, every request is byte for byte the pinned one.
     const replyLine = /\\n\\nReply only by calling (the \w+ tool|one of the provided tools), exactly once\. A tool call is the only valid reply\./g;
     const lineBlock = /,\{"type":"text","text":"Reply only by calling (the \w+ tool|one of the provided tools), exactly once\. A tool call is the only valid reply\."\}/g;
+    // 2026-10-26: and its tools strict (withoutStrictTools, in asPinned).
+    expectStrictTools(after, [SONNET_TODAY]);
     const sonnet = (sent: Sent[], from: string) =>
       bodies(stagesOf(
         sent.filter((request) => request.json.model === from),
@@ -925,6 +1097,17 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       if (mode === "single") {
         expect(now.section).toEqual(before.section);
         expect(now.repair).toEqual(before.repair);
+        // 2026-10-29 (third, item 4): QA reads the frozen source evidence
+        // before the analysis; the pins above compare the rest of it.
+        const qa = wire.sent.filter((item) => stageOf(item.json) === "submit_qa_scorecard");
+        expect(qa.length).toBeGreaterThan(0);
+        for (const request of qa) {
+          const body = request.body;
+          const heading = body.indexOf(JSON.stringify(QA_REQUEST.sourceScaffold.heading).slice(1, -1));
+          expect(heading).toBeGreaterThan(0);
+          expect(body.indexOf(JSON.stringify(QA_REQUEST.userScaffold.analysisHeading).slice(1, -1))).toBeGreaterThan(heading);
+          expect(body.slice(heading)).toContain(JSON.stringify(`${QA_REQUEST.sourceScaffold.documentPrefix}${CONTEXT_SCAFFOLDS.transcriptLabel}`).slice(1, -1));
+        }
         // Opus 5.5 always thinks: compression runs at low effort instead of its default.
         for (const request of wire.sent.filter((item) => stageOf(item.json) === "compression")) {
           expect(request.json.thinking).toBeUndefined();
@@ -948,6 +1131,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
     async (scenario) => {
       const { wire } = await run(scenario, "beforeStepRouting");
       expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
+      expectStrictTools(wire.sent, [OPUS]);
       expect(await stagesOf(beforeFinalTextChecks(wire.sent), asPinned)).toEqual(PINNED_771AF202[scenario]);
       expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[scenario]);
     }
@@ -955,7 +1139,11 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
 
   it("an always-thinking planning or checking model an admin assigned runs at low effort; the writer's Sonnet 5 is untouched", async () => {
     const { wire } = await runOneShot("single", SONNET, "current", { planning: OPUS, checking: OPUS });
-    const now = await stagesOf(wire.sent, (json) => withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))));
+    const now = await stagesOf(wire.sent, (json) =>
+      withoutOneUncertaintyJson(
+        withoutHonestDraftingJson(withoutInferenceMarkerJson(withoutLine242Opening(withPinnedCompressionAnswer(withoutDraftHeadroom(json))), markerStage(json, false)), honestStage(json, false)),
+        honestStage(json, false)
+      ));
     const pinned = PINNED_771AF202[`single:${SONNET}`];
     for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in now)) {
       expect([stage, now[stage].models]).toEqual([stage, [OPUS]]);

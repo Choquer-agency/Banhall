@@ -65,6 +65,7 @@
     activeRunFromError,
     type ActiveRun,
     type StartRunExcluded,
+    type StartRunOptions,
     type StartRunSource,
   } from "$lib/components/generation/StartRunDialog.svelte";
   import { parsePdFilename } from "../../../../shared/pdFilename";
@@ -93,7 +94,6 @@
     PREVIOUS_YEAR_ONLY_MESSAGE,
     PREVIOUS_YEAR_TRANSCRIPTS_ONLY_MESSAGE,
     previousYearNoteText,
-    previousYearReportHeader,
   } from "../../../../shared/previousYear";
   import { WORKFLOW_STAGE_LABELS } from "../../../../shared/workflowLabels";
   import WorkspaceChrome from "$lib/components/workspace/WorkspaceChrome.svelte";
@@ -122,9 +122,11 @@
   } from "$lib/components/project-new/intakeDraft.svelte";
   import { intakeDraftRefs } from "../../../../convex/lib/intakeDraftRefs";
   import {
+    markdownNote,
     newSourceKey,
     noteSourceKey,
     plannedIntakeSources,
+    previousYearPrefix,
     restoredIntake,
   } from "$lib/components/project-new/intakePlan";
   import { startRunModels } from "$lib/components/generation/startRunSources";
@@ -898,7 +900,7 @@
   let pdDragOver = $state(false);
   let parsingPd = $state<string | null>(null);
   let pdFileError = $state("");
-  let pdDoc = $state<{ name: string; content: string; file: File; pageOffsets?: number[] } | null>(null);
+  let pdDoc = $state<{ name: string; content: string; file: File; pageOffsets?: number[]; textFormat?: "markdown" } | null>(null);
   let pdTitleFromName = $state(false);
 
   async function handlePdFile(file: File) {
@@ -914,7 +916,13 @@
       if (!text) {
         pdFileError = `We could not find any text in ${file.name}.`;
       } else {
-        pdDoc = { name: file.name, content: text, file, pageOffsets: parsed.pageOffsets };
+        pdDoc = {
+          name: file.name,
+          content: text,
+          file,
+          pageOffsets: parsed.pageOffsets,
+          ...(parsed.textFormat ? { textFormat: parsed.textFormat } : {}),
+        };
         if (mode === "review") prefillFromPdFileName(file.name);
       }
     } catch (error) {
@@ -1282,8 +1290,16 @@
     return after.previousYearMessage;
   }
 
-  function confirmStart(excluded: StartRunExcluded) {
+  // 2026-11-02 (proposed): "Look up public background" for this run (on
+  // unless the writer unticks it), offered when the deployment looks it up.
+  let startWebBackground = true;
+  const webBackgroundQ = useQuery(api.generations.webBackgroundAvailable, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+
+  function confirmStart(excluded: StartRunExcluded, options?: StartRunOptions) {
     startOpen = false;
+    startWebBackground = options?.webBackground !== false;
     restoredExclusion = [];
     void commit(excluded);
   }
@@ -1489,6 +1505,23 @@
   }
 
   /**
+   * Greptile review (2026-11-02): copied files marked "could not copy" hold
+   * no text. Names them (three, then how many more) and, when the wizard
+   * held back the draft or PD review it would have started, says so.
+   */
+  function notCopiedMessage(names: string[], startHeld: boolean) {
+    const one = names.length === 1;
+    const shown = names.length > 3 ? [...names.slice(0, 3), `${names.length - 3} more`] : names;
+    const list = shown.length > 1 ? `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}` : shown[0];
+    const message = `${one ? "1 file" : `${names.length} files`} could not be copied from ${copySourceTitle} and ${
+      one ? "holds" : "hold"
+    } no text here: ${list}.`;
+    const addAgain = `Add ${one ? "it" : "them"} again on the project page if you need ${one ? "it" : "them"}`;
+    if (!startHeld) return `${message} ${addAgain}.`;
+    return `${message} Nothing was started. ${addAgain}, then start the ${mode === "review" ? "PD review" : "draft"} there.`;
+  }
+
+  /**
    * Saves supporting documents the old way, one by one, once the project
    * exists: every file on the path without an intake draft, and on the
    * draft path only a file the draft could not take or one still being read
@@ -1508,7 +1541,12 @@
     const { leftOut, excludeDocumentIds, skippedFiles, savedOwn } = state;
     // One unreadable or oversized doc must never sink the whole project:
     // skip it, tell the writer which ones were skipped, and keep going.
-    const uploadDoc = async (doc: SupportingDoc, prefix = ""): Promise<"stored_text" | "stored_empty" | "failed"> => {
+    // `prefix` takes whether the text is Word Markdown: a prior-year note is
+    // escaped before Word Markdown so it reads as typed (review, 2026-10-26).
+    const uploadDoc = async (
+      doc: SupportingDoc,
+      prefix: (markdown: boolean) => string = () => ""
+    ): Promise<"stored_text" | "stored_empty" | "failed"> => {
       extractionLifetime.signal.throwIfAborted();
       const category = doc.category as ContextCategoryId;
       progress = `Uploading ${doc.name}...`;
@@ -1517,7 +1555,7 @@
           projectId,
           fileName: doc.name,
           fileType: "txt",
-          content: prefix + doc.pastedText,
+          content: prefix(false) + doc.pastedText,
           source: "context_input",
           category,
           intake: "pasted",
@@ -1537,10 +1575,11 @@
             projectId,
             fileName: doc.name,
             fileType: current.restored?.fileType ?? current.parsed?.fileType ?? guessFileType(doc.name),
-            content: hasText ? prefix + content : "",
+            content: hasText ? prefix(current.parsed?.textFormat === "markdown") + content : "",
             source: "context_input",
             category,
             extractionOutcome: current.status === "failed" ? "failed" : "ok",
+            ...(hasText && current.parsed?.textFormat ? { textFormat: current.parsed.textFormat } : {}),
           })
         );
         if (leftOut.has(`d:${doc.id}`) && id) excludeDocumentIds.push(id);
@@ -1568,10 +1607,11 @@
             projectId,
             fileName: file.name,
             fileType,
-            content: hasText ? prefix + content : "",
+            content: hasText ? prefix(current.parsed?.textFormat === "markdown") + content : "",
             source: "context_input",
             category,
             extractionOutcome: extractionFailed ? "failed" : "ok",
+            ...(hasText && current.parsed?.textFormat ? { textFormat: current.parsed.textFormat } : {}),
             attemptKey,
             ...(storageId ? { storageId } : {}),
             ...(file.type ? { mimeType: file.type } : {}),
@@ -1602,10 +1642,7 @@
     const saveOne = async (doc: SupportingDoc) => {
       if (doc.category !== "previous_pd") return uploadDoc(doc);
       const note = state.notesSaved?.has(doc.year) ? "" : (yearNotes.get(doc.year) ?? "").trim();
-      const outcome = await uploadDoc(
-        doc,
-        `${previousYearReportHeader(doc.year)}${note ? `Note: ${note}\n` : ""}\n`
-      );
+      const outcome = await uploadDoc(doc, (markdown) => previousYearPrefix(doc.year, markdownNote(note, markdown)));
       if (outcome === "stored_text") noteCarried.add(doc.year);
       return outcome;
     };
@@ -1690,6 +1727,7 @@
       // The writer's choices, kept for a start that finishes after the page.
       const choices = {
         candidateMode,
+        ...(startWebBackground ? {} : { webBackground: false }),
         ...(candidateMode !== "compare" && singleModelId ? { singleModelId } : {}),
         ...(candidateMode === "compare"
           ? (() => {
@@ -1851,6 +1889,12 @@
     const leftOut = new Set([...excluded.transcriptIds, ...excluded.documentIds]);
     let createdProjectId: Id<"projects"> | null = null;
     let copyFailed = false;
+    // F2 review: a copy too long for its action goes on after it; the
+    // project's files are still arriving, so nothing is started here.
+    let copyStillRunning = false;
+    // Greptile review (2026-11-02): copied files marked "could not copy"
+    // hold no text, so nothing is started here either and they are named.
+    let notCopied: string[] = [];
     // The writer's own files saved so far, by ownUploadNames' names.
     const savedOwn: string[] = [];
     try {
@@ -1918,6 +1962,8 @@
               : {}),
             ...(sendPreviousYearReport ? { previousYearReport: true } : {}),
           });
+          if (copied?.stillCopying) copyStillRunning = true;
+          notCopied = (copied?.filesNotCopied ?? []).map((file) => file.fileName);
           if ([...leftOut].some((key) => key.startsWith("c:"))) {
             // The copy's exact receipt: each source file's new row, so two
             // files with the same name and category never swap.
@@ -1974,6 +2020,7 @@
               fileName: pdDoc.name,
               fileType: guessFileType(pdDoc.name),
               content: pdDoc.content,
+              ...(pdDoc.textFormat ? { textFormat: pdDoc.textFormat } : {}),
               source: "review_pd",
               attemptKey: pdAttemptKey,
               ...(storageId ? { storageId } : {}),
@@ -1995,7 +2042,7 @@
           toast.warning(`The PD text was saved, but the original file ‘${pdDoc.name}’ could not be uploaded.`);
         }
         extractionLifetime.signal.throwIfAborted();
-        if (!copyFailed) {
+        if (!copyFailed && !copyStillRunning && !notCopied.length) {
           progress = "Starting PD review...";
           limited = await startUnlessLimited(() =>
             startPdReview({
@@ -2006,7 +2053,7 @@
             })
           );
         }
-      } else if (copyFailed || (fromProjectId && !generateAfterDuplicate)) {
+      } else if (copyFailed || copyStillRunning || notCopied.length || (fromProjectId && !generateAfterDuplicate)) {
         progress = "Opening duplicate...";
       } else {
         extractionLifetime.signal.throwIfAborted();
@@ -2024,6 +2071,7 @@
               : {}),
             ...(excludeDocumentIds.length ? { excludeDocumentIds } : {}),
             ...(excludeTranscriptIds.length ? { excludeTranscriptIds } : {}),
+            ...(startWebBackground ? {} : { webBackground: false }),
           });
           markStartReserved();
         });
@@ -2042,6 +2090,19 @@
       if (skippedFiles.length) {
         toast.error(
           `${skippedFiles.length} document(s) could not be uploaded and were skipped: ${skippedFiles.join(", ")}`
+        );
+      }
+      // F2 review: the run this duplicate was made for waits for its files.
+      if (copyStillRunning && ((mode === "review" && pdDoc) || generateAfterDuplicate)) {
+        toast.info(
+          mode === "review"
+            ? "The project is saved, but its files are still being copied. When they are, start the PD review from the project page."
+            : "The project is saved, but its files are still being copied. When they are, start the draft from the project page."
+        );
+      }
+      if (notCopied.length) {
+        toast.warning(
+          notCopiedMessage(notCopied, !copyStillRunning && Boolean((mode === "review" && pdDoc) || generateAfterDuplicate))
         );
       }
       if (limited) noteRefusedStart(limited);
@@ -2616,7 +2677,8 @@
                    stays for screen readers and the mode switch leads. -->
               <header class={layout === "phone" ? "flex flex-col" : "flex flex-row items-end gap-4"}>
                 <div class={layout === "phone" ? "sr-only" : "flex min-w-0 flex-1 flex-col gap-1"}>
-                  <h1 class="font-serif text-[1.75rem] leading-[calc(17/14)] text-ink">New project</h1>
+                  <!-- The bar holds the page's h1 (one per page, the page frame). -->
+                  <h2 data-new-project-heading class="font-serif text-[1.75rem] font-normal leading-[calc(17/14)] text-ink">New project</h2>
                   <p class="text-sm leading-[calc(10/7)] text-ink-muted" data-new-project-subtitle>
                     {mode === "review" ? "Add the draft and the basics." : "Add the interview and the basics."}{layout === "desktop" ? " You become the project Owner." : ""}
                   </p>
@@ -2905,6 +2967,7 @@
                       name={pdDoc.name}
                       content={pdDoc.content}
                       pageOffsets={pdDoc.pageOffsets}
+                      textFormat={pdDoc.textFormat}
                       titleFromFileName={pdTitleFromName}
                       onPreview={() => (pdPreviewOpen = true)}
                       onRemove={() => {
@@ -3262,6 +3325,7 @@
         busy={committing}
         validate={validateExcluded}
         onConfirm={confirmStart}
+        offerWebBackground={webBackgroundQ.data === true}
         onCancel={() => {
           restoredExclusion = [];
           onDialogSelection({ transcriptIds: [], documentIds: [] });

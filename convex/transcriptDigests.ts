@@ -1,3 +1,4 @@
+import { sourceRowLength, withSourceText, withSourceTexts } from "./lib/sourceText";
 import { getConvexSize, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -8,11 +9,8 @@ import {
 } from "./lib/sectionRunData";
 import { domainError, sha256 } from "./lib/contracts";
 import { isProjectDeleting } from "./lib/projectDeletion";
-import {
-  CONDENSE_VERSION,
-  generationTranscriptIds,
-  MAX_TRANSCRIPTS_PER_PROJECT,
-} from "./lib/transcripts";
+import { CONDENSE_VERSION, generationTranscriptIds } from "./lib/transcripts";
+import { MAX_FROZEN_SOURCE_ROWS } from "./lib/briefEvidence";
 import {
   FACT_PACK_MAX_CHARS,
   FACTS_VERSION,
@@ -51,11 +49,12 @@ export const getCondenseInputs = internalQuery({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
+    // B1, second part: the transcript rows with their text, in the old shape.
     const byTranscriptId = new Map(
-      sources
-        .filter((source) => source.kind === "transcript" && source.transcriptId)
-        .map((source) => [source.transcriptId, source])
+      (await withSourceTexts(ctx, sources.filter((source) => source.kind === "transcript" && source.transcriptId))).map(
+        (source) => [source.transcriptId, source]
+      )
     );
     // The frozen set decides the order, so digest part 1 is transcript 1 no
     // matter which condense call finishes first.
@@ -181,12 +180,13 @@ export const freezeDigestSource = internalMutation({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
-    const transcriptSource = sources.find(
+      .take(MAX_FROZEN_SOURCE_ROWS);
+    const transcriptRow = sources.find(
       (source) =>
         source.kind === "transcript" && source.transcriptId === args.transcriptId
     );
-    if (!transcriptSource) return null;
+    if (!transcriptRow) return null;
+    const transcriptSource = await withSourceText(ctx, transcriptRow);
     const already = sources.find(
       (source) =>
         source.kind === "transcript_digest" &&
@@ -217,7 +217,7 @@ export const freezeDigestSource = internalMutation({
     const frozen = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const digestByTranscriptId = new Map(
       frozen
         .filter((source) => source.kind === "transcript_digest")
@@ -235,7 +235,7 @@ export const freezeDigestSource = internalMutation({
         source.kind === "transcript_digest" &&
         source.transcriptId === args.transcriptId
     );
-    return frozenDigest ? frozenDigest.content.length : null;
+    return frozenDigest ? sourceRowLength(frozenDigest) : null;
   },
 });
 
@@ -260,7 +260,7 @@ export const getFactInputs = internalQuery({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
+      .take(MAX_FROZEN_SOURCE_ROWS);
     const now = Date.now();
     const transcripts = [];
     for (const transcriptId of generationTranscriptIds(generation) ?? []) {
@@ -280,7 +280,7 @@ export const getFactInputs = internalQuery({
         transcriptId,
         label: source.label,
         truncated: source.truncated,
-        chars: source.content.length,
+        chars: sourceRowLength(source),
         sameText,
         frozen: sources.some((row) => row.kind === "transcript_facts" && row.transcriptId === transcriptId),
         ready: run !== null && (await factRunIsCurrent(ctx, run)),
@@ -288,6 +288,13 @@ export const getFactInputs = internalQuery({
           run !== null &&
           (run.status === "running" || run.status === "queued") &&
           now - run.startedAt < FACT_RUN_STALE_MS,
+        // 2026-10-26 (failure 6): background extraction could not read this
+        // text even in pieces; it is not tried again (claimFactRun "dense").
+        tooDense:
+          run !== null &&
+          run.status === "failed" &&
+          run.tooDense === true &&
+          run.parserVersion === transcript?.parserVersion,
         digestStored: digest !== null,
       });
     }
@@ -318,15 +325,17 @@ export const freezeFactsSource = internalMutation({
     const sources = await ctx.db
       .query("generationSources")
       .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-      .take(3 * MAX_TRANSCRIPTS_PER_PROJECT + 51);
-    const transcriptSource = sources.find(
+      .take(MAX_FROZEN_SOURCE_ROWS);
+    const transcriptRow = sources.find(
       (source) => source.kind === "transcript" && source.transcriptId === transcript._id
     );
-    if (!transcriptSource || transcriptSource.truncated) return null;
+    if (!transcriptRow || transcriptRow.truncated) return null;
     const existing = sources.find(
       (source) => source.kind === "transcript_facts" && source.transcriptId === transcript._id
     );
-    if (existing) return existing.content.length;
+    if (existing) return sourceRowLength(existing);
+    // B1, second part: the transcript row's text, wherever it is kept.
+    const transcriptSource = await withSourceText(ctx, transcriptRow);
     // The facts index the transcript's text; the frozen row must be that
     // exact text, or no span can be trusted on it.
     const run = await readyFactRun(ctx, transcript);

@@ -1,6 +1,6 @@
 import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
-import { refreshCatalogRef } from "./lib/modelCatalogRefs";
+import { checkProductionErrorsRef, refreshCatalogRef } from "./lib/modelCatalogRefs";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
 import { CHAT_TURN_STALE_MINUTES } from "./chatV2";
 
@@ -14,6 +14,22 @@ crons.interval(
   "expire and purge intake drafts",
   { minutes: 15 },
   intakeDraftRefs.sweepIntakeDrafts,
+  {}
+);
+
+// 2026-10-26 (Phase B4): files whose text changed get their search pieces.
+crons.interval(
+  "cut search pieces of changed files",
+  { minutes: 1 },
+  internal.searchPieces.sweepDueSearchPieces,
+  {}
+);
+
+// 2026-10-26 (Phase B4): files with new text get labels.
+crons.interval(
+  "label changed files",
+  { minutes: 1 },
+  internal.fileLabels.sweepDueFileLabels,
   {}
 );
 
@@ -77,6 +93,26 @@ crons.cron(
   "15 8 * * *",
   internal.ai.learning.generateDraftStyleDigest
 );
+// 2026-10-27 (Phase E, E1a): writer memory. Suggestions for writers with new
+// Step-by-step signals, and dismissed suggestions' text cleared after 90 days.
+crons.cron(
+  "suggest writer preferences",
+  "30 8 * * *",
+  internal.writerMemory.scheduleNightlyRuns,
+  {}
+);
+crons.cron(
+  "clear dismissed preference texts",
+  "45 8 * * *",
+  internal.writerMemory.clearDismissedTexts,
+  {}
+);
+crons.cron(
+  "withdraw preference suggestions of erased work",
+  "50 8 * * *",
+  internal.writerMemory.withdrawBrokenSuggestions,
+  {}
+);
 crons.interval(
   "reconcile stalled oversight rebuilds",
   { minutes: 5 },
@@ -88,15 +124,32 @@ crons.interval(
   internal.myWorkBackfill.sweepStalled
 );
 
-// Model catalog (owner decision 21, amended 2026-10-22): refresh from
-// OpenRouter, log expiring or removed models for admins, move a failing new
-// track model back, and move each tier to its newest version once it passes
-// a readiness check. Never switches a role to another vendor or tier. After
+// Model catalog (owner decision 21, amended 2026-10-22 and 2026-10-23):
+// refresh from OpenRouter and log expiring or removed models for admins
+// every day; move each tier to its newest version, once it passes a
+// readiness check, on Mondays only (08:45 UTC, 04:45 Toronto in summer and
+// 03:45 in winter). Never switches a role to another vendor or tier. After
 // the learning digests, still outside working hours.
 crons.cron(
   "refresh model catalog",
-  "45 8 * * *",
-  refreshCatalogRef
+  "45 8 * * 0,2-6",
+  refreshCatalogRef,
+  {}
+);
+crons.cron(
+  "move model tiers to their newest version",
+  "45 8 * * 1",
+  refreshCatalogRef,
+  { moveTiers: true }
+);
+// A tier's new model that fails too often in its first 7 days is moved
+// back within the hour (2026-10-23), at a quarter past so it never runs
+// beside the refresh.
+crons.cron(
+  "move a failing model tier back",
+  "15 * * * *",
+  checkProductionErrorsRef,
+  {}
 );
 
 // Files no row holds once they are a day old (an upload whose save never
@@ -124,6 +177,33 @@ crons.cron(
   "prune notifications",
   "10 10 * * *",
   internal.notifications.pruneOld,
+  {}
+);
+
+// B1, second part (2026-10-27): a removed company file's stored text
+// versions once no draft uses them (a draft using one may have been erased
+// since the file was removed); one page a run, the next scheduled.
+crons.cron(
+  "sweep unused company file text versions",
+  "20 10 * * *",
+  internal.sourceTextSweep.sweepCompanyTextVersions,
+  {}
+);
+
+// F2 (2026-10-27): a project copy whose runner stopped (its lease ran out)
+// is taken up again, so no copy is left half done and no draft waits on it.
+crons.interval(
+  "resume stalled project copies",
+  { minutes: 1 },
+  internal.projectDuplication.resumeStalledProjectCopies,
+  {}
+);
+// F2 review, round 3: the clones a stopped copy runner stored but never
+// attached, in their own transactions (continuing while there is more).
+crons.interval(
+  "delete stray project copy clones",
+  { minutes: 10 },
+  internal.projectDuplication.reconcileProjectCopyClones,
   {}
 );
 

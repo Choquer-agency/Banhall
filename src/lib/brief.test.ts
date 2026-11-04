@@ -9,6 +9,7 @@ import {
   groupBrief,
   inclusionHeader,
   inclusionStatusText,
+  inclusionUsesText,
   liveCount,
   offerHref,
   offerSentence,
@@ -130,6 +131,10 @@ describe("Brief rail helpers (story 4)", () => {
       sourceChipLabel(entry({ source: { label: "background:specs.pdf", kind: "project_document" } }))
     ).toBe("specs.pdf");
     expect(sourceChipLabel(entry({ source: null }))).toBe("source");
+    // Phase C: a company file says so.
+    expect(
+      sourceChipLabel(entry({ source: { label: "background:history.docx", kind: "company_file" } }))
+    ).toBe("history.docx (company file)");
   });
 
   it("offerSentence and offerHref build the save-settings banner", () => {
@@ -140,5 +145,42 @@ describe("Brief rail helpers (story 4)", () => {
       "Your customized settings were found in an attachment. Save to your Writer Profile?"
     );
     expect(offerHref("/settings/writing", "gen123")).toBe("/settings/writing?fromGeneration=gen123");
+  });
+});
+
+describe("inclusionUsesText (Phase D, step 2)", () => {
+  it("names the steps that read a row and how much, then those that did not", () => {
+    expect(
+      inclusionUsesText([
+        { step: "analyzer", runs: 1, read: 1, whole: true },
+        { step: "brief", runs: 1, read: 0, whole: false },
+        { step: "seeds", runs: 13, read: 3, whole: false },
+        { step: "facts_check", runs: 3, read: 3, whole: true },
+      ])
+    ).toBe("Read by the analysis (whole), Seeds (in part, 3 of 13 steps), the facts check (whole, 3 of 3 Lines). Not read by the Brief.");
+    expect(inclusionUsesText(undefined)).toBe("");
+    expect(inclusionUsesText([])).toBe("");
+  });
+
+  it("says a transcript read only through its digest or fact pack was read condensed (review)", () => {
+    expect(
+      inclusionUsesText([
+        { step: "analyzer", runs: 1, read: 1, whole: true, condensed: true },
+        { step: "seeds", runs: 4, read: 2, whole: true, condensed: true },
+      ])
+    ).toBe("Read by the analysis (condensed), Seeds (condensed, 2 of 4 steps).");
+  });
+
+  it("says how much of a row read in part, and in how many excerpts, when known (Phase D, step 1)", () => {
+    expect(
+      inclusionUsesText([
+        { step: "analyzer", runs: 1, read: 1, whole: false, share: 0.08, parts: 3 },
+        { step: "brief", runs: 1, read: 1, whole: false, share: 0.002, parts: 1 },
+        { step: "seeds", runs: 13, read: 13, whole: false, share: 0.996 },
+        { step: "facts_check", runs: 8, read: 3, whole: false },
+      ])
+    ).toBe(
+      "Read by the analysis (in part, 8% in 3 excerpts), the Brief (in part, under 1%), Seeds (in part, up to 99%, 13 of 13 steps), the facts check (in part, 3 of 8 Lines)."
+    );
   });
 });

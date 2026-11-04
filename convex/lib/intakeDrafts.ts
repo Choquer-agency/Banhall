@@ -18,8 +18,12 @@ import { getEffectiveCapabilityLevel } from "../../shared/capabilities";
 import { briefPreparationEnabled, transcriptPlaceholdersEnabled } from "../appSettings";
 import { getTeamRosterMemberOrNull, userDisplayLabel } from "./teamRoster";
 import {
+  companyFileSourceFields,
   FROZEN_DOCUMENT_CHARS,
   FROZEN_DOCUMENT_ROWS,
+  frozenFileText,
+  frozenTotal,
+  selectCompanyFilesOf,
   type FrozenSourceFields,
 } from "./briefEvidence";
 import { sha256 } from "./contracts";
@@ -59,6 +63,8 @@ import {
 } from "./citationSpeakers";
 import type { TranscriptSpeakerRole } from "./transcriptValidators";
 import { firmNames } from "./firmNames";
+import { activeClientForKey } from "./clients";
+import { dashboardCompanyKey } from "../../shared/dashboardProjection";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -261,6 +267,8 @@ export type DraftEvidence = {
   readTranscripts: Doc<"intakeSources">[];
   /** The frozen rows, transcripts first, in the order the Brief spends its budget. */
   fields: FrozenSourceFields[];
+  /** Names tied to the company the draft names, hidden when its files are frozen (Phase C). */
+  companyNames: { organizations: string[]; people: string[] };
 };
 
 /**
@@ -268,7 +276,9 @@ export type DraftEvidence = {
  * would read the promoted project: every readable transcript in list order
  * cut to FROZEN_TRANSCRIPT_CHARS, then the first FROZEN_DOCUMENT_ROWS
  * documents that are not empty and not left out, cut to
- * FROZEN_DOCUMENT_CHARS. Promotion installs the sources in this order.
+ * FROZEN_DOCUMENT_CHARS, up to the first that would take every frozen row
+ * together past FROZEN_TOTAL_BYTES (`frozenTotal`). Promotion installs the
+ * sources in this order.
  */
 export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">): Promise<DraftEvidence> {
   const excluded = new Set(draft.excludedSourceKeys ?? []);
@@ -297,9 +307,13 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
       originalLength: text.length,
     });
   }
+  const total = frozenTotal(fields.map((field) => field.content));
   for (const row of documents) {
     const text = await readSourceText(ctx, row._id);
-    const content = text.slice(0, FROZEN_DOCUMENT_CHARS);
+    const cut = text.slice(0, FROZEN_DOCUMENT_CHARS);
+    // 2026-10-26: Word Markdown is frozen without its marks, as a project's.
+    const content = frozenFileText(cut, row.textFormat);
+    if (!total.fits(content)) break;
     fields.push({
       kind: "project_document",
       intakeSourceId: row._id,
@@ -307,12 +321,18 @@ export async function selectDraftEvidence(ctx: Ctx, draft: Doc<"intakeDrafts">):
       label: `${row.category ?? "other"}:${row.label}`,
       content,
       contentHash: await sha256(content),
-      truncated: content.length !== text.length,
+      truncated: cut.length !== text.length,
       originalLength: text.length,
       ...(row.uploaderRole ? { uploaderRole: row.uploaderRole } : {}),
     });
   }
-  return { transcripts, readTranscripts, fields };
+  // Phase C review: the files of the company the draft names, as the
+  // promoted project's first run freezes them (it links the same company),
+  // so that run can adopt this head start. None can be left out here.
+  const client = draft.clientName?.trim() ? await activeClientForKey(ctx, dashboardCompanyKey(draft.clientName)) : null;
+  const company = await selectCompanyFilesOf(ctx, client, undefined, fields.map((field) => field.content));
+  fields.push(...(await companyFileSourceFields(company.frozenCompanyFiles)));
+  return { transcripts, readTranscripts, fields, companyNames: company.companyNames };
 }
 
 /**
@@ -407,7 +427,9 @@ export async function draftPlaceholderMap(
   ctx: Ctx,
   draft: Doc<"intakeDrafts">,
   transcripts: readonly Doc<"intakeSources">[],
-  texts: readonly string[]
+  texts: readonly string[],
+  /** Phase C: names tied to the company whose files the draft froze, as `frozenPlaceholders` adds them. */
+  companyNames: { organizations: readonly string[]; people: readonly string[] } = { organizations: [], people: [] }
 ): Promise<PlaceholderEntry[]> {
   if (!(await transcriptPlaceholdersEnabled(ctx))) return [];
   const names: Array<{ people: string[]; organizations: string[]; phrases: string[] }> = [];
@@ -422,6 +444,9 @@ export async function draftPlaceholderMap(
         rows.map((row) => row.label)
       )
     );
+  }
+  if (companyNames.organizations.length > 0 || companyNames.people.length > 0) {
+    names.push({ people: [...companyNames.people], organizations: [...companyNames.organizations], phrases: [] });
   }
   return [...(await placeholderMapFrom(ctx, await draftIdentity(ctx, draft), names, texts))];
 }

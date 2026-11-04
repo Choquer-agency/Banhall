@@ -6,6 +6,8 @@
  * functions stay registered in convex/generations.ts under their old names;
  * this module holds their handlers and helpers.
  */
+import { getSourceRowWithText, withSourceTexts, type SourceRowWithText } from "../sourceText";
+import { withCurrentCompanyFiles } from "../briefEvidence";
 import type { QueryCtx, MutationCtx } from "../../_generated/server";
 import type { Id, Doc } from "../../_generated/dataModel";
 import { domainError } from "../contracts";
@@ -22,6 +24,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { validateCitation } from "../citations";
 import { citationSpeakerReader, type CitationSpeaker } from "../citationSpeakers";
 import { resolveFrozenSourceId } from "../seedRevisions";
+import { BRIEF_DERIVATION_VERSION } from "../briefDerivationPolicy";
 
 // ─── Story 1 (CAP-1/2/4): Generation Brief internal helpers ────────────────
 // The stage itself (`convex/ai/brief.ts:deriveOrReuseBrief`) is a plain
@@ -109,7 +112,10 @@ export async function readBriefSourceRows(
       `This generation has more than ${MAX_BRIEF_SOURCE_ROWS} frozen sources and cannot be read completely for a Generation Brief`
     );
   }
-  return rows;
+  // Phase C: no company file of a company the project has left. B1, second
+  // part: each row with its text on it, in the old shape.
+  const projectId = rows[0]?.projectId;
+  return await withSourceTexts(ctx, projectId ? await withCurrentCompanyFiles(ctx, projectId, rows) : rows);
 }
 
 /**
@@ -295,12 +301,12 @@ export async function getCitationSpeakersHandler(
     );
   }
   const speakerOf = citationSpeakerReader(ctx);
-  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const sources = new Map<Id<"generationSources">, SourceRowWithText | null>();
   const verdicts: CitationSpeaker[] = [];
   for (const span of args.spans) {
     let source = sources.get(span.sourceId);
     if (source === undefined) {
-      source = await ctx.db.get(span.sourceId);
+      source = await getSourceRowWithText(ctx, span.sourceId);
       sources.set(span.sourceId, source);
     }
     verdicts.push(
@@ -318,13 +324,49 @@ export async function latestBriefForInputs(
   projectId: Id<"projects">,
   inputsHash: string
 ) {
-  return await ctx.db
+  // The newest of the last few that holds something (review round 3), so an
+  // empty one does not hide a complete one saved before it.
+  const briefs = await ctx.db
     .query("generationBriefs")
     .withIndex("by_projectId_and_inputsHash", (q) =>
       q.eq("projectId", projectId).eq("inputsHash", inputsHash)
     )
     .order("desc")
+    .take(REUSE_SCAN);
+  for (const brief of briefs) {
+    if (!(await holdsNothing(ctx, brief))) return brief;
+  }
+  return null;
+}
+
+/** Briefs for one set of inputs looked at for reuse, newest first. */
+const REUSE_SCAN = 5;
+
+/**
+ * A derived Brief with no storyline and no entries: what an answer with
+ * every field left out was saved as before 2026-10-26 (live check, Sonnet
+ * 5.5). It is never reused, so the next draft on the same inputs derives
+ * the Brief again.
+ */
+async function holdsNothing(ctx: { db: QueryCtx["db"] }, brief: Doc<"generationBriefs">): Promise<boolean> {
+  if (brief.origin !== "derived" || brief.storylineText.trim() !== "") return false;
+  const entry = await ctx.db
+    .query("generationBriefEntries")
+    .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
     .first();
+  return entry === null;
+}
+
+/**
+ * 2026-10-30 (review round 4, A1): whether a stored Brief may be reused under
+ * the current Brief rules. A Brief a writer shaped (a writer's Storyline, or
+ * any edit) is reused as before (CAP-4); a model-derived one only when it was
+ * made under the current derivation version, so a Storyline derived before
+ * the one-main-uncertainty rule is derived again for the same inputs.
+ */
+export function briefRulesCurrent(brief: Doc<"generationBriefs">): boolean {
+  const writerShaped = brief.origin !== "derived" || (brief.storylineOrigin !== undefined && brief.storylineOrigin !== "derived");
+  return writerShaped || (brief.derivationVersion ?? 0) >= BRIEF_DERIVATION_VERSION;
 }
 
 export async function reusableBriefForGeneration(
@@ -333,7 +375,7 @@ export async function reusableBriefForGeneration(
   inputsHash: string
 ) {
   const brief = await latestBriefForInputs(ctx, generation.projectId, inputsHash);
-  if (!brief) return null;
+  if (!brief || !briefRulesCurrent(brief)) return null;
   const scope = await briefEntryReadScope(ctx, generation, brief);
   // Preserve the historical legacy path: legacy-authored Briefs are reused by
   // parent row and an over-bound combined read remains optional/fail-open.
@@ -407,14 +449,14 @@ export async function briefWithoutExcludedQuotes(
     .take(2 * MAX_BRIEF_ENTRY_ROWS + 1);
   if (rows.length > 2 * MAX_BRIEF_ENTRY_ROWS) return brief;
   const speakerOf = citationSpeakerReader(ctx);
-  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const sources = new Map<Id<"generationSources">, SourceRowWithText | null>();
   const excluded = new Set<Id<"generationBriefEntries">>();
   for (const row of rows) {
     if (row.change === "removed" || row.generatedOutput) continue;
     if (row.group === "storylineQuestion" || row.edited === true) continue;
     let source = sources.get(row.sourceId);
     if (source === undefined) {
-      source = await ctx.db.get(row.sourceId);
+      source = await getSourceRowWithText(ctx, row.sourceId);
       sources.set(row.sourceId, source);
     }
     if (source && (await speakerOf(source, row.startOffset, row.endOffset)) === "excluded") {
@@ -659,7 +701,9 @@ export async function persistDerivedBriefHandler(
     args.inputsHash
   );
   let compatibleReusable = false;
-  if (reusable) {
+  // 2026-10-30 (review round 4, A1): never fall back to a derived Brief made
+  // under earlier rules; the new one is published as the next version.
+  if (reusable && briefRulesCurrent(reusable)) {
     const reusableScope = await briefEntryReadScope(ctx, generation, reusable);
     compatibleReusable = reusableScope === "all" ||
       (await readBriefEntryRowsBounded(ctx, reusable._id, reusableScope)).kind ===
@@ -685,11 +729,11 @@ export async function persistDerivedBriefHandler(
   // the derivation chose (defense in depth, like the byte check).
   const speakerOf = citationSpeakerReader(ctx);
   // One read per distinct cited source, however many entries cite it.
-  const sources = new Map<Id<"generationSources">, Doc<"generationSources"> | null>();
+  const sources = new Map<Id<"generationSources">, SourceRowWithText | null>();
   for (const entry of args.entries) {
     let source = sources.get(entry.sourceId);
     if (source === undefined) {
-      source = await ctx.db.get(entry.sourceId);
+      source = await getSourceRowWithText(ctx, entry.sourceId);
       sources.set(entry.sourceId, source);
     }
     // Tenant-scoping parity with reports.createProvenance (convex/reports.ts:108-118):
@@ -769,6 +813,7 @@ export async function persistDerivedBriefHandler(
     origin: args.origin,
     storylineText: args.storylineText,
     droppedEntryCount,
+    derivationVersion: BRIEF_DERIVATION_VERSION,
     createdAt: Date.now(),
   });
 
@@ -838,6 +883,21 @@ export async function renderBriefForGenerationHandler(
   );
 }
 
+/** Whether `brief` is the Brief the original draft pinned for its Seeds (by its inputs hash). */
+async function briefPinnedToOrigin(
+  ctx: { db: QueryCtx["db"] },
+  generation: Doc<"generations">,
+  brief: Doc<"generationBriefs">
+): Promise<boolean> {
+  const origin = generation.originGenerationId ? await ctx.db.get(generation.originGenerationId) : generation;
+  return (
+    origin !== null &&
+    origin.projectId === generation.projectId &&
+    origin.seedBriefInputsHash !== undefined &&
+    origin.seedBriefInputsHash === brief.inputsHash
+  );
+}
+
 /** The Brief a section is drafted with and checked against: the same rows
  * renderBriefForGeneration renders into the prompt. */
 export async function loadBriefCheck(
@@ -900,7 +960,18 @@ export async function loadBriefCheck(
   );
   // Brief and Seed citations share the same immutable origin-to-current
   // resolver. Recovery never substitutes equal hashes for source identity.
+  // 2026-10-28 (ninth, review): a Brief the original draft reused from an
+  // earlier draft names that draft's rows, which no recovery map holds. It
+  // was pinned to the original because the original froze the same texts
+  // (the same inputs hash), so such an entry is admitted on that pin, never
+  // mapped; nothing in a recovery reads its row.
+  const mapped = new Set((generation.sourceIdMap ?? []).map((entry) => entry.originSourceId as string));
+  let pinnedToOrigin: boolean | undefined;
   for (const sourceId of new Set(entries.map((entry) => entry.sourceId as string))) {
+    if (generation.sourceIdMap && !mapped.has(sourceId)) {
+      pinnedToOrigin ??= await briefPinnedToOrigin(ctx, generation, briefDoc);
+      if (pinnedToOrigin) continue;
+    }
     resolveFrozenSourceId(sourceId, generation.sourceIdMap);
   }
   return {

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  companyLanding,
+  lastViewedCompany,
   loadRecentCompanies,
   prunedRecentCompanies,
   pruneRecentCompanies,
@@ -64,5 +66,59 @@ describe("recentCompanyHref", () => {
   it("selects the company on the Projects page and keeps the other params", () => {
     expect(recentCompanyHref("/projects", "delta hydraulics")).toBe("/projects?client=delta+hydraulics");
     expect(recentCompanyHref("/projects?layout=board&client=old", "alder")).toBe("/projects?layout=board&client=alder");
+  });
+});
+
+describe("the Projects landing (2026-11-02)", () => {
+  beforeEach(() => {
+    const store = new Map<string, string>();
+    globalThis.localStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+      clear: () => store.clear(),
+      key: (index: number) => [...store.keys()][index] ?? null,
+      get length() {
+        return store.size;
+      },
+    } as Storage;
+  });
+
+  it("remembers the last company viewed, per person", () => {
+    expect(lastViewedCompany("u1")).toBeNull();
+    expect(lastViewedCompany(null)).toBeNull();
+    rememberRecentCompany("u1", cedar);
+    rememberRecentCompany("u1", delta);
+    rememberRecentCompany("u2", alder);
+    expect(lastViewedCompany("u1")).toEqual(delta);
+    expect(lastViewedCompany("u2")).toEqual(alder);
+    // Viewing an earlier company again makes it the landing.
+    rememberRecentCompany("u1", cedar);
+    expect(lastViewedCompany("u1")).toEqual(cedar);
+  });
+
+  it("lands on the remembered company while it is still in the company list", () => {
+    const list = [cedar, { key: delta.key, name: "Delta Hydraulics Inc." }];
+    expect(companyLanding(delta, { data: list, failed: false })).toEqual({
+      kind: "company",
+      key: delta.key,
+      name: "Delta Hydraulics Inc.",
+    });
+  });
+
+  it("shows the remembered company while the list loads", () => {
+    expect(companyLanding(cedar, { data: undefined, failed: false })).toEqual({ kind: "pending", ...cedar });
+  });
+
+  it("falls back to All projects with no company, a company that is gone or merged, or a failed list", () => {
+    expect(companyLanding(null, { data: [cedar], failed: false })).toEqual({ kind: "all" });
+    expect(companyLanding(alder, { data: [cedar, delta], failed: false })).toEqual({ kind: "all" });
+    // Review round 2: past the end of a cut-off list, it still opens.
+    expect(companyLanding(alder, { data: [cedar, delta], failed: false, truncated: true })).toEqual({ kind: "company", ...alder });
+    expect(companyLanding(cedar, { data: undefined, failed: true })).toEqual({ kind: "all" });
+  });
+
+  it("a recent company link drops an All projects or Starred scope", () => {
+    expect(recentCompanyHref("/projects?scope=starred&layout=list", "acme")).toBe("/projects?layout=list&client=acme");
   });
 });

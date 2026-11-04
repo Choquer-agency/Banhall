@@ -1,5 +1,6 @@
 "use node";
 
+import type { SourceRowWithText } from "../lib/sourceText";
 import { z } from "zod";
 import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { ConvexError, v } from "convex/values";
@@ -121,6 +122,8 @@ export {
   briefOmittedSourcesNotice,
   buildBriefUserMessage,
 } from "../lib/briefRequest";
+import { briefMessageWithReport } from "../lib/briefRequest";
+import { maskOutside } from "../../shared/evidenceChoice";
 
 const briefOutputSchema: z.ZodType<BriefAgentOutput> = z.object({
   storyline: z.string().default(""),
@@ -174,7 +177,11 @@ export async function runBriefAgent(
     schema: BRIEF_SCHEMA,
     maxTokens: BRIEF_REQUEST.maxTokens,
     model,
+    cutOffRetry: "more_room",
     validate: briefOutputSchema,
+    // Every Brief field defaults, so a Sonnet 5.5 answer that skips one
+    // would save an incomplete Brief without a word (live check, 2026-10-26).
+    requireEveryField: true,
   });
 }
 
@@ -338,7 +345,7 @@ export type BriefCandidate<I extends string = Id<"generationSources">> = {
  * rule (BRIEF_WRITER_WORDING), which the preparation key hashes too.
  */
 export type BriefSourceRow<I extends string = Id<"generationSources">> = Pick<
-  Doc<"generationSources">,
+  SourceRowWithText,
   "kind" | "label" | "content" | "contentHash" | "transcriptId" | "factSpans" | "uploaderRole"
 > & { _id: I };
 
@@ -456,21 +463,39 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
   // text; a pack or digest row is never cited. Otherwise, as before, a
   // quote cites the first frozen source that holds it.
   const factMode = readsFactPacks(sources);
-  const evidenceSources: FrozenSource<I>[] = sources.filter(
-    (s) =>
-      s.kind !== "writer_storyline" &&
-      s.kind !== "transcript_facts" &&
-      !(factMode && s.kind === "transcript_digest")
+  // Phase D, step 1 (2026-10-28, fourth): a quote is searched for only in
+  // what the request sent of each source it weighed: the rest of the text
+  // is blanked (positions kept), so a quote cannot bind to text the model
+  // never read. A source the request did not weigh (a transcript read
+  // through its digest or fact pack) is searched as before.
+  const sentRanges = new Map<object, ReadonlyArray<{ start: number; end: number }>>(
+    briefMessageWithReport(sources).report.map((entry) => [entry.source, entry.ranges])
   );
-  const documentSources: FrozenSource<I>[] = sources.filter(
-    (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
-  );
+  const sentView = (s: FrozenSource<I>): FrozenSource<I> => {
+    const ranges = sentRanges.get(s);
+    return ranges ? { ...s, content: maskOutside(s.content, ranges) } : s;
+  };
+  // A quote holding the blanking character quotes nothing real (Seeds review).
+  const blanked = (quote: string) => quote.includes("\u0000");
+  const evidenceSources: FrozenSource<I>[] = sources
+    .filter(
+      (s) =>
+        s.kind !== "writer_storyline" &&
+        s.kind !== "transcript_facts" &&
+        !(factMode && s.kind === "transcript_digest")
+    )
+    .map(sentView);
+  const documentSources: FrozenSource<I>[] = sources
+    .filter(
+      (s) => s.kind !== "writer_storyline" && s.kind !== "transcript" && s.kind !== "transcript_facts" && s.kind !== "transcript_digest"
+    )
+    .map(sentView);
   const citeInFactMode = (quote: string): Citation<I> | null => {
     const fact = citeFactQuote(
       sources.map((s) => ({
         sourceId: s._id,
         kind: s.kind,
-        content: s.content,
+        content: s.kind === "project_document" || s.kind === "company_file" ? sentView(s).content : s.content,
         contentHash: s.contentHash,
         transcriptId: s.transcriptId,
         factSpans: s.factSpans,
@@ -488,7 +513,7 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
     }
     return citeQuote(documentSources, quote);
   };
-  return { sources, writerSource, factMode, evidenceSources, citeInFactMode };
+  return { sources, writerSource, factMode, evidenceSources, citeInFactMode, blanked };
 }
 
 /**
@@ -497,8 +522,9 @@ function briefEvidence<I extends string>(adapter: BriefSourceAdapter<I>) {
  * only (decision 57).
  */
 export function briefQuoteLocator<I extends string>(adapter: BriefSourceAdapter<I>) {
-  const { factMode, evidenceSources, citeInFactMode } = briefEvidence(adapter);
+  const { factMode, evidenceSources, citeInFactMode, blanked } = briefEvidence(adapter);
   return async (quote: string, glossary: boolean): Promise<Citation<I> | null> => {
+    if (blanked(quote)) return null;
     if (factMode) return citeInFactMode(quote);
     let candidates = quoteOccurrences(
       evidenceSources,
@@ -541,7 +567,7 @@ export async function briefCandidatesFromOutput<I extends string>(
   adapter: BriefSourceAdapter<I>,
   output: BriefAgentOutput
 ): Promise<DerivedBriefCandidates<I>> {
-  const { writerSource, factMode, evidenceSources, citeInFactMode } = briefEvidence(adapter);
+  const { writerSource, factMode, evidenceSources, citeInFactMode, blanked } = briefEvidence(adapter);
 
   // Owner decision 25 (2026-09-25): a quote that is only the interviewer's
   // or another speaker's words never backs an entry. Each quote is cited at
@@ -594,6 +620,7 @@ export async function briefCandidatesFromOutput<I extends string>(
   const firstEvidence = (candidates: readonly Citation<I>[]): Citation<I> | null =>
     candidates.find((place) => speakerAt.get(place) !== "excluded") ?? null;
   const cite = (quote: string): Citation<I> | null => {
+    if (blanked(quote)) return null;
     if (factMode) return citeInFactMode(quote);
     const candidates = places.get(quote);
     return candidates ? firstEvidence(candidates) : citeQuote(evidenceSources, quote);
@@ -706,6 +733,38 @@ export async function deriveBriefCandidates<I extends string>(
 }
 
 /**
+ * Phase D (step 2): what the Brief request sends of each frozen row, as
+ * `buildBriefUserMessage` builds it from these rows. A reused or adopted
+ * Brief was made from rows with the same text (the same inputs hash, or a
+ * verified mapping), so the same report says what its own run read.
+ * Telemetry only: a failure is logged, never thrown.
+ */
+async function recordBriefUse(
+  ctx: BriefPublishCtx,
+  generationId: Id<"generations">,
+  sources: ReadonlyArray<BriefSourceRow>
+): Promise<void> {
+  try {
+    const { report } = briefMessageWithReport([...sources]);
+    await ctx.runMutation(internal.generations.recordSourceUse, {
+      generationId,
+      step: "brief",
+      uses: report.map((entry) => ({
+        sourceId: entry.source._id,
+        contentHash: entry.source.contentHash,
+        sent: entry.sent,
+        total: entry.total,
+        unit: "chars" as const,
+        // Phase D, step 1: the parts of a source read in part.
+        ...(entry.sent > 0 && entry.sent < entry.total ? { ranges: entry.ranges } : {}),
+      })),
+    });
+  } catch (error) {
+    logBriefStageError("Brief source use not recorded", generationId, error);
+  }
+}
+
+/**
  * The stage: compute inputsHash, reuse the stored Brief when inputs are
  * unchanged, otherwise run one structured call and persist the result.
  * Returns which of those happened with the Brief id, or `no_evidence` if the
@@ -746,6 +805,16 @@ export async function deriveOrReuseBrief(
         inputsHash,
       }))?._id;
   if (reusableId) {
+    // Review: what the run that derived it read, copied by content.
+    try {
+      await ctx.runMutation(internal.generations.copyBriefSourceUse, {
+        generationId: args.generationId,
+        briefId: reusableId,
+        sources: sources.map((source) => ({ sourceId: source._id, contentHash: source.contentHash })),
+      });
+    } catch (error) {
+      logBriefStageError("Reused Brief source use not copied", args.generationId, error);
+    }
     // Outside Step-by-step the stamp checks the reused Brief under owner
     // decision 25 and may return a new version of it (review 2026-09-25).
     const briefId = args.seedStartup
@@ -798,6 +867,8 @@ export async function deriveOrReuseBrief(
     inputsHash,
     ...derived,
   });
+  // Review: recorded once the Brief exists, so a failed one records nothing.
+  await recordBriefUse(ctx, args.generationId, sources);
   return { kind: "derived", briefId };
 }
 
@@ -838,6 +909,9 @@ export async function deriveOrAdoptSeedBrief(
         generationId: args.generationId,
         inputsHash,
       });
+      // A prepared Brief's request is this draft's message (its key hashes
+      // it). A run waiting on a preparation records nothing yet (known limit).
+      if (adoption.kind === "adopted") await recordBriefUse(ctx, args.generationId, sources);
       if (adoption.kind === "adopted") return { kind: "adopted", briefId: adoption.briefId };
       if (adoption.kind === "attached") return { kind: "attached" };
     } catch (error) {

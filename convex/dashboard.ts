@@ -6,6 +6,7 @@ import { projectTypeValidator } from "./lib/contracts";
 import { dashboardProjectRow } from "./lib/dashboardProjection";
 import { userDisplayLabel } from "./lib/teamRoster";
 import { DASHBOARD_FACET_LIMIT } from "../shared/dashboardProjection";
+import { MAX_PROJECT_STARS } from "../shared/projectStars";
 import {
   WORKFLOW_STAGES,
   workflowStageRank,
@@ -344,6 +345,32 @@ export const listFlatProjects = query({
     // visibility unless separately approved and tested").
     await requireCurrentUser(ctx);
     return await collectMatchingPage(ctx, args);
+  },
+});
+
+/**
+ * The caller's starred projects (2026-11-02), most recently starred first,
+ * as dashboard rows for the Projects page's Starred view and the star on
+ * each card. Stars are private: only the caller's own rows are read. Bounded
+ * by `MAX_PROJECT_STARS`; projects that are gone or being deleted are left
+ * out. A caller who is not an internal user (anonymous, no role) gets none.
+ */
+export const listStarredProjects = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireCurrentUser(ctx);
+    if (user.isAnonymous === true || !user.role) return [];
+    const stars = await ctx.db
+      .query("projectStars")
+      .withIndex("by_userId_and_createdAt", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .take(MAX_PROJECT_STARS);
+    const projects: Doc<"projects">[] = [];
+    for (const star of stars) {
+      const project = await ctx.db.get(star.projectId);
+      if (project && project.deletionStartedAt === undefined) projects.push(project);
+    }
+    return await dashboardRowsWithOwnerLabels(ctx, projects);
   },
 });
 

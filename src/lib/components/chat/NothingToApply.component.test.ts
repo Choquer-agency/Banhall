@@ -90,7 +90,6 @@ describe("zero-edit proposal card (DW-135)", () => {
     __setQueryData("chatV2:listProposalItems", items);
     const { container } = await render(ProposalCard, {
       proposal: zeroEditProposal,
-      onReviewReplacements: vi.fn(),
       onRefine: vi.fn(),
     });
     // Captured before any assertion so the pre-fix run records the old card.
@@ -172,9 +171,8 @@ describe("zero-edit proposal card (DW-135)", () => {
         state: "pending",
         replacements: [{ find: "An old passage.", replaceWith: "A corrected passage." }],
       },
-      onReviewReplacements: vi.fn(),
     });
-    await expect.element(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Review", exact: true })).toBeVisible();
     expect(page.getByText("Nothing to apply", { exact: true }).elements()).toHaveLength(0);
   });
 });

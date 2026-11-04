@@ -10,6 +10,8 @@
  * unreliable entries and Claim Exclusions are not shown; glossary terms are
  * "Product name" for a proper noun, else "Term".
  */
+import { getSourceRowWithText } from "./sourceText";
+import type { SourceRowWithText } from "./sourceText";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../_generated/server";
@@ -82,7 +84,7 @@ export function boundQuote(text: string): string {
 }
 
 /** A frozen evidence row: a generation's source or a Brief preparation's (decision 65). */
-type SourceRow = Pick<Doc<"generationSources">, "kind" | "label" | "content"> & { _id: string };
+type SourceRow = Pick<SourceRowWithText, "kind" | "label" | "content"> & { _id: string };
 
 const HONORIFIC = /^(dr|mr|mrs|ms|mx|prof)\.?$/i;
 
@@ -342,7 +344,7 @@ export async function copyBriefToReadingFactsHandler(
     if (!chip) continue;
     // A reused Brief cites the frozen rows of the generation that derived
     // it, which hold the same text: the place is read from them.
-    if (!sources.has(entry.sourceId)) sources.set(entry.sourceId, await ctx.db.get(entry.sourceId));
+    if (!sources.has(entry.sourceId)) sources.set(entry.sourceId, await getSourceRowWithText(ctx, entry.sourceId));
     const source = sources.get(entry.sourceId);
     if (!source) continue;
     const quote =

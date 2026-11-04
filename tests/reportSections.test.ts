@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
+  NON_BLOCKING_DIAGNOSTICS,
   parseCanonicalReport,
+  reportNotes,
   reportSectionMetrics,
 } from "../src/lib/reportSections";
 import {
@@ -128,6 +130,34 @@ describe("parseCanonicalReport", () => {
         section: "s242",
         message: "Line 242 contains an unresolved [GAP: ...] marker.",
       },
+    ]);
+  });
+
+  // 2026-10-29 (owner): an [INFERRED: ...] marker is kept in the export text
+  // and reported beside a gap, as a diagnostic that never blocks.
+  test("keeps an unchecked inference in the export text and reports it beside a gap", () => {
+    const mark = "[INFERRED: the source asks for stability over time]";
+    const parsed = parseCanonicalReport(
+      documentJson([
+        heading("Line 242 — Scientific/Technological Uncertainty"),
+        paragraph({ type: "text", text: `Readings were taken one at a time. ${mark} [GAP: the reading interval]` }),
+        heading("Line 244 — Work Performed"),
+        paragraph({ type: "text", text: "A controlled trial was performed." }),
+        heading("Line 246 — Scientific/Technological Advancement"),
+        paragraph({ type: "text", text: "The trial established a limit." }),
+      ])
+    );
+    expect(parsed.sections.s242.plainText).toBe(`Readings were taken one at a time. ${mark} [GAP: the reading interval]`);
+    expect(parsed.diagnostics.map((d) => d.code)).toEqual(["UNRESOLVED_GAP", "UNCHECKED_INFERENCE"]);
+    expect(parsed.diagnostics[1]).toEqual({
+      code: "UNCHECKED_INFERENCE",
+      section: "s242",
+      message: "Line 242 contains an unchecked [INFERRED: ...] marker.",
+    });
+    expect([...NON_BLOCKING_DIAGNOSTICS].sort()).toEqual(["UNCHECKED_INFERENCE", "UNCLOSED_NOTE", "UNRESOLVED_GAP"]);
+    expect(reportNotes(parsed).map((note) => [note.kind, note.note])).toEqual([
+      ["inferred", "the source asks for stability over time"],
+      ["gap", "the reading interval"],
     ]);
   });
 

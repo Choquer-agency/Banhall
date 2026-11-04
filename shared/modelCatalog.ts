@@ -24,6 +24,7 @@
  */
 import {
   ALWAYS_THINKING_MAX_OUTPUT_TOKENS,
+  ANTHROPIC_MODEL_LIMITS,
   CANDIDATE_MODELS,
   FORCED_TOOL_CHOICE_REJECTED_IDS,
   HAIKU_MODEL,
@@ -64,6 +65,7 @@ export const MODEL_ROLES = [
   "learning_digest",
   "science_code",
   "feedback_summary",
+  "file_labels",
 ] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
 
@@ -355,6 +357,24 @@ export const ROLE_POLICIES: Readonly<Record<ModelRole, RolePolicy>> = {
     evalTasks: [],
     frozenPerGeneration: false,
   },
+  file_labels: {
+    label: "File labels",
+    description:
+      "Labels each project file for the file list drafting and chat read: its kind, fiscal year, title and a two-line summary.",
+    defaultModelId: HAIKU,
+    track: "claude-haiku",
+    // The call turns thinking off, which only the direct gateway honours
+    // (OpenRouter's conversion drops it).
+    gateways: ["anthropic"],
+    minContextTokens: 128_000,
+    minOutputTokens: 1_000,
+    autoSwitch: false,
+    manualOnlyReason:
+      "No evaluation covers file labels yet (2026-10-26, Phase B4), so an admin chooses its model.",
+    defaultCostCap: { maxInputUsdPerMTok: 1.5, maxOutputUsdPerMTok: 8, maxCostRatio: 2 },
+    evalTasks: [],
+    frozenPerGeneration: false,
+  },
   feedback_summary: {
     label: "Feedback summaries",
     description: "Summarizes writers' comments on each model for this page.",
@@ -418,6 +438,11 @@ export const AUTOMATION_THRESHOLDS = {
   errorWindowMs: 24 * 60 * 60 * 1000,
   errorMinCalls: 20,
   maxErrorRate: 0.2,
+  /**
+   * 2026-10-23 (owner): a tier moves back on its own only this long after it
+   * moved. Later, an admin's "Move back" still can.
+   */
+  rollbackPeriodMs: 7 * 24 * 60 * 60 * 1000,
   /** A refresh that returns fewer models than this is treated as partial. */
   minPlausibleCatalogSize: 50,
 } as const;
@@ -515,14 +540,7 @@ export const SEED_CANONICAL_SLUGS: Readonly<Record<string, string>> = {
 };
 
 /** Seed maximum output for direct Anthropic models (published limits). */
-const ANTHROPIC_SEED_LIMITS: Readonly<Record<string, { context: number; output: number }>> = {
-  "claude-sonnet-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-haiku-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-sonnet-5": { context: 1_000_000, output: 128_000 },
-  "claude-opus-5-5": { context: 1_000_000, output: 128_000 },
-  "claude-opus-4-8": { context: 1_000_000, output: 128_000 },
-  "claude-haiku-4-5-20251001": { context: 200_000, output: 64_000 },
-};
+const ANTHROPIC_SEED_LIMITS = ANTHROPIC_MODEL_LIMITS;
 
 /**
  * The catalog rows the table starts from: today's `CANDIDATE_MODELS`, all
@@ -1597,7 +1615,7 @@ export type ReadinessResult = {
  * must answer, and the forced tool request must either answer with a tool
  * call or be refused with a 400 (the model then runs on the unforced path,
  * as Opus 5.5 does). Any other failure (a timeout, a rate limit, a 5xx)
- * says nothing yet, so the track waits for tomorrow.
+ * says nothing yet, so the track waits for next Monday's check.
  */
 export function readinessAllowsMove(result: ReadinessResult): boolean {
   return result.plainOk && (result.forcedToolChoice || result.forcedRejected) && !result.failure;

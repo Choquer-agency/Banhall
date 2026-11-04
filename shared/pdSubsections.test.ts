@@ -107,7 +107,9 @@ describe("PD_SUBSECTIONS", () => {
   it("uses a short subtitle for every step and keeps every objective (2026-09-29)", () => {
     expect(pdSubsectionStepSubtitle("company_context")).toBe("Who the claimant is and where the work happened.");
     expect(pdSubsectionStepSubtitle("goal_problem")).toBe("What the project set out to do, and what stood in the way.");
-    expect(pdSubsectionStepSubtitle("passive_limitations")).toBe("Where existing knowledge and standard practice fell short.");
+    // 2026-10-29 (third), review round 1 (P3-7): the standard approach, what
+    // it does and why it falls short, as Line 242's limitations rule asks.
+    expect(pdSubsectionStepSubtitle("passive_limitations")).toBe("The standard approach, what it does, and why it falls short here.");
     for (const subsection of PD_SUBSECTIONS) {
       const subtitle = pdSubsectionStepSubtitle(subsection.roleId);
       expect(subtitle.length).toBeGreaterThan(0);

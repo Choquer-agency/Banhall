@@ -80,7 +80,6 @@ import {
 import { deriveProcessingStatus } from "../shared/documentStatus";
 import { TRANSCRIPT_PARSER_VERSION } from "../shared/transcriptParse";
 import { firmDayNumber } from "../shared/firmTime";
-import { countTextWords } from "../shared/wordCount";
 import { insertNewProject } from "./projects";
 import {
   confirmQueuedPreparation,
@@ -90,6 +89,8 @@ import {
 } from "./briefPreparations";
 import { MAX_BRIEF_ENTRY_ROWS } from "./lib/generations/brief";
 import { intakeDraftRefs } from "./lib/intakeDraftRefs";
+import { documentTextHash, insertDocumentWithText } from "./lib/documentText";
+import { documentHasReadText, hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
 
 /** Characters one promotion step installs; the rest follow in the next step. */
 const PROMOTION_STEP_CHARS = 1_500_000;
@@ -273,6 +274,8 @@ export const saveIntakeSource = mutation({
     extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
     // A previous-year report's fiscal year (2026-09-27, fourth).
     fiscalYear: v.optional(v.number()),
+    // 2026-10-26 (owner): a Word file's text is Markdown.
+    textFormat: v.optional(v.literal("markdown")),
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
@@ -343,6 +346,7 @@ export const saveIntakeSource = mutation({
             intake: args.intake,
             extractionOutcome: args.extractionOutcome,
             fiscalYear: args.category === "previous_pd" ? args.fiscalYear : undefined,
+            textFormat: args.textFormat,
             ...(user.role ? { uploaderRole: user.role } : {}),
           }),
       updatedAt: now,
@@ -476,8 +480,15 @@ export const attachIntakeOriginal = mutation({
         }
       } else if (link.projectDocumentId) {
         const document = await ctx.db.get(link.projectDocumentId);
-        if (document && !document.storageId && (await sha256(document.content)) === args.contentHash) {
+        if (document && !document.storageId && (await documentTextHash(document)) === args.contentHash) {
           await ctx.db.patch(document._id, { storageId: args.storageId, ...(mimeType ? { mimeType } : {}) });
+          // 2026-10-26 (Phase B2): the original arrived after the file.
+          await queueServerReadingIfNeeded(
+            ctx,
+            document._id,
+            { ...document, storageId: args.storageId },
+            await documentHasReadText(ctx, document)
+          );
           return true;
         }
       }
@@ -740,6 +751,7 @@ export const restoreIntakeDraft = query({
           intake: v.optional(v.union(v.literal("file"), v.literal("pasted"))),
           extractionOutcome: v.optional(v.union(v.literal("ok"), v.literal("failed"))),
           fiscalYear: v.optional(v.number()),
+          textFormat: v.optional(v.literal("markdown")),
           hasOriginal: v.boolean(),
         })
       ),
@@ -770,6 +782,7 @@ export const restoreIntakeDraft = query({
         ...(row.intake ? { intake: row.intake } : {}),
         ...(row.extractionOutcome ? { extractionOutcome: row.extractionOutcome } : {}),
         ...(row.fiscalYear !== undefined ? { fiscalYear: row.fiscalYear } : {}),
+        ...(row.textFormat ? { textFormat: row.textFormat } : {}),
         hasOriginal: Boolean(row.storageId),
       })),
     };
@@ -1290,22 +1303,34 @@ async function installDocument(
     extractionFailed: source.extractionOutcome === "failed",
     intake: source.intake,
   });
-  const projectDocumentId = await ctx.db.insert("projectDocuments", {
+  // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+  const projectDocumentId = await insertDocumentWithText(ctx, {
     projectId,
     fileName: source.label,
     fileType: source.fileType ?? "other",
-    content,
-    wordCount: countTextWords(content),
     ...(source.storageId ? { storageId: source.storageId } : {}),
     ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     ...(source.category ? { category: source.category } : {}),
+    ...(source.textFormat ? { textFormat: source.textFormat } : {}),
     source: "context_input",
     processingStatus: derived.status,
     processingDetail: derived.detail,
     uploadedBy: owner._id,
     ...(source.uploaderRole ? { uploaderRole: source.uploaderRole } : {}),
     createdAt: now,
-  });
+  }, content, now);
+  // 2026-10-26 (Phase B2): a file the browser could not read is read again.
+  await queueServerReadingIfNeeded(
+    ctx,
+    projectDocumentId,
+    {
+      fileName: source.label,
+      ...(source.storageId ? { storageId: source.storageId } : {}),
+      // B1 review: Word Markdown from a current tab is not read again.
+      ...(source.textFormat ? { textFormat: source.textFormat } : {}),
+    },
+    hasReadText(content)
+  );
   await ctx.db.insert("intakeSourceLinks", {
     draftId: draft._id,
     projectId,
@@ -1335,6 +1360,13 @@ async function linkMergedDocument(
       storageId: source.storageId,
       ...(source.mimeType ? { mimeType: source.mimeType } : {}),
     });
+    // 2026-10-26 (Phase B2): the original arrived after the file.
+    await queueServerReadingIfNeeded(
+      ctx,
+      projectDocumentId,
+      { ...document, storageId: source.storageId },
+      await documentHasReadText(ctx, document)
+    );
   }
   await ctx.db.insert("intakeSourceLinks", {
     draftId: draft._id,

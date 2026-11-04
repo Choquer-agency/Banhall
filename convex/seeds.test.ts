@@ -171,7 +171,7 @@ describe("public seed decisions", () => {
       [""],
       ["   "],
       ["One.", "Two.", "Three."],
-      ["x".repeat(601)],
+      ["x".repeat(5_001)],
     ])
       await expect(
         s.writer.mutation(edit, { ...args(s), seedId: seed.seedId, bullets }),
@@ -294,6 +294,28 @@ describe("public seed decisions", () => {
       "Original frozen wording.",
     ]);
   });
+  // 2026-10-27 (eleventh, owner): Feedback is as long as the writer needs,
+  // up to a 5,000-character ceiling that only stops a pasted document.
+  it("takes Feedback of up to 5,000 characters whole, and refuses one longer", async () => {
+    const s = await decisionFixture(),
+      seed = await addDecisionSeed(s);
+    const instruction = `Name the load bands. ${"x".repeat(5_000 - 21)}`;
+    expect(instruction).toHaveLength(5_000);
+    await s.writer.mutation(feedback, { ...args(s), seedId: seed.seedId, instruction, commandId: "long-feedback" });
+    const stored = await s.t.run((ctx) => ctx.db.query("seedFeedbackRequests").collect());
+    expect(stored.map((row) => row.instruction)).toEqual([instruction]);
+    const after = await dump(s);
+    await expect(
+      s.writer.mutation(feedback, {
+        ...args(s),
+        expectedSeedStageVersion: after.generation?.seedStageVersion ?? 0,
+        seedId: seed.seedId,
+        instruction: `${instruction}x`,
+        commandId: "too-long-feedback",
+      }),
+    ).rejects.toThrow(/at most 5,000 characters/);
+  });
+
   it("suspends only active feedback, bypasses episodes, and fences a late completion after skip", async () => {
     const s = await decisionFixture(),
       roleId = "prior_year_status",

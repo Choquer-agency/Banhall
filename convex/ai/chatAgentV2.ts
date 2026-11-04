@@ -49,6 +49,9 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { scrubBannedWordsUnlessWaived } from "../lib/reportEdits";
+import { breaksRulesSchema, brokenRulesToolNote } from "../lib/ruleOverrideSchema";
+import { approvedBannedTerms } from "../../shared/ruleOverride";
+import { bannedTermsIn } from "../../shared/bannedWords";
 import { editPassages } from "../lib/passageEdits";
 import {
   CHAT_CACHE_CONTROL,
@@ -100,10 +103,16 @@ import { openRouterAnthropicCharge, openRouterAnthropicRequestId } from "../../s
 // waives that category, so factories close over the waiver flag. The agent's
 // statically registered tools use the default (scrub on); streamChatReply
 // passes per-call tools built with the requesting writer's actual waivers.
+/** "one suggestion card" or "2 suggestion cards, one per Line". */
+function cardCount(proposalIds: readonly unknown[] | undefined): string {
+  const count = proposalIds?.length ?? 1;
+  return count > 1 ? `${count} suggestion cards, one per Line` : "one suggestion card";
+}
+
 const makeProposeEdit = (bannedWordsWaived: boolean) =>
   createTool({
     description:
-      "Propose one change as one suggestion card: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText has the same number of paragraphs in the same order. It cannot merge, split, add or remove a paragraph.",
+      "Propose one change: a rewrite of one passage, or of several paragraphs at once (a trim or a tightening across a Line). Copy each paragraph you change into targetText exactly as the current report has it, separated by a blank line; newText holds the new paragraphs in the same order. To add a paragraph, target the whole paragraph it follows and give newText that paragraph, then the new one. To split a paragraph, target all of it and put a blank line where it splits. To merge paragraphs, target all of each and give newText fewer paragraphs. Adding, splitting and merging need whole paragraphs, copied in full. The writer gets one suggestion card per Line the change touches, and reviews and accepts each card on its own. For an edit inside one Line where the writer would want to choose (a trim or a rewording), give up to two other versions in otherOptions; newText is Option 1, the one you recommend.",
     inputSchema: z.object({
       targetText: z
         .string()
@@ -115,32 +124,60 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
         .string()
         .min(1)
         .describe(
-          "The replacement text, fully compliant with the writing rules, with exactly as many paragraphs as targetText: for several paragraphs, one new paragraph for each, in the same order, separated by a blank line."
+          "The replacement text, fully compliant with the writing rules, its paragraphs in order and separated by a blank line. Usually one new paragraph for each paragraph of targetText; more to add or split paragraphs, fewer to merge them."
         ),
+      otherOptions: z
+        .array(z.string().min(1))
+        .max(2)
+        .optional()
+        .describe(
+          "Optional: up to two other complete versions of newText for the same targetText, shown as Option 2 and Option 3. Same paragraph rules as newText. Only for an edit inside one Line; leave it out when there is one right answer."
+        ),
+      breaksRules: breaksRulesSchema,
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
       const passages = editPassages(input.targetText, input.newText);
       if (!passages.ok) return `Proposal NOT created: ${passages.reason} Retry the edit tool once.`;
-      const scrub = (text: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived);
+      // 2026-11-02: a change the writer asked for against the rules is
+      // confirmed before it is applied. Banned words are still scrubbed unless
+      // the writer approved that word (kind banned_words; owner, second).
+      const overriding = (input.breaksRules?.length ?? 0) > 0;
+      // 2026-11-03 (owner, option C): a banned word the passage already holds
+      // stays. Paragraphs pair by position, so a merge or a removed paragraph
+      // moves text between pairs: the whole target decides (final review).
+      const keep = [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(input.targetText)];
+      const scrub = (text: string, _find: string) => scrubBannedWordsUnlessWaived(text, bannedWordsWaived, keep);
       const [single] = passages.pairs;
+      // Owner 2026-10-28: Option 2 and Option 3, each a passage set.
+      const alternatives: Array<{ replacements: Array<{ find: string; replaceWith: string }> }> = [];
+      for (const [index, other] of (input.otherOptions ?? []).entries()) {
+        const version = editPassages(input.targetText, other);
+        if (!version.ok) return `Proposal NOT created: Option ${index + 2}: ${version.reason} Retry the edit tool once.`;
+        alternatives.push({
+          replacements: version.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith, pair.find) })),
+        });
+      }
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
         agentThreadId: ctx.threadId,
         toolCallId: options.toolCallId,
         promptMessageId: proposalPromptMessageId(ctx),
+        ...(alternatives.length ? { alternatives } : {}),
+        ...(overriding ? { rulesBroken: input.breaksRules } : {}),
         ...(passages.pairs.length === 1
-          ? { kind: "edit" as const, targetText: single.find, newText: scrub(single.replaceWith) }
+          ? { kind: "edit" as const, targetText: single.find, newText: scrub(single.replaceWith, single.find) }
           : {
               // Several paragraphs: one card that applies them together,
               // the passage set a coordinated revision uses.
               kind: "replacements" as const,
               requireUniqueTargets: true,
-              replacements: passages.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith) })),
+              replacements: passages.pairs.map((pair) => ({ find: pair.find, replaceWith: scrub(pair.replaceWith, pair.find) })),
             }),
       });
       if (result.ok) {
         const lengths = result.lengths ? ` ${result.lengths}` : "";
-        return `Edit proposed. The writer now sees it as one suggestion card.${lengths}`;
+        const options = alternatives.length ? ` with ${alternatives.length + 1} options` : "";
+        return `Edit proposed. The writer now sees ${cardCount(result.proposalIds)}${options}.${brokenRulesToolNote(input.breaksRules)}${lengths}`;
       }
       // A stopped turn is not a recoverable tool error: telling the model to
       // retry would have it work against the writer's explicit stop.
@@ -152,7 +189,7 @@ const makeProposeEdit = (bannedWordsWaived: boolean) =>
 const makeProposeReplacements = (bannedWordsWaived: boolean) =>
   createTool({
     description:
-      "Propose a multi-instance find/replace across the whole report (e.g. pronoun normalization, terminology swaps). Every occurrence of each find is replaced automatically.",
+      "Propose a multi-instance find/replace across the whole report (e.g. pronoun normalization, terminology swaps). The writer gets one suggestion card per Line the text occurs in; accepting a card replaces every occurrence inside that Line.",
     inputSchema: z.object({
       replacements: z
         .array(
@@ -165,9 +202,11 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
           })
         )
         .min(1),
+      breaksRules: breaksRulesSchema,
     }),
     execute: async (ctx, input, options): Promise<string> => {
       if (!ctx.threadId) throw new Error("No thread in tool context");
+      const overriding = (input.breaksRules?.length ?? 0) > 0;
       const result = await ctx.runMutation(internal.chatV2.saveProposal, {
         agentThreadId: ctx.threadId,
         toolCallId: options.toolCallId,
@@ -175,15 +214,13 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
         kind: "replacements",
         replacements: input.replacements.map((r) => ({
           find: r.find,
-          replaceWith: scrubBannedWordsUnlessWaived(
-            r.replaceWith,
-            bannedWordsWaived
-          ),
+          replaceWith: scrubBannedWordsUnlessWaived(r.replaceWith, bannedWordsWaived, [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(r.find)]),
         })),
+        ...(overriding ? { rulesBroken: input.breaksRules } : {}),
       });
       if (result.ok) {
         const lengths = result.lengths ? ` ${result.lengths}` : "";
-        return `Replacement set proposed. The writer now sees it as a suggestion card.${lengths}`;
+        return `Replacement set proposed. The writer now sees ${cardCount(result.proposalIds)}.${brokenRulesToolNote(input.breaksRules)}${lengths}`;
       }
       if (result.stopped) return `Stop requested: ${result.reason} Do not retry.`;
       return `Proposal NOT created: ${result.reason} Re-read the CURRENT REPORT and retry with exact canonical find text.`;
@@ -196,7 +233,7 @@ const makeProposeReplacements = (bannedWordsWaived: boolean) =>
 // rows cannot drift. The tool still creates ONE proposal a human applies. The
 // body is `runProposeBulkEdits` below, so the gate can drive it.
 const makeProposeBulkEdits = (bannedWordsWaived: boolean) => createTool({
-  description: `Propose a coordinated revision of different report passages in one reviewable card, plus a Completion Report for the items it covers. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE} If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.`,
+  description: `Propose a coordinated revision of different report passages, plus a Completion Report for the items it covers. The writer gets one reviewable card per Line it touches. Each target must be unique and passages must not overlap. Reuse the item ids the Deviation Inventory or the Reference PD comparison produced, anchor each finding to the section and 1-based paragraph it belongs to, and mark it resolved, blocked or conflicting. The writer applies the proposal. ${BULK_EDIT_SIZE_RULE} ${BULK_EDIT_REFINE_RULE} If every item is blocked or conflicting, call it with an empty edits list and every finding: the report is recorded for the writer and there is nothing to apply. Never invent a dummy edit.`,
   inputSchema: bulkEditInputSchema,
   execute: async (ctx, input, options): Promise<string> =>
     await runProposeBulkEdits(ctx, input, {
@@ -511,6 +548,9 @@ export async function runProposeBulkEdits(
 ): Promise<string> {
   if (!ctx.threadId) throw new Error("No thread in tool context");
   const fingerprints = await listedFingerprints(ctx, options.messages ?? []);
+  // 2026-11-02: an explicitly requested change against the rules keeps its
+  // wording; a manager confirms it before it is applied.
+  const overriding = (input.breaksRules?.length ?? 0) > 0;
   const result = await ctx.runMutation(internal.chatV2.saveProposal, {
     agentThreadId: ctx.threadId,
     toolCallId: options.toolCallId,
@@ -519,11 +559,9 @@ export async function runProposeBulkEdits(
     requireUniqueTargets: true,
     replacements: input.edits.map((edit) => ({
       find: edit.targetText,
-      replaceWith: scrubBannedWordsUnlessWaived(
-        edit.newText,
-        options.bannedWordsWaived
-      ),
+      replaceWith: scrubBannedWordsUnlessWaived(edit.newText, options.bannedWordsWaived, [...approvedBannedTerms(input.breaksRules), ...bannedTermsIn(edit.targetText)]),
     })),
+    ...(overriding ? { rulesBroken: input.breaksRules } : {}),
     items: completionReportItems(input.findings).map((item) => {
       const fingerprint = fingerprints.get(item.itemId);
       return fingerprint ? { ...item, fingerprint } : item;
@@ -545,7 +583,10 @@ export async function runProposeBulkEdits(
   }
   // Review 2026-10-21: the meters once applied, as the other edit tools give.
   const lengths = result.lengths ? ` ${result.lengths}` : "";
-  return `Coordinated revision proposed for writer review, not applied. The card shows the writer its Completion Report checklist, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.${lengths}`;
+  const cards = (result.proposalIds?.length ?? 1) > 1
+    ? `, as ${cardCount(result.proposalIds)}. The cards show the writer their Completion Report checklists`
+    : ". The card shows the writer its Completion Report checklist";
+  return `Coordinated revision proposed for writer review, not applied${cards}, with each item's Line and paragraph, status and reason: ${completionReportCounts(input.findings)}. Do not repeat the checklist in your reply; say in a sentence or two what the proposal covers and which items need the writer's decision. Refer to each item by its Line and paragraph and briefly what it is about, never by its id.${brokenRulesToolNote(input.breaksRules)}${lengths}`;
 }
 
 const deviationInventory = createTool({
@@ -603,6 +644,30 @@ const highlightPassages = createTool({
       ? `Highlighted ${input.references.length} passage(s) in the document panel.`
       : `Highlights NOT created: ${result.reason}`;
   },
+});
+
+/**
+ * Owner 2026-10-28 ("Assistant needs you"): the AI asks the writer one short
+ * question with two or three options. It changes nothing and saves nothing:
+ * the call itself, kept in the thread, is what the panel above the message
+ * box shows, and the turn ends with it (`stopWhen`). The writer's pick, or
+ * their own words under "Something else…", is sent as their next message.
+ */
+export const ASK_WRITER_TOOL = "askWriter";
+
+const askWriter = createTool({
+  description:
+    "Ask the writer one short question when the request could mean clearly different edits and the answer changes what you would do. Give 2 or 3 concrete options, each a few words the writer can pick as their reply; the app adds \"Something else…\" for their own answer. It changes nothing in the report. Call it last: your reply ends with it.",
+  inputSchema: z.object({
+    question: z.string().min(1).max(200).describe("The question, one short sentence."),
+    options: z
+      .array(z.string().min(1).max(120))
+      .min(2)
+      .max(3)
+      .describe("2 or 3 answers the writer can pick, each a few words, best first."),
+  }),
+  execute: async (): Promise<string> =>
+    "The writer now sees your question and its options above the message box. End your reply here; their answer comes as their next message.",
 });
 
 /**
@@ -996,6 +1061,27 @@ export function stopAfterSecondCutOff({ steps }: { steps: ReadonlyArray<CutOffSt
   return steps.filter((step) => cutOffToolCallIds(step).length > 0).length >= 2;
 }
 
+/**
+ * Owner 2026-10-28: a question for the writer ends the reply once it reached
+ * them. A call the tool refused (too many options, say) does not, so the
+ * model can ask again or carry on.
+ */
+export function askedWriter(step: CutOffStep | undefined): boolean {
+  return !!step?.content.some(
+    (part) =>
+      typeof part === "object" &&
+      part !== null &&
+      "type" in part &&
+      part.type === "tool-result" &&
+      "toolName" in part &&
+      part.toolName === ASK_WRITER_TOOL
+  );
+}
+
+export function stopAfterQuestion({ steps }: { steps: ReadonlyArray<CutOffStep> }): boolean {
+  return askedWriter(steps.at(-1));
+}
+
 /** The turn's stop conditions: the step limit, and a second cut-off. */
 export function chatTurnStops(steps: ReadonlyArray<CutOffStep>): boolean {
   return steps.length >= CHAT_MAX_STEPS || stopAfterSecondCutOff({ steps });
@@ -1251,6 +1337,7 @@ export const buildChatTools = (
   deviationInventory,
   compareReferencePd,
   highlightPassages,
+  askWriter,
   searchBrain: makeSearchBrain(allowBrain),
   searchWeb: makeSearchWebTool(webSearch ?? newWebSearchTurn({ allowed: false })),
   ...readingTools(documentReads ?? newDocumentReadTurn()),
@@ -2001,6 +2088,7 @@ export const streamChatReply = internalAction({
         {
           reportId: args.reportId,
           agentThreadId: args.agentThreadId,
+          ...(args.userId ? { userId: args.userId } : {}),
         }
       );
       // PSOS-49/50: the sender's EFFECTIVE house-style waivers + preferences
@@ -2009,6 +2097,7 @@ export const streamChatReply = internalAction({
       const profilePromise: Promise<{
         customInstructions: string | null;
         styleOverrides: StyleOverrides;
+        profileInstructions: string | null;
       } | null> = ctx
         .runQuery(
           internal.writerProfiles.getProfileForGeneration,
@@ -2018,9 +2107,19 @@ export const streamChatReply = internalAction({
           console.error("writer profile fetch failed for chat turn", safeErrorDetails(err));
           throw new Error("CHAT_PROFILE_UNAVAILABLE");
         });
-      const [context, writerStyle] = await Promise.all([
+      // Phase E (E2b): the published style lesson set, as drafting reads it.
+      // A failed read degrades to none: lessons are guidance, not the
+      // writer's own settings.
+      const lessonsPromise = ctx
+        .runQuery(internal.learning.getActiveDigest, { kind: "draft_style" })
+        .catch((err: unknown) => {
+          console.error("style lesson set read failed for chat turn", safeErrorDetails(err));
+          return null;
+        });
+      const [context, writerStyle, lessons] = await Promise.all([
         contextPromise,
         profilePromise,
+        lessonsPromise,
       ]);
       const styleOverrides = writerStyle
         ? normalizeStyleOverrides(writerStyle.styleOverrides)
@@ -2035,7 +2134,18 @@ export const streamChatReply = internalAction({
         context,
         styleOverrides,
         customInstructions: writerStyle?.customInstructions ?? null,
+        // E1b review: a settings document is matched against the stored
+        // profile alone, not the saved preferences joined to it.
+        profileInstructions: writerStyle?.profileInstructions ?? null,
+        learnedStyle: lessons?.content ?? null,
       });
+      // The set this turn read, for edit size by version (Phase E, E3). A
+      // record that cannot be written never fails the turn (review).
+      if (lessons) {
+        await ctx
+          .runMutation(internal.chatV2.setTurnLearningDigest, { ...turnKey, learningDigestId: lessons._id })
+          .catch((err: unknown) => console.error("chat turn lesson set not recorded", safeErrorDetails(err)));
+      }
       // Operator telemetry only: this story logs, it does not surface anything
       // in the UI. Without the line, material the budget dropped is invisible
       // when a reply later reads as if the interview had a gap.
@@ -2126,7 +2236,7 @@ export const streamChatReply = internalAction({
       });
       // Phase B: the turn's reading state (handles from this turn's
       // evidence, the shared character allowance), created once per turn.
-      const documentReads = newDocumentReadTurn(context);
+      const documentReads = newDocumentReadTurn(context, args.userId);
       // Phase C (W1): the pinned files, one ephemeral user message after the
       // options note. Never saved; the recovery pass repeats `turnMessages`.
       const pinned = await pinnedFilesMessage(ctx, args.agentThreadId, args.pinnedDocumentIds ?? [], documentReads, context.documents);
@@ -2197,6 +2307,8 @@ export const streamChatReply = internalAction({
               // CHAT_MIN_STEP_REMAINING_MS left of the action window.
               stopWhen: [
                 stepCountIs(pass.maxSteps),
+                // Owner 2026-10-28: a question for the writer ends the reply.
+                stopAfterQuestion,
                 stopAfterSecondCutOff,
                 stopBeforeWindowEnds(
                   startedAt,
@@ -2438,8 +2550,12 @@ export const streamChatReply = internalAction({
           agentThreadId: args.agentThreadId,
           toolCallIds: lastCalls.map((call) => call.toolCallId),
         }));
+      // Owner 2026-10-28: a question for the writer ends the reply on
+      // purpose, even on the last step it was allowed.
+      const endedOnQuestion = askedWriter(finishedSteps.at(-1));
       const endedOnStepLimit =
         !endedOnOneCardEdit &&
+        !endedOnQuestion &&
         finishReason === "tool-calls" &&
         (finishedSteps.length >= passMaxSteps || passStoppedForTime);
       if (passStoppedForTime && finishReason === "tool-calls") {

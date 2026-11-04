@@ -25,6 +25,7 @@ import {
   type ViewingToolCtx,
 } from "./chatDocumentTools";
 import { buildChatEvidence, type ChatEvidenceDoc } from "./chatEvidence";
+import { safeRange } from "../chatDocuments";
 import {
   CHAT_VIEW_MAX_IMAGES,
   CHAT_VIEW_MAX_TURN_BYTES,
@@ -90,7 +91,10 @@ type Stored = { bytes: Uint8Array<ArrayBuffer>; size?: number; pageCount?: numbe
  * A ctx whose viewFileForChat answers from `files` (by document id), whose
  * page count action answers `counted`, and whose storage serves the bytes.
  */
-function viewingCtx(files: Record<string, Stored>, options: { counted?: number | null; status?: string } = {}) {
+function viewingCtx(
+  files: Record<string, Stored>,
+  options: { counted?: number | null; status?: string; texts?: readonly ChatEvidenceDoc[] } = {}
+) {
   const queries: Array<Record<string, unknown>> = [];
   const actions: Array<Record<string, unknown>> = [];
   const reads: string[] = [];
@@ -101,6 +105,22 @@ function viewingCtx(files: Record<string, Stored>, options: { counted?: number |
       await new Promise((resolve) => setTimeout(resolve, 1));
       if (options.status) return { status: options.status, fileName: "x" };
       const id = String(args.documentId);
+      // 2026-10-22 (fourth): a pinned file's text is read with
+      // readDocumentForChat, answered here from the documents' text.
+      if (options.texts && typeof args.maxChars === "number") {
+        const text = options.texts.find((entry) => String(entry.documentId) === id);
+        if (!text || !text.content.trim()) return { status: "no_text", fileName: text?.fileName ?? "x" };
+        const start = Number(args.start);
+        const range = safeRange(text.content, start, start + args.maxChars);
+        return {
+          status: "ok",
+          fileName: text.fileName,
+          totalChars: text.content.length,
+          start: range.start,
+          end: range.end,
+          text: text.content.slice(range.start, range.end),
+        };
+      }
       const file = files[id];
       if (!file) return { status: "not_found" };
       const name = file.fileName ?? id.replace(/^doc-/, "");
@@ -417,7 +437,7 @@ describe("pinned files", () => {
   it("sends PDFs and images as files and other files as text, after an intro naming them", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const turn = turnWith(documents);
-    const { ctx } = viewingCtx({ "doc-figure.png": { bytes: PNG }, "doc-scan.pdf": { bytes: PDF, pageCount: 2 } });
+    const { ctx } = viewingCtx({ "doc-figure.png": { bytes: PNG }, "doc-scan.pdf": { bytes: PDF, pageCount: 2 } }, { texts: documents });
     const message = await pinnedFilesMessage(
       ctx,
       "thread-1",
@@ -445,7 +465,7 @@ describe("pinned files", () => {
   it("falls back to text when viewing is off or a PDF is too long, and names what it cannot show", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const off = turnWith(documents, { chatVision: false });
-    const { ctx } = viewingCtx({ "doc-scan.pdf": { bytes: PDF, pageCount: 40 } });
+    const { ctx } = viewingCtx({ "doc-scan.pdf": { bytes: PDF, pageCount: 40 } }, { texts: documents });
     const message = await pinnedFilesMessage(ctx, "thread-1", [docId("doc-figure.png"), docId("doc-scan.pdf"), docId("doc-gone")], off, documents);
     const text = JSON.stringify(message);
     expect(text).toContain('F2 \\"figure.png\\" has no text, and viewing PDFs and images is turned off, so it is not shown.');
@@ -463,7 +483,7 @@ describe("pinned files", () => {
     const big = [doc("long.txt", { fileType: "txt", content: "x".repeat(300_000), hasOriginal: false })];
     const turn = turnWith(big);
     turn.used = CHAT_READ_MAX_TURN_CHARS - 50_000;
-    const { ctx } = viewingCtx({});
+    const { ctx } = viewingCtx({}, { texts: big });
     const message = await pinnedFilesMessage(ctx, "thread-1", [docId("doc-long.txt")], turn, big);
     const text = JSON.stringify(message);
     expect(text).toContain(

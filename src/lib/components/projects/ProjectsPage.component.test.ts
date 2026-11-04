@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
+import { board } from "$lib/test/boardScale";
 import ProjectsPage from "./ProjectsPage.svelte";
 import { page as appPage, __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
+import { rememberRecentCompany } from "$lib/workspace/recentCompanies";
 import {
   __activeQueryArgs,
   __isQueryActive,
@@ -90,28 +92,34 @@ beforeEach(() => {
 });
 
 describe("Projects page client list", () => {
-  it("lists All companies with the total and one row per client with its count", async () => {
+  it("lists All projects with the total and one row per client with its count, in the Projects sidebar", async () => {
     await mount();
     await expect.poll(() => row("cedarline systems")).not.toBeNull();
-    expect(text(row("all"))).toBe("All companies 13");
+    expect(text(row("all"))).toBe("All projects 13");
     expect(text(row("cedarline systems"))).toBe("Cedarline Systems 6");
     expect(row("all")?.getAttribute("aria-current")).toBe("page");
     expect(row("cedarline systems")?.getAttribute("href")).toBe("/projects?client=cedarline+systems");
-    expect(document.querySelector('nav[aria-label="Companies"]')).not.toBeNull();
+    expect(document.querySelector('[data-section-sidebar="projects"] ul[aria-label="Companies"]')).not.toBeNull();
+    // Paper S9: the Companies group header and 30px company rows with a 12px count.
+    expect(text(document.querySelector('[data-section-sidebar-group="companies"] h3'))).toBe("Companies");
+    expect(row("cedarline systems")!.getBoundingClientRect().height).toBeCloseTo(board(30), 0);
   });
 
-  it("filters the loaded list ignoring case and accents", async () => {
+  it("filters the loaded list ignoring case and accents, from the Companies search button", async () => {
     await mount();
+    await expect.poll(() => row("cedarline systems")).not.toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Find a company" }));
+    await expect.poll(() => document.activeElement?.hasAttribute("data-client-search-field")).toBe(true);
     await userEvent.fill(page.getByRole("searchbox", { name: "Find a company" }), "SOCIETE");
     await expect.poll(() => row("acuity insights")).toBeNull();
     expect(text(row("societe generale"))).toBe("Société Générale 1");
     await userEvent.fill(page.getByRole("searchbox", { name: "Find a company" }), "zzz");
-    await expect.poll(() => text(document.querySelector("[data-client-list] [role='status']"))).toBe(
+    await expect.poll(() => text(document.querySelector("[data-section-sidebar-group='companies'] [role='status']"))).toBe(
       'No company matches "zzz".'
     );
   });
 
-  it("selects a client through the URL with a soft navigation, and back to All companies", async () => {
+  it("selects a client through the URL with a soft navigation, and back to All projects", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
     await mount();
     await userEvent.click(row("cedarline systems")!);
@@ -125,8 +133,10 @@ describe("Projects page client list", () => {
     ]);
 
     await userEvent.click(row("all")!);
-    await expect.poll(() => text(title())).toBe("All companies");
-    expect(appPage.url.search).toBe("");
+    await expect.poll(() => text(title())).toBe("All projects");
+    // All projects is named on purpose (2026-11-02), so a reload stays there.
+    expect(appPage.url.search).toBe("?scope=all");
+    expect(row("all")?.getAttribute("href")).toBe("/projects?scope=all");
   });
 
   it("notes a cut list quietly at the end", async () => {
@@ -532,10 +542,10 @@ describe("Projects page client area", () => {
     expect(document.querySelector("[data-client-new-project]")).toBeNull();
     expect(text(title())).toBe("Company not found");
     const back = document.querySelector<HTMLAnchorElement>("[data-client-missing-back]")!;
-    expect(back.getAttribute("href")).toBe("/projects");
+    expect(back.getAttribute("href")).toBe("/projects?scope=all");
     await userEvent.click(back);
-    await expect.poll(() => text(title())).toBe("All companies");
-    expect(appPage.url.search).toBe("");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(appPage.url.search).toBe("?scope=all");
   });
 
   it("still says a listed client has no projects yet", async () => {
@@ -547,15 +557,53 @@ describe("Projects page client area", () => {
     expect(document.querySelector("[data-client-missing]")).toBeNull();
   });
 
-  it("says when a client has no projects, with New project for that client", async () => {
+  it("puts the S9 arrow beside a company's name to open its company page, and no Files tab (2026-10-28)", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    const arrow = document.querySelector<HTMLAnchorElement>("[data-company-page-link]")!;
+    expect(arrow.getAttribute("href")).toBe("/companies/cedarline%20systems");
+    expect(arrow.getAttribute("aria-label")).toBe("Open Cedarline Systems's company page");
+    // Right after the name, a teal primary arrow with a pointer cursor.
+    expect(title()!.nextElementSibling).toBe(arrow);
+    expect(arrow.className).toContain("text-primary-selected");
+    expect(arrow.className).toContain("hover:text-navy");
+    expect(getComputedStyle(arrow).cursor).toBe("pointer");
+    expect(arrow.querySelector('[data-frame-icon="arrow-up-right"]')).not.toBeNull();
+    // The company's Files tab lives on the company page only.
+    expect(document.querySelector("[data-client-tabs], [data-company-tabs], [data-company-files]")).toBeNull();
+  });
+
+  it("draws no arrow on All projects, for projects with no company name, or for a company that is gone", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    const screen = await mount("/projects");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(document.querySelector("[data-company-page-link]")).toBeNull();
+    screen.unmount();
+
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    const unnamed = await mount(`/projects?client=${encodeURIComponent("\uffff")}`);
+    await expect.poll(() => document.querySelector("[data-client-title]")).not.toBeNull();
+    expect(document.querySelector("[data-company-page-link]")).toBeNull();
+    unnamed.unmount();
+
+    await mount("/projects?client=old+merged+co");
+    await expect.poll(() => text(title())).toBe("Company not found");
+    expect(document.querySelector("[data-company-page-link]")).toBeNull();
+  });
+
+  it("says when a client has no projects, with New project for that client (Paper Z9a)", async () => {
     __setPaginatedRows("dashboard:listCompanyProjects", []);
     await mount("/projects?client=societe+generale");
     await expect.poll(() => text(document.querySelector("[data-client-empty] p"))).toBe(
-      "Société Générale has no projects yet."
+      "No projects for Société Générale yet"
     );
-    expect(document.querySelector("[data-client-new-project]")?.getAttribute("href")).toBe(
-      "/project/new?client=Soci%C3%A9t%C3%A9+G%C3%A9n%C3%A9rale"
+    expect(text(document.querySelector("[data-client-empty]"))).toContain(
+      "Start a project and it will show up here, grouped by fiscal year."
     );
+    const newProject = document.querySelector("[data-client-new-project]");
+    expect(newProject?.getAttribute("href")).toBe("/project/new?client=Soci%C3%A9t%C3%A9+G%C3%A9n%C3%A9rale");
+    expect(text(newProject)).toBe("New project for Société Générale");
   });
 
   it("keeps the card geometry while loading and offers Try again on an error", async () => {
@@ -589,7 +637,7 @@ describe("All companies view", () => {
       project("x2", { title: "Coil sensing", clientName: "Acuity Insights" }),
     ]);
     await mount();
-    await expect.poll(() => text(title())).toBe("All companies");
+    await expect.poll(() => text(title())).toBe("All projects");
     expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([{ sortBy: "updated" }]);
     expect(text(document.querySelector("#projects-recent"))).toBe("Recently updated");
     const clientsShown = [...document.querySelectorAll('[data-recent-projects] [data-card-field="client"]')].map((n) =>
@@ -621,7 +669,7 @@ describe("Small screens", () => {
     await mount("/projects", {}, 600);
     await expect.poll(() => row("cedarline systems")).not.toBeNull();
     const area = () => document.querySelector<HTMLElement>("[data-client-area]");
-    const list = document.querySelector<HTMLElement>('aside[aria-label="Companies"]')!;
+    const list = document.querySelector<HTMLElement>('[data-section-sidebar-slot="projects"]')!;
     // Full width inside the page panel's 1px border.
     expect(Math.round(list.getBoundingClientRect().width)).toBe(document.querySelector<HTMLElement>("[data-projects-page]")!.clientWidth);
     expect(area()?.offsetParent).toBeNull();
@@ -629,10 +677,172 @@ describe("Small screens", () => {
     await userEvent.click(row("cedarline systems")!);
     await expect.poll(() => area()?.offsetParent).not.toBeNull();
     expect(list.offsetParent).toBeNull();
-    const back = page.getByRole("button", { name: "All companies" });
+    const back = page.elementLocator(document.querySelector<HTMLElement>("[data-client-back]")!);
     await expect.element(back).toBeVisible();
+    expect(text(back.element())).toBe("Projects");
     await userEvent.click(back);
     await expect.poll(() => list.offsetParent).not.toBeNull();
-    expect(appPage.url.search).toBe("");
+    expect(appPage.url.search).toBe("?scope=all");
+  });
+
+  it("shows the company again when the browser goes back after the back link (Greptile, PR #30)", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?client=cedarline+systems", {}, 600);
+    const area = () => document.querySelector<HTMLElement>("[data-client-area]");
+    const list = () => document.querySelector<HTMLElement>('[data-section-sidebar-slot="projects"]');
+    await expect.poll(() => area()?.offsetParent ?? null).not.toBeNull();
+    await userEvent.click(page.elementLocator(document.querySelector<HTMLElement>("[data-client-back]")!));
+    await expect.poll(() => list()?.offsetParent ?? null).not.toBeNull();
+    // The browser's Back button: the company's address returns.
+    __setPageUrl("/projects?client=cedarline+systems");
+    await expect.poll(() => area()?.offsetParent ?? null).not.toBeNull();
+    expect(list()?.offsetParent ?? null).toBeNull();
+  });
+
+  it("shows All projects on a reload of ?scope=all, and the back link still returns to the list (Greptile, PR #30)", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    await mount("/projects?scope=all", {}, 600);
+    const area = () => document.querySelector<HTMLElement>("[data-client-area]");
+    const list = () => document.querySelector<HTMLElement>('[data-section-sidebar-slot="projects"]');
+    await expect.poll(() => area()?.offsetParent ?? null).not.toBeNull();
+    expect(list()?.offsetParent ?? null).toBeNull();
+    await userEvent.click(page.elementLocator(document.querySelector<HTMLElement>("[data-client-back]")!));
+    await expect.poll(() => list()?.offsetParent ?? null).not.toBeNull();
+    expect(appPage.url.search).toBe("?scope=all");
+  });
+});
+
+describe("Landing on the company viewed last (2026-11-02)", () => {
+  it("opens the company this person viewed last, replacing the bare address", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    rememberRecentCompany("u-1", { key: "acuity insights", name: "Acuity Insights" });
+    rememberRecentCompany("u-1", { key: "cedarline systems", name: "Cedarline Systems" });
+    await mount("/projects");
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("cedarline systems");
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "goto", url: "/projects?client=cedarline+systems" });
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    expect(row("cedarline systems")?.getAttribute("aria-current")).toBe("page");
+    expect(row("all")?.getAttribute("aria-current")).toBeNull();
+    // All projects stays one click away.
+    await userEvent.click(row("all")!);
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(appPage.url.search).toBe("?scope=all");
+  });
+
+  it("keeps another person's last company out of the landing", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    rememberRecentCompany("u-2", { key: "cedarline systems", name: "Cedarline Systems" });
+    await mount("/projects");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(__navigationCalls).toEqual([]);
+  });
+
+  it("falls back to All projects when the company is gone or was merged away", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    rememberRecentCompany("u-1", { key: "old merged co", name: "Old Merged Co" });
+    await mount("/projects");
+    await expect.poll(() => text(title())).toBe("All projects");
+    expect(__navigationCalls).toEqual([]);
+    expect(row("all")?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("shows the remembered company while the company list loads", async () => {
+    __setQueryData("clients:listClients", undefined);
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    rememberRecentCompany("u-1", { key: "cedarline systems", name: "Cedarline Systems" });
+    await mount("/projects");
+    await expect.poll(() => text(title())).toBe("Cedarline Systems");
+    expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([]);
+    __setQueryData("clients:listClients", { clients: CLIENTS, truncated: false });
+    await expect.poll(() => appPage.url.searchParams.get("client")).toBe("cedarline systems");
+  });
+
+  it("an explicit address always wins: All projects, Starred or another company", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    __setQueryData("dashboard:listStarredProjects", []);
+    rememberRecentCompany("u-1", { key: "cedarline systems", name: "Cedarline Systems" });
+    for (const [url, expected] of [
+      ["/projects?scope=all", "All projects"],
+      ["/projects?scope=starred", "Starred"],
+      ["/projects?client=acuity+insights", "Acuity Insights"],
+    ] as const) {
+      __resetNavigation();
+      const screen = await mount(url);
+      await expect.poll(() => text(title())).toBe(expected);
+      expect(__navigationCalls).toEqual([]);
+      screen.unmount();
+    }
+  });
+});
+
+describe("Stars on the Projects page (2026-11-02)", () => {
+  const STARRED = [
+    project("p5", { title: "High-efficiency pump control", projectNumber: "5", fiscalYearEnd: day("2026-09-30") }),
+    project("x2", { title: "Coil sensing", clientName: "Acuity Insights", dashboardCompanyKey: "acuity insights" }),
+  ];
+  const star = (id: string) => document.querySelector<HTMLButtonElement>(`[data-project-star="${id}"]`);
+
+  it("puts the viewer's star on every card, pressed where starred, and saves a toggle", async () => {
+    __setPaginatedRows("dashboard:listCompanyProjects", CEDARLINE);
+    __setQueryData("dashboard:listStarredProjects", STARRED);
+    __setMutationResult("projects:setProjectStar", { starred: true });
+    await mount("/projects?client=cedarline+systems");
+    await expect.poll(() => star("p4")).not.toBeNull();
+    expect(star("p5")!.getAttribute("aria-pressed")).toBe("true");
+    expect(star("p4")!.getAttribute("aria-pressed")).toBe("false");
+    expect(star("p4")!.getAttribute("aria-label")).toBe("Star Adaptive cold storage controls");
+    expect(star("p4")!.getAttribute("title")).toBe("Star project");
+    expect(star("p5")!.getAttribute("title")).toBe("Unstar project");
+    // A starred card shows its star at rest; an unstarred one waits for hover or focus.
+    expect(getComputedStyle(star("p5")!).opacity).toBe("1");
+    expect(getComputedStyle(star("p4")!).opacity).toBe("0");
+
+    await userEvent.click(star("p4")!);
+    await expect.poll(() => __mutationCalls("projects:setProjectStar")).toEqual([{ projectId: "p4", starred: true }]);
+    // The click stars the project; it does not open it.
+    expect(__navigationCalls).toEqual([]);
+    await userEvent.click(star("p5")!);
+    await expect.poll(() => __mutationCalls("projects:setProjectStar").at(-1)).toEqual({ projectId: "p5", starred: false });
+  });
+
+  it("lists Starred in the sidebar with its count and opens the starred projects, each naming its company", async () => {
+    __setPaginatedRows("dashboard:listFlatProjects", []);
+    __setQueryData("dashboard:listStarredProjects", STARRED);
+    await mount("/projects?scope=all");
+    await expect.poll(() => row("starred")).not.toBeNull();
+    expect(text(row("starred"))).toBe("Starred 2");
+    expect(row("starred")!.getAttribute("href")).toBe("/projects?scope=starred");
+    await userEvent.click(row("starred")!);
+    await expect.poll(() => text(title())).toBe("Starred");
+    expect(appPage.url.search).toBe("?scope=starred");
+    expect(row("starred")!.getAttribute("aria-current")).toBe("page");
+    expect(row("all")!.getAttribute("aria-current")).toBeNull();
+    expect(text(document.querySelector("[data-client-count]"))).toBe("2 projects");
+    const titles = [...document.querySelectorAll("[data-starred-projects] [data-recent-title]")].map((node) => text(node));
+    expect(titles).toEqual(["High-efficiency pump control", "Coil sensing"]);
+    const companies = [...document.querySelectorAll('[data-starred-projects] [data-card-field="client"]')].map((node) => text(node));
+    expect(companies).toEqual(["Cedarline Systems", "Acuity Insights"]);
+    // No All projects or search reads while Starred is open.
+    expect(__activeQueryArgs("dashboard:listFlatProjects")).toEqual([]);
+  });
+
+  it("filters the starred projects in place with the search", async () => {
+    __setQueryData("dashboard:listStarredProjects", STARRED);
+    await mount("/projects?scope=starred");
+    await expect.poll(() => document.querySelectorAll("[data-starred-projects] [data-recent-title]").length).toBe(2);
+    await userEvent.fill(page.getByRole("searchbox", { name: "Search projects" }), "acuity");
+    await expect.poll(() => text(document.querySelector("#projects-search-results"))).toBe("1 project matches");
+    expect(__activeQueryArgs("dashboard:searchProjects")).toEqual([]);
+  });
+
+  it("says when nothing is starred yet", async () => {
+    __setQueryData("dashboard:listStarredProjects", []);
+    await mount("/projects?scope=starred");
+    await expect.poll(() => text(document.querySelector("[data-starred-empty]"))).toBe(
+      "No starred projects yet Star the projects you are working on and they will show up here. Only you see your stars."
+    );
+    expect(text(row("starred"))).toBe("Starred 0");
+    expect(text(document.body)).not.toMatch(DASHES);
   });
 });

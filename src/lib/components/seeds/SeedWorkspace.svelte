@@ -42,9 +42,8 @@
     generationId: Id<"generations">;
     projectId: Id<"projects">;
     userId: string;
-    /** Opens the Summary once the last step is approved. The Summary has no
-     * other way in from the workspace: the host's Summary tab opens it once
-     * every step is done (owner decision 2026-09-28 sixth). */
+    /** Opens the Summary once the last step is approved. The host's Summary
+     * tab also opens it at any time, with open steps marked (2026-11-02). */
     onOpenSummary: () => void;
     /** False while the host keeps this workspace mounted but hidden (another
      * tab, the side panel on a narrow screen), so drafts survive while no

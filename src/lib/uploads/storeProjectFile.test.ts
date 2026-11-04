@@ -92,4 +92,19 @@ describe("storeProjectFile", () => {
       projectId, file: notes(), attemptKey, source: "context_input", operation: operation(),
     })).rejects.toThrow("Refused");
   });
+
+  it("saves a Word file's Markdown flag with its text (2026-10-26)", async () => {
+    const d = deps({
+      parse: vi.fn(async (file: File) => ({
+        fileName: file.name,
+        fileType: "docx" as const,
+        content: "# Trials\n\nThe seal **held**.",
+        textFormat: "markdown" as const,
+      })),
+    });
+    await storeProjectFile(d, {
+      projectId, file: new File(["bytes"], "trials.docx"), attemptKey, source: "chat_upload", operation: operation(),
+    });
+    expect(d.uploadDocument).toHaveBeenCalledWith(expect.objectContaining({ fileType: "docx", textFormat: "markdown" }));
+  });
 });

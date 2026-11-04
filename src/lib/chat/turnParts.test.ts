@@ -583,6 +583,30 @@ describe("correlateProposals", () => {
     expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["first", "second"]);
   });
 
+  // Owner 2026-10-28: a report-wide find/replace is saved as one card per
+  // Line from one tool call; every Line's card stays.
+  it("keeps every Line's card of one split find/replace", () => {
+    const line = (id: string, section: "242" | "244" | "246") =>
+      proposal({
+        _id: id, toolCallId: "replace-1", promptMessageId: "u1", messageId: "a1", section,
+        kind: "replacements", targetText: undefined, newText: undefined,
+        replacements: [{ find: "utilize", replaceWith: "use" }],
+      });
+    const { byMessageId } = correlateProposals([reply], [line("a", "242"), line("b", "244"), line("c", "246")]);
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("never lets a card for another Line supersede one", () => {
+    const { byMessageId } = correlateProposals(
+      [reply],
+      [
+        proposal({ _id: "first", messageId: "a1", promptMessageId: "u1", section: "242", targetText: "Paragraph one." }),
+        proposal({ _id: "second", messageId: "a1", promptMessageId: "u1", section: "244", targetText: "Paragraph one." }),
+      ]
+    );
+    expect((byMessageId.get("a1") ?? []).map((p) => p._id)).toEqual(["first", "second"]);
+  });
+
   it("still lets a later pending card for the same passage supersede the earlier one", () => {
     const { byMessageId } = correlateProposals(
       [reply],
@@ -794,6 +818,11 @@ describe("humanizeItemIds and the bare [GAP] token", () => {
     expect(humanizeItemIds("Proposed dropping the [GAP] note on Line 246.")).toBe("Proposed dropping the gap note on Line 246.");
     expect(humanizeItemIds("Two [GAP] notes remain.")).toBe("Two gap notes remain.");
     expect(humanizeItemIds("It reads [GAP: the measured load] here.")).toBe("It reads [GAP: the measured load] here.");
+    // 2026-10-29: the bare [INFERRED] token reads as "inference", a real marker keeps its brackets.
+    expect(humanizeItemIds("Line 244 has two [INFERRED] notes to check.")).toBe("Line 244 has two inference notes to check.");
+    expect(humanizeItemIds("It reads [INFERRED: the source asks for steady readings] here.")).toBe(
+      "It reads [INFERRED: the source asks for steady readings] here."
+    );
   });
 });
 

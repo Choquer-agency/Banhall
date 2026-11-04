@@ -21,6 +21,7 @@ import { isProjectDeleting } from "../projectDeletion";
 import { domainError } from "../contracts";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitGenerationStart } from "../aiRateLimits";
+import { leaveMovedBackModels } from "../modelRoles";
 import {
   draftingInputsStateOf,
   transitionDraftingInputs,
@@ -256,6 +257,10 @@ export const completeDraftingInputsArgs = {
       brief: v.optional(v.string()),
     })
   ),
+  // 2026-11-02 (proposed): the public background block and its answers,
+  // frozen with the Brain blocks when the step found any.
+  webBackground: v.optional(v.string()),
+  webBackgroundAnswers: v.optional(v.string()),
 };
 
 /**
@@ -274,7 +279,8 @@ export async function completeDraftingInputsHandler(
   if (!style) domainError("INVALID_STATE", "Frozen writer style is unavailable");
   const brainBlocks = brainBlocksFromWriterStyle(
     parseFrozenBrainBlocks(args.brainBlocks),
-    style.content
+    style.content,
+    args.webBackground ? { block: args.webBackground, answers: args.webBackgroundAnswers ?? "" } : undefined
   );
   for (const [kind, content] of [
     ["analysis", args.analysis],
@@ -400,6 +406,9 @@ export async function retryDraftingInputsHandler(
   // Audit wave 2: a retry counts as a generation start. A refusal also
   // rolls back the lease settle above.
   await limitGenerationStart(ctx, user._id, existing.projectId);
+  // 2026-10-23 (owner, second): the new attempt runs off a model its tier
+  // was moved back from; the writer's picks are kept.
+  current = await leaveMovedBackModels(ctx, current);
   const attempt = drafting.attempt + 1;
   const shorterAnalysis =
     drafting.shorterAnalysis === true || drafting.failureCode === "output_limit";

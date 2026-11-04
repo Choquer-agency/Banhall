@@ -721,6 +721,21 @@ describe("Seed workspace", () => {
     expect(__mutationCalls("seeds:unskip")[0]).toMatchObject({ roleId: "prior_year_status", expectedSeedStageVersion: 7 });
   });
 
+  // 2026-10-27 (twelfth, owner): Previous-year status opens skipped when the
+  // draft has nothing from a previous year, and says why.
+  it("says why Previous-year status opened skipped, and offers Restore step", async () => {
+    const optional = { title: "Previous-year status", objective: "Describe prior-year status.", kind: "optional" } as const;
+    const view = await render(SeedSubsectionPane, paneProps(
+      subsection({ roleId: "prior_year_status", state: "skipped", items: [], noPreviousYearMaterial: true }),
+      optional,
+    ));
+    await expect.element(page.getByText("Skipped because this draft has no previous-year files. Restore it from the More menu if the project had a previous year.")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Restore step", exact: true })).toBeVisible();
+    // Skipped by the writer: the usual line.
+    await view.rerender(paneProps(subsection({ roleId: "prior_year_status", state: "skipped", items: [] }), optional));
+    await expect.element(page.getByText("Skipped. Restore it from the More menu to pick seeds.")).toBeVisible();
+  });
+
   // 2026-10-22 (alerts): two writers did not find Skip step in the More menu.
   it("offers Skip beside the approval on an optional step, moves on after it, and Restore step once skipped", async () => {
     const onApproved = vi.fn();
@@ -1456,15 +1471,21 @@ describe("Seed workspace", () => {
       .toEqual([null, "resume-1", "resume-2"]);
   });
 
-  it("saves a long card edit with a soft note, never a word limit", async () => {
+  // 2026-10-27 (eleventh, owner): a writer's wording is as long as it needs
+  // to be, with no note and no word or 600-character limit; only a box at
+  // the 5,000-character ceiling says so.
+  it("saves a long card edit in full, with no note and no limit", async () => {
     await render(SeedSubsectionPane, paneProps(subsection()));
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const bullet = page.getByRole("textbox", { name: "Bullet 1" });
-    await bullet.fill("Six weeks of baseline logging fixed a load profile.");
-    expect(page.getByText("Long for a seed", { exact: true }).elements()).toHaveLength(0);
-    const longWording = `${Array.from({ length: 30 }, () => "word").join(" ")}.`;
+    expect(bullet.element().getAttribute("maxlength")).toBe("5000");
+    expect(page.getByRole("textbox", { name: "Bullet 2, optional" }).element().getAttribute("maxlength")).toBe("5000");
+    await bullet.fill("x".repeat(5_000));
+    await expect.element(page.getByText("This box holds up to 5,000 characters.", { exact: true })).toBeVisible();
+    const longWording = `${Array.from({ length: 160 }, () => "word").join(" ")}. A second sentence follows.`;
+    expect(longWording.length).toBeGreaterThan(600);
     await bullet.fill(longWording);
-    await expect.element(page.getByText("Long for a seed", { exact: true })).toBeVisible();
+    expect(page.getByText("This box holds up to 5,000 characters.", { exact: true }).elements()).toHaveLength(0);
     const save = page.getByRole("button", { name: "Save wording", exact: true });
     await expect.element(save).toBeEnabled();
     await save.click();
@@ -1475,6 +1496,22 @@ describe("Seed workspace", () => {
       bullets: [longWording, "Tests covered three load bands."],
       expectedSeedStageVersion: 7,
     }]);
+  });
+
+  it("sends long Feedback in full", async () => {
+    await render(SeedSubsectionPane, paneProps(subsection()));
+    await page.getByRole("button", { name: "Give feedback", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Tell it what to change…", exact: true }).click();
+    const box = page.getByRole("textbox", { name: "Tell it what to change" });
+    expect(box.element().getAttribute("maxlength")).toBe("5000");
+    await box.fill("x".repeat(5_000));
+    await expect.element(page.getByText("This box holds up to 5,000 characters.", { exact: true })).toBeVisible();
+    const instruction = `Keep the measured load bands, ${Array.from({ length: 120 }, () => "and name each one").join(", ")}.`;
+    expect(instruction.length).toBeGreaterThan(300);
+    await box.fill(instruction);
+    expect(page.getByText("This box holds up to 5,000 characters.", { exact: true }).elements()).toHaveLength(0);
+    await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+    expect(__mutationCalls("seeds:giveFeedback")[0]).toMatchObject({ seedId: "seed-1", instruction });
   });
 
   it("keeps unsaved wording on its own base version after a remote update and requires explicit review before saving", async () => {
@@ -4495,7 +4532,7 @@ describe("step subtitles (F3 to F5)", () => {
     __setQueryData("seeds:getOutline", outline());
     __setQueryData("seeds:getSubsection", subsection({ roleId: "hypothesis" }));
     await render(SeedWorkspace, workspaceProps({ requestedRoleId: "hypothesis" }));
-    await expect.poll(subtitle).toBe("A testable, measurable hypothesis in if/then form.");
+    await expect.poll(subtitle).toBe("A testable hypothesis in if/then form: the outcome expected, or the knowledge sought.");
     expect(document.body.textContent).not.toContain("State a specific, testable, and measurable hypothesis");
   });
 });

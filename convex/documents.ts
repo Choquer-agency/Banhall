@@ -1,7 +1,21 @@
 import { countTextWords } from "../shared/wordCount";
-import { query, mutation, internalQuery } from "./_generated/server";
+import {
+  deleteDocumentText,
+  deleteDocumentTextVersions,
+  documentHasText,
+  documentKeptVersionEquals,
+  documentTextEquals,
+  documentTextHash,
+  documentTextLength,
+  findDocumentWithText,
+  insertDocumentWithText,
+  readDocumentText,
+} from "./lib/documentText";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { requestBriefPreparation } from "./lib/briefPreparationTrigger";
+import { hasReadText, queueServerReadingIfNeeded } from "./lib/serverReading";
+import { labelsCurrent } from "./lib/fileLabels";
 import {
   getInternalProjectAccessOrNull,
   requireInternalActor,
@@ -21,6 +35,7 @@ import {
   requireNotClaimedByAnother,
   uploadClaimFor,
 } from "./lib/storage";
+import { textCopyPending } from "./lib/projectCopy";
 
 const fileTypeValidator = v.union(
   v.literal("txt"),
@@ -88,6 +103,8 @@ export const uploadDocument = mutation({
     // PSOS-04: resolves the durable upload attempt this call belongs to, in the
     // same transaction as the insert.
     attemptKey: v.optional(v.string()),
+    // 2026-10-26 (owner): a Word file's text is Markdown.
+    textFormat: v.optional(v.literal("markdown")),
   },
   handler: async (ctx, args) => {
     // Files are inputs to the next draft and to chat: report.editProse
@@ -109,7 +126,10 @@ export const uploadDocument = mutation({
     // claiming success for a file that was never stored. There is also no text
     // to save by deduping. Two identical unreadable uploads now make two rows,
     // which is the honest answer: the user performed two uploads.
-    const canDedupe = args.content.trim().length > 0;
+    // 2026-10-26 (Phase B2): text that is only a reader's stop line counts
+    // as unread too; two such files are different files, and the server may
+    // fill one in before its upload is retried.
+    const canDedupe = hasReadText(args.content);
     // A retry of a save that committed but whose answer never arrived (a
     // timeout) carries the same attempt key: it gets the document that attempt
     // already made. Empty files are exempt from the content dedupe below, so
@@ -129,22 +149,19 @@ export const uploadDocument = mutation({
       madeByAttempt.projectId === args.projectId &&
       madeByAttempt.fileName === args.fileName &&
       (!canDedupe ||
-        madeByAttempt.content.trim().length === 0 ||
-        madeByAttempt.content === args.content)
+        !documentHasText(madeByAttempt) ||
+        (await documentTextEquals(madeByAttempt, args.content)) ||
+        // B1 review: the server replaced the text this attempt sent (an older
+        // tab's plain Word text, now Markdown); the attempt kept it as a version.
+        (await documentKeptVersionEquals(ctx, madeByAttempt._id, args.content)))
         ? madeByAttempt
         : null;
-    const existingDocs = canDedupe && !retried
-      ? await ctx.db
-          .query("projectDocuments")
-          .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-          .collect()
-      : [];
+    // 2026-10-22 (fourth): found by fingerprint, without reading every
+    // file's text (convex/lib/documentText.ts findDocumentWithText).
     const dup =
       retried ??
       (canDedupe
-        ? existingDocs.find(
-            (d) => d.fileName === args.fileName && d.content === args.content
-          )
+        ? ((await findDocumentWithText(ctx, args.projectId, args.fileName, args.content)) ?? undefined)
         : undefined);
     const derived = deriveProcessingStatus({
       fileName: args.fileName,
@@ -175,6 +192,9 @@ export const uploadDocument = mutation({
           storageId: args.storageId,
           ...(args.mimeType ? { mimeType: args.mimeType } : {}),
         });
+        // 2026-10-26 (Phase B2): the server reads an original whose text
+        // the browser could not get, now that there is one.
+        await queueServerReadingIfNeeded(ctx, dup._id, { ...dup, storageId: args.storageId }, hasReadText(args.content));
       } else if (args.storageId && dup.storageId !== args.storageId) {
         // Already have the file; reclaim the supplied bytes only if
         // unreferenced and not another user's claimed upload.
@@ -206,16 +226,16 @@ export const uploadDocument = mutation({
       return dup._id;
     }
 
-    const documentId = await ctx.db.insert("projectDocuments", {
+    // 2026-10-22 (fourth): the text goes to pieces, the facts to the row.
+    const documentId = await insertDocumentWithText(ctx, {
       projectId: args.projectId,
       ...(args.reportId ? { reportId: args.reportId } : {}),
       fileName: args.fileName,
       fileType: args.fileType,
-      content: args.content,
-      wordCount: countTextWords(args.content),
       ...(args.storageId ? { storageId: args.storageId } : {}),
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
       ...(args.category ? { category: args.category } : {}),
+      ...(args.textFormat ? { textFormat: args.textFormat } : {}),
       source: args.source ?? "chat_upload",
       processingStatus: derived.status,
       processingDetail: derived.detail,
@@ -226,7 +246,7 @@ export const uploadDocument = mutation({
       // `requireReportEditAccess` above already rejected a roleless user.
       ...(user.role ? { uploaderRole: user.role } : {}),
       createdAt: Date.now(),
-    });
+    }, args.content);
 
     if (args.attemptKey) {
       await resolveUploadAttempt(
@@ -236,6 +256,19 @@ export const uploadDocument = mutation({
         documentId
       );
     }
+    // 2026-10-26 (Phase B2): no text, or a PDF the browser stopped reading
+    // early: the server reads the stored original.
+    await queueServerReadingIfNeeded(
+      ctx,
+      documentId,
+      {
+        fileName: args.fileName,
+        ...(args.storageId ? { storageId: args.storageId } : {}),
+        // Review: Word Markdown from a current tab is not read again.
+        ...(args.textFormat && hasReadText(args.content) ? { textFormat: args.textFormat } : {}),
+      },
+      hasReadText(args.content)
+    );
     // Decision 65: readable new evidence may change the prepared Brief.
     if (args.content.trim()) {
       await requestBriefPreparation(ctx, args.projectId, { userId: user._id, reason: "document_added" });
@@ -261,9 +294,12 @@ export const listDocuments = query({
         // Rows uploaded before PSOS-04 carry no stored status. Deriving it here
         // from the same function means every listed document reports a truthful
         // status on day one, and the backfill is only a persistence step.
-        const derived = d.processingStatus
-          ? { status: d.processingStatus, detail: d.processingDetail ?? null }
-          : deriveStoredProcessing(d);
+        // F2: a file still being copied has no text to read yet; its row
+        // always carries a status.
+        const copying = textCopyPending(d);
+        const derived = d.processingStatus || copying
+          ? { status: d.processingStatus ?? "ready", detail: d.processingDetail ?? null }
+          : deriveStoredProcessing({ ...d, content: await readDocumentText(ctx, d) });
         return {
           _id: d._id,
           fileName: d.fileName,
@@ -271,16 +307,21 @@ export const listDocuments = query({
           source: d.source,
           category: d.category ?? null,
           createdAt: d.createdAt,
-          sizeChars: d.content.length,
+          // 2026-10-22 (fourth): from the row's facts once its text moved.
+          sizeChars: documentTextLength(d),
           // The project page's start dialog names each file's length
           // (2026-09-27, fourth): stored at upload, counted for older rows.
-          wordCount: d.wordCount ?? countTextWords(d.content),
+          wordCount: d.wordCount ?? (copying ? 0 : countTextWords(await readDocumentText(ctx, d))),
           hasFile: !!d.storageId,
           mimeType: d.mimeType ?? null,
           url: d.storageId ? await ctx.storage.getUrl(d.storageId) : null,
           archived: d.archived ?? false,
           processingStatus: derived.status,
           processingDetail: derived.detail,
+          // F2: "copying" while the file's text is being copied from the
+          // original project; "could_not_copy" when it changed or was
+          // removed there meanwhile.
+          copyState: copying ? ("copying" as const) : d.textCopyState === "failed" ? ("could_not_copy" as const) : null,
         };
       })
     );
@@ -294,7 +335,14 @@ export const setDocumentArchived = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     const { user } = await requireReportEditAccess(ctx, doc.projectId);
-    await ctx.db.patch(args.documentId, { archived: args.archived });
+    // 2026-10-26 (Phase B4): a restored file whose labels are missing or
+    // stale goes back in the label queue (archived files leave it).
+    const relabel =
+      !args.archived && doc.archived && documentHasText(doc) && !labelsCurrent(doc, await documentTextHash(doc));
+    await ctx.db.patch(args.documentId, {
+      archived: args.archived,
+      ...(relabel ? { labelsDue: true as const, labelsNextAt: 0, labelsAttempts: undefined } : {}),
+    });
     if (Boolean(doc.archived) !== args.archived) {
       await requestBriefPreparation(ctx, doc.projectId, {
         userId: user._id,
@@ -311,7 +359,14 @@ export const getDocumentContent = query({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) return null;
     if (!(await getInternalProjectAccessOrNull(ctx, doc.projectId))) return null;
-    return { fileName: doc.fileName, fileType: doc.fileType, content: doc.content };
+    return {
+      fileName: doc.fileName,
+      fileType: doc.fileType,
+      // F2: nothing to show until a copied file's text arrives.
+      content: textCopyPending(doc) ? "" : await readDocumentText(ctx, doc),
+      // 2026-10-26: Word Markdown is shown formatted.
+      ...(doc.textFormat ? { textFormat: doc.textFormat } : {}),
+    };
   },
 });
 
@@ -321,29 +376,13 @@ export const deleteDocument = mutation({
     const doc = await ctx.db.get(args.documentId);
     if (!doc) throw new Error("Document not found");
     const { user } = await requireReportEditAccess(ctx, doc.projectId);
+    // 2026-10-22 (fourth): its text pieces go with it.
+    await deleteDocumentText(ctx, args.documentId);
+    // B1: and its earlier text versions.
+    await deleteDocumentTextVersions(ctx, args.documentId);
     await ctx.db.delete(args.documentId);
     if (doc.storageId) await deleteStorageIfUnreferenced(ctx, doc.storageId);
     await requestBriefPreparation(ctx, doc.projectId, { userId: user._id, reason: "document_deleted" });
   },
 });
 
-/**
- * Internal: categorized contextual-input docs for the generation pipeline
- * (BNH-9). Returns category + text (capped) so the analyzer can weight them.
- */
-export const getContextDocsForGeneration = internalQuery({
-  args: { projectId: v.id("projects") },
-  handler: async (ctx, args) => {
-    const docs = await ctx.db
-      .query("projectDocuments")
-      .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
-      .collect();
-    return docs
-      .filter((d) => !d.archived && d.category && d.content.trim().length > 0)
-      .map((d) => ({
-        category: d.category!,
-        fileName: d.fileName,
-        content: d.content.slice(0, 15000),
-      }));
-  },
-});

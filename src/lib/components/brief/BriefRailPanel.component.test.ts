@@ -87,6 +87,87 @@ describe("BriefRailPanel", () => {
     expect(page.getByRole("button", { name: "Close Brief" }).elements()).toHaveLength(0);
   });
 
+  it("names a company file the draft used as one (Phase C)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 1,
+      documentsTotal: 1,
+      rows: [{ key: "source:c1", kind: "company", label: "acme-history.docx", inclusion: "included" }],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect.poll(() => container.querySelector("[data-inclusion-company]")?.textContent).toBe("Company file");
+    expect(container.textContent).toContain("acme-history.docx");
+  });
+
+  it("names a company file that did not fit as not captured (2026-10-28, third)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 0,
+      documentsTotal: 1,
+      rows: [{ key: "company:c2", kind: "company", label: "last-year.docx", inclusion: "not_included", reason: "not_captured" }],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect.poll(() => container.querySelector("[data-inclusion-company]")?.textContent).toBe("Company file");
+    expect(container.textContent).toContain("last-year.docx");
+    expect(container.textContent).toContain("not included (not captured)");
+  });
+
+  it("says under a file which steps read it and how much (Phase D, step 2)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 1,
+      documentsTotal: 2,
+      rows: [
+        {
+          key: "source:d1", kind: "document", label: "report.pdf", inclusion: "included",
+          uses: [
+            { step: "analyzer", runs: 1, read: 1, whole: true },
+            { step: "seeds", runs: 13, read: 13, whole: true },
+          ],
+        },
+        { key: "source:d2", kind: "document", label: "notes.txt", inclusion: "not_included" },
+      ],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect
+      .poll(() => container.querySelector("[data-inclusion-uses]")?.textContent)
+      .toBe("Read by the analysis (whole), Seeds (whole, 13 of 13 steps).");
+    expect(container.querySelectorAll("[data-inclusion-uses]")).toHaveLength(1);
+    expect(container.querySelector("[data-inclusion-uses-truncated]")).toBeNull();
+  });
+
+  it("says when not every step's reads could be listed (Phase D, step 2, review)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", null);
+    __setQueryData("generations:getContextInclusion", {
+      recorded: true,
+      cap: 12,
+      documentsInContext: 1,
+      documentsTotal: 1,
+      usesTruncated: true,
+      rows: [
+        {
+          key: "source:t1", kind: "transcript", label: "Interview transcript", inclusion: "condensed",
+          uses: [{ step: "analyzer", runs: 1, read: 1, whole: true, condensed: true }],
+        },
+      ],
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect
+      .poll(() => container.querySelector("[data-inclusion-uses-truncated]")?.textContent?.trim())
+      .toBe("Not every step's reads could be listed, so a file shown as not read by a step may have been read.");
+    expect(container.querySelector("[data-inclusion-uses]")?.textContent).toBe("Read by the analysis (condensed).");
+  });
+
   it("saves an edit through saveEntryEdit with the project, Brief and version fence", async () => {
     __setQueryData("briefs:getBrief", storedBrief());
     __setQueryData("writerProfiles:getGenerationWriterSettings", null);
@@ -177,6 +258,18 @@ describe("BriefRailPanel", () => {
       .toContain("The Brief changed while you were editing. Your edit was not saved.");
     const field = container.querySelector<HTMLTextAreaElement>("textarea");
     expect(field?.value).toBe(`${STORYLINE} Lost to a newer version.`);
+  });
+
+  it("says how many saved preferences the draft used (Phase E, E1b)", async () => {
+    __setQueryData("briefs:getBrief", null);
+    __setQueryData("generations:getContextInclusion", recordedInclusion);
+    __setQueryData("writerProfiles:getGenerationWriterSettings", {
+      noProfileLine: null,
+      savedPreferencesLine: "3 saved preferences used.",
+      offer: null,
+    });
+    const { container } = await render(BriefRailPanel, { generationId, projectId });
+    await expect.poll(() => container.querySelector("[data-saved-preferences-line]")?.textContent).toBe("3 saved preferences used.");
   });
 
   it("dismisses the settings offer for this project and remembers it", async () => {

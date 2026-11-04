@@ -26,10 +26,14 @@ import { DRAFTING_INPUTS_LEASE_MS } from "./lib/generations/draftingInputs";
 import { ANALYZER_REQUEST } from "./ai/analyzerAgent";
 import { SEED_PROMPT_PROGRAM, SEED_QUOTE_RULES } from "./ai/promptDefinitions";
 import { RULES_ANALYSIS_FIGURES } from "../shared/humanProse";
-import { withPinnedAdvancementLinkRules, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
+import { withPinnedAdvancementLinkRules, withPinnedBulletSentence, withSharedSeedToolOnly } from "./seedLinkRules.fixture";
 import { withPinnedLine242Opening } from "./line242Opening.fixture";
+import { withoutInferenceMarker } from "./inferenceMarker.fixture";
+import { withoutHonestDrafting } from "./honestDrafting.fixture";
+import { withoutOneUncertainty } from "./oneUncertainty.fixture";
 import { ActionTimeBudgetError } from "./ai/actionDeadline";
 import { decisionFixture } from "./seedDecision.fixture";
+import { freezeModelsForGeneration, moveTrack } from "./lib/modelRoles";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -322,8 +326,30 @@ async function requestHashes(
     // request, which holds them exactly once. 2026-10-19: Line 242's plain
     // opening moved the analyzer's company and goal categories, the Company /
     // Context objective and the Line 242 drafting rules; the old texts are
-    // put back.
-    let json = withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body)));
+    // put back. 2026-10-29: so are the inference marker's rule and check
+    // lines (convex/inferenceMarker.fixture.ts). 2026-10-29 (third): so
+    // are the honest drafting rules (convex/honestDrafting.fixture.ts).
+    // 2026-10-30: and this change's additions, the claimant line and the
+    // acronym sentence (convex/oneUncertainty.fixture.ts), last; a Seed
+    // request is told apart by its own heading.
+    const honestStage =
+      name === "text"
+        ? "draft"
+        : name === "submit_self_check"
+          ? "summarySelfCheckWithFacts"
+          : name === "submit_transcript_analysis"
+            ? "analysis"
+            : "none";
+    let json = withoutOneUncertainty(
+      withoutHonestDrafting(
+        withoutInferenceMarker(
+          withPinnedLine242Opening(JSON.stringify(withSharedSeedToolOnly(body))),
+          name === "text" ? "draft" : name === "submit_self_check" ? "summarySelfCheckWithFacts" : "none"
+        ),
+        honestStage
+      ),
+      honestStage
+    );
     if (name === "submit_seed_batch") {
       const wording = JSON.stringify(SEED_PROMPT_PROGRAM.user.writerWording).slice(1, -1);
       expect(json.split(wording)).toHaveLength(2);
@@ -336,7 +362,7 @@ async function requestHashes(
     }
     firstByTool.set(
       name,
-      maskIds(withPinnedAdvancementLinkRules(json).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
+      maskIds(withPinnedBulletSentence(withPinnedAdvancementLinkRules(json)).replace(JSON.stringify(SEED_QUOTE_RULES).slice(1, -1), ""))
     );
   }
   const result: Record<string, string> = {};
@@ -385,6 +411,10 @@ async function openFirstRole(s: Fixture) {
     }
   });
   await s.t.action(generateBatchRef, { batchId: batch._id });
+  // The first-step Batch (owner decision 65) may already be running from
+  // its scheduled job, which the cancel above cannot stop; its request
+  // lands only once that job finishes.
+  await s.t.finishInProgressScheduledFunctions();
   return batch._id;
 }
 
@@ -471,7 +501,8 @@ describe("reordered Step-by-step start (decision 32)", () => {
     // integration branch after the cut-off fix raised their output caps
     // (16,000 / 16,000 / 2,048 tokens); the next test proves that with the
     // old caps put back they are the 9bed95c0 hashes exactly. requestHashes
-    // takes out the Seed quote rules added since (2026-09-27, third).
+    // takes out the Seed quote rules added since (2026-09-27, third) and puts
+    // back the bullet sentence of before 2026-10-27 (eleventh).
     expect(await requestHashes()).toEqual({
       submit_generation_brief: "768cad27ddf4db91f8237ad51714fdab8cdc5b0826a54a83cc3eba516c57434e",
       submit_retrieval_brief: "5ff41dc8effa6c1d3debffd0657f07c741a25549cd8bfe83863ea1ff0e4939a5",
@@ -988,6 +1019,106 @@ describe("reordered Step-by-step start (decision 32)", () => {
     expect(reopened.pendingPrepares).toBe(1);
     await runSeedDraftingInputs(s.t);
     expect((await state(s)).generation?.draftingInputs?.status).toBe("ready");
+  });
+
+  // 2026-10-23 (owner, second): after a tier moves back, the plan's next
+  // steps leave the moved-back model, and work queued before keeps its own.
+  const freezeOnSonnet55 = (s: Fixture) =>
+    s.t.run(async (ctx) => {
+      const modelFreeze = await freezeModelsForGeneration(ctx, ["claude-sonnet-5-5"], Date.now());
+      await ctx.db.patch(s.generationId, { singleModelId: "claude-sonnet-5-5", modelFreeze });
+    });
+  const moveSonnetBack = (s: Fixture) =>
+    s.t.run(async (ctx) => {
+      await moveTrack(ctx, { track: "claude-sonnet", toModelId: "claude-sonnet-5", kind: "rollback", reason: "production_error_rate", actor: "system" });
+    });
+  const requestModels = (tool: string) =>
+    (network.create.mock.calls as Array<[GenerationMessageParams]>)
+      .filter(([params]) => params.tool_choice?.name === tool)
+      .map(([params]) => params.model);
+
+  it("retries the start of the Seeds stage, and its analysis, on the tier's current model after a move back", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider();
+    await freezeOnSonnet55(s);
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      }
+      for (const row of await ctx.db.query("seedSubsections")
+        .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()) {
+        await ctx.db.delete(row._id);
+      }
+      await ctx.db.replace(s.generationId, {
+        ...(await ctx.db.get(s.generationId))!,
+        status: "running",
+        draftingInputs: undefined,
+        seedStageError: "Seed preparation did not complete. Retry initialization.",
+      });
+    });
+    await moveSonnetBack(s);
+    await s.writer.mutation(api.generations.retryInitializeSeedStage, { generationId: s.generationId });
+    const retried = (await state(s)).generation;
+    expect(retried?.singleModelId).toBe("claude-sonnet-5");
+    expect(retried?.modelFreeze?.roles.planning).toBe("claude-sonnet-5");
+    expect(retried?.modelMoves).toHaveLength(1);
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.name.includes("resumeSeedInitialization") && job.state.kind === "pending") {
+          await ctx.scheduler.cancel(job._id);
+        }
+      }
+    });
+    network.create.mockClear();
+    await s.t.action(internal.ai.iterative.resumeSeedInitialization, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+    expect((await state(s)).generation?.draftingInputs?.status).toBe("ready");
+    expect(requestModels("submit_transcript_analysis")).toEqual(["claude-sonnet-5"]);
+  });
+
+  it("runs a Batch queued before the move on its own model and the next Batch on the tier's current model", async () => {
+    vi.useFakeTimers();
+    const s = await startupFixture();
+    configureProvider();
+    await freezeOnSonnet55(s);
+    await s.t.action(internal.ai.iterative.startIterativeGeneration, { generationId: s.generationId });
+    await runSeedDraftingInputs(s.t);
+    const dispatch = async (roleId: "company_context" | "goal_problem", commandId: string) => {
+      const version = (await s.t.run((ctx) => ctx.db.get(s.generationId)))?.seedStageVersion ?? 0;
+      await s.writer.mutation(api.seeds.open, { generationId: s.generationId, roleId, expectedSeedStageVersion: version, commandId });
+      const batch = await s.t.run(async (ctx) =>
+        ctx.db.query("seedBatches")
+          .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", roleId))
+          .first());
+      if (!batch) throw new Error(`No Batch for ${roleId}`);
+      return batch;
+    };
+    const before = await dispatch("company_context", "before-move");
+    expect(before.model).toBe("claude-sonnet-5-5");
+    await moveSonnetBack(s);
+    const after = await dispatch("goal_problem", "after-move");
+    expect(after.model).toBe("claude-sonnet-5");
+    // The earlier Batch is claimed only now, after the freeze changed.
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) {
+        if (job.name.includes("generateBatch") && job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+      }
+    });
+    network.create.mockClear();
+    await s.t.action(generateBatchRef, { batchId: before._id });
+    await s.t.action(generateBatchRef, { batchId: after._id });
+    // Sonnet 5.5 is sent unforced (forcedToolChoice false), so the tool is
+    // read from the request's tools as well.
+    const models = (network.create.mock.calls as Array<[GenerationMessageParams]>)
+      .filter(([params]) => /seed_batch$/.test(params.tool_choice?.name ?? params.tools?.[0]?.name ?? ""))
+      .map(([params]) => params.model);
+    expect(models[0]).toBe("claude-sonnet-5-5");
+    expect(models.at(-1)).toBe("claude-sonnet-5");
+    expect(new Set(models)).toEqual(new Set(["claude-sonnet-5-5", "claude-sonnet-5"]));
+    const shown = await s.t.run(async (ctx) => [(await ctx.db.get(before._id))?.status, (await ctx.db.get(after._id))?.status]);
+    expect(shown).toEqual(["shown", "shown"]);
   });
 
   it("the seed stage opens once and the background step is scheduled once", async () => {

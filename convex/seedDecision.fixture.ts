@@ -31,8 +31,17 @@ export function decisionMutation<Export>(name: string) {
     FunctionReturnType<Ref>
   >(name);
 }
-export async function decisionFixture() {
-  const t = convexTest(schema, modules);
+/**
+ * `sourceRows`: how the draft's transcript row holds its text. "references"
+ * (the default) is how every draft since B1's second part (2026-10-27) is
+ * frozen: the row refers to its transcript. "copies" is the older shape,
+ * the text on the row.
+ */
+export async function decisionFixture(
+  options: { sourceRows?: "copies" | "references"; transactionLimits?: boolean } = {}
+) {
+  const sourceRows = options.sourceRows ?? "references";
+  const t = convexTest({ schema, modules, transactionLimits: options.transactionLimits ?? false });
   rateLimiterTest.register(t);
   const ids = await t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
@@ -110,12 +119,25 @@ export async function decisionFixture() {
       }),
     });
     const sourceContent = "Evidence alpha supports the work.";
+    const sourceText =
+      sourceRows === "copies"
+        ? { content: sourceContent }
+        : {
+            transcriptId: await ctx.db.insert("transcripts", {
+              projectId,
+              content: sourceContent,
+              contentHash: "source-hash",
+              label: "Interview",
+              createdAt: 1,
+            }),
+            textLength: sourceContent.length,
+          };
     const sourceId = await ctx.db.insert("generationSources", {
       generationId,
       projectId,
       kind: "transcript",
       label: "Interview",
-      content: sourceContent,
+      ...sourceText,
       contentHash: "source-hash",
       truncated: false,
       originalLength: sourceContent.length,

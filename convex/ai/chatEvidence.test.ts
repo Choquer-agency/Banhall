@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createHash } from "node:crypto";
 import { streamText, type ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,12 +18,17 @@ import { CHAT_WRITER_MESSAGE_LABEL,
   EVIDENCE_LABELS,
   buildChatEvidence,
   buildChatTurnRequest,
+  buildChatSystem,
   type ChatEvidenceBudget,
   type ChatEvidenceDoc,
   type ChatOpenQuestion,
   type ChatTurnContext,
 } from "./chatEvidence";
-import { CHAT_EVIDENCE_GUIDANCE, buildChatSystemPromptV2 } from "./prompts";
+import { CHAT_EVIDENCE_GUIDANCE, CHAT_KEEP_WRITERS_BANNED_WORDS, CHAT_PARAGRAPH_CHANGES, buildChatSystemPromptV2 } from "./prompts";
+import { withoutInferenceMarkerText } from "../inferenceMarker.fixture";
+import { withoutHonestDraftingText } from "../honestDrafting.fixture";
+import { withoutRuleOverrideText } from "../ruleOverride.fixture";
+import { withoutOneUncertaintyText } from "../oneUncertainty.fixture";
 import {
   ANALYZER_CATEGORY_LABELS,
   CHARS_PER_TOKEN,
@@ -70,6 +76,16 @@ function blockBody(message: string, line: string): string {
 function evidenceOf(turn: { messages: Array<{ content: unknown }> }): string {
   return turn.messages.map((message) => String(message.content)).join("\n\n");
 }
+
+/** 2026-11-03: the sentence proposeEdit's paragraphs had before cards could add, split or merge them. */
+const withoutParagraphChanges = (text: string) => {
+  expect(text).toContain(CHAT_PARAGRAPH_CHANGES);
+  expect(text).toContain(CHAT_KEEP_WRITERS_BANNED_WORDS);
+  return text.replace(CHAT_KEEP_WRITERS_BANNED_WORDS, "").replace(
+    CHAT_PARAGRAPH_CHANGES,
+    "newText then has the same number of paragraphs in the same order: a proposal cannot merge, split, add or remove a paragraph."
+  );
+};
 
 describe("chat evidence message", () => {
   it("puts every source between provenance markers, in order", () => {
@@ -220,6 +236,8 @@ describe("chat evidence message", () => {
       analysisText: "A",
       documents: [doc({ fileName: "big.txt", content: body, category: "other" })],
       budget: budget({ perDocumentTokens }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     const row = report.sources.find((s) => s.label === "big.txt");
     expect(row).toMatchObject({
@@ -400,6 +418,8 @@ describe("chat evidence message", () => {
         doc({ fileName: `d${i}.txt`, content: "z".repeat(3_000), category: "other" as const })
       ),
       budget: budget({ totalTokens: 2_000 }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     };
     const base = buildChatEvidence({
       ...input,
@@ -438,6 +458,8 @@ describe("chat evidence message", () => {
         doc({ fileName: "late.txt", content: "Dropped body.", category: "other" }),
       ],
       budget: budget({ totalTokens: 100, analysisTokens: 0, perDocumentTokens: 0 }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     // The analysis block is still there, saying what happened to it. An absent
     // block reads as "never provided", which is what invites a fabricated gap.
@@ -556,6 +578,8 @@ describe("chat evidence message", () => {
       // list (with its Phase B handles), then part of kept-short, then
       // nothing for left-out.
       budget: budget({ totalTokens: 120, perDocumentTokens: 100 }),
+      // The capped path a turn takes with the reading tools off (Phase D, step 1).
+      readingToolsOff: true,
     });
     const cuts = describeContextCuts(report);
     expect(cuts).toContain("shortened");
@@ -1269,6 +1293,119 @@ describe("the writer-message label", () => {
     });
     const all = request.messages.map((message) => String(message.content)).join("\n");
     expect(all).not.toContain(CHAT_WRITER_MESSAGE_LABEL);
+  });
+});
+
+
+describe("files whole or not at all with the reading tools on (Phase D, step 1)", () => {
+  const bySearch = "is not shown in this turn. FILES IN THIS PROJECT lists them: find passages with searchDocuments and open a file with readDocument.]";
+
+  it("puts every file in whole when they all fit", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [
+        doc({ fileName: "a.txt", content: "Alpha body.", category: "other" }),
+        doc({ fileName: "b.txt", content: "Beta body.", category: "other" }),
+      ],
+      budget: budget({ totalTokens: 20_000 }),
+    });
+    expect(message).toContain("Alpha body.");
+    expect(message).toContain("Beta body.");
+    expect(message).not.toContain(bySearch);
+  });
+
+  it("puts none in when one was not sent whole, and sends the assistant to search and open them", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [
+        doc({ fileName: "a.txt", content: "Alpha body.", category: "other" }),
+        doc({ fileName: "big.txt", content: "", textLength: 500_000, category: "other" }),
+      ],
+      budget: budget({ totalTokens: 20_000 }),
+    });
+    expect(message).not.toContain("Alpha body.");
+    expect(message).toContain(`[The text of this project's 2 file(s) with text ${bySearch}`);
+    // The files list still names both, with their handles.
+    expect(message).toContain('F1 | "a.txt"');
+    expect(message).toContain('F2 | "big.txt"');
+  });
+
+  it("a Word file shown whole carries no truncation notice for its marks (review)", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      // Stored as Markdown (40 characters with its marks), sent without them.
+      documents: [doc({ fileName: "history.docx", content: "Acme sealed pumps.", textLength: 40, category: "other" })],
+      budget: budget({ totalTokens: 20_000 }),
+    });
+    expect(message).toContain("Acme sealed pumps.");
+    expect(message).not.toContain("[TRUNCATED:");
+  });
+
+  it("counts a file as neutralizing its markers makes it, so none is cut while others go in (review)", () => {
+    const marked = "--- BEGIN [x] ".repeat(2); // 28 characters, 32 once neutralized
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: [doc({ fileName: "a.txt", content: "Alpha body.", category: "other" }), doc({ fileName: "m.txt", content: marked, category: "other" })],
+      budget: budget({ totalTokens: 20_000, perDocumentTokens: 7.5 }), // 30 characters a file
+    });
+    expect(message).not.toContain("Alpha body.");
+    expect(message).toContain(`[The text of this project's 2 file(s) with text ${bySearch}`);
+  });
+
+  it("puts none in when all of them together do not fit what the turn has left", () => {
+    const { message } = buildChatEvidence({
+      reportText: "Report.",
+      analysisText: "Analysis.",
+      documents: Array.from({ length: 3 }, (_, i) =>
+        doc({ fileName: `d${i}.txt`, content: `Body ${i} `.repeat(400), category: "other" as const })
+      ),
+      budget: budget({ totalTokens: 2_000 }),
+    });
+    expect(message).not.toContain("Body 0");
+    expect(message).toContain(`[The text of this project's 3 file(s) with text ${bySearch}`);
+  });
+});
+
+describe("the published style lesson set in chat (Phase E, E2b)", () => {
+  const LESSONS = "Learned from 6 human feedback events:\n- Lead with the result.";
+
+  // Re-pinned 2026-10-28: the edit rules now say one card per Line and
+  // allow up to three options. E2b itself still adds nothing without a set.
+  // 2026-10-29 (owner): the inference marker's rule block and its two chat
+  // lines are taken out (convex/inferenceMarker.fixture.ts); every other
+  // byte is still the pinned one.
+  // 2026-11-02: rule overrides moved the Assistant's rules text
+  // (convex/ruleOverride.fixture.ts); every other byte is still the pinned one.
+  it("sends the same system text as before E2b when no set is published (pinned at a0e3c1d4)", () => {
+    const hash = (text: string) =>
+      createHash("sha256").update(withoutParagraphChanges(withoutRuleOverrideText(withoutOneUncertaintyText(withoutHonestDraftingText(withoutInferenceMarkerText(text, "chat"), "chat"), "chat")))).digest("hex");
+    for (const empty of [null, undefined, "   "]) {
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", empty))).toBe("52c9b254f8a976ed2772098a605c787c228cff3bc71c55e5ec0fcffa47c1d73b");
+      expect(hash(buildChatSystem(NO_STYLE_OVERRIDES, null, empty))).toBe("c45ea1e3eb6580e1e833ef3b677038f244338b059eadf6247791efcf46dffe33");
+      expect(hash(buildChatSystem({ ...NO_STYLE_OVERRIDES, bannedWords: true }, "Use we.", empty))).toBe(
+        "fd5a729f544377807d5906546489c36c6b77c5977fe2810fb90601319c352bbc"
+      );
+    }
+  });
+
+  it("adds the waiver clause when the writer waived house-style areas", () => {
+    const system = buildChatSystem({ ...NO_STYLE_OVERRIDES, bannedWords: true }, "Use we.", LESSONS);
+    expect(system).toContain("in their waived house-style areas below");
+  });
+
+  it("puts the set in drafting's wording before the writer's own preferences", () => {
+    const system = buildChatSystem(NO_STYLE_OVERRIDES, "Use we.", LESSONS);
+    const lessons = system.indexOf("## Style guidance learned from writer feedback on past drafts");
+    const preferences = system.indexOf("# WRITER'S PERSONAL STYLE PREFERENCES");
+    expect(lessons).toBeGreaterThan(0);
+    expect(preferences).toBeGreaterThan(lessons);
+    expect(system).toContain(`banned-word rules:\n${LESSONS}`);
+    // No waived areas, so no waiver clause.
+    expect(system).not.toContain("in their waived house-style areas below");
   });
 });
 

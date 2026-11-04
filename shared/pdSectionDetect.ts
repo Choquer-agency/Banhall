@@ -69,19 +69,38 @@ const SECTIONS: ReadonlyArray<{
   },
 ];
 
-type Candidate = { start: number; bodyStart: number; score: number };
+/** `matched` is where the pattern matched; `start` may sit earlier, on its Markdown marks. */
+type Candidate = { start: number; matched: number; bodyStart: number; score: number };
 
-/** Separators allowed between a number and its heading words, table cells included. */
-const SEP = "[\\s:.)\\]\\-|]*";
+/**
+ * A heading's start moved back over the Markdown that opens it (`**`, `#`):
+ * to the line's start when only marks and spaces come before it, else past
+ * the marks just before it.
+ */
+function withLeadingMarks(text: string, start: number): number {
+  let at = start;
+  while (at > 0 && (text[at - 1] === "*" || text[at - 1] === "#")) at -= 1;
+  const lineStart = text.lastIndexOf("\n", at - 1) + 1;
+  return /^[ \t#*]*$/.test(text.slice(lineStart, start)) ? lineStart : at;
+}
+
+/**
+ * Separators allowed between a number and its heading words, table cells
+ * included, and the bold marks and heading signs of Word Markdown
+ * (2026-10-26).
+ */
+const SEP = "[\\s:.)\\]\\-|*#]*";
 
 function candidatesFor(text: string, spec: (typeof SECTIONS)[number]): Candidate[] {
   const out: Candidate[] = [];
   const push = (re: RegExp, score: number, bodyAtEnd = true) => {
     for (const match of text.matchAll(re)) {
-      const start = match.index ?? 0;
+      const matched = match.index ?? 0;
+      const start = withLeadingMarks(text, matched);
       out.push({
         start,
-        bodyStart: bodyAtEnd ? start + match[0].length : start,
+        matched,
+        bodyStart: bodyAtEnd ? matched + match[0].length : start,
         score,
       });
     }
@@ -96,11 +115,11 @@ function candidatesFor(text: string, spec: (typeof SECTIONS)[number]): Candidate
     4
   );
   // "Line 242" closing its line or followed by a colon.
-  push(new RegExp(`\\b(?:line|section|box)\\s*${n}\\b\\s*(?::|$)[ \\t]*`, "gim"), 3);
+  push(new RegExp(`\\b(?:line|section|box)\\s*${n}\\b[\\s*]*(?::|$)[ \\t*]*`, "gim"), 3);
   // The question on its own.
   push(new RegExp(`${spec.question}\\s*\\??`, "gi"), 3);
   // A bare number alone on its line.
-  push(new RegExp(`^[ \\t|]*${n}[ \\t]*[.:)]?[ \\t|]*$`, "gm"), 2);
+  push(new RegExp(`^[ \\t|#*]*${n}[ \\t*]*[.:)]?[ \\t|*]*$`, "gm"), 2);
   // "Line 242" anywhere: a heading only when nothing better exists.
   push(new RegExp(`\\b(?:line|section|box)\\s*${n}\\b${SEP}`, "gi"), 1);
   return out;
@@ -128,7 +147,12 @@ export function detectPdSections(
   const found: Array<Omit<DetectedPdSection, "end">> = [];
   let floor = 0;
   for (const spec of SECTIONS) {
-    const candidates = candidatesFor(text, spec).filter((c) => c.start >= floor);
+    // The match itself must come after the section before; its marks may
+    // have been read into that section's heading, so its start never moves
+    // back past the floor (review, 2026-10-26).
+    const candidates = candidatesFor(text, spec)
+      .filter((c) => c.matched >= floor)
+      .map((c) => ({ ...c, start: Math.max(c.start, floor) }));
     if (candidates.length === 0) continue;
     const best = Math.max(...candidates.map((c) => c.score));
     const pick = candidates

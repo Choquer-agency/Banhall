@@ -1,10 +1,16 @@
 <!--
   The Projects page body (2026-10-14 amendment, "Saved clients, client
-  merge, and the Projects page redesign"; Paper W1, V1, V4, W5, W6). A
-  client list on the left with its own scroll and the selected client on the
-  right with its own scroll. `?client=<companyKey>` selects a client; no
-  param shows All clients. Choosing a client is a soft navigation that adds a
-  history entry, so back and forward move between clients.
+  merge, and the Projects page redesign"; Paper W1, V1, V4, W5, W6; the page
+  frame of 2026-10-28, Paper S9). The white card holds the Projects section
+  sidebar (Home, All projects and every company, `ClientList`) and the
+  selected company on the right, each with its own scroll. `?client=<companyKey>` selects a client,
+  `?scope=all` shows All projects and `?scope=starred` the person's starred
+  projects. A bare `/projects` (2026-11-02, client request) opens the
+  company this person viewed last, remembered in this browser per person,
+  and falls back to All projects when there is none or it is gone or merged
+  away; the address then names the company (a replace, not a new history
+  entry). Choosing a client is a soft navigation that adds a history entry,
+  so back and forward move between clients.
 
   Below `md` the client list fills the width; choosing a client (or All
   clients) shows the client area with a back link.
@@ -27,25 +33,39 @@
   import ClientArea from "./ClientArea.svelte";
   import MergeClientsDialog, { type MergeResult } from "./MergeClientsDialog.svelte";
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
-  import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
-  import ProjectEditPanel from "./ProjectEditPanel.svelte";
-  import BulkEditPanel from "./BulkEditPanel.svelte";
+  import FrameCard from "$lib/components/workspace/FrameCard.svelte";
+  import PageTopBar from "$lib/components/shell/PageTopBar.svelte";
+  import ProjectCardDialogs from "./ProjectCardDialogs.svelte";
   import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import type { DashboardProjectionRow } from "$lib/workspace/projectRowMapping";
-  import { canCreateProjects, duplicateProjectSearch } from "$lib/workspace/projectDuplicate";
+  import { canCreateProjects } from "$lib/workspace/projectDuplicate";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
-  import { clientHref, clientKeyFromUrl, type ClientEntry } from "$lib/projects/clientList";
-  import { pruneRecentCompanies, rememberRecentCompany } from "$lib/workspace/recentCompanies";
+  import { clientHref, projectsViewFromUrl, starredHref, type ClientEntry } from "$lib/projects/clientList";
+  import {
+    companyLanding,
+    lastViewedCompany,
+    pruneRecentCompanies,
+    rememberRecentCompany,
+  } from "$lib/workspace/recentCompanies";
 
   let {
     initialSearch = "",
     totalLabel = null,
+    homeHref = "/my-work",
+    homeAvailable = true,
+    onOpenNavigation = undefined,
     onEditDetails = undefined,
     onBulkEdit = undefined,
   }: {
+    /** The sidebar's Home row. */
+    homeHref?: string;
+    /** Home is switched off (the rollout kill switch): shown, not followed. */
+    homeAvailable?: boolean;
+    /** The hamburger in the company header between 768 and 1024px. */
+    onOpenNavigation?: () => void;
     /** A search handed over from Home; it seeds the first search field shown. */
     initialSearch?: string;
-    /** All clients count, from the top bar ("128", "1000+"). */
+    /** All projects count ("128", "1000+"). */
     totalLabel?: string | null;
     /** Edit details on a card. Default: the Edit details dialog. */
     onEditDetails?: (projectId: string) => void;
@@ -76,13 +96,39 @@
   const canSelect = $derived(role === "writer" || role === "manager" || role === "admin");
 
   const clients = $derived((clientsQ.data?.clients ?? []) as ClientEntry[]);
-  const selectedKey = $derived(clientKeyFromUrl(page.url));
+  const view = $derived(projectsViewFromUrl(page.url));
+
+  // The landing (2026-11-02): a bare /projects opens the company viewed
+  // last. Read again on every navigation, since viewing a company changes it.
+  const remembered = $derived.by(() => {
+    void page.url.href;
+    return viewer?._id ? lastViewedCompany(viewer._id) : null;
+  });
+  const landing = $derived(
+    view.kind === "all" && !view.explicit
+      ? companyLanding(remembered, {
+          data: clientsQ.data?.clients,
+          failed: Boolean(clientsQ.error),
+          truncated: clientsQ.data?.truncated ?? false,
+        })
+      : null
+  );
+  $effect(() => {
+    if (landing?.kind !== "company") return;
+    // The address names the company, in place of the bare landing.
+    void goto(clientHref(page.url, landing.key), { replaceState: true, keepFocus: true, noScroll: true });
+  });
+
+  const starred = $derived(view.kind === "starred");
+  const selectedKey = $derived(
+    view.kind === "client" ? view.key : landing && landing.kind !== "all" ? landing.key : null
+  );
   /** Names learned from New client and merges, until the list catches up. */
   const knownNames = new SvelteMap<string, string>();
   const selectedClient = $derived.by(() => {
     if (selectedKey === null) return null;
     const entry = clients.find((client) => client.key === selectedKey);
-    const known = knownNames.get(selectedKey) ?? null;
+    const known = knownNames.get(selectedKey) ?? (landing && landing.kind !== "all" ? landing.name : null);
     // Gone from a complete, loaded list (merged, or an old link).
     const missing =
       !entry && known === null && clientsQ.data !== undefined && !clientsQ.data.truncated;
@@ -104,9 +150,21 @@
     pruneRecentCompanies(userId, new Map(data.clients.map((client) => [client.key, client.name])));
   });
 
-  // Small screens: the area shows once a client, or All clients, is chosen.
+  // Starred: the person's starred projects (one bounded read, shared with
+  // the cards' stars), and their count beside the sidebar row.
+  const starsQ = useQuery(api.dashboard.listStarredProjects, () => (auth.isAuthenticated ? {} : "skip"));
+  const starredCount = $derived(starsQ.data ? String(starsQ.data.length) : null);
+
+  // Small screens: the area shows once a client, All clients or Starred is
+  // chosen, or the address names All projects (a reload of ?scope=all; Greptile,
+  // PR #30). Back shows the list again, for the address it led to only, so
+  // the browser's Back button to a company shows that company again.
   let mobileAll = $state(false);
-  const areaOnMobile = $derived(selectedKey !== null || mobileAll);
+  let mobileListAt = $state<string | null>(null);
+  const areaOnMobile = $derived(
+    mobileListAt !== page.url.search &&
+      (selectedKey !== null || starred || mobileAll || (view.kind === "all" && view.explicit))
+  );
 
   // Home's search handoff seeds only the first client area shown.
   let navigated = $state(false);
@@ -115,12 +173,22 @@
   function selectClient(key: string | null) {
     navigated = true;
     mobileAll = key === null;
+    mobileListAt = null;
     void goto(clientHref(page.url, key), { keepFocus: true, noScroll: true });
+  }
+
+  function selectStarred() {
+    navigated = true;
+    mobileAll = false;
+    mobileListAt = null;
+    void goto(starredHref(page.url), { keepFocus: true, noScroll: true });
   }
 
   function backToList() {
     mobileAll = false;
-    if (selectedKey !== null) void goto(clientHref(page.url, null), { keepFocus: true, noScroll: true });
+    const target = selectedKey !== null || starred ? clientHref(page.url, null) : null;
+    mobileListAt = target === null ? page.url.search : new URL(target, page.url).search;
+    if (target !== null) void goto(target, { keepFocus: true, noScroll: true });
   }
 
   // Retry remounts the failed subscription. Changing client does not remount
@@ -159,6 +227,7 @@
     endMerge();
     navigated = true;
     mobileAll = false;
+    mobileListAt = null;
     // The dialog unmounts as the list updates, so focus would fall to the
     // page body: put it on the kept client's row, or on the client title.
     // On small screens the list is hidden, so only a visible target counts.
@@ -185,68 +254,8 @@
     endSelect: () => void;
     focusSearch: (options?: { select?: boolean }) => void;
   } | null = $state(null);
-  let deleteTarget = $state<{ id: string; title: string } | null>(null);
-  let deleteOpen = $state(false);
-  // The bulk dialog follows the live selection: it holds the projects picked
-  // when it opened that are still selected, with their latest values. A
-  // project that leaves the visible set drops out of the selection
-  // (ClientArea) and so out of the dialog; it closes once none is left.
-  let bulkIds = $state<ReadonlySet<string>>(new Set());
-  let bulkOpen = $state(false);
-  const bulkRows = $derived.by(() => {
-    if (!area) return [];
-    return area.selectedRows().filter((row) => bulkIds.has(row._id));
-  });
-  $effect(() => {
-    if (bulkOpen && bulkRows.length === 0) bulkOpen = false;
-  });
-  let editProjectId = $state<string | null>(null);
-  let editOpen = $state(false);
-
-  /** The card's "..." trigger, where focus goes back after the dialog. */
-  function cardMenuTrigger(projectId: string | null) {
-    if (projectId === null) return null;
-    return document.querySelector<HTMLElement>(`[data-card-menu="${CSS.escape(projectId)}"]`);
-  }
-
-  function editDetails(projectId: string) {
-    if (onEditDetails) {
-      onEditDetails(projectId);
-      return;
-    }
-    editProjectId = projectId;
-    editOpen = true;
-  }
-
-  function duplicate(projectId: string) {
-    void goto(`${resolve("/project/new")}${duplicateProjectSearch(projectId)}`);
-  }
-
-  function requestDelete(project: { id: string; title: string }) {
-    deleteTarget = project;
-    deleteOpen = true;
-  }
-
-  function bulkEdit(rows: DashboardProjectionRow[]) {
-    if (onBulkEdit) {
-      onBulkEdit(rows);
-      return;
-    }
-    bulkIds = new Set(rows.map((row) => row._id));
-    bulkOpen = true;
-  }
-
-  /** Applied: clear the selection and keep the page where it is. */
-  function onBulkApplied() {
-    area?.endSelect();
-  }
-
-  function bulkReturnFocus() {
-    return (
-      document.querySelector<HTMLElement>("[data-selection-edit]") ??
-      document.querySelector<HTMLElement>("[data-client-title]")
-    );
-  }
+  // Edit details, bulk edit and delete (shared with the company page).
+  let dialogs: ProjectCardDialogs | null = $state(null);
 
   const canDelete = (row: ProjectsTableRow) => canDeleteProject(viewer, row.createdBy, row.deleting);
 
@@ -256,12 +265,26 @@
   }
 </script>
 
-<!-- Paper Z3d: the white panel under the top bar, the company list on its left. -->
-<div data-projects-page class="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-surface">
-  <aside
-    aria-label="Companies"
-    class={`flex min-h-0 w-60 shrink-0 flex-col border-r border-line-soft max-md:w-full max-md:border-r-0 ${areaOnMobile ? "max-md:hidden" : ""}`}
-  >
+<!-- Paper S9: the one white card, the Projects sidebar on its left. Below
+     768px the sidebar fills the card until a company (or All projects) is
+     chosen. -->
+<!-- Below 768px, where the Projects sidebar is the page itself, the phone
+     keeps the standard bar: the hamburger, "Projects" with the count, the
+     bell and New project. From 768px the sidebar holds the title and New
+     project, and the company header is the bar with the page's h1. -->
+{#if onOpenNavigation}
+  <PageTopBar
+    class="md:hidden"
+    title="Projects"
+    titleTag={areaOnMobile ? "p" : "h1"}
+    count={totalLabel}
+    primaryAction={{ label: "New project", href: resolve("/project/new") }}
+    {onOpenNavigation}
+  />
+{/if}
+
+<FrameCard data-projects-page class="flex-1" mainClass={areaOnMobile ? "" : "max-md:hidden"}>
+  {#snippet sidebar()}
     {#key clientsAttempt}
       <ClientList
         {clients}
@@ -270,6 +293,10 @@
         failed={Boolean(clientsQ.error)}
         {totalLabel}
         {selectedKey}
+        current="projects"
+        {homeHref}
+        {homeAvailable}
+        phone={areaOnMobile ? "hidden" : "full"}
         hrefFor={(key) => clientHref(page.url, key)}
         onSelect={selectClient}
         {canCreate}
@@ -282,15 +309,20 @@
         onToggleMerge={toggleMerge}
         onMerge={() => (mergeOpen = true)}
         onRetry={() => { clientsAttempt += 1; void retryClients(); }}
+        starredHref={starredHref(page.url)}
+        starredActive={starred}
+        {starredCount}
+        onSelectStarred={selectStarred}
       />
     {/key}
-  </aside>
+  {/snippet}
 
-  <div class={`flex min-h-0 min-w-0 flex-1 flex-col ${areaOnMobile ? "" : "max-md:hidden"}`}>
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     {#key areaAttempt}
       <ClientArea
         bind:this={area}
         client={selectedClient}
+        starredView={starred}
         initialSearch={searchSeed}
         {canCreate}
         canDuplicate={canCreate}
@@ -298,14 +330,17 @@
         allClientsHref={clientHref(page.url, null)}
         onShowAll={() => selectClient(null)}
         {canDelete}
-        onEditDetails={editDetails}
-        onDuplicate={duplicate}
-        onDelete={requestDelete}
-        onBulkEdit={bulkEdit}
+        onEditDetails={(projectId) => dialogs?.editDetails(projectId)}
+        onDuplicate={(projectId) => dialogs?.duplicate(projectId)}
+        onDelete={(project) => dialogs?.requestDelete(project)}
+        onBulkEdit={(rows) => dialogs?.bulkEdit(rows)}
         onRetry={() => (areaAttempt += 1)}
         onBack={backToList}
-        backLabel={selectedKey === null ? "Companies" : "All companies"}
-        countLabel={selectedKey === null
+        {onOpenNavigation}
+        backLabel="Projects"
+        countLabel={starred
+          ? starredCount
+          : selectedKey === null
           ? totalLabel
           : (() => {
               const count = clients.find((client) => client.key === selectedKey)?.projectCount;
@@ -314,7 +349,7 @@
       />
     {/key}
   </div>
-</div>
+</FrameCard>
 
 {#if canCreate}
   <NewClientDialog
@@ -328,25 +363,4 @@
   <MergeClientsDialog bind:open={mergeOpen} clients={mergeClients} {onMerged} />
 {/if}
 
-{#if deleteTarget}
-  <DeleteProjectDialog bind:open={deleteOpen} projectId={deleteTarget.id} projectTitle={deleteTarget.title} />
-{/if}
-
-{#if !onEditDetails}
-  <ProjectEditPanel
-    bind:open={editOpen}
-    projectId={editProjectId}
-    {viewer}
-    returnFocus={() => cardMenuTrigger(editProjectId)}
-  />
-{/if}
-
-{#if !onBulkEdit}
-  <BulkEditPanel
-    bind:open={bulkOpen}
-    rows={bulkRows}
-    {viewer}
-    returnFocus={bulkReturnFocus}
-    onApplied={onBulkApplied}
-  />
-{/if}
+<ProjectCardDialogs bind:this={dialogs} {viewer} {area} {onEditDetails} {onBulkEdit} />

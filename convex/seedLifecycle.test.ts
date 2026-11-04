@@ -7,6 +7,8 @@ import schema from "./schema";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import { SEED_INITIALIZATION_ERROR } from "./generations";
 import { spendAll } from "./aiRateLimits.fixture";
+// A current model-derived Brief (review round 4, A1: earlier ones are not reused).
+import { BRIEF_DERIVATION_VERSION } from "./lib/briefDerivationPolicy";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -37,7 +39,7 @@ async function setup() {
     }
     const briefId = await ctx.db.insert("generationBriefs", {
       generationId, projectId, inputsHash: "frozen", version: 1, origin: "derived",
-      storylineText: "Original Brief", createdAt: 1,
+      storylineText: "Original Brief", derivationVersion: BRIEF_DERIVATION_VERSION, createdAt: 1,
     });
     return { userId, outsiderId, projectId, generationId, briefId };
   });
@@ -300,5 +302,73 @@ describe("seed initialization action boundary", () => {
     expect(await s.t.run(ctx => ctx.db.query("generationSectionRuns").collect())).toEqual([]);
     expect(await s.t.run(ctx => ctx.db.query("generationCandidateRuns").collect())).toEqual([]);
     vi.unstubAllEnvs();
+  });
+});
+
+describe("review round 4 (A1): a Brief the model derived under earlier rules is not reused", () => {
+  const args = (s: Awaited<ReturnType<typeof setup>>) => ({ generationId: s.generationId, inputsHash: "frozen" });
+
+  it("reuses a model-derived Brief made under the current version", async () => {
+    const s = await setup();
+    expect((await s.t.query(internal.generations.findReusableBrief, args(s)))?._id).toBe(s.briefId);
+    expect(await s.t.mutation(internal.generations.pinSeedBrief, args(s))).toBe(s.briefId);
+  });
+
+  it("derives again over one made before, and publishes the result as the next version", async () => {
+    const s = await setup();
+    await s.t.run(ctx => ctx.db.patch(s.briefId, { derivationVersion: undefined }));
+    expect(await s.t.query(internal.generations.findReusableBrief, args(s))).toBeNull();
+    expect(await s.t.mutation(internal.generations.pinSeedBrief, args(s))).toBeNull();
+    const published = await s.t.mutation(internal.generations.persistDerivedBrief, {
+      ...args(s), projectId: s.projectId, seedStartup: true, origin: "derived" as const,
+      storylineText: "Derived under the current rules",
+      entries: [], baselineBriefId: null, baselineRetained: [], baselineRemoved: [],
+    });
+    expect(published).not.toBe(s.briefId);
+    const brief = await s.t.run(async ctx => published ? await ctx.db.get(published) : null);
+    expect(brief).toMatchObject({
+      version: 2, origin: "derived", derivationVersion: BRIEF_DERIVATION_VERSION,
+      storylineText: "Derived under the current rules",
+    });
+    expect((await s.t.query(internal.generations.findReusableBrief, args(s)))?._id).toBe(published);
+  });
+
+  it("outside Step by step, publication never falls back to one made before", async () => {
+    const s = await setup();
+    await s.t.run(async ctx => {
+      await ctx.db.patch(s.briefId, { derivationVersion: undefined });
+      await ctx.db.patch(s.generationId, { gatedWorkflow: "sections" });
+    });
+    const published = await s.t.mutation(internal.generations.persistDerivedBrief, {
+      ...args(s), projectId: s.projectId, origin: "derived" as const,
+      storylineText: "Derived under the current rules",
+      entries: [], baselineBriefId: s.briefId, baselineRetained: [], baselineRemoved: [],
+    });
+    expect(published).not.toBe(s.briefId);
+    const brief = await s.t.run(async ctx => published ? await ctx.db.get(published) : null);
+    expect(brief).toMatchObject({ version: 2, derivationVersion: BRIEF_DERIVATION_VERSION });
+    expect((await s.t.run(ctx => ctx.db.get(s.generationId)))?.briefId).toBe(published);
+  });
+
+  it("derives again over one from an earlier version number too", async () => {
+    const s = await setup();
+    await s.t.run(ctx => ctx.db.patch(s.briefId, { derivationVersion: BRIEF_DERIVATION_VERSION - 1 }));
+    expect(await s.t.query(internal.generations.findReusableBrief, args(s))).toBeNull();
+  });
+
+  it("still reuses a Brief a writer shaped, whatever version it was made under", async () => {
+    const shapes = [
+      { origin: "writer" as const },
+      { origin: "edited" as const },
+      { origin: "edited" as const, storylineOrigin: "derived" as const },
+      { origin: "edited" as const, storylineOrigin: "edited" as const },
+      { origin: "derived" as const, storylineOrigin: "writer" as const },
+    ];
+    for (const shape of shapes) {
+      const s = await setup();
+      await s.t.run(ctx => ctx.db.patch(s.briefId, { derivationVersion: undefined, ...shape }));
+      expect([shape, (await s.t.query(internal.generations.findReusableBrief, args(s)))?._id]).toEqual([shape, s.briefId]);
+      expect([shape, await s.t.mutation(internal.generations.pinSeedBrief, args(s))]).toEqual([shape, s.briefId]);
+    }
   });
 });

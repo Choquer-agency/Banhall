@@ -1,0 +1,83 @@
+{
+  "startedAt": "2026-10-28T19:11:07.247Z",
+  "retry": false,
+  "websocket": true,
+  "rounds": [
+    {
+      "round": 1,
+      "drafts": {
+        "k97808jg3798hf7211e91byyw58h5c7x": {
+          "generationId": "k574nnps8hwqzkkj4xb39w1rwh8h4z2n",
+          "requestMs": 14629,
+          "outcome": {
+            "began": "running",
+            "afterMs": 14669
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975dvf0bakxgksbk79an0tqdx8h47st": {
+          "generationId": "k57amaa951jgs6dfz6z5y1vyzd8h5qaj",
+          "requestMs": 14629,
+          "outcome": {
+            "began": "running",
+            "afterMs": 15207
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 144,
+        "other": 0,
+        "refused": 96
+      },
+      "floodRowsCleared": 144
+    },
+    {
+      "round": 2,
+      "drafts": {
+        "k97808jg3798hf7211e91byyw58h5c7x": {
+          "generationId": "k57fkcxey6dkrf0v65yjes78ys8h5pq8",
+          "requestMs": 2875,
+          "outcome": {
+            "began": "running",
+            "afterMs": 2905
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975dvf0bakxgksbk79an0tqdx8h47st": {
+          "startRefused": "You have started a lot of runs today. Try again tomorrow."
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 129,
+        "other": 0,
+        "refused": 99
+      },
+      "floodRowsCleared": 129
+    },
+    {
+      "round": 3,
+      "drafts": {
+        "k97808jg3798hf7211e91byyw58h5c7x": {
+          "startRefused": "You have started a lot of runs today. Try again tomorrow."
+        },
+        "k975dvf0bakxgksbk79an0tqdx8h47st": {
+          "startRefused": "You have started a lot of runs today. Try again tomorrow."
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 117,
+        "other": 0,
+        "refused": 87
+      },
+      "floodRowsCleared": 117
+    }
+  ],
+  "endedAt": "2026-10-28T19:13:52.368Z"
+}

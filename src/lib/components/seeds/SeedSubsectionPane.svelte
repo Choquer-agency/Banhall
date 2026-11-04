@@ -1189,7 +1189,9 @@
       >
         <IconInfo size={14} strokeWidth={1.8} class={`shrink-0 ${compact ? "mt-0.5 text-primary" : "text-primary-selected"}`} />
         <span class="min-w-0">
-          {#if data.state === "skipped"}
+          {#if data.state === "skipped" && data.noPreviousYearMaterial}
+            Skipped because this draft has no previous-year files. Restore it from the More menu if the project had a previous year.
+          {:else if data.state === "skipped"}
             Skipped. Restore it from the More menu to pick seeds.
           {:else}
             {#if isReopened}

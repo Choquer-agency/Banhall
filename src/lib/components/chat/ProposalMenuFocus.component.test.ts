@@ -29,6 +29,7 @@ const focusedLabel = () => document.activeElement?.getAttribute("aria-label");
 
 it("leaves focus in the composer after Refine with AI", async () => {
   await render(AgentChatPanel, { reportId, projectId });
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
   await page.getByRole("menuitem", { name: "Refine with AI", exact: true }).click();
   await expect.element(page.getByText("Refining suggestion", { exact: true })).toBeVisible();
@@ -38,15 +39,17 @@ it("leaves focus in the composer after Refine with AI", async () => {
 
 it("focuses the wording field after Edit wording", async () => {
   await render(AgentChatPanel, { reportId, projectId });
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   await page.getByRole("button", { name: "More actions for this suggestion", exact: true }).click();
   await page.getByRole("menuitem", { name: "Edit wording", exact: true }).click();
-  await expect.element(page.getByRole("textbox", { name: "Edit replacement wording 1" })).toBeVisible();
+  await expect.element(page.getByRole("textbox", { name: "Edit the wording" })).toBeVisible();
   await new Promise((resolve) => setTimeout(resolve, 300));
-  expect(focusedLabel()).toBe("Edit replacement wording 1");
+  expect(focusedLabel()).toBe("Edit the wording");
 });
 
 it("leaves focus in the composer after Refine with AI chosen from the keyboard", async () => {
   await render(AgentChatPanel, { reportId, projectId });
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   const trigger = page.getByRole("button", { name: "More actions for this suggestion", exact: true });
   (trigger.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
@@ -66,6 +69,7 @@ it("leaves focus in the composer after Refine with AI chosen from the keyboard",
 
 it("returns focus to the More button when the menu is dismissed with Escape", async () => {
   await render(AgentChatPanel, { reportId, projectId });
+  await page.getByRole("button", { name: "Show the suggestion" }).click();
   const trigger = page.getByRole("button", { name: "More actions for this suggestion", exact: true });
   await trigger.click();
   await expect.element(page.getByRole("menuitem", { name: "Edit wording", exact: true })).toBeVisible();

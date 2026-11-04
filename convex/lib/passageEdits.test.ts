@@ -88,22 +88,124 @@ describe("editPassages", () => {
     });
   });
 
-  it("refuses a rewrite with a different number of paragraphs, or no change", () => {
+  it("refuses a rewrite with no change", () => {
     const target = "First paragraph, long.\n\nThird paragraph, long.";
-    expect(editPassages(target, "One merged paragraph.")).toEqual({
-      ok: false,
-      reason: "targetText has 2 paragraphs but newText has 1. A proposal keeps the paragraph count: give newText one paragraph for each paragraph of targetText, in the same order, separated by a blank line.",
-    });
     expect(editPassages(target, target).ok).toBe(false);
   });
 
-  // Review 2026-10-21: a blank line inside one paragraph's new text would
-  // only put a line break in that paragraph.
-  it("refuses splitting one paragraph into two", () => {
-    expect(editPassages("First paragraph, long.", "First half.\n\nSecond half.")).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("targetText has 1 paragraph but newText has 2"),
+  // 2026-11-03 (owner): a card can add, split and merge paragraphs.
+  it("pairs a split or an added paragraph with the last target paragraph", () => {
+    expect(editPassages("First paragraph, long.", "First half.\n\nSecond half.")).toEqual({
+      ok: true,
+      pairs: [{ find: "First paragraph, long.", replaceWith: "First half.\n\nSecond half." }],
     });
+    expect(editPassages("One.\n\nTwo.", "One, reworded.\n\nTwo.\n\nA new third.")).toEqual({
+      ok: true,
+      pairs: [
+        { find: "One.", replaceWith: "One, reworded." },
+        { find: "Two.", replaceWith: "Two.\n\nA new third." },
+      ],
+    });
+  });
+
+  it("removes the target paragraphs a merge leaves over", () => {
+    expect(editPassages("First paragraph, long.\n\nThird paragraph, long.", "One merged paragraph.")).toEqual({
+      ok: true,
+      pairs: [
+        { find: "First paragraph, long.", replaceWith: "One merged paragraph." },
+        { find: "Third paragraph, long.", replaceWith: "" },
+      ],
+    });
+    expect(editPassages("First.", "")).toMatchObject({ ok: false });
+  });
+
+  it("applies a split, an added paragraph and a merge to whole top-level paragraphs, only when asked", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Line 244 - Work Performed" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Alpha one. Alpha two." }] },
+        { type: "paragraph", content: [{ type: "text", text: "Beta. " }, { type: "text", text: "[GAP: when]", marks: [{ type: "highlight" }] }] },
+        { type: "paragraph", content: [{ type: "text", text: "Gamma." }] },
+        { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Item A." }] }] }] },
+      ],
+    };
+    const on = { paragraphs: true };
+    const texts = (d: unknown) =>
+      ((d as { content: Array<{ type: string; content?: Array<{ text: string }> }> }).content)
+        .filter((n) => n.type === "paragraph")
+        .map((n) => n.content?.map((c) => c.text).join("") ?? "");
+    const split = applyPassageEdits(doc, [{ find: "Alpha one. Alpha two.", replaceWith: "Alpha one.\n\nAlpha two." }], on);
+    expect(split.ok && texts(split.doc)).toEqual(["Alpha one.", "Alpha two.", "Beta. [GAP: when]", "Gamma."]);
+    const merged = applyPassageEdits(doc, [
+      { find: "Alpha one. Alpha two.", replaceWith: "Alpha one, then Gamma." },
+      { find: "Gamma.", replaceWith: "" },
+    ], on);
+    expect(merged.ok && texts(merged.doc)).toEqual(["Alpha one, then Gamma.", "Beta. [GAP: when]"]);
+    // Adding after a paragraph keeps that paragraph's node, its gap highlight included.
+    const added = applyReplacements(doc, [{ find: "Beta. [GAP: when]", replaceWith: "Beta. [GAP: when]\n\nDelta." }], on);
+    expect((added.doc.content as unknown[])[2]).toBe(doc.content[2]);
+    expect(texts(added.doc)).toEqual(["Alpha one. Alpha two.", "Beta. [GAP: when]", "Delta.", "Gamma."]);
+    // Never a blank line inside a paragraph: a split of part of one matches nothing.
+    expect(applyReplacements(doc, [{ find: "Alpha one.", replaceWith: "A.\n\nB." }], on).count).toBe(0);
+    expect(applyPassageEdits(doc, [{ find: "Alpha one.", replaceWith: "A.\n\nB." }], on)).toMatchObject({ ok: false, reason: expect.stringContaining("needs whole paragraphs") });
+    // A paragraph in a list keeps its place: only top-level paragraphs change.
+    const listItem = applyReplacements(doc, [{ find: "Item A.", replaceWith: "" }], on);
+    expect(JSON.stringify(listItem.doc)).toContain('"type":"listItem","content":[{"type":"paragraph"');
+    // An empty replacement inside a paragraph still deletes that text only.
+    expect(texts(applyReplacements(doc, [{ find: " Alpha two.", replaceWith: "" }], on).doc)[0]).toBe("Alpha one.");
+    // Off (research edits, client suggestions): the old inline behaviour.
+    const off = applyReplacements(doc, [{ find: "Gamma.", replaceWith: "" }]);
+    expect(texts(off.doc)).toHaveLength(3);
+  });
+
+  it("never leaves an empty text node, and a passage set keeps an unchanged paragraph's marks (final review 2026-11-03)", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Beta. " }, { type: "text", text: "[GAP: when]", marks: [{ type: "highlight" }] }] },
+        { type: "paragraph", content: [{ type: "text", text: "Gamma." }] },
+        { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Item A." }] }] }] },
+      ],
+    };
+    const on = { paragraphs: true };
+    expect(JSON.stringify(applyReplacements(doc, [{ find: "Item A.", replaceWith: "" }], on).doc)).not.toContain('"text":""');
+    const set = applyPassageEdits(doc, [
+      { find: "Beta. [GAP: when]", replaceWith: "Beta. [GAP: when]\n\nDelta." },
+      { find: "Gamma.", replaceWith: "Gamma, reworded." },
+    ], on);
+    expect(set.ok && (set.doc.content as unknown[])[0]).toBe(doc.content[0]);
+  });
+
+  it("merges through the direct path without deleting the merged text (final review 2026-11-03)", () => {
+    const doc = {
+      type: "doc",
+      content: ["Alpha one.", "Beta two.", "Gamma three."].map((text) => ({ type: "paragraph", content: [{ type: "text", text }] })),
+    };
+    const merged = applyReplacements(doc, [
+      { find: "Alpha one.", replaceWith: "Alpha one. Beta two." },
+      { find: "Beta two.", replaceWith: "" },
+    ], { paragraphs: true });
+    expect((merged.doc.content as Array<{ content: Array<{ text: string }> }>).map((p) => p.content[0].text)).toEqual([
+      "Alpha one. Beta two.",
+      "Gamma three.",
+    ]);
+  });
+
+  it("refuses a passage set whose paragraph change no longer lands, leaving no marker behind (review 2026-11-03)", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Alpha." }] },
+        { type: "paragraph", content: [{ type: "text", text: "Beta one. Beta two." }] },
+      ],
+    };
+    // The card was made when the second paragraph read "Beta one."; the writer has since added to it.
+    const result = applyPassageEdits(doc, [
+      { find: "Alpha.", replaceWith: "Alpha, reworded." },
+      { find: "Beta one.", replaceWith: "Beta one.\n\nNew paragraph." },
+    ], { paragraphs: true });
+    expect(result.ok).toBe(false);
   });
 
   it("reads Windows line breaks and trims a one-paragraph target", () => {

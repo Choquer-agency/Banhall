@@ -5,6 +5,9 @@
  */
 export const RELEASE_EVAL_PROJECT_PREFIX = "Release eval - ";
 
+/** Production deployments the suite and its backend functions refuse. */
+export const PRODUCTION_DEPLOYMENTS = ["energized-salamander-237"];
+
 export function releaseEvalProjectTitle(fixtureTitle: string): string {
   return `${RELEASE_EVAL_PROJECT_PREFIX}${fixtureTitle}`;
 }

@@ -79,12 +79,12 @@ export const GENERATION_STEP_POLICY: Readonly<Record<GenerationStep, StepPolicy>
   section: { source: "writer", callSite: "generation:section:<n>", maxTokens: "section-answer-token-budget", timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "as-sent" },
   repair: { source: "writer", callSite: "generation:repair:<n>", maxTokens: "section-answer-token-budget", timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "as-sent" },
   compression: { source: "writer", callSite: "generation:compression:<n>", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "off" },
-  selfCheck: { source: "checking", callSite: "generation:selfCheck:<n>", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  consistency: { source: "checking", callSite: "generation:consistency", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  qa: { source: "checking", callSite: "generation:qa", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  chronology: { source: "checking", callSite: "generation:chronology", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  postQa: { source: "checking", callSite: "generation:post_qa", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
-  postChronology: { source: "checking", callSite: "generation:post_chronology", maxTokens: 4_096, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  selfCheck: { source: "checking", callSite: "generation:selfCheck:<n>", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  consistency: { source: "checking", callSite: "generation:consistency", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  qa: { source: "checking", callSite: "generation:qa", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  chronology: { source: "checking", callSite: "generation:chronology", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  postQa: { source: "checking", callSite: "generation:post_qa", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
+  postChronology: { source: "checking", callSite: "generation:post_chronology", maxTokens: 16_384, timeoutMs: DEFAULT_TIMEOUT_MS, thinking: "low-when-always-thinking" },
 };
 
 const STEP_BY_SLOT: Readonly<Record<string, GenerationStep>> = {

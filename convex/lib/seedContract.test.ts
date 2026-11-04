@@ -3,10 +3,8 @@ import { findExactQuoteSpans } from "../../shared/exactQuote";
 import { unbackedBullets } from "./seedQuoteSupport";
 import {
   MAX_BATCH_SEEDS,
-  MAX_BULLET_WORDS,
   MIN_FEEDBACK_SEEDS,
   SEED_TAGS,
-  isLongForSeed,
   isOneSeedSentence,
   locateCitations,
   nearestOccurrence,
@@ -41,16 +39,6 @@ describe("seed contract", () => {
     expect(isOneSeedSentence("An unterminated bullet")).toBe(false);
   });
 
-  it("flags a writer's bullet as long past 25 words or one sentence, never for a missing full stop", () => {
-    const words = (n: number) => Array.from({ length: n }, () => "word").join(" ");
-    expect(isLongForSeed(`${words(MAX_BULLET_WORDS)}.`)).toBe(false);
-    expect(isLongForSeed(`${words(MAX_BULLET_WORDS + 1)}.`)).toBe(true);
-    expect(isLongForSeed("One sentence. A second sentence follows.")).toBe(true);
-    expect(isLongForSeed("Dr. Rao measured 1.5 volts under load.")).toBe(false);
-    expect(isLongForSeed("An unterminated bullet")).toBe(false);
-    expect(isLongForSeed("   ")).toBe(false);
-  });
-
   it("drops an AI Seed whose bullet uses a typographic dash or stand-in, but not a hyphen range", () => {
     for (const bullet of [
       "The controller held the band — even under load.",
@@ -68,17 +56,13 @@ describe("seed contract", () => {
     expect(clean.issues.map((issue) => issue.code)).not.toContain("BULLET_TYPOGRAPHIC_DASH");
   });
 
-  it("enforces the exact 25-word boundary", () => {
-    const atLimit = `${Array.from({ length: MAX_BULLET_WORDS - 1 }, () => "word").join(
-      " "
-    )} end.`;
-    const overLimit = `word ${atLimit}`;
-    expect(validateSeed({ roleId: "goal_problem", seed: candidate([atLimit]) }).ok).toBe(
-      true
-    );
-    expect(validateSeed({ roleId: "goal_problem", seed: candidate([overLimit]) }).ok).toBe(
-      false
-    );
+  it("accepts a bullet of any length that is one sentence (2026-10-27, eleventh)", () => {
+    const sentence = (n: number) => `${Array.from({ length: n - 1 }, () => "word").join(" ")} end.`;
+    for (const words of [25, 26, 60]) {
+      expect(validateSeed({ roleId: "goal_problem", seed: candidate([sentence(words)]) }).ok).toBe(true);
+    }
+    // The one-sentence rule still applies, however short.
+    expect(validateSeed({ roleId: "goal_problem", seed: candidate(["Short one. Short two."]) }).ok).toBe(false);
   });
 
   it("enforces bullet and tag cardinality and the closed tag vocabulary", () => {

@@ -25,7 +25,9 @@ export type SourceKind =
   | "project_document"
   | "transcript_digest"
   | "writer_storyline"
-  | "transcript_facts";
+  | "transcript_facts"
+  // 2026-10-26 (Phase C): a file of the project's company.
+  | "company_file";
 
 export const INCLUSION_WORDS: Record<Inclusion, string> = {
   included: "included",
@@ -53,13 +55,76 @@ export const CONFIDENCE_WORDS: Record<Confidence, string> = {
   unreliable: "unreliable",
 };
 
+/** Phase D (step 2): how one step of the draft read one row. */
+export type RowUse = {
+  step: "analyzer" | "brief" | "seeds" | "facts_check";
+  /** The step's runs that weighed the row, how many read some of it, and whether every one that read it read it whole. */
+  runs: number;
+  read: number;
+  whole: boolean;
+  /** Every run that read it read a transcript only through its digest or fact pack. */
+  condensed?: true;
+  /** When every run that read it read it in part: the largest share one run read (0 to 1), and that run's excerpts. */
+  share?: number;
+  parts?: number;
+};
+
 export type InclusionRow = {
   key: string;
-  kind: "transcript" | "document";
+  /** "company": a file of the project's company the draft used (Phase C). */
+  kind: "transcript" | "document" | "company";
   label: string;
   inclusion: Inclusion | null;
   reason?: InclusionReason;
+  uses?: RowUse[];
 };
+
+const USE_STEP_WORDS: Record<RowUse["step"], string> = {
+  analyzer: "the analysis",
+  brief: "the Brief",
+  seeds: "Seeds",
+  facts_check: "the facts check",
+};
+
+const USE_RUNS_WORDS: Record<RowUse["step"], string> = {
+  analyzer: "runs",
+  brief: "runs",
+  seeds: "steps",
+  facts_check: "Lines",
+};
+
+/** "8%", "under 1%": a share read in part, never shown as all of it. */
+function shareWords(share: number): string {
+  if (share < 0.005) return "under 1%";
+  return `${Math.min(99, Math.round(share * 100))}%`;
+}
+
+/**
+ * Phase D (step 2): which steps read a row and how much, in plain words:
+ * "Read by the analysis (whole), Seeds (in part, 3 of 13 steps). Not read
+ * by the Brief." A transcript read only through its digest or fact pack
+ * reads "condensed". Step 1: a row read in part says how much, and in how
+ * many excerpts when more than one: "the Brief (in part, 8% in 3 excerpts)",
+ * or "up to 8%" over several runs. Empty when no step recorded a use.
+ */
+export function inclusionUsesText(uses: readonly RowUse[] | undefined): string {
+  if (!uses || uses.length === 0) return "";
+  const read = uses.filter((use) => use.read > 0).map((use) => {
+    const count = use.runs > 1 ? `, ${use.read} of ${use.runs} ${USE_RUNS_WORDS[use.step]}` : "";
+    // One part is often the file's start, which "1 excerpt" would misname (review).
+    const excerpts = use.parts && use.parts > 1 ? ` in ${use.parts} excerpts` : "";
+    const much = use.share !== undefined ? `, ${use.read > 1 ? "up to " : ""}${shareWords(use.share)}${excerpts}` : "";
+    const how = use.condensed ? "condensed" : use.whole ? "whole" : `in part${much}`;
+    return `${USE_STEP_WORDS[use.step]} (${how}${count})`;
+  });
+  const unread = uses.filter((use) => use.read === 0).map((use) => USE_STEP_WORDS[use.step]);
+  return [
+    read.length ? `Read by ${read.join(", ")}.` : "",
+    unread.length ? `Not read by ${unread.join(", ")}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 /**
  * "12 of 40 documents in context · cap 12". A truncated listing (DW-133) reads
@@ -101,6 +166,9 @@ export const INCLUSION_TRUNCATED_NOTE =
 /** Shown when the frozen sources themselves were cut short: transcripts and documents may be missing. */
 export const INCLUSION_SOURCES_TRUNCATED_NOTE =
   "Not every transcript or document could be listed. Both counts are lower bounds.";
+/** Phase D (step 2): shown when the draft's recorded reads could not all be listed. */
+export const INCLUSION_USES_TRUNCATED_NOTE =
+  "Not every step's reads could be listed, so a file shown as not read by a step may have been read.";
 
 /** The row's status text: "included", "not included (archived)", or "" when unrecorded. */
 export function inclusionStatusText(row: Pick<InclusionRow, "inclusion" | "reason">): string {
@@ -174,6 +242,8 @@ export function sourceChipLabel(entry: Pick<BriefEntryLike, "source">): string {
   const source = entry.source;
   if (!source) return "source";
   if (source.kind === "project_document") return parseSourceLabel(source.label).fileName;
+  // Phase C: a company file says so, as the Inputs band does.
+  if (source.kind === "company_file") return `${parseSourceLabel(source.label).fileName} (company file)`;
   if (source.kind === "transcript_digest") return `${source.label} (digest)`;
   return source.label;
 }

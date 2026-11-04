@@ -5,10 +5,24 @@ import { describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { CAP_TRUNCATION_MARKER } from "../shared/documentStatus";
+import type { Doc } from "./_generated/dataModel";
+import { readDocumentText } from "./lib/documentText";
 
 const modules = import.meta.glob("./**/*.ts");
 const writerAuthId = "auth-writer-documents-tests";
 const outsiderAuthId = "auth-outsider-documents-tests";
+
+/**
+ * 2026-10-22 (fourth): a stored file's text, read through the text helper
+ * (new rows keep it in pieces).
+ */
+async function storedText(
+  t: ReturnType<typeof convexTest>,
+  doc: Doc<"projectDocuments"> | null | undefined
+): Promise<string | undefined> {
+  if (!doc) return undefined;
+  return await t.run(async (ctx) => await readDocumentText(ctx, doc));
+}
 
 async function setup() {
   const t = convexTest(schema, modules);
@@ -69,7 +83,8 @@ describe("uploadDocument processing status", () => {
           return { documentId, metrics: await ctx.meta.getTransactionMetrics() };
         });
         const stored = await t.run(async (ctx) => await ctx.db.get(documentId));
-        measurements.push({ content, existingCount, metrics, stored });
+        const text = await storedText(t, stored);
+        measurements.push({ content, existingCount, metrics, stored, text });
       }
     }
 
@@ -84,10 +99,10 @@ describe("uploadDocument processing status", () => {
       }))
     ));
     expect(measurements).toHaveLength(4);
-    for (const { content, metrics, stored } of measurements) {
+    for (const { content, metrics, stored, text } of measurements) {
       expect.soft(metrics.databaseQueries.used).toBe(2);
       expect.soft(metrics.documentsRead.used).toBe(2);
-      expect.soft(stored?.content).toBe(content);
+      expect.soft(text).toBe(content);
       expect.soft(stored?.processingStatus).toBe("reference_only");
       expect.soft(stored?.processingDetail).toBe("image_reference");
     }
@@ -627,7 +642,7 @@ describe("uploadDocument processing status", () => {
     }));
     expect(rows.unreadable?.processingStatus).toBe("could_not_read");
     expect(rows.readable?.processingStatus).toBe("ready");
-    expect(rows.readable?.content).toContain("Note: check section 3");
+    expect(await storedText(t, rows.readable)).toContain("Note: check section 3");
   });
 
   test("an identical-content replacement returns the old id and resolves its fresh attempt", async () => {
@@ -687,7 +702,7 @@ describe("uploadDocument processing status", () => {
       replacement: await ctx.db.get(replacement),
     }));
     expect(state.original).toBeNull();
-    expect(state.replacement?.content).toBe("real text");
+    expect(await storedText(t, state.replacement)).toBe("real text");
   });
 
   test("an old client that sends no derivation facts still gets a truthful status", async () => {
@@ -767,8 +782,8 @@ describe("uploadDocument processing status", () => {
     }));
     expect(docs.first).not.toHaveProperty("storageId");
     expect(docs.otherName).toMatchObject({ fileName: "survey.pdf", storageId });
-    expect(docs.withText?.content).toBe("First trial notes.");
-    expect(docs.otherText?.content).toBe("Second trial notes.");
+    expect(await storedText(t, docs.withText)).toBe("First trial notes.");
+    expect(await storedText(t, docs.otherText)).toBe("Second trial notes.");
   });
 
   test("a retry under the attempt key of a deleted document saves it again", async () => {

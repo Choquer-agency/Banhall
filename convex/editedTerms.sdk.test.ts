@@ -37,6 +37,7 @@ import {
 } from "./lib/seedRevisions";
 import type { OrderedPayload } from "./lib/orderedChain";
 import { sectionMetrics } from "./lib/lineLimits";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 type TestConvex = ReturnType<typeof convexTest<typeof schema.tables>>;
@@ -57,7 +58,7 @@ beforeEach(() => {
   vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-anthropic-key");
   vi.stubEnv("OPENROUTER_API_KEY", "");
   vi.stubEnv("VOYAGE_API_KEY", "");
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -222,9 +223,7 @@ function installFetch(script: {
   const sent: Sent[] = [];
   const compressions = [...(script.compressions ?? [])];
   const checks = [...script.checks];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>(async (input, init) => {
+  stubFetchStreaming(vi, vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       if (request.url !== "https://api.anthropic.com/v1/messages") {
         throw new Error(`Unexpected HTTP transport ${request.url}`);

@@ -10,12 +10,13 @@
   import { createSequence, isTypingTarget } from "$lib/shell/shortcuts";
 
   let {
-    onToggleRail,
+    onToggleSidebar,
     canOpenAdmin,
     canViewAs,
     onOpenViewAs,
   }: {
-    onToggleRail: () => void;
+    /** Mod \: collapse or expand the page's section sidebar (owner, 2026-10-28). */
+    onToggleSidebar: () => void;
     /** Effective viewer holds settings.configure (G then A). */
     canOpenAdmin: boolean;
     /** Real developer (Shift V). */
@@ -30,11 +31,11 @@
     const key = event.key;
     const mod = event.metaKey || event.ctrlKey;
 
-    // Mod \ toggles the rail, except inside fields and the editor.
+    // Mod \ collapses the section sidebar, except inside fields and the editor.
     if (mod && !event.altKey && !event.shiftKey && key === "\\") {
       if (isTypingTarget(event)) return;
       event.preventDefault();
-      onToggleRail();
+      onToggleSidebar();
       return;
     }
 

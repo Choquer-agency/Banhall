@@ -589,11 +589,13 @@ describe("AD-27 generation call slots", () => {
     expect(summarizeSlotUsage({ "compression:246": 7 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["compression:246"]);
     // 2026-09-28 (third): the ordered chain's Self-check slot also covers the
     // check of a repaired Section's final text and its follow-up.
+    // 2026-10-26 (P0 item 2): each of the two checks may be sent as up to 8
+    // requests, each with its one follow-up.
     expect(GENERATION_SLOT_ALLOWANCES.selfCheck).toBe(2);
-    expect(ORDERED_SLOT_ALLOWANCES.selfCheck).toBe(4);
+    expect(ORDERED_SLOT_ALLOWANCES.selfCheck).toBe(32);
     expect(summarizeSlotUsage({ "selfCheck:244": 3 }).overrun).toEqual(["selfCheck:244"]);
-    expect(summarizeSlotUsage({ "selfCheck:244": 4 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual([]);
-    expect(summarizeSlotUsage({ "selfCheck:244": 5 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["selfCheck:244"]);
+    expect(summarizeSlotUsage({ "selfCheck:244": 32 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual([]);
+    expect(summarizeSlotUsage({ "selfCheck:244": 33 }, ORDERED_SLOT_ALLOWANCES).overrun).toEqual(["selfCheck:244"]);
   });
 
   it("declares the settings-document classifier slot with an allowance of one, recorded not enforced (story 3)", () => {

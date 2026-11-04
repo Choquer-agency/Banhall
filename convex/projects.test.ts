@@ -5,6 +5,8 @@ import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
+import { readDocumentText } from "./lib/documentText";
+import { completeProjectCopy } from "./projectCopy.fixture";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -572,7 +574,11 @@ describe("copied running PD reviews", () => {
   async function snapshot(t: Awaited<ReturnType<typeof setup>>["t"]) {
     return await t.run(async (ctx) => ({
       projects: await ctx.db.query("projects").collect(),
-      documents: await ctx.db.query("projectDocuments").collect(),
+      // 2026-10-22 (fourth): each file with its text, read through the helper.
+      documents: await Promise.all((await ctx.db.query("projectDocuments").collect()).map(async (row) => ({
+        ...row,
+        text: await readDocumentText(ctx, row),
+      }))),
       transcripts: await ctx.db.query("transcripts").collect(),
       reviews: await ctx.db.query("pdReviews").collect(),
       events: await ctx.db.query("pdReviewEvents").collect(),
@@ -590,6 +596,8 @@ describe("copied running PD reviews", () => {
         fromProjectId: projectId, toProjectId: otherProjectId,
       });
       expect(result.pdReviewsCopied).toBe(4);
+      // F2: the files' text follows, file by file, as the copy action runs it.
+      await completeProjectCopy(t, result);
     } finally {
       clock.mockRestore();
     }
@@ -616,7 +624,7 @@ describe("copied running PD reviews", () => {
       if (!sourceDocument) throw new Error("Missing identified source document");
       expect(after.documents.find((doc) => doc._id === row.documentId)).toMatchObject({
         projectId: otherProjectId, source: "review_pd",
-        fileName: sourceDocument.fileName, content: sourceDocument.content,
+        fileName: sourceDocument.fileName, text: sourceDocument.text,
       });
       expect(row.documentId).not.toBe(source.documentId);
       const rowEvents = events.filter((event) => event.reviewId === row._id);
@@ -666,7 +674,7 @@ describe("copied running PD reviews", () => {
       expect(source).not.toHaveProperty("error");
       expect(source).not.toHaveProperty("completedAt");
       const actor = asActor(t, "owner");
-      await actor.mutation(entry, { fromProjectId: projectId, toProjectId: otherProjectId });
+      await completeProjectCopy(t, await actor.mutation(entry, { fromProjectId: projectId, toProjectId: otherProjectId }));
       const copied = (await snapshot(t)).reviews.find((row) =>
         row.projectId === otherProjectId && row.createdBy === source.createdBy);
       if (!copied) throw new Error("Missing copied review matched to running source");
@@ -686,7 +694,7 @@ describe("copied running PD reviews", () => {
       if (!originalDocument) throw new Error("Missing source PD");
       expect(after.documents.find((doc) => doc._id === copied.documentId)).toMatchObject({
         projectId: otherProjectId, fileName: originalDocument.fileName,
-        content: originalDocument.content,
+        text: originalDocument.text,
       });
       expect(after.reviews.find((row) => row._id === copied._id)).toEqual(copied);
       expect(after.jobs).toEqual([expect.objectContaining({
@@ -1393,17 +1401,17 @@ describe("project metadata edit scope (owner decision 2026-09-15)", () => {
 
 describe("getProjectEditAccess mirrors the metadata edit gate", () => {
   test.each([
-    ["the owner", "owner", true],
-    ["a manager", "manager", true],
-    ["an admin", "admin", true],
-    ["another writer with no handoff", "writer", false],
-    ["a roleless user", "roleless", false],
-  ] as const)("%s → canEditDetails %s", async (_label, actor, expected) => {
+    ["the owner", "owner", true, false],
+    ["a manager", "manager", true, true],
+    ["an admin", "admin", true, true],
+    ["another writer with no handoff", "writer", false, false],
+    ["a roleless user", "roleless", false, false],
+  ] as const)("%s → canEditDetails %s, canOverrideRules %s", async (_label, actor, expected, override) => {
     const { t, projectId } = await setup();
 
     await expect(
       asActor(t, actor).query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: expected });
+    ).resolves.toEqual({ canEditDetails: expected, canOverrideRules: override });
   });
 
   test("an assigned collaborator (open work item) may edit", async () => {
@@ -1412,7 +1420,7 @@ describe("getProjectEditAccess mirrors the metadata edit gate", () => {
 
     await expect(
       asActor(t, "writer").query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: true });
+    ).resolves.toEqual({ canEditDetails: true, canOverrideRules: false });
   });
 
   test("a closed work item does not make a writer a collaborator", async () => {
@@ -1421,7 +1429,7 @@ describe("getProjectEditAccess mirrors the metadata edit gate", () => {
 
     await expect(
       asActor(t, "writer").query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: false });
+    ).resolves.toEqual({ canEditDetails: false, canOverrideRules: false });
   });
 
   test("an anonymous caller gets false, not an error", async () => {
@@ -1429,7 +1437,7 @@ describe("getProjectEditAccess mirrors the metadata edit gate", () => {
 
     await expect(
       t.query(api.projects.getProjectEditAccess, { projectId })
-    ).resolves.toEqual({ canEditDetails: false });
+    ).resolves.toEqual({ canEditDetails: false, canOverrideRules: false });
   });
 });
 

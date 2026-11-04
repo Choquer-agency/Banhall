@@ -13,7 +13,7 @@ export type Platform = "mac" | "windows" | "other";
 export type ShortcutId =
   | "search"
   | "newProject"
-  | "collapseRail"
+  | "collapseSidebar"
   | "goAdmin"
   | "approveContinue"
   | "viewAs"
@@ -38,7 +38,7 @@ export const SEQUENCE_TIMEOUT_MS = 1000;
 export const SHORTCUTS: Record<ShortcutId, Shortcut> = {
   search: { id: "search", label: "Search", kind: "chord", keys: ["mod", "K"] },
   newProject: { id: "newProject", label: "New project", kind: "chord", keys: ["C"] },
-  collapseRail: { id: "collapseRail", label: "Collapse the rail", kind: "chord", keys: ["mod", "\\"] },
+  collapseSidebar: { id: "collapseSidebar", label: "Collapse the sidebar", kind: "chord", keys: ["mod", "\\"] },
   goAdmin: { id: "goAdmin", label: "Go to Admin", kind: "sequence", keys: ["G", "A"] },
   approveContinue: {
     id: "approveContinue",

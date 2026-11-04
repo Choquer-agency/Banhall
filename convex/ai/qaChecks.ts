@@ -18,6 +18,7 @@ import {
   type StyleOverrides,
 } from "../../shared/styleOverrides";
 import { findDashConnectors } from "../../shared/humanProse";
+import { NOTE_MARKER_RE } from "../lib/lineLimits";
 import { pdSubsectionRoleLabel } from "../../shared/pdSubsections";
 
 // ─── Check 1: CRA opener detection for 246 advancement paragraphs ───────────
@@ -33,6 +34,8 @@ const CRA_OPENER_PATTERNS = [
   /^it\s+was\s+(determined|established)\s+that/i,
   /^the\s+(experimental|investigative)\s+work\s+(determined|established|revealed|demonstrated)\s+that/i,
   /^the\s+investigation\s+(established|determined|revealed|demonstrated)\s+that/i,
+  // 2026-10-29 (third), review round 1 (P3-6): item 1d's per-uncertainty opener.
+  /^in\s+addressing\s+the\s+uncertainty\s+(around|regarding|about|of)\b/i,
 ];
 
 function getFirstSentence(paragraph: string): string {
@@ -87,6 +90,51 @@ export interface BecauseClauseResult {
   }>;
 }
 
+/**
+ * Review round 4 (A2): sentence ends that are not abbreviations ("Acme Inc.",
+ * "e.g.", "No. 4") or initials ("J. Ortiz"), with a [GAP: ...] or
+ * [INFERRED: ...] marker read as one unit, so a full stop inside it never
+ * ends a sentence. Review round 5 (P3-2): an abbreviation or a single capital
+ * still ends the sentence when a common sentence opener follows ("under load
+ * B. The rig ran...", "from Acme Inc. The team..."); "A" followed by a full
+ * stop is another initial ("J. A. Ortiz"), and a word joined by a hyphen
+ * ("A-frame") is not an opener either (review round 6, P3-4).
+ */
+const ABBREVIATION_END = /\b(?:inc|ltd|co|corp|e\.g|i\.e|etc|vs|no|nos|fig|dr|mr|mrs|ms|st|approx)\.$/i;
+const INITIAL_END = /(?:^|\s)\p{Lu}\.$/u;
+const SENTENCE_OPENER =
+  /^\s+(?:The|This|These|Those|It|Its|A|An|Because|Given|We|Our|In|For|When|After|Before|During)\b(?![.\-])/;
+
+function sentencesOf(paragraph: string): string[] {
+  // Marker text never holds a sentence end: its punctuation is masked,
+  // keeping every index.
+  const masked = paragraph.replace(NOTE_MARKER_RE, (marker) => marker.replace(/[.!?]/g, "_"));
+  const sentences: string[] = [];
+  let start = 0;
+  const boundary = /[.!?](?=\s+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = boundary.exec(masked)) !== null) {
+    const end = match.index + 1;
+    const piece = masked.slice(start, end);
+    if ((ABBREVIATION_END.test(piece) || INITIAL_END.test(piece)) && !SENTENCE_OPENER.test(masked.slice(end))) continue;
+    sentences.push(paragraph.slice(start, end));
+    const rest = /\s+/y;
+    rest.lastIndex = end;
+    rest.exec(masked);
+    start = rest.lastIndex;
+  }
+  sentences.push(paragraph.slice(start));
+  return sentences.filter((sentence) => sentence.trim());
+}
+
+/**
+ * Review round 4 (wording P2-1): a [GAP: ...] stands in for the cause only
+ * when it asks for a reason. Review round 5 (P3-3): whole words only, so "a
+ * reasonable cycle count" asks for no reason.
+ */
+const REASON_GAP = /\[GAP:[^\]]*\b(?:why|reasons?|caus(?:e|es|ed))\b/i;
+const NEXT_SENTENCE_CAUSE = /^(?:\[GAP:[^\]]*\b(?:why|reasons?|caus(?:e|es|ed))\b|because\b|this\s+(?:is|was)\s+because\b|given\s+that\b)/i;
+
 export function checkBecauseClauses(section242Text: string): BecauseClauseResult {
   const paragraphs = section242Text.split(/\n\n+/).filter((p) => p.trim());
 
@@ -98,21 +146,33 @@ export function checkBecauseClauses(section242Text: string): BecauseClauseResult
     /uncertainty\s+existed\s+(regarding|as\s+to|about)/gi,
   ];
 
-  // Find all uncertainty statements by splitting on sentences
-  const sentences = paragraphs.flatMap((paragraph) => paragraph.split(/(?<=[.!?])\s+/));
+  // Find all uncertainty statements by splitting on sentences, paragraph by
+  // paragraph, so the sentence after each one is known.
   const uncertaintySentences: Array<{ excerpt: string; hasBecause: boolean }> = [];
 
-  for (const sentence of sentences) {
-    const isUncertainty = uncertaintyMarkers.some((pattern) => {
-      pattern.lastIndex = 0;
-      return pattern.test(sentence);
-    });
-    if (isUncertainty) {
+  for (const paragraph of paragraphs) {
+    const sentences = sentencesOf(paragraph);
+    sentences.forEach((sentence, index) => {
+      const isUncertainty = uncertaintyMarkers.some((pattern) => {
+        pattern.lastIndex = 0;
+        return pattern.test(sentence);
+      });
+      if (!isUncertainty) return;
+      const next = sentences[index + 1] ?? "";
       uncertaintySentences.push({
         excerpt: sentence.slice(0, 100) + (sentence.length > 100 ? "..." : ""),
-        hasBecause: /because/i.test(sentence),
+        // 2026-10-29 (third): a cause given first with "given that" counts too.
+        // After the live rerun (R6b): so does a [GAP: ...] for the reason, in
+        // the sentence or right after it, and a cause in the next sentence
+        // ("Because...", "This is because...", "This was because...",
+        // "Given that..."). Review round 4: only a gap that asks why (P2-1),
+        // and sentence ends that skip abbreviations and markers (A2).
+        hasBecause:
+          /\bbecause\b|\bgiven\s+that\b/i.test(sentence) ||
+          REASON_GAP.test(sentence) ||
+          NEXT_SENTENCE_CAUSE.test(next.trim()),
       });
-    }
+    });
   }
 
   return {
@@ -216,15 +276,274 @@ export function checkDashConnectors(
   return { found };
 }
 
+// ─── Check 6: Notes to the writer in report text ────────────────────────────
+// 2026-10-30 (owner, "please fix all properly", item 3): Locked, never
+// waived. A rerun's report sentences read "The materials do not report what
+// that testing showed.", "Testing was reported; individual runs are not
+// described." and "The client reports that...": notes to the writer, which
+// belong inside a [GAP: ...] or [INFERRED: ...] marker. Narrow on purpose,
+// since a hit starts a repair: a document noun right after "the" (or
+// "these", "those") as the subject of a reporting verb, "the client" saying
+// or reporting that something is so, and "is not stated", "described" or
+// "reported" at the end of a clause. Text inside a marker is a note already
+// and is never read.
+//
+// Review round 1 (wording P1): good technical prose was flagged ("The
+// sources record every change...", "The client confirms each batch...",
+// "The responses indicated a lag...", "... is not documented.", "The
+// transcripts did not show speaker labels."). Bare "sources" and
+// "responses" are no longer document nouns (only source files and
+// documents, interview or written responses, and written answers are);
+// "the client" counts only for saying, stating, recalling, estimating or
+// mentioning, and for reporting or noting "that"; the passive ending is cut
+// to stated and described, and (review round 2) "reported" only after a
+// result, finding, outcome, status or run; and the verbs that also name what a
+// system does (record, indicate, detail, show, provide, include, cover) are
+// left out. Notes in other words ("The Q&A file does not say...", "It is not
+// stated whether...") are left to the Self-check's and QA's rules.
+
+/** The reporting verbs, in the forms a note uses. */
+const REPORT_VERBS =
+  "say|says|said|state|states|stated|describe|describes|described|mention|mentions|mentioned|report|reports|reported|note|notes|noted|explain|explains|explained|confirm|confirms|confirmed";
+/** Base forms after "do not". */
+const REPORT_BASES = "say|state|describe|mention|report|note|explain|specify|confirm";
+/** The words that may stand between "the" and the noun ("the written answers"). */
+const SOURCE_MODIFIER = "(?:(?:client's|written|interview|project)\\s+)?";
+/** Document nouns other than "materials", which also "give" a fact or "give no" fact. */
+const SOURCE_NOUNS =
+  `(?:(?:interview|written|client's)\\s+responses?|${SOURCE_MODIFIER}(?:source\\s+(?:files?|documents?|texts?|materials?)|interviews?|interviewees?|transcripts?|answers?))`;
+/** A participle after the noun that still names the same documents ("the materials provided"). */
+const SOURCE_PARTICIPLE = "(?:\\s+(?:provided|supplied|available|given|received))?";
+const NEGATION = "(?:(?:do|does|did)\\s+not|don't|doesn't|didn't)\\s+(?:(?:clearly|explicitly|directly|otherwise)\\s+)?";
+const MATERIALS = `${SOURCE_MODIFIER}materials`;
+
+const NOTE_PATTERNS: readonly RegExp[] = [
+  // "The interview does not describe ...", "the answers do not give ...".
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES}|give)\\b`, "giu"),
+  // "The materials do not report ...": for "materials" the reporting verbs only.
+  new RegExp(`\\b(?:the|these|those)\\s+${MATERIALS}${SOURCE_PARTICIPLE}\\s+${NEGATION}(?:${REPORT_BASES})\\b`, "giu"),
+  // "The answers give no date.", "the materials give no status ...": for
+  // "materials" only before a word for a fact, so "the materials give no
+  // sign of fatigue" stays.
+  new RegExp(`\\b(?:the|these|those)\\s+${SOURCE_NOUNS}${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave)\\s+no\\b`, "giu"),
+  new RegExp(`\\b(?:the|these|those)\\s+${MATERIALS}${SOURCE_PARTICIPLE}\\s+(?:give|gives|gave|provide|provides|provided)\\s+no\\s+(?:status|results?|dates?|figures?|details?|reasons?|outcomes?|information|account|description)\\b`, "giu"),
+  // "The transcript states ...", "the materials report ...".
+  new RegExp(`\\b(?:the|these|those)\\s+(?:${SOURCE_NOUNS}|${MATERIALS})${SOURCE_PARTICIPLE}\\s+(?:${REPORT_VERBS})\\b`, "giu"),
+  // "The client reports that ...", "the client said ...", "the client did not say ...".
+  new RegExp(`\\bthe\\s+client\\s+(?:(?:reports|reported|notes|noted)\\s+that\\b|(?:says|said|states|stated|recalls|recalled|estimates|estimated|mentioned)\\b|${NEGATION}(?:say|state|mention|report)\\b)`, "giu"),
+  // "Individual runs are not described.", "Findings about it are not stated."
+  /\b(?:is|are|was|were)\s+not\s+(?:stated|described)(?=\s*(?:[.;:!?)]|$))/giu,
+  // Review round 2 (P3-4): "reported" only after a word for what the work
+  // found, so "dropped messages were not reported" stays.
+  /\b(?:results?|findings?|outcomes?|status|runs?)\s+(?:is|are|was|were)\s+not\s+reported(?=\s*(?:[.;:!?)]|$))/giu,
+];
+
+/**
+ * After the live rerun (R1): a repair hedged a fact by attribution ("The
+ * company reports that...", "The client states that..."). The company, the
+ * team, the interviewee, the claimant, a CLIENT placeholder or the
+ * claimant's own name reporting, stating, saying or noting "that" is a note
+ * to the writer. Only with "that": "The team reported the fault to the
+ * vendor" stays.
+ */
+const ATTRIBUTION_VERBS = "(?:reports|reported|states|stated|says|said|notes|noted)\\s+that\\b";
+const ATTRIBUTION_SUBJECTS = "(?:\\bthe\\s+(?:company|interviewee|claimant)|\\[CLIENT_\\d+(?:_[A-Z]+)?\\])";
+const ATTRIBUTION = new RegExp(`${ATTRIBUTION_SUBJECTS}\\s+${ATTRIBUTION_VERBS}`, "giu");
+/**
+ * Review round 4 (wording P2-2): the team only reporting or stating "that".
+ * "The team noted that the seal failed after 200 cycles" and "The team said
+ * that..." describe the work and stay.
+ */
+const TEAM_ATTRIBUTION = /\bthe\s+team\s+(?:reports|reported|states|stated)\s+that\b/giu;
+const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|gmbh|ulc|lp|llp)\.?$/i;
+
+/**
+ * The claimant's name and its short form (without a legal suffix)
+ * attributing a fact. Review round 4 (A3): a short form ("AB" of "AB Ltd.")
+ * is kept, matched only as written (same case) between word edges, so
+ * "CAB reports that" and a lowercase "ab" never match it.
+ */
+function claimantAttribution(claimantName: string | undefined): RegExp[] {
+  const name = claimantName?.trim().replace(/\s+/g, " ");
+  if (!name) return [];
+  const forms = [...new Set([name, name.replace(LEGAL_SUFFIX, "").trim()])].filter((form) => form.length > 0);
+  const pattern = (list: string[], flags: string) => {
+    if (list.length === 0) return [];
+    const escaped = list
+      .sort((left, right) => right.length - left.length)
+      .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+    return [new RegExp(`(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})\\s+${ATTRIBUTION_VERBS}`, flags)];
+  };
+  return [
+    ...pattern(forms.filter((form) => form.length >= 4), "giu"),
+    ...pattern(forms.filter((form) => form.length < 4), "gu"),
+  ];
+}
+
+export interface NoteToWriterHit {
+  /** The words of the note, as they appear in the text. */
+  phrase: string;
+  index: number;
+  /** Short window around the hit for the writer or a judge to locate it. */
+  context: string;
+}
+
+/**
+ * Report sentences that are notes to the writer (2026-10-30): what the
+ * sources say or leave out, written as report text. Text inside a [GAP: ...]
+ * or [INFERRED: ...] marker is blanked first, so indices still point into
+ * the text. Hits are in text order, one per position.
+ */
+export function findNotesToWriter(rawText: string, options: { claimantName?: string } = {}): NoteToWriterHit[] {
+  const text = rawText.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
+  const hits: NoteToWriterHit[] = [];
+  for (const pattern of [...NOTE_PATTERNS, ATTRIBUTION, TEAM_ATTRIBUTION, ...claimantAttribution(options.claimantName)]) {
+    pattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      const start = Math.max(0, match.index - 30);
+      const end = Math.min(text.length, match.index + match[0].length + 30);
+      hits.push({
+        phrase: match[0],
+        index: match.index,
+        context: "..." + rawText.slice(start, end).replace(/\r?\n/g, " ") + "...",
+      });
+    }
+  }
+  hits.sort((left, right) => left.index - right.index || right.phrase.length - left.phrase.length);
+  const kept: NoteToWriterHit[] = [];
+  for (const hit of hits) {
+    const last = kept[kept.length - 1];
+    if (last && hit.index < last.index + last.phrase.length) continue;
+    kept.push(hit);
+  }
+  return kept;
+}
+
+/** The words of the Self-check row and the repair fix for notes to the writer. */
+export const NOTES_TO_WRITER = {
+  instruction: "Locked Rule: report text speaks about the work, never about the sources",
+  applied: "no notes to the writer found in the report text",
+  fix: "state what the work did, and put what is missing in one [GAP: ...] or the basis of an inference in its [INFERRED: ...] marker",
+  rule: "A report sentence never says what the materials, the sources, the interview, the transcript, the answers or the client report or leave out.",
+} as const;
+
+// ─── Public background: a detail found only in the web block ─────────────────
+
+/** Capitalized words that are never a detail of their own. */
+const WEB_ONLY_IGNORED = new Set(["cra", "sr&ed", "canada", "canadian", "the", "this", "these", "that", "its"]);
+
+export interface WebOnlyHit {
+  /** The detail as written in the Line. */
+  phrase: string;
+  /** Character offset in the paragraph. */
+  index: number;
+}
+
+function normalizedFigure(figure: string): string {
+  return figure.replace(/,/g, "").replace(/\s+/g, "").toLowerCase();
+}
+
+/** Small numbers written as words in the evidence count as the same figure (review round 1). */
+const NUMBER_WORDS: Record<string, string> = {
+  one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+  eleven: "11", twelve: "12", twenty: "20", thirty: "30", forty: "40", fifty: "50", hundred: "100",
+};
+
+/**
+ * 2026-11-02 (proposed): a sentence that states as a plain fact a detail
+ * found only in the public background block. A detail is a figure (any
+ * number in digits; the evidence's small numbers in words count as written)
+ * or a name-like word (a word with
+ * a capital inside it or a digit, like "PostgreSQL" or "S3", or a
+ * capitalized word that does not open the sentence, like "Debezium"). It is
+ * a hit when the background's answers hold it and the evidence the drafter
+ * read (analysis, Brief, plan) does not. A sentence followed by an
+ * [INFERRED: ...] marker is general practice and is not checked, nor is the
+ * text inside a marker. Deterministic and cheap; it finds the clearest
+ * leaks only, never a paraphrase.
+ */
+export function findWebOnlyDetails(paragraph: string, answers: string, evidence: string): WebOnlyHit[] {
+  if (!answers.trim()) return [];
+  const evidenceLower = evidence.toLowerCase();
+  const evidenceFigures = new Set(
+    (evidence.match(/\d[\d,]*(?:\.\d+)?\s?%?/g) ?? []).map(normalizedFigure)
+  );
+  for (const word of evidenceLower.match(/\p{L}+/gu) ?? []) {
+    const digits = NUMBER_WORDS[word];
+    if (digits) evidenceFigures.add(digits);
+  }
+  const answersLowerWords = new Set((answers.match(/\p{L}[\p{L}\p{N}]*/gu) ?? []).filter((word) => /^\p{Ll}/u.test(word)));
+  const answerFigures = new Set(
+    (answers.match(/\d[\d,]*(?:\.\d+)?\s?%?/g) ?? []).map(normalizedFigure)
+  );
+  const answerWords = new Set(answers.match(/[\p{L}\p{N}][\p{L}\p{N}.+#-]*[\p{L}\p{N}+#]|[\p{L}\p{N}]/gu) ?? []);
+  const hits: WebOnlyHit[] = [];
+  // Sentences with their offsets. Full stops inside markers are masked
+  // first, so a marker never ends a sentence; a marker written after a
+  // sentence's full stop opens the next piece.
+  const masked = paragraph.replace(NOTE_MARKER_RE, (marker) => marker.replace(/[.!?]/g, "_"));
+  const pieces: Array<{ text: string; index: number }> = [];
+  let start = 0;
+  for (const end of masked.matchAll(/[.!?]+(?=\s|$)/gu)) {
+    const stop = (end.index ?? 0) + end[0].length;
+    pieces.push({ text: masked.slice(start, stop), index: start });
+    start = stop;
+  }
+  if (start < masked.length) pieces.push({ text: masked.slice(start), index: start });
+  pieces.forEach((piece, at) => {
+    const next = pieces[at + 1]?.text.trimStart() ?? "";
+    // A marker inside the sentence, or opening the next piece, marks it.
+    if (/\[INFERRED:/iu.test(piece.text.replace(/^\s*\[INFERRED:[^\]]*\]/iu, "")) || /^\[INFERRED:/iu.test(next)) return;
+    // Text inside a marker is a note to the writer, never checked.
+    const text = piece.text.replace(NOTE_MARKER_RE, (marker) => " ".repeat(marker.length));
+    const firstWord = /[\p{L}\p{N}]/u.exec(text)?.index ?? 0;
+    for (const figure of text.matchAll(/(?<![\p{L}\p{N}.])\d[\d,]*(?:\.\d+)?\s?%?(?![\p{L}\p{N}])/gu)) {
+      const raw = figure[0].trim();
+      const key = normalizedFigure(raw);
+      if (answerFigures.has(key) && !evidenceFigures.has(key)) {
+        hits.push({ phrase: raw, index: piece.index + (figure.index ?? 0) });
+      }
+    }
+    for (const word of text.matchAll(/[\p{L}\p{N}][\p{L}\p{N}.+#-]*[\p{L}\p{N}+#]/gu)) {
+      const value = word[0];
+      const at = word.index ?? 0;
+      // A capitalised word opening the sentence counts too when the answers
+      // never write it in lower case ("Debezium was used"), so an ordinary
+      // opener ("Testing showed") is left alone (review round 1).
+      const nameLike =
+        /\p{Ll}\p{Lu}/u.test(value) ||
+        (/\p{L}/u.test(value) && /\d/u.test(value)) ||
+        (/^\p{Lu}/u.test(value) && (at !== firstWord || !answersLowerWords.has(value.toLowerCase())));
+      if (!nameLike || value.length < 3 || WEB_ONLY_IGNORED.has(value.toLowerCase())) continue;
+      if (answerWords.has(value) && !evidenceLower.includes(value.toLowerCase())) {
+        hits.push({ phrase: value, index: piece.index + at });
+      }
+    }
+  });
+  hits.sort((left, right) => left.index - right.index);
+  return hits;
+}
+
+/** The words of the Self-check row and the repair fix for a web-only detail. */
+export const WEB_ONLY_DETAIL = {
+  instruction: "Locked Rule: public background is never a fact about the claimant",
+  applied: "no detail found only in the public background",
+  fix: "remove the detail, or write the sentence as general practice with an [INFERRED: general practice, public source W1: ...] marker naming its source, or put a [GAP: ...] where the Line needs the fact",
+  rule: "The public background explains terms and standard practice only. A figure, tool, product or setting found only there is never a fact about what the company did, used or found.",
+} as const;
+
 export interface SectionFinding {
-  check: "banned_word" | "because_clause" | "cra_opener" | "repetition" | "dash_connector";
+  check: "banned_word" | "because_clause" | "cra_opener" | "repetition" | "dash_connector" | "note_to_writer";
   message: string;
 }
 
 export function sectionDeterministicFindings(
   section: "s242" | "s244" | "s246",
   text: string,
-  overrides: StyleOverrides = NO_STYLE_OVERRIDES
+  overrides: StyleOverrides = NO_STYLE_OVERRIDES,
+  /** After the live rerun (R1): the claimant's name, for attribution to it. */
+  options: { claimantName?: string } = {}
 ): SectionFinding[] {
   const findings: SectionFinding[] = [];
   const sectionNumber = section.slice(1);
@@ -248,6 +567,14 @@ export function sectionDeterministicFindings(
     findings.push({
       check: "dash_connector",
       message: `Dash used as punctuation ("${hit.token}"), reads as machine-written: ${hit.context}`,
+    });
+  }
+
+  // 2026-10-30: Locked, under every waiver.
+  for (const hit of findNotesToWriter(text, options)) {
+    findings.push({
+      check: "note_to_writer",
+      message: `Note to the writer in report text ("${hit.phrase}"); put it in a [GAP: ...] or [INFERRED: ...] marker: ${hit.context}`,
     });
   }
 

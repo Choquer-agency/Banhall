@@ -1,5 +1,8 @@
 import { v } from "convex/values";
-import { internalQuery, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { evaluationRefusal, isEvaluationProject } from "./lib/evaluationProjects";
+import { drewOnWithdrawn } from "./lib/learningWithdrawal";
+import { MAX_PREFERENCE_CHARS } from "./lib/preferenceCheck";
 import type { Doc, Id } from "./_generated/dataModel";
 import { PD_SUBSECTIONS } from "../shared/pdSubsections";
 import { isReleaseEvalProjectTitle } from "../shared/releaseEval";
@@ -61,6 +64,116 @@ export const evalActor = internalQuery({
       return null;
     }
     return { userId: user._id, authId: user.authId, role: user.role };
+  },
+});
+
+/**
+ * 2026-10-27 (Phase E, E3): marks a release-eval project as an evaluation
+ * project, so it never feeds learning, writer memory, edit size or Brain
+ * nomination. Refused for any other project, and on production.
+ */
+export const markEvaluationProject = internalMutation({
+  args: { projectId: v.id("projects") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const refusal = evaluationRefusal();
+    if (refusal) throw new Error(refusal);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || !isReleaseEvalProjectTitle(project.title)) {
+      throw new Error("Not a release eval project");
+    }
+    if (project.evaluation === undefined) {
+      await ctx.db.patch(project._id, { evaluation: { markedAt: Date.now() } });
+    }
+    return null;
+  },
+});
+
+/** At most this many saved preferences one --compare arm uses (as a writer may hold). */
+export const MAX_COMPARE_PREFERENCES = 30;
+
+/**
+ * 2026-10-27 (Phase E, E3): one --compare arm of the release suite. Sets,
+ * on an evaluation project only, the lesson set of one kind its drafts use
+ * (null: none) or the saved preferences they use ([]: none), in place of the
+ * published set and the reviewer's own; nothing is stored on the reviewer's
+ * account. A lesson set that admitted withdrawn feedback is refused, and so
+ * is production.
+ */
+export const setEvaluationCompare = internalMutation({
+  args: {
+    projectId: v.id("projects"),
+    lessons: v.optional(
+      v.object({
+        kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+        learningDigestId: v.union(v.id("learningDigests"), v.null()),
+      })
+    ),
+    preferences: v.optional(v.array(v.string())),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const refusal = evaluationRefusal();
+    if (refusal) throw new Error(refusal);
+    const project = await ctx.db.get(args.projectId);
+    if (!project || !isReleaseEvalProjectTitle(project.title) || !isEvaluationProject(project) || !project.evaluation) {
+      throw new Error("Not an evaluation project");
+    }
+    if (args.lessons?.learningDigestId) {
+      const digest = await ctx.db.get(args.lessons.learningDigestId);
+      if (!digest || digest.kind !== args.lessons.kind || digest.userId) {
+        throw new Error(`No shared ${args.lessons.kind} lesson set has that id`);
+      }
+      if (await drewOnWithdrawn(ctx, digest)) {
+        throw new Error("This lesson set admitted withdrawn feedback; choose another");
+      }
+    }
+    const preferences = args.preferences?.map((text) => text.replace(/\s+/g, " ").trim());
+    if (preferences) {
+      if (preferences.length > MAX_COMPARE_PREFERENCES) throw new Error(`At most ${MAX_COMPARE_PREFERENCES} preferences`);
+      if (preferences.some((text) => !text || text.length > MAX_PREFERENCE_CHARS)) {
+        throw new Error(`Each preference needs 1 to ${MAX_PREFERENCE_CHARS} characters`);
+      }
+    }
+    await ctx.db.patch(project._id, {
+      evaluation: {
+        ...project.evaluation,
+        ...(args.lessons ? { lessons: args.lessons } : {}),
+        ...(preferences ? { preferences } : {}),
+      },
+    });
+    return null;
+  },
+});
+
+/**
+ * 2026-10-27 (Phase E, E3): the lesson set `--compare lessons` names, read
+ * before any run, so the pack can name it and a set that admitted withdrawn
+ * feedback stops the run at once. Null for an id that is no shared set.
+ */
+export const compareLessonSet = internalQuery({
+  args: { learningDigestId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      id: v.id("learningDigests"),
+      kind: v.union(v.literal("qa_calibration"), v.literal("draft_style")),
+      createdAt: v.number(),
+      sourceCount: v.number(),
+      admittedWithdrawn: v.boolean(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("learningDigests", args.learningDigestId);
+    const digest = id ? await ctx.db.get(id) : null;
+    if (!digest || digest.userId) return null;
+    return {
+      id: digest._id,
+      kind: digest.kind,
+      createdAt: digest.createdAt,
+      sourceCount: digest.sourceCount,
+      admittedWithdrawn: await drewOnWithdrawn(ctx, digest),
+    };
   },
 });
 
@@ -380,8 +493,15 @@ export const collect = internalQuery({
               waiverAnalysis: generation.writerSettings.waiverAnalysis,
               truncated: generation.writerSettings.truncated,
               addressedCategories: generation.writerSettings.addressedCategories ?? null,
+              // Phase E (E3): how many saved preferences the draft used.
+              savedPreferences: generation.writerSettings.savedPreferences?.count ?? 0,
             }
           : null,
+        // Phase E (E3): the lesson sets the draft used, for --compare.
+        learningDigestIds: generation.learningDigestIds ?? [],
+        // E3 review: what a --compare pair must share to be compared.
+        promptVersion: generation.promptVersion ?? null,
+        models: generation.modelFreeze ? { ...generation.modelFreeze.roles } : null,
       },
       subsections: subsections.map((row) => ({
         roleId: row.roleId,

@@ -35,6 +35,7 @@
   import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
+    focusSeedStepHeading,
     focusSummaryReturnTrigger,
     SEED_PLAN_TAB_ID,
     SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID,
@@ -53,6 +54,7 @@
   import { notDraftedReportSections } from "../../../../convex/lib/tiptapReport";
   import { PD_SECTION_HEADINGS } from "../../../../shared/pdSubsections";
   import Editor from "$lib/components/editor/Editor.svelte";
+  import { useEvidenceView } from "$lib/components/editor/evidenceViewSource.svelte";
   import type {
     CommentRange,
     ResearchSelection,
@@ -73,15 +75,19 @@
   import PdReviewStart from "$lib/components/review-pd/PdReviewStart.svelte";
   import SelectInput from "$lib/components/ui/SelectInput.svelte";
   import ProjectTopBar, { type TopBarMoreItem } from "$lib/components/project/shell/ProjectTopBar.svelte";
+  import FrameIcon from "$lib/components/workspace/FrameIcon.svelte";
   import PanelToolbar, { type PanelTab } from "$lib/components/project/shell/PanelToolbar.svelte";
   import QaToggle from "$lib/components/qa/QaToggle.svelte";
   import QaFinishedNotice from "$lib/components/qa/QaFinishedNotice.svelte";
-  import { qaSectionScores } from "$lib/qa/qaSectionScores";
+  import { chatQaIssues, qaSectionScores } from "$lib/qa/qaSectionScores";
   import { markQaDismissed, markQaSeen, readQaSeen, type QaSeenState } from "$lib/qa/qaSeen";
   import SourcesView from "$lib/components/project/shell/SourcesView.svelte";
   import { readingColumn, reportColumn } from "$lib/components/ui/readingColumn";
   import { layoutMotion } from "$lib/motion/layoutMotion";
   import { loadAgentChatPanel, prewarmAssistant, releaseAssistantPrewarm } from "$lib/components/chat/chatModules";
+  import { ReviewSession } from "$lib/chat/assistantCards.svelte";
+  import { createRequestId } from "$lib/requestId";
+  import ReviewBar from "$lib/components/chat/ReviewBar.svelte";
   import AssistantPanelSkeleton from "$lib/components/chat/AssistantPanelSkeleton.svelte";
   import DeleteProjectDialog from "$lib/components/workspace/DeleteProjectDialog.svelte";
   import { canDeleteProject } from "$lib/workspace/projectDelete";
@@ -106,7 +112,9 @@
     type CanonicalExportReport,
     type ExportValidationResult,
   } from "$lib/exportValidation";
+  import type { ReportNote } from "$lib/reportSections";
   import { userErrorCode, userErrorMessage, userErrorReason } from "$lib/errors";
+  import { draftTimingText } from "$lib/draftTiming";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
@@ -117,7 +125,7 @@
     type GenerationModeId,
   } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
-  import StartRunDialog, { type StartRunExcluded } from "$lib/components/generation/StartRunDialog.svelte";
+  import StartRunDialog, { type StartRunExcluded, type StartRunOptions } from "$lib/components/generation/StartRunDialog.svelte";
   import {
     projectStartProblem,
     projectStartSources,
@@ -135,7 +143,6 @@
   // New-UI shell wiring (2026-08-10): same contract WorkspaceChrome uses —
   // rail visibility, drawer, and rail destinations for the report workspace.
   let navigationOpen = $state(false);
-  let railHidden = $state(false);
   const shellConfigQ = useQuery(api.myWork.getViewConfig, () => (auth.isAuthenticated ? {} : "skip"));
   const myWorkAvailable = $derived(Boolean(shellConfigQ.data?.ready && !shellConfigQ.data?.killSwitch));
   function workspaceHref(pathname: "/my-work" | "/projects") {
@@ -165,6 +172,12 @@
     auth.isAuthenticated && reportQ.data?.generationId
       ? { generationId: reportQ.data.generationId }
       : "skip"
+  );
+  // 2026-11-02: "Drafted in 12 min" for the report's own draft, or nothing.
+  const reportDraftTiming = $derived(
+    reportGenerationQ.data && reportGenerationQ.data._id === reportQ.data?.generationId
+      ? draftTimingText(reportGenerationQ.data.draftTiming)
+      : ""
   );
   const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated ? { projectId } : "skip"
@@ -239,6 +252,9 @@
         projectId,
         excludedTranscriptIds: excluded.transcriptIds as Id<"transcripts">[],
         excludedDocumentIds: excluded.documentIds as Id<"projectDocuments">[],
+        ...(excluded.companyFileIds?.length
+          ? { excludedCompanyFileIds: excluded.companyFileIds as Id<"companyFiles">[] }
+          : {}),
         ...flags,
       }),
   });
@@ -247,7 +263,6 @@
   const logPdReviewEvent = useMutation(api.pdReviews.logPdReviewEvent);
   const updateReport = useMutation(api.reports.updateReportContent);
   const createSnapshot = useMutation(api.snapshots.createManualSnapshot);
-  const markProposalApplied = useMutation(api.chatV2.markProposalApplied);
   const authorizeExport = useMutation(api.reports.authorizeExport);
   const completeExport = useMutation(api.reports.completeExport);
   const failExport = useMutation(api.reports.failExport);
@@ -387,6 +402,9 @@
   const generation = $derived(generationQ.data);
   const transcripts = $derived(transcriptsQ.data ?? []);
   const user = $derived(userQ.data);
+  // Evidence view (client request 2026-11-02): off by default, remembered
+  // per person; the claim record is read only while it is on.
+  const evidence = useEvidenceView(() => ({ reportId: report?._id, userId: user?._id }));
   let deleteDialogOpen = $state(false);
   // The project the open dialog names and deletes, captured together when
   // it opens: the page is reused across project routes, so the route's id
@@ -491,201 +509,36 @@
   let candidateMaximized = $state(false);
   let generationError = $state("");
 
-  // BNH-30: one-by-one replace-and-scan-next session.
-  type ReplaceMatch = { from: number; to: number; replaceWith: string; text: string };
-  type ReplaceSession = {
-    pairs: { find: string; replaceWith: string }[];
-    // chatMessages id (legacy chat) or chatProposals id (agent chat).
-    messageId: string;
-    cursor: number;
-    total: number;
-    position: number;
-    current: ReplaceMatch | null;
-    replaced: number;
-  };
-  let replaceSession = $state<ReplaceSession | null>(null);
-  let replaceNotice = $state<string | null>(null);
-  // Sprint 1 story 6 (CAP-2): while a replace session is active, autosave is
-  // held and the latest editor JSON parks here (see handleEditorUpdate). The
-  // session exit writes it through markProposalApplied, which snapshots the
-  // pre-session content, fences on the revision, writes content + status and
-  // bumps the revision in one transaction — no content for that proposal ever
-  // reaches the report without its snapshot.
-  let sessionDraftJson: string | null = null;
-  // The in-flight session exit: stepper handlers bail while it runs and
-  // flushEditor awaits it.
-  let finishingReplace: Promise<void> | null = null;
-  function notifyReplace(msg: string) {
-    replaceNotice = msg;
-    setTimeout(() => (replaceNotice = null), 4000);
-  }
-
-  function markApplied(id: string, content: string, expectedRevisionNumber: number) {
-    return markProposalApplied({
-      proposalId: id as Id<"chatProposals">,
-      content,
-      expectedRevisionNumber,
+  // Owner 2026-10-28 (Paper row 34): a suggestion card's Review marks the
+  // change in the report, word by word, and floats the review bar over it.
+  // The Assistant's cards start, steer and end the session; nothing shows in
+  // the report until then.
+  const review = new ReviewSession();
+  $effect(() => {
+    const target = review.target;
+    const pairs = review.pairs;
+    const showChanges = review.showChanges;
+    const ed = editorRef;
+    if (!ed) return;
+    // The editor reads its own review state while it updates it: untracked,
+    // so this effect follows the session only.
+    untrack(() => {
+      if (!target) ed.clearProposalPreview();
+      else if (!ed.previewProposal(pairs, { showChanges, line: target.line, key: target.proposalId })) review.nothingToShow();
     });
-  }
-
-  async function startReplaceReview(
-    pairs: { find: string; replaceWith: string }[],
-    messageId: string
-  ) {
-    // Close any session still open and persist pending typing through the
-    // normal save path first, so the pre_chat_edit snapshot taken at this
-    // session's exit equals the document exactly as it stands now. A standing
-    // save error stays visible in the header; it does not block the review.
-    try {
-      await flushEditor();
-    } catch {
-      /* surfaced via saveError */
+  });
+  // Review shows the report: leave Sources, Assistant full screen, or the
+  // narrow-screen Assistant view.
+  let reviewedProposalId: string | null = null;
+  $effect(() => {
+    const id = review.target?.proposalId ?? null;
+    if (id === reviewedProposalId) return;
+    reviewedProposalId = id;
+    if (id && untrack(() => sourcesOpen || assistantFull || mobileWorkspaceView === "assistant")) {
+      untrack(() => selectTab("report"));
     }
-    const ed = editorRef;
-    if (!ed || !report || replaceSession || finishingReplace) return;
-    if (reportReadOnly) {
-      notifyReplace("Drafting the missing sections. Editing resumes when they are in.");
-      return;
-    }
-    const matches = ed.findReplaceMatches(pairs);
-    if (matches.length === 0) {
-      notifyReplace(
-        `No matching passage remains for “${pairs[0]?.find ?? "this suggestion"}”. The report may have changed; refine or ask again.`
-      );
-      return;
-    }
-    const first = matches[0];
-    ed.highlightRange(first.from, first.to, first.text);
-    sessionDraftJson = null;
-    replaceSession = {
-      pairs,
-      messageId,
-      cursor: 0,
-      total: matches.length,
-      position: 1,
-      current: first,
-      replaced: 0,
-    };
-  }
+  });
 
-  /**
-   * The single exit for every replace session. Order matters: the flush runs
-   * while autosave is still held, so the latest visible document lands in
-   * sessionDraftJson instead of a plain save; only then is the hold released.
-   * With at least one replacement the document is written through
-   * markProposalApplied (snapshot + revision fence + content + status, one
-   * transaction). With none, anything typed during the session takes the
-   * normal save path. Never rejects: failures surface via notifyReplace.
-   */
-  function finishReplaceSession(sess: ReplaceSession): Promise<void> {
-    if (finishingReplace) return finishingReplace;
-    const run = async () => {
-      try {
-        const ed = editorRef;
-        ed?.clearHighlight();
-        // Capture while replaceSession is still set (autosave held).
-        await ed?.flushPendingSave();
-        const draft = sessionDraftJson;
-        sessionDraftJson = null;
-        replaceSession = null;
-        if (sess.replaced > 0) {
-          if (draft === null) {
-            notifyReplace(
-              "The replaced text is still in the editor but could not be captured for saving. Make any edit to save it."
-            );
-            return;
-          }
-          pendingSaves += 1;
-          saving = true;
-          saveError = "";
-          const apply = async () => {
-            const result = await markApplied(sess.messageId, draft, localRevision);
-            localRevision = result.revisionNumber;
-          };
-          saveChain = saveChain.then(apply, apply);
-          try {
-            await saveChain;
-          } catch (error) {
-            // A stale revision or a rejected write must not crash the page:
-            // the header keeps the persistent save error, the stepper shows
-            // the notice, and the text stays in the editor.
-            const message = userErrorMessage(error, "The replacements could not be saved.");
-            saveError = message;
-            notifyReplace(message);
-          } finally {
-            pendingSaves -= 1;
-            saving = pendingSaves > 0;
-          }
-        } else if (draft !== null) {
-          await handleEditorUpdate(draft);
-        }
-      } catch (error) {
-        notifyReplace(userErrorMessage(error, "The replacements could not be saved."));
-      } finally {
-        finishingReplace = null;
-      }
-    };
-    finishingReplace = run();
-    return finishingReplace;
-  }
-
-  function advanceReplace(cursor: number, addedReplaced: number) {
-    const sess = replaceSession;
-    const ed = editorRef;
-    if (!sess || !ed || finishingReplace) return;
-    const next =
-      ed.findReplaceMatches(sess.pairs).find((m) => m.from >= cursor) ?? null;
-    const replaced = sess.replaced + addedReplaced;
-    if (next) {
-      ed.highlightRange(next.from, next.to, next.text);
-      replaceSession = { ...sess, cursor, position: sess.position + 1, current: next, replaced };
-    } else {
-      void finishReplaceSession({ ...sess, replaced });
-    }
-  }
-
-  function replaceAndNext() {
-    const sess = replaceSession;
-    const ed = editorRef;
-    if (!sess?.current || !ed || finishingReplace) return;
-    // Count only a replacement that changed the document; a refused one is
-    // stepped over like "Keep original" (review g1).
-    const changed = ed.replaceRange(sess.current.from, sess.current.to, sess.current.replaceWith);
-    if (changed) advanceReplace(sess.current.from + sess.current.replaceWith.length, 1);
-    else advanceReplace(sess.current.to, 0);
-  }
-
-  function keepOriginalAndNext() {
-    const sess = replaceSession;
-    if (!sess?.current || finishingReplace) return;
-    advanceReplace(sess.current.to, 0);
-  }
-
-  function replaceAllRemaining() {
-    const sess = replaceSession;
-    const ed = editorRef;
-    if (!sess || !ed || finishingReplace) return;
-    let cursor = sess.current ? sess.current.from : sess.cursor;
-    let replaced = sess.replaced;
-    for (let i = 0; i < 5000; i++) {
-      const m = ed.findReplaceMatches(sess.pairs).find((x) => x.from >= cursor);
-      if (!m) break;
-      if (ed.replaceRange(m.from, m.to, m.replaceWith)) {
-        cursor = m.from + m.replaceWith.length;
-        replaced++;
-      } else {
-        // Refused: step past it instead of finding it again.
-        cursor = m.to;
-      }
-    }
-    void finishReplaceSession({ ...sess, replaced });
-  }
-
-  function endReplaceReview() {
-    const sess = replaceSession;
-    if (!sess || finishingReplace) return;
-    void finishReplaceSession(sess);
-  }
 
   /** Jump to the exact paragraph identified by the QA agent's [P#] marker. */
   function locateGap(gap: { section: string; paragraph: number | null }) {
@@ -707,6 +560,44 @@
     if (!project) return;
     deleteTarget = { id: projectId, title: project.title };
     deleteDialogOpen = true;
+  }
+
+  // Owner 2026-10-28 (Paper row 21): the over-limit pill's "Ask the Assistant
+  // to shorten it" opens the Assistant, which sends the request in a new
+  // conversation; the pill reads "Shortening" until the reply settles.
+  let assistantPrompt = $state<{ id: string; text: string } | null>(null);
+  let shorteningLine = $state<string | null>(null);
+  // The chip belongs to one request: another reply ending, or an older
+  // request's result, never clears or starts it.
+  let shorteningPromptId: string | null = null;
+  let shorteningStarted = false;
+  function askShorten(line: string, overBy: string) {
+    assistantIntent();
+    void leaveDetailsThen(() => openSidePanel("chat"));
+    const id = createRequestId();
+    assistantPrompt = { id, text: `Shorten Line ${line} so it fits the CRA limit. It is ${overBy}.` };
+    shorteningLine = line;
+    shorteningPromptId = id;
+    shorteningStarted = false;
+  }
+  function clearShortening() {
+    shorteningLine = null;
+    shorteningPromptId = null;
+    shorteningStarted = false;
+  }
+  // The chip shows from the ask until that reply settles: it starts counting
+  // once the request is sent, and goes if it never was.
+  function assistantPromptDone(id: string, sent: boolean, working: boolean) {
+    if (id !== shorteningPromptId) return;
+    if (!sent || !working) {
+      clearShortening();
+      return;
+    }
+    shorteningStarted = true;
+  }
+  function assistantWorkingChanged(working: boolean) {
+    if (!shorteningPromptId || !shorteningStarted || working) return;
+    clearShortening();
   }
 
   function handleAskAI(selection: { from: number; to: number; text: string }) {
@@ -1000,12 +891,6 @@
 
 
   async function handleEditorUpdate(json: string) {
-    // CAP-2: a replace session holds autosave. Park the latest document here;
-    // finishReplaceSession writes it when the session ends.
-    if (replaceSession) {
-      sessionDraftJson = json;
-      return;
-    }
     if (!report) return;
     const reportId = report._id;
     pendingSaves += 1;
@@ -1036,10 +921,6 @@
     }
   }
   async function flushEditor(): Promise<number> {
-    // A replace session holds autosave, so "everything visible is persisted"
-    // starts with closing that session through its transactional write.
-    if (finishingReplace) await finishingReplace;
-    else if (replaceSession) await finishReplaceSession(replaceSession);
     await editorRef?.flushPendingSave();
     await saveChain;
     if (saveError) throw new Error(saveError);
@@ -1080,7 +961,19 @@
   let startTrigger: HTMLElement | null = null;
   const NOTHING_LEFT_OUT: StartRunExcluded = { transcriptIds: [], documentIds: [] };
   let startExcluded: StartRunExcluded = NOTHING_LEFT_OUT;
-  const startSources = $derived(projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? []));
+  // 2026-11-02 (proposed): "Look up public background" for this run (on
+  // unless the writer unticks it), offered when the deployment looks it up.
+  let startWebBackground = true;
+  const webBackgroundQ = useQuery(api.generations.webBackgroundAvailable, () =>
+    auth.isAuthenticated ? {} : "skip"
+  );
+  // Phase C: the company's files a draft can read, for its own group.
+  const companyFilesQ = useQuery(api.companyFiles.listForProject, () =>
+    auth.isAuthenticated ? { projectId } : "skip"
+  );
+  const startSources = $derived(
+    projectStartSources(transcriptsQ.data ?? [], documentsQ.data ?? [], companyFilesQ.data?.files ?? [])
+  );
   const startModels = $derived(
     startRunModels({
       mode: requestMode,
@@ -1097,9 +990,10 @@
     startOpen = true;
   }
 
-  function confirmStart(excluded: StartRunExcluded) {
+  function confirmStart(excluded: StartRunExcluded, options?: StartRunOptions) {
     startOpen = false;
     startExcluded = excluded;
+    startWebBackground = options?.webBackground !== false;
     if (requiresRegenerationConfirmation) {
       confirmRegenerate = startSource;
       return;
@@ -1143,6 +1037,9 @@
         ...(excluded.documentIds.length
           ? { excludeDocumentIds: excluded.documentIds as Id<"projectDocuments">[] }
           : {}),
+        ...(excluded.companyFileIds?.length
+          ? { excludeCompanyFileIds: excluded.companyFileIds as Id<"companyFiles">[] }
+          : {}),
         ...(requestMode !== "compare" && singleModelId
           ? { singleModelId }
           : {}),
@@ -1157,6 +1054,7 @@
             })()
           : {}),
         ...(force ? { confirmRegeneration: true } : {}),
+        ...(startWebBackground ? {} : { webBackground: false }),
       });
     } catch (error) {
       generationError = userErrorMessage(
@@ -1282,8 +1180,13 @@
       // errors — show them in the validation dialog, not a raw toast.
       const code = userErrorCode(error);
       if (code === "EVIDENCE_REQUIRED" || code === "INVALID_INPUT") {
-        const label =
-          code === "INVALID_INPUT" ? "Science code" : "Filing readiness";
+        // 2026-11-02: a Line over its CRA limit is refused by the server too.
+        const labelFor = (message: string) =>
+          message.includes("over the CRA limit")
+            ? "CRA limit"
+            : code === "INVALID_INPUT"
+              ? "Science code"
+              : "Filing readiness";
         exportValidation = {
           errors: userErrorMessage(error, "The export is blocked.")
             .split("\n")
@@ -1291,10 +1194,11 @@
             .map((message) => ({
               severity: "error" as const,
               field: "filing_readiness",
-              label,
+              label: labelFor(message),
               message,
             })),
           warnings: [],
+          notes: [],
         };
       } else {
         exportError = userErrorMessage(error, "The export could not be completed.");
@@ -1379,6 +1283,16 @@
     exportValidation = null;
   }
 
+  /**
+   * 2026-10-29: a note in the export dialog's list closes it and shows that
+   * note in the report: its own occurrence in its own Line (review round 1,
+   * P2-4), or every place with its words if the report moved since.
+   */
+  function showExportNote(note: ReportNote) {
+    cancelExportValidation();
+    if (!editorRef?.showNote(note)) editorRef?.highlightText([note.text], note.text);
+  }
+
   // Iterative (section-by-section) generations render the stepper for their
   // whole active life — including "running" (a section drafting) and
   // "awaiting_input" (writer reviewing) — instead of GenerationProgress or
@@ -1402,19 +1316,17 @@
   );
   // Every step is done by the rule sign-off uses (the server's readiness).
   const planReady = $derived(Boolean(seeding && seedOutline?.readiness?.ready));
-  // Owner decision 2026-09-28 (sixth): while seeding, the Summary opens only
-  // once every step is done. A Summary URL or state refused by a current
-  // Outline read opens the Plan instead; until that read arrives the Summary
-  // tab stays disabled and a Summary URL waits (the review loads the same read).
-  const seedSummaryLocked = $derived(seeding && !planReady);
-  const seedSummaryRefused = $derived(seeding && !!seedOutline && !seedOutline.readiness?.ready);
-  $effect(() => {
-    if (!seedSummaryRefused || !seedSummaryRequested) return;
-    untrack(() => setSeedSummary(false, "replace"));
-  });
+  // 2026-11-02 (client request, replacing owner decision 2026-09-28 sixth):
+  // the Summary opens at any time while seeding. Steps not done yet are shown
+  // as such there, each with a way back to it; sign-off still needs every
+  // step done (the review and the server both check readiness).
+  const seedOpenStepCount = $derived(
+    seeding && seedOutline?.readiness && !seedOutline.readiness.ready && seedOutline.readiness.complete
+      ? new Set(seedOutline.readiness.blockingRoleIds).size
+      : 0
+  );
   const seedSummaryOpen = $derived(
     seedSummaryRequested &&
-      !seedSummaryRefused &&
       (isSeedWorkflow ||
         (reportGenerationQ.data?.gatedWorkflow === "seeds" && !!reportGenerationQ.data.summaryVersionId))
   );
@@ -1431,7 +1343,7 @@
   );
   const showSeedSummary = $derived(
     seedSummaryRequested &&
-      ((seeding && !seedSummaryRefused) ||
+      (seeding ||
         (!showIterativeStepper &&
           generation?.status !== "awaiting_selection" &&
           !(isSeedWorkflow &&
@@ -1496,6 +1408,12 @@
   // resolves.
   let seedSummaryWasShown = false;
   let seedSignOffAccepted = false;
+  // The step a Summary "Go to this step" link asked for: leaving the Summary
+  // focuses that step's heading instead of the Summary tab.
+  let seedStepFocusRoleId: string | null = null;
+  // The step that link opens, kept here as well as in the URL so the plan
+  // opens on it however the URL read updates.
+  let seedRequestedStep = $state<string | null>(null);
   // A5/A7: this host's lifetime fences every deferred Seed operation below. A
   // response or callback arriving after the host was destroyed changes no
   // URL, Summary state or focus.
@@ -1511,6 +1429,8 @@
   let seedFocusToken = 0;
   function scheduleSeedFocus(transition: "return" | "drafting") {
     const token = ++seedFocusToken;
+    const stepRoleId = seedStepFocusRoleId;
+    seedStepFocusRoleId = null;
     const owner = {
       projectId: String(projectId),
       userId: user?._id ?? "anonymous",
@@ -1529,7 +1449,16 @@
         // coincides with it.
         focusGenerationProgress();
       } else if (transition === "return" && !showSeedSummary) {
-        focusSummaryReturnTrigger();
+        if (!stepRoleId) {
+          focusSummaryReturnTrigger();
+          return;
+        }
+        void focusSeedStepHeading(
+          stepRoleId,
+          () => !hostDisposed && token === seedFocusToken && showSeedWorkspace
+        ).then((focused) => {
+          if (!focused && !hostDisposed && token === seedFocusToken) focusSummaryReturnTrigger();
+        });
       }
     });
   }
@@ -1611,14 +1540,28 @@
   );
   const openTranscript = $derived(openTranscriptQ.data);
 
-  /** A refused Summary is replaced rather than pushed, so Back never
-   * returns to a Summary that is still locked. */
+  /** Opens or leaves the Summary. Opening drops an earlier `?step=` deep
+   * link, so returning to the plan shows the step the writer was last on. */
   function setSeedSummary(open: boolean, history: "push" | "replace" = "push") {
     const url = new URL(page.url);
-    if (open) url.searchParams.set("view", "summary");
-    else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
+    if (open) {
+      url.searchParams.set("view", "summary");
+      url.searchParams.delete("step");
+      seedRequestedStep = null;
+    } else if (url.searchParams.get("view") === "summary") url.searchParams.delete("view");
     (history === "replace" ? replaceState : pushState)(`${url.pathname}${url.search}`, {});
     seedSummaryRequested = open;
+  }
+
+  /** A Summary "Go to this step" link: back to the plan, on that step. */
+  function openSeedStep(roleId: string) {
+    const url = new URL(page.url);
+    url.searchParams.delete("view");
+    url.searchParams.set("step", roleId);
+    seedStepFocusRoleId = roleId;
+    seedRequestedStep = roleId;
+    pushState(`${url.pathname}${url.search}`, {});
+    seedSummaryRequested = false;
   }
 
   // The report surface and its actions (Export, Send for review, the top-bar
@@ -1925,7 +1868,9 @@
   const runFileCount = $derived.by(() => {
     const read = runSourcesQ.data;
     if (!seedRunId || !read || read.generationId !== seedRunId || !read.complete) return null;
-    return read.sources.filter((source) => source.kind === "transcript" || source.kind === "project_document").length;
+    return read.sources.filter(
+      (source) => source.kind === "transcript" || source.kind === "project_document" || source.kind === "company_file"
+    ).length;
   });
   const sourceCount = $derived(
     runFileCount ?? transcripts.length + (documentsQ.data ?? []).filter((doc) => !doc.archived).length
@@ -1939,14 +1884,19 @@
         id: "summary",
         label: "Summary",
         done: seedSignedOff,
-        status: planReady ? "Ready" : null,
+        // 2026-11-02: open while steps remain, and it says how many.
+        status: planReady ? "Ready" : seedOpenStepCount > 0 ? `${seedOpenStepCount} open` : null,
         disabled: seeding
-          ? seedSummaryLocked
+          ? false
           : !(signedOffSummaryAvailable || showSeedSummary || showSeedRecovery),
-        disabledReason: seeding ? "Available when every step is done" : undefined,
         ...(signedOffSummaryAvailable
           ? { triggerId: SEED_SIGNED_OFF_SUMMARY_TRIGGER_ID, ariaLabel: "Signed-off Summary" }
-          : { triggerId: SEED_SUMMARY_TAB_ID }),
+          : {
+              triggerId: SEED_SUMMARY_TAB_ID,
+              ...(seedOpenStepCount > 0
+                ? { ariaLabel: `Summary, ${seedOpenStepCount} ${seedOpenStepCount === 1 ? "step" : "steps"} not done yet` }
+                : {}),
+            }),
       },
       { id: "report", label: "Report", disabled: seeding },
       sources,
@@ -1964,7 +1914,6 @@
     }
     sourcesOpen = false;
     if (id === "summary") {
-      if (seedSummaryLocked) return;
       if (!showSeedSummary && !showSeedRecovery) setSeedSummary(true);
       return;
     }
@@ -1997,6 +1946,32 @@
     return qaScore !== null ? "done" : "idle";
   });
   const qaCompletedAt = $derived(generation?.postQaCompletedAt ?? null);
+  // Owner 2026-10-29: a new conversation's options name the finished QA
+  // run's issues, only while its recorded result still describes the report
+  // (same revision and text), and never one this person reclassified as a
+  // warning in the QA panel (managers and admins can). Held until both reads
+  // answer, so an overridden issue never shows and then leaves.
+  const qaResultQ = useQuery(api.generations.getGenerationQaResult, () =>
+    qaState === "done" && generation ? { generationId: generation._id } : "skip"
+  );
+  const qaFresh = $derived(qaState === "done" && qaResultQ.data?.status === "done" && qaResultQ.data.current === true);
+  const qaOverridesQ = useQuery(api.reviews.getMyQaItemFeedback, () =>
+    qaFresh && report ? { target: { reportId: report._id } } : "skip"
+  );
+  const chatQaLoading = $derived(
+    qaState === "done" &&
+      ((qaResultQ.data === undefined && !qaResultQ.error) ||
+        (qaFresh && qaOverridesQ.data === undefined && !qaOverridesQ.error))
+  );
+  const chatQaIssueList = $derived(
+    chatQaIssues({
+      agentOutputs: generation?.agentOutputs ?? null,
+      qaDone: qaState === "done",
+      result: qaResultQ.data,
+      overrides: qaOverridesQ.data,
+      overridesFailed: !!qaOverridesQ.error,
+    })
+  );
   let qaSeenTick = $state(0);
   const qaSeen = $derived.by((): QaSeenState | null => {
     void qaSeenTick;
@@ -2063,13 +2038,19 @@
 </script>
 
 <svelte:window
-  onpopstate={() => (seedSummaryRequested = new URL(window.location.href).searchParams.get("view") === "summary")}
+  onpopstate={() => {
+    const url = new URL(window.location.href);
+    seedSummaryRequested = url.searchParams.get("view") === "summary";
+    seedRequestedStep = url.searchParams.get("step");
+  }}
   onkeydown={(e) => {
     // Chat parity Phase A: an Esc a menu or dialog already handled is theirs,
     // and the Assistant stays open while its composer holds unsent text.
     if (e.key !== "Escape" || e.defaultPrevented) return;
-    if (assistantFull && !replaceSession) chatFocus = false;
-    else if (chatShown && !replaceSession && !document.querySelector("[data-assistant-draft]")) {
+    // Owner 2026-10-28: Esc ends a review before it closes anything.
+    if (review.target) review.stop();
+    else if (assistantFull) chatFocus = false;
+    else if (chatShown && !document.querySelector("[data-assistant-draft]")) {
       chatOpen = false;
       mobileWorkspaceView = "report";
     }
@@ -2105,7 +2086,6 @@
     kind="chrome"
     theme="light"
     bind:navigationOpen
-    bind:railHidden
     displayedView={null}
     {myWorkAvailable}
     myWorkHref={workspaceHref("/my-work")}
@@ -2114,140 +2094,138 @@
     onFocusSearch={() => void goto(workspaceHref("/projects"))}
     drawerDescription="Navigate between work, projects, and account pages."
   >
-  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-workspace-shell" data-report-cohort="preview">
-    <!-- Top bar (ui-design-final.md section 2): the route's single h1 lives
-         here; page actions sit at the right, the rest in the More menu. -->
-    <ProjectTopBar
-      title={project.title}
-      projectsHref={workspaceHref("/projects")}
-      {railHidden}
-      onToggleRail={() => (railHidden = !railHidden)}
-      onOpenNavigation={() => (navigationOpen = true)}
-      moreItems={topBarMoreItems}
-      flush={showReadingInterview}
-    >
-      {#snippet leading()}
-        {#if showIntakeWorkbench && !contextOpen}
-          <!-- The intake context pane reopens from the far left, desktop only;
-               narrow screens keep the Work/Context switch. -->
-          <button
-            type="button"
-            title="Show project context"
-            aria-label="Show project context"
-            onclick={() => (contextOpen = true)}
-            class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
-          >
-            <svg class="h-[1.125rem] w-[1.125rem]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
-            </svg>
-          </button>
-        {/if}
-      {/snippet}
-      {#snippet status()}
-        {#if !project.workflowStage}
-          <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
-        {/if}
-        {#if generation && generation.status !== "completed" && !isSeedWorkflow}
-          <!-- A Step-by-step run shows its state in the panel (the reading
-               pill, the step's writing line, the writing pill), so the top
-               bar carries no status pill (F2 to F5, H3; ui-design-final.md
-               section 2). -->
-          <span class="hidden lg:inline-flex">
-            <GenerationStatusChip
-              status={generation.status}
-              candidatesDone={generation.candidatesDone ?? 0}
-              candidatesFailed={generation.candidatesFailed ?? 0}
-              surface="light"
-            />
-          </span>
-        {/if}
-        {#if saving}
-          <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
-        {/if}
-        {#if saveError}
-          <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
-        {/if}
-        {#if shareError}
-          <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Share failed: {shareError}</span>
-        {/if}
-        {#if showIterativeStepper && generation?.iterativeModelLabel}
-          <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
-        {/if}
-      {/snippet}
-      {#snippet actions()}
-        {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
-          <!-- Seed stage and Reading the interview (round 2, F2 to F5): the
-               one top-bar cancel, the filled destructive button, 36px with
-               14px sides on F2 and 16px on F3 to F5, 32px on a tablet (H3).
-               While drafting after sign-off the writing pill's Stop is the
-               only cancel. On a phone the reading screen carries it at the
-               bottom (H4). -->
-          <Button
-            variant="destructive-soft"
-            size="sm"
-            class={`h-9 py-0! ${showReadingInterview ? "px-3.5! max-sm:hidden sm:max-xl:h-8" : "px-4!"}`}
-            data-top-bar-cancel-generation
-            onclick={() => (confirmCancelIterative = true)}
-          >
-            Cancel generation
-          </Button>
-        {/if}
-        {#if reportActionsVisible}
-          <!-- Board 2.1: 36px buttons, 13px labels, radius 7. -->
-          <Button
-            variant="secondary"
-            size="sm"
-            class="h-9 gap-1.5 rounded-[0.4375rem]! px-3! text-[0.8125rem]!"
-            aria-label={exporting ? "Exporting..." : "Export .docx"}
-            onclick={handleExport}
-            disabled={exporting}
-          >
-            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            <span class="max-sm:sr-only">Export</span>
-          </Button>
-          <Button
-            size="sm"
-            class="h-9 rounded-[0.4375rem]! px-3.5! text-[0.8125rem]! max-sm:hidden"
-            data-send-for-review
-            disabled={!details.data?.permissions.canHandOff}
-            title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
-            onclick={() => void leaveDetailsThen(() => openDetails("handoff", "internal_review"))}
-          >
-            Send for review
-          </Button>
-        {:else if awaitingSelection}
-          <button
-            type="button"
-            title={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
-            aria-label={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
-            onclick={() => (candidateMaximized = !candidateMaximized)}
-            class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
-          >
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              {#if candidateMaximized}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H4.5M9 9V4.5M15 9h4.5M15 9V4.5M9 15H4.5M9 15v4.5M15 15h4.5M15 15v4.5" />
-              {:else}
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 3H3v4M3 3l6 6m8-6h4v4m0-4-6 6M7 21H3v-4m0 4 6-6m8 6h4v-4m0 4-6-6" />
-              {/if}
-            </svg>
-          </button>
-        {/if}
-      {/snippet}
-    </ProjectTopBar>
-
-    <div
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-report-cohort="preview">
+    <!-- The page frame (owner, 2026-10-28; Paper A1, S12): one white card
+         with no section sidebar; the 52px project bar inside it, then the
+         panel toolbar and the split. -->
+    <main
       data-project-card
+      data-frame-card
       data-work-panel
-      class={`mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border ${
-        showReadingInterview
-          ? "border-line-soft bg-reading-panel max-xl:mx-0 max-xl:mb-0 max-xl:rounded-none max-xl:border-0"
-          : "border-line-soft bg-surface"
-      }`}
+      class="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-surface lg:rounded-xl lg:border lg:border-line"
     >
+      <!-- Top bar: the route's single h1 lives here; page actions sit at the
+           right, the rest in the More menu. -->
+      <ProjectTopBar
+        title={project.title}
+        projectId={project._id}
+        projectsHref={workspaceHref("/projects")}
+        onOpenNavigation={() => (navigationOpen = true)}
+        moreItems={topBarMoreItems}
+        flush={showReadingInterview}
+      >
+        {#snippet leading()}
+          {#if showIntakeWorkbench && !contextOpen}
+            <!-- The intake context pane reopens from the far left, desktop only;
+                 narrow screens keep the Work/Context switch. -->
+            <button
+              type="button"
+              title="Show project context"
+              aria-label="Show project context"
+              onclick={() => (contextOpen = true)}
+              class="hidden size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none lg:flex"
+            >
+              <svg class="h-[1.125rem] w-[1.125rem]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 7C4 5.343 5.343 4 7 4h10c1.657 0 3 1.343 3 3v10c0 1.657-1.343 3-3 3H7c-1.657 0-3-1.343-3-3V7zM15 5v14" />
+              </svg>
+            </button>
+          {/if}
+        {/snippet}
+        {#snippet status()}
+          {#if !project.workflowStage}
+            <ProjectStateBadge workflowStage={project.workflowStage} legacyStatus={project.status} />
+          {/if}
+          {#if generation && generation.status !== "completed" && !isSeedWorkflow}
+            <!-- A Step-by-step run shows its state in the panel (the reading
+                 pill, the step's writing line, the writing pill), so the top
+                 bar carries no status pill (F2 to F5, H3; ui-design-final.md
+                 section 2). -->
+            <span class="hidden lg:inline-flex">
+              <GenerationStatusChip
+                status={generation.status}
+                candidatesDone={generation.candidatesDone ?? 0}
+                candidatesFailed={generation.candidatesFailed ?? 0}
+                surface="light"
+              />
+            </span>
+          {/if}
+          {#if saving}
+            <span class="hidden text-xs text-ink-faint sm:inline">Saving...</span>
+          {/if}
+          {#if saveError}
+            <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Save failed: {saveError}</span>
+          {/if}
+          {#if shareError}
+            <span class="hidden max-w-60 truncate text-xs text-red-700 sm:inline" role="alert">Share failed: {shareError}</span>
+          {/if}
+          {#if showIterativeStepper && generation?.iterativeModelLabel}
+            <span class="hidden text-xs text-ink-muted sm:inline">Model: {generation.iterativeModelLabel}</span>
+          {/if}
+        {/snippet}
+        {#snippet actions()}
+          {#if (showIterativeStepper || showSeedWorkspace || showReadingInterview) && (!isSeedWorkflow || generation?.seedCanEdit)}
+            <!-- Seed stage and Reading the interview (round 2, F2 to F5): the
+                 one top-bar cancel, the filled destructive button, 36px with
+                 14px sides on F2 and 16px on F3 to F5, 32px on a tablet (H3).
+                 While drafting after sign-off the writing pill's Stop is the
+                 only cancel. On a phone the reading screen carries it at the
+                 bottom (H4). -->
+            <Button
+              variant="destructive-soft"
+              size="sm"
+              class={`h-9 py-0! ${showReadingInterview ? "px-3.5! max-sm:hidden sm:max-xl:h-8" : "px-4!"}`}
+              data-top-bar-cancel-generation
+              onclick={() => (confirmCancelIterative = true)}
+            >
+              Cancel generation
+            </Button>
+          {/if}
+          {#if reportActionsVisible}
+            <!-- Paper A1: 30px buttons, radius 7, 13/18 500. Export is
+                 outlined with the 14px download icon; Send for review is the
+                 primary-selected fill. -->
+            <button
+              type="button"
+              data-top-bar-export
+              class="inline-flex h-[1.875rem] shrink-0 items-center justify-center gap-1.5 rounded-[0.4375rem] border border-line bg-surface px-2.5 text-[0.8125rem] font-medium leading-[calc(18/13)] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none max-sm:size-11 max-sm:px-0 pointer-coarse:h-11"
+              aria-label={exporting ? "Exporting..." : "Export .docx"}
+              onclick={handleExport}
+              disabled={exporting}
+            >
+              <FrameIcon name="download" />
+              <span class="max-sm:sr-only">Export</span>
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] bg-primary-selected px-3 text-[0.8125rem] font-medium leading-[calc(18/13)] text-white transition-colors hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none max-sm:hidden pointer-coarse:h-11"
+              data-send-for-review
+              disabled={!details.data?.permissions.canHandOff}
+              title={details.data && !details.data.permissions.canHandOff ? (details.handOffReason ?? undefined) : undefined}
+              onclick={() => void leaveDetailsThen(() => openDetails("handoff", "internal_review"))}
+            >
+              Send for review
+            </button>
+          {:else if awaitingSelection}
+            <button
+              type="button"
+              title={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
+              aria-label={candidateMaximized ? "Exit focus mode" : "Enter focus mode"}
+              onclick={() => (candidateMaximized = !candidateMaximized)}
+              class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:size-11"
+            >
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                {#if candidateMaximized}
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H4.5M9 9V4.5M15 9h4.5M15 9V4.5M9 15H4.5M9 15v4.5M15 15h4.5M15 15v4.5" />
+                {:else}
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7 3H3v4M3 3l6 6m8-6h4v4m0-4-6 6M7 21H3v-4m0 4 6-6m8 6h4v-4m0 4-6-6" />
+                {/if}
+              </svg>
+            </button>
+          {/if}
+        {/snippet}
+      </ProjectTopBar>
       {#if showReadingInterview && generation}
-        <div class="min-h-0 flex-1 overflow-y-auto" data-reading-host>
+        <div class="min-h-0 flex-1 overflow-y-auto bg-reading-panel" data-reading-host>
           {#key generation._id}
             <ReadingInterview
               generationId={generation._id}
@@ -2312,6 +2290,14 @@
           inert={assistantFull}
           class={`relative flex min-h-0 min-w-0 flex-1 flex-col ${assistantFull ? "hidden" : ""} ${sidePanelOpen && mobileWorkspaceView === "assistant" ? "max-lg:hidden" : ""}`}
         >
+          {#if review.target && !sourcesOpen}
+            <!-- Row 34 (V3): the review bar floats over the report. -->
+            <div class="pointer-events-none absolute inset-x-0 bottom-6 z-30 flex justify-center px-4" data-review-bar-host>
+              <div class="pointer-events-auto max-w-full overflow-x-auto">
+                <ReviewBar {review} />
+              </div>
+            </div>
+          {/if}
           <!-- Draft ready (board 4.4): where the writing pill was, top centre
                of the Report tab. Export and Send for review are back in the
                top bar. -->
@@ -2448,7 +2434,7 @@
             generationId={generation._id}
             {projectId}
             userId={user?._id ?? "anonymous"}
-            requestedRoleId={page.url.searchParams.get("step")}
+            requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
             hostVisible={mainPaneVisible && !sourcesOpen}
             onOpenSummary={() => setSeedSummary(true)}
           >
@@ -2484,6 +2470,7 @@
             readOnly={seedSummaryOwner.seedPhase !== "seeding"}
             focusHeadingOnMount
             onClose={() => setSeedSummary(false)}
+            onOpenStep={openSeedStep}
             onSignedOff={completeSeedSignOff}
           />
         {/key}
@@ -2551,6 +2538,10 @@
               <h2 data-report-title class="mb-0.5 text-display font-normal">
                 {project.title}
               </h2>
+              {#if reportDraftTiming}
+                <!-- 2026-11-02: how long this draft took, for anyone who can see the project. -->
+                <p class="mt-1 text-[0.8125rem] leading-[calc(20/13)] text-ink-muted" data-report-draft-timing>{reportDraftTiming}</p>
+              {/if}
               {#if notDraftedSections.length > 0}
                 <!-- A stopped Step-by-step draft (FR-43, owner decision 20). -->
                 <div class="mt-6">
@@ -2575,11 +2566,16 @@
                 onUpdate={handleEditorUpdate}
                 onComment={handleComment}
                 onAskAI={handleAskAI}
+                onAskShorten={askShorten}
+                {shorteningLine}
                 onResearch={handleResearch}
                 editable={true}
                 readOnly={reportReadOnly}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
+                evidenceView={evidence.on}
+                onEvidenceViewChange={evidence.set}
+                evidenceClaims={evidence.claims}
                 presentation="reading"
               />
 
@@ -2653,7 +2649,7 @@
            places context on the LEFT visually, like the inspected Obvious
            project composition. -->
       <div bind:this={intakeEl} data-intake-workbench class="mx-auto flex min-h-0 w-full max-w-[var(--container-shell)] flex-1 overflow-hidden lg:flex-row-reverse">
-        <main
+        <section
           aria-label="Project intake and generation"
           data-intake-pane="work"
           class={`${mobileIntakeView === "work" ? "flex" : "hidden"} min-h-0 flex-1 flex-col overflow-y-auto lg:flex`}
@@ -2740,7 +2736,7 @@
               </section>
             {/if}
           </div>
-        </main>
+        </section>
 
         <!-- Draggable separator between context and work (desktop only) -->
         {#if contextOpen}
@@ -2980,12 +2976,17 @@
                         {pendingResearch}
                         onClearResearch={() => (pendingResearch = null)}
                         onReferenceText={(texts, scrollTo) => editorRef?.highlightText(texts, scrollTo)}
-                        onReviewReplacements={startReplaceReview}
-                        onPreviewProposal={(pairs, on) => {
-                          if (on && pairs.length) editorRef?.previewProposal(pairs);
-                          else editorRef?.clearProposalPreview();
+                        {review}
+                        onOpenVersionHistory={() => (showHistory = true)}
+                        reportContent={report.content}
+                        qaIssues={chatQaIssueList}
+                        qaLoading={chatQaLoading}
+                        pendingPrompt={assistantPrompt}
+                        onPromptTaken={(id) => {
+                          if (assistantPrompt?.id === id) assistantPrompt = null;
                         }}
-                        reviewingId={replaceSession?.messageId ?? null}
+                        onPromptDone={assistantPromptDone}
+                        onWorkingChange={assistantWorkingChanged}
                         onBeforeApply={flushEditor}
                         closeInset={false}
                         bind:composerHeight={assistantComposerHeight}
@@ -3003,7 +3004,7 @@
         </aside>
       </div>
       {/if}
-    </div>
+    </main>
     {#if deleteTarget !== null}
       <DeleteProjectDialog
         bind:open={deleteDialogOpen}
@@ -3013,64 +3014,6 @@
         onDeleted={leaveAfterDelete}
       />
     {/if}
-    <!-- BNH-30: one-by-one replace stepper, Word-style "replace & find next" -->
-    {#if replaceSession}
-      <div class="fixed bottom-6 left-1/2 z-[80] -translate-x-1/2">
-        <div class="card flex items-center gap-3 px-4 py-3 shadow-xl">
-          <div class="flex flex-col">
-            <span class="text-xs font-medium text-gray-400">
-              Reviewing replacements
-            </span>
-            <span class="text-sm font-semibold text-navy">
-              {replaceSession.current
-                ? `Instance ${replaceSession.position} of ${replaceSession.total}`
-                : "Done"}
-              {#if replaceSession.current}
-                <span class="ml-2 font-normal text-gray-500">
-                  “{replaceSession.current.text}” →
-                  <span class="text-primary-dark">
-                    {replaceSession.current.replaceWith}
-                  </span>
-                </span>
-              {/if}
-            </span>
-          </div>
-          <div class="ml-2 flex items-center gap-1.5">
-            <button
-              onclick={replaceAndNext}
-              class="inline-flex items-center gap-1 rounded-lg bg-primary-selected px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              Replace and next
-              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </button>
-            <button
-              onclick={replaceAllRemaining}
-              class="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-navy transition-colors hover:bg-primary-wash"
-            >
-              Replace All
-            </button>
-            <button
-              onclick={keepOriginalAndNext}
-              class="rounded-lg px-3 py-2 text-xs font-medium text-ink-secondary transition-colors hover:bg-primary-wash hover:text-navy"
-            >
-              Keep original
-            </button>
-            <button
-              onclick={endReplaceReview}
-              title="Stop reviewing"
-              class="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-primary-wash hover:text-gray-600"
-            >
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     {#snippet qaFinishedNotice()}
       {#if qaScores}
         <QaFinishedNotice
@@ -3099,13 +3042,6 @@
       </div>
     {/if}
 
-    <!-- BNH-30: transient notice (e.g. text not found to replace) -->
-    {#if replaceNotice}
-      <div class="fixed bottom-6 left-1/2 z-[85] -translate-x-1/2 rounded-lg bg-navy px-4 py-2 text-sm text-white shadow-xl">
-        {replaceNotice}
-      </div>
-    {/if}
-
     <!-- Comment authoring + hover overlay (single view) -->
     {#if !awaitingSelection && !showIterativeStepper && !showSeedSummary && !showSeedWorkspace && !showSeedRecovery && !showSeedDrafting && report && user}
       <CommentOverlay
@@ -3126,6 +3062,7 @@
       models={startModels}
       validate={(excluded) => projectStartProblem(excluded, transcriptsQ.data ?? [], documentsQ.data ?? [])}
       onConfirm={confirmStart}
+      offerWebBackground={webBackgroundQ.data === true}
       onCancel={() => startSelection.cancel()}
       onSelectionChange={(excluded) => {
         // Only a Step-by-step run waits on a head start (review P3-5).
@@ -3246,8 +3183,10 @@
       <ExportValidationDialog
         errors={exportValidation.errors}
         warnings={exportValidation.warnings}
+        notes={exportValidation.notes}
         onCancel={cancelExportValidation}
         onProceed={proceedAfterExportWarnings}
+        onShowNote={showExportNote}
       />
     {/if}
     {#if exportError}

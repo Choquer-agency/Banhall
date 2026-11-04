@@ -4,6 +4,7 @@ import { render } from "vitest-browser-svelte";
 import StickyBarToasterHarness from "$lib/test/StickyBarToasterHarness.svelte";
 import NewProjectPage from "../../../routes/project/new/+page.svelte";
 import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
+import MidPaneStickyBar from "$lib/test/MidPaneStickyBar.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
@@ -38,8 +39,14 @@ async function expectCardClearsBar(barSelector: string, actionSelector: string) 
   const bar = document.querySelector<HTMLElement>(barSelector)!;
   const action = bar.querySelector<HTMLElement>(actionSelector)!;
   const barRect = bar.getBoundingClientRect();
-  // The bar sits on the window's bottom edge, where the card used to be.
-  expect(Math.round(barRect.bottom)).toBe(window.innerHeight);
+  // The bar sits on the page's bottom edge, where the card used to be: the
+  // window's on a phone, the white card's from 1024px (the page frame,
+  // 8px above the window's foot inside its 1px border).
+  const frame = bar.closest<HTMLElement>("[data-frame-card]");
+  const pageBottom = frame
+    ? frame.getBoundingClientRect().bottom - parseFloat(getComputedStyle(frame).borderBottomWidth)
+    : window.innerHeight;
+  expect(Math.round(barRect.bottom)).toBe(Math.round(pageBottom));
   await expect
     .poll(() => document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect().bottom)
     .toBeLessThanOrEqual(barRect.top - 16 + 0.5);
@@ -105,5 +112,34 @@ describe("Notification card above sticky action bars", () => {
     expect(document.querySelector("[data-bottom-bar]")).toBeNull();
     const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
     expect(Math.round(window.innerHeight - section.bottom)).toBe(Math.round(board(16)));
+  });
+
+  it("stays 16px from the bottom over a sticky bar that ends mid-window (short content)", async () => {
+    await page.viewport(1440, 900);
+    __setPageUrl("/project/p-1");
+    await render(StickyBarToasterHarness, { content: MidPaneStickyBar });
+    await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
+    const bar = document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect();
+    expect(bar.height).toBeGreaterThan(0);
+    expect(window.innerHeight - bar.bottom).toBeGreaterThan(400);
+    const section = document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
+    expect(Math.round(window.innerHeight - section.bottom)).toBe(Math.round(board(16)));
+  });
+
+  it("lifts over a mid-window bar once content above it grows and pins it to the foot, with no scroll (review round 2, item 2)", async () => {
+    await page.viewport(1440, 900);
+    __setPageUrl("/project/p-1");
+    await render(StickyBarToasterHarness, { content: MidPaneStickyBar });
+    await expect.poll(() => document.querySelector("[data-notification]")).not.toBeNull();
+    const toaster = () => document.querySelector<HTMLElement>("[data-notification-toaster]")!.getBoundingClientRect();
+    // Let the first measures settle (the bar's own first resize note, the
+    // window's), so only the content's growth can move the card.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(Math.round(window.innerHeight - toaster().bottom)).toBe(Math.round(board(16)));
+    document.querySelector<HTMLButtonElement>("[data-grow]")!.click();
+    await expect.poll(() => Math.round(document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect().bottom)).toBe(window.innerHeight);
+    const bar = document.querySelector<HTMLElement>("[data-mid-bar]")!.getBoundingClientRect();
+    await expect.poll(() => toaster().bottom).toBeLessThanOrEqual(bar.top - board(16) + 0.5);
+    expect(window.scrollY).toBe(0);
   });
 });

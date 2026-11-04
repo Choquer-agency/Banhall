@@ -8,6 +8,7 @@ import type { Id } from "./_generated/dataModel";
 import { FACTS_VERSION } from "./lib/transcriptFacts";
 import { SPEAKER_ROLES_REQUEST, SPEAKER_ROLES_SCHEMA, SPEAKER_ROLES_SYSTEM_PROMPT } from "./ai/speakerRolesAgent";
 import { sha256 } from "./lib/contracts";
+import { stubFetchStreaming } from "./anthropicSse.fixture";
 
 // The credit latch read (decision 64) runs before or after each Anthropic
 // request; load its module first so a cold import cannot race the fake clock.
@@ -99,7 +100,7 @@ async function setup(mode: "off" | "long" | "all" = "long") {
   });
   const writer = t.withIdentity({ subject: "ff-writer" });
   // Roles are placed by the project record, so no speaker call is made.
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
+  stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
   const transcriptId = await writer.mutation(api.transcripts.addTranscript, {
     projectId: ids.projectId,
     content: CONTENT,
@@ -122,7 +123,7 @@ describe("fact extraction runs once per text and version", () => {
   it("extracts in the background when a consultant opens the transcript, then reuses the result", async () => {
     const f = await setup("long");
     const fetchMock = vi.fn(async () => factsResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchStreaming(vi, fetchMock);
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
 
@@ -149,7 +150,7 @@ describe("fact extraction runs once per text and version", () => {
   it("extracts again after a speaker is moved away from interviewer (review 2026-09-25)", async () => {
     const f = await setup("long");
     const fetchMock = vi.fn(async () => factsResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchStreaming(vi, fetchMock);
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -193,7 +194,7 @@ describe("fact extraction runs once per text and version", () => {
   it("keys facts on the parser version of the turns they index (2026-09-25)", async () => {
     const f = await setup("long");
     const fetchMock = vi.fn(async () => factsResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchStreaming(vi, fetchMock);
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -276,7 +277,7 @@ describe("fact extraction runs once per text and version", () => {
   it("does nothing while the transcript method is off", async () => {
     const f = await setup("off");
     const fetchMock = vi.fn(async () => factsResponse());
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchStreaming(vi, fetchMock);
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -285,7 +286,7 @@ describe("fact extraction runs once per text and version", () => {
 
   it("records a failure and writes no facts", async () => {
     const f = await setup("all");
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("bad", { status: 400 })));
+    stubFetchStreaming(vi, vi.fn(async () => new Response("bad", { status: 400 })));
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await factsOf(f.t, f.transcriptId)).toEqual([]);
@@ -295,12 +296,12 @@ describe("fact extraction runs once per text and version", () => {
 
   it("copies ready facts to the same text in another project with no model call", async () => {
     const f = await setup("long");
-    vi.stubGlobal("fetch", vi.fn(async () => factsResponse()));
+    stubFetchStreaming(vi, vi.fn(async () => factsResponse()));
     await f.writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId: f.transcriptId });
     await f.t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const fetchMock = vi.fn(() => { throw new Error("no call expected"); });
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchStreaming(vi, fetchMock);
     const otherProjectId = await f.t.run((ctx) =>
       ctx.db.insert("projects", {
         title: "Helios copy",

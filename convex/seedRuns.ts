@@ -1,5 +1,7 @@
+import { maskOutside } from "../shared/evidenceChoice";
+import { getSourceRowWithText, withSourceTexts, type SourceRowWithText } from "./lib/sourceText";
 import { makeFunctionReference } from "convex/server";
-import { v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import {
   internalMutation,
   internalQuery,
@@ -15,6 +17,7 @@ import { buildSeedPrompt, seedPromptProjection } from "./ai/trustedContext";
 import { domainError } from "./lib/contracts";
 import { notifyIdeasReady } from "./lib/generations/notifications";
 import { resolveGenerationStep } from "./lib/generationSteps";
+import { leaveMovedBackModels } from "./lib/modelRoles";
 import { reconcileRestoredSeedApproval } from "./lib/seedDecisionWrites";
 import { checkSeedSpeakers, checkedCitations, citationSpeakerReader } from "./lib/citationSpeakers";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
@@ -97,7 +100,10 @@ const failureCodeValidator = v.union(
   v.literal("CONTEXT_LIMIT"),
   v.literal("INTERNAL_ERROR"),
   v.literal("LEASE_EXPIRED"),
-  v.literal("GENERATION_TERMINATED")
+  v.literal("GENERATION_TERMINATED"),
+  // 2026-10-26 (Phase C, review round 3): the draft read the files of a
+  // company the project has left.
+  v.literal("COMPANY_CHANGED")
 );
 
 const failureDetailValidator = v.union(
@@ -112,7 +118,8 @@ type SeedFailureCode =
   | "CONTEXT_LIMIT"
   | "INTERNAL_ERROR"
   | "LEASE_EXPIRED"
-  | "GENERATION_TERMINATED";
+  | "GENERATION_TERMINATED"
+  | "COMPANY_CHANGED";
 
 const generateBatchRef = makeFunctionReference<
   "action",
@@ -397,6 +404,8 @@ export async function dispatchSeedAttempt(
       projection: seedPromptProjection(loaded.snapshot),
       writerSettings: frozen.writerSettings,
       lengthTarget: frozen.lengthTarget,
+      // 2026-10-30: the same claimant line the Batch will send.
+      ...(frozen.claimantName ? { claimantName: frozen.claimantName } : {}),
     });
   } catch (error) {
     if (error instanceof SeedContextLimitError) {
@@ -413,6 +422,9 @@ export async function dispatchSeedAttempt(
     })
   );
   const attemptId = crypto.randomUUID();
+  // 2026-10-23 (owner, second): a new Batch runs off a model its tier was
+  // moved back from; Batches already queued keep theirs.
+  const current = await leaveMovedBackModels(ctx, generation);
   const batchId = await ctx.db.insert("seedBatches", {
     projectId: project._id,
     generationId: generation._id,
@@ -433,9 +445,9 @@ export async function dispatchSeedAttempt(
     // Owner decision 43: seed cards run on the generation's frozen planning
     // model; a generation frozen before step routing keeps the writer's.
     model: resolveGenerationStep({
-      freeze: generation.modelFreeze,
+      freeze: current.modelFreeze,
       step: args.operation === "feedback" ? "seedFeedback" : "seeds",
-      writerModel: generation.singleModelId ?? MODEL,
+      writerModel: current.singleModelId ?? MODEL,
     }).model,
     slot:
       args.operation === "feedback"
@@ -614,7 +626,13 @@ type NotClaimedReason =
   | "wrong_workflow"
   | "deleting"
   | "not_pending"
-  | "lease_expired";
+  | "lease_expired"
+  | "company_changed";
+
+/** The refusal `refuseWhenCompanyLeft` throws. */
+function isCompanyChanged(error: unknown): boolean {
+  return error instanceof ConvexError && (error.data as { reason?: unknown } | undefined)?.reason === "COMPANY_CHANGED";
+}
 
 function notClaimed(reason: NotClaimedReason) {
   return { kind: "not_claimed" as const, reason };
@@ -656,10 +674,20 @@ export const claimAttempt = internalMutation({
     // 2026-09-29 (first, review P2-2): an uncertainty and its revisions are one.
     const uncertaintyRoots =
       batch.roleId === "specific_advancements" ? await loadUncertaintyRoots(ctx, context) : {};
-    const input = await loadFrozenSeedActionInput(ctx, {
-      generation,
-      briefVersionId: batch.briefVersionId,
-    });
+    let input: Awaited<ReturnType<typeof loadFrozenSeedActionInput>>;
+    try {
+      input = await loadFrozenSeedActionInput(ctx, {
+        generation,
+        briefVersionId: batch.briefVersionId,
+      });
+    } catch (error) {
+      // Review round 3: a Batch queued before the project left the company
+      // whose files the draft read fails now, as what it is, instead of
+      // waiting out its lease.
+      if (!isCompanyChanged(error)) throw error;
+      await failSeedAttempt(ctx, { batch, requestsMade: 0, errorCode: "COMPANY_CHANGED" });
+      return notClaimed("company_changed");
+    }
     const now = Date.now();
     await ctx.db.patch(batch._id, { status: "running", startedAt: now });
     await bumpSeedStageVersion(ctx, generation._id);
@@ -808,7 +836,7 @@ async function failSeedAttempt(
     // neither says "Writing seeds for this step failed" nor counts toward
     // the three-failure state (step-by-step review s1 P3-2).
     const failures =
-      args.errorCode === "GENERATION_TERMINATED"
+      args.errorCode === "GENERATION_TERMINATED" || args.errorCode === "COMPANY_CHANGED"
         ? subsection.consecutiveFailures
         : subsection.consecutiveFailures + 1;
     const wasGenerating = subsection.state === "generating";
@@ -918,6 +946,49 @@ export const failAttempt = internalMutation({
   },
 });
 
+/**
+ * Phase D, step 1: the sources a Batch's prompt sent only in part, with
+ * what was sent (and the spans the Brief's entries cite on them). Optional:
+ * an action started before it existed sends none, and nothing is blanked.
+ */
+const sentRangesValidator = v.optional(
+  v.array(
+    v.object({
+      sourceId: v.id("generationSources"),
+      ranges: v.array(v.object({ start: v.number(), end: v.number() })),
+    })
+  )
+);
+
+/**
+ * The sent ranges by source, when every one names a row of this draft and
+ * lies inside its text; otherwise null (and logged), so nothing is blanked,
+ * as before. Our own action sends them; the shape is still checked.
+ */
+export function checkedSentRanges(
+  entries: ReadonlyArray<{ sourceId: string; ranges: ReadonlyArray<{ start: number; end: number }> }> | undefined,
+  rows: ReadonlyArray<{ _id: string; content: string }>,
+  /** Only the rows given are checked: a caller that loaded only the cited rows skips the others. */
+  options: { onlyLoaded?: boolean } = {}
+): Map<string, Array<{ start: number; end: number }>> | null {
+  if (!entries || entries.length === 0) return null;
+  const lengths = new Map(rows.map((row) => [row._id as string, row.content.length]));
+  const sent = new Map<string, Array<{ start: number; end: number }>>();
+  for (const entry of entries) {
+    const length = lengths.get(entry.sourceId);
+    if (length === undefined && options.onlyLoaded) continue;
+    const fits = length !== undefined && entry.ranges.every(
+      (range) => Number.isInteger(range.start) && Number.isInteger(range.end) && range.start >= 0 && range.start < range.end && range.end <= length
+    );
+    if (!fits) {
+      console.warn("Seed sent ranges ignored: a range does not fit its source", { sourceId: entry.sourceId });
+      return null;
+    }
+    sent.set(entry.sourceId, [...entry.ranges]);
+  }
+  return sent;
+}
+
 export const completeAttempt = internalMutation({
   args: {
     batchId: v.id("seedBatches"),
@@ -925,6 +996,7 @@ export const completeAttempt = internalMutation({
     requestsMade: v.number(),
     seeds: v.array(seedCandidateValidator),
     seedsDropped: v.optional(v.number()),
+    sentRanges: sentRangesValidator,
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
@@ -957,10 +1029,12 @@ export const completeAttempt = internalMutation({
           .query("seedBatchContext")
           .withIndex("by_batchId", (q) => q.eq("batchId", batch._id))
           .take(MAX_SEED_SNAPSHOT_ROWS + 1),
+        // B1, second part: each row with its text, in the old shape.
         ctx.db
           .query("generationSources")
           .withIndex("by_generationId", (q) => q.eq("generationId", batch.generationId))
-          .take(MAX_SEED_SOURCE_ROWS + 1),
+          .take(MAX_SEED_SOURCE_ROWS + 1)
+          .then((rows) => withSourceTexts(ctx, rows)),
       ]);
     if (
       contextRows.length > MAX_SEED_SNAPSHOT_ROWS ||
@@ -1002,10 +1076,17 @@ export const completeAttempt = internalMutation({
           ...(item.uncertaintySeedId ? { uncertaintySeedId: item.uncertaintySeedId } : {}),
         })),
     };
+    // Phase D, step 1: a source sent only in part is checked against what
+    // was sent, the rest blanked with its positions kept.
+    const sent = checkedSentRanges(args.sentRanges, sources);
+    const sentOnly = (sourceId: string, content: string) => {
+      const ranges = sent?.get(sourceId);
+      return ranges ? maskOutside(content, ranges) : content;
+    };
     const frozenSources: FrozenSeedSource[] = sources.map((source) => ({
       sourceId: source._id,
       generationId: source.generationId,
-      content: source.content,
+      content: sentOnly(source._id, source.content),
       contentHash: source.contentHash,
     }));
     // Transcript method (plan step 7, owner decision 25): with a fact pack
@@ -1015,7 +1096,7 @@ export const completeAttempt = internalMutation({
     const factSources: FactSource[] = sources.map((source) => ({
       sourceId: source._id,
       kind: source.kind,
-      content: source.content,
+      content: source.kind === "project_document" || source.kind === "company_file" ? sentOnly(source._id, source.content) : source.content,
       contentHash: source.contentHash,
       ...(source.transcriptId ? { transcriptId: source.transcriptId } : {}),
       ...(source.factSpans ? { factSpans: source.factSpans } : {}),
@@ -1089,7 +1170,8 @@ export const completeAttempt = internalMutation({
       const speakerChecked = await checkSeedSpeakers(
         citationSpeakerReader(ctx),
         validation.seeds,
-        new Map(sources.map((source) => [source._id as string, source]))
+        new Map(sources.map((source) => [source._id as string, source])),
+        sent ?? undefined
       );
       checkedSeeds = speakerChecked.seeds;
       if (speakerChecked.dropped > 0) {
@@ -1273,6 +1355,7 @@ export const quoteRepairContext = internalQuery({
   args: {
     batchId: v.id("seedBatches"),
     generationId: v.id("generations"),
+    sentRanges: sentRangesValidator,
     seeds: v.array(
       v.object({
         provenance: v.array(
@@ -1300,18 +1383,20 @@ export const quoteRepairContext = internalQuery({
   handler: async (ctx, args) => {
     const batch = await ctx.db.get(args.batchId);
     const writerWaiting = !batch || batch.operation !== "prefetch" || batch.writerWaitingAt !== undefined;
-    const sources = new Map<string, Doc<"generationSources">>();
+    const sources = new Map<string, SourceRowWithText>();
     for (const seed of args.seeds) {
       for (const citation of seed.provenance) {
         if (sources.has(citation.sourceId)) continue;
-        const source = await ctx.db.get(citation.sourceId);
+        const source = await getSourceRowWithText(ctx, citation.sourceId);
         if (source && source.generationId === args.generationId) sources.set(citation.sourceId, source);
       }
     }
     const reader = citationSpeakerReader(ctx);
+    // Only the cited rows are loaded here; the ranges of the others are not needed (review).
+    const sent = checkedSentRanges(args.sentRanges, [...sources.values()], { onlyLoaded: true });
     const checked = [];
     for (const seed of args.seeds) {
-      checked.push(await checkedCitations(reader, seed.provenance, sources));
+      checked.push(await checkedCitations(reader, seed.provenance, sources, sent ?? undefined));
     }
     return { writerWaiting, checked };
   },

@@ -198,11 +198,12 @@ describe("saveProposal persists the Completion Report", () => {
     expect(result).toMatchObject({ ok: true });
 
     const state = await rows(f);
-    expect(state.proposals).toHaveLength(1);
+    // Owner 2026-10-28: one card per Line, each holding its own Line's findings.
+    expect(state.proposals.map((row) => row.section)).toEqual(["242", "244", "246"]);
     expect(state.items).toHaveLength(16);
     expect(state.items.map((row) => row.itemId)).toEqual(findings.map((finding) => finding.id));
-    const proposalId = state.proposals[0]?._id;
-    expect(state.items.every((row) => row.proposalId === proposalId)).toBe(true);
+    const cardFor = new Map(state.proposals.map((row) => [row.section, row._id]));
+    expect(state.items.every((row) => row.proposalId === cardFor.get(row.section))).toBe(true);
     expect(state.items.every((row) => row.projectId === f.projectId)).toBe(true);
 
     // Statuses and their evidence survive the round trip.
@@ -306,11 +307,12 @@ describe("applyProposal over a proposal that carries a Completion Report", () =>
     const applied = await f.owner.mutation(api.chatV2.applyProposal, {
       proposalId: saved.proposalId,
     });
-    expect(applied).toMatchObject({ applied: true, count: 14 });
+    // The first card is Line 242's: its five passages, not the other Lines'.
+    expect(applied).toMatchObject({ applied: true, count: 5 });
 
     const after = await rows(f);
-    // The proposal moved to applied; the 16 item rows did not move at all.
-    expect(after.proposals[0]?.state).toBe("applied");
+    // The card moved to applied; the 16 item rows did not move at all.
+    expect(after.proposals.map((row) => row.state)).toEqual(["applied", "pending", "pending"]);
     expect(after.items).toEqual(before.items);
 
     const report = await f.t.run((ctx) => ctx.db.get(f.reportId));

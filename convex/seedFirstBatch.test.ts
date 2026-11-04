@@ -15,6 +15,8 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import type { GenerationMessageParams } from "./ai/openrouterCore";
 import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../shared/pdSubsections";
+// A current model-derived Brief (review round 4, A1: earlier ones are not reused).
+import { BRIEF_DERIVATION_VERSION } from "./lib/briefDerivationPolicy";
 
 const network = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -119,7 +121,7 @@ async function setup() {
     });
     const briefId = await ctx.db.insert("generationBriefs", {
       generationId, projectId, inputsHash: "frozen", version: 1, origin: "derived",
-      storylineText: "The team tested a control loop.", createdAt: 1,
+      storylineText: "The team tested a control loop.", derivationVersion: BRIEF_DERIVATION_VERSION, createdAt: 1,
     });
     return { userId, projectId, generationId, briefId };
   });
@@ -192,6 +194,57 @@ const FIRST_ROLE: PdSubsectionRoleId = PD_SUBSECTIONS[0].roleId;
 function openArgs(s: Fixture, version: number, commandId: string, roleId = FIRST_ROLE) {
   return { generationId: s.generationId, roleId, expectedSeedStageVersion: version, commandId };
 }
+
+// 2026-10-27 (twelfth, owner): "skip the step if its the project's first
+// year or no prior files available".
+describe("Previous-year status with nothing from a previous year", () => {
+  async function priorYear(s: Fixture) {
+    return await s.t.run(async (ctx) => ({
+      generation: await ctx.db.get(s.generationId),
+      row: await ctx.db
+        .query("seedSubsections")
+        .withIndex("by_generationId_and_roleId", (q) => q.eq("generationId", s.generationId).eq("roleId", "prior_year_status"))
+        .unique(),
+      events: (await ctx.db.query("seedDecisionEvents").collect())
+        .map((event) => event as { generationId: string; roleId?: string; kind: string; actorSystem?: boolean; actorUserId?: string })
+        .filter((event) => event.generationId === s.generationId && event.roleId === "prior_year_status")
+        .map((event) => ({ kind: event.kind, actorSystem: event.actorSystem ?? false, actorUserId: event.actorUserId ?? null })),
+      batches: (await ctx.db.query("seedBatches").collect()).filter((batch) => batch.roleId === "prior_year_status"),
+    }));
+  }
+
+  it.each([
+    [false, "skipped"],
+    [true, "untouched"],
+    [undefined, "untouched"],
+  ] as const)("opens it with previous-year material %s as %s", async (material, expected) => {
+    const s = await setup();
+    if (material !== undefined) await s.t.run((ctx) => ctx.db.patch(s.generationId, { previousYearMaterial: material }));
+    await initialize(s);
+    const state = await priorYear(s);
+    expect(state.row?.state).toBe(expected);
+    expect(state.events).toEqual(expected === "skipped" ? [{ kind: "skip", actorSystem: true, actorUserId: null }] : []);
+    expect(state.batches).toEqual([]);
+    // Every other step opens as before.
+    const others = await s.t.run((ctx) =>
+      ctx.db.query("seedSubsections").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(others.filter((row) => row.roleId !== "prior_year_status").every((row) => row.state === "untouched")).toBe(true);
+  });
+
+  it("lets the writer restore it", async () => {
+    const s = await setup();
+    await s.t.run((ctx) => ctx.db.patch(s.generationId, { previousYearMaterial: false }));
+    await initialize(s);
+    const before = await priorYear(s);
+    await s.writer.mutation(api.seeds.unskip, {
+      generationId: s.generationId,
+      roleId: "prior_year_status",
+      expectedSeedStageVersion: before.generation?.seedStageVersion ?? 0,
+    });
+    expect((await priorYear(s)).row?.state).toBe("untouched");
+  });
+});
 
 describe("the server starts the first Seed Batch (decision 65)", () => {
   it("schedules one first-Batch command when the stage opens, and none on a repeated initialization", async () => {
@@ -519,5 +572,116 @@ describe("the server starts the first Seed Batch (decision 65)", () => {
       s.writer.mutation(api.seeds.open, openArgs(s, 0, "open:mount"))
     ).rejects.toThrow(/SEED_PROCESSING_LIMIT/);
     expect(await read(s)).toEqual(refused);
+  });
+
+  it("a Batch records what its prompt carried of each frozen row, by its step, once it has answered (Phase D, step 2)", async () => {
+    const s = await setup();
+    configureProvider();
+    await initialize(s);
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    await runGenerateBatchJob(s);
+    const [batch] = (await read(s)).batches;
+    expect(batch!.status).toBe("shown");
+    const uses = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(uses.map((use) => ({ step: use.step, run: use.run, state: use.state, unit: use.unit }))).toEqual([
+      { step: "seeds", run: FIRST_ROLE, state: "whole", unit: "bytes" },
+    ]);
+    expect(uses[0]!.sent).toBe(uses[0]!.total);
+  });
+
+  it("a Batch whose completion is refused records nothing (Phase D, step 2, re-check)", async () => {
+    const s = await setup();
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    let release!: () => void;
+    const until = new Promise<void>((resolve) => (release = resolve));
+    configureProvider(false, { entered, until });
+    await initialize(s);
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    const running = runGenerateBatchJob(s);
+    await inside;
+    // Another attempt took the Batch while this one's request ran.
+    await s.t.run(async (ctx) => {
+      const [batch] = await ctx.db.query("seedBatches").collect();
+      await ctx.db.patch(batch!._id, { attemptId: "a-later-attempt" });
+    });
+    release();
+    await running;
+    const uses = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(uses).toEqual([]);
+  });
+
+  it("a Batch that fails records nothing (Phase D, step 2, review)", async () => {
+    const s = await setup();
+    configureProvider(true);
+    await initialize(s);
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    await runGenerateBatchJob(s);
+    expect((await read(s)).batches.map((batch) => batch.status)).toEqual(["failed"]);
+    const uses = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSourceUse").withIndex("by_generationId", (q) => q.eq("generationId", s.generationId)).collect()
+    );
+    expect(uses).toEqual([]);
+  });
+
+  it("a Batch queued before the project left the company fails at once as a company change (review round 3)", async () => {
+    const s = await setup();
+    const { borealis } = await s.t.run(async (ctx) => {
+      const company = (name: string) =>
+        ctx.db.insert("clients", { name, nameKey: name.toLowerCase(), status: "active", createdBy: s.userId, createdAt: 1, updatedAt: 1 });
+      const acme = await company("Acme");
+      const borealis = await company("Borealis");
+      await ctx.db.patch(s.projectId, { clientId: acme });
+      const content = "Acme has sealed cryogenic pumps since 2011.";
+      await ctx.db.insert("generationSources", {
+        generationId: s.generationId, projectId: s.projectId, kind: "company_file", clientId: acme, label: "background:history.txt",
+        content, contentHash: "company-hash", truncated: false, originalLength: content.length, capturedAt: 1,
+      });
+      return { borealis };
+    });
+    await initialize(s);
+    // Queued while the project is still Acme's.
+    expect((await runFirstBatchJob(s)).kind).not.toBe("skipped");
+    expect((await read(s)).batches.map((batch) => batch.status)).toEqual(["queued"]);
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: borealis }));
+    await runGenerateBatchJob(s);
+    const after = await read(s);
+    expect(after.batches.map((batch) => [batch.status, batch.error])).toEqual([["failed", "COMPANY_CHANGED"]]);
+    expect(after.rows.find((row) => row.roleId === FIRST_ROLE)?.pendingBatchId).toBeUndefined();
+  });
+
+  it("a draft that read the files of a company the project has left makes no Seeds (Phase C review 2)", async () => {
+    const s = await setup();
+    const { acme, borealis } = await s.t.run(async (ctx) => {
+      const company = (name: string) =>
+        ctx.db.insert("clients", { name, nameKey: name.toLowerCase(), status: "active", createdBy: s.userId, createdAt: 1, updatedAt: 1 });
+      const acme = await company("Acme");
+      const borealis = await company("Borealis");
+      await ctx.db.patch(s.projectId, { clientId: acme });
+      const content = "Acme has sealed cryogenic pumps since 2011.";
+      await ctx.db.insert("generationSources", {
+        generationId: s.generationId, projectId: s.projectId, kind: "company_file", clientId: acme, label: "background:history.txt",
+        content, contentHash: "company-hash", truncated: false, originalLength: content.length, capturedAt: 1,
+      });
+      return { acme, borealis };
+    });
+    // Relinked to another company after the Brief was made: its entries may quote Acme's file.
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { clientId: borealis }));
+    await initialize(s);
+    await expect(runFirstBatchJob(s)).rejects.toThrow(/COMPANY_CHANGED/);
+    await expect(s.writer.mutation(api.seeds.open, openArgs(s, 0, "open:mount"))).rejects.toThrow(
+      /no longer belongs to\. Start a new draft/
+    );
+    expect((await read(s)).batches).toEqual([]);
+    // Back with Acme, or with a company Acme was merged into, the draft goes on.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(acme, { status: "merged", mergedIntoClientId: borealis });
+    });
+    expect((await s.writer.mutation(api.seeds.open, openArgs(s, 0, "open:mount"))).kind).not.toBe("skipped");
+    expect((await read(s)).batches).toHaveLength(1);
   });
 });

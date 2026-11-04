@@ -5,6 +5,11 @@
  * late writes, retention, usage, and the request a preparation sends
  * compared with a run's own Brief request at the SDK's HTTP boundary.
  */
+import { withSourceTexts } from "./lib/sourceText";
+import { generationBriefKey } from "./lib/briefPreparationKey";
+import { readBriefSourceRows } from "./lib/generations/brief";
+import type { SourceRowWithText } from "./lib/sourceText";
+import { rowsWithStoredText } from "./testFixtureRows";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -222,7 +227,7 @@ async function reserve(s: Setup, args: { singleModelId?: string } = {}) {
 
 async function generationSources(s: Setup, generationId: Id<"generations">) {
   return await s.t.run(async (ctx) =>
-    ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
   );
 }
 
@@ -333,6 +338,16 @@ describe("preparing and adopting", () => {
     const usageBefore = (await s.t.run(async (ctx) => ctx.db.query("aiUsage").collect())).length;
     // The writer's model is not a Brief dependency.
     const generationId = await reserve(s, { singleModelId: "claude-opus-4-8" });
+    // B1, second part (2026-10-27): the preparation holds its own copies and
+    // the draft's rows refer to their text, so this adoption also shows the
+    // Brief key is the same for both shapes.
+    const raw = await s.t.run(async (ctx) =>
+      ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect()
+    );
+    expect(raw.filter((row) => row.kind === "transcript").every((row) => row.content === undefined && row.transcriptId)).toBe(true);
+    expect(await s.t.run(async (ctx) => (await ctx.db.get(preparation._id))?.key)).toBe(
+      await s.t.run(async (ctx) => generationBriefKey(ctx, (await ctx.db.get(generationId))!, await readBriefSourceRows(ctx, generationId)))
+    );
     const result = await adoptAtStart(s, generationId);
     expect(result.kind).toBe("adopted");
     expect(requests).toHaveLength(callsBefore);
@@ -344,10 +359,10 @@ describe("preparing and adopting", () => {
         .query("generationBriefEntries")
         .withIndex("by_briefId", (q) => q.eq("briefId", brief._id))
         .collect();
-      const sources = await ctx.db
+      const sources = (await withSourceTexts(ctx, await ctx.db
         .query("generationSources")
         .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-        .collect();
+        .collect()));
       const facts = await ctx.db
         .query("generationReadingFacts")
         .withIndex("by_generationId_and_seq", (q) => q.eq("generationId", generationId))
@@ -369,7 +384,7 @@ describe("preparing and adopting", () => {
     for (const entry of state.entries) {
       expect(sourceIds.has(entry.sourceId)).toBe(true);
       const source = state.sources.find((row) => row._id === entry.sourceId)!;
-      expect(source.content.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
+      expect(source.content!.slice(entry.startOffset, entry.endOffset)).toBe(entry.exactExcerpt);
     }
     expect(state.generation.briefPreparation).toMatchObject({ preparationId: preparation._id, state: "adopted" });
     expect(state.facts.length).toBeGreaterThan(0);
@@ -384,7 +399,7 @@ describe("preparing and adopting", () => {
       DEFAULT_BRIEF_MS
     );
     // Its published Brief is keyed by the run's own inputs hash.
-    expect(state.generation.seedBriefInputsHash).toBe(await briefInputsHash(await generationSources(s, generationId)));
+    expect(state.generation.seedBriefInputsHash).toBe(await briefInputsHash(rowsWithStoredText(await generationSources(s, generationId))));
   });
 
   test("changed evidence after the preparation misses, and the run derives its own Brief", async () => {
@@ -701,12 +716,12 @@ describe("the verified source mapping", () => {
       label: "other:a.txt", content: "Same text.", contentHash: "h", truncated: false, originalLength: 10, capturedAt: 0,
       ...fields,
     }) as unknown as Doc<"briefPreparationSources">;
-  const target = (id: string, fields: Partial<Doc<"generationSources">> = {}) =>
+  const target = (id: string, fields: Partial<SourceRowWithText> = {}) =>
     ({
       _id: id, _creationTime: 0, generationId: "g", projectId: "x", kind: "project_document", projectDocumentId: `doc-${id}`,
       label: "other:a.txt", content: "Same text.", contentHash: "h", truncated: false, originalLength: 10, capturedAt: 0,
       ...fields,
-    }) as unknown as Doc<"generationSources">;
+    }) as unknown as SourceRowWithText;
 
   test("maps by identity and position, never by equal text", () => {
     const mapping = verifiedSourceMapping([row("1"), row("2")], [target("1"), target("2")]);
@@ -1536,5 +1551,26 @@ describe("stage 1 re-review follow-ups", () => {
     await settle(s);
     expect((await s.t.run(async (ctx) => ctx.db.get(queued._id)))?.status).toBe("ready");
     expect((await s.t.run(async (ctx) => ctx.db.get(ready._id)))?.status).toBe("obsolete");
+  });
+
+  // F2 review (2026-10-27): files still being copied into the project are
+  // files still arriving.
+  test("files still being copied in hold the start until the copy ends", async () => {
+    const s = await setup();
+    const jobId = await s.t.run(async (ctx) =>
+      ctx.db.insert("projectCopyJobs", {
+        toProjectId: s.projectId, userId: s.userId, status: "copying",
+        scope: { includeReport: true, includeReviews: true, excludeDocumentIds: [], previousYearReport: false },
+        filesMade: 0, filesCopied: 0, filesFailed: 0, evidenceCopied: 0, pdReviewsCopied: 0,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      })
+    );
+    await trigger(s, "document_added");
+    vi.advanceTimersByTime(PREPARATION_DEBOUNCE_MS + 10);
+    await s.t.finishInProgressScheduledFunctions();
+    expect((await preparations(s))[0]).toMatchObject({ status: "queued", waitingFor: "uploads" });
+    await s.t.run(async (ctx) => ctx.db.patch(jobId, { status: "done" }));
+    await settle(s);
+    expect((await preparations(s))[0]?.status).toBe("ready");
   });
 });

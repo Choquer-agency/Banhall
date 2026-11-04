@@ -1,0 +1,101 @@
+{
+  "note": "Refused calls of the features that refused on generated text, as refusals of calls. The two small side-by-side projects were read at 2026-10-28T03:33Z, before they were erased (erasing a project removes its usage rows); the others were read at 04:45Z.",
+  "side by side, 3 files of 40,000 characters and a half-hour interview": {
+    "words in random order (Pramormor Works)": {
+      "file_labels": [
+        1,
+        3
+      ],
+      "preparation:brief": [
+        1,
+        2
+      ],
+      "transcript:speakers": [
+        1,
+        1
+      ],
+      "generation:retrieval_brief": [
+        1,
+        1
+      ]
+    },
+    "sentences (Brankevdex Works)": {
+      "file_labels": [
+        0,
+        3
+      ],
+      "preparation:brief": [
+        0,
+        1
+      ],
+      "transcript:speakers": [
+        0,
+        1
+      ],
+      "generation:retrieval_brief": [
+        1,
+        1
+      ]
+    }
+  },
+  "full size, sentences": {
+    "sentences, 100 files (Nimtashsil Works)": {
+      "file_labels": [
+        0,
+        101
+      ],
+      "generation:brief": [
+        0,
+        1
+      ],
+      "generation:retrieval_brief": [
+        1,
+        1
+      ],
+      "preparation:brief": [
+        0,
+        1
+      ],
+      "transcript:speakers": [
+        0,
+        1
+      ]
+    },
+    "sentences, 50 files (Othulvel Works)": {
+      "file_labels": [
+        0,
+        51
+      ],
+      "generation:brief": [
+        0,
+        3
+      ],
+      "generation:retrieval_brief": [
+        0,
+        3
+      ],
+      "preparation:brief": [
+        0,
+        1
+      ],
+      "transcript:speakers": [
+        0,
+        1
+      ]
+    },
+    "sentences, copy (Othulvel Works copy)": {
+      "file_labels": [
+        0,
+        51
+      ],
+      "generation:brief": [
+        0,
+        1
+      ],
+      "generation:retrieval_brief": [
+        1,
+        1
+      ]
+    }
+  }
+}

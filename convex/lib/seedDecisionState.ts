@@ -27,6 +27,8 @@ export const SEED_DECISION_COLLECTION_ROWS = 4096;
 export const SEED_DECISION_READ_RANGES = 4000;
 
 export type SeedDecisionReadBudget = ReturnType<typeof createReadBudget>;
+/** What the budget below counts as read before it starts: three documents' headroom. */
+export const SEED_DECISION_RESERVED_BYTES = 3 * DOCUMENT_HEADROOM;
 /**
  * The budget a seed writer's fence builds: the shared bytes and ranges, less
  * the three documents (generation, project, step row) it read outside the
@@ -37,7 +39,7 @@ export function createSeedDecisionBudget(): SeedDecisionReadBudget {
   return createReadBudget({
     maxBytes: SEED_DECISION_READ_BYTES,
     maxRanges: SEED_DECISION_READ_RANGES,
-    reservedBytes: 3 * DOCUMENT_HEADROOM,
+    reservedBytes: SEED_DECISION_RESERVED_BYTES,
   });
 }
 

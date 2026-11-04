@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { scheduleSignalCapture } from "./learningSignals";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { getInternalProjectAccessOrNull } from "./lib/auth";
@@ -547,7 +548,7 @@ export const setWorkflowStage = mutation({
       }
       // Same transaction as the stage patch and the stage_changed event: the
       // decision and the stage move are one atomic audit fact.
-      await ctx.db.insert("reviewDecisions", {
+      const reviewDecisionId = await ctx.db.insert("reviewDecisions", {
         projectId: project._id,
         reportId: reviewedReport._id,
         reviewerId: user._id,
@@ -560,6 +561,8 @@ export const setWorkflowStage = mutation({
         ...(note ? { note } : {}),
         createdAt: now,
       });
+      // Phase E (E2b): the decision as a learning signal.
+      await scheduleSignalCapture(ctx, { reviewDecisionId });
     }
     return { status: "updated" as const, version: nextVersion };
   },

@@ -24,6 +24,11 @@
       case "sectionEditEvents": return "Section edits";
       case "proposalWordingEditEvents": return "Proposal wording edits";
       case "brainFeedbackQueue": return "Approved writer feedback";
+      case "learningSignals:seed_rewording": return "Seed rewordings";
+      case "learningSignals:seed_feedback": return "Seed Feedback";
+      case "learningSignals:seed_choices": return "Seed choices";
+      case "learningSignals:review_decision": return "Review decisions";
+      case "learningSignals:review_comment": return "Review comments";
       default: return stream;
     }
   }
@@ -31,11 +36,12 @@
   function attemptOutcome(outcome: NonNullable<LatestAttempt>["outcome"]) {
     switch (outcome) {
       case "insufficient_inputs": return "Skipped: fewer than five admitted signals.";
-      case "unchanged_inputs": return "Skipped: no admitted feedback is newer than the last candidate cutoff.";
+      case "unchanged_inputs": return "Skipped: no admitted feedback is newer than the last candidate cutoff, and no Brain source was removed since.";
       case "unsupported_rules": return "No candidate: no supported rules were produced.";
       case "failed": return "Generation failed. No candidate was saved; published guidance is unchanged.";
       case "saved": return "Candidate saved for administrator review.";
-      case "deduplicated": return "No new candidate: this input cutoff was already saved.";
+      case "deduplicated": return "No new candidate: these inputs were already saved.";
+      case "withdrawn_inputs": return "No candidate: something it read was withdrawn or removed while it ran.";
       default: {
         const exhaustive: never = outcome;
         return exhaustive;
@@ -402,8 +408,12 @@
                       {digestDate(activeStyle.createdAt)} · {activeStyle.sourceCount} consultant critique(s)
                     </p>
                   {:else}
-                    <p class="mt-1 text-sm text-gray-500">
-                      {style.explicitlyDisabled ? "Disabled by an administrator." : "No version has been published yet."}
+                    <p class="mt-1 text-sm text-gray-500" data-style-off-reason>
+                      {style.turnedOffForRemovedSource
+                        ? "Turned off because a Brain source it drew on was removed. Publish a version that did not use it to turn guidance back on."
+                        : style.explicitlyDisabled
+                          ? "Disabled by an administrator."
+                          : "No version has been published yet."}
                     </p>
                   {/if}
                 </div>
@@ -449,7 +459,9 @@
                             {digest._id === style.publishedDigestId ? "Published" : "Candidate"}
                           </p>
                         </div>
-                        {#if digest._id !== style.publishedDigestId && !digest.isPersonal}
+                        {#if digest.drewOnRemovedSource}
+                          <p class="text-xs text-gray-500" data-drew-on-removed-source>Drew on a removed Brain source. It cannot be published.</p>
+                        {:else if digest._id !== style.publishedDigestId && !digest.isPersonal}
                           <button
                             onclick={() => changePublishedDigest("draft_style", digest._id, style.selectionId, "Published after administrator review")}
                             disabled={changingDigest !== null || !privacyReviewed.draft_style}

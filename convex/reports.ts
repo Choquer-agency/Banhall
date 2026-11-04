@@ -1,3 +1,4 @@
+import { getSourceRowWithText, type SourceRowWithText } from "./lib/sourceText";
 import { persistDeterministicFindings } from "./lib/qaFindings";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -20,8 +21,9 @@ import {
 import { isProjectDeleting } from "./lib/projectDeletion";
 import { citationSpeakerReader, evidenceSpan } from "./lib/citationSpeakers";
 import { extractPlainText } from "./lib/reportEdits";
-import { computeEditDistance } from "./lib/editDistance";
+import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { reportSectionMetrics } from "../src/lib/reportSections";
 export const getLatestReport = query({
   args: {
     projectId: v.id("projects"),
@@ -79,6 +81,9 @@ export const updateReportContent = mutation({
       updatedAt: now,
     });
     await persistDeterministicFindings(ctx, args.reportId);
+    // Phase E (E3): the editing burst's size is read 10 minutes after its
+    // first save.
+    await noteReportEditForSize(ctx, report, user._id);
     return revisionNumber + 1;
   },
 });
@@ -100,10 +105,7 @@ export const createProvenance = internalMutation({
     assertBoundedCitations(args.claims);
     const contentHash = await sha256(args.content);
     const reportText = extractPlainText(args.content);
-    const checkedSources = new Map<
-      Id<"generationSources">,
-      Doc<"generationSources"> | null
-    >();
+    const checkedSources = new Map<Id<"generationSources">, SourceRowWithText | null>();
     for (const claim of args.claims) {
       if (!reportText.includes(claim.claimText)) {
         domainError("INVALID_INPUT", `Claim ${claim.claimId} is not present in the report`);
@@ -114,7 +116,8 @@ export const createProvenance = internalMutation({
       for (const citation of claim.sources) {
         let source = checkedSources.get(citation.generationSourceId);
         if (!source) {
-          source = await ctx.db.get(citation.generationSourceId);
+          // B1, second part: the row's text, wherever it is kept.
+          source = await getSourceRowWithText(ctx, citation.generationSourceId);
           checkedSources.set(citation.generationSourceId, source);
         }
         if (
@@ -345,6 +348,25 @@ export const preflightExport = query({
   },
 });
 
+const CRA_LINE_LABELS = { s242: "Line 242", s244: "Line 244", s246: "Line 246" } as const;
+
+/** Each Line over its CRA form limit, in plain words; empty when all fit. */
+export function craLimitMessages(content: string): string[] {
+  const metrics = reportSectionMetrics(content);
+  const messages: string[] = [];
+  for (const key of ["s242", "s244", "s246"] as const) {
+    const m = metrics[key];
+    if (!m.overLimit) continue;
+    const parts: string[] = [];
+    if (m.lines > m.limit) parts.push(`${m.lines} of ${m.limit} form lines`);
+    if (m.words > m.wordCap) parts.push(`${m.words} of ${m.wordCap} words`);
+    messages.push(
+      `${CRA_LINE_LABELS[key]} is over the CRA limit (${parts.join(", ")}). Shorten it before export, or the CRA form will cut it off.`
+    );
+  }
+  return messages;
+}
+
 /**
  * Authorize only the immutable revision that passed preflight. This is the
  * final filing-readiness gate and must run immediately before DOCX generation.
@@ -378,6 +400,12 @@ export const authorizeExport = mutation({
         "A valid CRA T4088 line 206 field-of-science code is required for export"
       );
     }
+    // 2026-11-02 (owner): a manager may apply an Assistant change that runs a
+    // Line past its CRA limit (report.overrideRules), but the filing form
+    // cannot hold it: the export dialog already refuses, and the server
+    // refuses too, so no download ever loses lines or words.
+    const overLimit = craLimitMessages(report.content);
+    if (overLimit.length > 0) domainError("INVALID_INPUT", overLimit.join("\n"));
     await requireFilingReady(ctx, project, {
       ...report,
       contentHash,

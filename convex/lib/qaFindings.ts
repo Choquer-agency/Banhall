@@ -81,8 +81,12 @@ export async function persistDeterministicFindings(ctx: MutationCtx, reportId: I
     }
   }
   const sections = extractReportSections(report.content);
+  // After the live rerun (R1): the claimant's name frozen on the generation,
+  // so attribution to it is a note too. The app reads restored names, so the
+  // map is not needed here.
+  const claimantName = report.generationId ? (await ctx.db.get(report.generationId))?.claimantName : undefined;
   for (const section of ["s242", "s244", "s246"] as const) {
-    for (const finding of sectionDeterministicFindings(section, sections[section], overrides)) {
+    for (const finding of sectionDeterministicFindings(section, sections[section], overrides, claimantName ? { claimantName } : {})) {
       await storeFinding(ctx, ref, { ...finding, section, blocking: finding.check === "because_clause" });
     }
   }

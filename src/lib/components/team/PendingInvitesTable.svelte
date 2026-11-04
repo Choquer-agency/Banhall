@@ -24,6 +24,7 @@
 
   let {
     invites,
+    failed = false,
     now,
     canInviteAdmin,
     copiedId,
@@ -33,6 +34,8 @@
     onRevoke,
   }: {
     invites: PendingInvite[];
+    /** The invites could not be read: the section stays, so the sidebar row still lands here. */
+    failed?: boolean;
     now: number;
     canInviteAdmin: boolean;
     copiedId: string | null;
@@ -43,11 +46,19 @@
   } = $props();
 </script>
 
-<section data-pending-invites class="flex shrink-0 flex-col gap-2.5 pt-2">
+<section id="team-pending-invites" data-pending-invites class="flex shrink-0 scroll-mt-4 flex-col gap-2.5 pt-2">
   <h2 class="flex items-center gap-2">
     <span class="text-[0.9375rem] leading-[calc(22/15)] font-medium text-ink">Pending invites</span>
-    <span data-pending-count class="flex h-5 items-center rounded-full bg-chrome px-[0.4375rem] text-xs leading-[calc(4/3)] font-medium text-ink-secondary">{invites.length}</span>
+    {#if !failed}
+      <span data-pending-count class="flex h-5 items-center rounded-full bg-chrome px-[0.4375rem] text-xs leading-[calc(4/3)] font-medium text-ink-secondary">{invites.length}</span>
+    {/if}
   </h2>
+  {#if failed}
+    <p data-pending-failed role="alert" class="text-sm leading-[calc(10/7)] text-ink-muted">Pending invites could not be loaded.</p>
+  {:else if invites.length === 0}
+    <!-- Always drawn, so the Team sidebar's Pending invites row has a place to go. -->
+    <p data-pending-empty class="text-sm leading-[calc(10/7)] text-ink-muted">No pending invites.</p>
+  {:else}
   <div class="overflow-x-auto rounded-[0.625rem] border border-line-soft">
     <div class="min-w-[47.5rem]" role="table" aria-label="Pending invites">
       <div role="row" class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted">
@@ -59,8 +70,7 @@
       </div>
       {#each invites as invite (invite._id)}
         <div role="row" data-invite-row={invite.email} class="flex h-[3.25rem] items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
-          <span role="cell" class="flex min-w-0 flex-1 items-center gap-2.5">
-            <span aria-hidden="true" class="h-6 w-6 shrink-0 rounded-full border-[1.5px] border-dashed border-gray-300"></span>
+          <span role="cell" class="flex min-w-0 flex-1 items-center">
             <span class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{invite.email}</span>
           </span>
           <span role="cell" class="flex w-[7.5rem] shrink-0"><RoleChip role={invite.role} /></span>
@@ -100,4 +110,5 @@
       {/each}
     </div>
   </div>
+  {/if}
 </section>

@@ -1,0 +1,103 @@
+{
+  "startedAt": "2026-10-28T18:30:02.863Z",
+  "retry": true,
+  "rounds": [
+    {
+      "round": 1,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k573hr0w88h1dsgbxgns6624vd8h5jh7",
+          "requestMs": 2278,
+          "outcome": {
+            "began": "running",
+            "afterMs": 4153
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k571wenj8pttp9wpqxkkfvf2v18h5emc",
+          "requestMs": 2278,
+          "outcome": {
+            "began": "running",
+            "afterMs": 2336
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        }
+      },
+      "startRefusals": 1,
+      "flood": {
+        "ok": 113,
+        "other": 0,
+        "refused": 79
+      },
+      "floodRowsCleared": 113
+    },
+    {
+      "round": 2,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k57b5rtp8xvc6m8hc7cgpntxcs8h4xmy",
+          "requestMs": 1010,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1573
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k57946cggsgbw9nbth04b8tqa98h57wh",
+          "requestMs": 1010,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1050
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        }
+      },
+      "startRefusals": 1,
+      "flood": {
+        "ok": 97,
+        "other": 0,
+        "refused": 83
+      },
+      "floodRowsCleared": 97
+    },
+    {
+      "round": 3,
+      "drafts": {
+        "k97fvym2w412bbkb7ermqhmth58h41a5": {
+          "generationId": "k5765g1rxz9a2tfsqdew7vxsx18h5mrh",
+          "requestMs": 810,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1369
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        },
+        "k975ntbkfy0ga0dj6scbhkzpb98h47n2": {
+          "generationId": "k579m7dfjy3vb1baaarynnchx98h5bt9",
+          "requestMs": 810,
+          "outcome": {
+            "began": "running",
+            "afterMs": 1383
+          },
+          "lastStatus": "awaiting_input",
+          "cancelled": true
+        }
+      },
+      "startRefusals": 0,
+      "flood": {
+        "ok": 158,
+        "other": 0,
+        "refused": 94
+      },
+      "floodRowsCleared": 158
+    }
+  ],
+  "endedAt": "2026-10-28T18:32:32.320Z"
+}

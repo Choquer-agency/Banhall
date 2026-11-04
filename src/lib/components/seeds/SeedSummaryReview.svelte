@@ -3,9 +3,9 @@
   import { useConvexClient, useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
-  import { isLongForSeed, MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
+  import { MAX_EDITED_BULLET_CHARS } from "../../../../convex/lib/seedContract";
   import { DRAFTING_INPUTS_FAILED_STATUS, draftingInputsFailureMessage } from "./draftingInputs";
-  import { PD_SUBSECTIONS } from "../../../../shared/pdSubsections";
+  import { PD_SUBSECTIONS, type PdSubsectionRoleId } from "../../../../shared/pdSubsections";
   import { modelLabelFor } from "$lib/modelPicker";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
   import { signOffErrorMessage } from "./signOffError";
@@ -36,6 +36,7 @@
     onClose,
     onSignedOff,
     onOpenSource,
+    onOpenStep,
   }: {
     generationId: Id<"generations">;
     userId: string;
@@ -53,6 +54,9 @@
     /** Opens a cited source; the quote card shows "Open in transcript" only
      * when the host provides it. */
     onOpenSource?: (sourceId: string) => void;
+    /** 2026-11-02: takes the writer back to a step that is not done yet.
+     * Without it the steps are still marked, with no link. */
+    onOpenStep?: (roleId: PdSubsectionRoleId) => void;
   } = $props();
 
   type LoadedSummary = {
@@ -477,9 +481,6 @@
   function modelLabel(modelId: string | null) {
     return modelId ? modelLabelFor(modelId, modelCapabilitiesQ.data) : "";
   }
-  // Soft note only: a writer's wording is never blocked by the AI Seed
-  // contract (PRD FR-11).
-  const editLong = $derived(isLongForSeed(bulletOne) || isLongForSeed(bulletTwo));
   const currentSeedStageVersion = $derived(outline?.seedStageVersion ?? shownView?.seedStageVersion ?? null);
   // Sign-off, a new edit and adopting the current decision version are offered
   // only for the exact, completely loaded live Summary on screen, and only
@@ -774,6 +775,23 @@
   );
   const roleTitle = (roleId: string) =>
     PD_SUBSECTIONS.find((definition) => definition.roleId === roleId)?.title ?? roleId;
+  // 2026-11-02: the Summary opens before every step is done. A step the
+  // server names as undecided is "Not done yet"; one it names for any other
+  // reason (changed since approval, a broken link) "Needs another look".
+  const openRoleLabels = $derived.by(() => {
+    const labels = new Map<string, string>();
+    for (const roleId of blockingRoleIds) {
+      const named = (readiness?.blockers ?? []).filter((blocker) => blocker.roleId === roleId);
+      const recheck =
+        named.length > 0 &&
+        named.every(
+          (blocker) => blocker.code !== "REQUIRED_ROLE_UNDECIDED" && blocker.code !== "OPTIONAL_ROLE_UNDECIDED"
+        );
+      labels.set(roleId, recheck ? "Needs another look" : "Not done yet");
+    }
+    return labels;
+  });
+  const openStepCount = $derived(openRoleLabels.size);
 
   const modelName = $derived(settings ? modelLabel(settings.modelId) : "");
 
@@ -897,6 +915,15 @@
             <Button class="mt-2" variant="secondary" size="sm" onclick={retryLoad} disabled={retryingLoad || loading}>Reload complete Summary</Button>
           </div>
         {/if}
+        {#if openStepCount > 0}
+          <!-- 2026-11-02: the Summary is open before every step is done. -->
+          <div class="mb-6 rounded-lg bg-gap-bg px-3 py-3" role="status" data-summary-open-steps>
+            <p class="text-body text-gap-text!">
+              {openStepCount === 1 ? "1 step is" : `${openStepCount} steps are`} not done yet, so this Summary is not complete. It shows what you have picked so far.
+            </p>
+            <p class="mt-1 text-[0.75rem] leading-[calc(4/3)] text-gap-text!">You can sign off once every step is done. Each open step below has a link back to it.</p>
+          </div>
+        {/if}
         <div class="flex flex-col gap-14">
           {#each sections as section}
             <section id={`summary-${section}`} class="flex flex-col gap-1" aria-labelledby={`summary-heading-${section}`}>
@@ -912,6 +939,7 @@
                 {@const skipped = shownView.skippedRoleIds.includes(definition.roleId)}
                 {@const roleTags = [...new Set(roleItems.flatMap((item) => item.tags))]}
                 {@const writerAsserted = roleItems.some((item) => item.support === "writer_asserted")}
+                {@const openLabel = openRoleLabels.get(definition.roleId)}
                 <article
                   id={`summary-${definition.roleId}`}
                   data-summary-role={definition.roleId}
@@ -931,6 +959,26 @@
                       <!-- FR-21 marker, kept small (decision 19). -->
                       <p class="text-[0.6875rem] leading-[calc(16/11)] text-ink-muted" data-summary-marker="writer-asserted">Writer asserted</p>
                     {/if}
+                    {#if openLabel}
+                      <div class="flex flex-col items-start gap-1" data-summary-open-step={definition.roleId}>
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-gap-bg px-2 py-0.5 text-[0.6875rem] leading-[calc(16/11)] text-gap-text">
+                          <span class="size-1.5 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
+                          {openLabel}
+                        </span>
+                        {#if onOpenStep}
+                          <button
+                            type="button"
+                            data-summary-go-to-step={definition.roleId}
+                            aria-label={`Go to ${definition.title}`}
+                            onclick={() => onOpenStep(definition.roleId)}
+                            class="inline-flex min-h-6 items-center gap-1 rounded text-[0.75rem] leading-[calc(4/3)] text-primary-selected underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11"
+                          >
+                            Go to this step
+                            <svg class="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                          </button>
+                        {/if}
+                      </div>
+                    {/if}
                   </div>
                   <div class="flex min-w-0 flex-1 flex-col gap-3">
                     {#if skipped}
@@ -938,7 +986,7 @@
                     {/if}
                     {#if roleItems.length === 0 && !skipped}
                       {#if shownView.complete}
-                        <p class="text-body text-ink-muted" data-summary-role-empty={definition.roleId}>No selected items.</p>
+                        <p class="text-body text-ink-muted" data-summary-role-empty={definition.roleId}>{openLabel ? "Nothing picked yet." : "No selected items."}</p>
                       {:else}
                         <!-- A role absent from an incomplete aggregate is unknown,
                              not empty (A4): its items may be on unread pages. -->
@@ -1014,10 +1062,11 @@
                                   onclick={() => revealSecondBullet(item.seedId)}
                                 >Add a second bullet</button>
                               {/if}
-                              {#if editLong}
-                                <p class="text-[0.75rem] leading-[calc(4/3)] text-gap-text" aria-live="polite" data-seed-long-note>Long for a seed</p>
-                              {/if}
                             </div>
+                            <!-- 2026-10-27 (eleventh): at the ceiling, say so rather than cut a paste without a word. -->
+                            {#if bulletOne.length >= MAX_EDITED_BULLET_CHARS || bulletTwo.length >= MAX_EDITED_BULLET_CHARS}
+                              <p class="text-[0.75rem] leading-[calc(4/3)] text-ink-muted" aria-live="polite" data-seed-at-ceiling>This box holds up to {MAX_EDITED_BULLET_CHARS.toLocaleString("en-US")} characters.</p>
+                            {/if}
                           </div>
                           <div class="flex w-7 shrink-0 flex-col items-end gap-1 pt-1">
                             <button
@@ -1164,9 +1213,11 @@
         {@const stepLabel = `${count} ${count === 1 ? "step" : "steps"} still open`}
         <div class="flex items-center gap-2.5" data-summary-readiness="blocked">
           <span class="size-2 shrink-0 rounded-full bg-stale-dot" aria-hidden="true"></span>
-          <!-- A status only: the host opens the Summary once every step is
-               done (owner decision 2026-09-28 sixth), so it links no step. -->
-          <p class="text-[0.875rem] leading-[calc(10/7)] font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>{stepLabel}</p>
+          <!-- A status only: each open step links back from its own row
+               above (2026-11-02). -->
+          <p class="text-[0.875rem] leading-[calc(10/7)] font-medium text-ink" title={blockingRoleIds.map(roleTitle).join(", ")}>
+            {stepLabel}. <span class="font-normal text-ink-muted" id="summary-signoff-blocked-reason">Finish every step to sign off.</span>
+          </p>
         </div>
       {/if}
       {#if editedItems.length > 0}
@@ -1211,6 +1262,7 @@
           class="min-h-9"
           onclick={() => { if (!busy) openSignOff(); }}
           disabled={!busy && !canSignOffNow}
+          aria-describedby={blockingRoleIds.length > 0 ? "summary-signoff-blocked-reason" : undefined}
           aria-disabled={busy ? "true" : undefined}
           aria-busy={busy ? "true" : undefined}
         >Sign off and generate PD</Button>

@@ -3,6 +3,8 @@ import { page as browserPage } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import WorkspaceDashboard from "./WorkspaceDashboard.svelte";
 import { board } from "$lib/test/boardScale";
+import { userEvent } from "vitest/browser";
+import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import {
@@ -77,12 +79,13 @@ async function mountShell(url = "/dashboard", props: Record<string, unknown> = {
 
 const shellRoot = () => document.querySelector<HTMLElement>("div[data-workspace-shell]");
 const projectsPage = () => document.querySelector<HTMLElement>("[data-projects-page]");
-const clientListScroll = () => document.querySelector<HTMLElement>("[data-client-list-scroll]");
+const clientListScroll = () => document.querySelector<HTMLElement>('[data-section-sidebar="projects"] [data-section-sidebar-scroll]');
 const clientAreaScroll = () => document.querySelector<HTMLElement>("[data-client-area-scroll]");
 
 describe("WorkspaceDashboard viewport containment (real +layout flex context)", () => {
   beforeEach(() => {
     localStorage.clear();
+    reloadSectionSidebar();
     __resetPage();
     __resetNavigation();
     __resetConvexStub();
@@ -122,37 +125,82 @@ describe("WorkspaceDashboard viewport containment (real +layout flex context)", 
     expect(document.documentElement.scrollTop).toBe(0);
   });
 
-  it("honors an explicit route view prop over ?view and gives the rail canonical links carrying ?layout", async () => {
+  it("honors an explicit route view prop over ?view and gives the rail and sidebar canonical links carrying ?layout", async () => {
     // A stale ?view=my_work param must not beat the canonical route's view.
     await mountShell("/projects?layout=list&group=none&view=my_work", { view: "all_projects" });
     // Was the old List region; the redesigned page mounts instead.
     await expect.poll(() => projectsPage()).not.toBeNull();
 
-    const heading = document.querySelector("header h1");
-    expect(heading?.textContent).toBe("Projects");
-    const pageHeader = document.querySelector<HTMLElement>("[data-workspace-page-header]");
-    expect(pageHeader).not.toBeNull();
-    // The standard 64px top bar (2026-10-19) with the truthful count.
-    expect(pageHeader?.hasAttribute("data-page-top-bar")).toBe(true);
-    expect(pageHeader?.getBoundingClientRect().height).toBe(board(64));
-    expect(pageHeader?.querySelector("[data-page-count]")?.textContent).toBe("30");
-    expect(pageHeader?.querySelector("[data-top-bar-primary]")?.textContent?.trim()).toBe("New project");
-    expect(pageHeader?.querySelector('a[href="/project/new"]')).not.toBeNull();
-    expect(
-      document.querySelector('[data-projects-page] a[href="/project/new"]')
-    ).toBeNull();
-    // The page carries its own searches, so the top bar hides its field.
-    expect(pageHeader?.querySelector('input[type="search"]')).toBeNull();
-    expect(pageHeader?.querySelector('button[aria-label="Search projects"]')).toBeNull();
+    // The page frame (owner, 2026-10-28; Paper S9): the sidebar names the
+    // section and holds New project; the company header is the 64px bar.
+    const sidebar = document.querySelector<HTMLElement>('[data-section-sidebar="projects"]')!;
+    expect(sidebar.querySelector("[data-section-sidebar-title]")?.textContent).toBe("Projects");
+    expect(sidebar.querySelector("[data-section-sidebar-action]")?.getAttribute("href")).toBe("/project/new");
+    await expect.poll(() => sidebar.querySelector('[data-client-row="all"] [data-section-sidebar-count]')?.textContent).toBe("30");
+    expect(sidebar.querySelector('[data-client-row="all"]')?.getAttribute("aria-current")).toBe("page");
+    const header = document.querySelector<HTMLElement>("[data-client-header]")!;
+    expect(header.getBoundingClientRect().height).toBe(board(64));
+    expect(header.querySelector("[data-client-title]")?.textContent).toBe("All projects");
+    expect(header.querySelector("[data-client-count]")?.textContent).toBe("30 projects");
+    // The phone bar (hamburger, "Projects", count, New project) is hidden from 768px.
+    const phoneBar = document.querySelector<HTMLElement>("[data-projects-frame] > [data-page-top-bar]")!;
+    expect(phoneBar.getBoundingClientRect().height).toBe(0);
+    expect(phoneBar.querySelector("h1")?.textContent).toBe("Projects");
+    expect(phoneBar.querySelector("[data-page-count]")?.textContent).toBe("30");
 
-    const projectsLink = document.querySelector<HTMLAnchorElement>('nav [data-rail-item="projects"]');
-    // 2026-08-08 amendment: rail label is "Home"; canonical URL unchanged.
-    const myWorkLink = document.querySelector<HTMLAnchorElement>('nav [data-rail-item="home"]');
+    const projectsLink = document.querySelector<HTMLAnchorElement>('[data-frame-rail] [data-rail-item="projects"]');
+    // 2026-08-08 amendment: the label is "Home"; canonical URL unchanged. It
+    // lives in the Projects sidebar now (the page frame).
+    const myWorkLink = document.querySelector<HTMLAnchorElement>("[data-projects-sidebar-home]");
     expect(myWorkLink?.textContent?.trim()).toBe("Home");
     // Typed canonical routes; ?layout carries through; ?view never leaks
     // onto the canonical URLs (the path encodes the view).
     expect(projectsLink?.getAttribute("href")).toBe("/projects?layout=list&group=none");
     expect(myWorkLink?.getAttribute("href")).toBe("/my-work?layout=list&group=none");
     expect(projectsLink?.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("at 1440 Projects has one banner, one main and one h1: the company header (review round 1, finding 4)", async () => {
+    await mountShell("/projects?client=client+03", { view: "all_projects" });
+    await expect.poll(() => document.querySelector("[data-client-title]")?.textContent).toBe("Client 03");
+    const visible = (element: Element) => element.getClientRects().length > 0;
+    const banners = [...document.querySelectorAll("header")].filter((header) => visible(header) && !header.closest("main, aside, nav, section, article"));
+    expect(banners.map((header) => header.hasAttribute("data-global-bar"))).toEqual([true]);
+    const mains = [...document.querySelectorAll("main")].filter(visible);
+    expect(mains).toHaveLength(1);
+    expect(mains[0].contains(document.querySelector("[data-client-header]"))).toBe(true);
+    expect([...document.querySelectorAll("h1")].filter(visible).map((h1) => h1.textContent)).toEqual(["Client 03"]);
+  });
+
+  it("collapsed (Mod \\), Projects shows New project in the company header (review round 1, finding 2)", async () => {
+    await mountShell("/projects", { view: "all_projects" });
+    await expect.poll(() => document.querySelector("[data-section-sidebar-toggle]")).not.toBeNull();
+    expect(document.querySelector("[data-client-header] [data-top-bar-primary]")).toBeNull();
+    await userEvent.keyboard("{Meta>}\\{/Meta}");
+    await expect.poll(() => document.querySelector("[data-client-header] [data-top-bar-primary]")).not.toBeNull();
+    const button = document.querySelector<HTMLAnchorElement>("[data-client-header] [data-top-bar-primary]")!;
+    expect([button.textContent?.trim(), button.getAttribute("href")]).toEqual(["New project", "/project/new"]);
+    expect(button.getBoundingClientRect().width).toBeGreaterThan(0);
+  });
+
+  it("on a 390px phone the Projects list sits in one visible main, under one Projects heading and one New project (review round 2, items 3 and 5)", async () => {
+    await mountShell("/projects", { view: "all_projects" });
+    await browserPage.viewport(390, 844);
+    await expect.poll(() => document.querySelector('[data-client-row="client 03"]')?.getClientRects().length).toBe(1);
+    const visible = (element: Element) => element.getClientRects().length > 0 && element.getBoundingClientRect().width > 0;
+    const mains = [...document.querySelectorAll("main")].filter(visible);
+    expect(mains).toHaveLength(1);
+    expect(mains[0].contains(document.querySelector('[data-client-row="client 03"]'))).toBe(true);
+    const named = [...document.querySelectorAll<HTMLElement>("h1, h2, p, span")].filter(
+      (element) => visible(element) && element.children.length === 0 && element.textContent?.trim() === "Projects"
+    );
+    expect(named).toHaveLength(1);
+    expect(named[0].tagName).toBe("H1");
+    const newProject = [...document.querySelectorAll<HTMLElement>("a, button")].filter(
+      (element) => visible(element) && element.textContent?.trim() === "New project"
+    );
+    expect(newProject).toHaveLength(1);
+    expect(newProject[0].hasAttribute("data-top-bar-primary")).toBe(true);
+    await browserPage.viewport(1440, 900);
   });
 });

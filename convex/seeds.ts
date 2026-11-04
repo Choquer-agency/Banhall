@@ -1,4 +1,6 @@
 import { v, ConvexError, getConvexSize } from "convex/values";
+import { visibleSourceLabel } from "./lib/companyEvidence";
+import { hasCapability } from "../shared/capabilities";
 import {
   query,
   mutation,
@@ -13,7 +15,7 @@ import {
   stepNeedsWriter,
   type PdSubsectionRoleId,
 } from "../shared/pdSubsections";
-import { requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
+import { getCurrentUserOrNull, requireCurrentUser, requireInternalProjectAccess } from "./lib/auth";
 import {
   getReportEditAccessOrNull,
   requireReportEditAccess,
@@ -21,6 +23,7 @@ import {
 import { domainError } from "./lib/contracts";
 import { limitUserAction } from "./lib/aiRateLimits";
 import { resolveGatedWorkflow } from "./lib/gatedWorkflow";
+import { scheduleSignalCapture } from "./learningSignals";
 import { draftingInputsView } from "./lib/generations/draftingInputs";
 import { createReadBudget, DOCUMENT_HEADROOM } from "./lib/readBudget";
 import {
@@ -39,7 +42,7 @@ import {
   stableSerialize,
 } from "./lib/seedRevisions";
 import { computeEditDistance } from "./lib/editDistance";
-import { MAX_EDITED_BULLET_CHARS } from "./lib/seedContract";
+import { MAX_EDITED_BULLET_CHARS, MAX_SEED_FEEDBACK_CHARS } from "./lib/seedContract";
 import {
   buildSeedApprovalChallenge,
   unlinkedAdvancementIds,
@@ -159,8 +162,9 @@ function validCommand(commandId: string) {
     domainError("INVALID_INPUT", "A bounded command identity is required");
 }
 // A writer's edit keeps the one-or-two-bullet shape but is never held to the
-// AI Seed's 25-word, one-sentence contract (PRD FR-11, owner 2026-09-23); the
-// client shows a soft "Long for a seed" note instead.
+// AI Seed's one-sentence contract (PRD FR-11, owner 2026-09-23), and is as
+// long as it needs to be (2026-10-27 eleventh, owner): the ceiling only stops
+// a pasted document.
 function validBullets(bullets: string[]) {
   if (
     bullets.length < 1 ||
@@ -169,7 +173,7 @@ function validBullets(bullets: string[]) {
   )
     domainError(
       "INVALID_INPUT",
-      `Seeds require one or two non-empty bullets, each at most ${MAX_EDITED_BULLET_CHARS} characters`,
+      `Seeds require one or two non-empty bullets, each at most ${MAX_EDITED_BULLET_CHARS.toLocaleString("en-US")} characters`,
     );
 }
 async function currentVersion(
@@ -377,6 +381,8 @@ async function wordingHandler(
       ...(restoring ? {} : { editRatio }),
     },
   );
+  // Phase E (E2b): the rewording as a learning signal (a restore removes it).
+  await scheduleSignalCapture(ctx, { seedSelectionId: selection._id });
   return { seedStageVersion: await currentVersion(ctx, args.generationId) };
 }
 export const edit = mutation({
@@ -398,10 +404,10 @@ export const giveFeedback = mutation({
   handler: async (ctx, args) => {
     const f = await decisionFence(ctx, args);
     validCommand(args.commandId);
-    if (!args.instruction.trim() || args.instruction.length > 300)
+    if (!args.instruction.trim() || args.instruction.length > MAX_SEED_FEEDBACK_CHARS)
       domainError(
         "INVALID_INPUT",
-        "Feedback must contain at most 300 characters",
+        `Feedback must contain at most ${MAX_SEED_FEEDBACK_CHARS.toLocaleString("en-US")} characters`,
       );
     const target = await seedOf(ctx, f.row, args.seedId);
     const prior = await ctx.db
@@ -487,6 +493,8 @@ export const giveFeedback = mutation({
       seedId: target._id,
       batchId: result.batchId,
     });
+    // Phase E (E2b): the Feedback as a learning signal, masked by its own step.
+    await scheduleSignalCapture(ctx, { seedFeedbackRequestId: feedbackRequestId, producerId: f.user._id });
     return {
       feedbackRequestId,
       batchId: result.batchId,
@@ -553,6 +561,8 @@ export const withdrawFeedback = mutation({
       feedbackRequestId: request._id,
       seedId: request.targetSeedId,
     });
+    // Phase E (E2b): withdrawn Feedback leaves the learning signals.
+    await scheduleSignalCapture(ctx, { seedFeedbackRequestId: request._id });
     return { seedStageVersion: await currentVersion(ctx, args.generationId) };
   },
 });
@@ -1207,6 +1217,12 @@ export const markBatchViewed = mutation({
   },
 });
 
+/** Whether the viewer may read company files' names (Phase C). */
+async function viewerMayReadCompanyFiles(ctx: QueryCtx): Promise<boolean> {
+  const user = await getCurrentUserOrNull(ctx);
+  return hasCapability(user?.role ?? null, "companyFiles.read");
+}
+
 export async function requireSeedRead(
   ctx: QueryCtx,
   generationId: Id<"generations">,
@@ -1268,7 +1284,7 @@ export const getOutline = query({
       frozen: {
         briefVersionId: generation.briefVersionId ?? null,
         summaryVersionId: generation.summaryVersionId ?? null,
-        ...frozenSeedSettings(generation),
+        ...(await frozenSeedSettings(ctx, generation)),
       },
     };
   },
@@ -1276,9 +1292,16 @@ export const getOutline = query({
 export const getSubsection = query({
   args: { generationId: v.id("generations"), roleId: seedRoleIdValidator },
   handler: async (ctx, args) => {
-    await requireSeedRead(ctx, args.generationId);
+    const generation = await requireSeedRead(ctx, args.generationId);
     const data = await getSubsectionData(ctx, args.generationId, args.roleId);
-    return { ...data, pendingBatch: await pendingBatchOf(ctx, data.pendingBatchId) };
+    return {
+      ...data,
+      pendingBatch: await pendingBatchOf(ctx, data.pendingBatchId),
+      // 2026-10-27 (twelfth): why Previous-year status opened skipped.
+      ...(args.roleId === "prior_year_status" && generation.previousYearMaterial === false
+        ? { noPreviousYearMaterial: true as const }
+        : {}),
+    };
   },
 });
 export const getApprovalReview = query({
@@ -1320,6 +1343,7 @@ export const getSourceAttribution = query({
   args: { generationId: v.id("generations") },
   handler: async (ctx, args) => {
     const generation = await requireSeedRead(ctx, args.generationId);
+    const mayReadCompanyFiles = await viewerMayReadCompanyFiles(ctx);
     const budget = createReadBudget({
       maxBytes: SEED_DECISION_READ_BYTES,
       maxRanges: 1,
@@ -1338,7 +1362,7 @@ export const getSourceAttribution = query({
         .filter((source) => source.projectId === generation.projectId)
         .map((source) => ({
           sourceId: source._id,
-          label: source.label,
+          label: visibleSourceLabel(source.kind, source.label, mayReadCompanyFiles),
           kind: source.kind,
         })),
       complete: read.complete,
@@ -1357,6 +1381,7 @@ export const getSourceAttributionByIds = query({
   },
   handler: async (ctx, args) => {
     const generation = await requireSeedRead(ctx, args.generationId);
+    const mayReadCompanyFiles = await viewerMayReadCompanyFiles(ctx);
     const requested = [...new Set(args.sourceIds)];
     if (requested.length > MAX_SEED_SOURCE_ROWS)
       domainError(
@@ -1387,7 +1412,11 @@ export const getSourceAttributionByIds = query({
         source.projectId !== generation.projectId
       )
         continue;
-      sources.push({ sourceId: source._id, label: source.label, kind: source.kind });
+      sources.push({
+        sourceId: source._id,
+        label: visibleSourceLabel(source.kind, source.label, mayReadCompanyFiles),
+        kind: source.kind,
+      });
     }
     return { generationId: generation._id, sources, complete };
   },

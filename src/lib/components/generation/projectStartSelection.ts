@@ -22,6 +22,8 @@ function serialize(excluded: StartRunExcluded): string {
   return JSON.stringify({
     transcriptIds: [...excluded.transcriptIds].sort(),
     documentIds: [...excluded.documentIds].sort(),
+    // Phase C: only when a company file is left out, so "nothing" stays NOTHING.
+    ...(excluded.companyFileIds?.length ? { companyFileIds: [...excluded.companyFileIds].sort() } : {}),
   });
 }
 
@@ -44,7 +46,11 @@ export class ProjectStartSelection {
 
   /** The ticks changed while the dialog is open. */
   change(excluded: StartRunExcluded): void {
-    this.#latest = { transcriptIds: [...excluded.transcriptIds], documentIds: [...excluded.documentIds] };
+    this.#latest = {
+      transcriptIds: [...excluded.transcriptIds],
+      documentIds: [...excluded.documentIds],
+      ...(excluded.companyFileIds?.length ? { companyFileIds: [...excluded.companyFileIds] } : {}),
+    };
     if (this.#disposed) return;
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {

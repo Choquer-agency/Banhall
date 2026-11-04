@@ -117,7 +117,7 @@ flowchart LR
 
 | Step | Where it happens (page) | Backend module | Main tables |
 | --- | --- | --- | --- |
-| 1. Client | `/projects` client list, client picker on New project | `convex/clients.ts` | `clients` |
+| 1. Client | `/companies` (every company and each company's page), the `/projects` company list, the client picker on New project | `convex/clients.ts` | `clients` |
 | 2. Project | `/project/new` | `convex/projects.ts`, `convex/intakeDrafts.ts` | `projects`, `intakeDrafts` |
 | 3. Evidence | `/project/new`, Files panel on `/project/[id]` | `convex/transcripts.ts`, `convex/documents.ts` | `transcripts`, `projectDocuments` |
 | 4. Draft | `/project/[id]` | `convex/generations.ts`, `convex/ai/` | `generations`, `generationSources`, `reports` |
@@ -131,7 +131,7 @@ flowchart LR
 
 ## 3. The data: what is stored and how it connects
 
-There are 126 tables in `convex/schema.ts`. Most are supporting detail. These are the ones that carry the story:
+There are 136 tables in `convex/schema.ts`. Most are supporting detail. These are the ones that carry the story:
 
 Read each arrow as "has many". The second line in each box says what the rows are for.
 
@@ -148,6 +148,8 @@ flowchart LR
     direction LR
     transcripts["transcripts<br/>interviews"]:::child
     projectDocuments["projectDocuments<br/>supporting files"]:::child
+    projectDocumentTexts["projectDocumentTexts<br/>file text, in pieces"]:::child
+    projectDocuments --> projectDocumentTexts
   end
 
   subgraph drafting["Drafting"]
@@ -198,22 +200,28 @@ Users also have `notifications` (their inbox) and the `workItems` assigned to th
 | `generationActivity` | Same as above, copied for dashboard badges | The drafting engine only |
 | `status` | Old field (draft, generating, review, client_review, final) | Kept for compatibility; do not build on it |
 
+**A file's text lives apart from its row (2026-10-22).** A `projectDocuments` row keeps facts about its text (length, a fingerprint, word count, an opening preview). The text itself is stored in `projectDocumentTexts`, in pieces of at most 32,000 characters. Every read goes through `convex/lib/documentText.ts`, so lists, uploads and chat read only what they need. Older rows keep their text on the row until the one-off backfill in `convex/documentTextMigration.ts` moves it.
+
+**Earlier text is kept as a version (2026-10-26).** When a server reading replaces a file's text, the text it had is kept first as its next version in `projectDocumentTextVersions`, its text in `projectDocumentTextVersionPieces`, and never changed (`keepDocumentTextVersion` in `convex/lib/documentText.ts`). Versions are deleted with their file and their project. **Drafts refer to stored text (2026-10-27).** A new draft's `generationSources` row for a project file or company file refers to a version of exactly the text it read, stored once in `sourceTextVersions` and their pieces and reused by later drafts; a transcript row refers to its transcript. Every reader goes through `sourceRowText` (`convex/lib/sourceText.ts`), which checks fingerprints and lengths and returns rows in the old shape. Drafts made before keep their own copies. A project's versions go with the project; a company file's go once the file is removed and no draft uses them (`convex/sourceTextSweep.ts`).
+
 **Clients are new (2026-10-14).** Projects now store both `clientName` and `clientId`, and every write keeps the two in step. Grouping on the Projects page still reads `clientName`; nothing groups by `clientId` yet.
+
+**Companies hold their own files (2026-10-26).** A `companyFiles` row belongs to a company (a `clients` row), with its text in `companyFileTexts` and every add, archive, restore, removal and merge move in `companyFileEvents`. Reading, adding and managing them are their own capabilities (`companyFiles.read`, `companyFiles.add`, `companyFiles.manage`), and a company's page (`/companies/<key>`, 2026-10-28; on the Projects page until then) has a Files tab. A draft freezes the project's company's files after the project's own, as `company_file` rows; chat finds them only through its search and read tools. Merging companies moves their files, and erasing a project never touches them. A company's website (2026-10-29, `clients.website`) is read into a company file named "Website: <host>": saving it schedules `companyWebsiteNode.readCompanyWebsite`, a Node action that fetches only that address (the home page and at most one about page, with the address checks, limits and text in `convex/lib/websiteRead.ts`), and `companyWebsite.finishWebsiteRead` saves the text as a company file, archiving the one it replaces (also when the new read fails, or `companyWebsite.expireWebsiteRead` finds it still unfinished after two minutes). The read itself makes no AI call and no web search; the file is then labelled by Haiku like any company file. Reads are limited to 20 an hour per person (`websiteReadPerUser`).
 
 **Tables by area**
 
 | Area | Count | Examples |
 | --- | --- | --- |
 | People and access | 5 | `users`, `invites`, `userActivity` |
-| Clients and projects | 8 | `clients`, `projects`, `projectEvents`, `dashboardCompanies`, `tags` |
-| Evidence (inputs) | 19 | `transcripts` and their turns, speakers, facts and digests; `projectDocuments`; `intakeDrafts`; financial uploads |
+| Clients and projects | 11 | `clients`, `projects`, `projectEvents`, `dashboardCompanies`, `tags`; company files (`companyFiles`, `companyFileTexts`, `companyFileEvents`) |
+| Evidence (inputs) | 24 | `transcripts` and their turns, speakers, facts and digests; `projectDocuments`, their text (`projectDocumentTexts`) and its earlier versions (`projectDocumentTextVersions`); search pieces (`documentSearchPieces`); `intakeDrafts`; financial uploads |
 | Report and editing | 9 | `reports`, `reportSnapshots`, `comments`, `reportExports`, `reportProvenance` |
-| Drafting engine | 32 | `generations`, `generationSources`, `generationSectionRuns`, `generationBriefs`, `briefPreparations`, `seeds`, `reportCandidates`, `complianceNotes` |
+| Drafting engine | 33 | `generations`, `generationSources`, `generationSourceUse`, `generationSectionRuns`, `generationBriefs`, `briefPreparations`, `seeds`, `reportCandidates`, `complianceNotes` |
 | Chat and research | 13 | `agentChatThreads`, `chatTurns`, `chatProposals`, `researchSessions` |
 | Review and QA | 7 | `qaFindings`, `reviewDecisions`, `writerReviews`, `pdReviews`, `comparisons` |
 | Brain and learning | 13 | `brainSources`, `learningDigests`, `writerProfiles`, `ingestionItems` |
 | Work and notifications | 8 | `workItems`, `workItemEvents`, `workItemOversight`, `notifications` |
-| AI usage and models | 8 | `aiUsage`, `modelCatalog`, `modelRoleAssignments` |
+| AI usage and models | 10 | `aiUsage`, `modelCatalog`, `modelRoleAssignments`, `modelTracks` |
 | Admin and misc | 4 | `appSettings`, `errorReports`, `changelogEntries` |
 
 Convex components keep their own tables outside this count: `betterAuth` (sign-in accounts), `agent` (chat messages), `rag` (Brain vectors), `rateLimiter`, `embedPool` (a work queue for Brain embedding) and `researchWorkflow`.
@@ -233,8 +241,8 @@ flowchart TD
   root["+layout.svelte<br/>Convex client, sign-in, error boundary, toasts"]:::web
   open["No login needed<br/><br/>/login<br/>/signup/[token]: accept an invite<br/>/review/[shareToken]: client reads and comments"]:::person
   gate["WorkspaceGate<br/>signed out goes to /login"]:::web
-  shell["WorkspaceShell<br/>left rail, command palette, shortcuts"]:::web
-  daily["Daily work<br/><br/>/my-work: Home, what is with you<br/>/projects: clients and their projects<br/>/project/new: create and upload evidence<br/>/project/[id]: the report page<br/>/project/[id]/financial"]:::web
+  shell["WorkspaceShell<br/>global bar, fixed rail, one white card,<br/>section sidebars, command palette, shortcuts"]:::web
+  daily["Daily work<br/><br/>/my-work: Home, what is with you<br/>/projects: clients and their projects<br/>/project/new: create and upload evidence<br/>/project/[id]: the report page<br/>/project/[id]/financial<br/>/companies, /companies/[key]: every company, one company's page"]:::web
   other["Everything else<br/><br/>/settings: account, writing, notifications, shortcuts<br/>/team: members and invites, Managers and Admins<br/>/changelog"]:::web
   restricted["Restricted<br/><br/>/admin/*: house rules, Brain, models, usage...<br/>/alerts, /requests: developers only"]:::admin
 
@@ -247,8 +255,9 @@ flowchart TD
 
 - `/` sends you to `/my-work` when signed in, otherwise to `/login`.
 - `/dashboard` is the old entry. It redirects to the new pages, or shows the old interface when the URL has `?workspace=current`. The old interface stays in the repo as a rollback.
-- There is no `/clients` page. Clients live on `/projects`; `?client=<key>` selects one, and the rail's Companies link points there.
-- Admin pages: house-rules, tags, brain, ingestion, models, reviews, learning and usage are on the rail; comparisons, backfill and users open from the command palette.
+- Companies have their own section (owner, 2026-10-28): `/companies` lists every company (the company directory, `clients.listClients`) and `/companies/<key>` is one company's page (`clients.getCompanyPage`): its facts, Edit company for Managers and Admins (`clients.updateCompany`), and the Projects and Files tabs. One route (`src/routes/companies/[[key]]`) serves both; the page is `src/lib/components/companies/CompaniesPage.svelte`. The key is the same company key `/projects?client=<key>` uses, which still filters the Projects page by company; an arrow beside the company's name there opens its page. A merged company's old key opens the company it went into. There is no `/clients` page.
+- The page frame (owner, 2026-10-28; `docs/design-system.md` "the page frame"). From 1024px every signed-in page has the same three parts: a 52px global bar (logo, What's new bell, account menu, `GlobalBar`), a fixed 80px labelled rail (Projects, Companies, Team, Admin, Settings; `FrameRail`, items from `frameRailItems` in `src/lib/shell/navigation.ts`) and one white card (`FrameCard`). The card holds the page and, for five sections, a section sidebar (`SectionSidebar`): Projects and Home share one (Home, All projects, every company; `ClientList`), Companies has its own (`src/lib/components/companies/CompaniesSidebar.svelte`), and so do Team, Admin and Settings (`src/lib/components/workspace/sidebars/`). `frameSectionForPath` says which a page draws; the loading frame reads it so nothing jumps. New project, What's new, Alerts, Feature requests and the project page have no sidebar. Mod \ collapses the sidebar when one is on screen (`sectionSidebar.svelte.ts`, kept in this browser). The white card is each page's one `<main>`; the global bar is the only banner. The Team and Admin sidebars draw only once the viewer is known to be allowed. Below 1024px the bar and rail go away: the slide-out drawer (`WorkspaceRail`) and each page's own bar with its hamburger stay as before. The frame only shows and hides; who may open what is still decided by the capabilities and checked on the server.
+- Admin pages: house-rules, tags, brain, ingestion, models, reviews, learning and usage are in the Admin sidebar, with Alerts and Feature requests at its foot for developers; comparisons, backfill and users open from the command palette, which also lists the developer pages.
 
 ### How a page gets and changes data
 
@@ -281,7 +290,11 @@ The page asks for data with `useQuery` and keeps listening. When anyone writes w
 
 ### Uploading files
 
-Text is pulled out in the browser before anything is sent: PDFs with pdf.js, Word files with mammoth (`src/lib/parseDocument.ts`), spreadsheets in a Web Worker (`src/lib/spreadsheet.worker.ts`), transcripts in `src/lib/transcriptUpload.ts`. The original file is uploaded separately: `documents.generateUploadUrl`, then a direct POST to Convex storage, then `claimUpload` (`src/lib/uploads/originalUpload.ts`).
+Text is pulled out in the browser before anything is sent: PDFs with pdf.js, Word files with mammoth as Markdown (`src/lib/parseDocument.ts`, `shared/wordMarkdown.ts`; the row's `textFormat` says so), spreadsheets in a Web Worker (`src/lib/spreadsheet.worker.ts`), transcripts in `src/lib/transcriptUpload.ts`. The original file is uploaded separately: `documents.generateUploadUrl`, then a direct POST to Convex storage, then `claimUpload` (`src/lib/uploads/originalUpload.ts`). On the server, `documents.uploadDocument` stores the text as pieces and finds a duplicate (same name, same text) by its fingerprint, without reading other files' text.
+
+When nothing came out of a supported file in the browser (no text, or only a "stopped reading" line), the server reads the stored original once per reader version (`convex/lib/serverReading.ts` decides, `convex/ai/fileReading.ts` reads with `readFileOnServer` from `convex/ai/fileReader.ts`, `convex/documentReading.ts` claims and saves). A file with read text keeps it, except a Word file whose text is not Markdown yet (read by an older browser tab): the server reads it again as Markdown, and its plain text is kept as a version first. The owner's one-off pass `documentReading.queueServerReadings` does the same for existing files. A draft freezes Word Markdown without its bold and italic marks (`frozenFileText` in `convex/lib/briefEvidence.ts`), so quotes are matched exactly as for any other file; the file preview shows it formatted. The OneDrive import (`convex/ingestionSync.ts`) reads its files with the same reader, each PDF in its own action.
+
+Every text write marks a file due for search pieces. A sweep every minute cuts them (`convex/searchPieces.ts`, `convex/ai/searchIndexing.ts`, the rules in `shared/searchPieces.ts`): about 600 tokens each, along pages, sheets, messages and headings, each with the fingerprint of the text its positions refer to. `searchProjectPieces` (`convex/lib/searchPieces.ts`) searches one project's pieces. Cutting a file's pieces marks its labels due; a second sweep asks the `file_labels` model role (Claude Haiku) for its kind, fiscal year, title and summary, with names hidden (`convex/fileLabels.ts`, `convex/ai/fileLabels.ts`). Labels describe files; they are never evidence. The reading helpers both sides use are in `shared/` (`spreadsheetText.ts`, `emailText.ts`, `documentContent.ts`).
 
 ---
 
@@ -322,7 +335,9 @@ flowchart LR
 
 - Chat, version history, QA and the step-by-step stepper load only when opened, so the page starts fast.
 - Export builds the file in the browser by filling `static/templates/schedule60.docx` with JSZip. Before that, the server checks the report revision, the Line 206 science code and filing readiness. `exportTemplateDocx` must only be imported in browser-only code.
-- CRA limits that the drafting engine and export both enforce: 78 characters per line; Line 242 up to 50 lines or 350 words, Line 244 up to 100 lines or 700 words, Line 246 up to 50 lines or 350 words (`convex/lib/lineLimits.ts`).
+- CRA limits: 78 characters per line; Line 242 up to 50 lines or 350 words, Line 244 up to 100 lines or 700 words, Line 246 up to 50 lines or 350 words (`convex/lib/lineLimits.ts`). Export enforces them. Since 2026-10-29 (third, item 7) the drafting engine lets a Line run up to `GENERATION_LIMIT_ALLOWANCE` (20 percent) over them and compresses only above that ceiling, to under it and to the writer's length choice where that is lower; the editor's meter, the export dialog and the Assistant's shorten options hold the writer to the CRA limits before export.
+- Notes in the report text (2026-10-29): a `[GAP: what is needed]` marks a missing fact, and an `[INFERRED: what it rests on]` marks a sentence the AI inferred rather than found stated, for the writer to check. Neither counts toward the limits (`NOTE_MARKER_RE` in `convex/lib/lineLimits.ts`). The editor shows inferences as lagoon chips (`src/lib/components/editor/inferenceNotes.ts`), the export dialog lists every note with a jump to it, and export highlights both in the Word file without blocking. The drafting rule is `RULES_EVIDENCE_KINDS` in `shared/humanProse.ts`.
+- Honest drafting (2026-10-29, third): the Line rules ask for each experiment, hypothesis and advancement only as far as the evidence goes, with one gap for what is missing, and Line 242 names the standard approach and why it falls short (`convex/ai/prompts.ts`). QA reads the frozen source evidence the facts check reads (`generations.getQaSourceEvidence`, `qaSourceEvidenceBlock` in `convex/ai/qaAgent.ts`), on every path that scores a generation, skips and names a frozen file it cannot read, and never deducts for an honest gap. A Line drafted after others gets their gap notes and asks none of them again (`gapsAlreadyAskedBlock` in `convex/ai/promptDefinitions.ts`); a redrafted Line also gets the gap notes of the Lines after it already in the report.
 
 ---
 
@@ -343,7 +358,7 @@ flowchart TD
   classDef human fill:#FFE4E1,stroke:#C0392B,color:#1F1F1F
 
   start["Writer clicks Generate<br/>generations.requestGeneration"]:::human
-  reserve["Reserve the run<br/>check evidence, rate limits, one run per project<br/>copy all evidence into generationSources<br/>freeze the models"]:::server
+  reserve["Reserve the run<br/>check evidence, rate limits, one run per project<br/>record the evidence in generationSources, its text stored once<br/>freeze the models"]:::server
   mode{"Which mode?"}
 
   start --> reserve --> mode
@@ -369,7 +384,13 @@ flowchart TD
   save --> qa["Background QA<br/>findings appear in the QA panel"]:::ai
 ```
 
-**Inside each Line** (`convex/ai/orderedGeneration.ts`): draft, then remove banned words, then shorten to the CRA limits, then a self-check (fixed rules plus one AI check), then at most one repair. Each Line reads the Lines already written. Notes on which style rules were applied go to `complianceNotes`.
+**Inside each Line** (`convex/ai/orderedGeneration.ts`): draft, then remove banned words, then shorten to the CRA limits, then a self-check (fixed rules plus one AI check), then at most one repair. Each Line reads the Lines already written. Notes on which style rules were applied go to `complianceNotes`. In Step by step, a Line whose final check does not fit one request is checked in up to 8 requests sent at once (`planSummarySelfCheckBatches` in `convex/lib/seedRevisions.ts`, 2026-10-26).
+
+**Answer limits** (2026-10-26): a request whose answer limit is over 16,384 tokens streams and is read to its end (`instrumentedAnthropic` in `convex/ai/instrument.ts`), so a long answer is not lost to a request timeout. A cut-off answer from a report-sized step is retried with the model's full output limit (`cutOffRetry` in `convex/ai/structured.ts`, limits from `modelOutputCap` in `shared/generationModels.ts`).
+
+**What a draft freezes** (`selectFrozenEvidence` in `convex/lib/briefEvidence.ts`): the transcripts, then the project's files in upload order (at most 50, each cut at 200,000 characters), then the company's files, up to the first file that would take all frozen text past `FROZEN_TOTAL_BYTES` (about 3 MiB, 2026-10-27). That total is what a Seed attempt has room to read in its 8 MiB read budget after what the budget sets aside and the draft's decisions, so a draft whose first step cannot start is never frozen. Files past it are listed in the Inputs band as not captured: the project's own from the project's file list, the company's from the list the draft records at its start (`companyFilesLeftOut`, 2026-10-28).
+
+**What each step read** (2026-10-26): the analyzer, the Brief, each Seed step and each Line's facts check record how much of each frozen row they sent, once their request has answered (`generationSourceUse`, `convex/lib/generations/sourceUse.ts`). The Brief's Inputs band shows it under each file, for example "Read by the analysis (whole), Seeds (in part, 3 of 13 steps)." A reused Brief and a Summary recovery copy the record of the draft they come from.
 
 **Run status** on the `generations` row (`shared/generationTransitions.ts`):
 
@@ -390,7 +411,7 @@ stateDiagram-v2
 
 A cron checks every 10 minutes and fails any run with no progress for 30 minutes (`convex/lib/generations/reapers.ts`), so a crash never leaves a project stuck on "Generating".
 
-**Which AI model does what** (`shared/modelCatalog.ts`, `convex/lib/generationSteps.ts`): the writer's chosen model drafts, repairs and shortens; a "planning" model runs the analyzer, Brief and Seeds; a "checking" model runs self-check, consistency and QA. The default writing model is `claude-sonnet-5`. Admins change role assignments on `/admin/models`.
+**Which AI model does what** (`shared/modelCatalog.ts`, `convex/lib/generationSteps.ts`): the writer's chosen model drafts, repairs and shortens; a "planning" model runs the analyzer, Brief and Seeds; a "checking" model runs self-check, consistency and QA. Each role follows a tier (Claude Sonnet, Haiku or Opus), which runs that tier's newest version; the default writing model is the Claude Sonnet tier's (`claude-sonnet-5-5` on 2026-10-22). A run keeps the models frozen at its start; a retry or Summary recovery of a failed run leaves a model its tier was moved back from for the tier's current one, and so does each step the writer starts in a run (a Seeds request, sign-off, "Draft the rest", a QA run): the run's own freeze switches to the tier's current model and records it in `generations.modelMoves`, while the writer's picks and the Summary stay as they are. Work already running finishes on its model; each action reads the freeze once (`convex/ai/generationFreezeRead.ts`). Admins point roles at tiers on `/admin/models`.
 
 **Cost and limits.** Every AI call is recorded in `aiUsage` (see `/admin/usage`). Rate limits live in `convex/lib/aiRateLimits.ts`, for example 12 drafts per person per hour and 6 per project per hour.
 
@@ -409,20 +430,23 @@ sequenceDiagram
   S-->>A: start in background
   A->>A: read files, search
   A-->>W: reply streams in
-  A->>P: propose an edit
+  A->>P: propose an edit, one card per Line
   Note over W,P: The report has not changed yet
-  W->>P: click Apply
+  W->>P: click Review
+  P-->>W: the report marks the words that change
+  W->>P: click Accept
   P->>P: snapshot, apply, revision + 1
   W->>P: Undo, if needed
 ```
 
 1. `chatV2.sendMessage` saves the message and queues a chat turn.
 2. The chat agent (`convex/ai/chatAgentV2.ts`) runs in the background. It can read the project's files and search the web or the Brain, and its reply streams to the screen.
-3. When it wants to change the report, it saves a proposal card as `pending`. The report is untouched.
-4. The writer clicks Apply. `chatV2.applyProposal` checks access, snapshots the report, applies the change and bumps the revision.
-5. Undo reverses an applied card, after taking another snapshot.
+3. When it wants to change the report, it saves proposal cards as `pending`, one per CRA Line the change touches (`convex/lib/reportLines.ts`). An edit inside one Line may carry up to three options. The report is untouched.
+4. The writer clicks Review. The report page marks only the words that change, inside the card's Line, and shows a review bar (`ReviewSession` in `src/lib/chat/assistantCards.svelte.ts`, drawn by `Editor.previewProposal` and `ReviewBar.svelte`).
+5. The writer clicks Accept, or Accept all for two or more waiting cards from one reply. `chatV2.applyProposal` checks access, snapshots the report, applies the chosen option and bumps the revision. A find/replace card changes only its own Line.
+6. Undo reverses an applied card, after taking another snapshot. The Undo bar above the message box holds the latest accept; an opened accepted card always offers Undo.
 
-The chat agent has 12 tools. Only the first three can produce an edit, and each one only creates a card that waits for the writer:
+The chat agent has 13 tools. Only the first three can produce an edit, and each one only creates cards that wait for the writer:
 
 | Tool | What it does |
 | --- | --- |
@@ -430,14 +454,17 @@ The chat agent has 12 tools. Only the first three can produce an edit, and each 
 | `proposeReplacements` | Suggest a find-and-replace across the report |
 | `proposeBulkEdits` | Suggest a larger revision, with a report of what changed |
 | `highlightPassages` | Point at passages, no edit |
+| `askWriter` | Ask the writer one question with 2 or 3 options; it ends the reply, and the options show above the message box |
 | `deviationInventory` | List where paragraphs depart from the style rules |
 | `compareReferencePd` | Compare with last year's report |
-| `readDocument`, `searchDocuments`, `readTranscript` | Read the project's files and transcripts |
+| `readDocument`, `searchDocuments`, `readTranscript` | Read the project's files, its company's files and its transcripts |
 | `viewFile` | Look at PDF pages and images |
 | `searchWeb` | Web search through OpenRouter, with names removed from the query |
 | `searchBrain` | Search approved past reports, only when the writer turns it on |
 
-Proposal card states: `pending`, then `applied`, `rejected` or `stale` (the target text was no longer in the report). Undo moves an applied card back to `pending`. A reply that crashes is failed by a cron that runs every 2 minutes.
+**Files in a chat turn** (2026-10-26): with the reading tools on, a turn carries the project's files' text only when every file fits whole (each within one file's allowance, at most 12, together at most 80,000 characters). Otherwise it carries none, and the assistant finds and opens them with `searchDocuments` and `readDocument` from the list of files. `searchDocuments` searches a file whose search pieces are current through its pieces and every other file the old way, cuts each excerpt around its match, and places it by the parts `readDocument` opens.
+
+Proposal card states: `pending`, then `applied`, `rejected` or `stale` (the target text was no longer in the report). Undo moves an applied card back to `pending`. A card stores its Line (`section`), its other options (`alternatives`) and, once applied, which option went in (`appliedOption`). A reply that crashes is failed by a cron that runs every 2 minutes.
 
 **Research** (`convex/research.ts`, `convex/ai/research/`) works on a selected passage: web research, deep research and Brain patterns run side by side, a reviewer model merges them, and the result arrives as a proposal card like any other.
 
@@ -476,8 +503,9 @@ flowchart LR
   - an Admin approves a file imported from OneDrive on `/admin/ingestion` (this one goes straight in).
 
   Nominations wait as pending until an Admin approves them on `/admin/brain`. Approved material is embedded with Voyage and searched during drafting.
-- **Learning digests** are short lessons distilled from writer feedback, QA feedback and edits, refreshed nightly. A digest only reaches prompts after an Admin publishes it.
+- **Learning digests** are short lessons distilled from writer feedback, QA feedback and edits, refreshed nightly. A digest only reaches prompts after an Admin publishes it. Revoking or removing a Brain source withdraws the feedback it was made from (`brainFeedbackQueue.withdrawnAt`, `convex/lib/learningWithdrawal.ts`): new digests skip it, and a published digest that drew on it is turned off until an Admin publishes one that did not draw on it (2026-10-26). Step-by-step choices (Seed rewordings, Feedback, picks) and review decisions and comments feed the style digest too, as masked copies in `learningSignals` (2026-10-26), and chat reads the published style digest as drafting does. A writer's own saved preferences (`writerMemories`, suggested by the AI from their own work and kept only when they approve, `convex/writerMemory.ts`) join their Writer Profile text wherever it applies (2026-10-27). The release suite's projects are evaluation projects (`projects.evaluation`, `convex/lib/evaluationProjects.ts`), left out of learning, writer memory, edit size and Brain nomination (2026-10-27).
 - **Provenance:** each run records which prompt version, digests and Brain sources it used (`generations.promptVersion`, `learningDigestIds`, `brainProvenance`).
+- **Edit size:** how much of a draft writers changed is read at candidate selection, milestones, publish, each chat apply and the end of each editing burst (`reportEditDistance`, `convex/lib/editDistance.ts`). The Admin learning health view averages one reading per report per version: prompt version, lesson sets and saved preferences used, read through the generation (2026-10-27).
 
 ---
 
@@ -532,6 +560,7 @@ Roles are stored on `users.role` (`shared/roles.ts`). "Own" means projects where
 | Complete someone else's work item | No | Yes | Yes |
 | See financial data | No | Yes | Yes |
 | See the team, send invites | No | Yes | Yes |
+| Edit a company's details, merge companies | No | Yes | Yes |
 | Change roles, configure settings, see alerts | No | No | Yes |
 
 Server-side checks live in `convex/lib/auth.ts` (`requireCurrentUser`, `requireInternalProjectAccess`) and `convex/lib/roleCapabilities.ts` (`requireCapability`, `requireReportEditAccess`). A client on a share link can read only the published report and add comments.
@@ -575,10 +604,10 @@ flowchart TD
 | Purpose | Jobs |
 | --- | --- |
 | Unstick crashed work | Draft runs (every 10 min, after 30 min idle), PD reviews and post-draft QA (every 10 min), chat replies (every 2 min), conversation deletes (every 5 min) |
-| Clean up | Expire intake drafts (every 15 min), purge failed Brief preparations (hourly), release unreferenced files, prune error reports and notifications older than 30 days (daily) |
+| Clean up | Expire intake drafts (every 15 min), purge failed Brief preparations (hourly), release unreferenced files, prune error reports and notifications older than 30 days, sweep company file text versions no draft uses (daily) |
 | Learn | Refresh the QA calibration and draft style digests (daily, 08:00 and 08:15 UTC) |
 | Keep views correct | Rebuild the "waiting on others" view and My Work backfills (every 5 min) |
-| Models | Refresh the model catalog from OpenRouter (daily, 08:45 UTC) |
+| Models | Refresh the model catalog from OpenRouter (daily but Monday, 08:45 UTC); the same refresh plus each tier's move to its newest version (Monday, 08:45 UTC); move a failing new tier model back (hourly at :15, in the first 7 days after a move) |
 
 **Outside services** and the environment variable names Convex reads (values are never in the repo):
 
@@ -617,8 +646,6 @@ These are real and expected, not bugs to chase:
 - Invites are copied by hand; there is no email service.
 - One shared Convex deployment and no automated backend deploy (section 10).
 - Research saves its proposal cards directly instead of through the chat's `saveProposal` check.
-- Revoking a Brain source does not remove lessons already distilled into digests.
-- Step by step runs are left out of the draft style digest.
 - The old interface (`?workspace=current`) and the old Projects board components are still in the repo as a rollback; the board is not mounted anywhere.
 
 ---
@@ -649,12 +676,17 @@ When a change comes in, ask four questions:
 | --- | --- |
 | Draft stuck on "Generating" | The `generations` row status; the 10-minute cron fails it after 30 idle minutes (`convex/lib/generations/reapers.ts`) |
 | Step by step stops after the Seeds | It is waiting for the writer to sign off (`awaiting_input`); see `convex/lib/generations/seedStage.ts` |
+| "Sign off and generate PD" is refused as too large | How the final check splits one Line into requests (`planSummarySelfCheckBatches` in `convex/lib/seedRevisions.ts`): refused only past 8 requests or for one check too big for a request. The refusal names the limit and the Line (`SUMMARY_CAPACITY_EXCEEDED`). See the 2026-10-22 and 2026-10-26 (second) entries in `docs/product-domain.md` |
+| An AI step's answer is cut off or times out | The step's limit and `cutOffRetry` (`convex/lib/generationSteps.ts`, `convex/ai/structured.ts`); the usage row's stop reason (`max_tokens`, `timeout`, `interrupted`) in `aiUsage` |
+| A transcript's verified facts never become ready | `transcriptFactRuns`: a run marked `tooDense` is not tried again until its text changes; drafts read the transcript the usual way (`convex/ai/condense.ts`) |
 | Chat reply never arrives | The `chatTurns` row; `convex/chatV2.ts` and `convex/ai/chatAgentV2.ts` |
 | Apply on a chat card fails or says stale | The target text changed since the card was made; `chatV2.applyProposal` |
 | A stage change is refused | The rule in `shared/workflowTransitions.ts`; Submitted and Delivered are always refused today |
 | Someone cannot edit a report | They are not the owner and hold no open work item; `convex/lib/roleCapabilities.ts` |
 | Export is refused | Revision mismatch, missing Line 206 science code, or filing readiness; `reports.preflightExport` in `convex/reports.ts` |
 | An upload fails | Browser-side text extraction in `src/lib/parseDocument.ts`, then `src/lib/uploads/` |
+| A file is not found by search, or has no labels | `projectDocuments.searchPiecesDue` / `searchPiecesTextHash` and `labelsDue` / `labelsAttempts`; the sweeps run every minute (`crons.ts`); the `indexDocument` and `labelFile` log lines |
+| A file still shows no text | Whether the server read it: `projectDocuments.serverReader`, `serverReadStartedAt` (claimed) and `serverReadAt` (finished), and the `readStoredDocument` log line (`kept`, `not_better`, `changed`, `failed`); the rules are in `convex/lib/serverReading.ts`. A PDF stopped part way keeps its pages until text versions (Phase B1); a scan has no text until the Azure reader (Phase B3) |
 | The old interface appears | The URL has `?workspace=current`, or the access check failed; `src/lib/workspace/WorkspaceGate.svelte` |
 | AI cost jumps | `/admin/usage`, backed by `aiUsage` in `convex/aiUsage.ts` |
 | A person gets signed out | The 15-minute token cookie and the proxy; `src/lib/server/auth.ts`, `convex/auth.ts` |
