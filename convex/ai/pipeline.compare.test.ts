@@ -19,6 +19,8 @@ import type { GenerationMessageParams } from "./openrouterCore";
 import { lengthBudgetBlock } from "./pipeline";
 import { draftWordTarget } from "../lib/lineLimits";
 import { reportWithBody } from "../lib/reportBodies";
+import { buildTiptapDocument } from "../lib/tiptapReport";
+import { readAgentOutputs } from "../lib/generationOutputs";
 import { withPinnedLine242Opening } from "../line242Opening.fixture";
 import { withoutInferenceMarker } from "../inferenceMarker.fixture";
 import { withoutHonestDrafting } from "../honestDrafting.fixture";
@@ -528,6 +530,8 @@ describe("QA after ordered reports become available", () => {
     expect(visible.map((candidate) => candidate.qa)).toEqual([qa, qa]);
     expect(network.create.mock.calls.filter(([params]) =>
       params.tool_choice?.name === "submit_qa_scorecard")).toHaveLength(2);
+    expect((await t.run((ctx) => ctx.db.query("notifications").collect()))
+      .filter((notice) => notice.kind === "qa_finished")).toHaveLength(0);
     await flushScheduledUsage(t);
     const qaUsage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
     const runs = await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect());
@@ -539,6 +543,8 @@ describe("QA after ordered reports become available", () => {
     });
     const selected = await t.run((ctx) => ctx.db.get(generationId));
     expect(selected).toMatchObject({ status: "completed", postQaStatus: "done", qaScore: 88 });
+    expect((await t.run((ctx) => ctx.db.query("notifications").collect()))
+      .filter((notice) => notice.kind === "qa_finished")).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(1);
     expect((await t.run((ctx) => ctx.db.query("generationQaResults").collect())))
       .toEqual([expect.objectContaining({ status: "done", qaScore: 88 })]);
@@ -673,6 +679,45 @@ describe("QA after ordered reports become available", () => {
       .toBe(88);
   });
 
+  it("keeps the candidate's own score when a later report QA pass scores edited text", async () => {
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const [candidate] = await writer.query(api.generations.getCandidates, { generationId });
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidate._id, score: 8, optionPosition: 1,
+    });
+    await scoreCandidateJob(t, candidate._id);
+    await writer.mutation(api.generations.selectReportCandidate, { generationId, candidateId: candidate._id });
+    const report = await t.run((ctx) => ctx.db.query("reports")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique());
+    if (!report) throw new Error("Selected report missing");
+    await writer.mutation(api.reports.updateReportContent, {
+      reportId: report._id,
+      content: JSON.stringify(buildTiptapDocument("Control experiment", "The response was uncertain because the load changed.", "The team ran a new test.", "They found a new range.")),
+      expectedRevisionNumber: 0,
+    });
+    await writer.mutation(api.generations.requestReportQa, { generationId });
+    const current = await t.run(async (ctx) => {
+      const row = await ctx.db.get(report._id);
+      if (!row) throw new Error("Report missing");
+      const body = await reportWithBody(ctx, row);
+      return { reportId: row._id, revisionNumber: body.revisionNumber!, contentHash: body.contentHash! };
+    });
+    const attemptStartedAt = (await t.run((ctx) => ctx.db.get(generationId)))?.postQaStartedAt;
+    await t.mutation(internal.generations.saveReportQa, {
+      generationId, attemptStartedAt, capturedRef: current,
+      qa: JSON.stringify({ ...qa, overall_score: 77 }), qaScore: 77,
+    });
+    const score = await t.run((ctx) => ctx.db.query("candidateScores")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique());
+    expect(score?.qaScore).toBe(88);
+    expect((await t.run((ctx) => ctx.db.get(generationId)))?.qaScore).toBe(77);
+  });
+
   it("passes one score to a copied recovery candidate without another QA call", async () => {
     const t = convexTest(schema, modules);
     const generationId = await fixture(t);
@@ -759,6 +804,137 @@ describe("QA after ordered reports become available", () => {
     expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(1);
     expect((await t.run((ctx) => ctx.db.query("generationQaResults").collect()))[0])
       .toMatchObject({ status: "failed" });
+  });
+
+  it.each(["single", "compare"] as const)("does not score a stopped %s draft or require a score", async (mode) => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t, pair, mode);
+    const runId = await t.run(async (ctx) => {
+      const generation = await ctx.db.get(generationId);
+      if (!generation) throw new Error("Generation missing");
+      await ctx.db.patch(generationId, { status: "running", totalCandidates: 1 });
+      return ctx.db.insert("generationCandidateRuns", {
+        generationId, projectId: generation.projectId, model: pair[0], label: "First",
+        status: "running", queuedAt: Date.now(), startedAt: Date.now(),
+      });
+    });
+    await t.mutation(internal.generations.completeCandidateRun, {
+      candidateRunId: runId,
+      content: JSON.stringify(buildTiptapDocument("Control experiment", "The response was uncertain.", "[NOT GENERATED]", "[NOT GENERATED]")),
+      agentOutputs: JSON.stringify({ stoppedAfterSection: "242", qa }),
+      qaScore: 74,
+      stoppedAfterSection: "242",
+    });
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    if (mode === "compare") {
+      const [candidate] = await writer.query(api.generations.getCandidates, { generationId });
+      expect(candidate).toMatchObject({ qaScore: null, qa: null, candidateQaStatus: null });
+      await writer.mutation(api.generations.selectReportCandidate, { generationId, candidateId: candidate._id });
+    }
+    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    expect(generation).toMatchObject({ status: "completed", stoppedAfterSection: "242" });
+    expect(generation?.postQaStatus).toBeUndefined();
+    expect(generation?.postQaStartedAt).toBeUndefined();
+    expect(generation?.qaScoreRequired).toBeUndefined();
+    const savedOutputs = await t.run(async (ctx) => {
+      const row = await ctx.db.get(generationId);
+      return row ? readAgentOutputs(ctx, row) : null;
+    });
+    expect(JSON.parse(savedOutputs ?? "{}").qa).toBeUndefined();
+    expect((await t.run((ctx) => ctx.db.get(runId)))?.qaScore).toBeUndefined();
+    expect(await candidateQaJobs(t)).toHaveLength(0);
+    expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect()))
+      .filter((job) => job.name === "ai/postQa:runReportQa" && job.state.kind === "pending"))
+      .toHaveLength(0);
+    const report = await t.run((ctx) => ctx.db.query("reports")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique());
+    if (!report) throw new Error("Stopped report missing");
+    const readiness = await writer.query(api.projects.getProjectReadiness, {
+      projectId: report.projectId, reportId: report._id,
+    });
+    expect(readiness?.blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
+  });
+
+  it("reuses an old Compare candidate's inline score without scheduling another pass", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    const candidateId = await t.run(async (ctx) => {
+      const generation = await ctx.db.get(generationId);
+      if (!generation) throw new Error("Generation missing");
+      await ctx.db.patch(generationId, { status: "awaiting_selection" });
+      const candidateId = await ctx.db.insert("reportCandidates", {
+        generationId, projectId: generation.projectId, model: pair[0], label: "First",
+        content: JSON.stringify(buildTiptapDocument("Control experiment", "The response was uncertain.", "The team tested it.", "They found a range.")),
+        agentOutputs: JSON.stringify({ qa }), createdAt: Date.now(),
+      });
+      await ctx.db.insert("generationCandidateRuns", {
+        generationId, projectId: generation.projectId, model: pair[0], label: "First",
+        status: "succeeded", candidateId, qaScore: 88,
+        queuedAt: Date.now(), completedAt: Date.now(),
+      });
+      return candidateId;
+    });
+    await t.withIdentity({ subject: "compare-writer" }).mutation(api.generations.selectReportCandidate, {
+      generationId, candidateId,
+    });
+    const generation = await t.run((ctx) => ctx.db.get(generationId));
+    expect(generation?.postQaStartedAt).toBeUndefined();
+    expect(generation?.qaScoreRequired).toBeUndefined();
+    const outputs = await t.run(async (ctx) => {
+      const row = await ctx.db.get(generationId);
+      return row ? readAgentOutputs(ctx, row) : null;
+    });
+    expect(JSON.parse(outputs ?? "{}").qa.overall_score).toBe(88);
+    expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect()))
+      .filter((job) => job.name === "ai/postQa:runReportQa" && job.state.kind === "pending"))
+      .toHaveLength(0);
+  });
+
+  it("reaps stale running and queued candidate QA, releases a waiting copy, and cleans it up", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const ids = await t.run(async (ctx) => {
+      const runs = await ctx.db.query("generationCandidateRuns")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect();
+      const [source, queued] = runs;
+      if (!source?.candidateId || !queued?.candidateId) throw new Error("Candidates missing");
+      const sourceCandidate = await ctx.db.get(source.candidateId);
+      if (!sourceCandidate) throw new Error("Source candidate missing");
+      const old = Date.now() - 20 * 60_000;
+      await ctx.db.patch(source._id, { candidateQaStatus: "running", candidateQaStartedAt: old });
+      await ctx.db.patch(queued._id, { completedAt: old });
+      const recoveryId = await ctx.db.insert("generations", {
+        projectId: source.projectId, status: "completed", candidateMode: "compare", startedAt: Date.now(),
+      });
+      const { _id: _sourceId, _creationTime: _sourceTime, ...copyFields } = sourceCandidate;
+      const copyId = await ctx.db.insert("reportCandidates", {
+        ...copyFields,
+        generationId: recoveryId, createdAt: Date.now(),
+      });
+      const copyRunId = await ctx.db.insert("generationCandidateRuns", {
+        generationId: recoveryId, projectId: source.projectId,
+        model: source.model, label: source.label, status: "succeeded",
+        candidateId: copyId, candidateQaStatus: "waiting",
+        candidateQaSourceRunId: source._id, queuedAt: Date.now(), completedAt: Date.now(),
+      });
+      return { sourceRunId: source._id, queuedRunId: queued._id, copyRunId, copyId };
+    });
+    await t.mutation(internal.generations.failStalePostQa, { olderThanMinutes: 15 });
+    const state = await t.run(async (ctx) => ({
+      source: await ctx.db.get(ids.sourceRunId),
+      queued: await ctx.db.get(ids.queuedRunId),
+      copy: await ctx.db.get(ids.copyRunId),
+      copyCandidate: await ctx.db.get(ids.copyId),
+    }));
+    expect(state.source?.candidateQaStatus).toBe("failed");
+    expect(state.queued?.candidateQaStatus).toBe("failed");
+    expect(state.copy?.candidateQaStatus).toBe("failed");
+    expect(state.copyCandidate).toBeNull();
+    const visible = await t.withIdentity({ subject: "compare-writer" })
+      .query(api.generations.getCandidates, { generationId });
+    expect(visible.map((candidate) => candidate.candidateQaStatus)).toEqual(["failed", "failed"]);
   });
 });
 

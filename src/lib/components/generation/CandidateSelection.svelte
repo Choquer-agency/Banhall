@@ -7,6 +7,7 @@
     content: string;
     qaScore: number | null;
     qa?: unknown;
+    candidateQaStatus?: "queued" | "running" | "waiting" | "done" | "failed" | null;
     model: string | null;
     label: string | null;
   };
@@ -444,6 +445,7 @@
       rawQa={current.qa}
       reportContent={current.content}
       candidateId={current._id}
+      candidateQaStatus={current.candidateQaStatus}
       modelName={current.label}
       onLocateGap={locateGap}
     >

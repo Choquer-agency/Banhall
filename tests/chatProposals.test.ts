@@ -5,6 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import schema from "../convex/schema";
 import { sha256 } from "../convex/lib/contracts";
+import { reportWithBody } from "../convex/lib/reportBodies";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 type Role = "writer" | "manager" | "admin";
@@ -61,8 +62,8 @@ async function state(f: Fixture) {
   return f.t.run(async (ctx) => ({
     project: await ctx.db.get(f.projectId),
     workItems: await ctx.db.query("workItems").collect(),
-    report: await ctx.db.get(f.reportId),
-    latest: await ctx.db.get(f.latestReportId),
+    report: await ctx.db.get(f.reportId).then((row) => row ? reportWithBody(ctx, row) : null),
+    latest: await ctx.db.get(f.latestReportId).then((row) => row ? reportWithBody(ctx, row) : null),
     proposal: await ctx.db.get(f.proposalId),
     proposals: await ctx.db.query("chatProposals").collect(),
     snapshots: await ctx.db.query("reportSnapshots").collect(),

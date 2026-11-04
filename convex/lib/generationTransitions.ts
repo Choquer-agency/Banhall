@@ -135,7 +135,8 @@ export async function transitionPostQa(
   ctx: MutationCtx,
   generation: Doc<"generations">,
   to: Exclude<PostQaState, "none">,
-  patch: Omit<GenerationPatch, "postQaStatus" | "redraft"> = {}
+  patch: Omit<GenerationPatch, "postQaStatus" | "redraft"> = {},
+  options: { notifyOnComplete?: boolean } = {}
 ): Promise<void> {
   const from = postQaStateOf(generation.postQaStatus);
   if (!isPostQaTransitionAllowed(from, to)) refuse("postQa", generation, from, to);
@@ -144,7 +145,7 @@ export async function transitionPostQa(
   }
   await ctx.db.patch(generation._id, { ...patch, postQaStatus: to });
   // Round 2 (WS3 F6): tell the writer the scorecard is in.
-  if (to === "done") {
+  if (to === "done" && options.notifyOnComplete !== false) {
     await notifyQaFinished(ctx, generation, {
       score: patch.qaScore,
       completedAt: patch.postQaCompletedAt ?? Date.now(),

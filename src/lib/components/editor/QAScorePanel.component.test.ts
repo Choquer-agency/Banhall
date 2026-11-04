@@ -85,8 +85,22 @@ const fullScorecard = {
 
 describe("QAScorePanel side panel (board 2.2)", () => {
   it("tells Compare writers that a pending draft is being scored", async () => {
-    const { container } = await renderSide({ candidateId: "candidate-1", rawQa: null });
+    const { container } = await renderSide({ candidateId: "candidate-1", candidateQaStatus: "queued", rawQa: null });
     expect(container.textContent).toContain("Scoring this draft…");
+  });
+
+  it("does not say a stopped or legacy draft is still being scored", async () => {
+    const { container } = await renderSide({ candidateId: "candidate-1", candidateQaStatus: null, rawQa: null });
+    expect(container.textContent).toContain("No QA scorecard for this draft.");
+    expect(container.textContent).not.toContain("Scoring this draft…");
+  });
+
+  it("shows the retry path when a Compare candidate score fails", async () => {
+    const { container } = await renderSide({
+      candidateId: "candidate-1", candidateQaStatus: "failed", rawQa: null,
+    });
+    expect(container.textContent).toContain("Scoring failed. Select this draft to retry QA from the report.");
+    expect(container.textContent).not.toContain("Scoring this draft…");
   });
 
   it("draws the QA score header with Re-run and close, and no icon", async () => {

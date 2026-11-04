@@ -19,6 +19,7 @@ import { MAX_FORMER_NAMES, MERGE_COMPANY_FILE_LIMIT } from "./clients";
 import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { SERVER_READER_VERSION } from "./lib/serverReading";
 import { textPdf } from "./ai/testFiles.fixture";
+import { drainScheduledFunctions } from "./testScheduledFunctions";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -370,7 +371,7 @@ describe("archiving, restoring and removing", () => {
     const fileId = await add(s, s.acmeId, "history.txt", "Acme sealed pumps with graphite.");
     await sweep(s);
     await s.admin.mutation(api.projects.deleteProject, { projectId: s.acmeProjectId });
-    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    await drainScheduledFunctions(s.t, vi.runAllTimers);
     const left = await s.t.run(async (ctx) => ({
       project: await ctx.db.get(s.acmeProjectId),
       file: await ctx.db.get(fileId),

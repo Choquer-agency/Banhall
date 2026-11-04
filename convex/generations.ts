@@ -85,6 +85,7 @@ import {
   claimCandidateQaHandler,
   saveCandidateQaArgs,
   saveCandidateQaHandler,
+  failStaleCandidateQaHandler,
   getCandidatesArgs,
   getCandidatesHandler,
   selectReportCandidateArgs,
@@ -917,7 +918,11 @@ export const freeOrphanedGeneratingProjects = internalMutation({
 export const failStalePostQa = internalMutation({
   args: failStalePostQaArgs,
   returns: v.object({ failed: v.number() }),
-  handler: failStalePostQaHandler,
+  handler: async (ctx, args) => {
+    const result = await failStalePostQaHandler(ctx, args);
+    await failStaleCandidateQaHandler(ctx, args.olderThanMinutes);
+    return result;
+  },
 });
 
 /**

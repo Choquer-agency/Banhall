@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -84,7 +85,7 @@ describe("CAP-8 absolute current-revision QA gate", () => {
   test("new Single reports keep readiness and export closed until a current QA score lands", async () => {
     const f = await setup();
     await f.t.run(async (ctx) => {
-      await ctx.db.patch(f.generationId, { postQaStatus: "running", postQaStartedAt: 7 });
+      await ctx.db.patch(f.generationId, { postQaStatus: "running", postQaStartedAt: 7, qaScoreRequired: true });
       await ctx.db.patch(f.projectId, { scienceCode: "2.02.01" });
     });
     expect((await readiness(f)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
@@ -119,7 +120,7 @@ describe("CAP-8 absolute current-revision QA gate", () => {
   test("a failed background QA pass keeps the report and exposes a retryable readiness blocker", async () => {
     const f = await setup();
     await f.t.run((ctx) => ctx.db.patch(f.generationId, {
-      postQaStatus: "running", postQaStartedAt: 8,
+      postQaStatus: "running", postQaStartedAt: 8, qaScoreRequired: true,
     }));
     await f.t.mutation(internal.generations.saveReportQa, {
       generationId: f.generationId,
@@ -131,6 +132,37 @@ describe("CAP-8 absolute current-revision QA gate", () => {
       .toMatchObject({ status: "completed", postQaStatus: "failed" });
     expect(await f.t.run((ctx) => ctx.db.get(f.reportId))).not.toBeNull();
     expect((await readiness(f)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
+  });
+
+  test.each(["single", "compare"] as const)("a legacy %s report keeps its readiness rules after QA re-run and edit", async (mode) => {
+    const f = await setup();
+    rateLimiterTest.register(f.t);
+    await f.t.run((ctx) => ctx.db.patch(f.generationId, { candidateMode: mode }));
+    await f.actor.mutation(api.generations.requestReportQa, { generationId: f.generationId });
+    const attemptStartedAt = (await f.t.run((ctx) => ctx.db.get(f.generationId)))?.postQaStartedAt;
+    expect(attemptStartedAt).toBeDefined();
+    await f.t.mutation(internal.generations.saveReportQa, {
+      generationId: f.generationId,
+      attemptStartedAt,
+      capturedRef: await ref(f),
+      qa: scorecard({ why_how_why_intact: true, uncertainties_distinguished: true }),
+      qaScore: 90,
+    });
+    await f.actor.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: contentFor(`${FIXED} The team ran another test.`),
+      expectedRevisionNumber: 0,
+    });
+    expect((await readiness(f)).blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
+    expect((await f.t.run((ctx) => ctx.db.get(f.generationId)))?.qaScoreRequired).toBeUndefined();
+  });
+
+  test("a stopped draft never requires a score even if a stale marker is present", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.generationId, {
+      stoppedAfterSection: "242", qaScoreRequired: true,
+    }));
+    expect((await readiness(f)).blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
   });
 
   test("human content save persists because findings and rejects publish atomically", async () => {
@@ -401,11 +433,16 @@ test("selecting a candidate rejects invalid stored scorecards as blocking eviden
   const candidateId = await f.t.run(async ctx => {
     await ctx.db.delete(f.reportId);
     await ctx.db.patch(f.generationId, { status: "awaiting_selection", candidateMode: "compare" });
-    return ctx.db.insert("reportCandidates", {
+    const candidateId = await ctx.db.insert("reportCandidates", {
       generationId: f.generationId, projectId: f.projectId, model: "test-model", label: "A",
       content: contentFor(FIXED), createdAt: 1,
       agentOutputs: JSON.stringify({ qa: { overall_score: "high", cra_compliance: { why_how_why_intact: false } } }),
     });
+    await ctx.db.insert("generationCandidateRuns", {
+      generationId: f.generationId, projectId: f.projectId, model: "test-model", label: "A",
+      status: "succeeded", candidateId, candidateQaStatus: "failed", queuedAt: 1, completedAt: 1,
+    });
+    return candidateId;
   });
   await f.actor.mutation(api.generations.selectReportCandidate, { generationId: f.generationId, candidateId });
   const report = await f.actor.query(api.reports.getLatestReport, { projectId: f.projectId });

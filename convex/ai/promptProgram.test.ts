@@ -364,11 +364,10 @@ describe("ordered, ungated generation (single)", () => {
         "selfCheck:244": 1,
         "selfCheck:246": 1,
         consistency: 1,
-        qa: 1,
-        chronology: 1,
       },
       overrun: [],
     });
+    expect(generation.postQaStatus).toBe("running");
     expect(Object.keys(outputs.selfCheck).sort()).toEqual(["242", "244", "246"]);
 
     const rows = await t.run((ctx) =>
@@ -1071,9 +1070,16 @@ describe("chain failure paths never strand a candidate", () => {
     await drainChain(t);
     const generation = await generationOf(t, generationId);
     expect(generation.status).toBe("completed");
-    const outputs = JSON.parse(generation.agentOutputs ?? "null");
-    expect(outputs.qa).toBeNull();
-    expect(outputs.chronology).toBeNull();
+    expect(generation.postQaStatus).toBe("running");
+    await t.action(internal.ai.postQa.runReportQa, {
+      generationId,
+      attemptStartedAt: generation.postQaStartedAt!,
+    });
+    const afterQa = await generationOf(t, generationId);
+    expect(afterQa.postQaStatus).toBe("failed");
+    const outputs = JSON.parse(afterQa.agentOutputs ?? "null");
+    expect(outputs.qa).toBeUndefined();
+    expect(outputs.chronology).toBeUndefined();
   });
 
   it("an unreadable Writer Profile degrades to the House Rules order with the reason instead of failing", async () => {

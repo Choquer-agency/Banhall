@@ -16,6 +16,7 @@ import { resetGenerationPlaceholderCache } from "./providers";
 import { STRUCTURED_OUTPUT_PROGRAM } from "./structured";
 import { findExactQuoteSpans } from "../../shared/exactQuote";
 import type { SeedValidationIssueCode as SeedIssueCode } from "../lib/seedContract";
+import { drainScheduledFunctions } from "../testScheduledFunctions";
 
 const modules = Object.fromEntries(
   Object.entries(import.meta.glob("../**/*.ts")).map(([path, load]) => [
@@ -2853,12 +2854,12 @@ describe("seed Node action request boundary", () => {
     await t
       .withIdentity({ subject: "seed-action-writer" })
       .mutation(api.projects.deleteProject, { projectId: fixture.projectId });
-    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await drainScheduledFunctions(t, () => vi.runAllTimers());
     expect(await t.run((ctx) => ctx.db.get(fixture.projectId))).toBeNull();
 
     releaseProvider();
     await lateAction;
-    await t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await drainScheduledFunctions(t, () => vi.runAllTimers());
 
     const after = await t.run(async (ctx) => ({
       batches: await ctx.db

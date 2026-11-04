@@ -685,8 +685,7 @@ const beforeBackgroundQa = (stages: Record<string, Pin>) => {
 };
 const expectBackgroundChecks = (stages: Record<string, Pin>, mode: "single" | "compare") => {
   expect(stages.submit_chronology_table?.count).toBe(1);
-  if (mode === "single") expect(stages.submit_qa_scorecard?.count).toBe(2);
-  else expect(stages.submit_qa_scorecard).toBeUndefined();
+  expect(stages.submit_qa_scorecard?.count).toBe(2);
 };
 const WRITER_STAGES = ["section", "repair", "compression"];
 
@@ -781,6 +780,10 @@ const CANDIDATE_JOB = "ai/pipeline:generateCandidate";
 const SECTION_JOB = "ai/orderedGeneration:generateOrderedSection";
 const FINALIZE_JOB = "ai/orderedGeneration:finalizeOrderedCandidate";
 const POST_QA_JOB = "ai/postQa:runReportQa";
+const CANDIDATE_QA_JOB = "ai/candidateQa:runCandidateQa";
+const candidateQaRef = makeFunctionReference<
+  "action", { candidateRunId: Id<"generationCandidateRuns"> }, null
+>(CANDIDATE_QA_JOB);
 
 async function pendingJobs(t: T, names: string[]) {
   return await t.run(async (ctx) =>
@@ -790,10 +793,10 @@ async function pendingJobs(t: T, names: string[]) {
   );
 }
 
-/** Runs every scheduled candidate, Section, finalize and post-QA job, one at a time. */
+/** Runs every scheduled candidate, Section, finalize and QA job, one at a time. */
 async function drain(t: T) {
   for (let round = 0; round < 80; round += 1) {
-    const [job] = await pendingJobs(t, [CANDIDATE_JOB, SECTION_JOB, FINALIZE_JOB, POST_QA_JOB]);
+    const [job] = await pendingJobs(t, [CANDIDATE_JOB, SECTION_JOB, FINALIZE_JOB, POST_QA_JOB, CANDIDATE_QA_JOB]);
     if (!job) return;
     await t.run((ctx) => ctx.scheduler.cancel(job._id));
     const args = job.args[0];
@@ -803,6 +806,8 @@ async function drain(t: T) {
       await t.action(internal.ai.orderedGeneration.generateOrderedSection, args as FunctionArgs<typeof internal.ai.orderedGeneration.generateOrderedSection>);
     } else if (job.name === FINALIZE_JOB) {
       await t.action(internal.ai.orderedGeneration.finalizeOrderedCandidate, args as FunctionArgs<typeof internal.ai.orderedGeneration.finalizeOrderedCandidate>);
+    } else if (job.name === CANDIDATE_QA_JOB) {
+      await t.action(candidateQaRef, args as { candidateRunId: Id<"generationCandidateRuns"> });
     } else {
       await t.action(internal.ai.postQa.runReportQa, args as FunctionArgs<typeof internal.ai.postQa.runReportQa>);
     }
@@ -1136,6 +1141,18 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       expect([stage, now[stage].models]).toEqual([stage, [SONNET]]);
     }
     for (const stage of WRITER_STAGES) expect([stage, now[stage].models]).toEqual([stage, [HAIKU, OPUS]]);
+  });
+
+  it("scores each Compare candidate through the real SDK HTTP boundary", async () => {
+    const { t, generationId, wire } = await runOneShot("compare", OPUS);
+    const qaRequests = wire.sent.filter((item) => stageOf(item.json) === "submit_qa_scorecard");
+    expect(qaRequests).toHaveLength(2);
+    expect(qaRequests.every((item) => item.json.model === SONNET)).toBe(true);
+    const runs = await t.run((ctx) => ctx.db.query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect());
+    expect(runs.map((run) => [run.candidateQaStatus, run.qaScore])).toEqual([
+      ["done", 88], ["done", 88],
+    ]);
   });
 
   it.each(Object.keys(PINNED_771AF202) as Scenario[])(

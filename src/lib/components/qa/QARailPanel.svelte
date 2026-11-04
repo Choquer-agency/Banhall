@@ -19,6 +19,7 @@
     reportId = undefined,
     rawQa = null,
     candidateId = undefined,
+    candidateQaStatus = null,
     modelName = null,
     onLocateGap = undefined,
     onRunQa = undefined,
@@ -37,6 +38,7 @@
     reportId?: Id<"reports">;
     rawQa?: unknown;
     candidateId?: Id<"reportCandidates">;
+    candidateQaStatus?: "queued" | "running" | "waiting" | "done" | "failed" | null;
     modelName?: string | null;
     onLocateGap?: (gap: { section: string; paragraph: number | null }) => void;
     /** Iterative reports: trigger the post-assembly QA pass on demand. */
@@ -65,7 +67,7 @@
 >
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="p-6">
-      <QAScorePanel variant="side" {title} {onClose} {lastRunAt} {agentOutputs} {reportContent} {reportId} {candidateId} {rawQa} {onLocateGap} {onRunQa} {postQaStatus} />
+      <QAScorePanel variant="side" {title} {onClose} {lastRunAt} {agentOutputs} {reportContent} {reportId} {candidateId} {candidateQaStatus} {rawQa} {onLocateGap} {onRunQa} {postQaStatus} />
     </div>
     {#if footer}
       <div class="border-t border-primary/15 bg-primary/5 px-6 py-4">
@@ -105,7 +107,7 @@
   </div>
   <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="px-5 py-5">
-      <QAScorePanel {agentOutputs} {reportContent} {reportId} {candidateId} {rawQa} {onLocateGap} {onRunQa} {postQaStatus} />
+      <QAScorePanel {agentOutputs} {reportContent} {reportId} {candidateId} {candidateQaStatus} {rawQa} {onLocateGap} {onRunQa} {postQaStatus} />
     </div>
     {#if footer}
       <div class="border-t border-primary/15 bg-primary/5 px-5 py-4">

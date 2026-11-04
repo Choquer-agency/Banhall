@@ -23,7 +23,7 @@ import type { FactsSourceDocuments } from "../seedRevisions";
 import { type IterativeSection, SECTION_ORDER, getSectionRun } from "./iterative";
 import { transitionPostQa } from "../generationTransitions";
 import { appendGenerationProgress } from "../generationProgress";
-import { domainError } from "../contracts";
+import { domainError, sha256 } from "../contracts";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitUserAction } from "../aiRateLimits";
@@ -275,7 +275,8 @@ export const saveReportQaArgs = {
 /** Handler of generations.saveReportQa. */
 export async function saveReportQaHandler(
   ctx: MutationCtx,
-  args: ObjectType<typeof saveReportQaArgs>
+  args: ObjectType<typeof saveReportQaArgs>,
+  options: { notifyOnComplete?: boolean } = {}
 ) {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) return;
@@ -362,32 +363,40 @@ export async function saveReportQaHandler(
   const completedAt = Date.now();
   await writeAgentOutputs(ctx, generation, JSON.stringify(outputs));
   await recordQaResult(ctx, generation, args, "done", completedAt);
-  if (args.qaScore !== undefined && (generation.candidateMode ?? "compare") === "compare") {
-    // Writers may score Compare options before choosing one. Its post-QA
-    // score arrives later, after the candidate rows have been deleted.
-    const selection = await ctx.db.query("modelSelections")
-      .withIndex("by_projectId_and_generationId", (q) =>
-        q.eq("projectId", generation.projectId).eq("generationId", generation._id))
+  if (args.qaScore !== undefined && (generation.candidateMode ?? "compare") === "compare" &&
+    report && args.capturedRef?.revisionNumber === 0) {
+    const generated = await ctx.db.query("reportSnapshots")
+      .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
       .first();
-    if (selection?.candidateId) {
-      const scores = await ctx.db.query("candidateScores")
-        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-        .take(100);
-      let hasComment = false;
-      for (const score of scores) {
-        if (score.candidateId !== selection.candidateId) continue;
-        await ctx.db.patch(score._id, { qaScore: args.qaScore, updatedAt: completedAt });
-        hasComment ||= Boolean(score.comment);
-      }
-      if (hasComment) {
-        await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.learning.generateDraftStyleDigest, {});
+    if (generated?.reason === "generated" &&
+      generated.contentHash === args.capturedRef.contentHash &&
+      await sha256(generated.content) === args.capturedRef.contentHash) {
+      // This result describes the unedited candidate. A later pass over
+      // report edits must not become a candidate score for learning.
+      const selection = await ctx.db.query("modelSelections")
+        .withIndex("by_projectId_and_generationId", (q) =>
+          q.eq("projectId", generation.projectId).eq("generationId", generation._id))
+        .first();
+      if (selection?.candidateId) {
+        const scores = await ctx.db.query("candidateScores")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+          .take(100);
+        let hasComment = false;
+        for (const score of scores) {
+          if (score.candidateId !== selection.candidateId) continue;
+          await ctx.db.patch(score._id, { qaScore: args.qaScore, updatedAt: completedAt });
+          hasComment ||= Boolean(score.comment);
+        }
+        if (hasComment) {
+          await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.learning.generateDraftStyleDigest, {});
+        }
       }
     }
   }
   await transitionPostQa(ctx, generation, "done", {
     postQaCompletedAt: completedAt,
     ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),
-  });
+  }, options);
 }
 
 /** Argument validators of generations.requestReportQa. */

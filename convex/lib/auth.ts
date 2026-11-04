@@ -154,11 +154,7 @@ export async function reportNeedsQaScore(ctx: Ctx, report: Doc<"reports">): Prom
   // Their score is required for filing and export, including after a failed
   // pass or an edit that makes an earlier score stale. Legacy inline scores
   // and the signed-off seed flow keep their existing readiness rules.
-  if (
-    generation?.postQaStartedAt === undefined ||
-    (generation.candidateMode !== "single" &&
-      (generation.candidateMode ?? "compare") !== "compare")
-  ) return false;
+  if (!generation?.qaScoreRequired || generation.stoppedAfterSection !== undefined) return false;
   const result = await latestQaResult(ctx, generation._id);
   return generation.postQaStatus !== "done" ||
     !result || result.status !== "done" || result.qaScore === undefined ||

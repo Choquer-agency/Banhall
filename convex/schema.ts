@@ -1332,6 +1332,9 @@ export default defineSchema({
     // reaper's clock. Absent on rows from before the reaper existed (treated
     // as already stale, since nothing can still be running them).
     postQaStartedAt: v.optional(v.number()),
+    // Stamped only when a new complete Single or Compare report lands before
+    // QA. Legacy reports can acquire postQaStartedAt from a manual re-run.
+    qaScoreRequired: v.optional(v.boolean()),
     // When the latest post-QA pass settled (done or failed). The report page
     // keys its browser-local "QA result seen" state on it (CAP-18).
     postQaCompletedAt: v.optional(v.number()),
@@ -3254,6 +3257,7 @@ export default defineSchema({
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
     .index("by_candidateQaSourceRunId", ["candidateQaSourceRunId"])
+    .index("by_candidateQaStatus", ["candidateQaStatus"])
     .index("by_generationId_and_model", ["generationId", "model"])
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_projectId", ["projectId"]),
