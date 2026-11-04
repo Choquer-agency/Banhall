@@ -315,6 +315,7 @@ describe("an edited report can be exported once its claims are reviewed", () => 
       provenanceId: report.provenanceId!,
       claimId: "244-1",
       state: "approved",
+      claimTextHash: provenance!.claims.find((row) => row.claimId === "244-1")!.claimTextHash,
     });
     await expect(attestAndExport(f)).resolves.toMatchObject({ revisionNumber: 1 });
   });
@@ -437,6 +438,7 @@ describe("an edited report can be exported once its claims are reviewed", () => 
       provenanceId: provenance!._id,
       claimId: "244-1",
       state: "approved",
+      claimTextHash: provenance!.claims.find((row) => row.claimId === "244-1")!.claimTextHash,
     });
     await expect(attestAndExport(f)).resolves.toMatchObject({ revisionNumber: 1 });
   });

@@ -5,6 +5,7 @@ import {
   __activeQueryArgs,
   __resetConvexStub,
   __setQueryData,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
 import ReportRow from "./ReportRow.svelte";
 
@@ -45,5 +46,26 @@ describe("alert row detail", () => {
 
     document.querySelector<HTMLButtonElement>("button")?.click();
     await expect.poll(() => __activeQueryArgs("errorReports:getError")).toEqual([]);
+  });
+  it("says when the details failed or the alert is gone, instead of loading forever", async () => {
+    const report = {
+      _id: "alert-2" as Id<"errorReports">,
+      kind: "auto" as const,
+      message: "Something broke",
+      url: "/project/1",
+      status: "open" as const,
+      createdAt: Date.now(),
+    };
+    __setQueryError("errorReports:getError", new Error("offline"));
+    await render(ReportRow, { report });
+    document.querySelector<HTMLButtonElement>("button")?.click();
+    await expect.poll(() => document.body.textContent).toContain("Couldn't load the details.");
+
+    __resetConvexStub();
+    document.body.innerHTML = "";
+    __setQueryData("errorReports:getError", null);
+    await render(ReportRow, { report });
+    document.querySelector<HTMLButtonElement>("button")?.click();
+    await expect.poll(() => document.body.textContent).toContain("This alert is no longer available.");
   });
 });

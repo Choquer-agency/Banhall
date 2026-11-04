@@ -275,8 +275,9 @@ export const reviewClaimCitation = mutation({
     state: v.union(v.literal("approved"), v.literal("unsupported")),
     // The claim wording the reviewer saw. Saves keep one pending record id
     // across an editing burst, so the id alone no longer proves the claim
-    // is unchanged; a different hash is refused as stale.
-    claimTextHash: v.optional(v.string()),
+    // is unchanged; a different hash is refused as stale. Required, so a tab
+    // still running an older build must reload before it can review.
+    claimTextHash: v.string(),
   },
   handler: async (ctx, args) => {
     const reviewer = await requireRole(ctx, ["manager", "admin"]);
@@ -300,7 +301,7 @@ export const reviewClaimCitation = mutation({
     }
     const target = provenance.claims.find((claim) => claim.claimId === args.claimId);
     if (!target) domainError("NOT_FOUND", "Claim not found");
-    if (args.claimTextHash !== undefined && target.claimTextHash !== args.claimTextHash) {
+    if (target.claimTextHash !== args.claimTextHash) {
       domainError("STALE_REVISION", "The claim changed before review");
     }
     const claims = provenance.claims.map((claim) =>

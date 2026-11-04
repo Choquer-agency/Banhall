@@ -150,13 +150,14 @@
   async function decideClaim(claimId: string, state: "approved" | "unsupported") {
     if (!provenance || provenance.status === "unavailable_legacy" || !("id" in provenance)) return;
     const claimTextHash = provenance.claims.find((claim) => claim.claimId === claimId)?.claimTextHash;
+    if (!claimTextHash) return;
     await perform(() =>
       reviewClaim({
         reportId,
         provenanceId: provenance.id,
         claimId,
         state,
-        ...(claimTextHash ? { claimTextHash } : {}),
+        claimTextHash,
       })
     );
   }

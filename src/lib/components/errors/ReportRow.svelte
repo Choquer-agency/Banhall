@@ -206,6 +206,10 @@
         </p>
       {/if}
     </div>
+    {:else if detailQ.error}
+      <div class="border-t border-line-soft px-4 py-4 text-sm text-ink-muted">Couldn't load the details. Close this alert and open it again to retry.</div>
+    {:else if detail === null}
+      <div class="border-t border-line-soft px-4 py-4 text-sm text-ink-muted">This alert is no longer available.</div>
     {:else}
       <div class="border-t border-line-soft px-4 py-4 text-sm text-ink-muted">Loading details...</div>
     {/if}

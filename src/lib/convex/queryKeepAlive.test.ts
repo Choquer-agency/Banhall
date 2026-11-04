@@ -128,4 +128,14 @@ describe("query keep alive", () => {
     await expect(pending).rejects.toThrow("query failed");
     expect(fake.subscriptions.has(8)).toBe(false);
   });
+  it("drops a held query that starts failing", async () => {
+    const fake = fakeClient();
+    installQueryKeepAlive(fake.client, { ttlMs: 60_000 });
+    const release = fake.client.onUpdate(query, { id: 9 }, () => {}, () => {});
+    release();
+    expect(fake.subscriptions.get(9)).toBe(1);
+    fake.fail(9);
+    await Promise.resolve();
+    expect(fake.subscriptions.has(9)).toBe(false);
+  });
 });

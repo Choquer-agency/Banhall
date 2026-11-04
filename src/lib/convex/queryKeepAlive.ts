@@ -52,7 +52,13 @@ export function installQueryKeepAlive(
     if (maxHeld <= 0 || ttlMs <= 0 || client.disabled || client.closed) return;
     // Register the holder before the old listener goes away. Convex then keeps
     // the same query token and local result without a network unsubscribe.
-    const holder = originalOnUpdate(query, args, () => {}, () => {});
+    // A held query that starts failing is dropped, so the next mount runs it
+    // again instead of reading the cached error.
+    const holder = originalOnUpdate(query, args, () => {}, () => {
+      queueMicrotask(() => {
+        if (held.get(key)?.release === holder) releaseHeld(key);
+      });
+    });
     const timer = setTimeout(() => releaseHeld(key), ttlMs);
     held.set(key, { release: holder, timer });
     while (held.size > maxHeld) {
