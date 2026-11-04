@@ -254,6 +254,10 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-11-04 - Single and Compare reports finish before QA
+
+Single and Compare drafts become available after drafting and the consistency pass. A Single report opens at once; Compare candidates open for the writer to choose, and the chosen report opens at selection. The QA score starts on the report in the background through the same post-QA job as signed-off seed runs. Until the current report revision has a completed score, filing readiness, export and client review wait; a failed score leaves the report available and shows the existing retry state. Compare candidates have no QA score before selection. Chronology starts from the shared analysis alongside drafting, and the post-QA job retries it if that early result is unavailable. This changes the earlier rule that only signed-off seed drafts used background QA, and the missing-QA readiness exception for these new Single and Compare runs. Stopped seed drafts and the rest of the seed flow stay as approved.
+
 ### 2026-11-04 - Report text storage and autosave work
 
 Report text and its revision, hash, edit time, and claim record pointer live in `reportBodies`. The `reports` row keeps stable details. Readers use the body when it exists and fall back to legacy `reports.content` until a batched migration copies and clears old text. An autosave writes the body and carries claim review states in the same transaction. A coalesced job records provenance and deterministic QA findings a few seconds after the latest save. Readiness still checks blocking because clauses and known methodology failures against the current text during that delay. The migration must finish before a later schema change removes `reports.content`.

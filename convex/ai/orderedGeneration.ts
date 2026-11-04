@@ -5,9 +5,9 @@
 // Profile's Build Order, each reading the prior DRAFTED sections as context,
 // Self-checked (deterministic + one structured model call) and repaired at
 // most once before its completion mutation schedules the next section; then
-// one finalize action runs the assembled-draft consistency pass, QA and
-// chronology, and completes the candidate. Actions only: every write goes
-// through the fenced internal mutations in convex/generations.ts.
+// one finalize action runs the assembled-draft consistency pass and completes
+// the candidate. Report QA runs after the report exists. Actions only: every
+// write goes through the fenced internal mutations in convex/generations.ts.
 
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -29,8 +29,6 @@ import { parseTranscriptAnalysis } from "./analyzerAgent";
 import { runSection242Agent } from "./section242Agent";
 import { runSection244Agent } from "./section244Agent";
 import { runSection246Agent } from "./section246Agent";
-import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
-import { runChronologyAgent } from "./chronologyAgent";
 import {
   buildStyleGuidance,
   closerToLimits,
@@ -66,7 +64,7 @@ import {
 } from "./promptDefinitions";
 import { scrubBannedWordsUnlessWaived } from "../../shared/bannedWords";
 import { normalizeStyleOverrides } from "../../shared/styleOverrides";
-import { detectFirstPersonPreference, sourceTalkSubject } from "../../shared/humanProse";
+import { sourceTalkSubject } from "../../shared/humanProse";
 import { buildTiptapDocument } from "../lib/tiptapReport";
 import {
   LINE_LIMITS,
@@ -2274,9 +2272,9 @@ export const generateOrderedSection = internalAction({
 
 /**
  * After the last drafted section: one consistency call (when every section
- * was drafted), then QA and chronology as today (skipped for a signed-off
- * seed run, whose QA runs in the background after the report exists), the
- * Tiptap document (with [NOT GENERATED] for sections a stop left undrafted),
+ * was drafted), then the Tiptap document. QA runs after report creation for
+ * complete drafts, while a stopped seed draft skips it. The finalizer stores
+ * the Tiptap document (with [NOT GENERATED] for sections a stop left undrafted),
  * provenance, and the candidate's completion with its Self-check summary,
  * call budget and production order.
  */
@@ -2390,59 +2388,6 @@ export const finalizeOrderedCandidate = internalAction({
       const s242 = textOf("242");
       const s244 = textOf("244");
       const s246 = textOf("246");
-      const qaDigestIds =
-        payload.qaCalibrationDigestId && payload.qaCalibration?.trim()
-          ? [payload.qaCalibrationDigestId]
-          : undefined;
-      // CAP-18: a signed-off seed run never waits on QA. Its report is created
-      // as soon as the Sections are drafted and checked; the background
-      // post-QA job (ai/postQa:runReportQa, scheduled by settleCandidateRun)
-      // runs the scorecard and chronology once, from the same frozen inputs.
-      // A stopped seed run schedules no QA at all (FR-43).
-      const seedRun = payload.summaryVersionId !== undefined;
-      // QA scores a complete draft; a stopped draft skips it rather than be
-      // scored on empty sections. Both stay advisory, as in the one-shot path.
-      // 2026-10-29 (third): QA reads the source evidence too; a failed read
-      // leaves it to the analysis, as before.
-      const scoreQa = allDrafted && !seedRun;
-      const qaSourceEvidence = scoreQa
-        ? await qaSourceEvidenceFor(ctx, args.generationId, [s242 ?? "", s244 ?? "", s246 ?? ""])
-        : null;
-      const [qaSettled, chronologySettled] = await Promise.allSettled([
-        scoreQa
-          ? runQAAgent(
-              clientFor("generation:qa", qaDigestIds),
-              analysis,
-              s242 ?? "",
-              s244 ?? "",
-              s246 ?? "",
-              clientFor.modelFor("generation:qa"),
-              payload.qaCalibration,
-              styleOverrides,
-              detectFirstPersonPreference(payload.writerFlavor),
-              qaSourceEvidence,
-              // 2026-10-30 (owner, item 2): the claimant line.
-              input.claimantName
-            )
-          : Promise.resolve(null),
-        seedRun
-          ? Promise.resolve(null)
-          : runChronologyAgent(
-              clientFor("generation:chronology"),
-              analysis,
-              clientFor.modelFor("generation:chronology")
-            ),
-      ]);
-      if (qaSettled.status === "rejected") {
-        console.error("QA scorecard failed; continuing without it", qaSettled.reason);
-      }
-      if (chronologySettled.status === "rejected") {
-        console.error("Chronology failed; continuing without it", chronologySettled.reason);
-      }
-      const qa = qaSettled.status === "fulfilled" ? qaSettled.value : null;
-      const chronology =
-        chronologySettled.status === "fulfilled" ? chronologySettled.value : null;
-
       const content = JSON.stringify(buildTiptapDocument(input.title, s242, s244, s246));
       const provenanceId = await recordCandidateProvenance(ctx, {
         projectId: input.projectId,
@@ -2463,8 +2408,13 @@ export const finalizeOrderedCandidate = internalAction({
         section242: s242 ?? "",
         section244: s244 ?? "",
         section246: s246 ?? "",
-        qa,
-        chronology,
+        // The post-QA action uses the same calibration and writer intent that
+        // this candidate froze before drafting, including Compare selection.
+        frozenQaInputs: {
+          qaCalibration: payload.qaCalibration ?? null,
+          qaCalibrationDigestId: payload.qaCalibrationDigestId ?? null,
+          writerFlavor: payload.writerFlavor ?? null,
+        },
         metrics: {
           s242: sectionMetrics(s242 ?? "", "s242"),
           s244: sectionMetrics(s244 ?? "", "s244"),
@@ -2482,7 +2432,6 @@ export const finalizeOrderedCandidate = internalAction({
       await complete({
         content,
         agentOutputs,
-        qaScore: qa?.overall_score ?? undefined,
         provenanceId,
         productionOrder,
         ...(stoppedAfterSection ? { stoppedAfterSection } : {}),

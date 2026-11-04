@@ -81,6 +81,58 @@ async function saveQa(f: Fixture, compliance: Record<string, boolean>) {
 }
 
 describe("CAP-8 absolute current-revision QA gate", () => {
+  test("new Single reports keep readiness and export closed until a current QA score lands", async () => {
+    const f = await setup();
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.generationId, { postQaStatus: "running", postQaStartedAt: 7 });
+      await ctx.db.patch(f.projectId, { scienceCode: "2.02.01" });
+    });
+    expect((await readiness(f)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
+    await expect(f.actor.mutation(api.projects.publishForReview, {
+      projectId: f.projectId, reportId: f.reportId,
+    })).rejects.toMatchObject({ data: { code: "QA_SCORE_REQUIRED" } });
+    const current = await ref(f);
+    await expect(f.actor.mutation(api.reports.authorizeExport, {
+      reportId: f.reportId,
+      expectedRevisionNumber: current.revisionNumber,
+      expectedContentHash: current.contentHash,
+    })).rejects.toMatchObject({ data: { code: "EVIDENCE_REQUIRED" } });
+    await f.t.mutation(internal.generations.saveReportQa, {
+      generationId: f.generationId,
+      attemptStartedAt: 7,
+      capturedRef: current,
+      qa: scorecard({ why_how_why_intact: true, uncertainties_distinguished: true }),
+      qaScore: 90,
+    });
+    expect((await readiness(f)).blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
+    await f.actor.mutation(api.projects.publishForReview, {
+      projectId: f.projectId, reportId: f.reportId,
+    });
+    await f.actor.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: contentFor("The team ran a revised test."),
+      expectedRevisionNumber: 0,
+    });
+    expect((await readiness(f)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
+  });
+
+  test("a failed background QA pass keeps the report and exposes a retryable readiness blocker", async () => {
+    const f = await setup();
+    await f.t.run((ctx) => ctx.db.patch(f.generationId, {
+      postQaStatus: "running", postQaStartedAt: 8,
+    }));
+    await f.t.mutation(internal.generations.saveReportQa, {
+      generationId: f.generationId,
+      attemptStartedAt: 8,
+      capturedRef: await ref(f),
+      failed: true,
+    });
+    expect(await f.t.run((ctx) => ctx.db.get(f.generationId)))
+      .toMatchObject({ status: "completed", postQaStatus: "failed" });
+    expect(await f.t.run((ctx) => ctx.db.get(f.reportId))).not.toBeNull();
+    expect((await readiness(f)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
+  });
+
   test("human content save persists because findings and rejects publish atomically", async () => {
     const f = await setup();
     await f.actor.mutation(api.reports.updateReportContent, { reportId: f.reportId, content: contentFor(FAILURE), expectedRevisionNumber: 0 });
@@ -361,7 +413,10 @@ test("selecting a candidate rejects invalid stored scorecards as blocking eviden
   const generated = { ...f, reportId: report._id };
   expect((await rows(generated)).filter(row => row.check === "cra_methodology")).toEqual([]);
   expect((await readiness(generated)).blockers.map(b => b.code)).not.toContain("QA_BLOCKING");
-  await f.actor.mutation(api.projects.publishForReview, { projectId: f.projectId, reportId: report._id });
+  expect((await readiness(generated)).blockers.map(b => b.code)).toContain("QA_SCORE_REQUIRED");
+  await expect(f.actor.mutation(api.projects.publishForReview, {
+    projectId: f.projectId, reportId: report._id,
+  })).rejects.toMatchObject({ data: { code: "QA_SCORE_REQUIRED" } });
 });
 
 test("legacy punctuated cross-references do not move following uncertainty into work", async () => {

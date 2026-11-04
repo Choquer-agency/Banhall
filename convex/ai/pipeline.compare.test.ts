@@ -3,7 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FunctionArgs } from "convex/server";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import schema from "../schema";
 // These generations carry no model freeze, so they run on the pre-catalog
 // Sonnet 5 (2026-10-22); the prompt program names it as their fallback.
@@ -15,6 +15,7 @@ import { SECTION_246_REQUEST } from "./section246Agent";
 import type { GenerationMessageParams } from "./openrouterCore";
 import { lengthBudgetBlock } from "./pipeline";
 import { draftWordTarget } from "../lib/lineLimits";
+import { reportWithBody } from "../lib/reportBodies";
 import { withPinnedLine242Opening } from "../line242Opening.fixture";
 import { withoutInferenceMarker } from "../inferenceMarker.fixture";
 import { withoutHonestDrafting } from "../honestDrafting.fixture";
@@ -76,7 +77,7 @@ async function fixture(t: ReturnType<typeof convexTest>, models = pair, mode: "s
     const userId = await ctx.db.insert("users", { authId: "compare-writer", role: "writer" });
     const projectId = await ctx.db.insert("projects", {
       title: "Control experiment", clientName: "Client", status: "draft",
-      createdBy: userId, shareToken: "compare-token", createdAt: now, updatedAt: now,
+      createdBy: userId, ownerId: userId, shareToken: "compare-token", createdAt: now, updatedAt: now,
     });
     const content = "The team tested control response through prototype trials.";
     const transcriptId = await ctx.db.insert("transcripts", { projectId, content, createdAt: now });
@@ -265,6 +266,8 @@ describe("shared generation analysis", () => {
     const before = await t.run((ctx) => ctx.db.query("generationArtifacts").collect());
     const frozenAnalysis = before.find((row) => row.kind === "analysis");
     expect(frozenAnalysis).toBeDefined();
+    expect(JSON.parse(before.find((row) => row.kind === "early_chronology")?.content ?? "null"))
+      .toEqual({ entries: [] });
     const jobs = await candidateJobs(t);
     expect(jobs).toHaveLength(2);
     for (const job of jobs) expect(job.args[0].analysis).toBe(frozenAnalysis?.content);
@@ -321,14 +324,16 @@ describe("shared generation analysis", () => {
     for (const run of runs) {
       const owned = usage.filter((row) => row.candidateRunId === run._id);
       // Ordered chain: per section one draft and one Self-check (no repair
-      // needed here), then one consistency pass, QA and chronology.
+      // needed here), then one consistency pass. QA waits for a report.
       expect(owned.map((row) => row.callSite).sort()).toEqual([
-        "generation:chronology", "generation:consistency", "generation:qa",
+        "generation:consistency",
         "generation:section:242", "generation:section:244", "generation:section:246",
         "generation:selfCheck:242", "generation:selfCheck:244", "generation:selfCheck:246",
       ]);
       expect(owned.every((row) => row.generationId === generationId && row.model === run.model)).toBe(true);
     }
+    expect(usage.filter((row) => row.callSite === "generation:chronology")).toHaveLength(1);
+    expect(usage.some((row) => row.callSite === "generation:qa")).toBe(false);
   });
 });
 
@@ -368,7 +373,9 @@ describe("shared analysis failure and compatibility", () => {
     await runCandidates(t);
     const generation = await t.run((ctx) => ctx.db.get(generationId));
     expect(generation).toMatchObject({ status: "completed", candidatesDone: 1, candidatesFailed: 0 });
-    const reports = await t.run((ctx) => ctx.db.query("reports").collect());
+    const reports = await t.run(async (ctx) => Promise.all(
+      (await ctx.db.query("reports").collect()).map((report) => reportWithBody(ctx, report))
+    ));
     expect(reports).toHaveLength(1);
     expect(reports[0].content).toContain("prototype trials");
     expect(await t.run((ctx) => ctx.db.query("reportCandidates").collect())).toHaveLength(0);
@@ -431,6 +438,106 @@ describe("shared analysis failure and compatibility", () => {
   });
 });
 
+describe("QA after ordered reports become available", () => {
+  it("opens a Single report before QA and scores it through post-QA", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t, pair, "single");
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const before = await t.run(async (ctx) => {
+      const report = await ctx.db.query("reports")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generationId)).unique();
+      return {
+        generation: await ctx.db.get(generationId),
+        report: report ? await reportWithBody(ctx, report) : null,
+        results: await ctx.db.query("generationQaResults").collect(),
+      };
+    });
+    expect(before.generation).toMatchObject({ status: "completed", postQaStatus: "running" });
+    expect(before.generation?.qaScore).toBeUndefined();
+    expect(before.report?.content).toContain("prototype trials");
+    expect(before.results).toHaveLength(0);
+    expect(network.create.mock.calls.some(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")).toBe(false);
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_chronology_table")).toHaveLength(1);
+    await t.action(internal.ai.postQa.runReportQa, {
+      generationId,
+      attemptStartedAt: before.generation?.postQaStartedAt,
+    });
+    const after = await t.run(async (ctx) => ({
+      generation: await ctx.db.get(generationId),
+      results: await ctx.db.query("generationQaResults").collect(),
+    }));
+    expect(after.generation).toMatchObject({ postQaStatus: "done", qaScore: 88 });
+    expect(after.results).toEqual([expect.objectContaining({ status: "done", qaScore: 88 })]);
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")).toHaveLength(1);
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_chronology_table")).toHaveLength(1);
+  });
+
+  it("shows Compare candidates without QA, then scores the selected report", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const candidates = await writer.query(api.generations.getCandidates, { generationId });
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.qaScore)).toEqual([null, null]);
+    expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(0);
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidates[0]._id, score: 8, optionPosition: 1,
+    });
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidates[1]._id, score: 6, optionPosition: 2,
+    });
+    await writer.mutation(api.generations.selectReportCandidate, {
+      generationId,
+      candidateId: candidates[0]._id,
+    });
+    const pending = await t.run((ctx) => ctx.db.get(generationId));
+    expect(pending).toMatchObject({ status: "completed", postQaStatus: "running" });
+    expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(1);
+    await t.action(internal.ai.postQa.runReportQa, {
+      generationId,
+      attemptStartedAt: pending?.postQaStartedAt,
+    });
+    expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({
+      postQaStatus: "done", qaScore: 88,
+    });
+    const scores = await t.run((ctx) => ctx.db.query("candidateScores")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+      .collect());
+    expect(scores.find((score) => score.candidateId === candidates[0]._id)?.qaScore).toBe(88);
+    expect(scores.find((score) => score.candidateId === candidates[1]._id)?.qaScore).toBeUndefined();
+  });
+
+  it("keeps a Single report and exposes a failed QA pass for retry", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t, pair, "single");
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const original = network.create.getMockImplementation();
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice?.name === "submit_qa_scorecard") throw new Error("QA unavailable");
+      return original?.(params);
+    });
+    const pending = await t.run((ctx) => ctx.db.get(generationId));
+    await t.action(internal.ai.postQa.runReportQa, {
+      generationId,
+      attemptStartedAt: pending?.postQaStartedAt,
+    });
+    expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({
+      status: "completed", postQaStatus: "failed",
+    });
+    expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(1);
+    expect((await t.run((ctx) => ctx.db.query("generationQaResults").collect()))[0])
+      .toMatchObject({ status: "failed" });
+  });
+});
+
 
 it("shares one analysis across Anthropic and OpenRouter candidates without changing gateway message strings", async () => {
   const requests: Array<{
@@ -469,8 +576,9 @@ it("shares one analysis across Anthropic and OpenRouter candidates without chang
   const candidates = await t.run((ctx) => ctx.db.query("reportCandidates").collect());
   expect(candidates.map((row) => row.model).sort()).toEqual([pair[0], gatewayModel].sort());
   for (const candidate of candidates) expect(JSON.parse(candidate.agentOutputs).analyzer).toEqual(analysis);
-  // 3 section drafts + 3 Self-checks + 1 consistency pass + QA + chronology.
-  expect(requests).toHaveLength(9);
+  // 3 section drafts + 3 Self-checks + 1 consistency pass. Shared
+  // chronology ran before candidate dispatch, and QA waits for selection.
+  expect(requests).toHaveLength(7);
   for (const request of requests) {
     expect(request.model).toBe(gatewayModel);
     expect(request.messages.every((message) => typeof message.content === "string")).toBe(true);

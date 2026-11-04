@@ -186,14 +186,15 @@ export async function getPostQaInputHandler(
       section244: currentSections.s244,
       section246: currentSections.s246,
       model: sections.s242.model || undefined,
+      earlyChronology: null,
       styleOverrides,
       ...(frozenQaInputs ? { frozenQaInputs } : {}),
       ...claimant,
     };
   }
-  // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
-  // analyzer output and section texts were persisted inside agentOutputs at
-  // generation time — rebuild the QA input from there.
+  // Single / Compare generations: rebuild QA input from frozen agentOutputs
+  // and the report's current body. New ordered drafts carry frozen calibration
+  // and writer intent there too.
   const agentOutputs = await readAgentOutputs(ctx, generation);
   if (!agentOutputs) return null;
   try {
@@ -203,6 +204,11 @@ export async function getPostQaInputHandler(
       section244?: string;
       section246?: string;
       styleOverrides?: Record<string, boolean>;
+      frozenQaInputs?: {
+        qaCalibration: string | null;
+        qaCalibrationDigestId: Id<"learningDigests"> | null;
+        writerFlavor: string | null;
+      };
     };
     if (
       !outputs.analyzer
@@ -215,6 +221,21 @@ export async function getPostQaInputHandler(
         q.eq("projectId", generation.projectId).eq("generationId", generation._id)
       )
       .first();
+    const candidateRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const earlyChronology = await ctx.db
+      .query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", generation._id).eq("kind", "early_chronology"))
+      .first();
+    const selectedRun = candidateRuns.find((run) =>
+      run.candidateId === selection?.candidateId
+    );
+    const singleRun = candidateRuns.find((run) =>
+      run.status === "succeeded" && !run.ghost
+    );
     return {
       projectId: generation.projectId,
       requestedBy: generation.requestedBy,
@@ -223,7 +244,8 @@ export async function getPostQaInputHandler(
       capturedRef,
       section244: currentSections.s244,
       section246: currentSections.s246,
-      model: selection?.model ?? undefined,
+      model: selection?.model ?? selectedRun?.model ?? singleRun?.model ?? generation.singleModelId,
+      earlyChronology: earlyChronology?.content ?? null,
       // PSOS-50: waivers frozen into agentOutputs at generation time.
       // Absent only on legacy generations, where postQa falls back to the
       // writer's live profile.
@@ -231,6 +253,7 @@ export async function getPostQaInputHandler(
         outputs.styleOverrides && typeof outputs.styleOverrides === "object"
           ? outputs.styleOverrides
           : undefined,
+      ...(outputs.frozenQaInputs ? { frozenQaInputs: outputs.frozenQaInputs } : {}),
       ...claimant,
     };
   } catch {
@@ -339,6 +362,28 @@ export async function saveReportQaHandler(
   const completedAt = Date.now();
   await writeAgentOutputs(ctx, generation, JSON.stringify(outputs));
   await recordQaResult(ctx, generation, args, "done", completedAt);
+  if (args.qaScore !== undefined && (generation.candidateMode ?? "compare") === "compare") {
+    // Writers may score Compare options before choosing one. Its post-QA
+    // score arrives later, after the candidate rows have been deleted.
+    const selection = await ctx.db.query("modelSelections")
+      .withIndex("by_projectId_and_generationId", (q) =>
+        q.eq("projectId", generation.projectId).eq("generationId", generation._id))
+      .first();
+    if (selection?.candidateId) {
+      const scores = await ctx.db.query("candidateScores")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(100);
+      let hasComment = false;
+      for (const score of scores) {
+        if (score.candidateId !== selection.candidateId) continue;
+        await ctx.db.patch(score._id, { qaScore: args.qaScore, updatedAt: completedAt });
+        hasComment ||= Boolean(score.comment);
+      }
+      if (hasComment) {
+        await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.learning.generateDraftStyleDigest, {});
+      }
+    }
+  }
   await transitionPostQa(ctx, generation, "done", {
     postQaCompletedAt: completedAt,
     ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),

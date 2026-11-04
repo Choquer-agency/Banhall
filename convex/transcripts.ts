@@ -1216,7 +1216,15 @@ export const copyTranscriptFacts = internalMutation({
     let runId = args.runId;
     if (!runId) {
       const existing = await findFactRun(ctx, target._id, hash);
-      if (existing?.status === "ready" || existing?.status === "running") return null;
+      if (existing?.status === "ready" || existing?.status === "running") {
+        // The copy already has its own run (a draft claimed one while this
+        // job waited). Drop the pointer so later rebuilds and requests for
+        // this transcript are not skipped as "waiting for a copy".
+        if (target.factsCopyFromTranscriptId === source._id) {
+          await ctx.db.patch(target._id, { factsCopyFromTranscriptId: undefined });
+        }
+        return null;
+      }
       runId = await ctx.db.insert("transcriptFactRuns", {
         transcriptId: target._id,
         projectId: target.projectId,

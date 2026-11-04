@@ -8,6 +8,7 @@ const query = makeFunctionReference<"query", { id: number }, string>("test:read"
 function fakeClient() {
   const subscriptions = new Map<number, number>();
   const cache = new Map<number, string>();
+  const errorHandlers = new Map<number, (error: Error) => unknown>();
   const client = {
     disabled: false,
     closed: false,
@@ -16,8 +17,14 @@ function fakeClient() {
         return cache.get(args.id);
       },
     },
-    onUpdate(_query: typeof query, args: { id: number }, _callback: (result: string) => unknown) {
+    onUpdate(
+      _query: typeof query,
+      args: { id: number },
+      _callback: (result: string) => unknown,
+      onError?: (error: Error) => unknown
+    ) {
       const id = args.id;
+      if (onError) errorHandlers.set(id, onError);
       subscriptions.set(id, (subscriptions.get(id) ?? 0) + 1);
       const unsubscribe = Object.assign(() => {
         const remaining = (subscriptions.get(id) ?? 1) - 1;
@@ -36,6 +43,9 @@ function fakeClient() {
   return {
     client: client as unknown as ConvexClient,
     subscriptions,
+    fail(id: number) {
+      errorHandlers.get(id)?.(new Error("query failed"));
+    },
     setResult(id: number, value: string) {
       if (subscriptions.has(id)) cache.set(id, value);
     },
@@ -99,5 +109,23 @@ describe("query keep alive", () => {
     fake.setResult(1, "prefetched");
     expect(fake.client.client.localQueryResult("test:read", { id: 1 })).toBe("prefetched");
     pool.clear();
+  });
+  it("does not hold a query whose latest answer was an error", () => {
+    const fake = fakeClient();
+    installQueryKeepAlive(fake.client, { ttlMs: 1000 });
+    const release = fake.client.onUpdate(query, { id: 7 }, () => {}, () => {});
+    fake.fail(7);
+    release();
+    expect(fake.subscriptions.has(7)).toBe(false);
+  });
+
+  it("does not hold a one-shot client.query", async () => {
+    const fake = fakeClient();
+    installQueryKeepAlive(fake.client, { ttlMs: 1000 });
+    const pending = fake.client.query(query, { id: 8 });
+    expect(fake.subscriptions.get(8)).toBe(1);
+    fake.fail(8);
+    await expect(pending).rejects.toThrow("query failed");
+    expect(fake.subscriptions.has(8)).toBe(false);
   });
 });

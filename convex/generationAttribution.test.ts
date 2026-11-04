@@ -1496,7 +1496,8 @@ describe("generation entry handoffs through the real actions", () => {
       run: await ctx.db.get(candidateRunId),
     }));
     expect(state.run?.status).toBe("succeeded");
-    expect(state.generation?.learningDigestIds).toEqual(sortIds([styleId, qaId]));
+    // The calibration digest is first used by the scheduled post-QA pass.
+    expect(state.generation?.learningDigestIds).toEqual([styleId]);
     expect(state.generation?.promptVersion).toBe(PROMPT_VERSION);
 
     const bodies = requests.map((request) => JSON.stringify(request));
@@ -1514,8 +1515,7 @@ describe("generation entry handoffs through the real actions", () => {
     expect(sectionBodies).toHaveLength(3);
     expect(sectionBodies.every((body) => body.includes(styleText))).toBe(true);
     expect(sectionBodies.some((body) => body.includes(qaText))).toBe(false);
-    expect(qaBody).toContain(qaText);
-    expect(qaBody).not.toContain(styleText);
+    expect(qaBody).toBeUndefined();
     expect(analyzerBody).toBeDefined();
     expect(analyzerBody).not.toContain(styleText);
     expect(analyzerBody).not.toContain(qaText);
@@ -1570,6 +1570,16 @@ describe("generation entry handoffs through the real actions", () => {
       ),
     ).toBe(true);
     expect(candidateRows.every((row) => row.model === OPENROUTER_MODEL)).toBe(true);
+    await t.action(internal.ai.postQa.runReportQa, {
+      generationId,
+      attemptStartedAt: state.generation?.postQaStartedAt,
+    });
+    const postQaBody = requests.map((request) => JSON.stringify(request))
+      .find((_, index) => toolOf(requests[index]!) === "submit_qa_scorecard");
+    expect(postQaBody).toContain(qaText);
+    expect(postQaBody).not.toContain(styleText);
+    expect((await t.run((ctx) => ctx.db.get(generationId)))?.learningDigestIds)
+      .toEqual(sortIds([styleId, qaId]));
   });
 
   it("declares the frozen style digest at the iterative section handoff and attributes its usage", async () => {

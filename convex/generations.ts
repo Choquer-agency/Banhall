@@ -33,6 +33,7 @@ import {
 } from "./lib/generations/reservation";
 import { getCurrentUserOrNull, getInternalProjectAccessOrNull } from "./lib/auth";
 import { deploymentDraftWebBackgroundOn } from "./lib/draftWebBackgroundSetting";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { draftWebBackgroundRecordValidator } from "./lib/draftWebBackgroundValidators";
 import {
   adoptPreparedBriefArgs,
@@ -755,6 +756,26 @@ export const getPostQaAttempt = internalQuery({
 export const getPostQaInput = internalQuery({
   args: getPostQaInputArgs,
   handler: getPostQaInputHandler,
+});
+
+/** Keep the analysis-only chronology produced beside Single/Compare drafting. */
+export const saveEarlyChronology = internalMutation({
+  args: { generationId: v.id("generations"), chronology: v.string() },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || generation.candidateMode === "iterative" ||
+      await isProjectDeleting(ctx, generation.projectId)) return;
+    const existing = await ctx.db.query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", args.generationId).eq("kind", "early_chronology"))
+      .first();
+    if (existing) return;
+    await ctx.db.insert("generationArtifacts", {
+      generationId: args.generationId,
+      kind: "early_chronology",
+      content: args.chronology,
+    });
+  },
 });
 
 /**

@@ -372,8 +372,7 @@ describe("draft_ready", () => {
       projectId: s.projectId,
       generationId: s.generationId,
       title: "Your draft is ready",
-      // A Single draft is scored during its run: no QA pass to wait for.
-      body: `${PROJECT_TITLE}. Open it to read the draft.`,
+      body: `${PROJECT_TITLE}. QA is checking it.`,
       href: `/project/${s.projectId}`,
       dedupeKey: `draft_ready:${s.generationId}`,
     });

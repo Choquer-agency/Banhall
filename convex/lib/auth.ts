@@ -1,5 +1,6 @@
 import { hasBlockingQa } from "./qaFindings";
 import { getPendingReportProvenance, reportWithBody } from "./reportBodies";
+import { latestQaResult, qaResultIsCurrent } from "./qaResults";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -146,6 +147,24 @@ export async function getProjectAccess(
 }
 
 
+export async function reportNeedsQaScore(ctx: Ctx, report: Doc<"reports">): Promise<boolean> {
+  if (!report.generationId) return false;
+  const generation = await ctx.db.get(report.generationId);
+  // New Single and Compare drafts become available before QA finishes.
+  // Their score is required for filing and export, including after a failed
+  // pass or an edit that makes an earlier score stale. Legacy inline scores
+  // and the signed-off seed flow keep their existing readiness rules.
+  if (
+    generation?.postQaStartedAt === undefined ||
+    (generation.candidateMode !== "single" &&
+      (generation.candidateMode ?? "compare") !== "compare")
+  ) return false;
+  const result = await latestQaResult(ctx, generation._id);
+  return generation.postQaStatus !== "done" ||
+    !result || result.status !== "done" || result.qaScore === undefined ||
+    !(await qaResultIsCurrent(ctx, result, report));
+}
+
 export async function getFilingReadiness(
   ctx: Ctx,
   project: Doc<"projects">,
@@ -158,6 +177,9 @@ export async function getFilingReadiness(
 
   if (report && await hasBlockingQa(ctx, report)) {
     add("QA_BLOCKING", "Current report has unresolved substantive QA findings");
+  }
+  if (report && await reportNeedsQaScore(ctx, report)) {
+    add("QA_SCORE_REQUIRED", "The current report needs a completed QA score before filing or export.");
   }
 
   const evidence = await ctx.db

@@ -26,6 +26,7 @@ import { deleteStorageIfUnreferenced, STORAGE_REFERENCE_FIELDS } from "./lib/sto
 import {
   getInternalProjectAccessOrNull,
   getFilingReadiness,
+  reportNeedsQaScore,
   requireFilingReady,
   requireInternalProjectAccess,
   requireProjectCreatorOrAdmin,
@@ -2275,6 +2276,9 @@ export const publishForReview = mutation({
     }
     if (await hasBlockingQa(ctx, report)) {
       domainError("QA_BLOCKING", "Current report has unresolved substantive QA findings");
+    }
+    if (await reportNeedsQaScore(ctx, report)) {
+      domainError("QA_SCORE_REQUIRED", "The current report needs a completed QA score before client review.");
     }
     await ctx.db.patch(args.projectId, {
       sharedReportId: report._id,

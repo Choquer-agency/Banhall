@@ -354,7 +354,7 @@ export async function settleCandidateRun(
     ).length;
     const failed = terminal.length - done;
     const runLine = succeeded
-      ? `✓ ${run.label} draft ready (QA ${args.qaScore ?? "—"}/100).`
+      ? `✓ ${run.label} draft ready${args.qaScore === undefined ? "; QA starts after report creation" : ` (QA ${args.qaScore}/100)`}.`
       : `✗ ${run.label} failed: ${args.error ?? "provider error"}.`;
     if (terminal.length < (generation.totalCandidates ?? runs.length)) {
       await appendGenerationProgress(ctx, generation, [runLine]);
@@ -365,10 +365,10 @@ export async function settleCandidateRun(
       return;
     }
     if (done > 0) {
-      // CAP-18: the seed report exists before QA, which then runs in the
-      // background. A stopped seed draft runs no QA (FR-43).
+      // Complete Single and seed reports exist before background QA.
+      // A stopped seed draft runs no QA (FR-43).
       const seedStopped = isSeedOrdered && args.stoppedAfterSection !== undefined;
-      const scheduleSeedQa = isSeedOrdered && !seedStopped;
+      const scheduleReportQa = !seedStopped;
       if (generation.candidateMode !== "single" && !isSeedOrdered) {
         await appendGenerationProgress(ctx, generation, [runLine]);
         await transitionGeneration(ctx, generation, "awaiting_selection", {
@@ -401,8 +401,8 @@ export async function settleCandidateRun(
       });
       await appendGenerationProgress(ctx, generation, [
         runLine,
-        ...(scheduleSeedQa
-          ? ["Running the QA scorecard and chronology in the background…"]
+        ...(scheduleReportQa
+          ? ["Running the QA scorecard in the background…"]
           : seedStopped
             ? [
                 `Stopped after Line ${args.stoppedAfterSection}: the drafted Sections are in the report, the rest are marked Not drafted, and QA does not run on a stopped draft.`,
@@ -415,7 +415,7 @@ export async function settleCandidateRun(
         candidatesFailed: failed,
         currentStep: "Complete",
         completedAt: now,
-        ...(scheduleSeedQa
+        ...(scheduleReportQa
           ? { postQaStatus: "running" as const, postQaStartedAt: now }
           : {}),
       });
@@ -427,7 +427,7 @@ export async function settleCandidateRun(
         )
         .take(10);
       for (const row of candidates) await ctx.db.delete(row._id);
-      if (scheduleSeedQa) {
+      if (scheduleReportQa) {
         await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
           generationId: generation._id,
           attemptStartedAt: now,
@@ -704,6 +704,8 @@ export async function selectReportCandidateHandler(
     // Story 2 (AD-24): the selected candidate's own stop, if it stopped.
     stoppedAfterSection: stoppedAfterSectionOf(candidate.agentOutputs),
     completedAt: now,
+    postQaStatus: "running",
+    postQaStartedAt: now,
   });
   await refreshProjectGenerationActivity(ctx, generation.projectId);
   await ctx.db.insert("modelSelections", {
@@ -720,5 +722,9 @@ export async function selectReportCandidateHandler(
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
     .take(10);
   for (const row of all) await ctx.db.delete(row._id);
+  await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+    generationId: generation._id,
+    attemptStartedAt: now,
+  });
   return reportId;
 }

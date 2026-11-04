@@ -679,6 +679,15 @@ const FINAL_TEXT_CHECKS: Record<Scenario, Pin | undefined> = {
 /** The helper stages owner decision 43 moves off the writer's model. */
 const PLANNING_STAGES = ["submit_transcript_analysis", "submit_generation_brief", "submit_seed_batch"];
 const CHECKING_STAGES = ["submit_self_check", "submit_consistency_findings", "submit_qa_scorecard", "submit_chronology_table"];
+const beforeBackgroundQa = (stages: Record<string, Pin>) => {
+  const { submit_qa_scorecard: _qa, submit_chronology_table: _chronology, ...draftStages } = stages;
+  return draftStages;
+};
+const expectBackgroundChecks = (stages: Record<string, Pin>, mode: "single" | "compare") => {
+  expect(stages.submit_chronology_table?.count).toBe(1);
+  if (mode === "single") expect(stages.submit_qa_scorecard?.count).toBe(2);
+  else expect(stages.submit_qa_scorecard).toBeUndefined();
+};
 const WRITER_STAGES = ["section", "repair", "compression"];
 
 // ─── Generations ────────────────────────────────────────────────────────────
@@ -1010,10 +1019,11 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       expectBriefStreaming(wire.sent, mode === "seeds");
       const now = await stagesOf(beforeFinalTextChecks(wire.sent), asPinned);
       expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[`${mode}:${SONNET}`]);
-      const { compression: pinnedCompression, ...pinnedRest } = pinned;
-      const { compression, ...rest } = now;
+      const { compression: pinnedCompression, ...pinnedRest } = beforeBackgroundQa(pinned);
+      const { compression, ...rest } = beforeBackgroundQa(now);
       expect(rest).toEqual(pinnedRest);
       if (mode === "single") {
+        expectBackgroundChecks(now, "single");
         // The compression bodies are the pinned ones plus `thinking: {type: "disabled"}`.
         expect(compression.hash).not.toBe(pinnedCompression.hash);
         expect(await stagesOf(wire.sent.filter((request) => stageOf(request.json) === "compression"), (json) => withoutThinking(asPinned(json)))).toEqual({
@@ -1085,7 +1095,8 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[`${mode}:${SONNET}`]);
       const sonnet = PINNED_771AF202[`${mode}:${SONNET}`];
       const before = PINNED_771AF202[`${mode}:${OPUS}`];
-      for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES].filter((name) => name in sonnet)) {
+      for (const stage of [...PLANNING_STAGES, ...CHECKING_STAGES]
+        .filter((name) => name !== "submit_qa_scorecard" && name !== "submit_chronology_table" && name in sonnet)) {
         // On 771af202 the writer's Opus 5.5 ran it; now it is the Sonnet 5 request.
         expect(before[stage].models, stage).toContain(OPUS);
         expect(now[stage], stage).toEqual(sonnet[stage]);
@@ -1095,6 +1106,7 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       }
       expect(now.submit_retrieval_brief.models).toEqual([HAIKU]);
       if (mode === "single") {
+        expectBackgroundChecks(now, "single");
         expect(now.section).toEqual(before.section);
         expect(now.repair).toEqual(before.repair);
         // 2026-10-29 (third, item 4): QA reads the frozen source evidence
@@ -1132,7 +1144,10 @@ describe("requests on the wire (real SDK, fetch stubbed)", () => {
       const { wire } = await run(scenario, "beforeStepRouting");
       expectBriefStreaming(wire.sent, scenario.startsWith("seeds"));
       expectStrictTools(wire.sent, [OPUS]);
-      expect(await stagesOf(beforeFinalTextChecks(wire.sent), asPinned)).toEqual(PINNED_771AF202[scenario]);
+      const stages = await stagesOf(beforeFinalTextChecks(wire.sent), asPinned);
+      expect(beforeBackgroundQa(stages)).toEqual(beforeBackgroundQa(PINNED_771AF202[scenario]));
+      if (scenario.startsWith("single:")) expectBackgroundChecks(stages, "single");
+      if (scenario.startsWith("compare:")) expectBackgroundChecks(stages, "compare");
       expect(await finalTextChecks(wire.sent)).toEqual(FINAL_TEXT_CHECKS[scenario]);
     }
   );

@@ -1767,6 +1767,20 @@ export const generateReport = internalAction({
         analyzerRoute.model,
         brainBlocks.analyzer
       );
+      // Chronology reads only the shared analysis. Start it while the
+      // candidates draft, then keep its result for the post-QA pass.
+      const earlyChronology = runChronologyAgent(
+        shared.client("generation:chronology"),
+        analysis,
+        shared.route("generation:chronology").model
+      ).then((chronology) =>
+        ctx.runMutation(internal.generations.saveEarlyChronology, {
+          generationId: genId,
+          chronology: JSON.stringify(chronology),
+        })
+      ).catch((error) => {
+        console.error("Early chronology failed; post-QA will retry it", genId, error);
+      });
       await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
       if (orderedContext.profileState !== "applied") {
@@ -1842,6 +1856,7 @@ export const generateReport = internalAction({
           scheduledJobId,
         });
       }
+      await earlyChronology;
     } catch (error) {
       await ctx.runMutation(internal.generations.failGeneration, {
         generationId: genId,

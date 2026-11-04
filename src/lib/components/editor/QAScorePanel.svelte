@@ -977,7 +977,9 @@
         </button>
       {/if}
     {:else}
-      <p class="text-xs text-gray-400">Scores appear after the next generation.</p>
+      <p class="text-xs text-gray-400">
+        {candidateId ? "QA scoring starts after you choose a draft." : "Scores appear after the next generation."}
+      </p>
     {/if}
   </div>
 {/if}

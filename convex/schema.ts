@@ -3317,6 +3317,9 @@ export default defineSchema({
       v.literal("agent_outputs"),
       v.literal("brain_retrieval_brief"),
       v.literal("brain_provenance"),
+      // Single and Compare chronology starts after shared analysis, while
+      // their section drafts are still in progress.
+      v.literal("early_chronology"),
       // 2026-09-25 (owner decision 32): the frozen writer style (the
       // `brain_blocks` shape without `blocks`), saved before the seed stage
       // opens so Seeds never wait for Brain retrieval. `brain_blocks` still

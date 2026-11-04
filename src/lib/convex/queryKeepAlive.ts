@@ -69,9 +69,23 @@ export function installQueryKeepAlive(
     onError?: (error: Error) => unknown
   ): Unsubscribe<QueryRef["_returnType"]> {
     const key = keyOf(query, args);
+    // A query whose latest answer was an error is not held: a retry must run
+    // it again instead of reading the cached error.
+    let lastWasError = false;
     // Attach the new listener before dropping the holder so the local result
     // remains available to useQuery's synchronous localQueryResult read.
-    const subscription = originalOnUpdate(query, args, callback, onError);
+    const subscription = originalOnUpdate(
+      query,
+      args,
+      (result) => {
+        lastWasError = false;
+        return callback(result);
+      },
+      (error) => {
+        lastWasError = true;
+        return onError?.(error);
+      }
+    );
     releaseHeld(key);
     active.set(key, (active.get(key) ?? 0) + 1);
     let released = false;
@@ -82,13 +96,39 @@ export function installQueryKeepAlive(
       if (remaining > 0) active.set(key, remaining);
       else {
         active.delete(key);
-        hold(key, query, args);
+        if (!lastWasError) hold(key, query, args);
       }
       subscription();
     }) as Unsubscribe<QueryRef["_returnType"]>;
     unsubscribe.unsubscribe = unsubscribe;
     unsubscribe.getCurrentValue = subscription.getCurrentValue;
     return unsubscribe;
+  };
+
+  // One-shot client.query() calls go straight to the original listener, so
+  // they are never held. A held subscription still answers them from its
+  // live local result.
+  client.query = function query<QueryRef extends Query>(
+    query: QueryRef,
+    args: FunctionArgs<QueryRef>
+  ): Promise<FunctionReturnType<QueryRef>> {
+    if (client.disabled) throw new Error("ConvexClient is disabled");
+    const local = client.client.localQueryResult(getFunctionName(query), args);
+    if (local !== undefined) return Promise.resolve(local as FunctionReturnType<QueryRef>);
+    return new Promise((resolve, reject) => {
+      const unsubscribe = originalOnUpdate(
+        query,
+        args,
+        (value) => {
+          unsubscribe();
+          resolve(value);
+        },
+        (error) => {
+          unsubscribe();
+          reject(error);
+        }
+      );
+    });
   };
 
   function prefetchQuery<QueryRef extends Query>(query: QueryRef, args: FunctionArgs<QueryRef>) {
