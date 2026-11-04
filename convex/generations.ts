@@ -81,6 +81,10 @@ import {
   claimCandidateRunHandler,
   completeCandidateRunArgs,
   completeCandidateRunHandler,
+  claimCandidateQaArgs,
+  claimCandidateQaHandler,
+  saveCandidateQaArgs,
+  saveCandidateQaHandler,
   getCandidatesArgs,
   getCandidatesHandler,
   selectReportCandidateArgs,
@@ -436,6 +440,16 @@ export const claimCandidateRun = internalMutation({
 export const completeCandidateRun = internalMutation({
   args: completeCandidateRunArgs.fields,
   handler: completeCandidateRunHandler,
+});
+
+export const claimCandidateQa = internalMutation({
+  args: claimCandidateQaArgs,
+  handler: claimCandidateQaHandler,
+});
+
+export const saveCandidateQa = internalMutation({
+  args: saveCandidateQaArgs,
+  handler: saveCandidateQaHandler,
 });
 
 export const failGeneration = internalMutation({

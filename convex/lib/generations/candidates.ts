@@ -7,6 +7,7 @@
  * this module holds their handlers and helpers.
  */
 import { v, type Infer, type ObjectType } from "convex/values";
+import { makeFunctionReference } from "convex/server";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { isProjectDeleting } from "../projectDeletion";
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -29,7 +30,14 @@ import { internal } from "../../_generated/api";
 import { getInternalProjectAccessOrNull, requireCurrentUser } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { writeAgentOutputs } from "../generationOutputs";
+import { saveReportQaHandler } from "./postQa";
+import { claimantNameFor } from "../transcriptPlaceholders";
 import { restorableProjectStatus } from "./restoreStatus";
+
+// This action is new, so the checked-in generated API does not name it yet.
+export const runCandidateQaRef = makeFunctionReference<
+  "action", { candidateRunId: Id<"generationCandidateRuns"> }, null
+>("ai/candidateQa:runCandidateQa");
 
 /** Argument validators of generations.createCandidateRun. */
 export const createCandidateRunArgs = {
@@ -302,9 +310,17 @@ export async function settleCandidateRun(
       status: succeeded ? "succeeded" : "failed",
       candidateId,
       qaScore: args.qaScore,
+      ...(succeeded && generation.candidateMode === "compare" && !run.ghost
+        ? { candidateQaStatus: "queued" as const }
+        : {}),
       error: args.error?.slice(0, 500),
       completedAt: Date.now(),
     });
+    if (succeeded && generation.candidateMode === "compare" && !run.ghost) {
+      await ctx.scheduler.runAfter(0, runCandidateQaRef, {
+        candidateRunId: run._id,
+      });
+    }
 
     // Ghost run (iterative mode): the candidate row is a peek-only comparison
     // draft. It never advances the generation lifecycle — section approvals
@@ -354,7 +370,11 @@ export async function settleCandidateRun(
     ).length;
     const failed = terminal.length - done;
     const runLine = succeeded
-      ? `✓ ${run.label} draft ready${args.qaScore === undefined ? "; QA starts after report creation" : ` (QA ${args.qaScore}/100)`}.`
+      ? `✓ ${run.label} draft ready${args.qaScore === undefined
+          ? generation.candidateMode === "compare"
+            ? "; QA is scoring in the background"
+            : "; QA starts after report creation"
+          : ` (QA ${args.qaScore}/100)`}.`
       : `✗ ${run.label} failed: ${args.error ?? "provider error"}.`;
     if (terminal.length < (generation.totalCandidates ?? runs.length)) {
       await appendGenerationProgress(ctx, generation, [runLine]);
@@ -631,6 +651,137 @@ export async function getCandidatesHandler(
   });
 }
 
+/** Claim one Compare candidate's scorecard before calling the provider. */
+export const claimCandidateQaArgs = { candidateRunId: v.id("generationCandidateRuns") };
+
+export async function claimCandidateQaHandler(
+  ctx: MutationCtx,
+  args: ObjectType<typeof claimCandidateQaArgs>
+) {
+  const run = await ctx.db.get(args.candidateRunId);
+  if (!run || run.candidateQaStatus !== "queued" || run.status !== "succeeded" || !run.candidateId) return null;
+  const generation = await ctx.db.get(run.generationId);
+  const candidate = await ctx.db.get(run.candidateId);
+  if (!generation || generation.candidateMode !== "compare" || !candidate ||
+    await isProjectDeleting(ctx, run.projectId)) return null;
+  const earlyChronology = await ctx.db.query("generationArtifacts")
+    .withIndex("by_generationId_and_kind", (q) =>
+      q.eq("generationId", generation._id).eq("kind", "early_chronology"))
+    .first();
+  const startedAt = Date.now();
+  await ctx.db.patch(run._id, { candidateQaStatus: "running", candidateQaStartedAt: startedAt });
+  return {
+    generationId: generation._id,
+    candidateId: candidate._id,
+    projectId: generation.projectId,
+    requestedBy: generation.requestedBy,
+    model: run.model,
+    agentOutputs: candidate.agentOutputs,
+    earlyChronology: earlyChronology?.content ?? null,
+    claimantName: claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff),
+    startedAt,
+  };
+}
+
+export const saveCandidateQaArgs = {
+  candidateRunId: v.id("generationCandidateRuns"),
+  startedAt: v.number(),
+  qa: v.optional(v.string()),
+  chronology: v.optional(v.string()),
+  failed: v.optional(v.boolean()),
+};
+
+/** Save every candidate score, including an option the writer did not choose. */
+export async function saveCandidateQaHandler(
+  ctx: MutationCtx,
+  args: ObjectType<typeof saveCandidateQaArgs>
+) {
+  const run = await ctx.db.get(args.candidateRunId);
+  if (!run || run.candidateQaStatus !== "running" ||
+    run.candidateQaStartedAt !== args.startedAt || !run.candidateId) return;
+  if (await isProjectDeleting(ctx, run.projectId)) return;
+  let qa: unknown;
+  try { qa = args.qa ? JSON.parse(args.qa) : undefined; }
+  catch { qa = undefined; }
+  const qaScore = qa && typeof qa === "object" && "overall_score" in qa &&
+    typeof qa.overall_score === "number" ? qa.overall_score : undefined;
+  const failed = args.failed || qaScore === undefined;
+  // Recovery generations copy successful drafts. A copied draft waits for
+  // its source run, so its score travels forward without another provider call.
+  const pending: Doc<"generationCandidateRuns">[] = [run];
+  for (let index = 0; index < pending.length; index += 1) {
+    const current = pending[index];
+    if (index > 0 && current.candidateQaStatus !== "waiting") continue;
+    if (!current.candidateId) continue;
+    const generation = await ctx.db.get(current.generationId);
+    const candidate = await ctx.db.get(current.candidateId);
+    if (!generation || !candidate || await isProjectDeleting(ctx, current.projectId)) continue;
+    let outputs: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(candidate.agentOutputs);
+      outputs = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? { ...parsed } : {};
+    } catch {
+      outputs = {};
+    }
+    if (qa !== undefined) outputs.qa = qa;
+    if (args.chronology) {
+      try { outputs.chronology = JSON.parse(args.chronology); }
+      catch { /* A malformed chronology is not a scorecard failure. */ }
+    }
+    await ctx.db.patch(candidate._id, { agentOutputs: JSON.stringify(outputs) });
+    await ctx.db.patch(current._id, {
+      candidateQaStatus: failed ? "failed" : "done",
+      ...(qaScore !== undefined ? { qaScore } : {}),
+    });
+    const selection = await ctx.db.query("modelSelections")
+      .withIndex("by_projectId_and_generationId", (q) =>
+        q.eq("projectId", generation.projectId).eq("generationId", generation._id))
+      .first();
+    if (qaScore !== undefined) {
+      const scores = await ctx.db.query("candidateScores")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .take(100);
+      let hasComment = false;
+      const now = Date.now();
+      for (const score of scores) {
+        if (score.candidateId !== candidate._id) continue;
+        await ctx.db.patch(score._id, { qaScore, updatedAt: now });
+        hasComment ||= Boolean(score.comment);
+      }
+      if (hasComment) {
+        await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.learning.generateDraftStyleDigest, {});
+      }
+    }
+    if (selection?.candidateId === candidate._id) {
+      const report = await ctx.db.query("reports")
+        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+        .first();
+      if (report && generation.postQaStatus === "running" &&
+        generation.postQaStartedAt === current.candidateReportQaStartedAt) {
+        await saveReportQaHandler(ctx, {
+          generationId: generation._id,
+          attemptStartedAt: current.candidateReportQaStartedAt,
+          capturedRef: {
+            reportId: report._id,
+            revisionNumber: 0,
+            contentHash: await sha256(candidate.content),
+          },
+          ...(args.qa ? { qa: args.qa } : {}),
+          ...(args.chronology ? { chronology: args.chronology } : {}),
+          ...(qaScore !== undefined ? { qaScore } : {}),
+          ...(failed ? { failed: true } : {}),
+        });
+      }
+    }
+    const copies = await ctx.db.query("generationCandidateRuns")
+      .withIndex("by_candidateQaSourceRunId", (q) => q.eq("candidateQaSourceRunId", current._id))
+      .take(10);
+    pending.push(...copies);
+    if (generation.status === "completed") await ctx.db.delete(candidate._id);
+  }
+}
+
 /** The section an ordered candidate stopped after, from its agentOutputs. */
 export function stoppedAfterSectionOf(agentOutputs: string): SectionNumber | undefined {
   try {
@@ -717,14 +868,55 @@ export async function selectReportCandidateHandler(
     label: candidate.label,
     createdAt: now,
   });
+  const run = await ctx.db.query("generationCandidateRuns")
+    .withIndex("by_generationId_and_candidateId", (q) =>
+      q.eq("generationId", generation._id).eq("candidateId", candidate._id))
+    .unique();
+  if (run && (run.candidateQaStatus === "queued" || run.candidateQaStatus === "running" ||
+    run.candidateQaStatus === "waiting")) {
+    await ctx.db.patch(run._id, { candidateReportQaStartedAt: now });
+  } else if (run && (run.candidateQaStatus === "done" || run.candidateQaStatus === "failed")) {
+    let qa: unknown;
+    try { qa = JSON.parse(candidate.agentOutputs).qa; }
+    catch { qa = undefined; }
+    const qaScore = qa && typeof qa === "object" && "overall_score" in qa &&
+      typeof qa.overall_score === "number" ? qa.overall_score : undefined;
+    let chronology: unknown;
+    try { chronology = JSON.parse(candidate.agentOutputs).chronology; }
+    catch { chronology = undefined; }
+    await saveReportQaHandler(ctx, {
+      generationId: generation._id,
+      attemptStartedAt: now,
+      capturedRef: {
+        reportId,
+        revisionNumber: 0,
+        contentHash: await sha256(candidate.content),
+      },
+      ...(qa !== undefined ? { qa: JSON.stringify(qa) } : {}),
+      ...(chronology !== undefined ? { chronology: JSON.stringify(chronology) } : {}),
+      ...(qaScore !== undefined ? { qaScore } : {}),
+      ...(run.candidateQaStatus === "failed" || qaScore === undefined ? { failed: true } : {}),
+    });
+  } else {
+    // Legacy candidates did not start background scoring.
+    await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
+      generationId: generation._id,
+      attemptStartedAt: now,
+    });
+  }
   const all = await ctx.db
     .query("reportCandidates")
     .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
     .take(10);
-  for (const row of all) await ctx.db.delete(row._id);
-  await ctx.scheduler.runAfter(0, internal.ai.postQa.runReportQa, {
-    generationId: generation._id,
-    attemptStartedAt: now,
-  });
+  const runs = await ctx.db.query("generationCandidateRuns")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+    .take(10);
+  for (const row of all) {
+    const owner = runs.find((candidateRun) => candidateRun.candidateId === row._id);
+    if (!owner || (owner.candidateQaStatus !== "queued" &&
+      owner.candidateQaStatus !== "running" && owner.candidateQaStatus !== "waiting")) {
+      await ctx.db.delete(row._id);
+    }
+  }
   return reportId;
 }

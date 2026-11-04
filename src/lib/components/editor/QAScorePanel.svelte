@@ -978,7 +978,7 @@
       {/if}
     {:else}
       <p class="text-xs text-gray-400">
-        {candidateId ? "QA scoring starts after you choose a draft." : "Scores appear after the next generation."}
+        {candidateId ? "Scoring this draft…" : "Scores appear after the next generation."}
       </p>
     {/if}
   </div>

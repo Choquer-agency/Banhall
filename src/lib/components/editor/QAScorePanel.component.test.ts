@@ -84,9 +84,9 @@ const fullScorecard = {
 };
 
 describe("QAScorePanel side panel (board 2.2)", () => {
-  it("tells Compare writers when a pending candidate can be scored", async () => {
+  it("tells Compare writers that a pending draft is being scored", async () => {
     const { container } = await renderSide({ candidateId: "candidate-1", rawQa: null });
-    expect(container.textContent).toContain("QA scoring starts after you choose a draft.");
+    expect(container.textContent).toContain("Scoring this draft…");
   });
 
   it("draws the QA score header with Re-run and close, and no icon", async () => {

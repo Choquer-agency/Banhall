@@ -1,8 +1,11 @@
 /// <reference types="vite/client" />
 import type Anthropic from "@anthropic-ai/sdk";
 import { convexTest } from "convex-test";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FunctionArgs } from "convex/server";
+import { makeFunctionReference } from "convex/server";
+import type { Id } from "../_generated/dataModel";
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
 // These generations carry no model freeze, so they run on the pre-catalog
@@ -103,6 +106,26 @@ function analyzerCalls() {
 async function candidateJobs(t: ReturnType<typeof convexTest>) {
   return t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect())
     .filter((job) => job.name === "ai/pipeline:generateCandidate"));
+}
+
+const candidateQaRef = makeFunctionReference<
+  "action", { candidateRunId: Id<"generationCandidateRuns"> }, null
+>("ai/candidateQa:runCandidateQa");
+
+async function candidateQaJobs(t: ReturnType<typeof convexTest>) {
+  return t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect())
+    .filter((job) => job.name === "ai/candidateQa:runCandidateQa" && job.state.kind === "pending"));
+}
+
+async function scoreCandidateJob(t: ReturnType<typeof convexTest>, candidateId: Id<"reportCandidates">) {
+  const run = await t.run(async (ctx) => (await ctx.db.query("generationCandidateRuns").collect())
+    .find((row) => row.candidateId === candidateId));
+  if (!run) throw new Error("Candidate run missing");
+  const job = (await candidateQaJobs(t)).find((row) =>
+    (row.args[0] as { candidateRunId: string }).candidateRunId === run._id);
+  if (!job) throw new Error("Candidate QA job missing");
+  await t.run((ctx) => ctx.scheduler.cancel(job._id));
+  await t.action(candidateQaRef, { candidateRunId: run._id });
 }
 
 // Use the exact persisted scheduler payload; the action's validators still run.
@@ -324,7 +347,7 @@ describe("shared generation analysis", () => {
     for (const run of runs) {
       const owned = usage.filter((row) => row.candidateRunId === run._id);
       // Ordered chain: per section one draft and one Self-check (no repair
-      // needed here), then one consistency pass. QA waits for a report.
+      // needed here), then one consistency pass. Candidate QA is separate.
       expect(owned.map((row) => row.callSite).sort()).toEqual([
         "generation:consistency",
         "generation:section:242", "generation:section:244", "generation:section:246",
@@ -477,7 +500,7 @@ describe("QA after ordered reports become available", () => {
       params.tool_choice?.name === "submit_chronology_table")).toHaveLength(1);
   });
 
-  it("shows Compare candidates without QA, then scores the selected report", async () => {
+  it("shows Compare candidates before QA, then scores both while they can be compared", async () => {
     const t = convexTest(schema, modules);
     const generationId = await fixture(t);
     await t.action(internal.ai.pipeline.generateReport, { generationId });
@@ -486,6 +509,9 @@ describe("QA after ordered reports become available", () => {
     const candidates = await writer.query(api.generations.getCandidates, { generationId });
     expect(candidates).toHaveLength(2);
     expect(candidates.map((candidate) => candidate.qaScore)).toEqual([null, null]);
+    expect(await candidateQaJobs(t)).toHaveLength(2);
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(0);
     await writer.mutation(api.generations.scoreCandidate, {
       candidateId: candidates[0]._id, score: 8, optionPosition: 1,
@@ -493,25 +519,223 @@ describe("QA after ordered reports become available", () => {
     await writer.mutation(api.generations.scoreCandidate, {
       candidateId: candidates[1]._id, score: 6, optionPosition: 2,
     });
+    await scoreCandidateJob(t, candidates[1]._id);
+    let visible = await writer.query(api.generations.getCandidates, { generationId });
+    expect(visible.map((candidate) => candidate.qaScore)).toEqual([null, 88]);
+    await scoreCandidateJob(t, candidates[0]._id);
+    visible = await writer.query(api.generations.getCandidates, { generationId });
+    expect(visible.map((candidate) => candidate.qaScore)).toEqual([88, 88]);
+    expect(visible.map((candidate) => candidate.qa)).toEqual([qa, qa]);
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")).toHaveLength(2);
+    await flushScheduledUsage(t);
+    const qaUsage = await t.run((ctx) => ctx.db.query("aiUsage").collect());
+    const runs = await t.run((ctx) => ctx.db.query("generationCandidateRuns").collect());
+    expect(qaUsage.filter((row) => row.callSite === "generation:qa")
+      .map((row) => row.candidateRunId).sort()).toEqual(runs.map((run) => run._id).sort());
     await writer.mutation(api.generations.selectReportCandidate, {
       generationId,
       candidateId: candidates[0]._id,
     });
-    const pending = await t.run((ctx) => ctx.db.get(generationId));
-    expect(pending).toMatchObject({ status: "completed", postQaStatus: "running" });
+    const selected = await t.run((ctx) => ctx.db.get(generationId));
+    expect(selected).toMatchObject({ status: "completed", postQaStatus: "done", qaScore: 88 });
     expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(1);
-    await t.action(internal.ai.postQa.runReportQa, {
-      generationId,
-      attemptStartedAt: pending?.postQaStartedAt,
-    });
-    expect(await t.run((ctx) => ctx.db.get(generationId))).toMatchObject({
-      postQaStatus: "done", qaScore: 88,
-    });
+    expect((await t.run((ctx) => ctx.db.query("generationQaResults").collect())))
+      .toEqual([expect.objectContaining({ status: "done", qaScore: 88 })]);
+    expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect()))
+      .filter((job) => job.name === "ai/postQa:runReportQa" && job.state.kind === "pending"))
+      .toHaveLength(0);
     const scores = await t.run((ctx) => ctx.db.query("candidateScores")
       .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
       .collect());
     expect(scores.find((score) => score.candidateId === candidates[0]._id)?.qaScore).toBe(88);
-    expect(scores.find((score) => score.candidateId === candidates[1]._id)?.qaScore).toBeUndefined();
+    expect(scores.find((score) => score.candidateId === candidates[1]._id)?.qaScore).toBe(88);
+  });
+
+  it("scores a Compare option with the QA calibration frozen into its draft", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const [candidate] = await writer.query(api.generations.getCandidates, { generationId });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.get(candidate._id);
+      if (!row) throw new Error("Candidate missing");
+      const outputs = JSON.parse(row.agentOutputs);
+      expect(outputs.frozenQaInputs).toBeDefined();
+      await ctx.db.patch(row._id, {
+        agentOutputs: JSON.stringify({
+          ...outputs,
+          frozenQaInputs: {
+            qaCalibration: "Frozen candidate calibration marker",
+            qaCalibrationDigestId: null,
+            writerFlavor: "Write in first person",
+          },
+        }),
+      });
+    });
+    await scoreCandidateJob(t, candidate._id);
+    const request = network.create.mock.calls.find(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")?.[0];
+    expect(JSON.stringify(request?.system)).toContain("Frozen candidate calibration marker");
+  });
+
+  it("lets selection wait for its candidate score without starting report QA", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const candidates = await writer.query(api.generations.getCandidates, { generationId });
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidates[0]._id, score: 9, optionPosition: 1,
+    });
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidates[1]._id, score: 7, optionPosition: 2,
+    });
+    await writer.mutation(api.generations.selectReportCandidate, {
+      generationId, candidateId: candidates[0]._id,
+    });
+    expect(await t.run((ctx) => ctx.db.get(generationId)))
+      .toMatchObject({ status: "completed", postQaStatus: "running" });
+    expect(await t.run((ctx) => ctx.db.query("generationQaResults").collect())).toHaveLength(0);
+    await scoreCandidateJob(t, candidates[1]._id);
+    expect(await t.run((ctx) => ctx.db.get(generationId)))
+      .toMatchObject({ postQaStatus: "running" });
+    await scoreCandidateJob(t, candidates[0]._id);
+    expect(await t.run((ctx) => ctx.db.get(generationId)))
+      .toMatchObject({ postQaStatus: "done", qaScore: 88 });
+    const scores = await t.run((ctx) => ctx.db.query("candidateScores").collect());
+    expect(scores.map((score) => score.qaScore)).toEqual([88, 88]);
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")).toHaveLength(2);
+  });
+
+  it("keeps a selected Compare report in the failed retry state if candidate QA fails", async () => {
+    const t = convexTest(schema, modules);
+    rateLimiterTest.register(t);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const [candidate] = await writer.query(api.generations.getCandidates, { generationId });
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidate._id, score: 8, optionPosition: 1,
+    });
+    await writer.mutation(api.generations.selectReportCandidate, {
+      generationId, candidateId: candidate._id,
+    });
+    const original = network.create.getMockImplementation();
+    network.create.mockImplementation(async (params: GenerationMessageParams) => {
+      if (params.tool_choice?.name === "submit_qa_scorecard") throw new Error("QA unavailable");
+      return original?.(params);
+    });
+    await scoreCandidateJob(t, candidate._id);
+    expect(await t.run((ctx) => ctx.db.get(generationId)))
+      .toMatchObject({ status: "completed", postQaStatus: "failed" });
+    expect(await t.run((ctx) => ctx.db.query("reports").collect())).toHaveLength(1);
+    await writer.mutation(api.generations.requestReportQa, { generationId });
+    expect(await t.run((ctx) => ctx.db.get(generationId)))
+      .toMatchObject({ postQaStatus: "running" });
+    expect((await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect()))
+      .filter((job) => job.name === "ai/postQa:runReportQa" && job.state.kind === "pending"))
+      .toHaveLength(1);
+  });
+
+  it("rejects a candidate score if the selected report text changed while QA ran", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const [candidate] = await writer.query(api.generations.getCandidates, { generationId });
+    await writer.mutation(api.generations.scoreCandidate, {
+      candidateId: candidate._id, score: 8, optionPosition: 1,
+    });
+    await writer.mutation(api.generations.selectReportCandidate, {
+      generationId, candidateId: candidate._id,
+    });
+    await t.run(async (ctx) => {
+      const [body] = await ctx.db.query("reportBodies").collect();
+      await ctx.db.patch(body._id, {
+        content: `${body.content} Edited by the writer.`,
+        contentHash: "edited-report-hash",
+        revisionNumber: body.revisionNumber + 1,
+      });
+    });
+    await scoreCandidateJob(t, candidate._id);
+    expect(await t.run((ctx) => ctx.db.get(generationId)))
+      .toMatchObject({ postQaStatus: "failed" });
+    expect(await t.run((ctx) => ctx.db.query("generationQaResults").collect()))
+      .toHaveLength(0);
+    expect((await t.run((ctx) => ctx.db.query("candidateScores").collect()))[0].qaScore)
+      .toBe(88);
+  });
+
+  it("passes one score to a copied recovery candidate without another QA call", async () => {
+    const t = convexTest(schema, modules);
+    const generationId = await fixture(t);
+    await t.action(internal.ai.pipeline.generateReport, { generationId });
+    await runCandidates(t);
+    const writer = t.withIdentity({ subject: "compare-writer" });
+    const [source] = await writer.query(api.generations.getCandidates, { generationId });
+    const copied = await t.run(async (ctx) => {
+      const original = await ctx.db.get(generationId);
+      if (!original) throw new Error("Generation missing");
+      const sourceRun = (await ctx.db.query("generationCandidateRuns").collect())
+        .find((row) => row.candidateId === source._id);
+      const sourceRow = await ctx.db.get(source._id);
+      if (!sourceRun || !sourceRow) throw new Error("Candidate missing");
+      await ctx.db.patch(generationId, { status: "superseded" });
+      const recoveryId = await ctx.db.insert("generations", {
+        projectId: original.projectId,
+        requestedBy: original.requestedBy,
+        requestedAt: Date.now(),
+        startedAt: Date.now(),
+        status: "awaiting_selection",
+        candidateMode: "compare",
+        retryOfGenerationId: generationId,
+        previousProjectStatus: "draft",
+      });
+      await ctx.db.patch(original.projectId, { activeGenerationId: recoveryId });
+      const copiedId = await ctx.db.insert("reportCandidates", {
+        projectId: original.projectId,
+        generationId: recoveryId,
+        model: sourceRow.model,
+        label: sourceRow.label,
+        content: sourceRow.content,
+        agentOutputs: sourceRow.agentOutputs,
+        provenanceId: sourceRow.provenanceId,
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("generationCandidateRuns", {
+        generationId: recoveryId,
+        projectId: original.projectId,
+        model: sourceRow.model,
+        label: sourceRow.label,
+        status: "succeeded",
+        candidateId: copiedId,
+        candidateQaStatus: "waiting",
+        candidateQaSourceRunId: sourceRun._id,
+        queuedAt: Date.now(),
+      });
+      return { recoveryId, copiedId };
+    });
+    await scoreCandidateJob(t, source._id);
+    const copiedCandidate = (await writer.query(api.generations.getCandidates, {
+      generationId: copied.recoveryId,
+    }))[0];
+    expect(copiedCandidate).toMatchObject({ _id: copied.copiedId, qaScore: 88, qa });
+    expect(await candidateQaJobs(t)).toHaveLength(1);
+    await writer.mutation(api.generations.selectReportCandidate, {
+      generationId: copied.recoveryId,
+      candidateId: copied.copiedId,
+    });
+    expect(await t.run((ctx) => ctx.db.get(copied.recoveryId)))
+      .toMatchObject({ postQaStatus: "done", qaScore: 88 });
+    expect(network.create.mock.calls.filter(([params]) =>
+      params.tool_choice?.name === "submit_qa_scorecard")).toHaveLength(1);
   });
 
   it("keeps a Single report and exposes a failed QA pass for retry", async () => {

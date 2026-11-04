@@ -77,7 +77,9 @@ export const updateReportContent = mutation({
       try { await ctx.scheduler.cancel(body.postSaveJobId); }
       catch { /* A job that already started checks its revision before writing. */ }
     }
-    await stageProvenanceForEdit(ctx, report, args.content, {
+    const lastProvenanceId =
+      (await getPendingReportProvenance(ctx, args.reportId))?.sourceProvenanceId ?? report.provenanceId;
+    const carried = await stageProvenanceForEdit(ctx, report, args.content, {
       actorId: user._id,
       nextRevisionNumber: revisionNumber + 1,
       now,
@@ -96,6 +98,9 @@ export const updateReportContent = mutation({
       updatedAt: now,
       postSaveJobId,
     });
+    // Claims could not be carried to this revision, so it has no record; the
+    // last one is released unless a snapshot, export or another row holds it.
+    if (!carried && lastProvenanceId) await deleteProvenanceIfUnheld(ctx, lastProvenanceId);
     // Phase E (E3): the editing burst's size is read 10 minutes after its
     // first save.
     await noteReportEditForSize(ctx, report, user._id);
@@ -268,6 +273,10 @@ export const reviewClaimCitation = mutation({
     provenanceId: v.id("reportProvenance"),
     claimId: v.string(),
     state: v.union(v.literal("approved"), v.literal("unsupported")),
+    // The claim wording the reviewer saw. Saves keep one pending record id
+    // across an editing burst, so the id alone no longer proves the claim
+    // is unchanged; a different hash is refused as stale.
+    claimTextHash: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const reviewer = await requireRole(ctx, ["manager", "admin"]);
@@ -289,12 +298,14 @@ export const reviewClaimCitation = mutation({
     ) {
       domainError("STALE_REVISION", "The report provenance changed before review");
     }
+    const target = provenance.claims.find((claim) => claim.claimId === args.claimId);
+    if (!target) domainError("NOT_FOUND", "Claim not found");
+    if (args.claimTextHash !== undefined && target.claimTextHash !== args.claimTextHash) {
+      domainError("STALE_REVISION", "The claim changed before review");
+    }
     const claims = provenance.claims.map((claim) =>
       claim.claimId === args.claimId ? { ...claim, state: args.state } : claim
     );
-    if (!claims.some((claim) => claim.claimId === args.claimId)) {
-      domainError("NOT_FOUND", "Claim not found");
-    }
     const hasUnsupported = claims.some(
       (claim) => claim.material && claim.state === "unsupported"
     );

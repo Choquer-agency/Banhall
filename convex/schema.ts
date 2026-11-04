@@ -3230,6 +3230,14 @@ export default defineSchema({
     ),
     candidateId: v.optional(v.id("reportCandidates")),
     qaScore: v.optional(v.number()),
+    // Compare scoring continues after the candidate becomes available.
+    candidateQaStatus: v.optional(v.union(
+      v.literal("queued"), v.literal("running"), v.literal("waiting"),
+      v.literal("done"), v.literal("failed")
+    )),
+    candidateQaStartedAt: v.optional(v.number()),
+    candidateReportQaStartedAt: v.optional(v.number()),
+    candidateQaSourceRunId: v.optional(v.id("generationCandidateRuns")),
     error: v.optional(v.string()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     // Iterative mode's background one-shot comparison draft. Ghost candidates
@@ -3245,6 +3253,7 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
+    .index("by_candidateQaSourceRunId", ["candidateQaSourceRunId"])
     .index("by_generationId_and_model", ["generationId", "model"])
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_projectId", ["projectId"]),

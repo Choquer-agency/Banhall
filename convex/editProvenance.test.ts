@@ -369,6 +369,44 @@ describe("an edited report can be exported once its claims are reviewed", () => 
     await expect(attestAndExport(f)).rejects.toThrow(/needs human source review/);
   });
 
+  it("a manager cannot approve claim wording that changed after they saw it", async () => {
+    const f = await setup();
+    const seenHash = await f.t.run(async (ctx) =>
+      (await ctx.db.get(f.provenanceId))!.claims.find((row) => row.claimId === "244-1")!.claimTextHash
+    );
+    // The writer rewrites the claim; the pending record keeps the same
+    // source id until the post-save job runs.
+    await f.writer.mutation(api.reports.updateReportContent, {
+      reportId: f.reportId,
+      content: doc(P242, REWRITTEN_244, P246),
+      expectedRevisionNumber: 0,
+    });
+    await expect(
+      f.manager.mutation(api.reports.reviewClaimCitation, {
+        reportId: f.reportId,
+        provenanceId: f.provenanceId,
+        claimId: "244-1",
+        state: "approved",
+        claimTextHash: seenHash,
+      })
+    ).rejects.toThrow(/claim changed before review/);
+    const currentHash = await f.t.run(async (ctx) => {
+      const pending = await ctx.db.query("reportPendingProvenance")
+        .withIndex("by_reportId", (q) => q.eq("reportId", f.reportId)).unique();
+      return pending!.claims.find((row) => row.claimId === "244-1")!.claimTextHash;
+    });
+    expect(currentHash).not.toBe(seenHash);
+    await expect(
+      f.manager.mutation(api.reports.reviewClaimCitation, {
+        reportId: f.reportId,
+        provenanceId: f.provenanceId,
+        claimId: "244-1",
+        state: "approved",
+        claimTextHash: currentHash,
+      })
+    ).resolves.toBeDefined();
+  });
+
   it("accepting a client's suggested edit carries the record over", async () => {
     const f = await setup();
     await f.t.run(async (ctx) => {
