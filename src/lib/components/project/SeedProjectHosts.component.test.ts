@@ -1885,6 +1885,8 @@ describe("Seed project hosts", () => {
     }
     const mounted = await render(Component, {});
     await openSummary();
+    // The Summary review loads on demand; wait for it before reading its bar.
+    await expect.element(summarySignOffButton()).toBeVisible();
     // By keyboard: the bar's primary opens the confirm, whose primary starts it.
     (summarySignOffButton().element() as HTMLElement).focus();
     await userEvent.keyboard("{Enter}");

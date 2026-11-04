@@ -41,3 +41,32 @@ it("warms project code on link hover or focus across the signed-in shell", async
     idle.mockRestore();
   }
 });
+
+/**
+ * Live test 2026-09-26 (P2): a prepared start showed "Loading report
+ * workspace..." for 10 s while the project page's code loaded. The signed-in
+ * shell now warms that code once the browser is idle on every page, New
+ * project included, and stops if the shell closes first.
+ */
+it("warms the project page code once the browser is idle, and not after it stops", async () => {
+  let runIdle: (() => void) | undefined;
+  const idle = vi.spyOn(window, "requestIdleCallback").mockImplementation((callback) => {
+    runIdle = () => callback({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline);
+    return 7;
+  });
+  const cancel = vi.spyOn(window, "cancelIdleCallback").mockImplementation(() => undefined);
+  try {
+    const stop = startProjectPrefetch(document.body);
+    expect(loadPreviewProjectPage).not.toHaveBeenCalled();
+    runIdle?.();
+    await expect.poll(() => vi.mocked(loadPreviewProjectPage).mock.calls.length).toBe(1);
+    stop();
+
+    const stopEarly = startProjectPrefetch(document.body);
+    stopEarly();
+    expect(cancel).toHaveBeenCalledWith(7);
+  } finally {
+    idle.mockRestore();
+    cancel.mockRestore();
+  }
+});

@@ -47,12 +47,15 @@ beforeEach(async () => {
 });
 
 describe("the project page loads before a start opens it", () => {
-  it("New project starts loading the project page when it opens and stops if it closes first", async () => {
+  it("New project leaves the project page preload to the signed-in shell", async () => {
+    // 2026-11-04: the shell warms the project page code at idle on every
+    // signed-in page (src/lib/prefetch/project.ts, tested there), so New
+    // project no longer starts a second load of its own.
     const screen = await render(NewProjectPage, {});
     await expect.poll(() => document.querySelector("[data-right-column]")).not.toBeNull();
-    expect(preload.calls).toBe(1);
+    expect(preload.calls).toBe(0);
     screen.unmount();
-    expect(preload.cancels).toBe(1);
+    expect(preload.cancels).toBe(0);
   });
 
   it("the preload runs the loader once the browser is idle", async () => {
