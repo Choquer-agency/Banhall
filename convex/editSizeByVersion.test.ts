@@ -1,4 +1,6 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
+import { writeReportBody } from "./lib/reportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -91,7 +93,7 @@ async function setup() {
   });
   const owner = t.withIdentity({ subject: "size-owner" });
   const manager = t.withIdentity({ subject: "size-manager" });
-  const revision = async () => (await t.run(async (ctx) => (await ctx.db.get(ids.reportId))!.revisionNumber ?? 0));
+  const revision = async () => (await t.run(async (ctx) => (await getTestReport(ctx, ids.reportId))!.revisionNumber ?? 0));
   const save = async (as: typeof owner, n: number) =>
     await as.mutation(api.reports.updateReportContent, {
       reportId: ids.reportId,
@@ -264,15 +266,19 @@ describe("editing bursts (Phase E, E3)", () => {
     await f.save(f.owner, 1);
     // The redraft's write path closes the burst before the AI's text lands.
     await f.t.run(async (ctx) => {
-      const report = (await ctx.db.get(f.reportId))!;
+      const report = (await getTestReport(ctx, f.reportId))!;
       await closeEditBurst(ctx, report);
-      await ctx.db.patch(f.reportId, { content: doc("AI redrafted every Section here."), revisionNumber: (report.revisionNumber ?? 0) + 1 });
+      await writeReportBody(ctx, report, {
+        content: doc("AI redrafted every Section here."),
+        revisionNumber: (report.revisionNumber ?? 0) + 1,
+        updatedAt: Date.now(),
+      });
     });
     expect(await f.due()).toEqual([]);
     await f.endBurst();
     expect((await f.readings()).map((row) => [row.trigger, row.revisionNumber, row.editorUserId])).toEqual([["edit", 1, f.ownerId]]);
     // With no burst open, closing records nothing.
-    await f.t.run(async (ctx) => closeEditBurst(ctx, (await ctx.db.get(f.reportId))!));
+    await f.t.run(async (ctx) => closeEditBurst(ctx, (await getTestReport(ctx, f.reportId))!));
     expect(await f.readings()).toHaveLength(1);
   });
 

@@ -83,6 +83,7 @@
   let composerDefaults = $state(assignmentDefaults("other"));
   let composerWorkflowVersion = $state(0);
   let baseline = $state<ActionBaseline | null>(null);
+  let pendingStage = $state<{ stage: WorkflowStage; version: number } | null>(null);
 
   const componentId = $props.id();
   const titleId = `${componentId}-workflow-title`;
@@ -125,6 +126,11 @@
     Boolean(headerQ.error && headerQ.error === retrySourceError && retryHeaderData)
   );
   const header = $derived(useRetryFallback ? retryHeaderData : (headerQ.data ?? null));
+  const shownStage = $derived(
+    pendingStage && header?.workflowVersion === pendingStage.version
+      ? pendingStage.stage
+      : header?.workflowStage ?? null
+  );
   const panelState = $derived(
     retrying
       ? "loading"
@@ -149,8 +155,8 @@
   const summaryStageLabel = $derived(
     header?.stageIsFallback
       ? "Legacy status only"
-      : header
-        ? WORKFLOW_STAGE_LABELS[header.workflowStage]
+      : shownStage
+        ? WORKFLOW_STAGE_LABELS[shownStage]
         : null
   );
   const liveStageOptions = $derived(
@@ -283,6 +289,7 @@
     if (!baseline) return;
     stageBusy = true;
     stageError = null;
+    pendingStage = { stage: toStage, version: baseline.version };
     try {
       // Leaving internal review records a reviewer decision in the same
       // mutation. The value is derived from the destination edge (the shared
@@ -301,10 +308,12 @@
       if (result.status === "updated") {
         toast.success(`Stage changed to ${WORKFLOW_STAGE_LABELS[toStage]}.`);
       } else {
+        pendingStage = null;
         toast.info("No stage change was needed.");
       }
       stageOpen = false;
     } catch (error) {
+      pendingStage = null;
       stageError = actionError(error, "The workflow stage could not be changed.");
     } finally {
       stageBusy = false;
@@ -426,7 +435,7 @@
          a separate "Workflow" label pill was pointless next to the badge). -->
     {#if header && !header.stageIsFallback}
       <StageBadge
-        stage={header.workflowStage}
+        stage={shownStage ?? header.workflowStage}
         shape={triggerVariant === "highlight" ? "square" : "pill"}
       />
     {:else}
@@ -459,7 +468,7 @@
     >
       <WorkflowDetailsPanel
         state={panelState}
-        stage={header?.workflowStage ?? null}
+        stage={shownStage}
         stageIsFallback={header?.stageIsFallback ?? false}
         ownerNeedsReview={header?.ownerNeedsReview ?? false}
         errorMessage={workflowError}

@@ -320,7 +320,10 @@ export const classifySpeakerRoles = internalAction({
     const input = await ctx.runQuery(internal.transcripts.speakerRoleInput, {
       transcriptId: args.transcriptId,
     });
-    if (!input || input.samples.length === 0) return null;
+    if (!input || input.samples.length === 0) {
+      await ctx.runMutation(internal.transcripts.finishArrivalSpeakerRoles, { transcriptId: args.transcriptId });
+      return null;
+    }
     try {
       const { client, model } = await clientForRole(ctx, "structured_helper", {
         callSite: "transcript:speakers",
@@ -341,6 +344,8 @@ export const classifySpeakerRoles = internalAction({
       });
     } catch (error) {
       console.warn("Speaker roles were left to the rules", describeGenerationFailure(error));
+    } finally {
+      await ctx.runMutation(internal.transcripts.finishArrivalSpeakerRoles, { transcriptId: args.transcriptId });
     }
     return null;
   },
@@ -601,7 +606,7 @@ async function writeFacts(ctx: ActionCtx, runId: Id<"transcriptFactRuns">, facts
   }
 }
 
-/** Background extraction, queued when a consultant opens a transcript. */
+/** Background extraction, queued on arrival or when a consultant opens a transcript. */
 export const extractTranscriptFactsInBackground = internalAction({
   args: { transcriptId: v.id("transcripts") },
   returns: v.null(),

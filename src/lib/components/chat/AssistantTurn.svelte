@@ -106,9 +106,16 @@
     auth.isAuthenticated && accessProjectId ? { projectId: accessProjectId } : "skip"
   );
   const canEdit = $derived(editAccessQ.data?.canEditDetails === true);
+  let optimisticAppliedIds = $state<Set<string>>(new Set());
+  $effect(() => {
+    const settled = new Set<string>(editNodes.filter((node) => node.proposal.state !== "pending").map((node) => node.proposal._id));
+    if ([...optimisticAppliedIds].some((id) => settled.has(id))) {
+      optimisticAppliedIds = new Set([...optimisticAppliedIds].filter((id) => !settled.has(id)));
+    }
+  });
   const lineOf = (proposal: Proposal) =>
     proposal.section ?? sectionOf(proposal.targetText ?? proposal.replacements?.[0]?.find);
-  const waiting = $derived(editNodes.filter((node) => node.proposal.state === "pending"));
+  const waiting = $derived(editNodes.filter((node) => node.proposal.state === "pending" && !optimisticAppliedIds.has(node.proposal._id)));
   // 2026-11-02 (rule overrides): a card against a rule is confirmed on its
   // own, so a reply holding one offers no Accept all.
   const trayKeys = $derived(
@@ -146,8 +153,14 @@
       await onBeforeApply?.();
       for (const node of [...waiting]) {
         current = node.proposal;
-        const result = await applyProposal({ proposalId: node.proposal._id });
-        if (!result.applied) throw new Error(result.reason);
+        optimisticAppliedIds = new Set([...optimisticAppliedIds, node.proposal._id]);
+        try {
+          const result = await applyProposal({ proposalId: node.proposal._id });
+          if (!result.applied) throw new Error(result.reason);
+        } catch (error) {
+          optimisticAppliedIds = new Set([...optimisticAppliedIds].filter((id) => id !== node.proposal._id));
+          throw error;
+        }
         done.push({ proposalId: node.proposal._id, line: lineOf(node.proposal) });
       }
     } catch (error) {
@@ -294,7 +307,7 @@
       <!-- Row 36 (A3): the waiting cards of one reply, with Accept all. -->
       <div class="mt-2 flex flex-col gap-1.5 rounded-[0.875rem] border border-line-soft bg-gray-50 p-1.5 [&_[data-proposal-card]]:mt-0" data-accept-all-tray>
         {#each waiting as trayNode (trayNode.key)}
-          <ChatProposalArtifact proposal={trayNode.proposal} {onRefine} {onBeforeApply} {onReferenceText} />
+          <ChatProposalArtifact proposal={trayNode.proposal} optimisticApplied={optimisticAppliedIds.has(trayNode.proposal._id)} {onRefine} {onBeforeApply} {onReferenceText} />
         {/each}
         <div class="flex justify-end">
           <button type="button" class="inline-flex h-[1.875rem] items-center rounded-[0.4375rem] border border-line bg-white px-3 text-xs font-medium leading-[calc(4/3)] text-ink transition-colors hover:bg-gray-100 disabled:opacity-50 pointer-coarse:min-h-11"
@@ -302,7 +315,7 @@
         </div>
       </div>
     {:else if !trayKeys.has(node.key)}
-      <ChatProposalArtifact proposal={node.proposal} {onRefine} {onBeforeApply} {onReferenceText} />
+      <ChatProposalArtifact proposal={node.proposal} optimisticApplied={optimisticAppliedIds.has(node.proposal._id)} {onRefine} {onBeforeApply} {onReferenceText} />
     {/if}
   {/each}
   {#if acceptedCards.length}

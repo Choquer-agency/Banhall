@@ -9,6 +9,7 @@ import type { Id } from "./_generated/dataModel";
 import * as projectsModule from "./projects";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { readDocumentText } from "./lib/documentText";
+import { reportWithBody } from "./lib/reportBodies";
 
 /**
  * Duplicate from a project card (2026-09-25). The card opens
@@ -177,10 +178,10 @@ async function duplicateLikeTheWizard(
 async function projectRows(f: Fixture, projectId: Id<"projects">) {
   return await f.t.run(async (ctx) => ({
     project: await ctx.db.get(projectId),
-    reports: await ctx.db
+    reports: await Promise.all((await ctx.db
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))
-      .collect(),
+      .collect()).map((report) => reportWithBody(ctx, report))),
     documents: await ctx.db
       .query("projectDocuments")
       .withIndex("by_projectId", (q) => q.eq("projectId", projectId))

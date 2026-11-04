@@ -6,6 +6,7 @@ import { qaScorecardSchema } from "../../shared/qaScorecard";
 import { normalizeStyleOverrides, STYLE_OVERRIDE_KEYS, type StyleOverrides } from "../../shared/styleOverrides";
 import { extractReportSections } from "./tiptapReport";
 import { readAgentOutputs } from "./generationOutputs";
+import { reportWithBody } from "./reportBodies";
 
 function parseOverrides(raw: unknown): StyleOverrides {
   const known: Partial<StyleOverrides> = {};
@@ -18,9 +19,10 @@ function parseOverrides(raw: unknown): StyleOverrides {
   return normalizeStyleOverrides(known);
 }
 
-export async function reportQaRef(report: Doc<"reports">) {
-  return { reportId: report._id, revisionNumber: report.revisionNumber ?? 0,
-    contentHash: await sha256(report.content) };
+export async function reportQaRef(ctx: QueryCtx | MutationCtx, report: Doc<"reports">) {
+  const content = await reportWithBody(ctx, report);
+  return { reportId: report._id, revisionNumber: content.revisionNumber ?? 0,
+    contentHash: await sha256(content.content) };
 }
 
 async function storeFinding(ctx: MutationCtx, ref: Awaited<ReturnType<typeof reportQaRef>>,
@@ -35,9 +37,10 @@ async function storeFinding(ctx: MutationCtx, ref: Awaited<ReturnType<typeof rep
 }
 
 export async function persistDeterministicFindings(ctx: MutationCtx, reportId: Id<"reports">, initialOutputs?: string) {
-  const report = await ctx.db.get(reportId);
-  if (!report) return;
-  const ref = await reportQaRef(report);
+  const stored = await ctx.db.get(reportId);
+  if (!stored) return;
+  const report = await reportWithBody(ctx, stored);
+  const ref = await reportQaRef(ctx, report);
   // Byte-identical content cannot clear an established methodology failure by
   // advancing the revision (including a no-op save or a later restoration).
   // One read of this content's blocking methodology rows (a few per revision
@@ -95,7 +98,7 @@ export async function persistDeterministicFindings(ctx: MutationCtx, reportId: I
 export async function persistMethodologyFindings(ctx: MutationCtx, report: Doc<"reports">, qa: unknown) {
   const parsed = qaScorecardSchema.safeParse(qa);
   if (!parsed.success) return;
-  const ref = await reportQaRef(report);
+  const ref = await reportQaRef(ctx, report);
   for (const field of ["why_how_why_intact", "uncertainties_distinguished"] as const) {
     if (parsed.data.cra_compliance[field] === false) {
       await storeFinding(ctx, ref, { section: "report", check: "cra_methodology", message: field, blocking: true });
@@ -104,11 +107,18 @@ export async function persistMethodologyFindings(ctx: MutationCtx, report: Doc<"
 }
 
 export async function hasBlockingQa(ctx: QueryCtx | MutationCtx, report: Doc<"reports">) {
-  const sections = extractReportSections(report.content);
+  const current = await reportWithBody(ctx, report);
+  const sections = extractReportSections(current.content);
   if (checkBecauseClauses(sections.s242).details.some(f => !f.hasBecause)) return true;
-  const ref = await reportQaRef(report);
-  return (await ctx.db.query("qaFindings")
+  const ref = await reportQaRef(ctx, current);
+  if ((await ctx.db.query("qaFindings")
     .withIndex("by_reportId_and_revisionNumber_and_contentHash_and_blocking", q =>
       q.eq("reportId", ref.reportId).eq("revisionNumber", ref.revisionNumber)
-        .eq("contentHash", ref.contentHash).eq("blocking", true)).first()) !== null;
+        .eq("contentHash", ref.contentHash).eq("blocking", true)).first()) !== null) return true;
+  // During the coalescing delay, a byte-identical save must still retain
+  // known methodology failures from an older revision.
+  return (await ctx.db.query("qaFindings")
+    .withIndex("by_reportId_and_contentHash_and_check_and_blocking", q =>
+      q.eq("reportId", ref.reportId).eq("contentHash", ref.contentHash)
+        .eq("check", "cra_methodology").eq("blocking", true)).first()) !== null;
 }

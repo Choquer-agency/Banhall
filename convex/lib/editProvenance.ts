@@ -8,6 +8,7 @@ import {
 import { plainTextLines } from "./reportEdits";
 import { NOT_GENERATED_PLACEHOLDER, sectionOfHeading } from "./tiptapReport";
 import { generationTranscriptIds } from "./transcripts";
+import { getPendingReportProvenance, getReportBody, readReportContent, reportWithBody } from "./reportBodies";
 
 // Amendment 2026-09-25 (fifth): a human edit carries the report's claim
 // record over to the new revision instead of clearing it. Unchanged claims
@@ -224,13 +225,24 @@ export function carryClaims(
 async function heldElsewhere(
   ctx: MutationCtx,
   provenanceId: Id<"reportProvenance">,
-  reportId: Id<"reports"> | null
+  reportId: Id<"reports"> | null,
+  ignorePendingReportId: Id<"reports"> | null = null
 ): Promise<boolean> {
   const reports = await ctx.db
     .query("reports")
     .withIndex("by_provenanceId", (q) => q.eq("provenanceId", provenanceId))
     .take(2);
-  if (reports.some((row) => row._id !== reportId)) return true;
+  for (const row of reports) {
+    if (row._id === reportId) continue;
+    const body = await getReportBody(ctx, row._id);
+    if (!body || body.provenanceId === provenanceId) return true;
+  }
+  const bodies = await ctx.db.query("reportBodies")
+    .withIndex("by_provenanceId", (q) => q.eq("provenanceId", provenanceId)).take(2);
+  if (bodies.some((body) => body.reportId !== reportId)) return true;
+  const pending = await ctx.db.query("reportPendingProvenance")
+    .withIndex("by_sourceProvenanceId", (q) => q.eq("sourceProvenanceId", provenanceId)).take(2);
+  if (pending.some((row) => row.reportId !== ignorePendingReportId)) return true;
   for (const table of ["reportExports", "reportSnapshots", "reportCandidates"] as const) {
     const held = await ctx.db
       .query(table)
@@ -255,6 +267,95 @@ function sameClaims(a: readonly Claim[], b: readonly Claim[]): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** Carry the exact claim states in the save transaction. The immutable
+ * provenance row is written by the coalesced follow-up job. */
+export async function stageProvenanceForEdit(
+  ctx: MutationCtx,
+  report: Doc<"reports">,
+  nextContent: string,
+  options: { actorId: Id<"users">; nextRevisionNumber: number; now: number }
+): Promise<boolean> {
+  const pending = await getPendingReportProvenance(ctx, report._id);
+  const previous = pending ?? (report.provenanceId ? await ctx.db.get(report.provenanceId) : null);
+  if (!previous) {
+    if (pending) await ctx.db.delete(pending._id);
+    return false;
+  }
+  const carried = carryClaims(
+    await readReportContent(ctx, report), nextContent, previous.claims,
+    `r${options.nextRevisionNumber}`
+  );
+  if (!carried || carried.claims.length > MAX_CLAIMS_PER_REVISION) {
+    if (pending) await ctx.db.delete(pending._id);
+    return false;
+  }
+  const claims: Claim[] = await Promise.all(carried.claims.map(async (claim) => ({
+    ...claim,
+    claimTextHash: claim.claimTextHash ?? await sha256(claim.claimText),
+  })));
+  const hasUnsupported = claims.some((claim) => claim.material && claim.state === "unsupported");
+  const allApproved = claims.every((claim) => !claim.material || claim.state === "approved");
+  // A save can carry an approval, but cannot create one.
+  const status: Doc<"reportProvenance">["status"] = hasUnsupported
+    ? "rejected"
+    : previous.status === "approved" && allApproved ? "approved" : "needs_review";
+  const fields = {
+    projectId: report.projectId,
+    reportId: report._id,
+    sourceProvenanceId: pending?.sourceProvenanceId ?? previous._id as Id<"reportProvenance">,
+    revisionNumber: options.nextRevisionNumber,
+    contentHash: await sha256(nextContent),
+    status,
+    claims,
+    generationId: previous.generationId,
+    sourceTranscriptId: previous.sourceTranscriptId,
+    sourceTranscriptIds: previous.sourceTranscriptIds,
+    digestIds: previous.digestIds,
+    createdAt: options.now,
+    createdBy: options.actorId,
+    reviewedAt: status === "approved" ? previous.reviewedAt : undefined,
+    reviewedBy: status === "approved" ? previous.reviewedBy : undefined,
+  };
+  if (pending) await ctx.db.patch(pending._id, fields);
+  else await ctx.db.insert("reportPendingProvenance", fields);
+  return true;
+}
+
+export async function materializePendingReportProvenance(
+  ctx: MutationCtx,
+  reportId: Id<"reports">
+): Promise<Id<"reportProvenance"> | undefined> {
+  const pending = await getPendingReportProvenance(ctx, reportId);
+  if (!pending) return undefined;
+  const body = await getReportBody(ctx, reportId);
+  if (!body || body.revisionNumber !== pending.revisionNumber || body.contentHash !== pending.contentHash) {
+    return undefined;
+  }
+  const source = await ctx.db.get(pending.sourceProvenanceId);
+  const reusable = source && source.status === pending.status &&
+    sameClaims(source.claims, pending.claims) &&
+    !(await heldElsewhere(ctx, source._id, reportId, reportId));
+  const id = reusable ? source._id : await ctx.db.insert("reportProvenance", {
+    projectId: pending.projectId,
+    generationId: pending.generationId,
+    sourceTranscriptId: pending.sourceTranscriptId,
+    sourceTranscriptIds: pending.sourceTranscriptIds,
+    digestIds: pending.digestIds,
+    contentHash: pending.contentHash,
+    status: pending.status,
+    claims: pending.claims,
+    createdAt: pending.createdAt,
+    createdBy: pending.createdBy,
+    reviewedAt: pending.reviewedAt,
+    reviewedBy: pending.reviewedBy,
+  });
+  if (reusable) await ctx.db.patch(id, { contentHash: pending.contentHash });
+  await ctx.db.patch(body._id, { provenanceId: id });
+  await ctx.db.delete(pending._id);
+  await deleteProvenanceIfUnheld(ctx, pending.sourceProvenanceId);
+  return id;
+}
+
 /**
  * Write the claim record for a report revision a human edit produced.
  * Returns the provenance id, or undefined when the previous revision had
@@ -273,11 +374,13 @@ export async function provenanceForEdit(
   nextContent: string,
   options: { actorId?: Id<"users">; nextRevisionNumber: number; now: number }
 ): Promise<Id<"reportProvenance"> | undefined> {
+  await materializePendingReportProvenance(ctx, report._id);
+  report = await reportWithBody(ctx, report);
   if (!report.provenanceId) return undefined;
   const previous = await ctx.db.get(report.provenanceId);
   if (!previous || previous.projectId !== report.projectId) return undefined;
   const carried = carryClaims(
-    report.content,
+    await readReportContent(ctx, report),
     nextContent,
     previous.claims,
     `r${options.nextRevisionNumber}`

@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -274,7 +275,7 @@ describe("bounded chat context", () => {
       toolCallId: "bulk-16", kind: "replacements", requireUniqueTargets: true, replacements: pairs,
     });
     if (!saved.ok) throw new Error(saved.reason);
-    expect((await f.t.run(ctx => ctx.db.get(f.reportId)))?.content).toBe(original);
+    expect((await f.t.run(ctx => getTestReport(ctx, f.reportId)))?.content).toBe(original);
     expect((await f.t.run(ctx => ctx.db.get(saved.proposalId)))?.state).toBe("pending");
     await expect(f.actor.mutation(api.chatV2.markProposalApplied, {
       proposalId: saved.proposalId, content: original, expectedRevisionNumber: 0,
@@ -283,7 +284,7 @@ describe("bounded chat context", () => {
     if (stale) await f.t.run(ctx => ctx.db.patch(f.reportId, { content: current }));
     const applied = await f.actor.mutation(api.chatV2.applyProposal, { proposalId: saved.proposalId });
     expect(applied.applied).toBe(!stale);
-    expect((await f.t.run(ctx => ctx.db.get(f.reportId)))?.content)
+    expect((await f.t.run(ctx => getTestReport(ctx, f.reportId)))?.content)
       .toBe(stale ? current : doc(pairs.map(p => p.replaceWith)));
   });
 

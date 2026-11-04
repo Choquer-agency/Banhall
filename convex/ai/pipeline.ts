@@ -1759,16 +1759,6 @@ export const generateReport = internalAction({
       // Story 2 (CAP-5/6, AD-26): read once, handed to every candidate, so
       // compare candidates share one Build Order. Never silent: a profile
       // that does not apply is reported as "no effective writer profile".
-      const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
-      if (orderedContext.profileState !== "applied") {
-        await log(
-          `No effective writer profile (${orderedContext.profileState}): House Rules apply and sections draft in the default order 242 → 244 → 246.`
-        );
-      }
-      if (orderedContext.buildOrderFallbackReason) {
-        await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
-      }
-
       const analyzerRoute = shared.route("generation:analyzer");
       await log("Analyzing the transcript once for all candidate drafts.");
       const analysis = await runAnalyzerAgent(
@@ -1778,6 +1768,15 @@ export const generateReport = internalAction({
         brainBlocks.analyzer
       );
       await recordAnalyzerUse(ctx, genId, analyzerContext.report);
+      const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
+      if (orderedContext.profileState !== "applied") {
+        await log(
+          `No effective writer profile (${orderedContext.profileState}): House Rules apply and sections draft in the default order 242 → 244 → 246.`
+        );
+      }
+      if (orderedContext.buildOrderFallbackReason) {
+        await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
+      }
       const serializedAnalysis = JSON.stringify(analysis);
       const webBackground = await webBackgroundStage;
       pendingWebBackground = undefined;

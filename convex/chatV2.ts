@@ -1,4 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { readReportContent, reportWithBody, writeReportBody } from "./lib/reportBodies";
 import { closeEditBurst, noteReportEditForSize, recordReportEditDistance } from "./lib/editDistance";
 import { chatCompanyFilesFor } from "./chatDocuments";
 import { quotableFileText } from "../shared/wordMarkdown";
@@ -1291,10 +1292,11 @@ export const applyProposal = mutation({
       );
     }
     const overriddenRules = requireRuleOverride(proposal, applier, args.overrideRules);
-    const report = await ctx.db.get(proposal.reportId);
-    if (!report || report.projectId !== proposal.projectId) {
+    const storedReport = await ctx.db.get(proposal.reportId);
+    if (!storedReport || storedReport.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
+    const report = await reportWithBody(ctx, storedReport);
 
     const option = args.option ?? 0;
     const alternatives = proposal.alternatives ?? [];
@@ -1435,7 +1437,7 @@ export const applyProposal = mutation({
         ? { researchSessionId: proposal.researchSessionId }
         : {}),
     });
-    await ctx.db.patch(report._id, {
+    await writeReportBody(ctx, report, {
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,
@@ -1551,10 +1553,11 @@ export const markProposalApplied = mutation({
     await assertCardConversationLive(ctx, proposal);
     // report.editProse: this path writes the final document content.
     const { user } = await requireReportEditAccess(ctx, proposal.projectId);
-    const report = await ctx.db.get(proposal.reportId);
-    if (!report || report.projectId !== proposal.projectId) {
+    const storedReport = await ctx.db.get(proposal.reportId);
+    if (!storedReport || storedReport.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
+    const report = await reportWithBody(ctx, storedReport);
     // Kind guards run before the already-applied short-circuit: a highlight or
     // a record-only revision (DW-135) is stored `applied` from creation, and
     // must be refused as nothing to apply, never reported as applied prose.
@@ -1599,7 +1602,7 @@ export const markProposalApplied = mutation({
     // Phase E (E3, re-check): an open burst is read before the card lands.
     await closeEditBurst(ctx, report);
     await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
-    await ctx.db.patch(report._id, {
+    await writeReportBody(ctx, report, {
       content: args.content,
       contentHash: await sha256(args.content),
       revisionNumber: revisionNumber + 1,
@@ -1728,7 +1731,7 @@ export const updateProposalWording = mutation({
       const report = await ctx.db.get(proposal.reportId);
       let doc: unknown = null;
       try {
-        doc = report ? JSON.parse(report.content) : null;
+        doc = report ? JSON.parse(await readReportContent(ctx, report)) : null;
       } catch {
         doc = null;
       }
@@ -1820,10 +1823,11 @@ export const undoProposal = mutation({
     if (!hunks) {
       domainError("INVALID_STATE", "Only an applied suggestion with a recorded change can be undone.");
     }
-    const report = await ctx.db.get(proposal.reportId);
-    if (!report || report.projectId !== proposal.projectId) {
+    const storedReport = await ctx.db.get(proposal.reportId);
+    if (!storedReport || storedReport.projectId !== proposal.projectId) {
       domainError("NOT_FOUND", "Report not found");
     }
+    const report = await reportWithBody(ctx, storedReport);
     const current = parseReportDocument(report.content);
     if (!current) domainError("INVALID_INPUT", "The report content is not valid editor JSON");
     const undone = undoAppliedHunks(current, hunks);
@@ -1845,7 +1849,7 @@ export const undoProposal = mutation({
     const revisionNumber = report.revisionNumber ?? 0;
     const now = Date.now();
     await writePreEditSnapshot(ctx, report, "pre_chat_undo", { createdAt: now });
-    await ctx.db.patch(report._id, {
+    await writeReportBody(ctx, report, {
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,
@@ -2730,8 +2734,9 @@ export const saveProposal = internalMutation({
       }
     }
 
-    const report = await ctx.db.get(thread.reportId);
-    if (!report) return { ok: false as const, reason: "The current report could not be loaded." };
+    const storedReport = await ctx.db.get(thread.reportId);
+    if (!storedReport) return { ok: false as const, reason: "The current report could not be loaded." };
+    const report = await reportWithBody(ctx, storedReport);
     let parsed: unknown;
     try {
       parsed = JSON.parse(report.content);
@@ -3295,7 +3300,8 @@ export const getDeviationInventoryContext = internalQuery({
     // order, so the document walk at the end stops with headroom to spare.
     const budget = chatReadBudget();
     budget.charge(thread);
-    const report = budget.charge(await ctx.db.get(thread.reportId));
+    const storedReport = budget.charge(await ctx.db.get(thread.reportId));
+    const report = storedReport ? budget.charge(await reportWithBody(ctx, storedReport)) : null;
     const sections = report ? extractReportSections(report.content) : empty;
 
     // ONLY the report's own generation. There is deliberately no fallback to
@@ -3541,8 +3547,9 @@ export const getChatContextV2 = internalQuery({
     // bounded: which documents reach the chat is evidence policy, not read
     // policy, and is out of this query's DW-138 scope.
     const budget = chatReadBudget();
-    const report = budget.charge(await ctx.db.get(args.reportId));
-    if (!report) throw new Error("Report not found");
+    const storedReport = budget.charge(await ctx.db.get(args.reportId));
+    if (!storedReport) throw new Error("Report not found");
+    const report = budget.charge(await reportWithBody(ctx, storedReport));
     // Three small settings rows, reserved before they are read and charged as
     // a flat estimate; the defaults stand in if the reservation ever fails.
     const evidenceBudgetRead = await budget.read(() => chatEvidenceBudget(ctx), 3 * 1024);

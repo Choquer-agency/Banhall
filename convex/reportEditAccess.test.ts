@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import { convexTest } from "convex-test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./_generated/api";
@@ -148,7 +149,7 @@ async function reportContent(
   t: Awaited<ReturnType<typeof setup>>["t"],
   reportId: Awaited<ReturnType<typeof setup>>["reportId"]
 ) {
-  return await t.run(async (ctx) => (await ctx.db.get(reportId))!.content);
+  return await t.run(async (ctx) => (await getTestReport(ctx, reportId))!.content);
 }
 
 describe("report.editProse at the mutation boundary", () => {

@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { drainScheduledFunctions } from "./testScheduledFunctions";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -258,7 +259,7 @@ describe("a project copy, file by file (F2)", () => {
       await copyNext(s, plan);
       await s.writer.mutation(api.projects.deleteProject, { projectId: s.fromProjectId });
       // The erasure runs to its end: the job's reference to the original is cleared.
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect(await s.t.run((ctx) => ctx.db.get(s.fromProjectId))).toBeNull();
       expect((await s.job(plan.jobId))?.fromProjectId).toBeUndefined();
       await completeProjectCopy(s.t, plan);
@@ -468,7 +469,7 @@ describe("a project copy, file by file (F2)", () => {
         })
       ).toBe("lease_lost");
       expect(await s.storedFiles()).toEqual(before);
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       const copies = await s.copies();
       expect(copies.every((copy) => copy.textCopyState === undefined && copy.storageId !== undefined)).toBe(true);
       expect(await s.job(plan.jobId)).toMatchObject({ status: "done", filesCopied: 15, resumes: 1 });
@@ -496,7 +497,7 @@ describe("a project copy, file by file (F2)", () => {
       });
       expect(unwritten).toEqual([]);
       // The erasure then removes the job and the clone the first file got.
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect(await s.job(plan.jobId)).toBeNull();
       expect(await s.storedFiles()).not.toContain(first!.clone);
       expect((await s.storedFiles()).length).toBe(3);
@@ -524,7 +525,7 @@ describe("a project copy, file by file (F2)", () => {
       // The rows were all made: the receipt is whole.
       expect(result.documents.map((row) => row.sourceId)).toEqual(s.sourceIds);
       expect((await s.copies()).filter((copy) => copy.textCopyState === "pending")).toHaveLength(2);
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect((await s.copies()).every((copy) => copy.textCopyState === undefined)).toBe(true);
       const [job] = await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect());
       expect(job).toMatchObject({ status: "done", filesCopied: 3, originalsAttached: 1 });
@@ -545,7 +546,7 @@ describe("a project copy, file by file (F2)", () => {
       vi.setSystemTime(Date.now() + 30 * 60 * 1000);
       await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
       await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {});
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect(await s.job(plan.jobId)).toMatchObject({ status: "done", resumes: 1, filesCopied: 2, originalsAttached: 2 });
       // The stray clone is still tracked, and kept while a save could attach it.
       expect(await s.storedFiles()).toContain(stray);
@@ -612,7 +613,7 @@ describe("a project copy, file by file (F2)", () => {
       expect(first).toBeGreaterThan(0);
       expect(first).toBeLessThan(500);
       expect((await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect()))[0]?.scannedThrough).toBeTypeOf("number");
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       const stored = await s.storedFiles();
       expect(strays.filter((id) => stored.includes(id))).toEqual([]);
       expect(stored).toContain(source.storageId);
@@ -641,7 +642,7 @@ describe("a project copy, file by file (F2)", () => {
       // (one record done) is kept, and a fresh run goes on.
       expect(await s.t.mutation(internal.projectDuplication.reconcileProjectCopyClones, {})).toBe(0);
       expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toHaveLength(1);
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect(await s.t.run((ctx) => ctx.db.query("projectCopyClones").collect())).toEqual([]);
     }, 120_000);
 
@@ -665,7 +666,7 @@ describe("a project copy, file by file (F2)", () => {
       expect(result).toMatchObject({ stillCopying: true, originalsNotCopied: 0 });
       expect((await s.copies())[0]?.textCopyState).toBe("pending");
       // The next runner clones it.
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect((await s.copies())[0]?.storageId).toBeDefined();
       const [job] = await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect());
       expect(job).toMatchObject({ status: "done", originalsAttached: 1 });
@@ -705,7 +706,7 @@ describe("a project copy, file by file (F2)", () => {
       expect(result).toMatchObject({ stillCopying: true, transcriptOriginalsCopied: 1 });
       expect(Date.now() - started).toBe(6 * 60 * 1000);
       slow = false;
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       const rows = await s.t.run(async (ctx) => Promise.all(copied.map((id) => ctx.db.get(id))));
       expect(rows.every((row) => row?.originalStorageId !== undefined)).toBe(true);
       const [job] = await s.t.run((ctx) => ctx.db.query("projectCopyJobs").collect());
@@ -732,7 +733,7 @@ describe("a project copy, file by file (F2)", () => {
       expect(await s.t.mutation(internal.projects.copyProjectFile, { ...lease, documentId: next.documentId })).toBe("stopped");
       expect(await s.job(plan.jobId)).toMatchObject({ status: "failed", stopReason: "copier_access_ended" });
       expect((await s.copies()).filter((copy) => copy.textCopyState === "failed")).toHaveLength(100);
-      await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+      await drainScheduledFunctions(s.t, () => vi.runAllTimers());
       expect((await s.copies()).filter((copy) => copy.textCopyState === "failed")).toHaveLength(150);
     });
   });

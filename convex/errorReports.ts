@@ -178,10 +178,7 @@ export const reportError = mutation({
   },
 });
 
-/**
- * All reports, newest first. Stack traces and reporter emails are operational
- * alerts: the matrix's ops.viewAlerts (Admin only). Anyone else gets nothing.
- */
+/** Report headers for the alert list. Heavy details load only on expansion. */
 export const listErrors = query({
   args: { includeResolved: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
@@ -190,10 +187,31 @@ export const listErrors = query({
       return [];
     }
 
-    const reports = await ctx.db.query("errorReports").order("desc").take(300);
-    return args.includeResolved
-      ? reports
-      : reports.filter((r) => r.status === "open");
+    const open = await ctx.db.query("errorReports")
+      .withIndex("by_status", (q) => q.eq("status", "open"))
+      .order("desc").take(300);
+    const reports = args.includeResolved
+      ? [...open, ...await ctx.db.query("errorReports")
+          .withIndex("by_status", (q) => q.eq("status", "resolved"))
+          .order("desc").take(300)]
+          .sort((a, b) => b._creationTime - a._creationTime)
+          .slice(0, 300)
+      : open;
+    return reports.map(({ _id, kind, reportType, message, url, status, createdAt }) => ({
+      _id, kind, ...(reportType ? { reportType } : {}), message, url, status, createdAt,
+    }));
+  },
+});
+
+/** One report, including its stack and breadcrumbs, for an expanded row. */
+export const getError = query({
+  args: { id: v.id("errorReports") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user || user.isAnonymous === true || !hasCapability(user.role, "ops.viewAlerts")) {
+      return null;
+    }
+    return await ctx.db.get(args.id);
   },
 });
 

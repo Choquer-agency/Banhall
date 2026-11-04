@@ -12,6 +12,7 @@
   import Button from "$lib/components/ui/Button.svelte";
   import { pageRangeLabel } from "../../../../shared/pdSectionDetect";
   import { CATEGORY_LABELS, type SupportingCategory, type SupportingDoc } from "./supportingDocs.svelte";
+  import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
   let {
     open = $bindable(false),
@@ -61,7 +62,7 @@
     void (async () => {
       try {
         const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
         const task = pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false });
         const pdf = await task.promise;
         const page = await pdf.getPage(1);

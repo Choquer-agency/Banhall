@@ -5,6 +5,7 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { DomainErrorCode } from "./lib/contracts";
 import { sha256 } from "./lib/contracts";
+import { reportWithBody } from "./lib/reportBodies";
 import { writePreEditSnapshot, type PreEditSnapshotReason } from "./lib/snapshots";
 import schema from "./schema";
 
@@ -72,6 +73,24 @@ async function setup() {
 }
 
 describe("snapshots carry the transcript set (AC5)", () => {
+  it("finds a ghost snapshot after more than 200 newer project snapshots", async () => {
+    const { t, raw, projectId, reportId, generationId } = await setup();
+    const ghostId = await raw.run(async (ctx) => {
+      const ghostId = await ctx.db.insert("reportSnapshots", {
+        projectId, reportId, generationId, content: "Ghost",
+        reason: "generated", label: "One-shot ghost draft", createdByRole: "system", createdAt: 1,
+      });
+      for (let i = 0; i < 201; i += 1) {
+        await ctx.db.insert("reportSnapshots", {
+          projectId, reportId, content: `Newer ${i}`,
+          reason: "manual", createdByRole: "writer", createdAt: i + 2,
+        });
+      }
+      return ghostId;
+    });
+    expect((await t.query(api.snapshots.getGhostSnapshot, { generationId }))?._id).toBe(ghostId);
+    expect(await raw.query(api.snapshots.getGhostSnapshot, { generationId })).toBeNull();
+  });
   it("writes the set onto a manual snapshot and skips an exact duplicate", async () => {
     const { t, raw, reportId, transcriptIds } = await setup();
 
@@ -140,7 +159,10 @@ describe("snapshots carry the transcript set (AC5)", () => {
       expectedRevisionNumber: 0,
     });
 
-    const report = await raw.run((ctx) => ctx.db.get(reportId));
+    const report = await raw.run(async (ctx) => {
+      const stored = await ctx.db.get(reportId);
+      return stored ? await reportWithBody(ctx, stored) : null;
+    });
     expect(report).toMatchObject({
       content: "Older content",
       revisionNumber: 1,

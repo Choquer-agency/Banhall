@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
+import { reportWithBody } from "./lib/reportBodies";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { loadFrozenSectionPlan, loadWriterPrecedenceByLine } from "./lib/generations/seedStage";
 import {
@@ -7913,7 +7914,7 @@ describe("seed Summary sign-off and recovery", () => {
       return {
         generation: await ctx.db.get(generationId),
         project: await ctx.db.get(s.projectId),
-        report,
+        report: report ? await reportWithBody(ctx, report) : null,
         snapshots,
         summary: await ctx.db.get(signed.summaryVersionId),
         postQa: (await ctx.db.system.query("_scheduled_functions").take(100)).filter(
@@ -8056,7 +8057,7 @@ describe("seed Summary sign-off and recovery", () => {
         outputs: await agentOutputsOf(ctx, s.generationId),
         project: await ctx.db.get(s.projectId),
         candidate: await ctx.db.get(signed.candidateRunId),
-        report,
+        report: report ? await reportWithBody(ctx, report) : null,
         snapshots: report
           ? await ctx.db.query("reportSnapshots")
             .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
@@ -8985,7 +8986,7 @@ describe("Step-by-step writing: background QA, Stop and redraft (CAP-17, CAP-18)
         .withIndex("by_generationId", (q) => q.eq("generationId", s.generationId))
         .unique());
     if (!report) throw new Error("Missing generated report");
-    return report;
+    return await s.t.run((ctx) => reportWithBody(ctx, report));
   }
 
   async function stopAfterFirstSection(prefix: string) {

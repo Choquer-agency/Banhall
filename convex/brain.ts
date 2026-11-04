@@ -1,4 +1,5 @@
 import { isEvaluationProject } from "./lib/evaluationProjects";
+import { readReportContent } from "./lib/reportBodies";
 import {
   query,
   mutation,
@@ -229,7 +230,7 @@ export const nominateFromReport = internalMutation({
     const project = await ctx.db.get(report.projectId);
     // Phase E (E3): an evaluation project's report is never nominated.
     if (!project || isEvaluationProject(project)) return;
-    const rawContent = extractPlainText(report.content);
+    const rawContent = extractPlainText(await readReportContent(ctx, report));
     if (!rawContent.trim()) return;
     // CAP-1: this row becomes firm-wide Brain knowledge, and both its content
     // and its title reach drafting prompts (the title as the exemplar label).

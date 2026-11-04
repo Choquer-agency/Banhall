@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { sha256 } from "./lib/contracts";
+import { writeReportBody } from "./lib/reportBodies";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -424,13 +425,15 @@ describe("CAP-9 review provenance", () => {
       api.generations.selectReportCandidate,
       { generationId, candidateId }
     );
-    await f.t.run((ctx) =>
-      ctx.db.patch(reportId, {
+    await f.t.run(async (ctx) => {
+      const report = (await ctx.db.get(reportId))!;
+      await writeReportBody(ctx, report, {
         content: "Edited selected report",
         revisionNumber: 2,
         contentHash: "selected-report-hash",
-      })
-    );
+        updatedAt: Date.now(),
+      });
+    });
     expect(
       await f.writer.mutation(api.reviews.saveQaItemFeedback, {
         ...feedback,

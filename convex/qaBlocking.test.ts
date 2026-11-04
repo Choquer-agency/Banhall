@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
+import { getReportBody, reportWithBody } from "./lib/reportBodies";
 
 const modules = import.meta.glob("./**/*.ts");
 const FAILURE = "It was uncertain whether the alloy would resist fatigue.";
@@ -43,12 +44,20 @@ async function setup(content = contentFor(FIXED)) {
 
 type Fixture = Awaited<ReturnType<typeof setup>>;
 async function rows(f: Fixture) {
+  const body = await f.t.run((ctx) => getReportBody(ctx, f.reportId));
+  if (body) {
+    await f.t.mutation(internal.reports.finishReportSave, {
+      reportId: f.reportId,
+      revisionNumber: body.revisionNumber,
+    });
+  }
   return f.t.run(async (ctx) => (await ctx.db.query("qaFindings").collect()).filter((r) => r.reportId === f.reportId));
 }
 async function ref(f: Fixture) {
   return f.t.run(async (ctx) => {
-    const report = await ctx.db.get(f.reportId);
-    if (!report) throw new Error("fixture report missing");
+    const stored = await ctx.db.get(f.reportId);
+    if (!stored) throw new Error("fixture report missing");
+    const report = await reportWithBody(ctx, stored);
     return { reportId: report._id, revisionNumber: report.revisionNumber ?? 0, contentHash: await sha256(report.content) };
   });
 }

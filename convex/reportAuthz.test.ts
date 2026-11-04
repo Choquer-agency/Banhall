@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
@@ -230,7 +231,7 @@ function rejectedActors(f: Fixture): Array<[string, Actor, string]> {
 }
 
 async function reportRow(f: Fixture) {
-  return await f.t.run((ctx) => ctx.db.get(f.reportId));
+  return await f.t.run((ctx) => getTestReport(ctx, f.reportId));
 }
 
 async function proposalRow(f: Fixture) {

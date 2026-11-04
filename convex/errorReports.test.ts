@@ -156,6 +156,31 @@ describe("reportError", () => {
 });
 
 describe("reading and changing reports is ops.viewAlerts (Admin only)", () => {
+  it("lists only headers and loads full detail for an Admin on request", async () => {
+    const { t, writer, admin } = await setup();
+    const first = await t.mutation(api.errorReports.reportError, report({
+      message: "First", stack: "private stack", userNote: "private note",
+      breadcrumbs: [{ type: "click", label: "Save", at: 1 }],
+    }));
+    const second = await t.mutation(api.errorReports.reportError, report({ message: "Second" }));
+    if (!first || !second) throw new Error("Report was dropped");
+    await admin.mutation(api.errorReports.setStatus, { id: first, status: "resolved" });
+    const open = await admin.query(api.errorReports.listErrors, {});
+    expect(open.map((row) => row._id)).toEqual([second]);
+    const all = await admin.query(api.errorReports.listErrors, { includeResolved: true });
+    expect(all.map((row) => row._id)).toEqual([second, first]);
+    for (const row of all) {
+      expect(row).not.toHaveProperty("stack");
+      expect(row).not.toHaveProperty("breadcrumbs");
+      expect(row).not.toHaveProperty("userNote");
+    }
+    expect(await admin.query(api.errorReports.getError, { id: first })).toMatchObject({
+      stack: "private stack", userNote: "private note",
+      breadcrumbs: [{ type: "click", label: "Save", at: 1 }],
+    });
+    expect(await writer.query(api.errorReports.getError, { id: first })).toBeNull();
+    expect(await t.query(api.errorReports.getError, { id: first })).toBeNull();
+  });
   it("shows reports and the open count to an Admin only", async () => {
     const { t, writer, manager, admin } = await setup();
     await t.mutation(api.errorReports.reportError, report());

@@ -10,6 +10,7 @@ import {
 } from "./lib/orderedChain";
 import { v } from "convex/values";
 import {
+  claimCitationValidator,
   projectTypeValidator,
   workflowStageValidator,
   workItemKindValidator,
@@ -793,6 +794,7 @@ export default defineSchema({
   transcripts: defineTable({
     projectId: v.id("projects"),
     content: v.string(),
+    wordCount: v.optional(v.number()),
     createdAt: v.number(),
     // 2026-09-03 widen: multiple transcripts per project. Legacy rows have
     // none of the three; readers go through convex/lib/transcripts.ts, which
@@ -833,6 +835,7 @@ export default defineSchema({
     factsStatus: v.optional(
       v.union(v.literal("none"), v.literal("queued"), v.literal("ready"), v.literal("failed"))
     ),
+    factsCopyFromTranscriptId: v.optional(v.id("transcripts")),
     factsVersion: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
@@ -993,7 +996,8 @@ export default defineSchema({
 
   reports: defineTable({
     projectId: v.id("projects"),
-    content: v.string(),
+    // Legacy text is cleared after reportBodies has been backfilled.
+    content: v.optional(v.string()),
     version: v.number(),
     generatedAt: v.number(),
     updatedAt: v.number(),
@@ -1008,6 +1012,41 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_generationId", ["generationId"])
     .index("by_provenanceId", ["provenanceId"]),
+
+  reportBodies: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    content: v.string(),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    updatedAt: v.number(),
+    provenanceId: v.optional(v.id("reportProvenance")),
+    postSaveJobId: v.optional(v.id("_scheduled_functions")),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"])
+    .index("by_provenanceId", ["provenanceId"]),
+
+  reportPendingProvenance: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    sourceProvenanceId: v.id("reportProvenance"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    status: v.union(v.literal("needs_review"), v.literal("approved"), v.literal("rejected")),
+    claims: v.array(claimCitationValidator),
+    generationId: v.optional(v.id("generations")),
+    sourceTranscriptId: v.optional(v.id("transcripts")),
+    sourceTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+    digestIds: v.optional(v.array(v.id("transcriptDigests"))),
+    createdAt: v.number(),
+    createdBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+    reviewedBy: v.optional(v.id("users")),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_sourceProvenanceId", ["sourceProvenanceId"]),
 
   comments: defineTable({
     projectId: v.id("projects"),
@@ -3077,6 +3116,7 @@ export default defineSchema({
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
+    .index("by_generationId", ["generationId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"])
     .index("by_provenanceId", ["provenanceId"]),
 

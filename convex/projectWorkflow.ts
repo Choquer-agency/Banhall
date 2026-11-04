@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { reportWithBody } from "./lib/reportBodies";
 import type { Doc, Id } from "./_generated/dataModel";
 import { scheduleSignalCapture } from "./learningSignals";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -548,14 +549,15 @@ export const setWorkflowStage = mutation({
       }
       // Same transaction as the stage patch and the stage_changed event: the
       // decision and the stage move are one atomic audit fact.
+      const currentReport = await reportWithBody(ctx, reviewedReport);
       const reviewDecisionId = await ctx.db.insert("reviewDecisions", {
         projectId: project._id,
         reportId: reviewedReport._id,
         reviewerId: user._id,
-        revisionNumber: reviewedReport.revisionNumber ?? 0,
+        revisionNumber: currentReport.revisionNumber ?? 0,
         // Falsy, not nullish: a stored empty hash is as unusable as an absent
         // one and must be recomputed rather than pinned as "".
-        contentHash: reviewedReport.contentHash || (await sha256(reviewedReport.content)),
+        contentHash: currentReport.contentHash || (await sha256(currentReport.content)),
         decision: args.reviewDecision.decision,
         toStage: reviewedStage,
         ...(note ? { note } : {}),

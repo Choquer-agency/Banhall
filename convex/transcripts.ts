@@ -47,6 +47,7 @@ import {
   MAX_TRANSCRIPT_HISTORY_ROWS,
   MAX_TRANSCRIPTS_PER_PROJECT,
   projectTranscriptsFrom,
+  scheduleArrivalFactsIfReady,
   scheduleStructureRebuildIfStale,
   requireTranscriptTextWithinCap,
   transcriptLabel,
@@ -171,6 +172,8 @@ export const buildTranscriptStructure = internalMutation({
       await ctx.scheduler.runAfter(0, internal.ai.condense.classifySpeakerRoles, {
         transcriptId: args.transcriptId,
       });
+    } else if (step.kind === "done") {
+      await scheduleArrivalFactsIfReady(ctx, args.transcriptId);
     }
     // Decision 65: a preparation waiting for this structure can start. Only
     // an intake build asks (an upload's, which also asks the model about
@@ -187,6 +190,16 @@ export const buildTranscriptStructure = internalMutation({
         .first();
       if (link && link.builtAt === undefined) await ctx.db.patch(link._id, { builtAt: Date.now() });
     }
+    return null;
+  },
+});
+
+/** The speaker look finished or failed; an arriving transcript can now read facts. */
+export const finishArrivalSpeakerRoles = internalMutation({
+  args: { transcriptId: v.id("transcripts") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await scheduleArrivalFactsIfReady(ctx, args.transcriptId);
     return null;
   },
 });
@@ -1139,6 +1152,7 @@ export const requestTranscriptFacts = mutation({
       await scheduleStructureRebuildIfStale(ctx, transcript);
       return null;
     }
+    if (transcript.factsCopyFromTranscriptId) return null;
     const run = await findFactRun(ctx, transcript._id, await transcriptHash(transcript));
     if (run && (await factRunIsCurrent(ctx, run))) return null;
     // A recent attempt that is still running or just failed is left alone;
@@ -1166,15 +1180,39 @@ export const copyTranscriptFacts = internalMutation({
     toTranscriptId: v.id("transcripts"),
     offset: v.optional(v.number()),
     runId: v.optional(v.id("transcriptFactRuns")),
+    waitCount: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const [source, target] = await Promise.all([ctx.db.get(args.fromTranscriptId), ctx.db.get(args.toTranscriptId)]);
-    if (!source || !target || (await isProjectDeleting(ctx, target.projectId))) return null;
+    if (!target || (await isProjectDeleting(ctx, target.projectId))) return null;
+    if (!source) {
+      if (target.factsCopyFromTranscriptId === args.fromTranscriptId) {
+        await ctx.db.patch(target._id, { factsCopyFromTranscriptId: undefined });
+        await scheduleArrivalFactsIfReady(ctx, target._id);
+      }
+      return null;
+    }
     const hash = await transcriptHash(source);
-    if ((await transcriptHash(target)) !== hash) return null;
+    if ((await transcriptHash(target)) !== hash) {
+      if (target.factsCopyFromTranscriptId === source._id) {
+        await ctx.db.patch(target._id, { factsCopyFromTranscriptId: undefined });
+        await scheduleArrivalFactsIfReady(ctx, target._id);
+      }
+      return null;
+    }
     const sourceRun = await findFactRun(ctx, source._id, hash);
-    if (!sourceRun || !(await factRunIsCurrent(ctx, sourceRun))) return null;
+    if (!sourceRun || !(await factRunIsCurrent(ctx, sourceRun))) {
+      if (target.factsCopyFromTranscriptId === source._id && source.factsStatus === "queued" && (args.waitCount ?? 0) < 20) {
+        await ctx.scheduler.runAfter(60_000, internal.transcripts.copyTranscriptFacts, {
+          ...args, waitCount: (args.waitCount ?? 0) + 1,
+        });
+      } else if (target.factsCopyFromTranscriptId === source._id) {
+        await ctx.db.patch(target._id, { factsCopyFromTranscriptId: undefined });
+        await scheduleArrivalFactsIfReady(ctx, target._id);
+      }
+      return null;
+    }
     let runId = args.runId;
     if (!runId) {
       const existing = await findFactRun(ctx, target._id, hash);
@@ -1209,7 +1247,7 @@ export const copyTranscriptFacts = internalMutation({
       return null;
     }
     await ctx.db.patch(runId, { status: "ready", finishedAt: Date.now() });
-    await ctx.db.patch(target._id, { factsStatus: "ready", factsVersion: FACTS_VERSION });
+    await ctx.db.patch(target._id, { factsStatus: "ready", factsVersion: FACTS_VERSION, factsCopyFromTranscriptId: undefined });
     return null;
   },
 });

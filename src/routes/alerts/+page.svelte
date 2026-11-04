@@ -26,7 +26,7 @@
   const reports = $derived(reportsQ.data);
 
   // BNH-38: split bugs (incl. auto-captured errors) from feature requests.
-  const isFeature = (r: Doc<"errorReports">) => r.reportType === "feature";
+  const isFeature = (r: Pick<Doc<"errorReports">, "reportType">) => r.reportType === "feature";
   const filtered = $derived(
     (reports ?? []).filter((r) =>
       tab === "all" ? true : tab === "feature" ? isFeature(r) : !isFeature(r)

@@ -6,12 +6,13 @@
 
   interface Props {
     proposal: Proposal;
+    optimisticApplied?: boolean;
     onRefine: (proposal: Proposal) => void;
     onBeforeApply?: () => Promise<unknown>;
     onReferenceText?: (texts: string[], scrollTo?: string) => void;
   }
 
-  let { proposal: p, onRefine, onBeforeApply, onReferenceText }: Props = $props();
+  let { proposal: p, optimisticApplied = false, onRefine, onBeforeApply, onReferenceText }: Props = $props();
 </script>
 
 {#if p.kind === "references"}
@@ -36,5 +37,5 @@
     </div>
   {/if}
 {:else}
-  <ProposalCard proposal={p} {onBeforeApply} {onRefine} />
+  <ProposalCard proposal={p} {optimisticApplied} {onBeforeApply} {onRefine} />
 {/if}

@@ -2,10 +2,11 @@
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { sha256 } from "./lib/contracts";
 import { carryClaims, deleteProvenanceIfUnheld } from "./lib/editProvenance";
+import { getReportBody, reportWithBody } from "./lib/reportBodies";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import schema from "./schema";
 
@@ -241,8 +242,10 @@ async function setup() {
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
 async function reportAndProvenance(f: Fixture) {
+  const body = await f.t.run((ctx) => getReportBody(ctx, f.reportId));
+  if (body) await f.t.mutation(internal.reports.finishReportSave, { reportId: f.reportId, revisionNumber: body.revisionNumber });
   return await f.t.run(async (ctx) => {
-    const report = (await ctx.db.get(f.reportId))!;
+    const report = await reportWithBody(ctx, (await ctx.db.get(f.reportId))!);
     const provenance = report.provenanceId ? await ctx.db.get(report.provenanceId) : null;
     return { report, provenance };
   });
@@ -500,9 +503,9 @@ describe("claim records do not pile up on autosave", () => {
       content: doc(P242, REWRITTEN_244, P246),
       expectedRevisionNumber: 0,
     });
+    const { report } = await reportAndProvenance(f);
     const rows = await provenanceRows(f);
     expect(rows).toHaveLength(1);
-    const { report } = await reportAndProvenance(f);
     expect(rows[0]._id).toBe(report.provenanceId);
     expect(rows[0]._id).not.toBe(f.provenanceId);
   });

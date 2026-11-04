@@ -205,6 +205,8 @@ export const PROJECT_SCOPED_TABLES = [
   { table: "reportSnapshots", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportExports", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "reportProvenance", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "reportBodies", field: "projectId", disposition: "delete", index: "by_projectId" },
+  { table: "reportPendingProvenance", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "pdReviewEvents", field: "projectId", disposition: "delete", index: "by_projectId" },
   { table: "pdReviews", field: "projectId", disposition: "delete", index: "by_projectId" },
   {

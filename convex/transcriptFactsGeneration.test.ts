@@ -184,8 +184,8 @@ async function setup(mode: "off" | "long" | "all") {
       interviewer: "Dana Whitfield",
       interviewees: ["Priya Shah"],
     });
-    await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: mode, updatedBy: writerId, updatedAt: 1 });
-    return { writerId, projectId };
+    const settingId = await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "off", updatedBy: writerId, updatedAt: 1 });
+    return { writerId, projectId, settingId };
   });
   const writer = t.withIdentity({ subject: "gf-writer" });
   stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
@@ -195,6 +195,7 @@ async function setup(mode: "off" | "long" | "all") {
     label: "call.txt",
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
+  if (mode !== "off") await t.run((ctx) => ctx.db.patch(ids.settingId, { value: mode }));
   return { t, writer, transcriptId, ...ids };
 }
 

@@ -14,6 +14,7 @@ import { sha256, domainError } from "../contracts";
 import { generationTranscriptIds } from "../transcripts";
 import { persistDeterministicFindings, persistMethodologyFindings } from "../qaFindings";
 import { recordReportEditDistance } from "../editDistance";
+import { insertReportWithBody } from "../reportBodies";
 import {
   sectionNumberValidator,
   type SectionNumber,
@@ -151,7 +152,7 @@ export async function createGeneratedReportArtifacts(
     .order("desc")
     .first();
   const contentHash = await sha256(candidate.content);
-  const reportId = await ctx.db.insert("reports", {
+  const reportId = await insertReportWithBody(ctx, {
     projectId: candidate.projectId,
     generationId: generation._id,
     sourceTranscriptId: generation.transcriptId,

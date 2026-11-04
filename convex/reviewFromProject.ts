@@ -1,4 +1,5 @@
 import { action, internalMutation } from "./_generated/server";
+import { readReportContent } from "./lib/reportBodies";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -78,7 +79,7 @@ export const createReviewProjectRecord = internalMutation({
         "This project has no written report to review yet"
       );
     }
-    const pdText = extractPlainText(report.content);
+    const pdText = extractPlainText(await readReportContent(ctx, report));
     if (!pdText.trim()) {
       domainError(
         "INVALID_INPUT",

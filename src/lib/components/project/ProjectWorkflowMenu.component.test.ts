@@ -116,4 +116,16 @@ describe("ProjectWorkflowMenu production stage submission", () => {
     expect(__mutationCalls(mutation)).toHaveLength(2);
     expect(__mutationCalls(mutation)[1]).toStrictEqual(__mutationCalls(mutation)[0]);
   });
+
+  it("shows the chosen stage immediately and restores the prior stage if the mutation fails", async () => {
+    await openStageChange("drafting");
+    let rejectStage!: (error: Error) => void;
+    __setMutationResult(mutation, new Promise((_resolve, reject) => { rejectStage = reject; }));
+    await page.getByRole("radio", { name: /^Edits/ }).click();
+    await page.getByRole("button", { name: "Change stage", exact: true }).click();
+    await expect.poll(() => document.querySelector('[aria-label="Workflow details"]')?.textContent).toContain("Edits");
+    rejectStage(new Error("refused"));
+    await expect.poll(() => document.querySelector('[aria-label="Workflow details"]')?.textContent).toContain("Drafting");
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+  });
 });

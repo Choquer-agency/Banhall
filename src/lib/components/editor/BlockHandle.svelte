@@ -18,8 +18,43 @@
   } = $props();
 
   let hoveredBlock = $state<{ top: number; pos: number } | null>(null);
+  let selectedBlock = $state<{ top: number; pos: number } | null>(null);
+  const block = $derived(hoveredBlock ?? selectedBlock);
 
   let handleEl = $state<HTMLDivElement | null>(null);
+
+  // A caret placed by touch or keyboard gives the handle a block even when
+  // there has been no mouse movement. Keep it mounted for keyboard focus.
+  $effect(() => {
+    // Measured at most once per frame: typing fires selectionUpdate on every
+    // keystroke, and each measurement forces a layout of the whole report.
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    };
+    const measure = () => {
+      const from = editor.state.selection.$from;
+      const pos = from.depth > 0 ? from.before(1) : 0;
+      const element = editor.view.nodeDOM(pos);
+      if (!(element instanceof HTMLElement)) return;
+      selectedBlock = {
+        top: element.getBoundingClientRect().top - editor.view.dom.getBoundingClientRect().top,
+        pos: pos + 1,
+      };
+    };
+    measure();
+    editor.on("selectionUpdate", update);
+    editor.on("focus", update);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      editor.off("selectionUpdate", update);
+      editor.off("focus", update);
+    };
+  });
 
   // Listen on the document: when this effect first runs, svelte-tiptap has not
   // yet moved the editor DOM into place, so its parent does not exist yet.
@@ -68,9 +103,9 @@
   });
 
   function handleAddBlock() {
-    if (!hoveredBlock) return;
+    if (!block) return;
     // Insert a new paragraph after the current block
-    const resolvedPos = editor.state.doc.resolve(hoveredBlock.pos);
+    const resolvedPos = editor.state.doc.resolve(block.pos);
     const endOfBlock = resolvedPos.end(1);
     editor
       .chain()
@@ -80,20 +115,20 @@
   }
 </script>
 
-{#if hoveredBlock && compact}
+{#if block && compact}
   <!-- The + keeps its place 34px left of the text; the right padding runs
        the hit area to the text edge, so the pointer never leaves the editor
        on its way from a heading to the handle. -->
   <div
     bind:this={handleEl}
     data-block-handle
-    class="absolute -left-[2.125rem] flex items-center pr-[1.125rem] opacity-0 transition-opacity group-hover/editor:opacity-100 motion-reduce:transition-none"
-    style={`top: ${hoveredBlock.top + 3}px;`}
+    class="absolute -left-[2.125rem] flex items-center pr-[1.125rem] opacity-0 transition-opacity group-hover/editor:opacity-100 focus-within:opacity-100 pointer-coarse:-left-[3.25rem] pointer-coarse:pr-2 pointer-coarse:opacity-100 motion-reduce:transition-none"
+    style={`top: ${block.top + 3}px;`}
   >
     <button
       type="button"
       onclick={handleAddBlock}
-      class="flex h-5 w-4 items-center justify-center rounded text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink"
+      class="flex h-5 w-4 items-center justify-center rounded text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:size-11"
       title="Add block"
       aria-label="Add block"
     >
@@ -102,17 +137,18 @@
       </svg>
     </button>
   </div>
-{:else if hoveredBlock}
+{:else if block}
   <div
     bind:this={handleEl}
-    class="absolute -left-10 flex items-center pr-4 opacity-0 transition-opacity group-hover/editor:opacity-100"
-    style={`top: ${hoveredBlock.top}px;`}
+    class="absolute -left-10 flex items-center pr-4 opacity-0 transition-opacity group-hover/editor:opacity-100 focus-within:opacity-100 pointer-coarse:-left-[3.25rem] pointer-coarse:pr-2 pointer-coarse:opacity-100"
+    style={`top: ${block.top}px;`}
   >
     <button
       type="button"
       onclick={handleAddBlock}
-      class="flex h-6 w-6 items-center justify-center rounded text-gray-300 hover:bg-primary-wash hover:text-gray-500"
+      class="flex h-6 w-6 items-center justify-center rounded text-gray-300 hover:bg-primary-wash hover:text-gray-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-fir pointer-coarse:size-11"
       title="Add block"
+      aria-label="Add block"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />

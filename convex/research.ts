@@ -4,6 +4,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import { reportWithBody } from "./lib/reportBodies";
 import { components, internal } from "./_generated/api";
 import { quotableFileText } from "../shared/wordMarkdown";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -207,7 +208,7 @@ export const startResearch = mutation({
       externalBrief,
       ...(args.preset ? { preset: args.preset } : {}),
       ...(placeholders.length > 0 ? { placeholders } : {}),
-      reportRevisionNumber: report.revisionNumber ?? 0,
+      reportRevisionNumber: (await reportWithBody(ctx, report)).revisionNumber ?? 0,
       status: "queued",
       createdAt: now,
       updatedAt: now,

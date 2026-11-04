@@ -393,6 +393,21 @@ describe("preparing while the writer sets up", () => {
 });
 
 describe("promotion and adoption", () => {
+  test("promotion queues one fact extraction after an inline transcript build", async () => {
+    const s = await setup();
+    const draftId = await preparedDraft(s);
+    await s.t.run((ctx) => ctx.db.insert("appSettings", {
+      key: "transcripts.factsMode", value: "all", updatedBy: s.userId, updatedAt: Date.now(),
+    }));
+    const receipt = await promote(s, draftId, ["transcript-key-1"]);
+    const transcriptId = receipt.sources[0]?.transcriptId;
+    expect(transcriptId).toBeDefined();
+    const jobs = await s.t.run(async (ctx) => (await ctx.db.system.query("_scheduled_functions").collect()).filter(
+      (job) => job.name === "ai/condense:extractTranscriptFactsInBackground" && job.args[0]?.transcriptId === transcriptId
+    ));
+    expect(jobs).toHaveLength(1);
+  });
+
   test("confirming creates the project from the saved sources, and its run adopts the prepared Brief with no second call", async () => {
     const s = await setup();
     const draftId = await preparedDraft(s);

@@ -85,11 +85,12 @@ export async function qaResultForRevision(
  * report, same revision and the same content bytes.
  */
 export async function qaResultIsCurrent(
+  ctx: QueryCtx | MutationCtx,
   result: Pick<Doc<"generationQaResults">, "reportId" | "revisionNumber" | "contentHash">,
   report: Doc<"reports"> | null
 ): Promise<boolean> {
   if (!report || report._id !== result.reportId) return false;
-  const current = await reportQaRef(report);
+  const current = await reportQaRef(ctx, report);
   return (
     current.revisionNumber === result.revisionNumber &&
     current.contentHash === result.contentHash

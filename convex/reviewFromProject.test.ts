@@ -8,6 +8,7 @@ import schema from "./schema";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { readDocumentText } from "./lib/documentText";
+import { readReportContent } from "./lib/reportBodies";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -175,7 +176,7 @@ describe("createReviewFromProject", () => {
     if (!reviewPd || !state.report) throw new Error("Review artifacts missing");
     expect(state.reviews[0].revisionNumber).toBe(0);
     expect(state.reviews[0].contentHash).toBe(await sha256(reviewText));
-    expect(state.reviews[0].contentHash).not.toBe(await sha256(state.report.content));
+    expect(state.reviews[0].contentHash).not.toBe(await sha256(await t.run((ctx) => readReportContent(ctx, state.report!))));
 
     // Every transcript of the source is inherited, in order, byte-identical
     // and with the source hash reused rather than recomputed.
@@ -205,7 +206,7 @@ describe("createReviewFromProject", () => {
     expect(await t.run(async (ctx) => (copiedNotes ? await readDocumentText(ctx, copiedNotes) : ""))).toBe("Scoping notes");
     expect(copiedNotes?.storageId).toBeDefined();
     expect(copiedNotes?.storageId).not.toEqual(sourceNotes?.storageId);
-    expect(state.report?.content).toContain("Uncertainty prose.");
+    expect(await t.run((ctx) => readReportContent(ctx, state.report!))).toContain("Uncertainty prose.");
   });
 
   // F2 review (2026-10-27): the copy runs file by file, so the review is

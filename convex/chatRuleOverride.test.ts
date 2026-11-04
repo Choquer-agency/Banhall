@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { readReportContent, reportWithBody, writeReportBody } from "./lib/reportBodies";
 import { CHAT_OVERRIDE_DECISION_NOTE, decisionsTextFrom } from "./ai/chatEvidence";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -103,7 +104,7 @@ async function failure(call: () => Promise<unknown>): Promise<{ code: string; me
 }
 
 async function reportText(t: ReturnType<typeof convexTest>, reportId: Id<"reports">) {
-  return await t.run(async (ctx) => (await ctx.db.get(reportId))!.content);
+  return await t.run(async (ctx) => readReportContent(ctx, (await ctx.db.get(reportId))!));
 }
 
 describe("applying a card that goes against a rule", () => {
@@ -185,8 +186,12 @@ describe("applying a card that goes against a rule", () => {
       );
     // The writer approved "novel" earlier; the report holds it.
     await s.t.run(async (ctx) => {
-      const report = await ctx.db.get(s.reportId);
-      await ctx.db.patch(s.reportId, { content: report!.content.replace("tested the alloy", "tested a novel alloy") });
+      const report = await reportWithBody(ctx, (await ctx.db.get(s.reportId))!);
+      await writeReportBody(ctx, report, {
+        content: report.content.replace("tested the alloy", "tested a novel alloy"),
+        revisionNumber: report.revisionNumber ?? 0, updatedAt: report.updatedAt,
+        provenanceId: report.provenanceId,
+      });
     });
     const tighten = await insert("The team tested a novel alloy under load.", "The team load-tested a novel alloy.");
     await s.writer.mutation(api.chatV2.applyProposal, { proposalId: tighten });
@@ -200,8 +205,12 @@ describe("applying a card that goes against a rule", () => {
   it("keeps the writer's banned word when a merge moves it between paragraphs (final review 2026-11-03)", async () => {
     const s = await setup();
     await s.t.run(async (ctx) => {
-      const report = await ctx.db.get(s.reportId);
-      await ctx.db.patch(s.reportId, { content: report!.content.replace("measured the coating", "measured the novel coating") });
+      const report = await reportWithBody(ctx, (await ctx.db.get(s.reportId))!);
+      await writeReportBody(ctx, report, {
+        content: report.content.replace("measured the coating", "measured the novel coating"),
+        revisionNumber: report.revisionNumber ?? 0, updatedAt: report.updatedAt,
+        provenanceId: report.provenanceId,
+      });
     });
     const saved = await s.t.mutation(internal.chatV2.saveProposal, {
       agentThreadId: "ro-thread",

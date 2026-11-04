@@ -15,6 +15,7 @@ import {
   persistMethodologyFindings,
 } from "../qaFindings";
 import { extractReportSections } from "../tiptapReport";
+import { readReportContent } from "../reportBodies";
 import type { Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { loadFactsSourceDocuments, type FrozenBrainArtifact } from "./seedStage";
@@ -89,8 +90,8 @@ export async function getPostQaInputHandler(
   const report = await ctx.db.query("reports")
     .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
   if (!report) return null;
-  const capturedRef = await reportQaRef(report);
-  const currentSections = extractReportSections(report.content);
+  const capturedRef = await reportQaRef(ctx, report);
+  const currentSections = extractReportSections(await readReportContent(ctx, report));
   // 2026-10-30 (owner, item 2): the claimant line's company name, frozen at reservation.
   const claimantName = claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff);
   const claimant = claimantName !== undefined ? { claimantName } : {};
@@ -273,7 +274,7 @@ export async function saveReportQaHandler(
   const report = await ctx.db.query("reports")
     .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
   if (args.capturedRef) {
-    const current = report ? await reportQaRef(report) : null;
+    const current = report ? await reportQaRef(ctx, report) : null;
     if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
       // Only an identified active attempt may release the retry lock. Its
       // stale scorecard and chronology never become current evidence.
@@ -447,6 +448,6 @@ export async function getGenerationQaResultHandler(
     contentHash: result.contentHash,
     qaScore: result.qaScore ?? null,
     completedAt: result.completedAt,
-    current: await qaResultIsCurrent(result, report),
+    current: await qaResultIsCurrent(ctx, result, report),
   };
 }

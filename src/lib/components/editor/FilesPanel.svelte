@@ -69,7 +69,7 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
 </script>
 
 <script lang="ts">
-  import { MessageContent } from "$lib/components/chat/primitives";
+  import LazyModule from "$lib/components/ui/LazyModule.svelte";
   import { quotableFileText } from "../../../../shared/wordMarkdown";
   import { createExtractionScope } from "$lib/extractionScope.svelte";
   import { isParseAbort } from "$lib/spreadsheetClient";
@@ -1011,11 +1011,16 @@ Please revise the report to remove or rewrite ONLY the statements that specifica
           {:else if previewContentQ.data === undefined}
             <p class="px-6 py-6 text-sm text-gray-400">Loading…</p>
           {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
+            {@const markdownText = previewContentQ.data.content}
             <!-- 2026-10-26 (owner): a Word file's headings, bold, italic and
                  tables, shown formatted with chat's Markdown, so no image
                  loads and links need a click. -->
             <div class="px-6 py-6" data-testid="file-preview-markdown">
-              <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
+              <LazyModule load={() => import("$lib/components/chat/primitives/MessageContent.svelte")} label="markdown preview">
+                {#snippet children(MessageContent)}
+                  <MessageContent markdown complete role="assistant" text={markdownText} />
+                {/snippet}
+              </LazyModule>
             </div>
           {:else}
             <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-relaxed text-gray-700">{previewContentQ.data?.content

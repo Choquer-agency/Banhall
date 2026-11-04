@@ -1,4 +1,5 @@
 import { hasBlockingQa } from "./qaFindings";
+import { getPendingReportProvenance, reportWithBody } from "./reportBodies";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -150,6 +151,7 @@ export async function getFilingReadiness(
   project: Doc<"projects">,
   report: Doc<"reports"> | null
 ): Promise<FilingReadiness> {
+  if (report) report = await reportWithBody(ctx, report);
   const blockers: FilingReadiness["blockers"] = [];
   const add = (code: FilingBlockerCode, message: string, claimId?: string) =>
     blockers.push({ code, message, ...(claimId ? { claimId } : {}) });
@@ -188,14 +190,19 @@ export async function getFilingReadiness(
 
   let provenanceStatus: FilingReadiness["provenanceStatus"] =
     "unavailable_legacy";
-  let provenance: Doc<"reportProvenance"> | null = null;
-  if (!report?.provenanceId) {
+  let provenance: Pick<Doc<"reportProvenance">, "projectId" | "status" | "claims" | "reviewedAt"> | null = null;
+  const pending = report ? await getPendingReportProvenance(ctx, report._id) : null;
+  if (pending && pending.revisionNumber === (report?.revisionNumber ?? -1) && pending.contentHash === report?.contentHash) {
+    provenance = pending;
+  } else if (report?.provenanceId) {
+    provenance = await ctx.db.get(report.provenanceId);
+  }
+  if (!provenance && !report?.provenanceId) {
     add(
       "PROVENANCE_UNAVAILABLE",
       "This report revision has no claim-level source record."
     );
   } else {
-    provenance = await ctx.db.get(report.provenanceId);
     if (!provenance || provenance.projectId !== project._id) {
       add(
         "PROVENANCE_UNAVAILABLE",

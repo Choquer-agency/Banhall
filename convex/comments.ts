@@ -1,4 +1,5 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { reportWithBody, writeReportBody } from "./lib/reportBodies";
 import { noteReportEditForSize } from "./lib/editDistance";
 import { query, mutation } from "./_generated/server";
 import { removeCommentSignal, scheduleSignalCapture } from "./learningSignals";
@@ -165,10 +166,11 @@ export const acceptEdit = mutation({
     if (comment.resolved) {
       domainError("INVALID_STATE", "This suggestion was already accepted or dismissed.");
     }
-    const report = await ctx.db.get(comment.reportId);
-    if (!report || report.projectId !== comment.projectId) {
+    const storedReport = await ctx.db.get(comment.reportId);
+    if (!storedReport || storedReport.projectId !== comment.projectId) {
       domainError("NOT_FOUND", "The commented report revision is unavailable");
     }
+    const report = await reportWithBody(ctx, storedReport);
 
     let parsed: unknown;
     try {
@@ -214,7 +216,7 @@ export const acceptEdit = mutation({
     await writePreEditSnapshot(ctx, report, "pre_client_edit", {
       createdAt: now,
     });
-    await ctx.db.patch(report._id, {
+    await writeReportBody(ctx, report, {
       content,
       contentHash: await sha256(content),
       revisionNumber: revisionNumber + 1,

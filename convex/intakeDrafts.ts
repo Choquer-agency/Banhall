@@ -28,6 +28,7 @@ import { domainError, sha256 } from "./lib/contracts";
 import { requireCapability, userMayEditReport } from "./lib/roleCapabilities";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { briefPreparationEnabled } from "./appSettings";
+import { transcriptFactsMode } from "./lib/transcriptFactsMode";
 import { transcriptSourceFormatValidator, transcriptSpeakerRoleValidator } from "./lib/transcriptValidators";
 import {
   CLOSED_DRAFT_KEEP_MS,
@@ -65,8 +66,10 @@ import {
   MAX_TOTAL_TRANSCRIPT_CHARS,
   MAX_TRANSCRIPT_FILE_BYTES,
   MAX_TRANSCRIPTS_PER_PROJECT,
+  countTranscriptWords,
   newStructureBuildId,
   requireTranscriptTextWithinCap,
+  scheduleArrivalFactsIfReady,
 } from "./lib/transcripts";
 import { buildStructureStep } from "./lib/transcriptStructure";
 import { needsModelRole } from "./lib/transcriptSpeakers";
@@ -1223,13 +1226,16 @@ async function installTranscript(
 ): Promise<void> {
   const now = Date.now();
   const content = await readSourceText(ctx, source._id);
+  const prepareFacts = content.trim() !== "" && (await transcriptFactsMode(ctx)) !== "off";
   const transcriptId = await ctx.db.insert("transcripts", {
     projectId,
     content,
+    wordCount: countTranscriptWords(content),
     label: source.label,
     position,
     contentHash: source.contentHash,
     createdAt: now,
+    ...(prepareFacts ? { factsStatus: "queued" as const } : {}),
     ...(source.sourceFormat ? { sourceFormat: source.sourceFormat } : {}),
     ...(source.storageId ? { originalStorageId: source.storageId } : {}),
   });
@@ -1264,6 +1270,8 @@ async function installTranscript(
       });
     } else if (step.kind === "done" && step.needsModelRoles && step.modelRoles) {
       await ctx.scheduler.runAfter(0, internal.ai.condense.classifySpeakerRoles, { transcriptId });
+    } else if (step.kind === "done") {
+      await scheduleArrivalFactsIfReady(ctx, transcriptId);
     }
   } else {
     await ctx.db.patch(transcriptId, {
@@ -1613,4 +1621,3 @@ export const sweepIntakeDrafts = internalMutation({
     return { expired: due.length, purging, stuck: stuck.length, deleted };
   },
 });
-

@@ -95,8 +95,8 @@ async function setup(mode: "off" | "long" | "all" = "long") {
       interviewer: "Dana Whitfield",
       interviewees: ["Priya Shah"],
     });
-    await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: mode, updatedBy: writerId, updatedAt: 1 });
-    return { writerId, projectId };
+    const settingId = await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "off", updatedBy: writerId, updatedAt: 1 });
+    return { writerId, projectId, settingId };
   });
   const writer = t.withIdentity({ subject: "ff-writer" });
   // Roles are placed by the project record, so no speaker call is made.
@@ -107,6 +107,9 @@ async function setup(mode: "off" | "long" | "all" = "long") {
     label: "call.txt",
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
+  // These cases exercise the open fallback after an older upload. Arrival
+  // extraction has its own tests and is enabled only after this setup.
+  if (mode !== "off") await t.run((ctx) => ctx.db.patch(ids.settingId, { value: mode }));
   return { t, ...ids, writer, transcriptId };
 }
 

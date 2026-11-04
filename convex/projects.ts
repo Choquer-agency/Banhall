@@ -1,5 +1,7 @@
 import { terminateSeedAttempts } from "./seedRuns";
 import { persistDeterministicFindings, hasBlockingQa } from "./lib/qaFindings";
+import { insertReportWithBody, readReportContent, reportWithBody } from "./lib/reportBodies";
+import { materializePendingReportProvenance } from "./lib/editProvenance";
 import {
   query,
   mutation,
@@ -823,7 +825,7 @@ export const getDuplicateSourceReport = query({
     if (!report) return null;
     return {
       version: report.version ?? 1,
-      hasText: extractPlainText(report.content).trim().length > 0,
+      hasText: extractPlainText(await readReportContent(ctx, report)).trim().length > 0,
     };
   },
 });
@@ -1006,7 +1008,7 @@ export const getProjectByShareToken = query({
       clientName: project.clientName,
       sharedReportId: report._id,
       reportVersion: report.version,
-      revisionNumber: report.revisionNumber ?? 0,
+      revisionNumber: (await reportWithBody(ctx, report)).revisionNumber ?? 0,
     };
   },
 });
@@ -1034,7 +1036,7 @@ export const getScienceCodeSuggestionContext = internalQuery({
             access.project.title,
             access.project.sredTitle ?? "",
             transcript ?? "",
-            report?.content ?? "",
+            report ? await readReportContent(ctx, report) : "",
           ])),
         ]
       : [];
@@ -1045,7 +1047,7 @@ export const getScienceCodeSuggestionContext = internalQuery({
       sredTitle: access.project.sredTitle,
       industry: access.project.industry,
       transcript,
-      report: report?.content,
+      report: report ? await readReportContent(ctx, report) : undefined,
       placeholders,
     };
   },
@@ -1495,7 +1497,7 @@ async function insertPreviousYearReport(
     .order("desc")
     .first();
   if (!report) return undefined;
-  const text = extractPlainText(report.content).trim();
+  const text = extractPlainText(await readReportContent(ctx, report)).trim();
   if (!text) return undefined;
 
   const fileName = `${source.title} (report v${report.version ?? 1}, FY ${sourceYear}).txt`;
@@ -1795,18 +1797,19 @@ async function prepareCopyRows(
         .order("desc")
         .first();
       if (sourceReport) {
-        const contentHash = sourceReport.contentHash ?? (await sha256(sourceReport.content));
+        const currentSource = await reportWithBody(ctx, sourceReport);
+        const contentHash = currentSource.contentHash ?? (await sha256(currentSource.content));
         const targetTranscriptId = job.scope.targetTranscriptId;
-        reportId = await ctx.db.insert("reports", {
+        reportId = await insertReportWithBody(ctx, {
           projectId: job.toProjectId,
-          content: sourceReport.content,
+          content: currentSource.content,
           version: sourceReport.version,
           generatedAt: now,
           updatedAt: now,
           ...(targetTranscriptId
             ? { sourceTranscriptId: targetTranscriptId, sourceTranscriptIds: [targetTranscriptId] }
             : {}),
-          revisionNumber: sourceReport.revisionNumber ?? 0,
+          revisionNumber: currentSource.revisionNumber ?? 0,
           contentHash,
         });
         await persistDeterministicFindings(ctx, reportId);
@@ -2319,7 +2322,8 @@ export const finalizeProject = mutation({
     if (!report || report.projectId !== args.projectId) {
       domainError("NOT_AUTHORIZED", "Report does not belong to this project");
     }
-    await requireFilingReady(ctx, project, report);
+    await materializePendingReportProvenance(ctx, report._id);
+    await requireFilingReady(ctx, project, await reportWithBody(ctx, report));
     await ctx.db.patch(args.projectId, {
       status: "final",
       updatedAt: Date.now(),
@@ -2337,7 +2341,7 @@ export const getProjectReadiness = query({
     if (!access) return null;
     const report = args.reportId ? await ctx.db.get(args.reportId) : null;
     if (report && report.projectId !== args.projectId) return null;
-    return await getFilingReadiness(ctx, access.project, report);
+    return await getFilingReadiness(ctx, access.project, report ? await reportWithBody(ctx, report) : null);
   },
 });
 

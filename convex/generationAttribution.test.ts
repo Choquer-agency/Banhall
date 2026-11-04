@@ -3,6 +3,7 @@ import { convexTest, type TestConvex } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal, api } from "./_generated/api";
+import { readReportContent } from "./lib/reportBodies";
 import type { Id } from "./_generated/dataModel";
 import type { TranscriptAnalysis } from "./ai/analyzerAgent";
 import type {
@@ -997,7 +998,7 @@ describe("generation payload provenance", () => {
     const report = await t.run(ctx => ctx.db.query("reports").unique());
     if (!report) throw new Error("Missing report");
     const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
-    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: report._id, revisionNumber: 0, contentHash: await sha256(report.content), check: "cra_methodology", blocking: true })]));
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: report._id, revisionNumber: 0, contentHash: await sha256(await t.run((ctx) => readReportContent(ctx, report))), check: "cra_methodology", blocking: true })]));
     const actor = t.withIdentity({ subject: AUTH_ID });
     const readiness = await actor.query(api.projects.getProjectReadiness, { projectId: fixture.projectId, reportId: report._id });
     expect(readiness?.blockers.map(row => row.code)).toContain("QA_BLOCKING");
@@ -2238,7 +2239,7 @@ describe("provenance sets on generated report artifacts (AC1)", () => {
     });
     if (!written.report) throw new Error("Missing iterative report");
     const findings = await t.run(ctx => ctx.db.query("qaFindings").collect());
-    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(written.report.content), section: "s242", check: "because_clause", blocking: true })]));
+    expect(findings).toEqual(expect.arrayContaining([expect.objectContaining({ reportId: written.report._id, revisionNumber: 0, contentHash: await sha256(await t.run((ctx) => readReportContent(ctx, written.report!))), section: "s242", check: "because_clause", blocking: true })]));
     expect(findings.filter(row => row.reportId === written.report?._id && row.check === "banned_word")).toEqual([]);
     expect(written.snapshots).toHaveLength(2);
     for (const snapshot of written.snapshots) {
