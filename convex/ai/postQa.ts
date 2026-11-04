@@ -1,12 +1,10 @@
 /**
- * Post-assembly QA + chronology for iterative (section-by-section) reports.
+ * Post-assembly QA for completed reports, with chronology when an early
+ * result is unavailable.
  *
- * One-shot/compare candidates get their scorecard inside generateCandidate;
- * iterative reports assemble from writer-approved text with no LLM pass. This
- * action runs the SAME QA + chronology agents over the assembled sections so
- * every generation mode ends with a scorecard — more feedback for the Brain's
- * learning loops. Scheduled automatically at assembly; also runnable on demand
- * from the QA panel for reports that predate this file.
+ * Single and Compare drafts schedule this action after report creation;
+ * signed-off seed reports do the same. It also runs on demand from the QA
+ * panel. The report remains available if a pass fails.
  */
 import { internalAction } from "../_generated/server";
 import { detectFirstPersonPreference } from "../../shared/humanProse";
@@ -15,7 +13,7 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { generationStepClients, registerGenerationModels, startActionDeadline } from "./providers";
 import { qaSourceEvidenceFor, runQAAgent } from "./qaAgent";
-import { runChronologyAgent } from "./chronologyAgent";
+import { normalizeChronology, runChronologyAgent } from "./chronologyAgent";
 import type { TranscriptAnalysis } from "./analyzerAgent";
 import {
   normalizeStyleOverrides,
@@ -89,9 +87,8 @@ export const runReportQa = internalAction({
       | { content: string; digestId?: Id<"learningDigests"> }
       | undefined
     > => {
-      // CAP-18: a signed-off seed run scores under the calibration frozen at
-      // generation start, exactly as its former inline QA did; never the
-      // live digest.
+      // Ordered drafts score under the calibration frozen at generation
+      // start, exactly as their former inline QA did.
       if (frozen) {
         return frozen.qaCalibration?.trim()
           ? {
@@ -128,8 +125,8 @@ export const runReportQa = internalAction({
       if (input.styleOverrides || frozen) {
         return {
           overrides: normalizeStyleOverrides(input.styleOverrides),
-          // A seed run froze the writer's instructions too, so its intent is
-          // known; the inline QA it replaces read it the same way.
+          // Ordered drafts froze the writer's instructions too, so their
+          // intent is known; inline QA used to read it the same way.
           firstPerson: frozen ? detectFirstPersonPreference(frozen.writerFlavor) : null,
         };
       }
@@ -179,11 +176,13 @@ export const runReportQa = internalAction({
           // 2026-10-30 (owner, item 2): the claimant line.
           input.claimantName
         ),
-        runChronologyAgent(
-          clientFor("generation:post_chronology"),
-          analysis,
-          modelFor("generation:post_chronology")
-        ),
+        input.earlyChronology
+          ? Promise.resolve(normalizeChronology(input.earlyChronology))
+          : runChronologyAgent(
+              clientFor("generation:post_chronology"),
+              analysis,
+              modelFor("generation:post_chronology")
+            ),
       ]);
       if (qaSettled.status === "rejected") {
         console.error("post-assembly QA scorecard failed", args.generationId, qaSettled.reason);

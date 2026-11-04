@@ -26,11 +26,12 @@
 
   interface Props {
     proposal: Proposal;
+    optimisticApplied?: boolean;
     onBeforeApply?: () => Promise<unknown>;
     onRefine?: (proposal: Proposal) => void;
   }
 
-  let { proposal, onBeforeApply, onRefine }: Props = $props();
+  let { proposal, optimisticApplied = false, onBeforeApply, onRefine }: Props = $props();
 
   const applyProposal = useMutation(api.chatV2.applyProposal);
   const rejectProposal = useMutation(api.chatV2.rejectProposal);
@@ -113,7 +114,16 @@
   let localReviewing = $state(false);
   let localOption = $state(0);
   let accepting = $state(false);
+  let pendingAppliedOption = $state<number | null>(null);
   let cardError = $state<string | null>(null);
+  const shownState = $derived(
+    (pendingAppliedOption !== null || (optimisticApplied && applyAccess === "allowed" && !rulesBroken.length)) && proposal.state === "pending"
+      ? "applied"
+      : proposal.state
+  );
+  $effect(() => {
+    if (proposal.state !== "pending") pendingAppliedOption = null;
+  });
   const reviewing = $derived(review ? review.isReviewing(proposal._id) : localReviewing);
   const option = $derived(review && reviewing ? review.option : localOption);
 
@@ -131,12 +141,19 @@
       overrideRules = brokenRuleNames(rulesBroken);
     }
     await onBeforeApply?.();
-    const result = await applyProposal({
-      proposalId: proposal._id,
-      ...(optionCount > 1 ? { option: chosen } : {}),
-      ...(overrideRules ? { overrideRules } : {}),
-    });
-    if (!result.applied) throw new Error(result.reason);
+    if (applyAccess !== "allowed") throw new Error("Only people who can edit this report can accept suggestions.");
+    pendingAppliedOption = chosen;
+    try {
+      const result = await applyProposal({
+        proposalId: proposal._id,
+        ...(optionCount > 1 ? { option: chosen } : {}),
+        ...(overrideRules ? { overrideRules } : {}),
+      });
+      if (!result.applied) throw new Error(result.reason);
+    } catch (error) {
+      pendingAppliedOption = null;
+      throw error;
+    }
     cards?.accepted([
       { proposalId: proposal._id, line, ...(optionCount > 1 ? { option: chosen } : {}) },
     ]);
@@ -222,8 +239,8 @@
   {options}
   {changesFor}
   {everyMatch}
-  state={proposal.state}
-  appliedOption={proposal.appliedOption}
+  state={shownState}
+  appliedOption={pendingAppliedOption ?? proposal.appliedOption}
   {applyAccess}
   {ruleConflict}
   {overriddenNote}

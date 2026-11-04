@@ -24,6 +24,9 @@ import { extractPlainText } from "./lib/reportEdits";
 import { computeEditDistance, noteReportEditForSize } from "./lib/editDistance";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { reportSectionMetrics } from "../src/lib/reportSections";
+import { getPendingReportProvenance, getReportBody, reportWithBody, writeReportBody, type ReportWithBody } from "./lib/reportBodies";
+import { deleteProvenanceIfUnheld, materializePendingReportProvenance, stageProvenanceForEdit } from "./lib/editProvenance";
+import { internal } from "./_generated/api";
 export const getLatestReport = query({
   args: {
     projectId: v.id("projects"),
@@ -37,13 +40,14 @@ export const getLatestReport = query({
       if (!reportId) return null;
       const report = await ctx.db.get(reportId);
       if (!report || report.projectId !== args.projectId) return null;
-      return report;
+      return await reportWithBody(ctx, report);
     }
-    return await ctx.db
+    const report = await ctx.db
       .query("reports")
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .first();
+    return report ? await reportWithBody(ctx, report) : null;
   },
 });
 
@@ -54,8 +58,9 @@ export const updateReportContent = mutation({
     expectedRevisionNumber: v.number(),
   },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) domainError("NOT_FOUND", "Report not found");
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) domainError("NOT_FOUND", "Report not found");
+    const report = await reportWithBody(ctx, stored);
     // report.editProse (matrix: Consultant = own, Manager/Admin = all) is
     // enforced at this final mutation boundary, not only in the UI.
     const { user } = await requireReportEditAccess(ctx, report.projectId);
@@ -67,24 +72,58 @@ export const updateReportContent = mutation({
       domainError("INVALID_INPUT", "Report content is empty or exceeds 1,000,000 characters");
     }
     const now = Date.now();
-    await ctx.db.patch(args.reportId, {
+    const body = await getReportBody(ctx, args.reportId);
+    if (body?.postSaveJobId) {
+      try { await ctx.scheduler.cancel(body.postSaveJobId); }
+      catch { /* A job that already started checks its revision before writing. */ }
+    }
+    const lastProvenanceId =
+      (await getPendingReportProvenance(ctx, args.reportId))?.sourceProvenanceId ?? report.provenanceId;
+    const carried = await stageProvenanceForEdit(ctx, report, args.content, {
+      actorId: user._id,
+      nextRevisionNumber: revisionNumber + 1,
+      now,
+    });
+    const postSaveJobId = await ctx.scheduler.runAfter(3_000, internal.reports.finishReportSave, {
+      reportId: args.reportId,
+      revisionNumber: revisionNumber + 1,
+    });
+    await writeReportBody(ctx, report, {
       content: args.content,
       contentHash: await sha256(args.content),
       revisionNumber: revisionNumber + 1,
-      // The new revision gets its own claim record: changed claims need
-      // review again, unchanged ones keep theirs (amendment 2026-09-25, fifth).
-      provenanceId: await provenanceForEdit(ctx, report, args.content, {
-        actorId: user._id,
-        nextRevisionNumber: revisionNumber + 1,
-        now,
-      }),
+      // The pending claims carry exact review state until the coalesced job
+      // materializes their immutable record.
+      provenanceId: undefined,
       updatedAt: now,
+      postSaveJobId,
     });
-    await persistDeterministicFindings(ctx, args.reportId);
+    // Claims could not be carried to this revision, so it has no record; the
+    // last one is released unless a snapshot, export or another row holds it.
+    if (!carried && lastProvenanceId) await deleteProvenanceIfUnheld(ctx, lastProvenanceId);
     // Phase E (E3): the editing burst's size is read 10 minutes after its
     // first save.
     await noteReportEditForSize(ctx, report, user._id);
     return revisionNumber + 1;
+  },
+});
+
+export const finishReportSave = internalMutation({
+  args: { reportId: v.id("reports"), revisionNumber: v.number() },
+  handler: async (ctx, args) => {
+    const report = await ctx.db.get(args.reportId);
+    if (!report || await isProjectDeleting(ctx, report.projectId)) return;
+    const body = await getReportBody(ctx, args.reportId);
+    if (!body || body.revisionNumber !== args.revisionNumber) return;
+    const provenanceId = await materializePendingReportProvenance(ctx, args.reportId);
+    if (!provenanceId && !body.provenanceId && report.provenanceId) {
+      await deleteProvenanceIfUnheld(ctx, report.provenanceId);
+    }
+    await persistDeterministicFindings(ctx, args.reportId);
+    const current = await getReportBody(ctx, args.reportId);
+    if (current?.revisionNumber === args.revisionNumber && current.postSaveJobId) {
+      await ctx.db.patch(current._id, { postSaveJobId: undefined });
+    }
   },
 });
 
@@ -193,9 +232,21 @@ export const createProvenance = internalMutation({
 export const getProvenance = query({
   args: { reportId: v.id("reports") },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) return null;
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) return null;
+    const report = await reportWithBody(ctx, stored);
     if (!(await getInternalProjectAccessOrNull(ctx, report.projectId))) return null;
+    const pending = await getPendingReportProvenance(ctx, report._id);
+    if (pending?.revisionNumber === (report.revisionNumber ?? 0) && pending.contentHash === report.contentHash) {
+      return {
+        id: pending.sourceProvenanceId,
+        status: pending.status,
+        contentHash: pending.contentHash,
+        claims: pending.claims,
+        reviewedAt: pending.reviewedAt,
+        reviewedBy: pending.reviewedBy,
+      };
+    }
     if (!report.provenanceId) {
       return {
         status: "unavailable_legacy" as const,
@@ -222,11 +273,24 @@ export const reviewClaimCitation = mutation({
     provenanceId: v.id("reportProvenance"),
     claimId: v.string(),
     state: v.union(v.literal("approved"), v.literal("unsupported")),
+    // The claim wording the reviewer saw. Saves keep one pending record id
+    // across an editing burst, so the id alone no longer proves the claim
+    // is unchanged; a different hash is refused as stale. Required, so a tab
+    // still running an older build must reload before it can review.
+    claimTextHash: v.string(),
   },
   handler: async (ctx, args) => {
     const reviewer = await requireRole(ctx, ["manager", "admin"]);
-    const report = await ctx.db.get(args.reportId);
-    const provenance = await ctx.db.get(args.provenanceId);
+    const stored = await ctx.db.get(args.reportId);
+    let report = stored ? await reportWithBody(ctx, stored) : null;
+    const pending = report ? await getPendingReportProvenance(ctx, report._id) : null;
+    const pendingReview = pending?.sourceProvenanceId === args.provenanceId &&
+      pending.revisionNumber === (report?.revisionNumber ?? -1);
+    const materializedId = pendingReview && report
+      ? await materializePendingReportProvenance(ctx, report._id)
+      : undefined;
+    if (materializedId && stored) report = await reportWithBody(ctx, stored);
+    const provenance = await ctx.db.get(materializedId ?? args.provenanceId);
     if (
       !report ||
       !provenance ||
@@ -235,12 +299,14 @@ export const reviewClaimCitation = mutation({
     ) {
       domainError("STALE_REVISION", "The report provenance changed before review");
     }
+    const target = provenance.claims.find((claim) => claim.claimId === args.claimId);
+    if (!target) domainError("NOT_FOUND", "Claim not found");
+    if (target.claimTextHash !== args.claimTextHash) {
+      domainError("STALE_REVISION", "The claim changed before review");
+    }
     const claims = provenance.claims.map((claim) =>
       claim.claimId === args.claimId ? { ...claim, state: args.state } : claim
     );
-    if (!claims.some((claim) => claim.claimId === args.claimId)) {
-      domainError("NOT_FOUND", "Claim not found");
-    }
     const hasUnsupported = claims.some(
       (claim) => claim.material && claim.state === "unsupported"
     );
@@ -262,7 +328,13 @@ export const reviewClaimCitation = mutation({
       reviewedAt: now,
       reviewedBy: reviewer._id,
     });
-    await ctx.db.patch(report._id, { provenanceId: nextId, updatedAt: now });
+    await writeReportBody(ctx, report, {
+      content: report.content,
+      revisionNumber: report.revisionNumber ?? 0,
+      contentHash: report.contentHash,
+      provenanceId: nextId,
+      updatedAt: now,
+    });
     return nextId;
   },
 });
@@ -277,7 +349,8 @@ export const listReportVersions = query({
       .order("desc")
       .take(1_000);
     return await Promise.all(
-      reports.map(async (report) => {
+      reports.map(async (stored) => {
+        const report = await reportWithBody(ctx, stored);
         const provenance = report.provenanceId
           ? await ctx.db.get(report.provenanceId)
           : null;
@@ -300,7 +373,7 @@ const TEMPLATE_VERSION = "schedule60-2026-05";
 
 async function exportSnapshot(
   ctx: Parameters<typeof requireInternalProjectAccess>[0],
-  report: Doc<"reports">,
+  report: ReportWithBody,
   project: Doc<"projects">,
   contentHash: string
 ) {
@@ -337,8 +410,9 @@ export const preflightExport = query({
     reportId: v.id("reports"),
   },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) domainError("NOT_FOUND", "Report not found");
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) domainError("NOT_FOUND", "Report not found");
+    const report = await reportWithBody(ctx, stored);
     const { project } = await requireInternalProjectAccess(ctx, report.projectId);
     const contentHash = await sha256(report.content);
     if (report.contentHash && report.contentHash !== contentHash) {
@@ -378,11 +452,14 @@ export const authorizeExport = mutation({
     expectedContentHash: v.string(),
   },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) domainError("NOT_FOUND", "Report not found");
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) domainError("NOT_FOUND", "Report not found");
+    let report = await reportWithBody(ctx, stored);
     // Producing the filing document is for the people who may edit the
     // report (audit 2026-09-25, a2 P2-3).
     const { project, user } = await requireReportEditAccess(ctx, report.projectId);
+    await materializePendingReportProvenance(ctx, report._id);
+    report = await reportWithBody(ctx, stored);
     const revisionNumber = report.revisionNumber ?? 0;
     if (revisionNumber !== args.expectedRevisionNumber) {
       domainError("STALE_REVISION", "The report changed after export preflight");
@@ -502,8 +579,9 @@ export const postEditDistance = query({
     shareToken: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) return null;
+    const stored = await ctx.db.get(args.reportId);
+    if (!stored) return null;
+    const report = await reportWithBody(ctx, stored);
     const access = await getProjectAccess(ctx, report.projectId, args.shareToken);
     if (access.kind === "denied") return null;
     if (

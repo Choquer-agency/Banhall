@@ -172,6 +172,9 @@ describe("provenance rows record the transcript set (AC2)", () => {
         provenanceId,
         claimId: "c1",
         state: "approved",
+        claimTextHash: await t.run(async (ctx) =>
+          (await ctx.db.get(provenanceId))!.claims.find((claim) => claim.claimId === "c1")!.claimTextHash
+        ),
       });
 
     const successor = await t.run((ctx) => ctx.db.get(nextId));
@@ -217,6 +220,9 @@ describe("provenance rows record the transcript set (AC2)", () => {
         provenanceId,
         claimId: "c1",
         state: "approved",
+        claimTextHash: await t.run(async (ctx) =>
+          (await ctx.db.get(provenanceId))!.claims.find((claim) => claim.claimId === "c1")!.claimTextHash
+        ),
       });
 
     for (const row of [provenanceId, nextId]) {

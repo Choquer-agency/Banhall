@@ -1,6 +1,6 @@
 <script lang="ts">
   import { slide } from "svelte/transition";
-  import { useMutation } from "convex-svelte";
+  import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Doc } from "../../../../convex/_generated/dataModel";
   import { formatReportMarkdown } from "./format";
@@ -23,10 +23,14 @@
     return new Date(ts).toLocaleDateString();
   }
 
-  let { report }: { report: Doc<"errorReports"> } = $props();
+  let { report }: { report: Pick<Doc<"errorReports">, "_id" | "kind" | "reportType" | "message" | "url" | "status" | "createdAt"> } = $props();
 
   let open = $state(false);
   let copied = $state(false);
+  const detailQ = useQuery(api.errorReports.getError, () =>
+    open ? { id: report._id } : "skip"
+  );
+  const detail = $derived(detailQ.data);
 
   const setStatus = useMutation(api.errorReports.setStatus);
   const deleteError = useMutation(api.errorReports.deleteError);
@@ -35,7 +39,8 @@
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(formatReportMarkdown(report));
+      if (!detail) return;
+      await navigator.clipboard.writeText(formatReportMarkdown(detail));
       copied = true;
       setTimeout(() => (copied = false), 2000);
     } catch {
@@ -93,6 +98,7 @@
 
   <!-- Expanded detail -->
   {#if open}
+    {#if detail}
     <div class="space-y-4 border-t border-line-soft px-4 py-4 text-sm" transition:slide={{ duration: 300 }}>
       <div class="flex flex-wrap items-center gap-2">
         <button
@@ -135,15 +141,15 @@
       <dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-xs">
         <dt class="text-ink-faint">Page</dt>
         <dd class="break-all font-mono text-ink">{report.url}</dd>
-        {#if report.source}
+        {#if detail.source}
           <dt class="text-ink-faint">Source</dt>
           <dd class="break-all font-mono text-ink">
-            {report.source}
+            {detail.source}
           </dd>
         {/if}
-        {#if report.userEmail}
+        {#if detail.userEmail}
           <dt class="text-ink-faint">Reporter</dt>
-          <dd class="text-ink">{report.userEmail}</dd>
+          <dd class="text-ink">{detail.userEmail}</dd>
         {/if}
         <dt class="text-ink-faint">When</dt>
         <dd class="text-ink">
@@ -151,24 +157,24 @@
         </dd>
       </dl>
 
-      {#if report.userNote}
+      {#if detail.userNote}
         <div>
           <p class="mb-1 text-xs font-semibold text-ink-muted">
             What the user said
           </p>
           <p class="whitespace-pre-wrap rounded-lg bg-chrome px-3 py-2 text-sm text-ink">
-            {report.userNote}
+            {detail.userNote}
           </p>
         </div>
       {/if}
 
-      {#if report.breadcrumbs.length > 0}
+      {#if detail.breadcrumbs.length > 0}
         <div>
           <p class="mb-1 text-xs font-semibold text-ink-muted">
             Recent activity (most recent last)
           </p>
           <ol class="space-y-1">
-            {#each report.breadcrumbs as b, i (i)}
+            {#each detail.breadcrumbs as b, i (i)}
               <li class="flex items-start gap-2 text-xs">
                 <span class="mt-0.5 w-12 flex-shrink-0 font-mono text-ink-faint">
                   {TYPE_LABEL[b.type] ?? b.type}
@@ -185,20 +191,27 @@
         </div>
       {/if}
 
-      {#if report.stack}
+      {#if detail.stack}
         <div>
           <p class="mb-1 text-xs font-semibold text-ink-muted">
             Stack trace
           </p>
-          <pre class="overflow-x-auto rounded-lg bg-navy px-3 py-2 text-[0.6875rem] leading-relaxed text-white/80">{report.stack}</pre>
+          <pre class="overflow-x-auto rounded-lg bg-navy px-3 py-2 text-[0.6875rem] leading-relaxed text-white/80">{detail.stack}</pre>
         </div>
       {/if}
 
-      {#if report.userAgent}
+      {#if detail.userAgent}
         <p class="break-all text-[0.6875rem] text-ink-faint">
-          {report.userAgent}
+          {detail.userAgent}
         </p>
       {/if}
     </div>
+    {:else if detailQ.error}
+      <div class="border-t border-line-soft px-4 py-4 text-sm text-ink-muted">Couldn't load the details. Close this alert and open it again to retry.</div>
+    {:else if detail === null}
+      <div class="border-t border-line-soft px-4 py-4 text-sm text-ink-muted">This alert is no longer available.</div>
+    {:else}
+      <div class="border-t border-line-soft px-4 py-4 text-sm text-ink-muted">Loading details...</div>
+    {/if}
   {/if}
 </div>

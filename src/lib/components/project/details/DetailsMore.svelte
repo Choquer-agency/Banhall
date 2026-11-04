@@ -278,7 +278,7 @@
     <span class="text-ink-muted">Internal title</span>
     <div class="min-w-0">
       {#if canEditDetails}
-        <EditableText value={project.title} placeholder="Set internal title" label="internal project title" required onSave={async (value) => { await updateTitles({ projectId, title: value.trim() }); }} />
+        <EditableText value={project.title} placeholder="Set internal title" label="internal project title" required optimisticSave onSave={async (value) => { await updateTitles({ projectId, title: value.trim() }); }} />
       {:else}
         {@render readonlyValue(project.title)}
       {/if}
@@ -298,7 +298,7 @@
     <span class="text-ink-muted">SR&amp;ED title</span>
     <div class="min-w-0">
       {#if canEditDetails}
-        <EditableText value={project.sredTitle ?? ""} placeholder="Add the formal SR&ED title" label="SR&ED title" onSave={async (value) => { await updateTitles({ projectId, sredTitle: value }); }} />
+        <EditableText value={project.sredTitle ?? ""} placeholder="Add the formal SR&ED title" label="SR&ED title" optimisticSave onSave={async (value) => { await updateTitles({ projectId, sredTitle: value }); }} />
       {:else}
         {@render readonlyValue(project.sredTitle ?? "")}
       {/if}

@@ -201,6 +201,32 @@ describe("retrying failed drafts after a tier moved back (2026-10-23)", () => {
 });
 
 describe("generation recovery", () => {
+  it("copies an unscored draft as waiting for its source QA job", async () => {
+    const { t, generationId, candidateId } = await setupPartial();
+    const sourceRun = await t.run(async (ctx) => {
+      const run = (await ctx.db.query("generationCandidateRuns").collect())
+        .find((row) => row.candidateId === candidateId);
+      if (!run) throw new Error("Candidate run missing");
+      await ctx.db.patch(run._id, { candidateQaStatus: "queued" });
+      return run._id;
+    });
+    const retryId = await t.withIdentity({ subject: authId }).mutation(
+      api.generations.retryFailedCandidates, { generationId }
+    );
+    const copiedRun = await t.run(async (ctx) => (await ctx.db.query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", retryId))
+      .collect()).find((row) => row.status === "succeeded"));
+    expect(copiedRun).toMatchObject({
+      candidateQaStatus: "waiting",
+      candidateQaSourceRunId: sourceRun,
+    });
+    const duplicateJobs = await t.run(async (ctx) => (await ctx.db.system
+      .query("_scheduled_functions").collect()).filter((job) =>
+      job.name === "ai/candidateQa:runCandidateQa" &&
+      job.args[0]?.candidateRunId === copiedRun?._id));
+    expect(duplicateJobs).toHaveLength(0);
+  });
+
   it("projects per-model state without raw provider errors", async () => {
     const { t, generationId } = await setupPartial();
     const recovery = await t.withIdentity({ subject: authId }).query(

@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -315,7 +316,7 @@ describe("applyProposal over a proposal that carries a Completion Report", () =>
     expect(after.proposals.map((row) => row.state)).toEqual(["applied", "pending", "pending"]);
     expect(after.items).toEqual(before.items);
 
-    const report = await f.t.run((ctx) => ctx.db.get(f.reportId));
+    const report = await f.t.run((ctx) => getTestReport(ctx, f.reportId));
     expect(report?.revisionNumber).toBe(1);
     expect(report?.content).toContain("s242 paragraph 1 revised s2421.");
     expect(report?.content).not.toContain("s242 paragraph 1 body s2421.");
@@ -440,7 +441,7 @@ describe("a zero-edit Coordinated Revision (DW-135)", () => {
     const after = await rows(f);
     expect(after).toEqual(before);
     expect(after.proposals[0]?.state).toBe("applied");
-    const report = await f.t.run((ctx) => ctx.db.get(f.reportId));
+    const report = await f.t.run((ctx) => getTestReport(ctx, f.reportId));
     expect(report?.revisionNumber).toBe(0);
     expect(report?.content).toBe(REPORT_DOC);
     const snapshots = await f.t.run((ctx) =>
@@ -503,7 +504,7 @@ describe("a zero-edit Coordinated Revision (DW-135)", () => {
         expectedRevisionNumber: 0,
       })
     ).rejects.toThrow("Highlights have nothing to apply.");
-    const report = await f.t.run((ctx) => ctx.db.get(f.reportId));
+    const report = await f.t.run((ctx) => getTestReport(ctx, f.reportId));
     expect(report?.revisionNumber).toBe(0);
   });
 

@@ -9,6 +9,8 @@ import {
   type TranscriptSourceFormat,
 } from "../../shared/transcriptParse";
 import { countedRows, type ReadCounter } from "./readMeter";
+import { transcriptFactsMode } from "./transcriptFactsMode";
+import { readyFactRun } from "./transcriptFactRows";
 
 type Ctx = QueryCtx | MutationCtx;
 
@@ -103,20 +105,24 @@ export function transcriptLabel(doc: Doc<"transcripts">): string {
 export function transcriptMetadata(
   doc: Doc<"transcripts">
 ): TranscriptMetadata {
-  const trimmed = doc.content.trim();
   return {
     _id: doc._id,
     label: transcriptLabel(doc),
     position: doc.position,
     createdAt: doc.createdAt,
     charCount: doc.content.length,
-    wordCount: trimmed === "" ? 0 : trimmed.split(/\s+/).length,
+    wordCount: doc.wordCount ?? countTranscriptWords(doc.content),
     contentHash: doc.contentHash,
     ...(doc.sourceFormat ? { sourceFormat: doc.sourceFormat } : {}),
     ...(doc.speakerStatus ? { speakerStatus: doc.speakerStatus } : {}),
     ...(doc.factsStatus ? { factsStatus: doc.factsStatus } : {}),
     ...(doc.originalStorageId ? { hasOriginal: true } : {}),
   };
+}
+
+export function countTranscriptWords(content: string): number {
+  const trimmed = content.trim();
+  return trimmed === "" ? 0 : trimmed.split(/\s+/).length;
 }
 
 /**
@@ -318,13 +324,16 @@ export async function insertTranscriptRow(
   }
 ): Promise<Id<"transcripts"> | null> {
   if (args.content.trim() === "") return null;
+  const prepareFacts = (await transcriptFactsMode(ctx)) !== "off";
   const transcriptId = await ctx.db.insert("transcripts", {
     projectId: args.projectId,
     content: args.content,
+    wordCount: countTranscriptWords(args.content),
     label: args.label ?? DEFAULT_TRANSCRIPT_LABEL,
     position: args.position,
     contentHash: await sha256(args.content),
     createdAt: Date.now(),
+    ...(prepareFacts ? { factsStatus: "queued" as const } : {}),
     ...(args.sourceFormat ? { sourceFormat: args.sourceFormat } : {}),
     ...(args.originalStorageId ? { originalStorageId: args.originalStorageId } : {}),
   });
@@ -347,13 +356,16 @@ export async function copyTranscriptRow(
   source: Doc<"transcripts">,
   args: { projectId: Id<"projects">; position: number }
 ): Promise<Id<"transcripts">> {
+  const prepareFacts = source.content.trim() !== "" && (await transcriptFactsMode(ctx)) !== "off";
   const transcriptId = await ctx.db.insert("transcripts", {
     projectId: args.projectId,
     content: source.content,
+    wordCount: source.wordCount ?? countTranscriptWords(source.content),
     label: transcriptLabel(source),
     position: args.position,
     contentHash: source.contentHash ?? (await sha256(source.content)),
     createdAt: Date.now(),
+    ...(prepareFacts ? { factsStatus: "queued" as const } : {}),
     ...(source.sourceFormat ? { sourceFormat: source.sourceFormat } : {}),
     copiedFromTranscriptId: source._id,
   });
@@ -454,6 +466,10 @@ export async function adoptDerivedRows(
 ): Promise<void> {
   const target = await ctx.db.get(transcriptId);
   if (!target) return;
+  // A queued source is read once; this row waits for its copy job.
+  if (target.factsStatus === "queued" && (source.factsStatus === "queued" || (await readyFactRun(ctx, source)))) {
+    await ctx.db.patch(transcriptId, { factsCopyFromTranscriptId: source._id });
+  }
   const speakers = await ctx.db
     .query("transcriptSpeakers")
     .withIndex("by_transcriptId_and_label", (q) => q.eq("transcriptId", source._id))
@@ -478,6 +494,20 @@ export async function adoptDerivedRows(
       ...(row.confirmedAt ? { confirmedAt: row.confirmedAt } : {}),
     });
   }
+}
+
+/** Queue the arrival's fact pass only after its turns are ready. */
+export async function scheduleArrivalFactsIfReady(
+  ctx: MutationCtx,
+  transcriptId: Id<"transcripts">
+): Promise<void> {
+  const transcript = await ctx.db.get(transcriptId);
+  if (!transcript || transcript.factsStatus !== "queued" || transcript.archivedAt !== undefined) return;
+  if (transcript.factsCopyFromTranscriptId) return;
+  if (transcript.content.trim() === "" || transcript.parserVersion !== TRANSCRIPT_PARSER_VERSION) return;
+  if ((await transcriptFactsMode(ctx)) === "off") return;
+  if (await readyFactRun(ctx, transcript)) return;
+  await ctx.scheduler.runAfter(0, internal.ai.condense.extractTranscriptFactsInBackground, { transcriptId });
 }
 
 /** Refuses text longer than one transcript may hold. */

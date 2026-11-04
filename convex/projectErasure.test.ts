@@ -13,6 +13,7 @@
  * 3. Barrier: late claims, the post-QA entry and the post-QA save write nothing.
  * 4. Authorization and open-work refusal write nothing.
  */
+import { drainScheduledFunctions } from "./testScheduledFunctions";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenericDatabaseReader, GenericDataModel } from "convex/server";
@@ -411,6 +412,14 @@ async function seedProjectRows(
     });
     const snapshotId = await ctx.db.insert("reportSnapshots", { projectId, reportId, content: "c", reason: "manual", createdByRole: "writer", createdAt: now });
     const provenanceId = await ctx.db.insert("reportProvenance", { projectId, contentHash: "h", status: "approved", claims: [], createdAt: now });
+    await ctx.db.insert("reportBodies", {
+      projectId, reportId, content: "Report", revisionNumber: 0, contentHash: "h", updatedAt: now,
+      provenanceId,
+    });
+    await ctx.db.insert("reportPendingProvenance", {
+      projectId, reportId, sourceProvenanceId: provenanceId, revisionNumber: 0,
+      contentHash: "h", status: "approved", claims: [], createdAt: now,
+    });
     await ctx.db.insert("reportExports", {
       projectId, reportId, reportVersion: 1, revisionNumber: 0, snapshotId, provenanceId, contentHash: "h",
       templateVersion: "1", actorId: userId, status: "completed", authorizedAt: now,
@@ -642,7 +651,7 @@ async function pendingJobs(s: Setup) {
 }
 
 async function drain(s: Setup) {
-  await s.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+  await drainScheduledFunctions(s.t, () => vi.runAllTimers());
 }
 
 const blobStored = (s: Setup, storageId: Id<"_storage">) =>
@@ -1177,7 +1186,7 @@ describe("purgeProjectPage under enforced transaction limits", () => {
   async function expectFullyPurged(f: Limited, next: ReturnType<typeof purgePosition>) {
     expect(await counts(f)).toEqual({ generations: 0, artifacts: 0 });
     await f.t.mutation(internal.projects.purgeProjectPage, { projectId: f.projectId, ...next });
-    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await drainScheduledFunctions(f.t, () => vi.runAllTimers());
     expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toBeNull();
   }
 

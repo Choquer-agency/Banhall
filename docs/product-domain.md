@@ -254,6 +254,14 @@ These decisions provide defaults so implementation does not invent product behav
 
 ## Approved amendments
 
+### 2026-11-04 - Single and Compare reports finish before QA
+
+Single and Compare drafts become available after drafting and the consistency pass. A Single report opens at once. Compare candidates open for the writer to choose, then each candidate is scored in the background using its frozen QA inputs. Scores fill in as they finish, including for candidates the writer does not choose, and remain available for model comparison and feedback. The chosen report opens at selection. If its candidate score is ready, the report receives that score. If scoring is still underway, the report shows QA as pending and receives the result when it finishes. The same draft is never scored twice, and a score from a draft that changed after selection cannot count as current report QA. A failed score leaves the report available with the existing retry state. Single reports and signed-off seed reports use the post-QA job. Until the current report revision has a completed score, filing readiness, export and client review wait. Chronology starts from the shared analysis alongside drafting, and a scoring job retries it if that early result is unavailable. This changes the earlier rule that only signed-off seed drafts used background QA, and the missing-QA readiness exception for these new Single and Compare runs. Stopped seed drafts and the rest of the seed flow stay as approved.
+
+### 2026-11-04 - Report text storage and autosave work
+
+Report text and its revision, hash, edit time, and claim record pointer live in `reportBodies`. The `reports` row keeps stable details. Readers use the body when it exists and fall back to legacy `reports.content` until a batched migration copies and clears old text. An autosave writes the body and carries claim review states in the same transaction. A coalesced job records provenance and deterministic QA findings a few seconds after the latest save. Readiness still checks blocking because clauses and known methodology failures against the current text during that delay. The migration must finish before a later schema change removes `reports.content`.
+
 ### 2026-10-19 - Projects page dialogs and selection
 
 Presentation amendment to the 2026-10-14 entry below, from the Paper rows Z7j to Z7p. Storage, authorization, workflow stages and the `bulkUpdateProjects` scope do not change.
@@ -5790,6 +5798,10 @@ Owner approval 2026-11-03, in chat, on option C of three ("yes do that"). Before
 - The Assistant test set gains a case: after the banned word is approved and applied, a later "tighten that paragraph" keeps it. Its first live run failed: the scrub kept the word, but the Assistant dropped it itself ("adds no fact"), so the edit-tool rules now carry the exception too (`CHAT_KEEP_WRITERS_BANNED_WORDS`). Then the full set passed, 10 of 10 (2026-11-03).
 
 **Long Assistant jobs, measured, not built.** The owner asked to measure before building steps that cannot time out. Live data, last 30 days, counts and timings only (no text read): 6 Assistant replies (100 since July) from 2 people; the longest took 2.8 minutes against a 9-minute limit; 2 failures on 2026-10-07, both near 2.5 minutes, so not the time limit. A reply that runs out of time after saving a card already carries on by itself (Phase B chains); only one that runs out before any card asks the writer to try again. Not built; measure again two to three weeks after this release, when the newer Assistant is live.
+
+### 2026-11-04: Read transcript facts when text arrives (owner)
+
+When transcript facts are enabled, a new non-empty transcript is queued for fact extraction as soon as it is saved. The read starts after its speaker turns and roles are ready. A copy reuses ready facts for the same text. Opening a transcript and starting a draft remain fallbacks for missing facts. This moves a small amount of AI spend to transcripts that may never be drafted. The existing facts setting, model, guards and access rules still apply. No stored data migration or permission change is needed. The owner approved this timing on 2026-11-04.
 
 ## Amendment process
 

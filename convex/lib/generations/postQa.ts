@@ -15,6 +15,7 @@ import {
   persistMethodologyFindings,
 } from "../qaFindings";
 import { extractReportSections } from "../tiptapReport";
+import { readReportContent } from "../reportBodies";
 import type { Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { loadFactsSourceDocuments, type FrozenBrainArtifact } from "./seedStage";
@@ -22,7 +23,7 @@ import type { FactsSourceDocuments } from "../seedRevisions";
 import { type IterativeSection, SECTION_ORDER, getSectionRun } from "./iterative";
 import { transitionPostQa } from "../generationTransitions";
 import { appendGenerationProgress } from "../generationProgress";
-import { domainError } from "../contracts";
+import { domainError, sha256 } from "../contracts";
 import { getInternalProjectAccessOrNull } from "../auth";
 import { requireReportEditAccess } from "../roleCapabilities";
 import { limitUserAction } from "../aiRateLimits";
@@ -89,8 +90,8 @@ export async function getPostQaInputHandler(
   const report = await ctx.db.query("reports")
     .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
   if (!report) return null;
-  const capturedRef = await reportQaRef(report);
-  const currentSections = extractReportSections(report.content);
+  const capturedRef = await reportQaRef(ctx, report);
+  const currentSections = extractReportSections(await readReportContent(ctx, report));
   // 2026-10-30 (owner, item 2): the claimant line's company name, frozen at reservation.
   const claimantName = claimantNameFor(generation.claimantName, generation.placeholders, generation.placeholdersOff);
   const claimant = claimantName !== undefined ? { claimantName } : {};
@@ -185,14 +186,15 @@ export async function getPostQaInputHandler(
       section244: currentSections.s244,
       section246: currentSections.s246,
       model: sections.s242.model || undefined,
+      earlyChronology: null,
       styleOverrides,
       ...(frozenQaInputs ? { frozenQaInputs } : {}),
       ...claimant,
     };
   }
-  // One-shot / compare generations (Jul 17: "regenerate QA panel"): the
-  // analyzer output and section texts were persisted inside agentOutputs at
-  // generation time — rebuild the QA input from there.
+  // Single / Compare generations: rebuild QA input from frozen agentOutputs
+  // and the report's current body. New ordered drafts carry frozen calibration
+  // and writer intent there too.
   const agentOutputs = await readAgentOutputs(ctx, generation);
   if (!agentOutputs) return null;
   try {
@@ -202,6 +204,11 @@ export async function getPostQaInputHandler(
       section244?: string;
       section246?: string;
       styleOverrides?: Record<string, boolean>;
+      frozenQaInputs?: {
+        qaCalibration: string | null;
+        qaCalibrationDigestId: Id<"learningDigests"> | null;
+        writerFlavor: string | null;
+      };
     };
     if (
       !outputs.analyzer
@@ -214,6 +221,21 @@ export async function getPostQaInputHandler(
         q.eq("projectId", generation.projectId).eq("generationId", generation._id)
       )
       .first();
+    const candidateRuns = await ctx.db
+      .query("generationCandidateRuns")
+      .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+      .take(10);
+    const earlyChronology = await ctx.db
+      .query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", generation._id).eq("kind", "early_chronology"))
+      .first();
+    const selectedRun = candidateRuns.find((run) =>
+      run.candidateId === selection?.candidateId
+    );
+    const singleRun = candidateRuns.find((run) =>
+      run.status === "succeeded" && !run.ghost
+    );
     return {
       projectId: generation.projectId,
       requestedBy: generation.requestedBy,
@@ -222,7 +244,8 @@ export async function getPostQaInputHandler(
       capturedRef,
       section244: currentSections.s244,
       section246: currentSections.s246,
-      model: selection?.model ?? undefined,
+      model: selection?.model ?? selectedRun?.model ?? singleRun?.model ?? generation.singleModelId,
+      earlyChronology: earlyChronology?.content ?? null,
       // PSOS-50: waivers frozen into agentOutputs at generation time.
       // Absent only on legacy generations, where postQa falls back to the
       // writer's live profile.
@@ -230,6 +253,7 @@ export async function getPostQaInputHandler(
         outputs.styleOverrides && typeof outputs.styleOverrides === "object"
           ? outputs.styleOverrides
           : undefined,
+      ...(outputs.frozenQaInputs ? { frozenQaInputs: outputs.frozenQaInputs } : {}),
       ...claimant,
     };
   } catch {
@@ -251,7 +275,8 @@ export const saveReportQaArgs = {
 /** Handler of generations.saveReportQa. */
 export async function saveReportQaHandler(
   ctx: MutationCtx,
-  args: ObjectType<typeof saveReportQaArgs>
+  args: ObjectType<typeof saveReportQaArgs>,
+  options: { notifyOnComplete?: boolean } = {}
 ) {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) return;
@@ -273,7 +298,7 @@ export async function saveReportQaHandler(
   const report = await ctx.db.query("reports")
     .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
   if (args.capturedRef) {
-    const current = report ? await reportQaRef(report) : null;
+    const current = report ? await reportQaRef(ctx, report) : null;
     if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
       // Only an identified active attempt may release the retry lock. Its
       // stale scorecard and chronology never become current evidence.
@@ -338,10 +363,40 @@ export async function saveReportQaHandler(
   const completedAt = Date.now();
   await writeAgentOutputs(ctx, generation, JSON.stringify(outputs));
   await recordQaResult(ctx, generation, args, "done", completedAt);
+  if (args.qaScore !== undefined && (generation.candidateMode ?? "compare") === "compare" &&
+    report && args.capturedRef?.revisionNumber === 0) {
+    const generated = await ctx.db.query("reportSnapshots")
+      .withIndex("by_reportId", (q) => q.eq("reportId", report._id))
+      .first();
+    if (generated?.reason === "generated" &&
+      generated.contentHash === args.capturedRef.contentHash &&
+      await sha256(generated.content) === args.capturedRef.contentHash) {
+      // This result describes the unedited candidate. A later pass over
+      // report edits must not become a candidate score for learning.
+      const selection = await ctx.db.query("modelSelections")
+        .withIndex("by_projectId_and_generationId", (q) =>
+          q.eq("projectId", generation.projectId).eq("generationId", generation._id))
+        .first();
+      if (selection?.candidateId) {
+        const scores = await ctx.db.query("candidateScores")
+          .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
+          .take(100);
+        let hasComment = false;
+        for (const score of scores) {
+          if (score.candidateId !== selection.candidateId) continue;
+          await ctx.db.patch(score._id, { qaScore: args.qaScore, updatedAt: completedAt });
+          hasComment ||= Boolean(score.comment);
+        }
+        if (hasComment) {
+          await ctx.scheduler.runAfter(10 * 60 * 1000, internal.ai.learning.generateDraftStyleDigest, {});
+        }
+      }
+    }
+  }
   await transitionPostQa(ctx, generation, "done", {
     postQaCompletedAt: completedAt,
     ...(args.qaScore !== undefined ? { qaScore: args.qaScore } : {}),
-  });
+  }, options);
 }
 
 /** Argument validators of generations.requestReportQa. */
@@ -447,6 +502,6 @@ export async function getGenerationQaResultHandler(
     contentHash: result.contentHash,
     qaScore: result.qaScore ?? null,
     completedAt: result.completedAt,
-    current: await qaResultIsCurrent(result, report),
+    current: await qaResultIsCurrent(ctx, result, report),
   };
 }

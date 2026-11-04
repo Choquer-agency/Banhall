@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api";
@@ -182,7 +183,7 @@ describe("applyProposal writes the pre-edit checkpoint", () => {
 
     // The checkpoint and the report patch share one timestamp, so version
     // history and the report agree on when the edit landed.
-    const report = await raw.run((ctx) => ctx.db.get(plainReportId));
+    const report = await raw.run((ctx) => getTestReport(ctx, plainReportId));
     expect(report?.revisionNumber).toBe(1);
     expect(report?.content).toContain("measured the alloy");
     expect(snapshots[0].createdAt).toBe(report?.updatedAt);
@@ -210,7 +211,7 @@ describe("applyProposal writes the pre-edit checkpoint", () => {
       researchSourceCount: 4,
     });
 
-    const report = await raw.run((ctx) => ctx.db.get(researchedReportId));
+    const report = await raw.run((ctx) => getTestReport(ctx, researchedReportId));
     expect(snapshots[0].createdAt).toBe(report?.updatedAt);
   });
 });
@@ -237,7 +238,7 @@ describe("the other two pre-edit sites share the checkpoint's clock", () => {
       label: "Before AI edit",
       content: REPORT_DOC,
     });
-    const report = await raw.run((ctx) => ctx.db.get(steppedReportId));
+    const report = await raw.run((ctx) => getTestReport(ctx, steppedReportId));
     expect(report?.content).toBe(steppedDoc);
     expect(snapshots[0].createdAt).toBe(report?.updatedAt);
   });
@@ -254,7 +255,7 @@ describe("the other two pre-edit sites share the checkpoint's clock", () => {
       label: "Before client edit",
       content: REPORT_DOC,
     });
-    const report = await raw.run((ctx) => ctx.db.get(clientReportId));
+    const report = await raw.run((ctx) => getTestReport(ctx, clientReportId));
     expect(report?.content).toContain("measured the alloy");
     expect(snapshots[0].createdAt).toBe(report?.updatedAt);
   });

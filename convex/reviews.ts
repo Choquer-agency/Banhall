@@ -1,4 +1,5 @@
 import { query, mutation, type QueryCtx, type MutationCtx } from "./_generated/server";
+import { reportWithBody } from "./lib/reportBodies";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -63,9 +64,10 @@ export const submitWriterReview = mutation({
       )
       .first();
 
+    const currentReport = await reportWithBody(ctx, report);
     const provenance = {
-      revisionNumber: report.revisionNumber ?? 0,
-      contentHash: report.contentHash || (await sha256(report.content)),
+      revisionNumber: currentReport.revisionNumber ?? 0,
+      contentHash: currentReport.contentHash || (await sha256(currentReport.content)),
     };
     let reviewId: Id<"writerReviews">;
     if (existing) {
@@ -141,8 +143,9 @@ async function resolveQaTarget(
     | { candidateId: Id<"reportCandidates"> }
 ) {
   if ("reportId" in target) {
-    const report = await ctx.db.get(target.reportId);
-    if (!report) throw new Error("Report not found");
+    const stored = await ctx.db.get(target.reportId);
+    if (!stored) throw new Error("Report not found");
+    const report = await reportWithBody(ctx, stored);
     const access = await requireInternalProjectAccess(ctx, report.projectId);
     const targetKey = await getReportCandidateTargetKey(ctx, target.reportId);
     return {

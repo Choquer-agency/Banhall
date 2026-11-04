@@ -61,8 +61,11 @@ export const BRAIN_GENERATION_QUERY_PROGRAM = {
  * into four report-register queries (raw transcripts retrieve on greetings
  * and client names, not the rhetorical patterns drafters need), then each
  * T661 section gets exemplars of ITSELF — uncertainty framing for 242, work
- * narration for 244, advancement claims for 246. Searches run sequentially on
- * purpose: Voyage rate limits bite when embed+rerank calls burst in parallel.
+ * narration for 244, advancement claims for 246. Searches run concurrently
+ * and results are folded in section order for stable blocks and provenance.
+ * Voyage rate limits can bite when embed+rerank calls burst in parallel, and
+ * an infra failure comes back as degraded with no exemplars, so any degraded
+ * search is retried once, one at a time, before its result is used.
  *
  * Persists brain provenance on the generation row and appends progress-log
  * lines; never throws.
@@ -151,21 +154,24 @@ export async function retrieveBrainBlocks(
       writerName?: string;
     }[] = [];
     let anyDegraded = false;
-    for (const r of retrievals) {
-      const outcome = await ctx.runAction(
-        internal.ai.brain.retrieve.retrieveBrainContext,
-        {
-          ...(brainContext.industry ? { industry: brainContext.industry } : {}),
-          ...(brainContext.scienceCode
-            ? { scienceCode: brainContext.scienceCode }
-            : {}),
-          query: r.query,
-          k: r.k,
-          docType: BRAIN_GENERATION_QUERY_PROGRAM.documentType,
-          projectId: params.projectId,
-          usageLabel: r.section,
-        }
-      );
+    const retrieve = (r: (typeof retrievals)[number]) =>
+      ctx.runAction(internal.ai.brain.retrieve.retrieveBrainContext, {
+        ...(brainContext.industry ? { industry: brainContext.industry } : {}),
+        ...(brainContext.scienceCode
+          ? { scienceCode: brainContext.scienceCode }
+          : {}),
+        query: r.query,
+        k: r.k,
+        docType: BRAIN_GENERATION_QUERY_PROGRAM.documentType,
+        projectId: params.projectId,
+        usageLabel: r.section,
+      });
+    const outcomes = await Promise.all(retrievals.map(retrieve));
+    for (const [index, r] of retrievals.entries()) {
+      if (outcomes[index].degraded) outcomes[index] = await retrieve(r);
+    }
+    for (const [index, r] of retrievals.entries()) {
+      const outcome = outcomes[index];
       anyDegraded = anyDegraded || outcome.degraded;
       brainBlocks[r.block] = formatBrainExemplars(outcome.exemplars);
       for (const e of outcome.exemplars) {

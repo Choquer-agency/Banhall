@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toast } from "svelte-sonner";
   type Variant = "body" | "heading";
 
   let {
@@ -10,6 +11,7 @@
     required = false,
     headingLevel = 1,
     headingClass = "text-display",
+    optimisticSave = false,
   }: {
     value: string;
     placeholder: string;
@@ -25,12 +27,19 @@
     headingLevel?: 1 | 2;
     /** Type role for the heading variant — compact surfaces override it. */
     headingClass?: string;
+    /** Show a saved edit before the server confirms it. */
+    optimisticSave?: boolean;
   } = $props();
 
   let editing = $state(false);
   let draft = $state("");
   let saving = $state(false);
   let saveError = $state("");
+  let pendingValue = $state<{ before: string; next: string } | null>(null);
+  const shownValue = $derived(pendingValue && value === pendingValue.before ? pendingValue.next : value);
+  $effect(() => {
+    if (pendingValue && value !== pendingValue.before) pendingValue = null;
+  });
   const canSave = $derived(!saving && (!required || draft.trim().length > 0));
 
   function beginEdit() {
@@ -49,11 +58,17 @@
     if (!canSave) return;
     saving = true;
     saveError = "";
+    if (optimisticSave) {
+      pendingValue = { before: value, next: draft.trim() };
+      editing = false;
+    }
     try {
       await onSave(draft);
       editing = false;
     } catch {
+      pendingValue = null;
       saveError = "Couldn’t save. Try again.";
+      if (optimisticSave) toast.error(saveError);
     } finally {
       saving = false;
     }
@@ -100,9 +115,6 @@
       Cancel
     </button>
   </div>
-  {#if saveError}
-    <p class="mt-1 text-xs text-red-600" role="alert">{saveError}</p>
-  {/if}
 {:else if variant === "heading"}
   <!-- A11y (P0, 2026-08-08 audit): the heading's accessible name must be the
        title itself, so the edit control is an ADJACENT SIBLING of the heading
@@ -110,11 +122,12 @@
        the title's name with "Edit internal project title"). -->
   <div class="group flex min-w-0 max-w-full items-center gap-2">
     <svelte:element this={`h${headingLevel}`} class={`${headingClass} min-w-0 break-words`}>
-      {value || placeholder}
+      {shownValue || placeholder}
     </svelte:element>
     <button
       type="button"
       onclick={beginEdit}
+      disabled={saving}
       aria-label={`Edit ${label}`}
       class="flex flex-none items-center justify-center rounded-md p-1 text-gray-300 transition-colors hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy group-hover:text-primary pointer-coarse:min-h-11 pointer-coarse:min-w-11"
     >
@@ -132,14 +145,15 @@
   </div>
 {:else}
   <p class="group flex w-fit items-center gap-1.5 text-gray-800">
-    {#if value}
-      {value}
+    {#if shownValue}
+      {shownValue}
     {:else}
       <span class="italic text-gray-400">{placeholder}</span>
     {/if}
     <button
       type="button"
       onclick={beginEdit}
+      disabled={saving}
       aria-label={`Edit ${label}`}
       class="text-gray-300 transition-colors hover:text-navy focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"
     >
@@ -148,4 +162,7 @@
       </svg>
     </button>
   </p>
+{/if}
+{#if saveError}
+  <p class="mt-1 text-xs text-red-600" role="alert">{saveError}</p>
 {/if}

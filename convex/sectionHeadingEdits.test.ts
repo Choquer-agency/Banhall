@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,7 +64,7 @@ async function setup(comment: { text: string; suggestion: string; at: { from: nu
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
 async function reportContent(f: Fixture) {
-  return (await f.t.run((ctx) => ctx.db.get(f.reportId)))?.content;
+  return (await f.t.run((ctx) => getTestReport(ctx, f.reportId)))?.content;
 }
 
 /** A research edit as research.ts stores it: single target, with the writer's selection. */

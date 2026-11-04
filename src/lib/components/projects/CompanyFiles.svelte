@@ -17,7 +17,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import FileIcon from "$lib/components/ui/FileIcon.svelte";
-  import { MessageContent } from "$lib/components/chat/primitives";
+  import LazyModule from "$lib/components/ui/LazyModule.svelte";
   import { SUPPORTED_ACCEPT, normalizeExtractedText } from "$lib/parseDocument";
   import { statusLabel } from "$lib/uploads/processingStatus";
   import { storeCompanyFile } from "$lib/uploads/storeCompanyFile";
@@ -442,8 +442,13 @@
           {:else if previewContentQ.data === undefined}
             <p class="px-6 py-6 text-sm leading-[calc(10/7)] text-ink-muted">Loading...</p>
           {:else if previewContentQ.data?.textFormat === "markdown" && previewContentQ.data.content.trim() && previewContentQ.data.content.length <= MARKDOWN_PREVIEW_MAX_CHARS}
+            {@const markdownText = previewContentQ.data.content}
             <div class="px-6 py-6" data-testid="company-file-preview-markdown">
-              <MessageContent markdown complete role="assistant" text={previewContentQ.data.content} />
+              <LazyModule load={() => import("$lib/components/chat/primitives/MessageContent.svelte")} label="markdown preview">
+                {#snippet children(MessageContent)}
+                  <MessageContent markdown complete role="assistant" text={markdownText} />
+                {/snippet}
+              </LazyModule>
             </div>
           {:else}
             <pre class="whitespace-pre-wrap px-6 py-6 font-sans text-sm leading-[1.6] text-ink-secondary">{previewContentQ.data?.content

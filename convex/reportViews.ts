@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import { reportWithBody } from "./lib/reportBodies";
 import { v } from "convex/values";
 import {
   getInternalProjectAccessOrNull,
@@ -31,13 +32,14 @@ export const logClientView = mutation({
     if (!report || report.projectId !== args.projectId) {
       domainError("REPORT_NOT_PUBLISHED", "This report is not published for review");
     }
+    const currentReport = await reportWithBody(ctx, report);
     const viewedAt = Date.now();
     await ctx.db.insert("reportViews", {
       projectId: args.projectId,
       reportId: report._id,
       reportVersion: report.version,
-      revisionNumber: report.revisionNumber ?? 0,
-      contentHash: report.contentHash,
+      revisionNumber: currentReport.revisionNumber ?? 0,
+      contentHash: currentReport.contentHash,
       viewerName,
       viewerType: "client",
       viewedAt,
@@ -57,13 +59,14 @@ export const logWriterView = mutation({
       .withIndex("by_projectId", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .first();
+    const currentReport = report ? await reportWithBody(ctx, report) : null;
     const viewedAt = Date.now();
     await ctx.db.insert("reportViews", {
       projectId: args.projectId,
       reportId: report?._id,
       reportVersion: report?.version,
-      revisionNumber: report?.revisionNumber,
-      contentHash: report?.contentHash,
+      revisionNumber: currentReport?.revisionNumber,
+      contentHash: currentReport?.contentHash,
       viewerName: user.name ?? user.email ?? "Writer",
       viewerType: "writer",
       viewedAt,

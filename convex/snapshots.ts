@@ -1,4 +1,6 @@
 import { persistDeterministicFindings } from "./lib/qaFindings";
+import { reportWithBody, writeReportBody } from "./lib/reportBodies";
+import { materializePendingReportProvenance } from "./lib/editProvenance";
 import { query, mutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
@@ -135,7 +137,7 @@ export const getGhostSnapshot = query({
     }
     const snapshots = await ctx.db
       .query("reportSnapshots")
-      .withIndex("by_projectId", (q) => q.eq("projectId", generation.projectId))
+      .withIndex("by_generationId", (q) => q.eq("generationId", args.generationId))
       .order("desc")
       .take(200);
     return (
@@ -185,8 +187,11 @@ export const createManualSnapshot = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) domainError("NOT_FOUND", "Report not found");
+    const storedReport = await ctx.db.get(args.reportId);
+    if (!storedReport) domainError("NOT_FOUND", "Report not found");
+    let report = await reportWithBody(ctx, storedReport);
+    await materializePendingReportProvenance(ctx, report._id);
+    report = await reportWithBody(ctx, report);
     await requireReportEditAccess(ctx, report.projectId);
     const audit = await snapshotAuditFields(ctx, report);
 
@@ -198,7 +203,7 @@ export const createManualSnapshot = mutation({
       .order("desc")
       .first();
     if (
-      latest?.content === report.content &&
+      latest !== null && latest.content === report.content &&
       latest.sourceRevisionNumber === (report.revisionNumber ?? 0) &&
       latest.contentHash === audit.contentHash &&
       latest.provenanceId === audit.provenanceId &&
@@ -234,8 +239,11 @@ export const createMilestoneSnapshot = mutation({
     expectedRevisionNumber: v.number(),
   },
   handler: async (ctx, args) => {
-    const report = await ctx.db.get(args.reportId);
-    if (!report) domainError("NOT_FOUND", "Report not found");
+    const storedReport = await ctx.db.get(args.reportId);
+    if (!storedReport) domainError("NOT_FOUND", "Report not found");
+    let report = await reportWithBody(ctx, storedReport);
+    await materializePendingReportProvenance(ctx, report._id);
+    report = await reportWithBody(ctx, report);
     await requireReportEditAccess(ctx, report.projectId);
     const revisionNumber = report.revisionNumber ?? 0;
     if (revisionNumber !== args.expectedRevisionNumber) {
@@ -300,14 +308,17 @@ export const restoreSnapshot = mutation({
     if (!snapshot) domainError("NOT_FOUND", "Snapshot not found");
     // Restoring rewrites report prose: same report.editProse gate as saves.
     const { user } = await requireReportEditAccess(ctx, snapshot.projectId);
-    const report = await ctx.db.get(args.targetReportId);
-    if (!report || report.projectId !== snapshot.projectId) {
+    const storedReport = await ctx.db.get(args.targetReportId);
+    if (!storedReport || storedReport.projectId !== snapshot.projectId) {
       domainError("NOT_AUTHORIZED", "Restore target belongs to another project");
     }
+    let report = await reportWithBody(ctx, storedReport);
     const revisionNumber = report.revisionNumber ?? 0;
     if (revisionNumber !== args.expectedRevisionNumber) {
       domainError("STALE_REVISION", "The report changed while restore was open");
     }
+    await materializePendingReportProvenance(ctx, report._id);
+    report = await reportWithBody(ctx, report);
 
     const now = Date.now();
     const currentAudit = await snapshotAuditFields(ctx, report);
@@ -324,15 +335,17 @@ export const restoreSnapshot = mutation({
     });
 
     const restoredAudit = await snapshotAuditFields(ctx, snapshot);
-    await ctx.db.patch(report._id, {
+    await writeReportBody(ctx, report, {
       content: snapshot.content,
       provenanceId: restoredAudit.provenanceId,
-      generationId: restoredAudit.generationId,
-      sourceTranscriptId: restoredAudit.sourceTranscriptId,
-      sourceTranscriptIds: restoredAudit.sourceTranscriptIds,
       contentHash: restoredAudit.contentHash,
       revisionNumber: revisionNumber + 1,
       updatedAt: now,
+    });
+    await ctx.db.patch(report._id, {
+      generationId: restoredAudit.generationId,
+      sourceTranscriptId: restoredAudit.sourceTranscriptId,
+      sourceTranscriptIds: restoredAudit.sourceTranscriptIds,
     });
     await persistDeterministicFindings(ctx, report._id);
     // Phase E (E3): a restore is part of an editing burst.

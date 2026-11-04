@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { drainScheduledFunctions } from "./testScheduledFunctions";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -52,7 +53,7 @@ describe("deleted report QA cleanup", () => {
     await f.t.withIdentity({ subject }).mutation(api.projects.deleteProject, { projectId: f.projectId });
     // Story 0 (AD-19): the report and project rows go with the paginated purge
     // the mutation schedules, so they are gone once the scheduler drains.
-    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await drainScheduledFunctions(f.t, () => vi.runAllTimers());
     expect(await f.t.run(ctx => ctx.db.get(f.projectId))).toBeNull();
     expect(await f.t.run(ctx => ctx.db.get(f.reportId))).toBeNull();
     expect(await f.findings()).toEqual([]);

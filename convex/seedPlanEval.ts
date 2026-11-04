@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { readReportContent } from "./lib/reportBodies";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { evaluationRefusal, isEvaluationProject } from "./lib/evaluationProjects";
 import { drewOnWithdrawn } from "./lib/learningWithdrawal";
@@ -603,7 +604,7 @@ export const collect = internalQuery({
         ? {
             reportId: report._id,
             generatedAt: report.generatedAt,
-            sections: extractReportSections(report.content),
+            sections: extractReportSections(await readReportContent(ctx, report)),
           }
         : null,
       briefEntries: bounded("briefEntries", briefEntries, LIMITS.briefEntries).map((entry) => ({

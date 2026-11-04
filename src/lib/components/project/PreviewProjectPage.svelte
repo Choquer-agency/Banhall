@@ -30,9 +30,6 @@
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import ReadingInterview from "$lib/components/generation/reading/ReadingInterview.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
-  import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
-  import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
-  import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
     focusSeedStepHeading,
@@ -2403,14 +2400,19 @@
         >
           <GenerationProgress generationId={generation._id} />
           {#if isSeedWorkflow && generation.seedStageError}
+            {@const seedStageError = generation.seedStageError}
             <!-- A5 (R6-07): a retry's pending state and refusal belong to the
                  user and generation that submitted it. -->
             {#key `${user?._id}:${generation._id}`}
-              <SeedInitializationRecovery
-                generationId={generation._id}
-                message={generation.seedStageError}
-                canEdit={generation.seedCanEdit}
-              />
+              <LazyModule load={() => import("$lib/components/seeds/SeedInitializationRecovery.svelte")} label="Seed recovery">
+                {#snippet children(SeedInitializationRecovery)}
+                  <SeedInitializationRecovery
+                    generationId={generation._id}
+                    message={seedStageError}
+                    canEdit={generation.seedCanEdit}
+                  />
+                {/snippet}
+              </LazyModule>
             {/key}
           {/if}
           {#if !report}
@@ -2430,32 +2432,36 @@
         <!-- Every Seed surface is keyed by its full owner, so no local state,
              pending work or draft buffer crosses a user or generation. -->
         {#key `${user?._id}:${generation._id}`}
-          <SeedWorkspace
-            generationId={generation._id}
-            {projectId}
-            userId={user?._id ?? "anonymous"}
-            requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
-            hostVisible={mainPaneVisible && !sourcesOpen}
-            onOpenSummary={() => setSeedSummary(true)}
-          >
-            {#snippet paneSwitchEnd()}
-              <!-- Board 3.6: the page's Details toggle beside the switch. -->
-              <button
-                type="button"
-                data-seed-details-toggle
-                aria-pressed={detailsOpen && sidePanelOnScreen}
-                aria-label="Details"
-                onclick={toggleDetails}
-                class={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11 ${
-                  detailsOpen && sidePanelOnScreen
-                    ? "bg-workspace-rail-selected text-fir"
-                    : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
-                }`}
+          <LazyModule load={() => import("$lib/components/seeds/SeedWorkspace.svelte")} label="Seeds">
+            {#snippet children(SeedWorkspace)}
+              <SeedWorkspace
+                generationId={generation._id}
+                {projectId}
+                userId={user?._id ?? "anonymous"}
+                requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
+                hostVisible={mainPaneVisible && !sourcesOpen}
+                onOpenSummary={() => setSeedSummary(true)}
               >
-                <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
-              </button>
+                {#snippet paneSwitchEnd()}
+                  <!-- Board 3.6: the page's Details toggle beside the switch. -->
+                  <button
+                    type="button"
+                    data-seed-details-toggle
+                    aria-pressed={detailsOpen && sidePanelOnScreen}
+                    aria-label="Details"
+                    onclick={toggleDetails}
+                    class={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11 ${
+                      detailsOpen && sidePanelOnScreen
+                        ? "bg-workspace-rail-selected text-fir"
+                        : "text-ink-secondary hover:bg-primary-wash hover:text-ink"
+                    }`}
+                  >
+                    <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+                  </button>
+                {/snippet}
+              </SeedWorkspace>
             {/snippet}
-          </SeedWorkspace>
+          </LazyModule>
         {/key}
       </div>
     {/if}
@@ -2463,16 +2469,20 @@
     {#if seedSummaryOwner && showSeedSummary}
       <div class="min-h-0 flex-1 overflow-hidden">
         {#key `${user?._id}:${seedSummaryOwner._id}:${seedSummaryOwner.summaryVersionId ?? "live"}`}
-          <SeedSummaryReview
-            generationId={seedSummaryOwner._id}
-            userId={user?._id ?? "anonymous"}
-            versionId={seedSummaryOwner.summaryVersionId}
-            readOnly={seedSummaryOwner.seedPhase !== "seeding"}
-            focusHeadingOnMount
-            onClose={() => setSeedSummary(false)}
-            onOpenStep={openSeedStep}
-            onSignedOff={completeSeedSignOff}
-          />
+          <LazyModule load={() => import("$lib/components/seeds/SeedSummaryReview.svelte")} label="Seed summary">
+            {#snippet children(SeedSummaryReview)}
+              <SeedSummaryReview
+                generationId={seedSummaryOwner._id}
+                userId={user?._id ?? "anonymous"}
+                versionId={seedSummaryOwner.summaryVersionId}
+                readOnly={seedSummaryOwner.seedPhase !== "seeding"}
+                focusHeadingOnMount
+                onClose={() => setSeedSummary(false)}
+                onOpenStep={openSeedStep}
+                onSignedOff={completeSeedSignOff}
+              />
+            {/snippet}
+          </LazyModule>
         {/key}
       </div>
     {/if}
@@ -2480,14 +2490,18 @@
     {#if generation && showSeedRecovery}
       <div class="min-h-0 flex-1 overflow-hidden">
         {#key `${user?._id}:${generation._id}:${generation.summaryVersionId}`}
-          <SeedSummaryReview
-            generationId={generation._id}
-            userId={user?._id ?? "anonymous"}
-            versionId={generation.summaryVersionId}
-            readOnly
-            recovery
-            canRecover={generation.seedCanEdit}
-          />
+          <LazyModule load={() => import("$lib/components/seeds/SeedSummaryReview.svelte")} label="Seed summary">
+            {#snippet children(SeedSummaryReview)}
+              <SeedSummaryReview
+                generationId={generation._id}
+                userId={user?._id ?? "anonymous"}
+                versionId={generation.summaryVersionId}
+                readOnly
+                recovery
+                canRecover={generation.seedCanEdit}
+              />
+            {/snippet}
+          </LazyModule>
         {/key}
       </div>
     {/if}

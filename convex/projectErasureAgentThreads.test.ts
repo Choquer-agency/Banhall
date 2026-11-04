@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { drainScheduledFunctions } from "./testScheduledFunctions";
 import agentTest from "@convex-dev/agent/test";
 import { createThread, saveMessage } from "@convex-dev/agent";
 import { convexTest } from "convex-test";
@@ -84,7 +85,7 @@ describe("project erasure and agent chat threads", () => {
     expect(await componentState(f.t, f.threads.erased)).toMatchObject({ messages: 2 });
 
     await f.admin.mutation(api.projects.deleteProject, { projectId: f.projectId });
-    await f.t.finishAllScheduledFunctions(() => vi.runAllTimers());
+    await drainScheduledFunctions(f.t, () => vi.runAllTimers());
 
     expect(await f.t.run((ctx) => ctx.db.get(f.projectId))).toBeNull();
     expect(await componentState(f.t, f.threads.erased)).toEqual({ thread: null, messages: 0 });

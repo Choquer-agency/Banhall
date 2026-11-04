@@ -8,13 +8,14 @@ import {
   buildTranscriptPromptText,
   describeTranscriptInput,
   findQuoteInParts,
+  insertTranscriptRow,
   mapClaimToPart,
   MAX_TRANSCRIPTS_PER_PROJECT,
 } from "./lib/transcripts";
 
 const modules = import.meta.glob("./**/*.ts");
 
-type Seed = { label?: string; position?: number; content: string; createdAt: number };
+type Seed = { label?: string; position?: number; content: string; createdAt: number; wordCount?: number };
 
 async function setup(seeds: Seed[]) {
   const t = convexTest(schema, modules);
@@ -49,6 +50,7 @@ async function setup(seeds: Seed[]) {
         await ctx.db.insert("transcripts", {
           projectId,
           content: seed.content,
+          ...(seed.wordCount === undefined ? {} : { wordCount: seed.wordCount }),
           createdAt: seed.createdAt,
           ...(seed.label === undefined ? {} : { label: seed.label }),
           ...(seed.position === undefined ? {} : { position: seed.position }),
@@ -67,6 +69,23 @@ async function setup(seeds: Seed[]) {
 }
 
 describe("listTranscripts", () => {
+  it("stores the word count when inserting a transcript", async () => {
+    const f = await setup([]);
+    const id = await f.t.run((ctx) => insertTranscriptRow(ctx, {
+      projectId: f.projectId, content: "  Alpha\n beta  gamma ", position: 0,
+    }));
+    expect(id).not.toBeNull();
+    const row = await f.t.run((ctx) => ctx.db.get(id!));
+    expect(row?.wordCount).toBe(3);
+  });
+  it("reads stored word counts and computes a fallback for old rows", async () => {
+    const f = await setup([
+      { content: "One two three", createdAt: 1, position: 0, wordCount: 7 },
+      { content: "Old  row\nwith words", createdAt: 2, position: 1 },
+    ]);
+    const rows = await f.writer.query(api.transcripts.listTranscripts, { projectId: f.projectId });
+    expect(rows.map((row) => row.wordCount)).toEqual([7, 4]);
+  });
   it("returns metadata in position order, without content (AC1)", async () => {
     const f = await setup([
       { label: "third.docx", position: 2, content: "Third body", createdAt: 100 },

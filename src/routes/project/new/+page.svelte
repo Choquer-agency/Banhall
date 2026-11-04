@@ -43,7 +43,6 @@
   import SupportingDocCard from "$lib/components/project-new/SupportingDocCard.svelte";
   import SupportingDocPreview from "$lib/components/project-new/SupportingDocPreview.svelte";
   import ReviewPdCard from "$lib/components/project-new/ReviewPdCard.svelte";
-  import { preloadProjectPage } from "$lib/components/project/projectPageModules";
   import {
     SupportingDocs,
     CATEGORY_LABELS,
@@ -2229,7 +2228,6 @@
   let viewportWidth = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
   // A start opens its project at once, often with the plan already there,
   // so that page's code loads while the writer fills this one in.
-  onMount(() => preloadProjectPage());
   onMount(() => {
     const update = () => (viewportWidth = window.innerWidth);
     update();

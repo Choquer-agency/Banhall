@@ -5,6 +5,7 @@ import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { sha256 } from "./lib/contracts";
+import { reportWithBody } from "./lib/reportBodies";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -118,7 +119,10 @@ async function setup() {
 type Fixture = Awaited<ReturnType<typeof setup>>;
 
 async function reportRow(f: Fixture) {
-  const report = await f.t.run((ctx) => ctx.db.get(f.reportId));
+  const report = await f.t.run(async (ctx) => {
+    const stored = await ctx.db.get(f.reportId);
+    return stored ? await reportWithBody(ctx, stored) : null;
+  });
   if (!report) throw new Error("report fixture is missing");
   return report;
 }

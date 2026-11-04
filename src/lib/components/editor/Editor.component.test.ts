@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { userEvent } from "vitest/browser";
 import { Editor as TiptapEditor } from "@tiptap/core";
 import { tick } from "svelte";
 import Editor from "./Editor.svelte";
@@ -686,4 +687,22 @@ it("writes the CRA limit counts with commas and marks a Not drafted Section in p
   expect(marked[0].textContent).toBe("[NOT GENERATED]");
   expect(getComputedStyle(marked[0], "::before").content).toBe('"Not drafted"');
 
+});
+
+it("keeps Add block reachable from the keyboard without a mouse hover", async () => {
+  document.body.innerHTML = "";
+  const { container } = await mountEditor();
+  const element = container.querySelector(".tiptap-editor");
+  if (!element || !("editor" in element) || !(element.editor instanceof TiptapEditor)) {
+    throw new Error("Mounted editor is unavailable");
+  }
+  const editor = element.editor;
+  const before = editor.state.doc.childCount;
+  const handle = container.querySelector<HTMLButtonElement>('button[aria-label="Add block"]');
+  expect(handle).not.toBeNull();
+  expect(handle?.className).toContain("pointer-coarse:size-11");
+  handle?.focus();
+  expect(document.activeElement).toBe(handle);
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(() => editor.state.doc.childCount).toBe(before + 1);
 });

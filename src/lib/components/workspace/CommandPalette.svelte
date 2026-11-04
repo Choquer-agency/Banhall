@@ -28,6 +28,7 @@
   import { searchShortcutHint } from "$lib/workspace/searchContinuity";
   import { popIn, popOut } from "$lib/motion/panelMotion";
   import StageBadge from "$lib/components/ui/StageBadge.svelte";
+  import { prefetchProject } from "$lib/prefetch/project";
 
   let {
     open = $bindable(false),
@@ -210,7 +211,13 @@
                             <p class="px-2.5 py-2 text-[0.8125rem] text-ink-muted" role="status">No matching projects.</p>
                           {:else}
                             {#each results as project (project._id)}
-                              <Command.Item value={`project:${project._id}`} onSelect={() => go(resolve("/project/[id]", { id: project._id }))} class={itemClass}>
+                              <Command.Item
+                                value={`project:${project._id}`}
+                                onSelect={() => go(resolve("/project/[id]", { id: project._id }))}
+                                onpointerenter={() => void prefetchProject(project._id).catch(() => undefined)}
+                                onfocusin={() => void prefetchProject(project._id).catch(() => undefined)}
+                                class={itemClass}
+                              >
                                 <span class="min-w-0 flex-1 truncate text-ink">{project.title}</span>
                                 <span class="max-w-32 truncate text-xs text-ink-muted">{project.clientName}</span>
                                 {#if project.workflowStage}

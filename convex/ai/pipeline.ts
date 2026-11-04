@@ -1759,6 +1759,29 @@ export const generateReport = internalAction({
       // Story 2 (CAP-5/6, AD-26): read once, handed to every candidate, so
       // compare candidates share one Build Order. Never silent: a profile
       // that does not apply is reported as "no effective writer profile".
+      const analyzerRoute = shared.route("generation:analyzer");
+      await log("Analyzing the transcript once for all candidate drafts.");
+      const analysis = await runAnalyzerAgent(
+        shared.client("generation:analyzer"),
+        analyzerContext.userMessage,
+        analyzerRoute.model,
+        brainBlocks.analyzer
+      );
+      // Chronology reads only the shared analysis. Start it while the
+      // candidates draft, then keep its result for the post-QA pass.
+      const earlyChronology = runChronologyAgent(
+        shared.client("generation:chronology"),
+        analysis,
+        shared.route("generation:chronology").model
+      ).then((chronology) =>
+        ctx.runMutation(internal.generations.saveEarlyChronology, {
+          generationId: genId,
+          chronology: JSON.stringify(chronology),
+        })
+      ).catch((error) => {
+        console.error("Early chronology failed; post-QA will retry it", genId, error);
+      });
+      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       const { writerFlavor, savedPreferenceTexts, styleOverrides, orderedContext } = await writerStylePromise;
       if (orderedContext.profileState !== "applied") {
         await log(
@@ -1768,16 +1791,6 @@ export const generateReport = internalAction({
       if (orderedContext.buildOrderFallbackReason) {
         await log(`Build Order not applied: ${orderedContext.buildOrderFallbackReason}.`);
       }
-
-      const analyzerRoute = shared.route("generation:analyzer");
-      await log("Analyzing the transcript once for all candidate drafts.");
-      const analysis = await runAnalyzerAgent(
-        shared.client("generation:analyzer"),
-        analyzerContext.userMessage,
-        analyzerRoute.model,
-        brainBlocks.analyzer
-      );
-      await recordAnalyzerUse(ctx, genId, analyzerContext.report);
       const serializedAnalysis = JSON.stringify(analysis);
       const webBackground = await webBackgroundStage;
       pendingWebBackground = undefined;
@@ -1843,6 +1856,7 @@ export const generateReport = internalAction({
           scheduledJobId,
         });
       }
+      await earlyChronology;
     } catch (error) {
       await ctx.runMutation(internal.generations.failGeneration, {
         generationId: genId,

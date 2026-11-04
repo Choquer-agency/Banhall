@@ -20,6 +20,8 @@ import {
   DEFAULT_CHAT_EVIDENCE_BUDGET,
   type ChatEvidenceBudget,
 } from "./ai/chatEvidence";
+import { TRANSCRIPT_FACTS_MODE_KEY, type TranscriptFactsMode } from "./lib/transcriptFactsMode";
+export { TRANSCRIPT_FACTS_MODE_KEY, transcriptFactsMode, type TranscriptFactsMode } from "./lib/transcriptFactsMode";
 
 const ANALYZER_CONTEXT_BUDGET_KEY = "ai.analyzerContextBudgetTokens";
 const ANALYZER_TRANSCRIPT_BUDGET_KEY = "ai.analyzerTranscriptBudgetTokens";
@@ -264,30 +266,10 @@ export const setChatAdmissionLimits = mutation({
 
 // ─── Transcript method (2026-09-24; owner decisions 26 and 27) ─────────────
 
-/** Where fact packs replace digests or full text. Default: today's path. */
-export const TRANSCRIPT_FACTS_MODE_KEY = "transcripts.factsMode";
 /** Emergency switch for name placeholders; on unless an admin turns it off. */
 export const TRANSCRIPT_PLACEHOLDERS_KEY = "transcripts.placeholders";
 
-export type TranscriptFactsMode = "off" | "long" | "all";
-
 const transcriptFactsModeValidator = v.union(v.literal("off"), v.literal("long"), v.literal("all"));
-
-/**
- * `off` (default): today's path, digests over the budget and full text
- * under it. `long`: fact packs replace digests for projects over the budget
- * (decision 27). `all`: small projects read fact packs too, once the offline
- * evaluation shows they match (scripts/transcript-facts-eval.mjs). Any other
- * stored value reads as `off`.
- */
-export async function transcriptFactsMode(ctx: QueryCtx | MutationCtx): Promise<TranscriptFactsMode> {
-  const row = await ctx.db
-    .query("appSettings")
-    .withIndex("by_key", (q) => q.eq("key", TRANSCRIPT_FACTS_MODE_KEY))
-    .unique();
-  const value = row?.value.trim();
-  return value === "long" || value === "all" ? value : "off";
-}
 
 /**
  * Owner decision 26: placeholders always, for every model. The setting only

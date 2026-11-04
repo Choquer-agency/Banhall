@@ -39,9 +39,6 @@
   import QALauncher from "$lib/components/qa/QALauncher.svelte";
   import BriefLauncher from "$lib/components/brief/BriefLauncher.svelte";
   import BriefRailPanel from "$lib/components/brief/BriefRailPanel.svelte";
-  import SeedWorkspace from "$lib/components/seeds/SeedWorkspace.svelte";
-  import SeedSummaryReview from "$lib/components/seeds/SeedSummaryReview.svelte";
-  import SeedInitializationRecovery from "$lib/components/seeds/SeedInitializationRecovery.svelte";
   import { seedsApi } from "$lib/components/seeds/api";
   import {
     focusSeedStepHeading,
@@ -1440,6 +1437,7 @@
             variant="heading"
             label="internal project title"
             required
+            optimisticSave
             onSave={async (value) => {
               await updateTitles({ projectId, title: value.trim() });
             }}
@@ -1455,6 +1453,7 @@
                 value={project.sredTitle ?? ""}
                 placeholder="Add the formal SR&ED title (finalize at the end)"
                 label="SR&ED title"
+                optimisticSave
                 onSave={async (value) => {
                   await updateTitles({ projectId, sredTitle: value });
                 }}
@@ -1734,14 +1733,19 @@
         >
           <GenerationProgress generationId={generation._id} />
           {#if isSeedWorkflow && generation.seedStageError}
+            {@const seedStageError = generation.seedStageError}
             <!-- A5 (R6-07): a retry's pending state and refusal belong to the
                  user and generation that submitted it. -->
             {#key `${user?._id}:${generation._id}`}
-              <SeedInitializationRecovery
-                generationId={generation._id}
-                message={generation.seedStageError}
-                canEdit={generation.seedCanEdit}
-              />
+              <LazyModule load={() => import("$lib/components/seeds/SeedInitializationRecovery.svelte")} label="Seed recovery">
+                {#snippet children(SeedInitializationRecovery)}
+                  <SeedInitializationRecovery
+                    generationId={generation._id}
+                    message={seedStageError}
+                    canEdit={generation.seedCanEdit}
+                  />
+                {/snippet}
+              </LazyModule>
             {/key}
           {/if}
           {#if isGenerating && briefGenerationId}
@@ -1769,13 +1773,17 @@
         <!-- Every Seed surface is keyed by its full owner, so no local state,
              pending work or draft buffer crosses a user or generation. -->
         {#key `${user?._id}:${generation._id}`}
-          <SeedWorkspace
-            generationId={generation._id}
-            {projectId}
-            userId={user?._id ?? "anonymous"}
-            requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
-            onOpenSummary={() => setSeedSummary(true)}
-          />
+          <LazyModule load={() => import("$lib/components/seeds/SeedWorkspace.svelte")} label="Seeds">
+            {#snippet children(SeedWorkspace)}
+              <SeedWorkspace
+                generationId={generation._id}
+                {projectId}
+                userId={user?._id ?? "anonymous"}
+                requestedRoleId={seedRequestedStep ?? page.url.searchParams.get("step")}
+                onOpenSummary={() => setSeedSummary(true)}
+              />
+            {/snippet}
+          </LazyModule>
         {/key}
       </div>
     {/if}
@@ -1783,16 +1791,20 @@
     {#if seedSummaryOwner && showSeedSummary}
       <div class="min-h-0 flex-1 overflow-hidden">
         {#key `${user?._id}:${seedSummaryOwner._id}:${seedSummaryOwner.summaryVersionId ?? "live"}`}
-          <SeedSummaryReview
-            generationId={seedSummaryOwner._id}
-            userId={user?._id ?? "anonymous"}
-            versionId={seedSummaryOwner.summaryVersionId}
-            readOnly={seedSummaryOwner.seedPhase !== "seeding"}
-            focusHeadingOnMount
-            onClose={() => setSeedSummary(false)}
-            onOpenStep={openSeedStep}
-            onSignedOff={completeSeedSignOff}
-          />
+          <LazyModule load={() => import("$lib/components/seeds/SeedSummaryReview.svelte")} label="Seed summary">
+            {#snippet children(SeedSummaryReview)}
+              <SeedSummaryReview
+                generationId={seedSummaryOwner._id}
+                userId={user?._id ?? "anonymous"}
+                versionId={seedSummaryOwner.summaryVersionId}
+                readOnly={seedSummaryOwner.seedPhase !== "seeding"}
+                focusHeadingOnMount
+                onClose={() => setSeedSummary(false)}
+                onOpenStep={openSeedStep}
+                onSignedOff={completeSeedSignOff}
+              />
+            {/snippet}
+          </LazyModule>
         {/key}
       </div>
     {/if}
@@ -1800,14 +1812,18 @@
     {#if generation && showSeedRecovery}
       <div class="min-h-0 flex-1 overflow-hidden">
         {#key `${user?._id}:${generation._id}:${generation.summaryVersionId}`}
-          <SeedSummaryReview
-            generationId={generation._id}
-            userId={user?._id ?? "anonymous"}
-            versionId={generation.summaryVersionId}
-            readOnly
-            recovery
-            canRecover={generation.seedCanEdit}
-          />
+          <LazyModule load={() => import("$lib/components/seeds/SeedSummaryReview.svelte")} label="Seed summary">
+            {#snippet children(SeedSummaryReview)}
+              <SeedSummaryReview
+                generationId={generation._id}
+                userId={user?._id ?? "anonymous"}
+                versionId={generation.summaryVersionId}
+                readOnly
+                recovery
+                canRecover={generation.seedCanEdit}
+              />
+            {/snippet}
+          </LazyModule>
         {/key}
       </div>
     {/if}

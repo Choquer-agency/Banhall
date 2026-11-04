@@ -64,7 +64,7 @@ afterEach(() => {
 async function setup(content: string) {
   const t = convexTest(schema, modules);
   rateLimiterTest.register(t);
-  const { projectId } = await t.run(async (ctx) => {
+  const { projectId, settingId } = await t.run(async (ctx) => {
     const writerId = await ctx.db.insert("users", { authId: "fo-writer", role: "writer" });
     const projectId = await ctx.db.insert("projects", {
       title: "Helios",
@@ -78,13 +78,14 @@ async function setup(content: string) {
       interviewer: "Dana Whitfield",
       interviewees: ["Priya Shah"],
     });
-    await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "all", updatedBy: writerId, updatedAt: 1 });
-    return { projectId };
+    const settingId = await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "off", updatedBy: writerId, updatedAt: 1 });
+    return { projectId, settingId };
   });
   const writer = t.withIdentity({ subject: "fo-writer" });
   vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
   const transcriptId = await writer.mutation(api.transcripts.addTranscript, { projectId, content, label: "call.txt" });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
+  await t.run((ctx) => ctx.db.patch(settingId, { value: "all" }));
   const generationId: Id<"generations"> = await writer.mutation(api.generations.requestGeneration, {
     projectId,
     candidateMode: "iterative",

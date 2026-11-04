@@ -1,4 +1,6 @@
 import { hasBlockingQa } from "./qaFindings";
+import { getPendingReportProvenance, reportWithBody } from "./reportBodies";
+import { latestQaResult, qaResultIsCurrent } from "./qaResults";
 import type { QueryCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -145,17 +147,35 @@ export async function getProjectAccess(
 }
 
 
+export async function reportNeedsQaScore(ctx: Ctx, report: Doc<"reports">): Promise<boolean> {
+  if (!report.generationId) return false;
+  const generation = await ctx.db.get(report.generationId);
+  // New Single and Compare drafts become available before QA finishes.
+  // Their score is required for filing and export, including after a failed
+  // pass or an edit that makes an earlier score stale. Legacy inline scores
+  // and the signed-off seed flow keep their existing readiness rules.
+  if (!generation?.qaScoreRequired || generation.stoppedAfterSection !== undefined) return false;
+  const result = await latestQaResult(ctx, generation._id);
+  return generation.postQaStatus !== "done" ||
+    !result || result.status !== "done" || result.qaScore === undefined ||
+    !(await qaResultIsCurrent(ctx, result, report));
+}
+
 export async function getFilingReadiness(
   ctx: Ctx,
   project: Doc<"projects">,
   report: Doc<"reports"> | null
 ): Promise<FilingReadiness> {
+  if (report) report = await reportWithBody(ctx, report);
   const blockers: FilingReadiness["blockers"] = [];
   const add = (code: FilingBlockerCode, message: string, claimId?: string) =>
     blockers.push({ code, message, ...(claimId ? { claimId } : {}) });
 
   if (report && await hasBlockingQa(ctx, report)) {
     add("QA_BLOCKING", "Current report has unresolved substantive QA findings");
+  }
+  if (report && await reportNeedsQaScore(ctx, report)) {
+    add("QA_SCORE_REQUIRED", "The current report needs a completed QA score before filing or export.");
   }
 
   const evidence = await ctx.db
@@ -188,14 +208,19 @@ export async function getFilingReadiness(
 
   let provenanceStatus: FilingReadiness["provenanceStatus"] =
     "unavailable_legacy";
-  let provenance: Doc<"reportProvenance"> | null = null;
-  if (!report?.provenanceId) {
+  let provenance: Pick<Doc<"reportProvenance">, "projectId" | "status" | "claims" | "reviewedAt"> | null = null;
+  const pending = report ? await getPendingReportProvenance(ctx, report._id) : null;
+  if (pending && pending.revisionNumber === (report?.revisionNumber ?? -1) && pending.contentHash === report?.contentHash) {
+    provenance = pending;
+  } else if (report?.provenanceId) {
+    provenance = await ctx.db.get(report.provenanceId);
+  }
+  if (!provenance && !report?.provenanceId) {
     add(
       "PROVENANCE_UNAVAILABLE",
       "This report revision has no claim-level source record."
     );
   } else {
-    provenance = await ctx.db.get(report.provenanceId);
     if (!provenance || provenance.projectId !== project._id) {
       add(
         "PROVENANCE_UNAVAILABLE",

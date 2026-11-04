@@ -4,7 +4,10 @@
   import "./layout.css";
   import favicon from "$lib/assets/favicon.svg";
   import { setupConvex } from "convex-svelte";
+  import { onDestroy } from "svelte";
+  import { installQueryKeepAlive } from "$lib/convex/queryKeepAlive";
   import { createSvelteAuthClient } from "@mmailaender/convex-better-auth-svelte/svelte";
+  import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { authClient } from "$lib/authClient";
   import { updated } from "$app/state";
   import { beforeNavigate } from "$app/navigation";
@@ -14,16 +17,56 @@
   import ErrorMonitor from "$lib/components/errors/ErrorMonitor.svelte";
   import AppToaster from "$lib/components/shell/AppToaster.svelte";
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+  import { startProjectPrefetch } from "$lib/prefetch/project";
+  import geistLatin from "@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url";
+  import geistMonoLatin from "@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url";
 
   let { children, data } = $props();
 
   // One shared ConvexClient: convex-svelte owns queries/mutations, the auth
   // adapter drives setAuth/clearAuth on the same instance.
   const client = setupConvex(PUBLIC_CONVEX_URL);
+  const queryKeepAlive = installQueryKeepAlive(client);
   createSvelteAuthClient({
     authClient,
     convexClient: client,
     getServerState: () => data.authState,
+  });
+
+  // The auth adapter may refresh its token without changing the user. Clear
+  // held results only when the settled session identity changes. A brief null
+  // session during navigation is ignored if the same session returns.
+  if (typeof window !== "undefined") {
+    let identity: string | null | undefined;
+    let pendingSignOut: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribeSession = authClient.useSession().subscribe((session) => {
+      if (session.isPending || session.isRefetching) return;
+      const user = session.data?.user;
+      const next = user?.id && session.data?.session?.id
+        ? JSON.stringify([user.id, session.data.session.id])
+        : null;
+      if (pendingSignOut) clearTimeout(pendingSignOut);
+      if (next === null) {
+        pendingSignOut = setTimeout(() => {
+          if (identity !== undefined && identity !== null) queryKeepAlive.clear();
+          identity = null;
+          pendingSignOut = undefined;
+        }, 200);
+      } else {
+        if (identity !== next) queryKeepAlive.clear();
+        identity = next;
+      }
+    });
+    onDestroy(() => {
+      if (pendingSignOut) clearTimeout(pendingSignOut);
+      unsubscribeSession();
+    });
+  }
+
+  const auth = useAuth();
+  $effect(() => {
+    if (!auth.isAuthenticated) return;
+    return startProjectPrefetch();
   });
 
   // Deploy skew: after a new Vercel deployment the old build's hashed chunks
@@ -53,6 +96,8 @@
 
 <svelte:head>
   <link rel="icon" href={favicon} />
+  <link rel="preload" href={geistLatin} as="font" type="font/woff2" crossorigin="anonymous" />
+  <link rel="preload" href={geistMonoLatin} as="font" type="font/woff2" crossorigin="anonymous" />
   <title>Banhall — SR&amp;ED Report Generator</title>
   <meta
     name="description"

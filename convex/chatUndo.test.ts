@@ -6,6 +6,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { APPLIED_CHANGE_MAX_CHARS } from "./lib/appliedChange";
+import { reportWithBody, writeReportBody } from "./lib/reportBodies";
 import { PROPOSAL_UNDO_CONFLICT_MESSAGE, PROPOSAL_UNDO_TOO_LONG_MESSAGE } from "./chatV2";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -98,11 +99,15 @@ async function setup(doc: unknown = ORIGINAL, options: { transactionLimits?: boo
         createdAt: Date.now(),
       })
     );
-  const report = () => t.run(async (ctx) => (await ctx.db.get(ids.reportId))!);
+  const report = () => t.run(async (ctx) => reportWithBody(ctx, (await ctx.db.get(ids.reportId))!));
   const proposal = (id: Id<"chatProposals">) => t.run(async (ctx) => (await ctx.db.get(id))!);
   const setContent = (next: unknown) =>
     t.run(async (ctx) => {
-      await ctx.db.patch(ids.reportId, { content: JSON.stringify(next) });
+      const current = await reportWithBody(ctx, (await ctx.db.get(ids.reportId))!);
+      await writeReportBody(ctx, current, {
+        content: JSON.stringify(next), revisionNumber: current.revisionNumber ?? 0,
+        updatedAt: current.updatedAt, provenanceId: current.provenanceId,
+      });
     });
   const snapshots = () =>
     t.run((ctx) => ctx.db.query("reportSnapshots").withIndex("by_reportId", (q) => q.eq("reportId", ids.reportId)).collect());
@@ -303,10 +308,11 @@ describe("undoProposal", () => {
     const big = JSON.stringify([paragraph(text("x".repeat(300_000)))]);
     await f.setHunks(id, (hunks) => [{ before: big, after: hunks[0]!.after }]);
     await f.t.run(async (ctx) => {
-      const report = (await ctx.db.get(f.reportId))!;
+      const report = await reportWithBody(ctx, (await ctx.db.get(f.reportId))!);
       const doc = JSON.parse(report.content);
       doc.content.push(paragraph(text("y".repeat(800_000))));
-      await ctx.db.patch(f.reportId, { content: JSON.stringify(doc) });
+      await writeReportBody(ctx, report, { content: JSON.stringify(doc), revisionNumber: report.revisionNumber ?? 0,
+        updatedAt: report.updatedAt, provenanceId: report.provenanceId });
     });
     const stored = await f.report();
     let message = "";
@@ -330,10 +336,11 @@ describe("undoProposal", () => {
     const small = JSON.stringify([paragraph(text("Short."))]);
     await f.setHunks(id, (hunks) => [{ before: small, after: hunks[0]!.after }]);
     await f.t.run(async (ctx) => {
-      const report = (await ctx.db.get(f.reportId))!;
+      const report = await reportWithBody(ctx, (await ctx.db.get(f.reportId))!);
       const doc = JSON.parse(report.content);
       doc.content.push(paragraph(text("é".repeat(520_000))));
-      await ctx.db.patch(f.reportId, { content: JSON.stringify(doc) });
+      await writeReportBody(ctx, report, { content: JSON.stringify(doc), revisionNumber: report.revisionNumber ?? 0,
+        updatedAt: report.updatedAt, provenanceId: report.provenanceId });
     });
     expect(new TextEncoder().encode((await f.report())!.content).length).toBeGreaterThan(1_000_000);
     await f.owner.mutation(api.chatV2.undoProposal, { proposalId: id });

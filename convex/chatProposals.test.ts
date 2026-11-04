@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
@@ -144,7 +145,7 @@ async function errorCode(call: () => Promise<unknown>): Promise<string> {
 }
 
 async function reportRow(f: Fixture) {
-  return await f.t.run((ctx) => ctx.db.get(f.reportId));
+  return await f.t.run((ctx) => getTestReport(ctx, f.reportId));
 }
 
 async function proposalRows(f: Fixture) {

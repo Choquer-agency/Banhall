@@ -152,7 +152,7 @@ describe("the PD review reads live fact packs behind placeholders", () => {
         interviewer: "Dana Whitfield",
         interviewees: ["Priya Shah"],
       });
-      await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: mode, updatedBy: writerId, updatedAt: 1 });
+      const settingId = await ctx.db.insert("appSettings", { key: "transcripts.factsMode", value: "off", updatedBy: writerId, updatedAt: 1 });
       const documentId = await ctx.db.insert("projectDocuments", {
         projectId,
         fileName: "pd.docx",
@@ -162,12 +162,13 @@ describe("the PD review reads live fact packs behind placeholders", () => {
         uploadedBy: writerId,
         createdAt: 1,
       });
-      return { writerId, projectId, documentId };
+      return { writerId, projectId, documentId, settingId };
     });
     const writer = t.withIdentity({ subject: "rf-writer" });
     stubFetchStreaming(vi, vi.fn(() => { throw new Error("Unexpected HTTP transport"); }));
     const transcriptId = await writer.mutation(api.transcripts.addTranscript, { projectId: ids.projectId, content: CONTENT });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
+    if (mode !== "off") await t.run((ctx) => ctx.db.patch(ids.settingId, { value: mode }));
     if (extract) {
       stubFetchStreaming(vi, vi.fn(async () => factsAnswer()));
       await writer.mutation(api.transcripts.requestTranscriptFacts, { transcriptId });

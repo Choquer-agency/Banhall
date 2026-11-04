@@ -1,4 +1,5 @@
 import { mutation, query } from "./_generated/server";
+import { reportWithBody } from "./lib/reportBodies";
 import { v } from "convex/values";
 import {
   getFilingReadiness,
@@ -179,7 +180,7 @@ export const setFilingAttestation = mutation({
         reviewedAt: now,
         evidenceCutoffAt: now,
         reportId: report._id,
-        revisionNumber: report.revisionNumber ?? 0,
+        revisionNumber: (await reportWithBody(ctx, report)).revisionNumber ?? 0,
         ...(note ? { note } : {}),
       },
       updatedAt: now,

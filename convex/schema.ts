@@ -10,6 +10,7 @@ import {
 } from "./lib/orderedChain";
 import { v } from "convex/values";
 import {
+  claimCitationValidator,
   projectTypeValidator,
   workflowStageValidator,
   workItemKindValidator,
@@ -793,6 +794,7 @@ export default defineSchema({
   transcripts: defineTable({
     projectId: v.id("projects"),
     content: v.string(),
+    wordCount: v.optional(v.number()),
     createdAt: v.number(),
     // 2026-09-03 widen: multiple transcripts per project. Legacy rows have
     // none of the three; readers go through convex/lib/transcripts.ts, which
@@ -833,6 +835,7 @@ export default defineSchema({
     factsStatus: v.optional(
       v.union(v.literal("none"), v.literal("queued"), v.literal("ready"), v.literal("failed"))
     ),
+    factsCopyFromTranscriptId: v.optional(v.id("transcripts")),
     factsVersion: v.optional(v.string()),
   })
     .index("by_projectId", ["projectId"])
@@ -993,7 +996,8 @@ export default defineSchema({
 
   reports: defineTable({
     projectId: v.id("projects"),
-    content: v.string(),
+    // Legacy text is cleared after reportBodies has been backfilled.
+    content: v.optional(v.string()),
     version: v.number(),
     generatedAt: v.number(),
     updatedAt: v.number(),
@@ -1008,6 +1012,41 @@ export default defineSchema({
     .index("by_projectId", ["projectId"])
     .index("by_generationId", ["generationId"])
     .index("by_provenanceId", ["provenanceId"]),
+
+  reportBodies: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    content: v.string(),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    updatedAt: v.number(),
+    provenanceId: v.optional(v.id("reportProvenance")),
+    postSaveJobId: v.optional(v.id("_scheduled_functions")),
+  })
+    .index("by_projectId", ["projectId"])
+    .index("by_reportId", ["reportId"])
+    .index("by_provenanceId", ["provenanceId"]),
+
+  reportPendingProvenance: defineTable({
+    projectId: v.id("projects"),
+    reportId: v.id("reports"),
+    sourceProvenanceId: v.id("reportProvenance"),
+    revisionNumber: v.number(),
+    contentHash: v.string(),
+    status: v.union(v.literal("needs_review"), v.literal("approved"), v.literal("rejected")),
+    claims: v.array(claimCitationValidator),
+    generationId: v.optional(v.id("generations")),
+    sourceTranscriptId: v.optional(v.id("transcripts")),
+    sourceTranscriptIds: v.optional(v.array(v.id("transcripts"))),
+    digestIds: v.optional(v.array(v.id("transcriptDigests"))),
+    createdAt: v.number(),
+    createdBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+    reviewedBy: v.optional(v.id("users")),
+  })
+    .index("by_reportId", ["reportId"])
+    .index("by_projectId", ["projectId"])
+    .index("by_sourceProvenanceId", ["sourceProvenanceId"]),
 
   comments: defineTable({
     projectId: v.id("projects"),
@@ -1293,6 +1332,9 @@ export default defineSchema({
     // reaper's clock. Absent on rows from before the reaper existed (treated
     // as already stale, since nothing can still be running them).
     postQaStartedAt: v.optional(v.number()),
+    // Stamped only when a new complete Single or Compare report lands before
+    // QA. Legacy reports can acquire postQaStartedAt from a manual re-run.
+    qaScoreRequired: v.optional(v.boolean()),
     // When the latest post-QA pass settled (done or failed). The report page
     // keys its browser-local "QA result seen" state on it (CAP-18).
     postQaCompletedAt: v.optional(v.number()),
@@ -3077,6 +3119,7 @@ export default defineSchema({
   })
     .index("by_reportId", ["reportId"])
     .index("by_projectId", ["projectId"])
+    .index("by_generationId", ["generationId"])
     .index("by_projectId_and_milestoneKey", ["projectId", "milestoneKey"])
     .index("by_provenanceId", ["provenanceId"]),
 
@@ -3190,6 +3233,14 @@ export default defineSchema({
     ),
     candidateId: v.optional(v.id("reportCandidates")),
     qaScore: v.optional(v.number()),
+    // Compare scoring continues after the candidate becomes available.
+    candidateQaStatus: v.optional(v.union(
+      v.literal("queued"), v.literal("running"), v.literal("waiting"),
+      v.literal("done"), v.literal("failed")
+    )),
+    candidateQaStartedAt: v.optional(v.number()),
+    candidateReportQaStartedAt: v.optional(v.number()),
+    candidateQaSourceRunId: v.optional(v.id("generationCandidateRuns")),
     error: v.optional(v.string()),
     scheduledJobId: v.optional(v.id("_scheduled_functions")),
     // Iterative mode's background one-shot comparison draft. Ghost candidates
@@ -3205,6 +3256,8 @@ export default defineSchema({
   })
     .index("by_generationId", ["generationId"])
     .index("by_generationId_and_candidateId", ["generationId", "candidateId"])
+    .index("by_candidateQaSourceRunId", ["candidateQaSourceRunId"])
+    .index("by_candidateQaStatus", ["candidateQaStatus"])
     .index("by_generationId_and_model", ["generationId", "model"])
     .index("by_status_and_startedAt", ["status", "startedAt"])
     .index("by_projectId", ["projectId"]),
@@ -3277,6 +3330,9 @@ export default defineSchema({
       v.literal("agent_outputs"),
       v.literal("brain_retrieval_brief"),
       v.literal("brain_provenance"),
+      // Single and Compare chronology starts after shared analysis, while
+      // their section drafts are still in progress.
+      v.literal("early_chronology"),
       // 2026-09-25 (owner decision 32): the frozen writer style (the
       // `brain_blocks` shape without `blocks`), saved before the seed stage
       // opens so Seeds never wait for Brain retrieval. `brain_blocks` still

@@ -1,3 +1,5 @@
+import { reportWithBody } from "./lib/reportBodies";
+
 /**
  * AD-29 (story 6, CAP-16): Paired Comparison records and the SM-1 / SM-2
  * readout.
@@ -316,8 +318,9 @@ export const record = mutation({
     const modelCaveat = requireNote(args.modelCaveat, "Model-equivalence caveat");
     const countingMethod = requireNote(args.countingMethod, "Counting method");
 
-    const report = await ctx.db.get(args.reportId);
+    let report = await ctx.db.get(args.reportId);
     if (!report) domainError("NOT_FOUND", "Report not found");
+    report = await reportWithBody(ctx, report);
 
     const revisionNumber = report.revisionNumber ?? 0;
     if (args.expectedRevisionNumber !== revisionNumber) {
@@ -361,8 +364,9 @@ export const record = mutation({
     // a blinded reformat still matches and a wrong draft still records. Two
     // inputs that normalize to no prose at all are NOT a match: equality of
     // nothing is not evidence that the judge read this revision (R15).
-    const contentHash = report.contentHash || (await sha256(report.content));
-    const revisionProse = comparisonPlainText(report.content);
+    const currentReport = await reportWithBody(ctx, report);
+    const contentHash = currentReport.contentHash || (await sha256(currentReport.content));
+    const revisionProse = comparisonPlainText(currentReport.content);
     const draftProse = comparisonPlainText(banhallDraftText);
     const draftTextMatches =
       revisionProse.length > 0 &&
@@ -465,11 +469,12 @@ export const getRecordContext = query({
       .order("desc")
       .first();
     if (!report) return null;
+    const currentReport = await reportWithBody(ctx, report);
     const live = await liveComparison(ctx, args.projectId);
     return {
       reportId: report._id,
-      revisionNumber: report.revisionNumber ?? 0,
-      contentHash: report.contentHash ?? null,
+      revisionNumber: currentReport.revisionNumber ?? 0,
+      contentHash: currentReport.contentHash ?? null,
       generationId: report.generationId ?? null,
       suggestedBanhallModel: await suggestedBanhallModel(ctx, report),
       liveComparisonId: live?._id ?? null,

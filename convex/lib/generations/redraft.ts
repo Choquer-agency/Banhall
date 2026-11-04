@@ -7,6 +7,7 @@
  * this module holds their handlers and helpers.
  */
 import { closeEditBurst } from "../editDistance";
+import { reportWithBody, writeReportBody } from "../reportBodies";
 import { savedPreferenceMatchOfGeneration } from "../savedPreferenceNotes";
 import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -483,10 +484,11 @@ export async function reportForGeneration(
   ctx: { db: QueryCtx["db"] },
   generationId: Id<"generations">
 ) {
-  return await ctx.db
+  const report = await ctx.db
     .query("reports")
     .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
     .unique();
+  return report ? await reportWithBody(ctx, report) : null;
 }
 
 /** Current report text of a Section, or null when it is empty or still the
@@ -817,7 +819,7 @@ export async function settleSeedRedraft(
       // the AI's Sections land, never after.
       await closeEditBurst(ctx, report);
       await writePreEditSnapshot(ctx, report, "pre_chat_edit", { createdAt: now });
-      await ctx.db.patch(report._id, {
+      await writeReportBody(ctx, report, {
         content: merged.content,
         contentHash: await sha256(merged.content),
         revisionNumber: (report.revisionNumber ?? 0) + 1,

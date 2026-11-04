@@ -141,7 +141,7 @@ describe("fact extraction inside a generation uses one placeholder map", () => {
       "We measured 38 percent after Dana Whitfield retrained the model on feeder data."
     );
     const runs = await t.run((ctx) => ctx.db.query("transcriptFactRuns").collect());
-    expect(runs.map((run) => [run.adapter, run.status])).toEqual([
+    expect(runs.filter((run) => run.adapter === "structured").map((run) => [run.adapter, run.status])).toEqual([
       ["structured", "ready"],
       ["structured", "ready"],
     ]);

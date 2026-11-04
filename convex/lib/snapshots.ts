@@ -1,8 +1,9 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { sha256 } from "./contracts";
-import { deleteProvenanceIfUnheld } from "./editProvenance";
+import { deleteProvenanceIfUnheld, materializePendingReportProvenance } from "./editProvenance";
 import { generationTranscriptIds } from "./transcripts";
+import { reportWithBody } from "./reportBodies";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -297,7 +298,9 @@ export async function writePreEditSnapshot(
     researchSessionId?: Id<"researchSessions">;
   }
 ): Promise<Id<"reportSnapshots">> {
-  const auditFields = await snapshotAuditFields(ctx, report);
+  await materializePendingReportProvenance(ctx, report._id);
+  const currentReport = await reportWithBody(ctx, report);
+  const auditFields = await snapshotAuditFields(ctx, currentReport);
   const researchSession = await validResearchSession(
     ctx,
     report,
@@ -315,9 +318,9 @@ export async function writePreEditSnapshot(
   return await ctx.db.insert("reportSnapshots", {
     projectId: report.projectId,
     reportId: report._id,
-    content: report.content,
+    content: currentReport.content,
     ...auditFields,
-    sourceRevisionNumber: report.revisionNumber ?? 0,
+    sourceRevisionNumber: currentReport.revisionNumber ?? 0,
     reason,
     label: researchSession
       ? RESEARCHED_LABEL

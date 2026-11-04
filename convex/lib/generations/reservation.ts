@@ -72,6 +72,7 @@ import { userDisplayLabel } from "../teamRoster";
 import type { QueryCtx } from "../../_generated/server";
 import { copyRecoverySourceUses } from "./sourceUse";
 import { frozenClaimantName } from "../transcriptPlaceholders";
+import { runCandidateQaRef } from "./candidates";
 
 /**
  * The user-safe summary of a project's active run (F6): who started it, which
@@ -1172,6 +1173,7 @@ export async function retryFailedCandidatesHandler(
     await ctx.db.patch(retryId, { webBackgroundRequested: generation.webBackgroundRequested });
   }
   for (const candidate of successfulCandidates) {
+    const sourceRun = runs.find((run) => run.candidateId === candidate._id);
     const candidateId = await ctx.db.insert("reportCandidates", {
       projectId: candidate.projectId,
       generationId: retryId,
@@ -1182,16 +1184,30 @@ export async function retryFailedCandidatesHandler(
       provenanceId: candidate.provenanceId,
       createdAt: now,
     });
-    await ctx.db.insert("generationCandidateRuns", {
+    const sourceQaStatus = sourceRun?.candidateQaStatus;
+    const waitForSource = sourceQaStatus === "queued" ||
+      sourceQaStatus === "running" || sourceQaStatus === "waiting";
+    const candidateQaStatus = waitForSource
+      ? "waiting" as const
+      : sourceQaStatus ?? (sourceRun?.qaScore !== undefined ? "done" as const : "queued" as const);
+    const copyRunId = await ctx.db.insert("generationCandidateRuns", {
       generationId: retryId,
       projectId: candidate.projectId,
       model: candidate.model,
       label: candidate.label,
       status: "succeeded",
       candidateId,
+      candidateQaStatus,
+      ...(sourceRun?.qaScore !== undefined ? { qaScore: sourceRun.qaScore } : {}),
+      ...(waitForSource && sourceRun
+        ? { candidateQaSourceRunId: sourceRun._id }
+        : {}),
       queuedAt: now,
       completedAt: now,
     });
+    if (candidateQaStatus === "queued") {
+      await ctx.scheduler.runAfter(0, runCandidateQaRef, { candidateRunId: copyRunId });
+    }
   }
   return retryId;
 }

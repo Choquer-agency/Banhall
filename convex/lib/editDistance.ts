@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { tryExtractPlainText } from "./reportEdits";
 import { isEvaluationProject } from "./evaluationProjects";
+import { reportWithBody } from "./reportBodies";
 
 // ─── BNH-10 flywheel: post-edit distance (PED) ───────────────────────────────
 
@@ -120,6 +121,7 @@ export async function recordReportEditDistance(
   extra: EditDistanceExtra = {}
 ): Promise<Id<"reportEditDistance"> | null> {
   try {
+    const currentReport = await reportWithBody(ctx, report);
     const project = await ctx.db.get(report.projectId);
     // Phase E (E3): an evaluation project records no edit size.
     if (isEvaluationProject(project)) return null;
@@ -131,11 +133,11 @@ export async function recordReportEditDistance(
     if (!baseline) return null;
 
     const draftText = tryExtractPlainText(baseline.content);
-    const currentText = tryExtractPlainText(report.content);
+    const currentText = tryExtractPlainText(currentReport.content);
     if (draftText === null || currentText === null) return null;
 
     const { ped } = computeEditDistance(draftText, currentText);
-    const revisionNumber = report.revisionNumber ?? 0;
+    const revisionNumber = currentReport.revisionNumber ?? 0;
 
     // Repeat-trigger dedupe: a second identical reading (same trigger, same
     // revision, same ped) adds no signal — e.g. publishForReview called twice

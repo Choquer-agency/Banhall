@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { deleteDocumentText, deleteDocumentTextVersions } from "./lib/documentText";
 import { deleteStorageIfUnreferenced } from "./lib/storage";
 import { insertTranscriptRow } from "./lib/transcripts";
+import { insertReportWithBody } from "./lib/reportBodies";
 
 /**
  * Maintenance: dedupe projectDocuments by fileName (keeping the copy with
@@ -110,7 +111,7 @@ export const seedDemoProject = internalMutation({
       SECTION_246
     );
 
-    await ctx.db.insert("reports", {
+    await insertReportWithBody(ctx, {
       projectId,
       content: JSON.stringify(doc),
       version: 1,

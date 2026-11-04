@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { getTestReport } from "./testReportBodies";
 import agentTest from "@convex-dev/agent/test";
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
@@ -43,7 +44,7 @@ async function setup() {
     return { projectId, reportId };
   });
   const owner = t.withIdentity({ subject: "lines-owner" });
-  const content = async () => (await t.run((ctx) => ctx.db.get(ids.reportId)))?.content ?? "";
+  const content = async () => (await t.run((ctx) => getTestReport(ctx, ids.reportId)))?.content ?? "";
   const cards = async () =>
     await t.run((ctx) =>
       ctx.db.query("chatProposals").withIndex("by_agentThreadId", (q) => q.eq("agentThreadId", "lines-thread")).collect()

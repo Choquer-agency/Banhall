@@ -97,6 +97,7 @@
     reportContent,
     reportId,
     candidateId,
+    candidateQaStatus = null,
     rawQa = null,
     onLocateGap,
     onRunQa,
@@ -110,6 +111,7 @@
     reportContent?: string | null;
     reportId?: Id<"reports">;
     candidateId?: Id<"reportCandidates">;
+    candidateQaStatus?: "queued" | "running" | "waiting" | "done" | "failed" | null;
     /** Pre-parsed QA object from candidate option generation. */
     rawQa?: unknown;
     /** Jump to + highlight a QA observation in the report or candidate preview. A null paragraph is section-wide. */
@@ -977,7 +979,15 @@
         </button>
       {/if}
     {:else}
-      <p class="text-xs text-gray-400">Scores appear after the next generation.</p>
+      <p class="text-xs text-gray-400">
+        {candidateId
+          ? candidateQaStatus === "failed"
+            ? "Scoring failed. Select this draft to retry QA from the report."
+            : candidateQaStatus === "queued" || candidateQaStatus === "running" || candidateQaStatus === "waiting"
+              ? "Scoring this draft…"
+              : "No QA scorecard for this draft."
+          : "Scores appear after the next generation."}
+      </p>
     {/if}
   </div>
 {/if}

@@ -7,6 +7,7 @@
 // its persisted payload, one at a time, under fake timers.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { reportWithBody } from "../lib/reportBodies";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FunctionArgs } from "convex/server";
@@ -363,11 +364,10 @@ describe("ordered, ungated generation (single)", () => {
         "selfCheck:244": 1,
         "selfCheck:246": 1,
         consistency: 1,
-        qa: 1,
-        chronology: 1,
       },
       overrun: [],
     });
+    expect(generation.postQaStatus).toBe("running");
     expect(Object.keys(outputs.selfCheck).sort()).toEqual(["242", "244", "246"]);
 
     const rows = await t.run((ctx) =>
@@ -380,7 +380,7 @@ describe("ordered, ungated generation (single)", () => {
     ]);
     expect(rows.every((row) => row.candidateRunId !== undefined)).toBe(true);
 
-    const [report] = await t.run((ctx) => ctx.db.query("reports").collect());
+    const [report] = await t.run(async (ctx) => Promise.all((await ctx.db.query("reports").collect()).map((row) => reportWithBody(ctx, row))));
     const parsed = parseCanonicalReport(report.content);
     expect(parsed.sections.s242.plainText).toBe(DRAFTS["242"]);
     expect(parsed.sections.s244.plainText).toBe(DRAFTS["244"]);
@@ -634,7 +634,7 @@ describe("stopOrderedGeneration", () => {
     expect(generation.productionOrder).toEqual(["242", "244", "246"]);
     expect(JSON.parse(generation.agentOutputs ?? "null").stoppedAfterSection).toBe("242");
 
-    const [report] = await t.run((ctx) => ctx.db.query("reports").collect());
+    const [report] = await t.run(async (ctx) => Promise.all((await ctx.db.query("reports").collect()).map((row) => reportWithBody(ctx, row))));
     const parsed = parseCanonicalReport(report.content);
     expect(parsed.diagnostics.filter((issue) => issue.code === "MISSING_SECTION")).toEqual([]);
     expect(parsed.sections.s242.plainText).toBe(DRAFTS["242"]);
@@ -728,7 +728,8 @@ describe("assembled-draft consistency pass (CAP-10)", () => {
     const report = await t.run((ctx) =>
       ctx.db.query("reports").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).first()
     );
-    expect(report?.content).toContain(DRAFTS["246"]);
+    expect(report ? (await t.run((ctx) => reportWithBody(ctx, report))).content : undefined)
+      .toContain(DRAFTS["246"]);
   });
 });
 
@@ -1069,9 +1070,16 @@ describe("chain failure paths never strand a candidate", () => {
     await drainChain(t);
     const generation = await generationOf(t, generationId);
     expect(generation.status).toBe("completed");
-    const outputs = JSON.parse(generation.agentOutputs ?? "null");
-    expect(outputs.qa).toBeNull();
-    expect(outputs.chronology).toBeNull();
+    expect(generation.postQaStatus).toBe("running");
+    await t.action(internal.ai.postQa.runReportQa, {
+      generationId,
+      attemptStartedAt: generation.postQaStartedAt!,
+    });
+    const afterQa = await generationOf(t, generationId);
+    expect(afterQa.postQaStatus).toBe("failed");
+    const outputs = JSON.parse(afterQa.agentOutputs ?? "null");
+    expect(outputs.qa).toBeUndefined();
+    expect(outputs.chronology).toBeUndefined();
   });
 
   it("an unreadable Writer Profile degrades to the House Rules order with the reason instead of failing", async () => {

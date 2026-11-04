@@ -717,22 +717,16 @@ export const startIterativeGeneration = internalAction({
       });
 
       // Frozen once: learned digests + the writer's personal flavor.
-      const { style, resolvedStyleOverrides: styleOverrides } =
-        await resolveFrozenWriterStyle(ctx, {
+      const writerStylePromise = resolveFrozenWriterStyle(ctx, {
           generationId: genId,
           projectId,
           ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
           freeze,
           log,
         });
-      const {
-        qaCalibration,
-        draftStyle,
-        qaCalibrationDigestId,
-        draftStyleDigestId,
-        writerFlavor,
-        savedPreferenceTexts,
-      } = style;
+      // Awaited after the analyzer; a rejection is surfaced there, not left
+      // unhandled while the analyzer runs.
+      writerStylePromise.catch(() => undefined);
 
       // Frozen once: analyzer output shared by every section draft.
       await log("Analyzing the transcript (runs once — shared by all sections)…");
@@ -743,6 +737,15 @@ export const startIterativeGeneration = internalAction({
         brainBlocks.analyzer
       );
       await recordAnalyzerUse(ctx, genId, analyzerContext.report);
+      const { style, resolvedStyleOverrides: styleOverrides } = await writerStylePromise;
+      const {
+        qaCalibration,
+        draftStyle,
+        qaCalibrationDigestId,
+        draftStyleDigestId,
+        writerFlavor,
+        savedPreferenceTexts,
+      } = style;
 
       await ctx.runMutation(internal.generations.saveIterativeArtifacts, {
         generationId: genId,

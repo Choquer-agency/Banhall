@@ -33,6 +33,7 @@ import {
 } from "./lib/generations/reservation";
 import { getCurrentUserOrNull, getInternalProjectAccessOrNull } from "./lib/auth";
 import { deploymentDraftWebBackgroundOn } from "./lib/draftWebBackgroundSetting";
+import { isProjectDeleting } from "./lib/projectDeletion";
 import { draftWebBackgroundRecordValidator } from "./lib/draftWebBackgroundValidators";
 import {
   adoptPreparedBriefArgs,
@@ -80,6 +81,11 @@ import {
   claimCandidateRunHandler,
   completeCandidateRunArgs,
   completeCandidateRunHandler,
+  claimCandidateQaArgs,
+  claimCandidateQaHandler,
+  saveCandidateQaArgs,
+  saveCandidateQaHandler,
+  failStaleCandidateQaHandler,
   getCandidatesArgs,
   getCandidatesHandler,
   selectReportCandidateArgs,
@@ -437,6 +443,16 @@ export const completeCandidateRun = internalMutation({
   handler: completeCandidateRunHandler,
 });
 
+export const claimCandidateQa = internalMutation({
+  args: claimCandidateQaArgs,
+  handler: claimCandidateQaHandler,
+});
+
+export const saveCandidateQa = internalMutation({
+  args: saveCandidateQaArgs,
+  handler: saveCandidateQaHandler,
+});
+
 export const failGeneration = internalMutation({
   args: failGenerationArgs,
   handler: failGenerationHandler,
@@ -757,6 +773,26 @@ export const getPostQaInput = internalQuery({
   handler: getPostQaInputHandler,
 });
 
+/** Keep the analysis-only chronology produced beside Single/Compare drafting. */
+export const saveEarlyChronology = internalMutation({
+  args: { generationId: v.id("generations"), chronology: v.string() },
+  handler: async (ctx, args) => {
+    const generation = await ctx.db.get(args.generationId);
+    if (!generation || generation.candidateMode === "iterative" ||
+      await isProjectDeleting(ctx, generation.projectId)) return;
+    const existing = await ctx.db.query("generationArtifacts")
+      .withIndex("by_generationId_and_kind", (q) =>
+        q.eq("generationId", args.generationId).eq("kind", "early_chronology"))
+      .first();
+    if (existing) return;
+    await ctx.db.insert("generationArtifacts", {
+      generationId: args.generationId,
+      kind: "early_chronology",
+      content: args.chronology,
+    });
+  },
+});
+
 /**
  * 2026-10-29 (third): the source evidence QA checks claims against, chosen
  * as the facts check chooses its own.
@@ -882,7 +918,11 @@ export const freeOrphanedGeneratingProjects = internalMutation({
 export const failStalePostQa = internalMutation({
   args: failStalePostQaArgs,
   returns: v.object({ failed: v.number() }),
-  handler: failStalePostQaHandler,
+  handler: async (ctx, args) => {
+    const result = await failStalePostQaHandler(ctx, args);
+    await failStaleCandidateQaHandler(ctx, args.olderThanMinutes);
+    return result;
+  },
 });
 
 /**

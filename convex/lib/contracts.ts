@@ -8,6 +8,7 @@ import { PROJECT_TYPES } from "../../shared/projectTypes";
 
 export const domainErrorCodes = [
   "QA_BLOCKING",
+  "QA_SCORE_REQUIRED",
   "NOT_AUTHENTICATED",
   "NOT_AUTHORIZED",
   "NOT_FOUND",
@@ -153,6 +154,7 @@ export const claimCitationValidator = v.object({
 
 export type FilingBlockerCode =
   | "QA_BLOCKING"
+  | "QA_SCORE_REQUIRED"
   | "IDENTITY_EVIDENCE_REQUIRED"
   | "CONTRACTOR_EVIDENCE_REQUIRED"
   | "EVIDENCE_STALE"

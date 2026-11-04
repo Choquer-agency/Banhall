@@ -24,6 +24,7 @@ export {
 } from "../../shared/documentStatus";
 import { isImageFile, normalizeExtractedText } from "../../shared/documentStatus";
 import { wordToMarkdown } from "../../shared/wordMarkdown";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 export type ParsedFileType =
   | "txt"
@@ -144,8 +145,7 @@ export async function parseFileToText(file: File, options: ParseOptions = {}): P
 
   if (lower.endsWith(".pdf")) {
     const pdfjs = await import("pdfjs-dist");
-    // Same-origin worker (copied into /public) — reliable, no CDN/CORS.
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+    pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
     const arrayBuffer = await file.arrayBuffer();
     const deadline = Date.now() + PDF_PARSE_TIMEOUT_MS;
     const loadingTask = pdfjs.getDocument({
