@@ -5,16 +5,18 @@
   title; everything else is here so the component suite can mount it.
 
   All companies: the bar reads "Companies" with the count and "Search
-  companies" on the right; the panel is the company table. A company: the
-  bar is its name with its project count and New project (this company
-  filled in); the panel is CompanyView. A key a merge took away opens the
-  company it ended up in, with the merge note once; a key with no company
-  says so, with a link to All companies.
+  companies" on the right; the panel is the company table, with the
+  Companies sidebar. A company (2026-11-04, the company profile): no
+  sidebar; the bar reads "Companies / <company switcher>" with Edit company
+  (Managers and Admins) and New project (this company filled in); the panel
+  is CompanyView with its tabs, the address keeping the tab (`?tab=`). A
+  key a merge took away opens the company it ended up in, with the merge
+  note once; a key with no company says so, with a link to All companies.
 
   Section controls follow the effective viewer (View as): New company and
-  New project for those who may create projects, Edit company and Merge
-  companies for Managers and Admins, Files for those who may read company
-  files. The cards' own dialogs read the signed-in user, as on Projects.
+  New project for those who may create projects, Edit company, the summary's
+  Edit, Read again and Merge companies for Managers and Admins, Files for
+  those who may read company files, People for those who may read contacts.
 -->
 <script lang="ts">
   import { tick, untrack } from "svelte";
@@ -30,25 +32,27 @@
   import NewClientDialog, { type NewClientResult } from "$lib/components/clients/NewClientDialog.svelte";
   import EditCompanyDialog from "$lib/components/clients/EditCompanyDialog.svelte";
   import type { MergeResult } from "$lib/components/projects/MergeClientsDialog.svelte";
-  import type { ProjectsTableRow } from "$lib/components/workspace/ProjectsTable.svelte";
   import { effectiveViewer } from "$lib/shell/viewAs.svelte";
-  import { canDeleteProject } from "$lib/workspace/projectDelete";
   import { newProjectSearch } from "$lib/projects/clientList";
   import {
     closeMergedNote,
     companiesPath,
     companyCountLabel,
     companyKeyFromPath,
+    companyTabFromParam,
     mergedNoteClosed,
-    projectCountText,
+    type CompanyTab,
   } from "$lib/companies/companies";
   import { hasCapability } from "../../../../shared/capabilities";
   import CompaniesSidebar from "./CompaniesSidebar.svelte";
   import AllCompaniesTable, { type CompanyRow } from "./AllCompaniesTable.svelte";
   import CompanyView from "./CompanyView.svelte";
+  import CompanySwitcher from "./CompanySwitcher.svelte";
 
   /** The query parameter that carries the old key after a merged link (the note's source). */
   const MERGED_PARAM = "merged";
+  /** The query parameter that keeps a company page's tab (2026-11-04). */
+  const TAB_PARAM = "tab";
 
   let {
     companyKey,
@@ -69,11 +73,11 @@
   const role = $derived(viewer.role);
   const canCreate = $derived(signedIn && hasCapability(role, "project.create"));
   const canManage = $derived(signedIn && (role === "manager" || role === "admin"));
-  const canSelect = $derived(role === "writer" || role === "manager" || role === "admin");
   const canReadFiles = $derived(signedIn && hasCapability(role, "companyFiles.read"));
   const canAddFiles = $derived(signedIn && hasCapability(role, "companyFiles.add"));
   const canManageFiles = $derived(signedIn && hasCapability(role, "companyFiles.manage"));
-  const canDelete = (row: ProjectsTableRow) => canDeleteProject(user, row.createdBy, row.deleting);
+  const canReadContacts = $derived(signedIn && hasCapability(role, "companyContacts.read"));
+  const canManageContacts = $derived(signedIn && hasCapability(role, "companyContacts.manage"));
 
   // ─── All companies ────────────────────────────────────────────────────────
   const clientsQ = useQuery(api.clients.listClients, () =>
@@ -130,6 +134,31 @@
     void tick().then(() =>
       (document.querySelector<HTMLElement>("[data-edit-company]") ?? document.querySelector<HTMLElement>("[data-page-title]"))?.focus()
     );
+  }
+
+  // ─── Tabs (2026-11-04): the address keeps the tab (`?tab=`) ───────────────
+  const tabs = $derived<CompanyTab[]>([
+    "overview",
+    ...(canReadFiles ? (["files"] as const) : []),
+    ...(canReadContacts ? (["people"] as const) : []),
+    "activity",
+    "details",
+  ]);
+  // Read from the address on arrival and on a real navigation (another
+  // company, Back); a tab change only writes it (shallowly, so the page and
+  // its uploads stay), so the tab chosen here wins until the address moves.
+  let chosenTab = $state<{ url: string; tab: CompanyTab } | null>(null);
+  const addressTab = $derived(companyTabFromParam(page.url.searchParams.get(TAB_PARAM), tabs));
+  const tab = $derived(chosenTab && chosenTab.url === page.url.href && tabs.includes(chosenTab.tab) ? chosenTab.tab : addressTab);
+  function selectTab(next: CompanyTab, focus = false) {
+    chosenTab = { url: page.url.href, tab: next };
+    const url = new URL(page.url);
+    if (next === "overview") url.searchParams.delete(TAB_PARAM);
+    else url.searchParams.set(TAB_PARAM, next);
+    // The merge note's old key leaves the address once the note is closed.
+    if (!note) url.searchParams.delete(MERGED_PARAM);
+    replaceState(`${url.pathname}${url.search}${url.hash}`, page.state);
+    if (focus) void tick().then(() => document.getElementById(`company-tab-${next}`)?.focus());
   }
 
   // ─── Navigation, New company, Edit company ────────────────────────────────
@@ -219,7 +248,7 @@
     if (companyKey === null) {
       return clientsQ.data ? companyCountLabel(clientsQ.data.clients.length, clientsQ.data.truncated) : null;
     }
-    return company ? projectCountText(company.projectCount) : null;
+    return null;
   });
   const primaryAction = $derived.by(() => {
     if (!canCreate) return null;
@@ -228,6 +257,30 @@
     return { label: "New project", href: `${resolve("/project/new")}${newProjectSearch(company.name)}` };
   });
 </script>
+
+{#snippet companyCrumbs()}
+  <!-- 2026-11-04: "Companies / <switcher>"; the company's name is the header's h1. -->
+  <nav aria-label="Breadcrumb" data-company-breadcrumb class="flex min-w-0 items-center gap-2.5 text-sm leading-[calc(9/7)]">
+    <a
+      href={companiesPath(root)}
+      data-company-breadcrumb-all
+      class="shrink-0 rounded-sm max-sm:hidden text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none"
+    >Companies</a>
+    <span aria-hidden="true" class="shrink-0 text-ink-faint max-sm:hidden">/</span>
+    {#if company && movingTo === null}
+      <CompanySwitcher
+        companyKey={company.key}
+        companyName={company.name}
+        userId={user?._id ?? null}
+        allCompaniesHref={companiesPath(root)}
+        onSelect={(key) => openCompany(key)}
+        onNewCompany={canCreate ? () => (newCompanyOpen = true) : null}
+      />
+    {:else if pageData?.kind !== "missing" && !companyQ.error}
+      <span data-page-title-pending aria-hidden="true" class="h-9 w-44 max-w-[40%] shrink animate-pulse rounded-[0.625rem] bg-chrome motion-reduce:animate-none"></span>
+    {/if}
+  </nav>
+{/snippet}
 
 {#snippet companiesSidebar()}
   <CompaniesSidebar
@@ -240,6 +293,14 @@
 {/snippet}
 
 {#snippet searchField()}
+  {#if companyKey !== null && canManage && company && movingTo === null}
+    <button
+      type="button"
+      data-edit-company
+      onclick={() => (editOpen = true)}
+      class="inline-flex h-[2.375rem] max-sm:hidden shrink-0 items-center rounded-[0.5625rem] px-3 text-sm leading-[calc(9/7)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:h-11"
+    >Edit company</button>
+  {/if}
   {#if companyKey === null}
     <div role="search" class="relative w-[18.75rem] min-w-0 max-w-[45vw]">
       <IconSearch size={14} strokeWidth={2} class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
@@ -273,7 +334,9 @@
   panel="flush"
   {primaryAction}
   primaryActionInSidebar={companyKey === null}
-  sidebar={companiesSidebar}
+  sidebar={companyKey === null ? companiesSidebar : undefined}
+  leading={companyKey === null ? undefined : companyCrumbs}
+  barClass={companyKey === null ? "" : "border-b border-line-soft"}
   actions={searchField}
 >
   {#if companyKey === null}
@@ -302,14 +365,15 @@
       {company}
       {note}
       onCloseNote={closeNote}
-      viewer={user}
+      {tab}
+      {tabs}
+      onTabChange={selectTab}
       {canCreate}
-      {canSelect}
       canEdit={canManage}
-      {canReadFiles}
       {canAddFiles}
+      canEditFiles={canAddFiles}
       {canManageFiles}
-      {canDelete}
+      {canManageContacts}
       onEdit={() => (editOpen = true)}
     />
   {:else if pageData?.kind === "missing"}

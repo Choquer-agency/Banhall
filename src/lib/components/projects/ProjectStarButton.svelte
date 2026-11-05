@@ -7,7 +7,8 @@
   shows the new state, and a refusal puts it back with a toast.
 
   `card`: 24px in a card's stage band, outlined and shown on hover, focus
-  and touch screens until starred, then filled and always shown; on touch
+  and touch screens until starred, then filled yellow (`star`) and always
+  shown; on touch
   screens the hit area grows to 44px without moving the band. `bar`: 30px
   in the project top bar, always shown, 44px on touch screens.
 -->
@@ -38,6 +39,8 @@
   /** The state being saved, shown until the save settles. */
   let pending = $state<boolean | null>(null);
   const shown = $derived(pending ?? starred);
+  /** Starring plays a short pop (owner, 2026-11-05); unstarring just fades. */
+  let popping = $state(false);
 
   async function toggle(event: MouseEvent) {
     // The card's title link covers the card; the star is its own action.
@@ -46,6 +49,7 @@
     if (pending !== null) return;
     const next = !shown;
     pending = next;
+    popping = next;
     try {
       await setStar({ projectId: projectId as Id<"projects">, starred: next });
     } catch (error) {
@@ -66,10 +70,10 @@
     "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy";
   const variantClass = $derived(
     variant === "bar"
-      ? `size-[1.875rem] rounded-[0.4375rem] hover:bg-primary-wash pointer-coarse:size-11 ${shown ? "text-primary-selected" : "text-ink-secondary hover:text-ink"}`
+      ? `size-[1.875rem] rounded-[0.4375rem] hover:bg-primary-wash pointer-coarse:size-11 ${shown ? "text-star" : "text-ink-secondary hover:text-ink"}`
       : `relative z-10 size-6 rounded-md hover:bg-white/70 pointer-coarse:before:absolute pointer-coarse:before:-inset-[0.625rem] pointer-coarse:before:content-[''] ${
           shown
-            ? "text-primary-selected"
+            ? "text-star"
             : "text-ink-muted opacity-0 hover:text-ink focus-visible:opacity-100 group-hover/project:opacity-100 group-focus-within/project:opacity-100 pointer-coarse:opacity-100"
         }`
   );
@@ -83,7 +87,14 @@
   data-project-star={projectId}
   data-starred={shown ? "true" : "false"}
   onclick={toggle}
-  class={`flex shrink-0 items-center justify-center transition-[color,background-color,opacity] motion-reduce:transition-none ${focusRing} ${variantClass} ${className}`}
+  class={`flex shrink-0 items-center justify-center transition-[color,background-color,opacity] duration-200 ease-out motion-reduce:transition-none ${focusRing} ${variantClass} ${className}`}
 >
-  <StarIcon size={variant === "bar" ? "0.9375rem" : "0.875rem"} weight={shown ? "fill" : "regular"} aria-hidden="true" />
+  <span
+    class={`flex ${popping ? "star-pop" : ""}`}
+    data-star-pop={popping ? "true" : undefined}
+    onanimationend={() => (popping = false)}
+    aria-hidden="true"
+  >
+    <StarIcon size={variant === "bar" ? "0.9375rem" : "0.875rem"} weight={shown ? "fill" : "regular"} aria-hidden="true" />
+  </span>
 </button>

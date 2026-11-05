@@ -22,6 +22,7 @@ import {
   NameHistoryTooLongError,
 } from "./lib/clients";
 import { linkKeyProjectsPage } from "./companyFiles";
+import { contactsInMerge, MERGE_COMPANY_CONTACT_LIMIT, moveContactsInMerge } from "./companyContacts";
 import { validatedIndustry } from "./projects";
 import {
   DASHBOARD_NO_FISCAL_YEAR_RANK,
@@ -32,6 +33,7 @@ import {
 import { clientNamesLookAlike, isValidClientYearEnd } from "../shared/clientNames";
 import { COMPANY_WEBSITE_INVALID, companyWebsiteProblem, normalizeCompanyWebsite } from "../shared/companyWebsite";
 import { onCompanyWebsiteChanged } from "./companyWebsite";
+import { userDisplayLabel } from "./lib/teamRoster";
 
 // ─── Saved clients (2026-10-14 amendment) ───────────────────────────────────
 // "Saved clients, client merge, and the Projects page redesign" in
@@ -628,6 +630,15 @@ async function mergedCompanyFiles(ctx: QueryCtx, plan: MergePlan): Promise<Doc<"
   return files;
 }
 
+/** The merge's contacts (2026-11-04): the kept company's count and those that move. */
+async function mergeContacts(ctx: QueryCtx, plan: MergePlan) {
+  return await contactsInMerge(
+    ctx,
+    plan.keep.client?._id ?? null,
+    plan.merged.flatMap((side) => (side.client ? [side.client._id] : []))
+  );
+}
+
 export const previewClientMerge = query({
   args: mergeArgs,
   returns: v.object({
@@ -649,6 +660,10 @@ export const previewClientMerge = query({
     /** Company files that move to the kept company (read up to one past the cap). */
     companyFileCount: v.number(),
     tooManyCompanyFiles: v.boolean(),
+    /** Company contacts that move to the kept company (2026-11-04). */
+    companyContactCount: v.number(),
+    /** The kept company would end up with more than MERGE_COMPANY_CONTACT_LIMIT contacts. */
+    tooManyCompanyContacts: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // "Merge clients": Manager and Admin only.
@@ -656,6 +671,7 @@ export const previewClientMerge = query({
     const plan = await planClientMerge(ctx, args, { strictName: false });
     const check = await mergeNumberCollisions(ctx, plan);
     const files = await mergedCompanyFiles(ctx, plan);
+    const contacts = await mergeContacts(ctx, plan);
     return {
       projectCount: plan.projectCount,
       // Projects whose client name changes; capped reads stop just past 200.
@@ -668,6 +684,8 @@ export const previewClientMerge = query({
       collisionCheckIncomplete: !check.complete,
       companyFileCount: files.length,
       tooManyCompanyFiles: files.length > MERGE_COMPANY_FILE_LIMIT,
+      companyContactCount: contacts.moving.length,
+      tooManyCompanyContacts: contacts.tooMany,
     };
   },
 });
@@ -698,6 +716,16 @@ export const mergeClients = mutation({
         `This merge would move more than ${MERGE_COMPANY_FILE_LIMIT} company files. Merge fewer companies at a time.`
       );
     }
+    // 2026-11-04 (company contacts): the merged companies' contacts move too,
+    // and the kept company may end up with at most MERGE_COMPANY_CONTACT_LIMIT.
+    const contacts = await mergeContacts(ctx, plan);
+    if (contacts.tooMany) {
+      domainError(
+        "INVALID_INPUT",
+        `The kept company would have more than ${MERGE_COMPANY_CONTACT_LIMIT} contacts. Merge fewer companies at a time, or remove some contacts first.`
+      );
+    }
+    const movingContacts = contacts.moving;
     // The kept company's name history (Phase C): its own, its old name when
     // renamed, and each merged company's name and history, so company file
     // labels hide every name its files may carry.
@@ -807,6 +835,10 @@ export const mergeClients = mutation({
         at: now,
       });
     }
+
+    // 2c. The merged companies' contacts (2026-11-04) move to the kept
+    //     company; the kept company's main contact stays its main contact.
+    await moveContactsInMerge(ctx, movingContacts, keptClientId, user._id, now);
 
     await ctx.db.patch(keptClientId, {
       ...(formerNames.size > 0 ? { formerNames: [...formerNames] } : {}),
@@ -1150,6 +1182,103 @@ export const listCompanyYearEnds = query({
   },
 });
 
+// ─── The company profile (2026-11-04) ───────────────────────────────────────
+// docs/product-domain.md "The company profile": the page header's "Client
+// since" and team, the summary card, and the Details tab's record.
+
+/** Projects read, oldest first, to find when the company's earliest live project was made. */
+const CLIENT_SINCE_PROJECT_READ = 50;
+/** Newest projects read for the people on this company (their owners). */
+const COMPANY_TEAM_PROJECT_READ = 50;
+/** Merge tombstones read for the dates the "also known as" names were merged. */
+const FORMER_NAME_TOMBSTONE_READ = 50;
+
+const companyTeamMemberValidator = v.object({ id: v.id("users"), name: v.string(), initials: v.string() });
+
+/** Two letters from a display name ("Priya Nair" is "PN"), as the workflow pickers show them. */
+function nameInitials(label: string): string {
+  const parts = label.split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0] ?? ""}` : label.slice(0, 2)).toUpperCase();
+}
+
+/**
+ * When the company became a client: the earliest `createdAt` among its live
+ * projects (the first CLIENT_SINCE_PROJECT_READ by when they were made), else
+ * the company row's `createdAt`, else null. A backfilled or merged row's
+ * `createdAt` is not trusted while a project exists.
+ */
+async function companyClientSince(ctx: Ctx, key: string, client: Doc<"clients"> | null): Promise<number | null> {
+  let earliest: number | null = null;
+  let read = 0;
+  for await (const project of ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
+    .order("asc")) {
+    read += 1;
+    if (project.deletionStartedAt === undefined && (earliest === null || project.createdAt < earliest)) {
+      earliest = project.createdAt;
+    }
+    if (read >= CLIENT_SINCE_PROJECT_READ) break;
+  }
+  return earliest ?? client?.createdAt ?? null;
+}
+
+/**
+ * The Banhall people on this company: the distinct owners of its newest
+ * COMPANY_TEAM_PROJECT_READ projects that are live, newest project first.
+ */
+async function companyTeam(ctx: Ctx, key: string) {
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_dashboardCompanyKey", (q) => q.eq("dashboardCompanyKey", key))
+    .order("desc")
+    .take(COMPANY_TEAM_PROJECT_READ);
+  const ownerIds: Id<"users">[] = [];
+  for (const project of projects) {
+    if (project.deletionStartedAt !== undefined || !project.ownerId || ownerIds.includes(project.ownerId)) continue;
+    ownerIds.push(project.ownerId);
+  }
+  const team: { id: Id<"users">; name: string; initials: string }[] = [];
+  for (const id of ownerIds) {
+    const user = await ctx.db.get(id);
+    if (!user) continue;
+    const name = userDisplayLabel(user);
+    team.push({ id, name, initials: nameInitials(name) });
+  }
+  return team;
+}
+
+/** The names merged into or renamed away from the company, with the merge date where a tombstone has it. */
+async function companyFormerNames(ctx: Ctx, client: Doc<"clients">) {
+  const tombstones = await ctx.db
+    .query("clients")
+    .withIndex("by_mergedIntoClientId", (q) => q.eq("mergedIntoClientId", client._id))
+    .take(FORMER_NAME_TOMBSTONE_READ);
+  const mergedAtByName = new Map<string, number>();
+  for (const tombstone of tombstones) {
+    if (tombstone.mergedAt !== undefined) mergedAtByName.set(tombstone.name, tombstone.mergedAt);
+  }
+  const names = [...new Set(client.formerNames ?? [])].filter((name) => name !== client.name);
+  return names.map((name) => {
+    const mergedAt = mergedAtByName.get(name);
+    return mergedAt !== undefined ? { name, mergedAt } : { name };
+  });
+}
+
+/** The summary card's fields, with the name of the person who last wrote it. */
+async function companySummaryView(ctx: Ctx, client: Doc<"clients"> | null) {
+  const summary = client?.summary;
+  if (!summary) return null;
+  const editor = summary.editedBy ? await ctx.db.get(summary.editedBy) : null;
+  return {
+    text: summary.text,
+    ...(summary.aiDraftedFrom ? { aiDraftedFrom: summary.aiDraftedFrom } : {}),
+    ...(summary.aiDraftedAt !== undefined ? { aiDraftedAt: summary.aiDraftedAt } : {}),
+    ...(summary.editedBy ? { editedByName: editor ? userDisplayLabel(editor) : "A former team member" } : {}),
+    ...(summary.editedAt !== undefined ? { editedAt: summary.editedAt } : {}),
+  };
+}
+
 const mergedNoteValidator = v.object({
   /** The tombstone the note is about: closing it is kept per tombstone. */
   noteId: v.id("clients"),
@@ -1199,6 +1328,28 @@ export const getCompanyPage = query({
         v.null()
       ),
       mergedNote: v.union(mergedNoteValidator, v.null()),
+      // ── 2026-11-04 (the company profile) ──
+      /** The earliest live project's creation, else the company row's; null with neither. */
+      clientSince: v.union(v.number(), v.null()),
+      /** The distinct owners of the newest 50 live projects, newest first. */
+      team: v.array(companyTeamMemberValidator),
+      /** The company summary, or null with none. */
+      summary: v.union(
+        v.object({
+          text: v.string(),
+          aiDraftedFrom: v.optional(v.string()),
+          aiDraftedAt: v.optional(v.number()),
+          editedByName: v.optional(v.string()),
+          editedAt: v.optional(v.number()),
+        }),
+        v.null()
+      ),
+      /** Who added the company row (null with no row, or a removed user). */
+      createdByName: v.union(v.string(), v.null()),
+      /** The company's last change, as All companies' Last update. */
+      updatedAt: v.union(v.number(), v.null()),
+      /** Names merged into or renamed away from it, with the merge date where known. */
+      formerNames: v.array(v.object({ name: v.string(), mergedAt: v.optional(v.number()) })),
     }),
     v.object({ kind: v.literal("merged"), key: v.string(), name: v.string() }),
     v.object({ kind: v.literal("missing") })
@@ -1240,6 +1391,7 @@ export const getCompanyPage = query({
       const fromProjects = { yearEnd: await projectYearEnd(ctx, entry.key), industry: await projectIndustry(ctx, entry.key) };
       const yearEnd = savedYearEnd ?? fromProjects.yearEnd;
       const industry = entry.industry ?? fromProjects.industry;
+      const creator = client ? await ctx.db.get(client.createdBy) : null;
       return {
         kind: "company" as const,
         key: entry.key,
@@ -1263,6 +1415,12 @@ export const getCompanyPage = query({
               }
             : null,
         mergedNote,
+        clientSince: await companyClientSince(ctx, entry.key, client),
+        team: await companyTeam(ctx, entry.key),
+        summary: await companySummaryView(ctx, client),
+        createdByName: creator ? userDisplayLabel(creator) : null,
+        updatedAt: entry.updatedAt ?? null,
+        formerNames: client ? await companyFormerNames(ctx, client) : [],
       };
     }
     const old = await mergedClientForKey(ctx, args.key);

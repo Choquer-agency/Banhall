@@ -79,6 +79,50 @@ function companyPage(key: string, extra: Record<string, unknown> = {}) {
     hasProjectIndustry: false,
     websiteRead: null,
     mergedNote: null,
+    // 2026-11-04 (the company profile).
+    clientSince: Date.parse("2025-01-14T15:00:00Z"),
+    team: [] as { id: string; name: string; initials: string }[],
+    summary: null,
+    createdByName: "Jordan Ellis",
+    updatedAt: OCT_14,
+    formerNames: [] as { name: string; mergedAt?: number }[],
+    ...extra,
+  };
+}
+
+/** One row of the Overview table (`companyProjects.listCompanyProjects`). */
+function tableRow(index: number, overrides: Record<string, unknown> = {}) {
+  return {
+    _id: `p${index}`,
+    title: `Project ${index}`,
+    projectNumber: String(index),
+    stage: "drafting",
+    fiscalYear: 2026,
+    ownerId: "u-c",
+    ownerName: "Priya Nair",
+    updatedAt: OCT_14,
+    ...overrides,
+  };
+}
+
+function tableResult(rows: unknown[], extra: Record<string, unknown> = {}) {
+  return {
+    rows,
+    total: rows.length,
+    all: rows.length,
+    page: 1,
+    pageCount: 1,
+    pageSize: 10,
+    truncated: false,
+    options: {
+      stages: ["drafting", "client_review", "delivered"],
+      fiscalYears: [2026, 2025],
+      noFiscalYear: false,
+      owners: [
+        { id: "u-m", name: "Jordan Ellis" },
+        { id: "u-c", name: "Priya Nair" },
+      ],
+    },
     ...extra,
   };
 }
@@ -105,6 +149,13 @@ function seed(role: keyof typeof USERS = "manager", clients: unknown[] = CLIENTS
   __setQueryData("clients:findSimilarClients", { exact: null, similar: [] });
   for (const client of CLIENTS) __setQueryDataForArgs("clients:getCompanyPage", { key: client.key }, companyPage(client.key));
   __setPaginatedRows("dashboard:listCompanyProjects", [project("p1"), project("p2", { title: "Defrost cycle prediction" })]);
+  __setQueryData(
+    "companyProjects:listCompanyProjects",
+    tableResult([
+      tableRow(1, { title: "Adaptive cold storage controls", stage: "internal_review" }),
+      tableRow(2, { title: "Defrost cycle prediction", fiscalYear: 2025, ownerId: "u-m", ownerName: "Jordan Ellis" }),
+    ])
+  );
   __setQueryData("companyFiles:companyForKey", { clientId: "c3", name: "Cedarline Systems" });
   __setQueryData("companyFiles:listCompanyFiles", { files: [], truncated: false });
 }
@@ -350,13 +401,12 @@ describe("the Companies sidebar", () => {
     await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/birch%20foods");
   });
 
-  it("marks the open company, and a row click opens its page in place", async () => {
+  it("is not drawn on a company's page (2026-11-04): the switcher takes its place", async () => {
     seed("consultant");
     await mount("cedarline systems");
-    await expect.poll(() => sidebar()?.querySelector('[data-client-row="cedarline systems"]')?.getAttribute("aria-current")).toBe("page");
-    expect(sidebar()!.querySelector('[data-companies-sidebar="all"]')!.getAttribute("aria-current")).toBeNull();
-    await userEvent.click(sidebar()!.querySelector<HTMLElement>('[data-client-row="alder research"]')!);
-    await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/alder%20research");
+    await expect.poll(() => document.querySelector("[data-company-switcher]")).not.toBeNull();
+    expect(sidebar()).toBeNull();
+    expect(document.querySelector("[data-section-sidebar-expand]")).toBeNull();
   });
 
   it("Merge companies sits at the foot for Managers and Admins; a merge opens the kept company", async () => {
@@ -412,97 +462,470 @@ describe("the Companies sidebar", () => {
   });
 });
 
-describe("a company's page", () => {
-  it("names the company with its project count, New project for it, the facts row and the Projects tab", async () => {
+describe("a company's page (2026-11-04, the company profile)", () => {
+  it("has no sidebar: the bar reads Companies / <switcher> with New project, then the header and the tabs", async () => {
     seed("consultant");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://www.cedarline.ca",
+      team: [
+        { id: "u-c", name: "Priya Nair", initials: "PN" },
+        { id: "u-m", name: "Jordan Ellis", initials: "JE" },
+        { id: "u-a", name: "Sam Okafor", initials: "SO" },
+        { id: "u-x", name: "Kai Lee", initials: "KL" },
+      ],
+    }));
     await mount("cedarline systems");
     await expect.poll(() => text(barTitle())).toBe("Cedarline Systems");
-    expect(text(barCount())).toBe("10 projects");
+    expect(sidebar()).toBeNull();
+    // The bar: "Companies" links All companies, then the switcher.
+    const crumbs = document.querySelector<HTMLElement>("[data-company-breadcrumb]")!;
+    expect(crumbs.closest("[data-page-top-bar]")).not.toBeNull();
+    expect(text(crumbs)).toBe("Companies / Cedarline Systems");
+    expect(crumbs.querySelector("[data-company-breadcrumb-all]")!.getAttribute("href")).toBe("/companies");
+    expect(document.querySelector("[data-company-switcher]")!.getAttribute("aria-label")).toBe("Cedarline Systems, switch company");
     const newProject = document.querySelector<HTMLAnchorElement>("[data-top-bar-primary]")!;
     expect(text(newProject)).toBe("New project");
     expect(newProject.getAttribute("href")).toBe("/project/new?client=Cedarline+Systems");
     expect(getComputedStyle(newProject).display).not.toBe("none");
-    const facts = [...document.querySelectorAll("[data-company-fact]")].map((node) => text(node));
-    expect(facts).toEqual(["Fiscal year ends September 30", "Industry Manufacturing", "Projects 10", "Website Not set"]);
-    // The fiscal year sections and cards of the Projects page's company view.
-    await expect.poll(() => document.querySelectorAll("[data-fy-group]").length).toBe(1);
-    expect(text(document.querySelector("[data-fy-header]"))).toContain("FY 2026");
-    expect(document.querySelectorAll("[data-fy-group] li")).toHaveLength(2);
-    // The listing has no header or search of its own on this page.
-    expect(document.querySelector("[data-client-header]")).toBeNull();
-    expect(document.querySelector("[data-client-search]")).toBeNull();
-    const tabs = [...document.querySelectorAll('[data-company-tabs] [role="tab"]')].map((node) => [text(node), node.getAttribute("aria-selected")]);
-    expect(tabs).toEqual([["Projects", "true"], ["Files", "false"]]);
+    expect(document.querySelector("[data-page-count]")).toBeNull();
+    // The header: the page's one h1, the website host, the industry and Client since.
+    expect(document.querySelectorAll("h1")).toHaveLength(1);
+    expect(barTitle()!.tagName).toBe("H1");
+    expect(barTitle()!.closest("[data-company-header]")).not.toBeNull();
+    const website = document.querySelector<HTMLAnchorElement>("[data-company-website]")!;
+    expect(text(website)).toBe("cedarline.ca");
+    expect(website.getAttribute("target")).toBe("_blank");
+    expect(website.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(text(document.querySelector("[data-company-meta]"))).toBe("cedarline.ca Manufacturing Client since January 2025");
+    // Up to three initials, the count naming all of them.
+    expect([...document.querySelectorAll("[data-company-team-member] [aria-hidden]")].map((node) => text(node))).toEqual(["PN", "JE", "SO"]);
+    expect(text(document.querySelector("[data-company-team-count]"))).toBe("4 people on this company");
+    // Underlined tabs, Overview first and selected.
+    const tabs = [...document.querySelectorAll<HTMLElement>('[data-company-tabs] [role="tab"]')];
+    expect(tabs.map((node) => [node.dataset.companyTab, node.getAttribute("aria-selected")])).toEqual([
+      ["overview", "true"],
+      ["files", "false"],
+      ["people", "false"],
+      ["activity", "false"],
+      ["details", "false"],
+    ]);
+    expect(tabs[0]!.querySelector("[data-company-tab-underline]")).not.toBeNull();
+    expect(tabs[0]!.className).not.toContain("bg-primary-selected");
+    expect(document.querySelector<HTMLElement>('[data-company-panel="overview"]')!.hidden).toBe(false);
+    // Plain words: no em or en dashes on the page.
+    expect(text(document.querySelector("[data-company-view]"))).not.toMatch(/[‐-―−]/);
   });
 
-  it("shows the website as a link to its host that opens a new tab, and how its read went (2026-10-29)", async () => {
+  it("hides what it does not know: no website, industry or date, and no people", async () => {
     seed("consultant");
-    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
-      website: "https://www.cedarline.ca/about",
-      websiteRead: { status: "read", finishedAt: OCT_14 },
-    }));
-    const screen = await mount("cedarline systems");
-    const link = () => document.querySelector<HTMLAnchorElement>("[data-company-website]");
-    await expect.poll(() => link()).not.toBeNull();
-    expect(text(document.querySelector('[data-company-fact="website"] dt'))).toBe("Website");
-    expect(text(link())).toBe("cedarline.ca");
-    expect(link()!.getAttribute("href")).toBe("https://www.cedarline.ca/about");
-    expect(link()!.getAttribute("target")).toBe("_blank");
-    expect(link()!.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(document.querySelector("[data-company-website-status]")).toBeNull();
-
-    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
-      website: "https://cedarline.ca",
-      websiteRead: { status: "reading" },
-    }));
-    await expect.poll(() => text(document.querySelector('[data-company-website-status="reading"]'))).toBe("Reading the website...");
-    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
-      website: "https://cedarline.ca",
-      websiteRead: { status: "failed", reason: "it did not answer within 10 seconds." },
-    }));
-    await expect.poll(() => text(document.querySelector('[data-company-website-status="failed"]'))).toBe(
-      "The website could not be read: it did not answer within 10 seconds."
-    );
-    screen.unmount();
-
-    // No website: Not set, no link.
-    await mount("alder research");
-    await expect.poll(() => text(document.querySelector('[data-company-fact="website"] dd'))).toBe("Not set");
-    expect(document.querySelector("[data-company-website]")).toBeNull();
-  });
-
-  it("says Not set for a missing fiscal year end or industry", async () => {
-    seed("consultant");
-    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "ironleaf farms" }, companyPage("ironleaf farms", { clientSince: null }));
     await mount("ironleaf farms");
     await expect.poll(() => text(barTitle())).toBe("Ironleaf Farms");
-    expect([...document.querySelectorAll("[data-company-fact] dd")].map((node) => text(node))).toEqual(["Not set", "Not set", "0", "Not set"]);
-    expect(text(barCount())).toBe("0 projects");
+    expect(document.querySelector("[data-company-meta]")).toBeNull();
+    expect(document.querySelector("[data-company-team]")).toBeNull();
+    expect(text(document.querySelector("[data-company-tab-count]"))).toBe("");
   });
 
-  it("an empty company says so (Paper Z9a) with New project for it", async () => {
+  it("the tabs keep the address (?tab=): it opens on the tab named, and a change writes it without a navigation", async () => {
     seed("consultant");
-    __setPaginatedRows("dashboard:listCompanyProjects", []);
+    __setPageUrl("/companies/cedarline%20systems?tab=details");
+    await page.viewport(1440, 900);
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector('[data-company-tab="details"]')?.getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector<HTMLElement>('[data-company-panel="details"]')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-company-panel="overview"]')!.hidden).toBe(true);
+    await userEvent.click(document.querySelector<HTMLElement>('[data-company-tab="files"]')!);
+    await expect.poll(() => document.querySelector<HTMLElement>("[data-company-files-panel]")?.hidden).toBe(false);
+    expect(__navigationCalls.at(-1)).toEqual({ kind: "replaceState", url: "/companies/cedarline%20systems?tab=files" });
+    expect(__navigationCalls.filter((call) => call.kind === "goto")).toEqual([]);
+    // Overview drops the parameter.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-company-tab="overview"]')!);
+    await expect.poll(() => __navigationCalls.at(-1)).toEqual({ kind: "replaceState", url: "/companies/cedarline%20systems" });
+  });
+
+  it("an unknown tab in the address opens Overview", async () => {
+    seed("consultant");
+    __setPageUrl("/companies/cedarline%20systems?tab=nope");
+    await page.viewport(1440, 900);
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector('[data-company-tab="overview"]')?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("the tabs are a tablist: arrow keys move and wrap, Home and End go to the ends, focus follows", async () => {
+    seed("consultant");
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector('[data-company-tab="overview"]')).not.toBeNull();
+    const overview = document.querySelector<HTMLElement>('[data-company-tab="overview"]')!;
+    expect(overview.tabIndex).toBe(0);
+    expect(document.querySelector<HTMLElement>('[data-company-tab="files"]')!.tabIndex).toBe(-1);
+    expect(overview.getAttribute("aria-controls")).toBe("company-panel-overview");
+    overview.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("files");
+    expect(document.querySelector('[data-company-tab="files"]')!.getAttribute("aria-selected")).toBe("true");
+    await userEvent.keyboard("{End}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("details");
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("overview");
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("details");
+    await userEvent.keyboard("{Home}");
+    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("overview");
+  });
+
+  it("another company starts on Overview", async () => {
+    seed("consultant");
+    const screen = await mount("cedarline systems");
+    await expect.poll(() => document.querySelector('[data-company-tab="details"]')).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>('[data-company-tab="details"]')!);
+    await expect.poll(() => document.querySelector('[data-company-tab="details"]')?.getAttribute("aria-selected")).toBe("true");
+    __setPageUrl("/companies/alder%20research");
+    await screen.rerender({ companyKey: "alder research" });
+    await expect.poll(() => text(barTitle())).toBe("Alder Research");
+    expect(document.querySelector('[data-company-tab="overview"]')!.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("the switcher lists recent companies, then every company; it finds one ignoring case and accents and opens it", async () => {
+    seed("consultant");
+    localStorage.setItem("banhall.recentCompanies.v1:u-c", JSON.stringify([{ key: "alder research", name: "Alder Research" }]));
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-company-switcher]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-switcher]")!);
+    const panel = () => document.querySelector<HTMLElement>("[data-company-switcher-panel]");
+    await expect.poll(panel).not.toBeNull();
+    await expect.poll(() => document.activeElement?.hasAttribute("data-company-switcher-search")).toBe(true);
+    const group = (id: string) =>
+      [...panel()!.querySelectorAll<HTMLElement>(`[data-switcher-group="${id}"] [role="option"]`)].map((node) => text(node));
+    expect(group("recent")).toEqual(["Alder Research 3"]);
+    expect(group("all")).toEqual(["Alder Research 3", "Cedarline Systems 10", "Ironleaf Farms 0"]);
+    expect(panel()!.querySelector('[data-switcher-group="all"] [data-switcher-option="cedarline systems"]')!.getAttribute("aria-selected")).toBe("true");
+    expect(panel()!.querySelector<HTMLAnchorElement>("[data-switcher-all]")!.getAttribute("href")).toBe("/companies");
+    expect(panel()!.querySelector("[data-switcher-new-company]")).not.toBeNull();
+    // Type to find: case and accents ignored; the recent group steps aside.
+    await userEvent.keyboard("ÍRONLEAF");
+    await expect.poll(() => group("all")).toEqual(["Ironleaf Farms 0"]);
+    expect(panel()!.querySelector('[data-switcher-group="recent"]')).toBeNull();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/ironleaf%20farms");
+    await expect.poll(panel).toBeNull();
+  });
+
+  it("the switcher moves with the arrow keys, says when nothing matches, and New company opens its dialog", async () => {
+    seed("consultant");
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-company-switcher]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-switcher]")!);
+    await expect.poll(() => document.querySelector("[data-company-switcher-search]")).not.toBeNull();
+    const search = document.querySelector<HTMLInputElement>("[data-company-switcher-search]")!;
+    await expect.poll(() => document.querySelectorAll('[data-company-switcher-panel] [role="option"]').length).toBe(3);
+    await userEvent.keyboard("{ArrowDown}");
+    expect(search.getAttribute("aria-activedescendant")).toBe(document.querySelector('[data-switcher-option="cedarline systems"]')!.id);
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}");
+    expect(search.getAttribute("aria-activedescendant")).toBe(document.querySelector('[data-switcher-option="ironleaf farms"]')!.id);
+    await userEvent.keyboard("zzz");
+    await expect.poll(() => text(document.querySelector('[data-switcher-group="all"]'))).toBe('All companies No company matches "zzz".');
+    await userEvent.click(document.querySelector<HTMLElement>("[data-switcher-new-company]")!);
+    await expect.element(page.getByRole("dialog", { name: "New company" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull();
+    await expect.poll(() => document.body.style.pointerEvents).toBe("");
+  });
+
+  it("shows the company's projects as one table: #, project, stage, fiscal year, owner, last updated; a row opens the project", async () => {
+    seed("consultant");
+    await mount("cedarline systems");
+    const rows = () => [...document.querySelectorAll<HTMLElement>("[data-company-project-row]")];
+    await expect.poll(() => rows().length).toBe(2);
+    const headers = [...document.querySelectorAll("[data-company-projects-table] th")].map((node) => text(node));
+    expect(headers).toEqual(["Project", "Stage", "Year", "Owner", "Updated"]);
+    expect(rows().map((row) => [...row.querySelectorAll("td")].map((cell) => text(cell)))).toEqual([
+      ["#1 Adaptive cold storage controls", "Internal review", "FY 2026", "Priya Nair", "Oct 14, 2026"],
+      ["#2 Defrost cycle prediction", "Drafting", "FY 2025", "Jordan Ellis", "Oct 14, 2026"],
+    ]);
+    expect(text(document.querySelector("[data-company-projects-count]"))).toBe("2");
+    expect(text(document.querySelector("[data-company-projects-range]"))).toBe("1 to 2 of 2 projects");
+    // One page: no page buttons.
+    expect(document.querySelector("[data-company-projects-next]")).toBeNull();
+    // The whole row is one link to the project (Cmd or Ctrl click opens a new tab).
+    const link = document.querySelector<HTMLAnchorElement>('[data-company-project-link="p1"]')!;
+    expect(link.getAttribute("href")).toBe("/project/p1");
+    rows()[0]!.scrollIntoView({ block: "center" });
+    const box = rows()[0]!.getBoundingClientRect();
+    expect(document.elementFromPoint(box.right - 20, box.top + box.height / 2)).toBe(link);
+    // The query asked for the company's first page, last updated first.
+    expect(__queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toEqual({ companyKey: "cedarline systems" });
+  });
+
+  it("a row's hover changes only its background; keyboard focus adds the 2px teal ring", async () => {
+    seed("consultant");
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector('[data-company-project-row="p1"]')).not.toBeNull();
+    const row = document.querySelector<HTMLElement>('[data-company-project-row="p1"]')!;
+    const rest = getComputedStyle(row).backgroundColor;
+    await userEvent.hover(row);
+    await expect.poll(() => getComputedStyle(row).backgroundColor).not.toBe(rest);
+    await userEvent.unhover(row);
+    document.querySelector<HTMLElement>("[data-company-projects-search]")!.focus();
+    await userEvent.tab();
+    // Past the filters and the sort, Tab reaches the first row's link.
+    for (let step = 0; step < 6 && !document.activeElement?.hasAttribute("data-company-project-link"); step += 1) await userEvent.tab();
+    expect(document.activeElement?.getAttribute("data-company-project-link")).toBe("p1");
+    const ring = getComputedStyle(document.activeElement!, "::after");
+    expect(ring.outlineStyle).toBe("solid");
+    expect(ring.outlineWidth).toBe("2px");
+    await expect.poll(() => getComputedStyle(row).backgroundColor).not.toBe(rest);
+  });
+
+  it("searches, filters by stage, fiscal year and owner, sorts, and goes back to page 1 on each change", async () => {
+    seed("consultant");
+    __setQueryData("companyProjects:listCompanyProjects", tableResult(Array.from({ length: 10 }, (_, index) => tableRow(index + 1)), {
+      total: 24,
+      all: 24,
+      pageCount: 3,
+    }));
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelectorAll("[data-company-project-row]").length).toBe(10);
+    expect(text(document.querySelector("[data-company-projects-range]"))).toBe("1 to 10 of 24 projects");
+    expect([...document.querySelectorAll("[data-company-projects-page]")].map((node) => text(node))).toEqual(["1", "2", "3"]);
+    expect(document.querySelector<HTMLButtonElement>("[data-company-projects-previous]")!.disabled).toBe(true);
+    await userEvent.click(document.querySelector<HTMLElement>('[data-company-projects-page="2"]')!);
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toEqual({ companyKey: "cedarline systems", page: 2 });
+
+    // Stage: picking one sends it and starts again at page 1.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-projects-filter="stage"]')!);
+    await userEvent.click(page.getByRole("menuitemradio", { name: "Delivered" }));
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toEqual({ companyKey: "cedarline systems", stage: "delivered" });
+    expect(text(document.querySelector('[data-projects-filter="stage"]'))).toBe("Delivered");
+    // Fiscal year and owner.
+    await userEvent.click(document.querySelector<HTMLElement>('[data-projects-filter="fiscal-year"]')!);
+    await userEvent.click(page.getByRole("menuitemradio", { name: "FY 2025" }));
+    await userEvent.click(document.querySelector<HTMLElement>('[data-projects-filter="owner"]')!);
+    await userEvent.click(page.getByRole("menuitemradio", { name: "Jordan Ellis" }));
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toEqual({
+      companyKey: "cedarline systems",
+      stage: "delivered",
+      fiscalYear: 2025,
+      ownerId: "u-m",
+    });
+    // The search waits for a pause in typing.
+    await userEvent.fill(page.getByRole("searchbox", { name: "Search projects" }), "defrost");
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toMatchObject({ search: "defrost" });
+    // Sort.
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-projects-sort]")!);
+    await userEvent.click(page.getByRole("menuitemradio", { name: "Name, A to Z" }));
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toMatchObject({ sort: "title" });
+    // Clear puts every filter back.
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-projects-clear]")!);
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toEqual({ companyKey: "cedarline systems", sort: "title" });
+  });
+
+  it("Previous and Next move a page; the last page's Next is off", async () => {
+    seed("consultant");
+    __setQueryData("companyProjects:listCompanyProjects", tableResult([tableRow(21)], { total: 21, all: 21, page: 3, pageCount: 3 }));
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-company-projects-next]")?.disabled).toBe(true);
+    expect(text(document.querySelector("[data-company-projects-range]"))).toBe("21 to 21 of 21 projects");
+    expect(document.querySelector('[data-company-projects-page="3"]')!.getAttribute("aria-current")).toBe("page");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-projects-previous]")!);
+    await expect.poll(() => __queryArgsHistory("companyProjects:listCompanyProjects").at(-1)).toEqual({ companyKey: "cedarline systems", page: 2 });
+  });
+
+  it("says when no project matches, and an empty company says so (Paper Z9a) with New project for it", async () => {
+    seed("consultant");
+    __setQueryData("companyProjects:listCompanyProjects", tableResult([], { all: 4 }));
+    const screen = await mount("cedarline systems");
+    await expect.poll(() => text(document.querySelector("[data-company-projects-none]"))).toBe("No projects match these filters.");
+    screen.unmount();
+    __setQueryData("companyProjects:listCompanyProjects", tableResult([]));
     await mount("ironleaf farms");
     await expect.poll(() => document.querySelector("[data-client-empty]")).not.toBeNull();
     expect(text(document.querySelector("[data-client-empty]"))).toBe(
-      "No projects for Ironleaf Farms yet Start a project and it will show up here, grouped by fiscal year. New project for Ironleaf Farms"
+      "No projects for Ironleaf Farms yet Start a project and it will show up here. New project for Ironleaf Farms"
     );
     expect(document.querySelector("[data-client-new-project]")!.getAttribute("href")).toBe("/project/new?client=Ironleaf+Farms");
   });
 
-  it("the tabs move with the arrow keys and Files shows the company's files", async () => {
+  it("the summary card's footer says where the text came from (Paper 430O), each line only when true", async () => {
     seed("consultant");
+    const footer = () => document.querySelector("[data-company-summary-footer]");
+    const cases: [Record<string, unknown> | null, string | null][] = [
+      [{ text: "Cedarline builds controls.", aiDraftedFrom: "https://cedarline.ca" }, "Drafted by AI from cedarline.ca"],
+      [
+        { text: "Cedarline builds controls.", aiDraftedFrom: "https://cedarline.ca", editedByName: "Jordan Ellis", editedAt: Date.parse("2026-10-03T15:00:00Z") },
+        "Drafted by AI from cedarline.ca Edited by Jordan Ellis on Oct 3, 2026",
+      ],
+      [{ text: "Cedarline builds controls.", editedByName: "Sam Okafor", editedAt: Date.parse("2026-09-18T15:00:00Z") }, "Edited by Sam Okafor on Sep 18, 2026"],
+      [{ text: "Cedarline builds controls." }, null],
+    ];
+    for (const [summary, expected] of cases) {
+      __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", { summary }));
+      const screen = await mount("cedarline systems");
+      await expect.poll(() => text(document.querySelector("[data-company-summary-text]"))).toBe("Cedarline builds controls.");
+      if (expected === null) expect(footer()).toBeNull();
+      else expect(text(footer())).toBe(expected);
+      screen.unmount();
+    }
+    // The AI's source opens the website.
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", { summary: cases[0]![0] }));
     await mount("cedarline systems");
-    await expect.poll(() => document.querySelector('[data-company-tab="projects"]')).not.toBeNull();
-    document.querySelector<HTMLElement>('[data-company-tab="projects"]')!.focus();
-    await userEvent.keyboard("{ArrowRight}");
-    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("files");
-    expect(document.querySelector('[data-company-tab="files"]')!.getAttribute("aria-selected")).toBe("true");
-    await expect.poll(() => document.querySelector<HTMLElement>("[data-company-files-panel]")?.hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>("[data-company-projects-panel]")?.hidden).toBe(true);
-    await userEvent.keyboard("{ArrowLeft}");
-    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("projects");
+    await expect.poll(() => document.querySelector("[data-company-summary-drafted] a")).not.toBeNull();
+    expect(document.querySelector("[data-company-summary-drafted] a")!.getAttribute("href")).toBe("https://cedarline.ca");
+  });
+
+  it("with no summary it says so; while the website is read it says a draft follows", async () => {
+    seed("consultant");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "reading" },
+    }));
+    await mount("cedarline systems");
+    await expect.poll(() => text(document.querySelector("[data-company-summary-empty]"))).toBe(
+      "No summary yet. One is drafted from the website once it is read."
+    );
+    expect(document.querySelector("[data-company-summary-footer]")).toBeNull();
+  });
+
+  it("a Manager writes the summary from Edit; Cancel and Escape leave it as it was", async () => {
+    seed("manager");
+    __setMutationResult("companySummary:updateCompanySummary", null);
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      summary: { text: "Cedarline builds controls.", aiDraftedFrom: "https://cedarline.ca" },
+    }));
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-company-summary-edit]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-summary-edit]")!);
+    const input = () => document.querySelector<HTMLTextAreaElement>("[data-company-summary-input]");
+    await expect.poll(() => document.activeElement === input()).toBe(true);
+    expect(input()!.value).toBe("Cedarline builds controls.");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(input).toBeNull();
+    expect(__mutationCalls("companySummary:updateCompanySummary")).toEqual([]);
+    await expect.poll(() => document.activeElement?.hasAttribute("data-company-summary-edit")).toBe(true);
+
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-summary-edit]")!);
+    await userEvent.fill(page.getByRole("textbox", { name: "Company summary" }), "Cedarline builds refrigeration controls.");
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-summary-save]")!);
+    await expect.poll(() => __mutationCalls("companySummary:updateCompanySummary")).toEqual([
+      { clientId: "c3", text: "Cedarline builds refrigeration controls." },
+    ]);
+    await expect.poll(input).toBeNull();
+  });
+
+  it("refuses a summary over 1,000 characters before it is sent", async () => {
+    seed("admin");
+    await mount("cedarline systems");
+    await expect.poll(() => document.querySelector("[data-company-summary-edit]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-company-summary-edit]")!);
+    await userEvent.fill(page.getByRole("textbox", { name: "Company summary" }), "a".repeat(1_001));
+    await expect.poll(() => text(document.querySelector("[data-company-summary-help]"))).toBe("At most 1,000 characters.");
+    expect(document.querySelector<HTMLButtonElement>("[data-company-summary-save]")!.disabled).toBe(true);
+  });
+
+  it("a company known only by its projects has nothing to save a summary to, so no Edit", async () => {
+    seed("manager");
+    await mount("ironleaf farms");
+    await expect.poll(() => document.querySelector("[data-company-summary]")).not.toBeNull();
+    expect(document.querySelector("[data-company-summary-edit]")).toBeNull();
+  });
+
+  it("Details lists the company and its record (Paper 4AVC)", async () => {
+    seed("consultant");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "read", finishedAt: Date.parse("2026-10-02T15:00:00Z") },
+      formerNames: [{ name: "Cedarline Systems Inc", mergedAt: Date.parse("2026-10-19T15:00:00Z") }, { name: "Cedar Line" }],
+    }));
+    __setPageUrl("/companies/cedarline%20systems?tab=details");
+    await page.viewport(1440, 900);
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    const row = (id: string) => text(document.querySelector(`[data-details-row="${id}"]`));
+    await expect.poll(() => row("name")).toBe("Name Cedarline Systems");
+    expect(row("industry")).toBe("Industry Manufacturing");
+    expect(row("year-end")).toBe("Usual year end September 30");
+    expect(row("website")).toBe("Website cedarline.ca Read into files Oct 2, 2026");
+    expect(row("client-since")).toBe("Client since January 14, 2025");
+    expect(row("added-by")).toBe("Added by Jordan Ellis");
+    expect(row("last-changed")).toBe("Last changed October 14, 2026");
+    expect([...document.querySelectorAll("[data-details-former-name]")].map((node) => [...node.children].map((child) => text(child)))).toEqual([
+      ["Cedarline Systems Inc", "Merged into this company Oct 19, 2026"],
+      ["Cedar Line", "An earlier name"],
+    ]);
+    expect(text(document.querySelector('[data-details-list="company"] h3'))).toBe("Company");
+    expect(text(document.querySelector('[data-details-list="record"] h3'))).toBe("Record");
+  });
+
+  it("Details says how the website read went, and Not set for what is missing", async () => {
+    seed("consultant");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "failed", reason: "it did not answer within 10 seconds." },
+    }));
+    __setPageUrl("/companies/cedarline%20systems?tab=details");
+    await page.viewport(1440, 900);
+    const screen = await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => text(document.querySelector('[data-details-website-status="failed"]'))).toBe(
+      "The website could not be read: it did not answer within 10 seconds."
+    );
+    screen.unmount();
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "ironleaf farms" }, companyPage("ironleaf farms", { createdByName: null, clientSince: null }));
+    __setPageUrl("/companies/ironleaf%20farms?tab=details");
+    await render(CompaniesPage, { companyKey: "ironleaf farms" });
+    const row = (id: string) => text(document.querySelector(`[data-details-row="${id}"]`));
+    await expect.poll(() => row("industry")).toBe("Industry Not set");
+    expect(row("year-end")).toBe("Usual year end Not set");
+    expect(row("website")).toBe("Website Not set");
+    expect(row("client-since")).toBe("Client since Not known");
+    expect(row("added-by")).toBe("Added by Not recorded");
+    expect(row("former-names")).toBe("Also known as No other names");
+  });
+
+  it("Managers see a pencil on a company row's hover that opens Edit company, and Read again", async () => {
+    seed("manager");
+    __setMutationResult("companyWebsite:readWebsiteAgain", null);
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "read", finishedAt: OCT_14 },
+    }));
+    __setPageUrl("/companies/cedarline%20systems?tab=details");
+    await page.viewport(1440, 900);
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector('[data-details-edit="Industry"]')).not.toBeNull();
+    const pencil = document.querySelector<HTMLElement>('[data-details-edit="Industry"]')!;
+    expect(getComputedStyle(pencil).opacity).toBe("0");
+    await userEvent.hover(document.querySelector<HTMLElement>('[data-details-row="industry"]')!);
+    await expect.poll(() => getComputedStyle(pencil).opacity).toBe("1");
+    // The record's rows are not edited here.
+    expect(document.querySelector('[data-details-row="client-since"] [data-details-edit]')).toBeNull();
+    await userEvent.click(pencil);
+    await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector('[data-testid="edit-company-dialog"]')).toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-details-read-again]")!);
+    await expect.poll(() => __mutationCalls("companyWebsite:readWebsiteAgain")).toEqual([{ clientId: "c3" }]);
+  });
+
+  it("Read again is off while the website is read, and a refusal is shown", async () => {
+    seed("admin");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "reading" },
+    }));
+    __setPageUrl("/companies/cedarline%20systems?tab=details");
+    await page.viewport(1440, 900);
+    const screen = await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-details-read-again]")?.disabled).toBe(true);
+    expect(text(document.querySelector("[data-details-read-again]"))).toBe("Reading...");
+    screen.unmount();
+    const errorToast = vi.spyOn(toast, "error").mockImplementation(() => "t");
+    __setMutationError("companyWebsite:readWebsiteAgain", { data: { code: "RATE_LIMITED", message: "More than 20 websites were read for you in the last hour. Try again later." } });
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "read", finishedAt: OCT_14 },
+    }));
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-details-read-again]")?.disabled).toBe(false);
+    await userEvent.click(document.querySelector<HTMLElement>("[data-details-read-again]")!);
+    await expect.poll(() => errorToast.mock.calls.at(-1)?.[0]).toBe("More than 20 websites were read for you in the last hour. Try again later.");
   });
 
   it("a key with no company says it doesn't exist, with a link to All companies", async () => {
@@ -514,7 +937,7 @@ describe("a company's page", () => {
       "This company doesn't exist It may have been renamed, or the link may be wrong. Go to All companies"
     );
     expect(document.querySelector("[data-company-missing-back]")!.getAttribute("href")).toBe("/companies");
-    expect(text(barTitle())).toBe("Companies");
+    expect(text(document.querySelector("[data-company-breadcrumb]"))).toBe("Companies /");
     expect(document.querySelector("[data-top-bar-primary]")).toBeNull();
   });
 
@@ -529,6 +952,7 @@ describe("a company's page", () => {
     await expect.poll(() => __navigationCalls.at(-1)?.url).toBe("/companies/cedarline%20systems?merged=cedarline+systems+inc");
 
     // The route passes the new key; the page asks for the note.
+    __setPageUrl("/companies/cedarline%20systems?merged=cedarline+systems+inc");
     __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems", mergedFrom: "cedarline systems inc" }, companyPage("cedarline systems", {
       mergedNote: { noteId: "t-1", fromName: "Cedarline Systems Inc", mergedAt: Date.parse("2026-10-03T15:00:00Z"), projectCount: 2 },
     }));
@@ -550,7 +974,7 @@ describe("a company's page", () => {
       key: "cedarline systems",
       mergedFrom: "cedarline systems inc",
     });
-    // The address drops the old key shallowly, with no navigation.
+    // The address drops the old key shallowly, with no navigation, and keeps the tab.
     expect(__navigationCalls.filter((call) => call.kind === "goto")).toHaveLength(gotos);
     expect(__navigationCalls.at(-1)).toEqual({ kind: "replaceState", url: "/companies/cedarline%20systems" });
     // Focus leaves the gone close button for the page title.
@@ -566,55 +990,34 @@ describe("a company's page", () => {
     expect(document.querySelector("[data-merged-note]")).toBeNull();
   });
 
-  it("an applied bulk edit puts focus on the active tab, since the listing has no title here", async () => {
-    seed("manager");
-    __setQueryData("tags:listTags", []);
-    __setMutationResult("projects:bulkUpdateProjects", { updated: 1, skipped: 0 });
-    await mount("cedarline systems");
-    await expect.poll(() => document.querySelector('[data-card-select-box="p1"]')).not.toBeNull();
-    await userEvent.click(page.getByRole("checkbox", { name: "Select Project p1" }));
-    await userEvent.click(document.querySelector<HTMLElement>("[data-selection-edit]")!);
-    const bulk = () => document.querySelector<HTMLElement>('[data-testid="bulk-edit-panel"]');
-    await expect.poll(bulk).not.toBeNull();
-    await expect.poll(() => bulk()!.getAnimations().length).toBe(0);
-    await userEvent.click(bulk()!.querySelector<HTMLElement>('[data-bulk-clear="fiscalYearEnd"]')!);
-    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-bulk-apply]")?.disabled).toBe(false);
-    await userEvent.click(document.querySelector<HTMLElement>("[data-bulk-apply]")!);
-    await expect.poll(() => __mutationCalls("projects:bulkUpdateProjects")).toEqual([{ projectIds: ["p1"], fiscalYearEnd: null }]);
-    await expect.poll(bulk).toBeNull();
-    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
-    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("projects");
-  });
-
-  it("ending a selection with Escape puts focus on the active tab, since the listing has no title here", async () => {
-    seed("consultant");
-    await mount("cedarline systems");
-    await expect.poll(() => document.querySelector('[data-card-select-box="p1"]')).not.toBeNull();
-    await userEvent.click(page.getByRole("checkbox", { name: "Select Project p1" }));
-    await expect.poll(() => document.querySelector("[data-selection-bar]")).not.toBeNull();
-    document.querySelector<HTMLElement>("[data-selection-clear]")!.focus();
-    await userEvent.keyboard("{Escape}");
-    await expect.poll(() => document.querySelector("[data-selection-bar]")).toBeNull();
-    await expect.poll(() => document.activeElement?.getAttribute("data-company-tab")).toBe("projects");
-  });
-
-  it("holds its place while it loads: the bar's title block and the company's skeleton", async () => {
+  it("holds its place while it loads: the bar's switcher block and the company's skeleton", async () => {
     __setQueryData("users:getCurrentUser", USERS.consultant);
     __setQueryData("clients:listClients", { clients: CLIENTS, truncated: false });
     await mount("cedarline systems");
     await expect.poll(() => document.querySelector('[data-panel-skeleton="company"]')).not.toBeNull();
-    expect(document.querySelector("[data-page-title-pending]")).not.toBeNull();
+    expect(document.querySelector("[data-company-breadcrumb] [data-page-title-pending]")).not.toBeNull();
     expect(document.querySelector("[data-page-title]")).toBeNull();
+    expect(sidebar()).toBeNull();
   });
 });
 
 describe("Edit company (Managers and Admins)", () => {
-  it("a Consultant sees no Edit company and no merge", async () => {
+  it("a Consultant sees no Edit company, no summary Edit, no pencils and no Read again", async () => {
     seed("consultant");
-    await mount("cedarline systems");
+    __setQueryDataForArgs("clients:getCompanyPage", { key: "cedarline systems" }, companyPage("cedarline systems", {
+      website: "https://cedarline.ca",
+      websiteRead: { status: "read", finishedAt: OCT_14 },
+    }));
+    const screen = await mount("cedarline systems");
     await expect.poll(() => text(barTitle())).toBe("Cedarline Systems");
     expect(document.querySelector("[data-edit-company]")).toBeNull();
-    expect(sidebar()!.querySelector("[data-start-merge]")).toBeNull();
+    expect(document.querySelector("[data-company-summary-edit]")).toBeNull();
+    screen.unmount();
+    __setPageUrl("/companies/cedarline%20systems?tab=details");
+    await render(CompaniesPage, { companyKey: "cedarline systems" });
+    await expect.poll(() => document.querySelector('[data-details-row="name"]')).not.toBeNull();
+    expect(document.querySelector("[data-details-edit]")).toBeNull();
+    expect(document.querySelector("[data-details-read-again]")).toBeNull();
   });
 
   it("View as a Consultant hides it from an Admin", async () => {
@@ -633,8 +1036,9 @@ describe("Edit company (Managers and Admins)", () => {
     await expect.poll(() => document.querySelector("[data-edit-company]")).not.toBeNull();
     const button = document.querySelector<HTMLElement>("[data-edit-company]")!;
     expect(text(button)).toBe("Edit company");
-    // On the right of the facts row, a secondary bar button.
-    expect(button.className).toContain("border-line");
+    // 2026-11-04: in the bar, a quiet button before New project.
+    expect(button.closest("[data-page-top-bar]")).not.toBeNull();
+    expect(button.compareDocumentPosition(document.querySelector("[data-top-bar-primary]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(button);
     const dialog = page.getByRole("dialog", { name: "Edit company" });
     await expect.element(dialog).toBeVisible();
@@ -738,7 +1142,7 @@ describe("Edit company (Managers and Admins)", () => {
     // No endless skeleton: the page says what is at this address now.
     await expect.poll(() => document.querySelector("[data-company-missing]")).not.toBeNull();
     expect(document.querySelector('[data-panel-skeleton="company"]')).toBeNull();
-    expect(text(barTitle())).toBe("Companies");
+    expect(text(document.querySelector("[data-company-breadcrumb]"))).toBe("Companies /");
   });
 
   /** Ironleaf Farms with nothing saved: its newest project's December 31 and Manufacturing. */
@@ -817,18 +1221,18 @@ describe("Edit company (Managers and Admins)", () => {
   it("shows the newest project's year end and industry, muted, when the company has none saved", async () => {
     seed("manager");
     borrowedIronleaf();
-    await mount("ironleaf farms");
-    const fact = (id: string) => document.querySelector<HTMLElement>(`[data-company-fact="${id}"] dd`)!;
-    await expect.poll(() => text(fact("year-end"))).toBe("December 31 from the newest project");
-    expect(text(fact("industry"))).toBe("Manufacturing from the newest project");
-    expect(text(fact("year-end").querySelector(".sr-only"))).toBe("from the newest project");
-    for (const id of ["year-end", "industry"]) {
-      expect(fact(id).hasAttribute("data-borrowed")).toBe(true);
-      expect(fact(id).className).toContain("text-ink-muted");
-    }
-    // The project count is the company's own.
-    expect(fact("projects").className).toContain("text-ink");
-    expect(fact("projects").hasAttribute("data-borrowed")).toBe(false);
+    __setPageUrl("/companies/ironleaf%20farms?tab=details");
+    await page.viewport(1440, 900);
+    await render(CompaniesPage, { companyKey: "ironleaf farms" });
+    const value = (id: string) => document.querySelector<HTMLElement>(`[data-details-row="${id}"] dd [data-borrowed]`);
+    await expect.poll(() => text(value("year-end"))).toBe("December 31 from the newest project");
+    expect(text(value("industry"))).toBe("Manufacturing from the newest project");
+    expect(text(value("year-end")!.querySelector(".sr-only"))).toBe("from the newest project");
+    for (const id of ["year-end", "industry"]) expect(value(id)!.className).toContain("text-ink-muted");
+    // The header's industry is muted too, with the same words for screen readers.
+    const industry = document.querySelector<HTMLElement>("[data-company-industry]")!;
+    expect(industry.hasAttribute("data-borrowed")).toBe(true);
+    expect(text(industry)).toBe("Manufacturing from the newest project");
   });
 
   it("Edit company marks borrowed values and a rename leaves them unsaved, so the company keeps following its projects", async () => {
@@ -890,7 +1294,7 @@ describe("Edit company (Managers and Admins)", () => {
     seed("manager");
     __setQueryDataForArgs("clients:getCompanyPage", { key: "alder research" }, companyPage("alder research", { industry: "quantum-optics" }));
     await mount("alder research");
-    await expect.poll(() => text(document.querySelector('[data-company-fact="industry"] dd'))).toBe("Quantum optics");
+    await expect.poll(() => text(document.querySelector("[data-company-industry]"))).toBe("Quantum optics");
     await userEvent.click(document.querySelector<HTMLElement>("[data-edit-company]")!);
     await expect.element(page.getByRole("dialog", { name: "Edit company" })).toBeVisible();
     await expect.poll(() => document.querySelector<HTMLInputElement>("#edit-company-industry")?.value).toBe("Quantum optics");

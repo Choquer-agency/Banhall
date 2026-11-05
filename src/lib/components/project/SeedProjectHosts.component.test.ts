@@ -770,8 +770,10 @@ describe("Seed project hosts", () => {
     ["preview", PreviewProjectPage],
   ] as const;
 
-  // 2026-11-02 (client request): how long the report's draft took.
-  it.each(HOSTS)("shows how long the report's draft took in the %s host, and nothing for an old draft", async (_host, Page) => {
+  // 2026-11-02 (client request) stamped how long the report's draft took;
+  // owner, 2026-11-05: the report page no longer shows it (Version history
+  // still does).
+  it.each(HOSTS)("does not show the draft time on the report in the %s host", async (_host, Page) => {
     const reportContent = JSON.stringify({
       type: "doc",
       content: [{ type: "paragraph", content: [{ type: "text", text: "Timed report." }] }],
@@ -804,31 +806,8 @@ describe("Seed project hosts", () => {
     });
     await render(Page, {});
     await expect.element(browserPage.getByText("Timed report.", { exact: true })).toBeVisible();
-    const timing = () => document.querySelector<HTMLElement>("[data-report-draft-timing]");
-    await expect.poll(() => timing()?.textContent).toBe("Step by step took 1 h 5 min, then 9 min to draft");
-    expect(timing()?.textContent).not.toMatch(/[\u2013\u2014]/);
-
-    // A single or compare draft reads as one time.
-    __setQueryData("generations:getGenerationSeedView", {
-      _id: "generation-timed",
-      gatedWorkflow: undefined,
-      seedPhase: undefined,
-      summaryVersionId: null,
-      seedCanEdit: true,
-      draftTiming: { draftMs: 12 * 60_000, stepByStepMs: null },
-    });
-    await expect.poll(() => timing()?.textContent).toBe("Drafted in 12 min");
-
-    // An old draft without the stamps shows nothing at all.
-    __setQueryData("generations:getGenerationSeedView", {
-      _id: "generation-timed",
-      gatedWorkflow: undefined,
-      seedPhase: undefined,
-      summaryVersionId: null,
-      seedCanEdit: true,
-      draftTiming: null,
-    });
-    await expect.poll(() => timing()).toBeNull();
+    expect(document.querySelector("[data-report-draft-timing]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Step by step took");
   });
 
   function oneTranscript() {

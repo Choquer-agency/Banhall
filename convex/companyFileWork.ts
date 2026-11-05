@@ -48,6 +48,16 @@ export async function companyFileNeedsServerReading(ctx: QueryCtx, file: Doc<"co
 
 // ─── Server reading ─────────────────────────────────────────────────────────
 
+/**
+ * What a reading claims: the text it may replace and the original it reads
+ * (2026-11-04). Replace file swaps the original, and two unreadable
+ * originals have the same (empty) text, so the text alone could let a
+ * reading of the old original land on the new one.
+ */
+function readingClaim(file: Pick<Doc<"companyFiles">, "textHash" | "storageId">): string {
+  return `${file.textHash}@${file.storageId ?? ""}`;
+}
+
 /** Claims one company file's reading, as startServerReading does for a project file. */
 export const startCompanyFileReading = internalMutation({
   args: { companyFileId: v.id("companyFiles") },
@@ -61,7 +71,7 @@ export const startCompanyFileReading = internalMutation({
     const stored = await ctx.db.system.get(file.storageId);
     if (!stored) return null;
     await ctx.db.patch(file._id, { serverReader: SERVER_READER_VERSION, serverReadStartedAt: Date.now() });
-    return { storageId: file.storageId, fileName: file.fileName, textHash: file.textHash, bytes: stored.size };
+    return { storageId: file.storageId, fileName: file.fileName, textHash: readingClaim(file), bytes: stored.size };
   },
 });
 
@@ -79,7 +89,9 @@ export const saveCompanyFileReading = internalMutation({
   returns: v.union(v.literal("kept"), v.literal("not_better"), v.literal("changed"), v.literal("failed")),
   handler: async (ctx, args) => {
     const file = await ctx.db.get(args.companyFileId);
-    if (!file || file.textHash !== args.expectedTextHash) return "changed";
+    // A claim made before claims named their original carries the text's
+    // fingerprint alone.
+    if (!file || (args.expectedTextHash !== readingClaim(file) && args.expectedTextHash !== file.textHash)) return "changed";
     // Archived meanwhile: the claim is released, so restoring it reads it.
     if (file.archived) {
       await ctx.db.patch(file._id, { serverReadStartedAt: undefined });

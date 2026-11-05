@@ -545,6 +545,9 @@ describe("previewClientMerge and mergeClients", () => {
       collisionCheckIncomplete: false,
       companyFileCount: 0,
       tooManyCompanyFiles: false,
+      // 2026-11-04: company contacts that move with the merge.
+      companyContactCount: 0,
+      tooManyCompanyContacts: false,
     });
   });
 
@@ -1751,6 +1754,13 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       hasProjectIndustry: false,
       websiteRead: null,
       mergedNote: null,
+      // 2026-11-04 (the company profile): no project, so the row's own date.
+      clientSince: expect.any(Number),
+      team: [],
+      summary: null,
+      createdByName: expect.any(String),
+      updatedAt: expect.any(Number),
+      formerNames: [],
     });
     expect(await s.writer.query(api.clients.getCompanyPage, { key: "birch foods" })).toEqual({
       kind: "company",
@@ -1765,6 +1775,13 @@ describe("getCompanyPage (the company page, 2026-10-28)", () => {
       hasProjectIndustry: false,
       websiteRead: null,
       mergedNote: null,
+      // 2026-11-04: a name-only company with no live project and no row.
+      clientSince: null,
+      team: [],
+      summary: null,
+      createdByName: null,
+      updatedAt: expect.any(Number),
+      formerNames: [],
     });
   });
 

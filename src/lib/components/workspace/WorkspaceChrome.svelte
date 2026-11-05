@@ -43,6 +43,8 @@
     primaryAction = null,
     primaryActionInSidebar = false,
     sidebar = undefined,
+    leading = undefined,
+    barClass = "",
   }: {
     title: string;
     /** The title is not known yet: the bar holds its place with a quiet block. */
@@ -59,6 +61,10 @@
      * project) sit in the card alone (owner answer 5, 2026-10-28).
      */
     sidebar?: Snippet;
+    /** Drawn in place of the bar's title (a company's breadcrumb and switcher, 2026-11-04). */
+    leading?: Snippet;
+    /** Extra classes on the top bar (a company's page draws a soft line under it). */
+    barClass?: string;
     /**
      * @deprecated Every top bar is the title and its count (owner,
      * 2026-10-19); a page that needs a sentence of context puts it in its body.
@@ -173,6 +179,8 @@
       actions={hiddenInView ? undefined : actions}
       variant={frame === "inset" ? "default" : frame}
       {onBack}
+      leading={hiddenInView ? undefined : leading}
+      class={barClass}
     />
     <div
       data-chrome-main

@@ -204,6 +204,48 @@ describe("page frame captures (1440 by 900)", () => {
       fiscalYearEndDay: 30,
       industry: "manufacturing",
       mergedNote: null,
+      // 2026-11-04 (the company profile).
+      website: "https://cedarline.ca",
+      websiteRead: { status: "read", finishedAt: now },
+      clientSince: Date.UTC(2025, 0, 14),
+      team: [
+        { id: "u1", name: "Priya Nair", initials: "PN" },
+        { id: "u2", name: "Jordan Ellis", initials: "JE" },
+        { id: "u3", name: "Sam Okafor", initials: "SO" },
+      ],
+      summary: {
+        text: "Cedarline Systems builds controls for commercial refrigeration and cold storage. Its engineers work on compressor efficiency, frost and leak sensing, and pump control for food distributors and grocery chains.",
+        aiDraftedFrom: "https://cedarline.ca",
+        editedByName: "Jordan Ellis",
+        editedAt: Date.UTC(2026, 9, 3),
+      },
+      createdByName: "Jordan Ellis",
+      updatedAt: now,
+      formerNames: [],
+    });
+    __setQueryData("companyProjects:listCompanyProjects", {
+      rows: [
+        ["p8", "8", "Adaptive cold storage controls", "internal_review", 2026, "Priya Nair", 0],
+        ["p9", "9", "High-efficiency pump control", "drafting", 2026, "Jordan Ellis", 5],
+        ["p10", "10", "Defrost cycle prediction", "intake", 2026, "Sam Okafor", 11],
+        ["p7", "7", "Refrigerant leak detection", "client_review", 2025, "Priya Nair", 18],
+        ["p6", "6", "Evaporator coil frost sensing", "delivered", 2025, "Jordan Ellis", 60],
+      ].map(([id, number, title, stage, fiscalYear, ownerName, days]) => ({
+        _id: id,
+        projectNumber: number,
+        title,
+        stage,
+        fiscalYear,
+        ownerName,
+        updatedAt: now - (days as number) * 86_400_000,
+      })),
+      total: 24,
+      all: 24,
+      page: 1,
+      pageCount: 3,
+      pageSize: 10,
+      truncated: false,
+      options: { stages: ["intake", "drafting", "internal_review", "client_review", "delivered"], fiscalYears: [2026, 2025], noFiscalYear: false, owners: [] },
     });
     __setPaginatedRows("dashboard:listCompanyProjects", [
       projectRow("p8", "Adaptive cold storage controls", "drafting", 2026, now),
@@ -215,9 +257,11 @@ describe("page frame captures (1440 by 900)", () => {
     ]);
     __setPageUrl("/companies/cedarline%20systems");
     await render(CompaniesPage, { companyKey: "cedarline systems" });
-    await expect.poll(() => document.querySelectorAll("[data-fy-group]").length).toBe(2);
+    await expect.poll(() => document.querySelectorAll("[data-company-project-row]").length).toBe(5);
     expectFrame();
-    expect(document.querySelector('[data-client-row="cedarline systems"]')?.getAttribute("aria-current")).toBe("page");
+    // 2026-11-04 (the company profile): no sidebar, the switcher in the bar.
+    expect(document.querySelector('[data-section-sidebar="companies"]')).toBeNull();
+    expect(document.querySelector("[data-company-switcher]")).not.toBeNull();
     expect(document.querySelector("[data-page-title]")?.textContent).toBe("Cedarline Systems");
     expect(document.querySelector("[data-edit-company]")).not.toBeNull();
     await capture("company");

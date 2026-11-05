@@ -42,6 +42,9 @@ const expected: Record<Capability, Record<CapabilityRole, CapabilityLevel>> = {
   "companyFiles.read": { writer: "all", manager: "all", admin: "all", financial: "none" },
   "companyFiles.add": { writer: "all", manager: "all", admin: "all", financial: "none" },
   "companyFiles.manage": { writer: "none", manager: "all", admin: "all", financial: "none" },
+  // 2026-11-04 (the company profile): company contacts.
+  "companyContacts.read": { writer: "all", manager: "all", admin: "all", financial: "all" },
+  "companyContacts.manage": { writer: "all", manager: "all", admin: "all", financial: "none" },
 };
 
 describe("role capability matrix", () => {

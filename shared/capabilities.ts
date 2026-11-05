@@ -30,6 +30,9 @@ export const CAPABILITIES = [
   "companyFiles.read",
   "companyFiles.add",
   "companyFiles.manage",
+  // 2026-11-04 (the company profile): company contacts on the People tab.
+  "companyContacts.read",
+  "companyContacts.manage",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -85,6 +88,8 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "companyFiles.read": all,
     "companyFiles.add": all,
     "companyFiles.manage": none,
+    "companyContacts.read": all,
+    "companyContacts.manage": all,
   },
   manager: {
     "project.create": all,
@@ -117,6 +122,8 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "companyFiles.read": all,
     "companyFiles.add": all,
     "companyFiles.manage": all,
+    "companyContacts.read": all,
+    "companyContacts.manage": all,
   },
   admin: Object.fromEntries(CAPABILITIES.map((capability) => [capability, all])) as CapabilityPreset,
   financial: {
@@ -180,6 +187,10 @@ export const ROLE_CAPABILITY_PRESETS: Record<CapabilityRole, CapabilityPreset> =
     "companyFiles.read": none,
     "companyFiles.add": none,
     "companyFiles.manage": none,
+    // 2026-11-04 (the company profile): Financial users read a company's
+    // contacts but do not add, edit, mark or remove them.
+    "companyContacts.read": all,
+    "companyContacts.manage": none,
   },
 };
 
@@ -226,6 +237,11 @@ export const CAPABILITY_GROUPS = [
     id: "company-files",
     label: "Company files",
     capabilities: ["companyFiles.read", "companyFiles.add", "companyFiles.manage"],
+  },
+  {
+    id: "company-contacts",
+    label: "Company contacts",
+    capabilities: ["companyContacts.read", "companyContacts.manage"],
   },
   {
     id: "team",

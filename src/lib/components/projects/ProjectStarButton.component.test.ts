@@ -48,6 +48,31 @@ describe("ProjectStarButton", () => {
     expect(button().className).toContain("relative z-10");
   });
 
+  it("fills a starred star in the slightly darker yellow, fading its colour (owner, 2026-11-05)", async () => {
+    await render(ProjectStarButton, { projectId: "p1", projectTitle: "Pump control", starred: true, variant: "bar" });
+    expect(button().className).toContain("text-star");
+    expect(getComputedStyle(button()).color).toBe("rgb(234, 179, 8)");
+    expect(getComputedStyle(button()).transitionDuration).toContain("0.2s");
+  });
+
+  it("pops once when starred, then settles", async () => {
+    __setMutationResult("projects:setProjectStar", { starred: true });
+    await render(ProjectStarButton, { projectId: "p1", projectTitle: "Pump control", starred: false, variant: "bar" });
+    expect(button().querySelector("[data-star-pop]")).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Star project" }));
+    // The pop runs for 260ms and clears itself when it ends.
+    expect(button().querySelector(".star-pop")).not.toBeNull();
+    expect(getComputedStyle(button().querySelector(".star-pop")!).animationName).toBe("star-pop");
+    await expect.poll(() => button().querySelector("[data-star-pop]")).toBeNull();
+  });
+
+  it("does not pop when unstarring", async () => {
+    __setMutationResult("projects:setProjectStar", { starred: false });
+    await render(ProjectStarButton, { projectId: "p1", projectTitle: "Pump control", starred: true, variant: "bar" });
+    await userEvent.click(page.getByRole("button", { name: "Star project" }));
+    expect(button().querySelector("[data-star-pop]")).toBeNull();
+  });
+
   it("puts the saved state back with a toast when the star is refused", async () => {
     const errorToast = vi.spyOn(toast, "error").mockImplementation(() => "star-toast");
     __setMutationError("projects:setProjectStar", {

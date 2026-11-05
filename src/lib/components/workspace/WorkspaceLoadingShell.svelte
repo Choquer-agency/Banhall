@@ -171,17 +171,24 @@
         </FrameCard>
       </div>
     {:else if layout === "company"}
-      <!-- A company's page: its name is not known yet, so a quiet block
-           holds its place; New project stays in the bar (the Companies
-           sidebar's own action is New company). -->
-      <FrameCard data-workspace-loading={layout} sidebar={sectionSidebar}>
+      <!-- A company's page (2026-11-04): no sidebar; the bar reads
+           "Companies /" with a quiet block where the switcher goes, and New
+           project waits in its place. -->
+      <FrameCard data-workspace-loading={layout}>
         <PageTopBar
           {title}
-          titlePending
-          sidebarToggle
+          class="border-b border-line-soft"
           primaryAction={canCreate ? { label: "New project", disabled: true } : null}
           onOpenNavigation={() => (navigationOpen = true)}
-        />
+        >
+          {#snippet leading()}
+            <div class="flex min-w-0 items-center gap-2.5 text-sm leading-[calc(9/7)]">
+              <span class="shrink-0 text-ink-muted max-sm:hidden">Companies</span>
+              <span aria-hidden="true" class="shrink-0 text-ink-faint max-sm:hidden">/</span>
+              <span data-page-title-pending aria-hidden="true" class="h-9 w-44 max-w-[40%] shrink animate-pulse rounded-[0.625rem] bg-chrome motion-reduce:animate-none"></span>
+            </div>
+          {/snippet}
+        </PageTopBar>
         <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <WorkspacePanelSkeleton {layout} {label} {...rest} />
         </div>

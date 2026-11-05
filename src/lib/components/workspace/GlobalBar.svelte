@@ -45,7 +45,7 @@
     data-global-bar-logo
     class={`flex shrink-0 items-center rounded-md pl-0.5 ${focusRing}`}
   >
-    <BanhallLogo height={34} alt="" class="h-[2.125rem] w-auto" />
+    <BanhallLogo height={37} alt="" class="h-[2.3125rem] w-auto" />
   </a>
   <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5">
     <a

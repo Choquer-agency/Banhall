@@ -123,3 +123,33 @@ export function closeMergedNote(noteId: string): void {
     // Storage blocked: the note stays closed until the page is left.
   }
 }
+
+// ─── The company profile (2026-11-04) ───────────────────────────────────────
+
+/** "Client since January 2025", or null when the company has no date. */
+export function clientSinceLabel(timestamp: number | null | undefined): string | null {
+  if (timestamp === null || timestamp === undefined) return null;
+  const date = new Date(timestamp);
+  return `Client since ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/** "1 person on this company", "3 people on this company". */
+export function teamCountLabel(count: number): string {
+  return count === 1 ? "1 person on this company" : `${count} people on this company`;
+}
+
+/** "Oct 3, 2026", as the summary card and the Overview table show dates. */
+export function shortDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** The company page's tabs, in order (2026-11-04). Overview is the default. */
+export const COMPANY_TABS = ["overview", "files", "people", "activity", "details"] as const;
+export type CompanyTab = (typeof COMPANY_TABS)[number];
+
+/** The tab an address names (`?tab=`), when the viewer may see it; else Overview. */
+export function companyTabFromParam(value: string | null | undefined, allowed: readonly CompanyTab[]): CompanyTab {
+  return (COMPANY_TABS as readonly string[]).includes(value ?? "") && allowed.includes(value as CompanyTab)
+    ? (value as CompanyTab)
+    : "overview";
+}

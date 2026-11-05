@@ -14,15 +14,18 @@
  * save. Each person may ask for website reads at the rate of
  * `websiteReadPerUser`; past it the read fails with a plain reason.
  */
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { companyFileTextFacts, insertCompanyFileTextPieces } from "./lib/companyFileText";
 import { deriveProcessingStatus } from "../shared/documentStatus";
-import { companyWebsiteFileName } from "../shared/companyWebsite";
+import { companyWebsiteFileName, companyWebsiteHost } from "../shared/companyWebsite";
 import { limitUserAction } from "./lib/aiRateLimits";
 import { WEBSITE_READ_REASONS } from "./lib/websiteRead";
+import { requireRole } from "./lib/auth";
+import { domainError } from "./lib/contracts";
+import { summaryWrittenByPerson } from "./companySummary";
 
 /** A read still not finished this long after it was asked for has failed. */
 export const WEBSITE_READ_EXPIRY_MS = 2 * 60_000;
@@ -63,16 +66,47 @@ async function archiveWebsiteFile(ctx: MutationCtx, client: Doc<"clients">, user
 /**
  * A read that failed: its plain reason on the company row, and the file of
  * the address it replaced archived, so an old website's text stops feeding
- * drafts once the address changed.
+ * drafts once the address changed. A read of the same address asked for
+ * again (Read again, 2026-11-04) keeps the file it was already read into.
  */
+/**
+ * Logs a finished read for the company's Activity tab (2026-11-04): saved
+ * as a new file, unchanged, or failed with its reason (companyWebsiteReads).
+ */
+async function logWebsiteRead(
+  ctx: MutationCtx,
+  clientId: Id<"clients">,
+  url: string,
+  outcome: Doc<"companyWebsiteReads">["outcome"],
+  userId: Id<"users">,
+  at: number,
+  extra: { reason?: string; companyFileId?: Id<"companyFiles"> } = {}
+) {
+  await ctx.db.insert("companyWebsiteReads", {
+    clientId,
+    url,
+    host: companyWebsiteHost(url),
+    outcome,
+    ...(extra.reason ? { reason: extra.reason } : {}),
+    ...(extra.companyFileId ? { companyFileId: extra.companyFileId } : {}),
+    userId,
+    at,
+  });
+}
+
 async function failRead(
   ctx: MutationCtx,
   client: Doc<"clients">,
-  read: { url: string; requestedAt: number },
+  read: { url: string; requestedAt: number; again?: true },
   reason: string,
   userId: Id<"users">,
   now: number
 ) {
+  await logWebsiteRead(ctx, client._id, read.url, "failed", userId, now, { reason });
+  if (read.again) {
+    await ctx.db.patch(client._id, { websiteRead: { ...read, status: "failed", reason, finishedAt: now } });
+    return;
+  }
   await archiveWebsiteFile(ctx, client, userId, now);
   await ctx.db.patch(client._id, {
     websiteRead: { ...read, status: "failed", reason, finishedAt: now },
@@ -108,7 +142,21 @@ export async function onCompanyWebsiteChanged(
     await failRead(ctx, client, { url: website, requestedAt: now }, WEBSITE_READ_RATE_LIMITED, userId, now);
     return;
   }
-  await ctx.db.patch(clientId, { websiteRead: { url: website, status: "reading", requestedAt: now } });
+  await scheduleWebsiteRead(ctx, clientId, website, userId, now, false);
+}
+
+/** Marks the website as being read and schedules the read and its expiry check. */
+async function scheduleWebsiteRead(
+  ctx: MutationCtx,
+  clientId: Id<"clients">,
+  website: string,
+  userId: Id<"users">,
+  now: number,
+  again: boolean
+) {
+  await ctx.db.patch(clientId, {
+    websiteRead: { url: website, status: "reading", requestedAt: now, ...(again ? { again: true as const } : {}) },
+  });
   await ctx.scheduler.runAfter(0, internal.companyWebsiteNode.readCompanyWebsite, {
     clientId,
     url: website,
@@ -121,6 +169,37 @@ export async function onCompanyWebsiteChanged(
     userId,
   });
 }
+
+/**
+ * Read again (2026-11-04, the company profile's Details tab; Managers and
+ * Admins, Edit company's rule): reads the company's saved website again
+ * through the same read, under the same hourly limit. Past the limit it is
+ * refused with the limit's words and the company is left as it is. A read
+ * still running is not asked for twice. Text read again unchanged keeps
+ * the file it has; a failed read keeps it too. The company's last change
+ * does not move.
+ */
+export const readWebsiteAgain = mutation({
+  args: { clientId: v.id("clients") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireRole(ctx, ["manager", "admin"]);
+    const client = await ctx.db.get(args.clientId);
+    if (!client || client.status !== "active") domainError("NOT_FOUND", "This company no longer exists.");
+    if (!client.website) domainError("INVALID_INPUT", "This company has no website to read.");
+    if (client.websiteRead?.status === "reading" && client.websiteRead.url === client.website) return null;
+    try {
+      await limitUserAction(ctx, "websiteReadPerUser", user._id);
+    } catch (error) {
+      if (!rateLimited(error)) throw error;
+      domainError("RATE_LIMITED", "More than 20 websites were read for you in the last hour. Try again later.");
+    }
+    // A read of an address never read into a file is a first read, not a re-read.
+    const again = client.websiteFileId !== undefined;
+    await scheduleWebsiteRead(ctx, client._id, client.website, user._id, Date.now(), again);
+    return null;
+  },
+});
 
 /**
  * A read that never finished (its action was stopped, or never ran) fails
@@ -178,7 +257,7 @@ export const finishWebsiteRead = internalMutation({
     const now = Date.now();
     const read = { url: args.url, requestedAt: args.requestedAt, finishedAt: now };
     if (!args.result.ok) {
-      await failRead(ctx, client, read, args.result.reason, args.userId, now);
+      await failRead(ctx, client, { ...read, ...(client.websiteRead?.again ? { again: true as const } : {}) }, args.result.reason, args.userId, now);
       return null;
     }
     const text = args.result.text;
@@ -216,6 +295,18 @@ export const finishWebsiteRead = internalMutation({
     }
     await archiveWebsiteFile(ctx, client, args.userId, now, fileId);
     await ctx.db.patch(client._id, { websiteRead: { ...read, status: "read" }, websiteFileId: fileId });
+    await logWebsiteRead(ctx, client._id, args.url, same ? "unchanged" : "saved", args.userId, now, { companyFileId: fileId });
+    // 2026-11-04: the AI drafts the company summary from this text, once
+    // per read, while no person has written one (never over their text).
+    if (facts.hasText && !summaryWrittenByPerson(client)) {
+      await ctx.scheduler.runAfter(0, internal.ai.companySummary.draftCompanySummary, {
+        clientId: client._id,
+        companyFileId: fileId,
+        url: args.url,
+        requestedAt: args.requestedAt,
+        userId: args.userId,
+      });
+    }
     return null;
   },
 });
