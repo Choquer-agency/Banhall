@@ -438,11 +438,37 @@ export default defineSchema({
         requestedAt: v.number(),
         finishedAt: v.optional(v.number()),
         reason: v.optional(v.string()),
+        // 2026-11-04 (the company profile, Read again): a read of the same
+        // saved address asked for again. A failed one keeps the file the
+        // address was already read into, since that text is still right.
+        again: v.optional(v.literal(true)),
       })
     ),
     // The company file the website was last read into; archived when a new
     // website replaces it or the website is removed.
     websiteFileId: v.optional(v.id("companyFiles")),
+    // ── 2026-11-04: the company summary (docs/product-domain.md, "The company
+    // profile"). Two or three plain sentences on what the company does,
+    // shown on the company page only (drafts and the Assistant never read
+    // it). Drafted by the Haiku tier from the website file after a website
+    // read saves, while no person has written one; written or changed by
+    // Managers and Admins (`companySummary.updateCompanySummary`), whose
+    // text a later read never replaces. Absent: no summary (a failed draft
+    // leaves it absent). Widen only, no backfill.
+    summary: v.optional(
+      v.object({
+        text: v.string(),
+        // The website address the AI drafted from, kept after a person edits
+        // it, so the card still says "Drafted by AI from <host>".
+        aiDraftedFrom: v.optional(v.string()),
+        aiDraftedAt: v.optional(v.number()),
+        // The person who last wrote or changed it, and when. Set: a person's
+        // text, never overwritten by the AI.
+        editedBy: v.optional(v.id("users")),
+        editedAt: v.optional(v.number()),
+      })
+    ),
+    // ── end of the company summary block.
     status: v.union(v.literal("active"), v.literal("merged")),
     mergedIntoClientId: v.optional(v.id("clients")),
     mergedAt: v.optional(v.number()),
@@ -2690,6 +2716,10 @@ export default defineSchema({
     labelsLastError: v.optional(v.string()),
     /** The browser's key for the save that made this row, so a retried save finds it. */
     attemptKey: v.optional(v.string()),
+    // 2026-11-04 (Edit details): the fiscal year a person filed the file
+    // under, a label only (drafts read company files exactly as before).
+    // Unset: the AI label's year is shown; null: a person said none.
+    fiscalYear: v.optional(v.union(v.number(), v.null())),
   })
     .index("by_clientId_and_archived", ["clientId", "archived"])
     // The same file: one company, text, name, not archived.
@@ -2708,8 +2738,9 @@ export default defineSchema({
     text: v.string(),
   }).index("by_companyFileId_and_start", ["companyFileId", "start"]),
 
-  // Every add, archive, restore, removal and merge move of a company file,
-  // with who and when; the file name is kept because removal deletes the row.
+  // Every add, archive, restore, removal, replacement (2026-11-04) and merge
+  // move of a company file, with who and when; the file name is kept because
+  // removal deletes the row.
   companyFileEvents: defineTable({
     clientId: v.id("clients"),
     companyFileId: v.id("companyFiles"),
@@ -2720,10 +2751,51 @@ export default defineSchema({
       v.literal("restore"),
       v.literal("remove"),
       v.literal("merge_in"),
-      v.literal("merge_out")
+      v.literal("merge_out"),
+      v.literal("replaced")
     ),
     /** The other company of a merge move. */
     otherClientId: v.optional(v.id("clients")),
+    /** A replacement's earlier name, when the new original has another one. */
+    previousFileName: v.optional(v.string()),
+    userId: v.id("users"),
+    at: v.number(),
+  }).index("by_clientId_and_at", ["clientId", "at"]),
+
+  // ── Company contacts (2026-11-04, the company profile: People) ──────────
+  // A company's own people (not Banhall users; they never sign in), listed
+  // on its People tab. Read: companyContacts.read; add, edit, mark and
+  // remove: companyContacts.manage. At most one main contact per company
+  // (marking one clears the other in the same mutation). A merge moves them
+  // to the kept company. Contacts never reach an AI call.
+  companyContacts: defineTable({
+    clientId: v.id("clients"),
+    firstName: v.string(),
+    lastName: v.string(),
+    role: v.string(),
+    email: v.string(),
+    phone: v.optional(v.string()),
+    isMain: v.boolean(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+    updatedAt: v.number(),
+  })
+    .index("by_clientId", ["clientId"])
+    .index("by_clientId_and_isMain", ["clientId", "isMain"]),
+
+  // ── Company website reads (2026-11-04, the company profile: Activity) ───
+  // One row each time a read of the company's website finishes: its text
+  // saved as a new company file, unchanged from the file it already has, or
+  // failed with its plain reason. Written by convex/companyWebsite.ts only;
+  // read by the company's Activity tab. `userId` is who asked for the read.
+  companyWebsiteReads: defineTable({
+    clientId: v.id("clients"),
+    url: v.string(),
+    host: v.string(),
+    outcome: v.union(v.literal("saved"), v.literal("unchanged"), v.literal("failed")),
+    reason: v.optional(v.string()),
+    companyFileId: v.optional(v.id("companyFiles")),
     userId: v.id("users"),
     at: v.number(),
   }).index("by_clientId_and_at", ["clientId", "at"]),

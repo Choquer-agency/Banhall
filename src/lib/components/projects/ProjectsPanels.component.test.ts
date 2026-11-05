@@ -765,4 +765,41 @@ describe("Merge result", () => {
     await expect.poll(() => appPage.url.searchParams.get("client")).toBe("acuity insights");
     await expect.poll(() => document.activeElement?.getAttribute("data-client-row")).toBe("acuity insights");
   });
+
+  it("says how many company contacts move, and refuses a kept company over 500 contacts (2026-11-04)", async () => {
+    const two = [
+      { key: "acuity insights", clientId: "c1", name: "Acuity Insights", projectCount: 4 },
+      { key: "acuity inc", clientId: "c2", name: "Acuity Inc", projectCount: 1 },
+    ];
+    const preview = {
+      projectCount: 5,
+      movedCount: 1,
+      tooMany: false,
+      keptName: "Acuity Insights",
+      keptKey: "acuity insights",
+      nameConflict: null,
+      numberCollisions: [],
+      collisionCheckIncomplete: false,
+      companyFileCount: 0,
+      tooManyCompanyFiles: false,
+      companyContactCount: 3,
+      tooManyCompanyContacts: false,
+    };
+    __setQueryData("clients:listClients", { clients: two, truncated: false });
+    __setQueryData("clients:previewClientMerge", preview);
+    await mount("/projects");
+    await expect.poll(() => document.querySelector("[data-start-merge]")).not.toBeNull();
+    await userEvent.click(document.querySelector<HTMLElement>("[data-start-merge]")!);
+    for (const name of [/^Acuity Insights 4$/, /^Acuity Inc 1$/]) {
+      await userEvent.click(page.getByRole("checkbox", { name }));
+    }
+    await userEvent.click(document.querySelector<HTMLElement>("[data-merge-open]")!);
+    await expect.poll(() => text(document.querySelector("[data-merge-company-contacts]"))).toBe("3 company contacts move to Acuity Insights too.");
+    await expect.poll(() => document.querySelector<HTMLButtonElement>("[data-confirm-merge]")?.disabled).toBe(false);
+
+    __setQueryData("clients:previewClientMerge", { ...preview, companyContactCount: 501, tooManyCompanyContacts: true });
+    await expect.poll(() => text(document.querySelector('[data-merge-error="too-many-contacts"]'))).toContain("more than 500 contacts");
+    expect(document.querySelector("[data-merge-company-contacts]")).toBeNull();
+    expect(document.querySelector<HTMLButtonElement>("[data-confirm-merge]")?.disabled).toBe(true);
+  });
 });

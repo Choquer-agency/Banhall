@@ -5,7 +5,7 @@ import FrameRail from "./FrameRail.svelte";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __isQueryActive, __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
-import { board } from "$lib/test/boardScale";
+import { board, boardCss, boardPx } from "$lib/test/boardScale";
 
 /** The page frame's fixed labelled rail (owner, 2026-10-28; Paper S9, S11). */
 const USERS = {
@@ -130,22 +130,22 @@ describe("FrameRail", () => {
     const rail = style(nav());
     expect(nav().getBoundingClientRect().width).toBeCloseTo(board(80), 1);
     expect([rail.paddingTop, rail.paddingLeft, rail.paddingBottom, rail.rowGap].map(parseFloat)).toEqual(
-      [10, 8, 14, 6].map(board)
+      [10, 8, 14, 6].map(boardCss)
     );
     const projects = item("projects")!;
     expect(projects.getBoundingClientRect().width).toBeCloseTo(board(64), 1);
     expect(projects.getBoundingClientRect().height).toBeCloseTo(board(56), 1);
     const tile = projects.querySelector<HTMLElement>("[data-rail-tile]")!;
     expect([tile.getBoundingClientRect().width, tile.getBoundingClientRect().height]).toEqual([board(40), board(36)]);
-    expect(style(tile).borderRadius).toBe(`${board(10)}px`);
+    expect(style(tile).borderRadius).toBe(boardPx(10));
     // Active: the frame tile, ink label at 500, the active duotone icon.
     expect(projects.getAttribute("aria-current")).toBe("page");
     expect(style(tile).backgroundColor).toBe("rgb(228, 228, 228)");
     const label = projects.querySelector<HTMLElement>("[data-rail-label]")!;
     expect([label.textContent, style(label).fontSize, style(label).lineHeight, style(label).fontWeight, style(label).color]).toEqual([
       "Projects",
-      `${board(12)}px`,
-      `${board(16)}px`,
+      boardPx(12),
+      boardPx(16),
       "500",
       "rgb(22, 33, 31)",
     ]);

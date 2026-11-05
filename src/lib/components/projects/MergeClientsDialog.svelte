@@ -7,8 +7,10 @@
   twice in one fiscal year. When that check hit its read bound
   (collisionCheckIncomplete) the dialog says so. Since Phase C (2026-10-26)
   it also says how many company files move, and a merge over the company
-  file cap (tooManyCompanyFiles) is refused. Any refusal disables Merge
-  clients.
+  file cap (tooManyCompanyFiles) is refused. Since 2026-11-04 it says how
+  many company contacts move, and a merge that would leave the kept company
+  with more than 500 contacts (tooManyCompanyContacts) is refused. Any
+  refusal disables Merge clients.
 -->
 <script module lang="ts">
   export type MergeResult = { keptKey: string; keptName: string; moved: number };
@@ -103,7 +105,8 @@
       !previewError &&
       preview.nameConflict === null &&
       !preview.tooMany &&
-      !preview.tooManyCompanyFiles
+      !preview.tooManyCompanyFiles &&
+      !preview.tooManyCompanyContacts
   );
 
   const projectsLabel = (count: number) => (count === 1 ? "1 project" : `${count} projects`);
@@ -219,6 +222,11 @@
           {preview.companyFileCount === 1 ? "1 company file moves" : `${preview.companyFileCount} company files move`} to {preview.keptName} too.
         </p>
       {/if}
+      {#if preview.companyContactCount > 0 && !preview.tooManyCompanyContacts}
+        <p data-merge-company-contacts class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
+          {preview.companyContactCount === 1 ? "1 company contact moves" : `${preview.companyContactCount} company contacts move`} to {preview.keptName} too.
+        </p>
+      {/if}
     {/if}
     {#if preview && preview.numberCollisions.length > 0 && preview.nameConflict === null && !preview.tooMany}
       <ul data-merge-collisions class="flex flex-col gap-1 rounded-lg bg-gap-bg px-3 py-2.5 text-sm leading-[calc(10/7)] text-gap-text">
@@ -245,6 +253,11 @@
     {#if preview?.tooManyCompanyFiles}
       <p role="alert" data-merge-error="too-many-files" class={errorBox}>
         This merge would move more than 500 company files. Merge fewer companies at a time.
+      </p>
+    {/if}
+    {#if preview?.tooManyCompanyContacts}
+      <p role="alert" data-merge-error="too-many-contacts" class={errorBox}>
+        The kept company would have more than 500 contacts. Merge fewer companies at a time, or remove some contacts first.
       </p>
     {/if}
     {#if previewError}

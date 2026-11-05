@@ -162,6 +162,8 @@
   --color-warning-action-hover: #B45309;
   --color-warning-body: #92400EBF;     /* E6 paragraph: #92400E at 75% */
 
+  --color-star: #EAB308;               /* a starred project's filled star (owner, 2026-11-05) */
+
   --color-success: #16A34A;
   --color-success-soft: #DCFCE7;
   --color-success-ink: #166534;
@@ -310,10 +312,10 @@
    Sizes are rem (scripts/px-to-rem.mjs), so the root font size scales the
    whole UI. Phones and tablets keep the browser default (16px). On a laptop
    (a mouse or trackpad and a window 1280px or wider, where the full rail
-   appears) the root is 15px up to 1440px wide, so the boards render a
-   little denser, then rises 1px per 160px to 16px at 1600. From there it
-   grows 1px per 240px to 125% at 2560px and stops: 17.33px at 1920, 20px at
-   2560 and wider. rootFontSize() in $lib/rootScale mirrors these numbers.
+   appears) the root is 15.75px up to 1440px wide, then rises 1.05px per
+   160px to 16.8px at 1600. From there it grows 1.05px per 240px to 131.25%
+   at 2560px and stops: 18.2px at 1920, 21px at 2560 and wider (owner,
+   2026-11-05: 5% larger than the earlier 15, 16 and 20px). rootFontSize() in $lib/rootScale mirrors these numbers.
    Percent based, so a larger browser default and browser zoom still apply
    on top. Media query breakpoints are not affected (they read the browser
    default, not this). JS that sizes things in board pixels reads the ratio
@@ -323,12 +325,12 @@ html {
 }
 @media (min-width: 1280px) and (pointer: fine) {
   html {
-    font-size: clamp(93.75%, calc(93.75% + (100vw - 1440px) / 160), 100%); /* px-to-rem: keep */
+    font-size: clamp(98.4375%, calc(98.4375% + (100vw - 1440px) * 0.0065625), 105%); /* px-to-rem: keep */
   }
 }
 @media (min-width: 1600px) {
   html {
-    font-size: clamp(100%, calc(100% + (100vw - 1600px) / 240), 125%); /* px-to-rem: keep */
+    font-size: clamp(105%, calc(105% + (100vw - 1600px) * 0.004375), 131.25%); /* px-to-rem: keep */
   }
 }
 
@@ -1572,6 +1574,28 @@ textarea.input-chromeless:focus-visible {
   transform-origin: var(--bits-combobox-content-transform-origin, var(--bits-select-content-transform-origin, top));
   animation: select-pop-in 140ms ease-out;
 }
+/* A project star being turned on (owner, 2026-11-05): a short pop while
+   the fill fades in. Off with reduced motion. */
+@keyframes star-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.star-pop {
+  animation: star-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-pop {
+    animation: none;
+  }
+}
+
 @keyframes select-pop-in {
   from {
     opacity: 0;

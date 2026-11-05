@@ -29,7 +29,6 @@
   import GenerationProgress from "$lib/components/generation/GenerationProgress.svelte";
   import GenerationStatusChip from "$lib/components/generation/GenerationStatusChip.svelte";
   import Editor from "$lib/components/editor/Editor.svelte";
-  import { useEvidenceView } from "$lib/components/editor/evidenceViewSource.svelte";
   import type {
     CommentRange,
     ResearchSelection,
@@ -79,7 +78,6 @@
   } from "$lib/exportValidation";
   import type { ReportNote } from "$lib/reportSections";
   import { userErrorCode, userErrorMessage } from "$lib/errors";
-  import { draftTimingText } from "$lib/draftTiming";
   import { flushOutboxFor } from "$lib/uploads/outboxFlush";
   import { toast } from "svelte-sonner";
   import { comparePairFromSlots } from "../../../../shared/generationModels";
@@ -124,12 +122,9 @@
       ? { generationId: reportQ.data.generationId }
       : "skip"
   );
-  // 2026-11-02: "Drafted in 12 min" for the report's own draft, or nothing.
-  const reportDraftTiming = $derived(
-    reportGenerationQ.data && reportGenerationQ.data._id === reportQ.data?.generationId
-      ? draftTimingText(reportGenerationQ.data.draftTiming)
-      : ""
-  );
+  // 2026-11-02 draft times: still stamped on the generation and shown in
+  // Version history, but not on the report page (owner, 2026-11-05: "no
+  // need to show").
   const transcriptsQ = useQuery(api.transcripts.listTranscripts, () =>
     auth.isAuthenticated ? { projectId } : "skip"
   );
@@ -242,9 +237,10 @@
           (documentsQ.data ?? []).some((doc) => !doc.archived && doc.sizeChars > 0)))
   );
   const user = $derived(userQ.data);
-  // Evidence view (client request 2026-11-02): off by default, remembered
-  // per person; the claim record is read only while it is on.
-  const evidence = useEvidenceView(() => ({ reportId: report?._id, userId: user?._id }));
+  // Evidence view (client request 2026-11-02): hidden on 2026-11-05 until
+  // the owner approves a Paper design for it. The editor still supports it
+  // (evidenceView, onEvidenceViewChange, evidenceClaims); pass them again
+  // with useEvidenceView from evidenceViewSource.svelte to bring it back.
   // Same authority as publishForReview: project.setStage (the current
   // Owner, a Manager or an Admin), never createdBy.
   const canShare = $derived(
@@ -1498,13 +1494,6 @@
               })}
             </p>
           </div>
-          {#if reportDraftTiming}
-            <!-- 2026-11-02: how long this draft took, for anyone who can see the project. -->
-            <div>
-              <span class="text-label block">Draft time</span>
-              <p class="mt-1 text-gray-800" data-report-draft-timing>{reportDraftTiming}</p>
-            </div>
-          {/if}
           <div>
             <span class="text-label block">Fiscal year-end</span>
             <FiscalYearField
@@ -1876,9 +1865,6 @@
                 editable={true}
                 {commentRanges}
                 onHoverComment={(id) => (hoveredCommentId = id)}
-                evidenceView={evidence.on}
-                onEvidenceViewChange={evidence.set}
-                evidenceClaims={evidence.claims}
               />
 
               <!-- Supporting panels (QA moved to the right rail — BNH-47) -->

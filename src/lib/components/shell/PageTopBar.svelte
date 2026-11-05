@@ -49,6 +49,7 @@
     variant = "default",
     onBack = null,
     titleTag = "h1",
+    leading = undefined,
     class: className = "",
   }: {
     title: string;
@@ -85,6 +86,11 @@
     onBack?: (() => void) | null;
     /** `p` when the page's h1 is elsewhere (the phone bar over a company on Projects). */
     titleTag?: "h1" | "p";
+    /**
+     * Drawn in place of the title (a company's page, 2026-11-04: the
+     * "Companies / <switcher>" breadcrumb, with the page's h1 in its header).
+     */
+    leading?: Snippet;
     class?: string;
   } = $props();
 
@@ -125,6 +131,8 @@
   {#if sidebarToggle && !plain}<SectionSidebarExpand />{/if}
   {#if variant === "phone"}
     <h1 class="min-w-0 flex-1 truncate text-base leading-[1.375] font-medium text-ink">{title}</h1>
+  {:else if leading}
+    {@render leading()}
   {:else if breadcrumb}
     <!-- B3: "Admin /" is one muted run, then the bar gap, then the page. -->
     <nav aria-label="Breadcrumb" class="flex min-w-0 items-center gap-2.5 text-[1.375rem] leading-[calc(14/11)]">

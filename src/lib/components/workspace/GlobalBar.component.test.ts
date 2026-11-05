@@ -6,7 +6,7 @@ import { __resetPage } from "$lib/test/app-state-stub.svelte";
 import { __navigationCalls, __resetNavigation } from "$lib/test/app-navigation-stub";
 import { __resetConvexStub, __setQueryData } from "$lib/test/convex-svelte-stub.svelte";
 import { viewAs } from "$lib/shell/viewAs.svelte";
-import { board } from "$lib/test/boardScale";
+import { board, boardPx } from "$lib/test/boardScale";
 
 vi.mock("$lib/authClient", () => ({ authClient: { signOut: vi.fn(async () => {}) } }));
 
@@ -25,7 +25,7 @@ describe("GlobalBar", () => {
     await page.viewport(1440, 900);
   });
 
-  it("A1 values: 52px, the 76 by 34 logo 14px in, then the bell and the account 6px apart, 20px from the edge", async () => {
+  it("A1 values: 52px, the 83 by 37 logo (10% larger, owner 2026-11-05) 14px in, then the bell and the account 6px apart, 20px from the edge", async () => {
     __setQueryData("users:getCurrentUser", BRYCE);
     __setQueryData("changelog:unseenCount", 0);
     const view = await render(GlobalBar, { homeHref: "/my-work" });
@@ -37,7 +37,7 @@ describe("GlobalBar", () => {
     expect([logoLink.getAttribute("href"), logoLink.getAttribute("aria-label")]).toEqual(["/my-work", "Banhall home"]);
     const logo = logoLink.querySelector<HTMLImageElement>("img")!;
     expect(logo.getAttribute("src")).toBe("/banhall-logo-dark.png");
-    expect(logo.getBoundingClientRect().height).toBeCloseTo(board(34), 1);
+    expect(logo.getBoundingClientRect().height).toBeCloseTo(board(37), 1);
     expect(logo.getBoundingClientRect().left - frame.left).toBeCloseTo(board(14), 1);
     const bell = document.querySelector<HTMLAnchorElement>("[data-global-bar-bell]")!;
     expect([bell.getAttribute("href"), bell.getAttribute("aria-label")]).toEqual(["/changelog", "What's new"]);
@@ -50,16 +50,14 @@ describe("GlobalBar", () => {
     expect(frame.right - account.getBoundingClientRect().right).toBeCloseTo(board(20), 1);
     expect([account.getBoundingClientRect().height, style(account).borderRadius, style(account).paddingLeft]).toEqual([
       board(30),
-      `${board(8)}px`,
-      `${board(8)}px`,
+      boardPx(8),
+      boardPx(8),
     ]);
     const name = document.querySelector<HTMLElement>("[data-global-bar-account-name]")!;
-    expect([style(name).fontSize, style(name).lineHeight, style(name).fontWeight, style(name).color]).toEqual([
-      `${board(13)}px`,
-      `${board(18)}px`,
-      "500",
-      "rgb(22, 33, 31)",
-    ]);
+    expect([style(name).fontSize, style(name).fontWeight, style(name).color]).toEqual([boardPx(13), "500", "rgb(22, 33, 31)"]);
+    // A unitless line height goes through float maths, so it can land just
+    // off a rounding tie at the laptop root: compare it as a number.
+    expect(parseFloat(style(name).lineHeight)).toBeCloseTo(board(18), 3);
     expect(account.querySelector('[data-frame-icon="chevron-down"]')!.getBoundingClientRect().width).toBeCloseTo(board(12), 1);
   });
 

@@ -356,6 +356,9 @@ describe("archiving, restoring and removing", () => {
     await sweep(s);
     expect((await search(s, s.acmeId, "graphite")).hits).toHaveLength(1);
     await s.manager.mutation(api.companyFiles.removeCompanyFile, { companyFileId: fileId });
+    // The row goes at once and search stops finding it; its text and pieces go in scheduled pages.
+    expect((await search(s, s.acmeId, "graphite")).hits).toHaveLength(0);
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
     const left = await s.t.run(async (ctx) => ({
       row: await ctx.db.get(fileId),
       texts: await ctx.db.query("companyFileTexts").withIndex("by_companyFileId_and_start", (q) => q.eq("companyFileId", fileId)).collect(),

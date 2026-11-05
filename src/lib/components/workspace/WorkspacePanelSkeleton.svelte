@@ -93,29 +93,35 @@
       </div>
     </div>
   {:else if layout === "company"}
-    <!-- A company's page (2026-10-28): the facts row and tabs over a soft
-         line, then a year heading over a row of cards. -->
-    <div class="flex shrink-0 flex-col gap-5 border-b border-line-soft px-4 pb-3.5 pt-1 sm:px-6 lg:px-8">
-      <div class="flex gap-10">
-        {#each [28, 24, 16] as width, index (index)}
-          <div class="flex flex-col gap-2">
-            <span class={`${bar} h-3 w-20`}></span>
-            <span class={`${bar} h-4`} style:width={`${width / 4}rem`}></span>
-          </div>
+    <!-- A company's page (2026-11-04, the company profile): the header (name,
+         facts, people) and the tabs over a soft line, then the summary card
+         and the projects table. -->
+    <div class="flex shrink-0 flex-col gap-[1.125rem] border-b border-line-soft px-4 pt-6 sm:px-6 lg:px-8 lg:pt-8">
+      <div class="flex flex-col gap-2.5">
+        <span class={`${bar} h-8 w-72 max-w-full`}></span>
+        <div class="flex gap-[1.125rem]">
+          {#each [24, 28, 40] as width, index (index)}
+            <span class={`${bar} h-3.5`} style:width={`${width / 4}rem`}></span>
+          {/each}
+        </div>
+      </div>
+      <div class="flex h-10 items-center gap-5">
+        {#each [14, 10, 12, 12, 11] as width, index (index)}
+          <span class={`${bar} h-3`} style:width={`${width / 4}rem`}></span>
         {/each}
       </div>
-      <div class="flex gap-1.5">
-        <span class={`${bar} h-[2.125rem] w-[5.5rem] rounded-md`}></span>
-        <span class={`${bar} h-[2.125rem] w-14 rounded-md`}></span>
-      </div>
     </div>
-    <div data-skeleton-table class="flex flex-col gap-3.5 px-4 pt-6 sm:px-6 lg:px-8">
-      <span class={`${bar} h-4 w-40`}></span>
-      <div class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-3">
-        {#each [0, 1, 2] as row (row)}
-          <div data-skeleton-row class="flex h-40 flex-col gap-3 rounded-[0.625rem] border border-line bg-surface p-3.5">
-            <span class={`${bar} h-3 w-24`}></span>
-            <span class={`${bar} h-4 w-44 max-w-full`}></span>
+    <div data-skeleton-table class="flex flex-col gap-7 px-4 pt-6 sm:px-6 lg:px-8 lg:pt-8">
+      <div class="flex h-36 flex-col gap-3 rounded-[0.875rem] border border-line p-5">
+        <span class={`${bar} h-4 w-40`}></span>
+        <span class={`${bar} h-3.5 w-full`}></span>
+        <span class={`${bar} h-3.5 w-2/3`}></span>
+      </div>
+      <div class="flex flex-col overflow-hidden rounded-xl border border-line">
+        {#each [0, 1, 2, 3, 4] as row (row)}
+          <div data-skeleton-row class="flex h-[2.875rem] items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
+            <span class={`${bar} h-3.5 w-56 max-w-[50%]`}></span>
+            <span class={`${bar} ml-auto h-3 w-16`}></span>
           </div>
         {/each}
       </div>

@@ -12,6 +12,7 @@ import SettingsLayout from "../../../routes/settings/+layout.svelte";
 import AccountPage from "../../../routes/settings/account/+page.svelte";
 import CompaniesRoute from "../../../routes/companies/[[key]]/+page.svelte";
 import LoadingShell from "./WorkspaceLoadingShell.svelte";
+import { board } from "$lib/test/boardScale";
 import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 
 vi.mock("$lib/authClient", () => ({
@@ -97,7 +98,8 @@ describe("round 2 loading shell", () => {
     const header = document.querySelector<HTMLElement>("[data-client-header][data-loading]")!;
     expect(header.querySelector("h1")?.textContent).toBe("All projects");
     expect(header.querySelector<HTMLInputElement>('input[type="search"]')!.disabled).toBe(true);
-    expect(header.getBoundingClientRect().height).toBeCloseTo(60, 0);
+    // The 64px board header, at the laptop root.
+    expect(header.getBoundingClientRect().height).toBeCloseTo(board(64), 0);
     expect(getComputedStyle(document.querySelector("[data-workspace-page-header] h1")!).fontWeight).toBe("500");
     expectQuietSkeleton("projects", 6);
   });
@@ -163,7 +165,9 @@ describe("round 2 loading shell", () => {
     const newProject = document.querySelector<HTMLButtonElement>("[data-top-bar-primary]")!;
     expect([newProject.textContent?.trim(), newProject.disabled]).toEqual(["New project", true]);
     expect(getComputedStyle(newProject).display).not.toBe("none");
-    expect(sidebar("companies")).not.toBeNull();
+    // 2026-11-04: a company's page has no sidebar; the bar reads "Companies /".
+    expect(sidebar("companies")).toBeNull();
+    expect(document.querySelector("[data-workspace-page-header]")?.textContent).toContain("Companies");
   });
 
   it("Admin and Team load with no sidebar until the viewer is known to be allowed (review round 1, findings 1 and 6)", async () => {
