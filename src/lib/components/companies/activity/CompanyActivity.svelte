@@ -78,7 +78,8 @@
   // The first page as it was at the first Show more is kept too: a newer
   // change pushes the live first page's last rows off it, and the older
   // pages start after the old boundary, so without it those rows would
-  // belong to no page (Greptile, PR #33).
+  // belong to no page (Greptile, PR #33). Only its pushed-off rows are
+  // used (below).
   let more = $state<Page[]>([]);
   let firstAtMore = $state<Page | null>(null);
   let loadingMore = $state(false);
@@ -97,16 +98,23 @@
   const first = $derived(firstQ.data as Page | undefined);
   const entries = $derived.by(() => {
     if (!first) return [] as ActivityEntry[];
+    // From the saved first page, only rows older than the live first page's
+    // last row: those were pushed off by newer changes. A saved row inside
+    // the live page's span that the live page no longer has was removed
+    // (a project deleted or moved), so it stays out.
+    const liveLast = first.entries.at(-1);
+    const pushedOff = firstAtMore && liveLast ? firstAtMore.entries.filter((entry) => entry.at < liveLast.at) : [];
     const seen = new Set<string>();
     const all: ActivityEntry[] = [];
-    for (const page of [first, ...(firstAtMore ? [firstAtMore] : []), ...more]) {
-      for (const entry of page.entries) {
+    for (const list of [first.entries, pushedOff, ...more.map((page) => page.entries)]) {
+      for (const entry of list) {
         if (seen.has(entry.id)) continue;
         seen.add(entry.id);
         all.push(entry);
       }
     }
-    return all;
+    // Newest first; a stable sort keeps the server's order for equal times.
+    return all.sort((a, b) => b.at - a.at);
   });
   const nextCursor = $derived(more.length > 0 ? more[more.length - 1].continueCursor : (first?.continueCursor ?? null));
   const days = $derived(groupActivity(entries, Date.now()));

@@ -152,6 +152,23 @@ describe("a company's Activity tab", () => {
     expect(ids.some((row) => row.includes("old plan.txt"))).toBe(true);
   });
 
+  it("drops a row the first page lost after Show more because it was removed", async () => {
+    await mount();
+    await expect.poll(() => days().length).toBe(4);
+    document.querySelector<HTMLButtonElement>("[data-activity-show-more]")!.click();
+    await expect.poll(() => days().length).toBe(6);
+    const stage = (row: Element) => text(row).includes("Adaptive cold storage controls");
+    expect([...document.querySelectorAll("[data-activity-row]")].some(stage)).toBe(true);
+    __setQueryDataForArgs(
+      "companyActivity:listCompanyActivity",
+      { companyKey: KEY, cursor: null },
+      { ...FIRST_PAGE, entries: FIRST_PAGE.entries.filter((entry) => entry.id !== "e2") }
+    );
+    await expect.poll(() => [...document.querySelectorAll("[data-activity-row]")].some(stage)).toBe(false);
+    const keys = days().map((day) => day.getAttribute("data-activity-day"));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   it("filters by one person and by one kind of change", async () => {
     __setQueryDataForArgs("companyActivity:listCompanyActivity", { companyKey: KEY, cursor: null, personId: "u-priya" }, {
       entries: [FIRST_PAGE.entries[1]],
