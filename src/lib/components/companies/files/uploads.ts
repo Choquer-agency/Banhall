@@ -42,9 +42,13 @@ export function uploadStatus(upload: Pick<UploadEntry, "phase" | "fraction" | "e
   }
 }
 
-/** Still on its way: it may be stopped. */
+/**
+ * Still on its way and may be stopped. A file being saved cannot be: the
+ * save is already sent and would add the file anyway, so its row stays and
+ * shows the result (Greptile, PR #33).
+ */
 export function inFlight(upload: Pick<UploadEntry, "phase">): boolean {
-  return upload.phase === "waiting" || upload.phase === "reading" || upload.phase === "uploading" || upload.phase === "saving";
+  return upload.phase === "waiting" || upload.phase === "reading" || upload.phase === "uploading";
 }
 
 /** How far along the row's fill is, 0 to 1. */

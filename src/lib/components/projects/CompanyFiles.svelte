@@ -240,6 +240,8 @@
   }
 
   function stopUpload(id: number) {
+    const current = uploads.find((entry) => entry.id === id);
+    if (current && !inFlight(current)) return;
     const waiting = pending.findIndex((entry) => entry.id === id);
     if (waiting >= 0) pending.splice(waiting, 1);
     controllers.get(id)?.abort();

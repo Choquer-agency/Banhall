@@ -113,13 +113,13 @@
       class="fixed inset-0 z-[140] flex flex-col overflow-hidden bg-ink outline-none"
     >
       {#if current}
-        <div class="flex h-16 shrink-0 items-center gap-3 pr-5 pl-6 pt-3">
+        <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 pt-3 pr-3 pl-4 sm:h-16 sm:flex-nowrap sm:pr-5 sm:pl-6" data-preview-toolbar>
           <span class="flex w-6 shrink-0 justify-center"><FileIcon name={current.fileName} size={32} /></span>
           <div class="min-w-0 flex-1">
             <Dialog.Title class="truncate text-sm leading-[calc(10/7)] font-medium text-white" data-preview-title>{current.fileName}</Dialog.Title>
             <Dialog.Description class="truncate text-xs leading-[calc(4/3)] text-on-ink-muted">{subtitle(current)}</Dialog.Description>
           </div>
-          <div class="flex items-center gap-0.5 rounded-[0.5625rem] bg-white/[0.08] p-[0.1875rem]" role="group" aria-label="What to show">
+          <div class="order-last flex w-full items-center gap-0.5 rounded-[0.5625rem] bg-white/[0.08] p-[0.1875rem] *:flex-1 sm:order-none sm:w-auto sm:*:flex-none" role="group" aria-label="What to show">
             <button
               type="button"
               aria-pressed={effectiveMode === "original"}
@@ -161,7 +161,7 @@
               {#each files as file, position (file._id)}
                 {@const near = Math.abs(position - index) <= 1}
                 <div
-                  class={`relative mx-[6.5625rem] flex h-full min-w-0 flex-[0_0_33.75rem] flex-col justify-center transition-opacity duration-200 motion-reduce:transition-none ${position === index ? "opacity-100" : "opacity-[0.22]"}`}
+                  class={`relative mx-4 flex h-full min-w-0 flex-[0_0_calc(100vw-2rem)] flex-col sm:mx-[6.5625rem] sm:flex-[0_0_33.75rem] justify-center transition-opacity duration-200 motion-reduce:transition-none ${position === index ? "opacity-100" : "opacity-[0.22]"}`}
                   role="group"
                   aria-roledescription="slide"
                   aria-label={`${position + 1} of ${files.length}: ${file.fileName}`}

@@ -75,7 +75,12 @@
   );
 
   // Older pages, read once each (Show more); reset when the list changes.
+  // The first page as it was at the first Show more is kept too: a newer
+  // change pushes the live first page's last rows off it, and the older
+  // pages start after the old boundary, so without it those rows would
+  // belong to no page (Greptile, PR #33).
   let more = $state<Page[]>([]);
+  let firstAtMore = $state<Page | null>(null);
   let loadingMore = $state(false);
   let moreError = $state<string | null>(null);
   const listKey = $derived(JSON.stringify([companyKey, personId, kind]));
@@ -84,6 +89,7 @@
     if (listKey !== shownKey) {
       shownKey = listKey;
       more = [];
+      firstAtMore = null;
       moreError = null;
     }
   });
@@ -93,7 +99,7 @@
     if (!first) return [] as ActivityEntry[];
     const seen = new Set<string>();
     const all: ActivityEntry[] = [];
-    for (const page of [first, ...more]) {
+    for (const page of [first, ...(firstAtMore ? [firstAtMore] : []), ...more]) {
       for (const entry of page.entries) {
         if (seen.has(entry.id)) continue;
         seen.add(entry.id);
@@ -108,11 +114,15 @@
   async function showMore() {
     if (!nextCursor || loadingMore) return;
     const key = listKey;
+    const shownFirst = first;
     loadingMore = true;
     moreError = null;
     try {
       const page = (await client.query(api.companyActivity.listCompanyActivity, argsFor(nextCursor))) as Page;
-      if (key === listKey) more = [...more, page];
+      if (key === listKey) {
+        if (more.length === 0 && firstAtMore === null && shownFirst) firstAtMore = shownFirst;
+        more = [...more, page];
+      }
     } catch (error) {
       if (key === listKey) moreError = userErrorMessage(error, "Older changes could not be loaded. Try again.");
     } finally {

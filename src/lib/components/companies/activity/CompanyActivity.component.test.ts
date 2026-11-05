@@ -135,6 +135,23 @@ describe("a company's Activity tab", () => {
     expect(text(document.querySelector("[data-activity-truncated]"))).toContain("50 newest projects");
   });
 
+  it("keeps a row a newer change pushed off the first page after Show more", async () => {
+    await mount();
+    await expect.poll(() => days().length).toBe(4);
+    document.querySelector<HTMLButtonElement>("[data-activity-show-more]")!.click();
+    await expect.poll(() => days().length).toBe(6);
+    const newer = { id: "e0", kind: "file", at: Date.now(), actor: PRIYA, action: "added", fileId: "f9", fileName: "New notes.txt" };
+    __setQueryDataForArgs(
+      "companyActivity:listCompanyActivity",
+      { companyKey: KEY, cursor: null },
+      { ...FIRST_PAGE, entries: [newer, ...FIRST_PAGE.entries.slice(0, -1)], continueCursor: String(FIRST_PAGE.entries[4].at) }
+    );
+    await expect.poll(() => document.querySelector('[data-activity-file="f9"]')).not.toBeNull();
+    const ids = [...document.querySelectorAll("[data-activity-row]")].map((row) => text(row));
+    expect(ids.some((row) => row.includes("Defrost cycle prediction"))).toBe(true);
+    expect(ids.some((row) => row.includes("old plan.txt"))).toBe(true);
+  });
+
   it("filters by one person and by one kind of change", async () => {
     __setQueryDataForArgs("companyActivity:listCompanyActivity", { companyKey: KEY, cursor: null, personId: "u-priya" }, {
       entries: [FIRST_PAGE.entries[1]],

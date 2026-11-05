@@ -732,6 +732,22 @@ describe("review fixes", () => {
     await expect.poll(() => signals[0]!.aborted).toBe(true);
   });
 
+  it("fits the file and the toolbar on a phone", async () => {
+    seed(defaultFiles().map((file) => ({ ...file, url: null, hasFile: false })));
+    __setQueryData("companyFiles:getCompanyFileContent", { fileName: "x", fileType: "txt", content: "Text." });
+    await mount("writer");
+    await page.viewport(390, 844);
+    await page.getByRole("button", { name: "Preview Website: example.com" }).click();
+    await expect.poll(() => text(document.querySelector("[data-preview-title]"))).toBe("Website: example.com");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const slide = document.querySelector('[data-preview-slide="f4"]')!.getBoundingClientRect();
+    expect(slide.left).toBeGreaterThanOrEqual(0);
+    expect(slide.right).toBeLessThanOrEqual(390);
+    const toolbar = document.querySelector("[data-preview-toolbar]")!;
+    for (const child of toolbar.children) expect(child.getBoundingClientRect().right).toBeLessThanOrEqual(390);
+    expect(document.querySelector("[data-preview-title]")!.getBoundingClientRect().width).toBeGreaterThan(100);
+  });
+
   it("the last file sits centred, with its neighbour peeking", async () => {
     seed(defaultFiles().map((file) => ({ ...file, url: null, hasFile: false })));
     __setQueryData("companyFiles:getCompanyFileContent", { fileName: "x", fileType: "txt", content: "Text." });
