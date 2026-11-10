@@ -208,7 +208,12 @@ describe("ordered chain editor/export parity", () => {
   test("a stopped chain keeps every section present with a [NOT GENERATED] body", () => {
     const content = JSON.stringify(buildTiptapDocument("T", "Only Line 242 was drafted.", null, null));
     const parsed = parseCanonicalReport(content);
-    expect(parsed.diagnostics).toEqual([]);
+    // The placeholder stays in place as the section's body, and names each
+    // undrafted Line so the export can refuse it (2026-11-09).
+    expect(parsed.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.section])).toEqual([
+      ["NOT_DRAFTED", "s244"],
+      ["NOT_DRAFTED", "s246"],
+    ]);
     expect(parsed.sections.s242.plainText).toBe("Only Line 242 was drafted.");
     expect(parsed.sections.s244.blocks).toEqual([{ kind: "paragraph", text: NOT_GENERATED_PLACEHOLDER }]);
     expect(parsed.sections.s246.blocks).toEqual([{ kind: "paragraph", text: NOT_GENERATED_PLACEHOLDER }]);

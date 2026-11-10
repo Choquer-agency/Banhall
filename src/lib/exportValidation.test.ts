@@ -120,6 +120,32 @@ describe("validateExport gap handling", () => {
 // 2026-10-29 (owner): an [INFERRED: ...] marker is a claim the writer still
 // checks. Export treats it like a gap: a warning, never a blocking error,
 // and the dialog lists it beside the gaps with a jump to each.
+describe("validateExport undrafted sections", () => {
+  test("a section still holding the not drafted placeholder blocks export and names its Line", () => {
+    const content = tiptapDoc({
+      s242: "The response was uncertain.",
+      s244: "[NOT GENERATED]",
+      s246: "The work showed how load affects settling.",
+    });
+    const result = validateExport(canonicalizeExportPreflight(preflight(content)));
+    const errors = result.errors.filter((issue) => issue.field === "s244");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toBe(
+      "Line 244 still has the [NOT GENERATED] placeholder. Draft this section, or replace the placeholder with your own text."
+    );
+  });
+
+  test("the placeholder left beside typed text still blocks", () => {
+    const content = tiptapDoc({
+      s242: "The response was uncertain.",
+      s244: "The team ran three trials.\n\n[NOT GENERATED]",
+      s246: "The work showed how load affects settling.",
+    });
+    const result = validateExport(canonicalizeExportPreflight(preflight(content)));
+    expect(result.errors.map((issue) => issue.field)).toEqual(["s244"]);
+  });
+});
+
 describe("validateExport inference handling", () => {
   const MARK = "[INFERRED: the source asks for stability over time, not single-point checks]";
 
