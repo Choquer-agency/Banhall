@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { buildTiptapDocument } from "../../convex/lib/tiptapReport";
 import { canonicalizeExportPreflight } from "./exportValidation";
 import { exportToTemplateDocx } from "./exportTemplateDocx";
@@ -64,7 +64,18 @@ describe("exportToTemplateDocx header", () => {
     expect(xml.match(/December 31, 2025/g)).toHaveLength(1);
   });
 
+  // The suite's machine may be on UTC (CI is), where reading the date in
+  // the local zone happens to give the right day. Vancouver is where the
+  // firm works and where a midnight UTC year end printed a day early.
+  const machineZone = process.env.TZ;
+  afterEach(() => {
+    if (machineZone === undefined) delete process.env.TZ;
+    else process.env.TZ = machineZone;
+  });
+
   test("prints the chosen day for a year end stored as midnight UTC or as local midnight", async () => {
+    process.env.TZ = "America/Vancouver";
+    expect(new Date(Date.UTC(2025, 5, 30)).getDate()).toBe(29);
     const utcMidnight = await exportedXml(BODY, { fiscalYearEnd: Date.UTC(2025, 5, 30) });
     expect(cellTextHolding(utcMidnight, "Taxation Year Ending")).toBe("Taxation Year Ending: June 30, 2025");
     // Vancouver midnight on June 30 is 07:00 UTC the same day.
