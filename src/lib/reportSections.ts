@@ -7,6 +7,7 @@ import {
   sectionMetrics,
   type SectionMetrics,
 } from "../../convex/lib/lineLimits";
+import { NOT_GENERATED_PLACEHOLDER } from "../../convex/lib/tiptapReport";
 
 // Non-global copies: the marker regexes are /g and .test() on them would be stateful.
 const HAS_GAP_RE = new RegExp(GAP_MARKER_RE.source, "i");
@@ -61,7 +62,8 @@ export interface ReportParseDiagnostic {
     | "CONTENT_OUTSIDE_SECTION"
     | "UNRESOLVED_GAP"
     | "UNCHECKED_INFERENCE"
-    | "UNCLOSED_NOTE";
+    | "UNCLOSED_NOTE"
+    | "NOT_DRAFTED";
   message: string;
   section?: ReportSectionKey;
   nodeType?: string;
@@ -276,6 +278,16 @@ export function parseCanonicalReport(content: string): CanonicalReportBody {
         code: "UNCLOSED_NOTE",
         section: current,
         message: `Line ${current.slice(1)} has a [GAP or [INFERRED note with no closing bracket.`,
+      });
+    }
+    // A stopped Step-by-step draft leaves "[NOT GENERATED]" under each
+    // Section it never reached. It is not report text, so it blocks export
+    // until the Section is drafted or written by hand.
+    if (text.includes(NOT_GENERATED_PLACEHOLDER)) {
+      diagnostics.push({
+        code: "NOT_DRAFTED",
+        section: current,
+        message: `Line ${current.slice(1)} still has the ${NOT_GENERATED_PLACEHOLDER} placeholder. Draft this section, or replace the placeholder with your own text.`,
       });
     }
     sections[current].blocks.push({ kind: "paragraph", text });
