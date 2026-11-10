@@ -72,3 +72,24 @@ export async function insertReportWithBody(
   });
   return reportId;
 }
+
+/**
+ * The report of a generation. A generation normally has one report.
+ * Restoring a snapshot taken from an earlier draft keeps that snapshot's
+ * lineage (snapshots.restoreSnapshot), so the report the writer is working
+ * on then names the earlier draft's generation too and two reports share
+ * it. Every reader takes the newest of them, the same way
+ * reports.getLatestReport picks a project's current report. Taking the
+ * oldest scored QA on the superseded draft, so the restored report could
+ * never get a current score, and asking for exactly one threw.
+ */
+export async function newestReportOfGeneration(
+  ctx: { db: QueryCtx["db"] },
+  generationId: Id<"generations">
+): Promise<Doc<"reports"> | null> {
+  return await ctx.db
+    .query("reports")
+    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
+    .order("desc")
+    .first();
+}

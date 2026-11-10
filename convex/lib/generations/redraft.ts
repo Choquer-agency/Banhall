@@ -7,7 +7,7 @@
  * this module holds their handlers and helpers.
  */
 import { closeEditBurst } from "../editDistance";
-import { reportWithBody, writeReportBody } from "../reportBodies";
+import { newestReportOfGeneration, reportWithBody, writeReportBody } from "../reportBodies";
 import { savedPreferenceMatchOfGeneration } from "../savedPreferenceNotes";
 import { withoutSavedPreferenceText } from "../savedPreferences";
 import type { Doc, Id } from "../../_generated/dataModel";
@@ -484,10 +484,7 @@ export async function reportForGeneration(
   ctx: { db: QueryCtx["db"] },
   generationId: Id<"generations">
 ) {
-  const report = await ctx.db
-    .query("reports")
-    .withIndex("by_generationId", (q) => q.eq("generationId", generationId))
-    .unique();
+  const report = await newestReportOfGeneration(ctx, generationId);
   return report ? await reportWithBody(ctx, report) : null;
 }
 

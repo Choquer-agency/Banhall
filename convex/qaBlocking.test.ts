@@ -7,6 +7,7 @@ import schema from "./schema";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { getReportBody, reportWithBody } from "./lib/reportBodies";
+import { reportForGeneration } from "./lib/generations/redraft";
 
 const modules = import.meta.glob("./**/*.ts");
 const FAILURE = "It was uncertain whether the alloy would resist fatigue.";
@@ -172,7 +173,11 @@ describe("CAP-8 absolute current-revision QA gate", () => {
   test("a report restored from an earlier draft's snapshot can still get a current QA score", async () => {
     const f = await setup();
     rateLimiterTest.register(f.t);
+    // The first draft has a current score of its own.
+    await saveQa(f, { why_how_why_intact: true, uncertainties_distinguished: true });
     await f.t.run((ctx) => ctx.db.patch(f.generationId, { postQaStatus: "done", qaScoreRequired: true }));
+    expect(await f.actor.query(api.generations.getGenerationQaResult, { generationId: f.generationId }))
+      .toMatchObject({ reportId: f.reportId, current: true });
     const newer = await f.t.run(async (ctx) => {
       const content = contentFor("It was uncertain whether the second alloy would hold because its grain response was unknown.");
       const first = await ctx.db.get(f.generationId);
@@ -195,6 +200,12 @@ describe("CAP-8 absolute current-revision QA gate", () => {
     // Both reports now name the first draft's generation.
     expect((await f.t.run((ctx) => ctx.db.get(newer.reportId)))?.generationId).toBe(f.generationId);
     expect((await readiness(restored)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
+    // The first draft's score is not offered as this report's score.
+    expect(await f.actor.query(api.generations.getGenerationQaResult, { generationId: f.generationId }))
+      .toMatchObject({ reportId: f.reportId, current: false });
+    // "Draft the rest" and its progress read the generation's report: the
+    // restored one, with no refusal for finding two.
+    expect((await f.t.run((ctx) => reportForGeneration(ctx, f.generationId)))?._id).toBe(newer.reportId);
 
     // The writer runs QA again from the panel: the pass reads the restored report.
     await f.actor.mutation(api.generations.requestReportQa, { generationId: f.generationId });
@@ -210,6 +221,8 @@ describe("CAP-8 absolute current-revision QA gate", () => {
     });
     expect(await f.t.run((ctx) => ctx.db.get(f.generationId))).toMatchObject({ postQaStatus: "done" });
     expect((await readiness(restored)).blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
+    expect(await f.actor.query(api.generations.getGenerationQaResult, { generationId: f.generationId }))
+      .toMatchObject({ reportId: newer.reportId, current: true, qaScore: 90 });
   });
 
   test("human content save persists because findings and rejects publish atomically", async () => {

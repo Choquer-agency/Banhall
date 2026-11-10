@@ -15,7 +15,7 @@ import { sha256, domainError } from "../contracts";
 import { generationTranscriptIds } from "../transcripts";
 import { persistDeterministicFindings, persistMethodologyFindings } from "../qaFindings";
 import { recordReportEditDistance } from "../editDistance";
-import { insertReportWithBody } from "../reportBodies";
+import { insertReportWithBody, newestReportOfGeneration } from "../reportBodies";
 import {
   sectionNumberValidator,
   type SectionNumber,
@@ -771,9 +771,7 @@ export async function saveCandidateQaHandler(
       }
     }
     if (selection?.candidateId === candidate._id) {
-      const report = await ctx.db.query("reports")
-        .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-        .first();
+      const report = await newestReportOfGeneration(ctx, generation._id);
       if (report && generation.postQaStatus === "running" &&
         generation.postQaStartedAt === current.candidateReportQaStartedAt) {
         await saveReportQaHandler(ctx, {
