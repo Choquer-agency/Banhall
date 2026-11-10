@@ -15,7 +15,7 @@ import {
   persistMethodologyFindings,
 } from "../qaFindings";
 import { extractReportSections } from "../tiptapReport";
-import { readReportContent } from "../reportBodies";
+import { newestReportOfGeneration, readReportContent } from "../reportBodies";
 import type { Id } from "../../_generated/dataModel";
 import { resolveGatedWorkflow } from "../gatedWorkflow";
 import { loadFactsSourceDocuments, type FrozenBrainArtifact } from "./seedStage";
@@ -87,8 +87,7 @@ export async function getPostQaInputHandler(
 ) {
   const generation = await ctx.db.get(args.generationId);
   if (!generation) return null;
-  const report = await ctx.db.query("reports")
-    .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
+  const report = await newestReportOfGeneration(ctx, generation._id);
   if (!report) return null;
   const capturedRef = await reportQaRef(ctx, report);
   const currentSections = extractReportSections(await readReportContent(ctx, report));
@@ -295,8 +294,7 @@ export async function saveReportQaHandler(
   if (args.attemptStartedAt !== undefined &&
     (generation.postQaStatus !== "running" ||
       (generation.postQaStartedAt ?? null) !== args.attemptStartedAt)) return;
-  const report = await ctx.db.query("reports")
-    .withIndex("by_generationId", q => q.eq("generationId", generation._id)).first();
+  const report = await newestReportOfGeneration(ctx, generation._id);
   if (args.capturedRef) {
     const current = report ? await reportQaRef(ctx, report) : null;
     if (!current || current.reportId !== args.capturedRef.reportId || current.revisionNumber !== args.capturedRef.revisionNumber || current.contentHash !== args.capturedRef.contentHash) {
@@ -413,10 +411,7 @@ export async function requestReportQaHandler(
   // CAP-7: QA scores a report. A generation without one — a superseded
   // partial, a failed run, or a legacy row whose report was deleted — has
   // nothing to review, so refuse before any write or schedule.
-  const report = await ctx.db
-    .query("reports")
-    .withIndex("by_generationId", (q) => q.eq("generationId", generation._id))
-    .first();
+  const report = await newestReportOfGeneration(ctx, generation._id);
   if (!report) {
     domainError("INVALID_STATE", "This generation has no report to review");
   }
@@ -494,7 +489,9 @@ export async function getGenerationQaResultHandler(
   if (!(await getInternalProjectAccessOrNull(ctx, generation.projectId))) return null;
   const result = await latestQaResult(ctx, generation._id);
   if (!result) return null;
-  const report = await ctx.db.get(result.reportId);
+  // Judged against the generation's current report: after a restore from
+  // an earlier draft, the earlier report's score is not this report's.
+  const report = await newestReportOfGeneration(ctx, generation._id);
   return {
     status: result.status,
     reportId: result.reportId,
