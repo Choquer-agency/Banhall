@@ -56,10 +56,13 @@ Since 2026-09-25, a model answer that echoes a bare id such as `CLIENT_1` or `PE
 There is no scan function yet, so use a full export, which is also the pre-deploy backup:
 
 ```bash
-npx convex export --path banhall-before-release.zip
+npx convex export --include-file-storage --path banhall-before-release.zip
+chmod 600 banhall-before-release.zip
 mkdir banhall-before-release && unzip -q banhall-before-release.zip -d banhall-before-release
-grep -rEl '(^|[^[:alnum:]_[])(CLIENT|PERSON)_[0-9]+' banhall-before-release
+grep -rEl --exclude-dir=_storage '(^|[^[:alnum:]_[])(CLIENT|PERSON)_[0-9]+' banhall-before-release
 ```
+
+`--include-file-storage` adds every uploaded file (transcripts, supporting documents, company files) in a `_storage` folder. Without it the backup holds the tables only, and a restore would bring back rows that point at files that no longer exist. Run the export outside the repository checkout, keep the zip and the unzipped folder private, and delete the unzipped folder once the scan is done: both hold client material. The scan skips `_storage` because those are the original uploads, not stored model text.
 
 This reads every table, including the Brain chunks the `rag` component stores. The ones that matter are `reports`, `brainSources` and the Brain chunks, `generationArtifacts` and `transcriptFactRuns`.
 
