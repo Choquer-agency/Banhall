@@ -433,6 +433,8 @@ describe("validateExport", () => {
 // Story 2 (CAP-10, AD-24): the export path consumes exactly the paragraphs the
 // ordered chain assembled, a stopped generation's [NOT GENERATED] bodies
 // included, and those bodies keep every section present for validation.
+// 2026-11-09: a section still holding that placeholder blocks the export
+// itself, so "[NOT GENERATED]" never reaches the Schedule 60 file.
 describe("ordered chain export parity", () => {
   test.each([
     ["complete", "A technological uncertainty remained.", "A controlled experiment was performed.\n\nA second trial followed.", "The experiment produced new knowledge."],
@@ -449,7 +451,10 @@ describe("ordered chain export parity", () => {
       expect(report.body.sections.s244.plainText).toBe(NOT_GENERATED_PLACEHOLDER);
       expect(report.body.sections.s246.plainText).toBe(NOT_GENERATED_PLACEHOLDER);
     }
-    expect(report.body.diagnostics).toEqual([]);
-    expect(validateExport(report).errors).toEqual([]);
+    const notDrafted = s244 === null ? ["s244", "s246"] : [];
+    expect(report.body.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.section])).toEqual(
+      notDrafted.map((section) => ["NOT_DRAFTED", section])
+    );
+    expect(validateExport(report).errors.map((issue) => issue.field)).toEqual(notDrafted);
   });
 });
