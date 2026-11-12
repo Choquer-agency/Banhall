@@ -121,18 +121,27 @@ export const importCategoryCountsValidator = v.object({
   needsCheck: v.number(),
   fiscalYears: v.record(v.string(), v.number()),
   checkReasons: v.optional(v.record(v.string(), v.number())),
+  // 2026-11-12 (adding files): how many of the section's files are New
+  // (ingestionItems.isNew, To review only), and their fiscal years. Left
+  // out when none is New.
+  newFiles: v.optional(v.number()),
+  newFiscalYears: v.optional(v.record(v.string(), v.number())),
 });
 
 /**
  * The counts a company band shows. `ready` is rows that need no check and
- * are already read. `categories` is keyed by category, with only the
- * categories that have files.
+ * are already read. `categories` is keyed by the section a file shows in
+ * (since 2026-11-12 a file still being read shows in "unknown", Not sorted
+ * yet, whatever its category: lib/ingestionSheet.ts sheetSectionFor), with
+ * only the sections that have files. `newFiles`: files that are New, left
+ * out when none is.
  */
 export const importCountFields = {
   total: v.number(),
   needsCheck: v.number(),
   ready: v.number(),
   beingRead: v.number(),
+  newFiles: v.optional(v.number()),
   categories: v.record(v.string(), importCategoryCountsValidator),
 };
 export const importCountsValidator = v.object(importCountFields);

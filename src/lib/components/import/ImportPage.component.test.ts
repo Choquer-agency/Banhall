@@ -78,12 +78,11 @@ describe("ImportPage", () => {
     const tablist = page.getByRole("tablist", { name: "Import" });
     await expect.element(tablist).toBeVisible();
     const tabs = all('[role="tab"]');
-    expect(tabs.map((tab) => text(tab))).toEqual(["To review 556", "Approved 1,204", "Deleted 41"]);
-    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    // History (2026-11-12, Paper Files 1) comes last, with no count.
+    expect(tabs.map((tab) => text(tab))).toEqual(["To review 556", "Approved 1,204", "Deleted 41", "History"]);
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false"]);
     expect(tabs[0].id).toBe("import-tab-review");
     expect(one('[role="tabpanel"]')!.getAttribute("aria-labelledby")).toBe("import-tab-review");
-    // No History tab in this phase.
-    expect(tabs.some((tab) => text(tab).startsWith("History"))).toBe(false);
 
     // One slim toolbar row, then the sheet: no summary, tiles or progress.
     expect(one("[data-import-toolbar]")).not.toBeNull();

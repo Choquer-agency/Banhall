@@ -2,7 +2,10 @@
   One file on the Import sheet (boards ao4 and ao5): 44px, the lightest
   hairline above it, the four fixed columns each behind a light rule. File
   shows "PD 4" muted and the PD's title for a file named like a PD, else the
-  file name, then "Being read" (muted) or "Could not be read" (amber).
+  file name, then "Being read" (muted) or "Could not be read" (amber). A
+  file that arrived in the last 24 hours has the soft green "New" label
+  10px after its name (2026-11-12, Paper Files 2 and 3); a file still being
+  read says that instead.
   Fiscal year is the year alone with the year end in a tooltip; Version
   "T2"; Writer the name, or the file name's initials; Science code the code
   and its title, after the AI mark when it was read from the document. The
@@ -71,7 +74,7 @@
     YEAR_END_QUICK_PICKS,
     type MovePatch,
   } from "./importEdit";
-  import { fileCells, type SheetFileRow, type SheetTab, type Tone } from "./importFormat";
+  import { fileCells, isBeingRead, type SheetFileRow, type SheetTab, type Tone } from "./importFormat";
   import type { ImportSelection } from "./importSelection.svelte";
   import {
     AMBER,
@@ -113,6 +116,18 @@
   } = $props();
 
   const cells = $derived(fileCells(row));
+  /** The New label: on To review, once the file is read (until then it says "Being read"). */
+  const showNew = $derived(tab === "review" && cells.isNew && !isBeingRead(row.status));
+  /** The name gives way only to the words after it: the New label and the state. */
+  const titleRoom = $derived(
+    cells.state && showNew
+      ? "max-w-[calc(100%-7rem)]"
+      : cells.state
+        ? "max-w-[calc(100%-4rem)]"
+        : showNew
+          ? "max-w-[calc(100%-3rem)]"
+          : "max-w-full"
+  );
   const can = $derived(rowAbilities(row, tab));
   const selectColumn = $derived(Boolean(selection?.on));
   const selected = $derived(selection?.has(row._id) ?? false);
@@ -362,10 +377,16 @@
           {...mergeProps({ onpointerenter: measureName }, props)}
           tabindex="-1"
           data-import-file-title
-          class={`min-w-0 shrink-0 truncate text-ink ${cells.state ? "max-w-[calc(100%-4rem)]" : "max-w-full"}`}
+          class={`min-w-0 shrink-0 truncate text-ink ${titleRoom}`}
         >{cells.title}</span>
       {/snippet}
     </Tooltip>
+    {#if showNew}
+      <span
+        data-import-file-new
+        class="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[0.6875rem] leading-[calc(14/11)] text-success-ink"
+      >New</span>
+    {/if}
     {#if cells.state}
       <span
         data-import-file-state

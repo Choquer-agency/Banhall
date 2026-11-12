@@ -38,6 +38,32 @@ export const EMPTY_TAB_TEXT: Record<SheetTab, string> = {
 /** "To check" is on and no company has a file that needs a person. */
 export const NOTHING_TO_CHECK_TEXT = "Nothing needs a check.";
 
+/** "New" is on and no file is New any more. */
+export const NOTHING_NEW_TEXT = "No files arrived in the last 24 hours.";
+
+/**
+ * The sheet's filters (2026-11-12): all files, only those to check, or only
+ * the New ones. One at a time; the queries take onlyToCheck and onlyNew.
+ */
+export type SheetFilter = "all" | "check" | "new";
+
+/** "52 new", the pill before a band's "N files" (Paper Files 2 and 3). */
+export function newCountText(count: number): string {
+  return `${formatCount(count)} new`;
+}
+
+/**
+ * The line that closes the sheet with New on, for the companies it does not
+ * list (Paper Files 2): "The other 6 companies have no new files." Null when
+ * every company is listed.
+ */
+export function otherCompaniesText(others: number): string | null {
+  if (others <= 0) return null;
+  return others === 1
+    ? "The other company has no new files."
+    : `The other ${formatCount(others)} companies have no new files.`;
+}
+
 /** The band key for files with no company yet, and what it is called. */
 export const NO_COMPANY_KEY = "";
 export const NO_COMPANY_NAME = "No company yet";
@@ -61,7 +87,9 @@ export const CATEGORY_LABELS: Record<ImportCategory, string> = {
   transcript: "Transcripts",
   supporting: "Supporting files",
   company_file: "Company files",
-  unknown: "Unsorted",
+  // 2026-11-12 (Paper Files 2): files still being read wait here too, until
+  // reading puts each in its category; files of no known kind stay.
+  unknown: "Not sorted yet",
 };
 
 /** What one file of a section is called, singular then plural. */
@@ -130,15 +158,16 @@ export type SectionSummary = {
 
 /**
  * An open company's sections in their fixed order. A section with no files
- * is left out, and so is Unsorted unless it has files. With "To check" on,
- * a section counts and lists only its files that need a check.
+ * is left out, and so is Not sorted yet unless it has files. With "To
+ * check" on, a section counts and lists only its files that need a check;
+ * with "New" on (2026-11-12), only its New files.
  */
-export function bandSections(band: Pick<SheetBand, "categories">, onlyToCheck: boolean): SectionSummary[] {
+export function bandSections(band: Pick<SheetBand, "categories">, onlyToCheck: boolean, onlyNew = false): SectionSummary[] {
   const sections: SectionSummary[] = [];
   for (const category of CATEGORY_ORDER) {
     const counts = band.categories[category];
     if (!counts) continue;
-    const count = onlyToCheck ? counts.needsCheck : counts.total;
+    const count = onlyNew ? (counts.newFiles ?? 0) : onlyToCheck ? counts.needsCheck : counts.total;
     if (count <= 0) continue;
     sections.push({ category, label: CATEGORY_LABELS[category], count, counts });
   }
@@ -216,6 +245,19 @@ export function sectionNote(counts: Pick<CategoryCounts, "needsCheck" | "checkRe
   return (addsUp && reasonSummary(reasons)) || toCheckText(needsCheck);
 }
 
+/**
+ * The faint note of the Not sorted yet section (Paper Files 2), which holds
+ * the files still being read and those whose kind is still unknown after
+ * reading. `beingRead`: how many of the section's files are being read (all
+ * of a band's files being read are in this section). The second kind also
+ * gets the amber "2 need a category" note.
+ */
+export function notSortedNote(sectionCount: number, beingRead: number): string {
+  if (beingRead <= 0) return "Banhall could not tell what these files are";
+  if (beingRead >= sectionCount) return "Each file moves to its category once Banhall has read it";
+  return "Files being read move to their category once Banhall has read them";
+}
+
 /** How many files an open section lists before "Show more". */
 export function firstPageSize(category: ImportCategory, count: number): number {
   const base = category === "final_pd" ? 5 : 3;
@@ -247,6 +289,12 @@ export function reloadSize(listed: number, firstPage: number, max: number): numb
  * only for a caller with no count.
  */
 export function showMoreText(category: ImportCategory, remaining: number, step = SHOW_MORE_STEP): string {
+  // Not sorted yet holds files of every kind: "Show 18 more" (Paper Files 2).
+  if (category === "unknown") {
+    if (remaining <= 0) return "Show more";
+    if (remaining <= step) return `Show ${formatCount(remaining)} more`;
+    return `Show ${formatCount(step)} of ${formatCount(remaining)} more`;
+  }
   const [one, many] = CATEGORY_NOUNS[category];
   if (remaining <= 0) return `Show more ${many}`;
   if (remaining <= step) return `Show ${formatCount(remaining)} more ${remaining === 1 ? one : many}`;
@@ -326,6 +374,8 @@ export type CellText = { text: string; tone: Tone };
 export type WriterCell = CellText & { initials: string | null; remembered: boolean };
 
 export type FileCells = {
+  /** New (2026-11-12): the green label after the name, on To review. */
+  isNew: boolean;
   prefix: string | null;
   title: string;
   /** Words after the name: "Being read" (muted), "Could not be read" or "No text could be read" (amber). */
@@ -369,11 +419,14 @@ export function fileCells(
     | "scienceCode"
     | "scienceCodeSource"
     | "checkReasons"
+    | "isNew"
   >
 ): FileCells {
   const { prefix, title } = fileDisplayName(row);
+  const isNew = row.isNew === true;
   if (isBeingRead(row.status)) {
     return {
+      isNew,
       prefix,
       title,
       state: { text: "Being read", tone: "muted" },
@@ -420,6 +473,7 @@ export function fileCells(
         : null;
 
   return {
+    isNew,
     prefix,
     title,
     state:

@@ -312,6 +312,18 @@ export function approvedPathFields(row: ApprovedRow): PathFields {
   return fields;
 }
 
+/**
+ * The section a file shows in on the sheet (2026-11-12): its category once
+ * it is read, and "unknown", which the sheet calls Not sorted yet, while it
+ * is still being read. A file whose category is unknown after reading stays
+ * there. The counts (lib/importCompanyCounts.ts) and the section's file list
+ * (ingestion.sheetFiles) both go by this, so a section's count always lists.
+ */
+export function sheetSectionFor(row: Pick<IngestionItemFields, "status" | "category">): IngestionCategory | undefined {
+  if (row.category === undefined) return undefined;
+  return isBeingRead(row.status) ? "unknown" : row.category;
+}
+
 /** The fields that follow from a row's own values. */
 export type DerivedFields = {
   docKind: DocKind;
@@ -324,6 +336,7 @@ export type DerivedFields = {
   needsCheck: boolean;
   checkReasons: CheckReason[];
   sortKey: string;
+  sheetSection: IngestionCategory;
 };
 
 /**
@@ -349,6 +362,7 @@ export function derivedFields(row: IngestionItemFields & { category: IngestionCa
     needsCheck: checkReasons.length > 0,
     checkReasons,
     sortKey: sortKeyFor(row),
+    sheetSection: sheetSectionFor(row)!,
   };
 }
 

@@ -175,7 +175,7 @@ function expectInvariants(row: Doc<"ingestionItems">) {
   expect(row.pairGroupKey, row.path).toBe(`${row.companyKey ?? "?"}::${row.fiscalYear ?? "?"}`);
   const { _id, _creationTime, ...fields } = row;
   const settled = settleItem(fields);
-  for (const key of ["sheetTab", "needsCheck", "checkReasons", "sortKey", "scienceCodeSource", "writerNameSource"] as const) {
+  for (const key of ["sheetTab", "needsCheck", "checkReasons", "sortKey", "scienceCodeSource", "writerNameSource", "sheetSection"] as const) {
     expect(row[key], `${row.path} ${key}`).toEqual(settled[key]);
   }
 }
@@ -410,12 +410,15 @@ type CategoryCounts = {
   needsCheck: number;
   fiscalYears: Record<string, number>;
   checkReasons?: Record<string, number>;
+  newFiles?: number;
+  newFiscalYears?: Record<string, number>;
 };
 type BandCounts = {
   total: number;
   needsCheck: number;
   ready: number;
   beingRead: number;
+  newFiles?: number;
   categories: Record<string, CategoryCounts>;
 };
 
@@ -498,8 +501,13 @@ function needsCheckByHand(row: Doc<"ingestionItems">): boolean {
  *   is in UTC year y, or y "none" for files with no fiscal year end.
  * - categories[c].checkReasons[r]: that category's files with check reason r
  *   (checkReasonsByHand). A file with two reasons counts under both.
+ * - c is the section the file shows in (2026-11-12): its category, or
+ *   "unknown" (Not sorted yet) while it is still being read.
+ * - newFiles, categories[c].newFiles and categories[c].newFiscalYears[y]:
+ *   the same counts for the files that are New (isNew), on To review only.
  * A band, category, year or reason with no file is left out, and so is a
- * category's checkReasons when none of its files needs a check.
+ * category's checkReasons when none of its files needs a check, and every
+ * New count with no New file.
  */
 function recountByHand(items: Array<Doc<"ingestionItems">>): Record<string, BandCounts> {
   const bands: Record<string, BandCounts> = {};
@@ -518,13 +526,21 @@ function recountByHand(items: Array<Doc<"ingestionItems">>): Record<string, Band
     if (check) band.needsCheck += 1;
     if (beingRead) band.beingRead += 1;
     if (!check && !beingRead) band.ready += 1;
-    const categoryName = row.category!;
+    const isNew = row.sheetTab === "review" && row.isNew === true;
+    if (isNew) band.newFiles = (band.newFiles ?? 0) + 1;
+    // A file still being read waits under Not sorted yet.
+    const categoryName = beingRead ? "unknown" : row.category!;
     band.categories[categoryName] ??= { total: 0, needsCheck: 0, fiscalYears: {} };
     const category = band.categories[categoryName];
     category.total += 1;
     if (check) category.needsCheck += 1;
     const year = row.fiscalYearEnd === undefined ? "none" : String(new Date(row.fiscalYearEnd).getUTCFullYear());
     category.fiscalYears[year] = (category.fiscalYears[year] ?? 0) + 1;
+    if (isNew) {
+      category.newFiles = (category.newFiles ?? 0) + 1;
+      category.newFiscalYears ??= {};
+      category.newFiscalYears[year] = (category.newFiscalYears[year] ?? 0) + 1;
+    }
     for (const reason of reasons) {
       category.checkReasons ??= {};
       category.checkReasons[reason] = (category.checkReasons[reason] ?? 0) + 1;
@@ -549,9 +565,11 @@ async function countsNowAndRecount(t: T) {
       needsCheck: band.needsCheck,
       ready: band.ready,
       beingRead: band.beingRead,
+      ...(band.newFiles === undefined ? {} : { newFiles: band.newFiles }),
       categories: band.categories,
     };
     expect(band.hasCheck, key).toBe(band.needsCheck > 0);
+    expect(band.hasNew === true, key).toBe((band.newFiles ?? 0) > 0);
     expect(band.total, key).toBeGreaterThan(0);
     if (band.companyKey === "") expect(band.displayName).toBe("");
     else expect(dashboardCompanyKey(band.displayName), key).toBe(band.companyKey);
@@ -862,12 +880,17 @@ describe("importCompanies counts", () => {
     );
     ({ stored } = await countsNowAndRecount(t));
     expect(Object.keys(stored)).toEqual(["review|halden foods"]);
+    // Still being read: under Not sorted yet ("unknown"), and New.
     expect(stored["review|halden foods"].categories).toEqual({
-      draft: { total: 1, needsCheck: 0, fiscalYears: { "2025": 1 } },
+      unknown: { total: 1, needsCheck: 0, fiscalYears: { "2025": 1 }, newFiles: 1, newFiscalYears: { "2025": 1 } },
     });
     await markRead(t, id);
     ({ stored } = await countsNowAndRecount(t));
-    expect(stored["review|halden foods"]).toMatchObject({ total: 1, beingRead: 0, ready: 1, needsCheck: 0 });
+    expect(stored["review|halden foods"]).toMatchObject({ total: 1, beingRead: 0, ready: 1, needsCheck: 0, newFiles: 1 });
+    // Read: in its own section.
+    expect(stored["review|halden foods"].categories).toEqual({
+      draft: { total: 1, needsCheck: 0, fiscalYears: { "2025": 1 }, newFiles: 1, newFiscalYears: { "2025": 1 } },
+    });
   });
 
   it("keeps rows with no company in the band with an empty key", async () => {
@@ -1192,6 +1215,8 @@ describe("sheet queries", () => {
       needsCheck: 5,
       ready: 3,
       beingRead: 1,
+      // Every file just arrived, so every one is New (2026-11-12).
+      newFiles: 9,
       complete: true,
     });
     expect(await admin.query(api.ingestion.sheetTotals, { tab: "approved" })).toMatchObject({ files: 0, companies: 0 });
@@ -1287,6 +1312,8 @@ describe("sheet queries", () => {
       // Initials alone are not a writer until a person says who DW is (2026-11-12).
       checkReasons: ["no_science_code", "unmatched_initials"],
       size: 2048,
+      // It arrived in the last 24 hours (2026-11-12).
+      isNew: true,
     });
     expect("text" in pd4).toBe(false);
 
@@ -1374,15 +1401,25 @@ describe("sheet queries", () => {
       needsCheck: 4,
       fiscalYears: { "2025": 4 },
       checkReasons: { no_science_code: 4, no_writer: 1, unmatched_initials: 3 },
+      newFiles: 4,
+      newFiscalYears: { "2025": 4 },
     });
     expect(byKey[""].categories.unknown).toEqual({
       total: 1,
       needsCheck: 1,
       fiscalYears: { none: 1 },
       checkReasons: { no_company: 1, unknown_category: 1 },
+      newFiles: 1,
+      newFiscalYears: { none: 1 },
     });
     // A section with nothing to check has no reasons at all.
-    expect(byKey["halden foods"].categories.draft).toEqual({ total: 1, needsCheck: 0, fiscalYears: { "2025": 1 } });
+    expect(byKey["halden foods"].categories.draft).toEqual({
+      total: 1,
+      needsCheck: 0,
+      fiscalYears: { "2025": 1 },
+      newFiles: 1,
+      newFiscalYears: { "2025": 1 },
+    });
 
     // A person fills in the writer: that reason goes, the other stays.
     await admin.mutation(api.ingestion.setSheetLabels, { ids: [ids.pdBare], patch: { writerName: "Sam Okafor" } });
@@ -1420,7 +1457,13 @@ describe("sheet queries", () => {
     });
     const before = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
     const cedarline = before.page.find((band) => band.companyKey === "cedarline systems")!;
-    expect(cedarline.categories.final_pd).toEqual({ total: 4, needsCheck: 4, fiscalYears: { "2025": 4 } });
+    expect(cedarline.categories.final_pd).toEqual({
+      total: 4,
+      needsCheck: 4,
+      fiscalYears: { "2025": 4 },
+      newFiles: 4,
+      newFiscalYears: { "2025": 4 },
+    });
 
     // A write to such a band takes a reason it never counted below zero:
     // drift, which the helper reports and the repair puts right.
@@ -1602,9 +1645,10 @@ describe("setSheetLabels", () => {
     await admin.mutation(api.ingestion.setSheetLabels, { ids: [a, b], patch: { company: "Halden Foods" } });
     const { stored } = await countsNowAndRecount(t);
     expect(Object.keys(stored)).toEqual(["review|halden foods"]);
+    // Still being read: under Not sorted yet until read (2026-11-12).
     expect(stored["review|halden foods"]).toMatchObject({
       total: 3,
-      categories: { draft: { total: 3, needsCheck: 0, fiscalYears: { "2025": 3 } } },
+      categories: { unknown: { total: 3, needsCheck: 0, fiscalYears: { "2025": 3 } } },
     });
     await expectCountsMatchRecount(t, "after the company change");
   });
@@ -2802,5 +2846,691 @@ describe("setNewCompanyIndustry", () => {
     await expect(
       writer.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "halden foods", industry: "software" })
     ).rejects.toThrow(/Admin only/);
+  });
+});
+
+// ─── Adding files (2026-11-12, the Import page's drop and the uploader) ─────
+
+/** The SHA-256 hex of some bytes, as the page and the uploader send it. */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** What the browser uploads: the bytes stored through an upload URL, and their hash. */
+async function uploaded(t: T, text: string) {
+  const storageId = await t.run((ctx) => ctx.storage.store(new Blob([text])));
+  return { storageId, contentHash: await sha256Hex(text) };
+}
+
+async function batchOf(t: T, id: Id<"importBatches">) {
+  const batch = await t.run((ctx) => ctx.db.get(id));
+  if (!batch) throw new Error("batch missing");
+  return batch;
+}
+
+async function itemAt(t: T, path: string) {
+  const row = await t.run((ctx) =>
+    ctx.db
+      .query("ingestionItems")
+      .withIndex("by_driveItemId", (q) => q.eq("driveItemId", `local:${path}`))
+      .unique()
+  );
+  if (!row) throw new Error(`no item at ${path}`);
+  return row;
+}
+
+const DROP_PD = `${CEDARLINE_FY}/To be submitted/${PD_NAME}`;
+
+describe("adding files on the Import page", () => {
+  it("stages a dropped file through the upload route's own steps, so it is the same row either way", async () => {
+    // The Import page: hash, start a batch, upload, stage.
+    const page = await setup();
+    const bytes = await uploaded(page.t, "Cold chain sensor drift, PD text");
+    const batchId = await page.admin.mutation(api.ingestion.startImportBatch, { toSend: 1, alreadyHere: 0 });
+    const outcomes = await page.admin.mutation(api.ingestion.stageImportFiles, {
+      batchId,
+      files: [{ path: DROP_PD, ...bytes, lastModifiedAt: 1_700_000_000_000 }],
+    });
+    expect(outcomes).toEqual([{ path: DROP_PD, outcome: "added" }]);
+    const fromPage = await itemAt(page.t, DROP_PD);
+
+    // The uploader: the upload route's two steps for the same path and bytes.
+    const route = await setup();
+    const routeBytes = await uploaded(route.t, "Cold chain sensor drift, PD text");
+    const { uploadUpsertFields } = await import("./lib/ingestionClassify");
+    const id = await route.t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...uploadUpsertFields(DROP_PD, 32, 1_700_000_000_000, routeBytes.contentHash),
+      via: "uploader",
+    });
+    await route.t.mutation(internal.ingestion.attachUpload, { itemId: id!, storageId: routeBytes.storageId });
+    const fromRoute = await itemAt(route.t, DROP_PD);
+
+    const sameness = (row: Doc<"ingestionItems">) => {
+      const { _id, _creationTime, storageId, batchId, arrivedAt, updatedAt, ...rest } = row;
+      return rest;
+    };
+    expect(sameness(fromPage)).toEqual(sameness(fromRoute));
+    expect(fromPage).toMatchObject({
+      status: "fetched",
+      category: "final_pd",
+      sheetSection: "unknown",
+      companyKey: "cedarline systems",
+      isNew: true,
+      batchId,
+      batchReadPending: true,
+      storageId: bytes.storageId,
+    });
+    // Reading is the route's too: the extraction action is scheduled for it.
+    const jobs = await page.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(jobs.filter((job) => job.name.includes("extractUploadedItem")).map((job) => job.args[0])).toEqual([
+      { itemId: fromPage._id },
+    ]);
+    // Nothing reaches the Brain, a company or a project.
+    const elsewhere = await page.t.run(async (ctx) => ({
+      brain: await ctx.db.query("brainSources").collect(),
+      clients: await ctx.db.query("clients").collect(),
+      projects: await ctx.db.query("projects").collect(),
+      documents: await ctx.db.query("projectDocuments").collect(),
+    }));
+    expect(elsewhere).toEqual({ brain: [], clients: [], projects: [], documents: [] });
+    await expectCountsMatchRecount(page.t, "after a dropped file");
+    expect(await batchOf(page.t, batchId)).toMatchObject({ source: "page", added: 1, alreadyHere: 0, read: 0 });
+  });
+
+  it("says which files are already here before their bytes are sent, and never a file that could not be read", async () => {
+    const { t, admin, writer } = await setup();
+    const kept = await uploaded(t, "kept bytes");
+    const broken = await uploaded(t, "broken bytes");
+    const batchId = await admin.mutation(api.ingestion.startImportBatch, { toSend: 2, alreadyHere: 0 });
+    await admin.mutation(api.ingestion.stageImportFiles, {
+      batchId,
+      files: [
+        { path: `${CEDARLINE_FY}/Drafts/kept.docx`, ...kept, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/Drafts/broken.docx`, ...broken, lastModifiedAt: 1 },
+      ],
+    });
+    const brokenRow = await itemAt(t, `${CEDARLINE_FY}/Drafts/broken.docx`);
+    await t.mutation(internal.ingestion.markItemFailed, { itemId: brokenRow._id, error: "Damaged" });
+    const fresh = await sha256Hex("never seen");
+    // Matched by bytes, whatever folder the file sits in now.
+    expect(
+      await admin.query(api.ingestion.importFilesHere, {
+        hashes: [kept.contentHash, broken.contentHash, fresh, "not a hash"],
+      })
+    ).toEqual([kept.contentHash]);
+    expect(await writer.query(api.ingestion.importFilesHere, { hashes: [kept.contentHash] })).toBeNull();
+    await expect(
+      admin.query(api.ingestion.importFilesHere, { hashes: Array.from({ length: 201 }, () => fresh) })
+    ).rejects.toThrow(/at most 200/);
+
+    // Sent anyway (another tab raced it): skipped, and its upload deleted.
+    const again = await uploaded(t, "kept bytes");
+    const outcomes = await admin.mutation(api.ingestion.stageImportFiles, {
+      batchId,
+      files: [{ path: `${CEDARLINE_FY}/Drafts/kept.docx`, ...again, lastModifiedAt: 1 }],
+    });
+    expect(outcomes).toEqual([{ path: `${CEDARLINE_FY}/Drafts/kept.docx`, outcome: "already_here" }]);
+    expect(await t.run((ctx) => ctx.db.system.get("_storage", again.storageId))).toBeNull();
+    expect(await batchOf(t, batchId)).toMatchObject({ added: 2, alreadyHere: 1 });
+  });
+
+  it("refuses what the upload route refuses, junk, a wrong hash, an upload a row holds, and another person's batch", async () => {
+    const { t, admin, writer } = await setup();
+    await t.run((ctx) => ctx.db.insert("users", { authId: "sheet-admin-2", role: "admin", firstName: "Priya" }));
+    const other = t.withIdentity({ subject: "sheet-admin-2" });
+    const batchId = await admin.mutation(api.ingestion.startImportBatch, { toSend: 6, alreadyHere: 0 });
+    const bytes = async (text: string) => uploaded(t, text);
+    const wrong = await bytes("the real bytes");
+    const sheet = await bytes("a spreadsheet");
+    const lock = await bytes("lock file");
+    const empty = await bytes("");
+    const held = await bytes("held by a row");
+    const badPath = await bytes("a path with nothing safe left");
+    await t.run((ctx) => ctx.db.insert("ingestionItems", { ...discoveredArgs("Halden Foods/x.docx"), storageId: held.storageId, status: "pending_review", updatedAt: 1 }));
+    const outcomes = await admin.mutation(api.ingestion.stageImportFiles, {
+      batchId,
+      files: [
+        { path: `${CEDARLINE_FY}/a.docx`, storageId: wrong.storageId, contentHash: await sha256Hex("other bytes"), lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/budget.xlsx`, ...sheet, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/~$a.docx`, ...lock, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/empty.docx`, ...empty, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/held.docx`, ...held, lastModifiedAt: 1 },
+        { path: "../..", ...badPath, lastModifiedAt: 1 },
+      ],
+    });
+    expect(outcomes.map((outcome) => [outcome.outcome, outcome.reason])).toEqual([
+      ["refused", "hash"],
+      ["refused", "type"],
+      ["refused", "junk"],
+      ["refused", "empty"],
+      ["refused", "in_use"],
+      ["refused", "path"],
+    ]);
+    // Refused uploads are deleted; the one a row holds is kept.
+    for (const id of [wrong.storageId, sheet.storageId, lock.storageId, empty.storageId, badPath.storageId]) {
+      expect(await t.run((ctx) => ctx.db.system.get("_storage", id))).toBeNull();
+    }
+    expect(await t.run((ctx) => ctx.db.system.get("_storage", held.storageId))).not.toBeNull();
+    expect(await batchOf(t, batchId)).toMatchObject({ added: 0, alreadyHere: 0 });
+
+    // An upload older than an hour cannot be claimed.
+    const stale = await bytes("stale bytes");
+    vi.advanceTimersByTime(61 * 60_000);
+    expect(
+      await admin.mutation(api.ingestion.stageImportFiles, {
+        batchId,
+        files: [{ path: `${CEDARLINE_FY}/stale.docx`, ...stale, lastModifiedAt: 1 }],
+      })
+    ).toEqual([{ path: `${CEDARLINE_FY}/stale.docx`, outcome: "refused", reason: "missing" }]);
+
+    // Only the admin who started a batch adds to it, finishes or reopens it.
+    const mine = await bytes("mine");
+    await expect(
+      other.mutation(api.ingestion.stageImportFiles, { batchId, files: [{ path: `${CEDARLINE_FY}/m.docx`, ...mine, lastModifiedAt: 1 }] })
+    ).rejects.toThrow(/another upload/);
+    await expect(other.mutation(api.ingestion.finishImportBatch, { batchId, failed: 0 })).rejects.toThrow(/another upload/);
+    await expect(writer.mutation(api.ingestion.startImportBatch, { toSend: 1, alreadyHere: 0 })).rejects.toThrow(/Admin only/);
+    await expect(writer.mutation(api.ingestion.generateUploadUrl, {})).rejects.toThrow(/Admin only/);
+    await expect(
+      admin.mutation(api.ingestion.stageImportFiles, {
+        batchId,
+        files: Array.from({ length: 11 }, (_, index) => ({ path: `${CEDARLINE_FY}/${index}.docx`, ...mine, lastModifiedAt: 1 })),
+      })
+    ).rejects.toThrow(/at most 10/);
+  });
+
+  it("counts a batch's files as they are read, and what the browser could not send", async () => {
+    const { t, admin } = await setup();
+    const batchId = await admin.mutation(api.ingestion.startImportBatch, { toSend: 3, alreadyHere: 12 });
+    const files = [];
+    for (const name of ["a", "b", "c"]) {
+      files.push({ path: `${CEDARLINE_FY}/Drafts/${name}.docx`, ...(await uploaded(t, `bytes ${name}`)), lastModifiedAt: 1 });
+    }
+    await admin.mutation(api.ingestion.stageImportFiles, { batchId, files });
+    await admin.mutation(api.ingestion.finishImportBatch, { batchId, failed: 2 });
+    expect(await batchOf(t, batchId)).toMatchObject({ added: 3, alreadyHere: 12, failed: 2, sendingDone: true, read: 0 });
+
+    const [a, b] = [await itemAt(t, files[0].path), await itemAt(t, files[1].path)];
+    await markRead(t, a._id);
+    await t.mutation(internal.ingestion.markItemFailed, { itemId: b._id, error: "Damaged" });
+    expect(await batchOf(t, batchId)).toMatchObject({ read: 2, couldNotRead: 1 });
+    expect((await getItem(t, a._id)).batchReadPending).toBeUndefined();
+    // A file read again later (put back, or read twice) is never counted twice.
+    await t.mutation(internal.ingestion.markItemFailed, { itemId: a._id, error: "Again" });
+    expect(await batchOf(t, batchId)).toMatchObject({ read: 2, couldNotRead: 1 });
+
+    // "Try again" reopens the batch for the files that were not sent.
+    await admin.mutation(api.ingestion.reopenImportBatch, { batchId });
+    expect(await batchOf(t, batchId)).toMatchObject({ sendingDone: false });
+    await admin.mutation(api.ingestion.finishImportBatch, { batchId, failed: 0 });
+    expect(await batchOf(t, batchId)).toMatchObject({ sendingDone: true, failed: 0 });
+    await expectCountsMatchRecount(t, "after a batch is read");
+  });
+
+  it("stages the uploader's request through the same fields, in the uploader's batch, and is unchanged otherwise", async () => {
+    const { t } = await setup();
+    vi.stubEnv("INGEST_API_KEY", "k".repeat(40));
+    const body = "Proofing PD text";
+    const hash = await sha256Hex(body);
+    const send = (path: string) =>
+      t.fetch(`/ingestion/upload?path=${encodeURIComponent(path)}&hash=${hash}&mtime=1700000000000`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${"k".repeat(40)}` },
+        body,
+      });
+    const path = "Halden Foods/2025 - Jun 30/Submitted/02 HaldenFoods 2025-06-30 S1.SO Fermentation.docx";
+    const first = await send(path);
+    expect(await first.json()).toEqual({ staged: true, docKind: "pd", group: "halden foods::2025" });
+    expect(await (await send(path)).json()).toEqual({ skipped: true, reason: "unchanged" });
+    const row = await itemAt(t, path);
+    expect(row).toMatchObject({ status: "fetched", category: "final_pd", isNew: true, batchReadPending: true });
+    const batch = await batchOf(t, row.batchId!);
+    expect(batch).toMatchObject({ source: "uploader", added: 1, alreadyHere: 1 });
+    expect(batch.addedBy).toBeUndefined();
+    // Still refused without the key.
+    expect((await t.fetch(`/ingestion/upload?path=${encodeURIComponent(path)}&hash=${hash}`, { method: "POST", body })).status).toBe(401);
+  });
+
+  it("groups the uploader's files into one batch while they keep coming, and starts another after a quiet gap", async () => {
+    const { t } = await setup();
+    vi.setSystemTime(Date.UTC(2026, 10, 12, 9, 0));
+    const send = (path: string, hash: string) =>
+      t.mutation(internal.ingestion.upsertDiscoveredItem, { ...discoveredArgs(path, { driveItemId: `local:${path}`, contentHash: hash }), via: "uploader" });
+    await send(`${CEDARLINE_FY}/Drafts/one.docx`, "h1");
+    vi.advanceTimersByTime(5 * 60_000);
+    await send(`${CEDARLINE_FY}/Drafts/two.docx`, "h2");
+    // The same file again: already here.
+    await send(`${CEDARLINE_FY}/Drafts/one.docx`, "h1");
+    vi.advanceTimersByTime(11 * 60_000);
+    await send(`${CEDARLINE_FY}/Drafts/three.docx`, "h3");
+    const batches = await t.run((ctx) => ctx.db.query("importBatches").withIndex("by_startedAt").collect());
+    expect(batches.map((batch) => [batch.source, batch.added, batch.alreadyHere, batch.addedBy])).toEqual([
+      ["uploader", 2, 1, undefined],
+      ["uploader", 1, 0, undefined],
+    ]);
+    expect((await itemAt(t, `${CEDARLINE_FY}/Drafts/two.docx`)).batchId).toBe(batches[0]._id);
+    expect((await itemAt(t, `${CEDARLINE_FY}/Drafts/three.docx`)).batchId).toBe(batches[1]._id);
+    // A file without the uploader's flag (another caller) joins no batch, but is still New.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, discoveredArgs("Halden Foods/2025/Drafts/x.docx"));
+    const loose = await t.run((ctx) =>
+      ctx.db.query("ingestionItems").withIndex("by_driveItemId", (q) => q.eq("driveItemId", "drive-Halden Foods/2025/Drafts/x.docx")).unique()
+    );
+    expect(loose).toMatchObject({ isNew: true });
+    expect(loose!.batchId).toBeUndefined();
+  });
+
+  it("counts a OneDrive sync run's files into the run's batch", async () => {
+    const { t, admin } = await setup();
+    const { runId, batchId } = await t.run(async (ctx) => {
+      const userId = (await ctx.db.query("users").first())!._id;
+      const batchId = await ctx.db.insert("importBatches", {
+        source: "onedrive",
+        addedBy: userId,
+        startedAt: 1,
+        lastFileAt: 1,
+        added: 0,
+        alreadyHere: 0,
+        failed: 0,
+        read: 0,
+        couldNotRead: 0,
+      });
+      const runId = await ctx.db.insert("oneDriveSyncRuns", {
+        status: "running",
+        triggeredBy: userId,
+        startedAt: 1,
+        discovered: 0,
+        processed: 0,
+        skipped: 0,
+        batchId,
+      });
+      return { runId, batchId };
+    });
+    const items = [discoveredArgs(`${CEDARLINE_FY}/Drafts/a.docx`), discoveredArgs(`${CEDARLINE_FY}/Drafts/b.docx`)];
+    await t.mutation(internal.ingestion.upsertDiscoveredBatch, { items, runId });
+    await t.mutation(internal.ingestion.upsertDiscoveredBatch, { items: items.slice(0, 1), runId });
+    expect(await batchOf(t, batchId)).toMatchObject({ added: 2, alreadyHere: 1 });
+    // The History tab shows the run once, as its batch.
+    const history = await admin.query(api.ingestion.importHistory, { limit: 25 });
+    expect(history!.rows.map((row) => [row.source, row.who, row.added, row.alreadyHere])).toEqual([["onedrive", "Dana", 2, 1]]);
+  });
+
+  it("marks a file New when it arrives or its bytes change, never on a rename, and clears it after 24 hours in batches", async () => {
+    const { t, admin } = await setup();
+    const start = Date.UTC(2026, 10, 12, 9, 0);
+    vi.setSystemTime(start);
+    const first = await stage(t, `${CEDARLINE_FY}/Drafts/first.docx`, { driveItemId: "first" });
+    await markRead(t, first);
+    vi.advanceTimersByTime(23 * 60 * 60_000);
+    const later = await stage(t, "Halden Foods/2025 - Jun 30/Drafts/later.docx", { driveItemId: "later" });
+    await markRead(t, later);
+    // A rename does not make an old file New again.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, discoveredArgs(`${CEDARLINE_FY}/Drafts/renamed.docx`, { driveItemId: "first" }));
+    expect((await getItem(t, first)).arrivedAt).toBe(start);
+
+    vi.setSystemTime(start + 24 * 60 * 60_000 + 60_000);
+    const result = await t.mutation(internal.ingestion.clearExpiredNew, {});
+    expect(result).toEqual({ cleared: 1, more: false });
+    expect((await getItem(t, first)).isNew).toBeUndefined();
+    expect((await getItem(t, later)).isNew).toBe(true);
+    await expectCountsMatchRecount(t, "after clearing New");
+    expect(await admin.query(api.ingestion.sheetTotals, { tab: "review" })).toMatchObject({ files: 2, newFiles: 1 });
+
+    // New bytes: New again, from now.
+    await stage(t, `${CEDARLINE_FY}/Drafts/renamed.docx`, { driveItemId: "first", contentHash: "hash-2" });
+    expect(await getItem(t, first)).toMatchObject({ isNew: true, arrivedAt: start + 24 * 60 * 60_000 + 60_000 });
+    await expectCountsMatchRecount(t, "after new bytes");
+  });
+
+  it("clears more than a hundred expired New flags a batch at a time, keeping the counts right", async () => {
+    const { t } = await setup();
+    const start = Date.UTC(2026, 10, 12, 9, 0);
+    vi.setSystemTime(start);
+    for (let index = 0; index < 101; index++) {
+      await stage(t, `${CEDARLINE_FY}/Supporting/file ${index}.pdf`, { driveItemId: `file-${index}` });
+    }
+    vi.setSystemTime(start + 25 * 60 * 60_000);
+    expect(await t.mutation(internal.ingestion.clearExpiredNew, {})).toEqual({ cleared: 100, more: true });
+    await expectCountsMatchRecount(t, "after the first hundred");
+    const next = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter(
+      (job) => job.name.includes("clearExpiredNew") && job.state.kind === "pending"
+    );
+    expect(next).toHaveLength(1);
+    expect(await t.mutation(internal.ingestion.clearExpiredNew, {})).toEqual({ cleared: 1, more: false });
+    await expectCountsMatchRecount(t, "after the rest");
+    const bands = await t.run((ctx) => ctx.db.query("importCompanies").collect());
+    expect(bands.map((band) => [band.newFiles, band.hasNew])).toEqual([[undefined, false]]);
+  });
+
+  it("lists New bands and files with the New filter, and a file being read under Not sorted yet until it is read", async () => {
+    const { t, admin } = await setup();
+    const start = Date.UTC(2026, 10, 12, 9, 0);
+    vi.setSystemTime(start);
+    const old = await stage(t, "Northgate Labs/2024 - Sep 30/In Review/old.docx");
+    await markRead(t, old);
+    vi.setSystemTime(start + 25 * 60 * 60_000);
+    await t.mutation(internal.ingestion.clearExpiredNew, {});
+    const pd = await stage(t, DROP_PD);
+    const draft = await stage(t, `${CEDARLINE_FY}/Drafts/plan.docx`);
+    await markRead(t, draft);
+
+    const bands = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, onlyNew: true, paginationOpts: PAGE });
+    expect(bands.page.map((band) => [band.companyKey, band.newFiles, band.total])).toEqual([["cedarline systems", 2, 2]]);
+    const all = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
+    expect(all.page.map((band) => [band.companyKey, band.newFiles])).toEqual([
+      ["cedarline systems", 2],
+      ["northgate labs", 0],
+    ]);
+    // The final PD is still being read: it lists under Not sorted yet, not Final PDs.
+    const files = (category: "final_pd" | "unknown" | "draft", onlyNew = false) =>
+      admin.query(api.ingestion.sheetFiles, { tab: "review", companyKey: "cedarline systems", category, onlyToCheck: false, onlyNew, paginationOpts: PAGE });
+    expect((await files("unknown")).page.map((row) => [row._id, row.category, row.status])).toEqual([[pd, "final_pd", "discovered"]]);
+    expect((await files("final_pd")).page).toEqual([]);
+    expect(all.page[0].categories.unknown).toMatchObject({ total: 1, newFiles: 1 });
+    expect(all.page[0].categories.final_pd).toBeUndefined();
+    // Read: in Final PDs, with its checks; Not sorted yet is gone.
+    await markRead(t, pd);
+    expect((await files("final_pd", true)).page.map((row) => [row._id, row.isNew])).toEqual([[pd, true]]);
+    expect((await files("unknown")).page).toEqual([]);
+    expect((await files("draft", true)).page.map((row) => row._id)).toEqual([draft]);
+    await expectCountsMatchRecount(t, "after reading");
+  });
+
+  it("shows the latest batches for the status line, marking the signed-in admin's own", async () => {
+    const { t, admin } = await setup();
+    await t.run((ctx) => ctx.db.insert("users", { authId: "sheet-admin-2", role: "admin", firstName: "Sam", lastName: "Okafor" }));
+    const other = t.withIdentity({ subject: "sheet-admin-2" });
+    vi.setSystemTime(Date.UTC(2026, 10, 12, 9, 0));
+    const mine = await admin.mutation(api.ingestion.startImportBatch, { toSend: 64, alreadyHere: 12 });
+    vi.advanceTimersByTime(1000);
+    const theirs = await other.mutation(api.ingestion.startImportBatch, { toSend: 412, alreadyHere: 0 });
+    const activity = await admin.query(api.ingestion.importActivity, {});
+    expect(activity!.map((batch) => [batch._id, batch.mine, batch.addedByName, batch.toSend, batch.sendingDone])).toEqual([
+      [theirs, false, "Sam Okafor", 412, false],
+      [mine, true, "Dana", 64, false],
+    ]);
+  });
+
+  it("lists History newest first, with sync runs from before batches, a page at a time", async () => {
+    const { t, admin, writer } = await setup();
+    await t.run(async (ctx) => {
+      const userId = (await ctx.db.query("users").first())!._id;
+      await ctx.db.insert("oneDriveSyncRuns", { status: "completed", triggeredBy: userId, startedAt: 100, discovered: 40, processed: 40, skipped: 3 });
+      await ctx.db.insert("importBatches", { source: "uploader", startedAt: 200, lastFileAt: 250, added: 30, alreadyHere: 5, failed: 0, read: 30, couldNotRead: 2 });
+      await ctx.db.insert("importBatches", { source: "page", addedBy: userId, startedAt: 300, lastFileAt: 300, toSend: 52, sendingDone: true, added: 50, alreadyHere: 12, failed: 2, read: 50, couldNotRead: 1 });
+    });
+    const history = await admin.query(api.ingestion.importHistory, { limit: 2 });
+    expect(history).toEqual({
+      rows: [
+        { key: expect.any(String), startedAt: 300, source: "page", who: "Dana", added: 50, alreadyHere: 12, couldNotRead: 1, notSent: 2 },
+        { key: expect.any(String), startedAt: 200, source: "uploader", who: null, added: 30, alreadyHere: 5, couldNotRead: 2, notSent: 0 },
+      ],
+      more: true,
+    });
+    const everything = await admin.query(api.ingestion.importHistory, { limit: 25 });
+    expect(everything!.rows.at(-1)).toMatchObject({ source: "onedrive", who: "Dana", added: 40, alreadyHere: null, couldNotRead: null });
+    expect(everything!.more).toBe(false);
+    expect(await writer.query(api.ingestion.importHistory, { limit: 25 })).toBeNull();
+  });
+});
+
+// ─── A page file whose path a row already has (2026-11-12 review fixes) ─────
+
+/** Starts a batch for `files`, uploads each after it (as the browser does) and stages them in one call. */
+async function addOnPage(t: T, admin: ReturnType<T["withIdentity"]>, files: Array<{ path: string; text: string }>) {
+  const batchId = await admin.mutation(api.ingestion.startImportBatch, { toSend: files.length, alreadyHere: 0 });
+  const sent = [];
+  for (const entry of files) sent.push({ path: entry.path, ...(await uploaded(t, entry.text)), lastModifiedAt: 1_700_000_000_000 });
+  const outcomes = await admin.mutation(api.ingestion.stageImportFiles, { batchId, files: sent });
+  return { batchId, sent, outcomes };
+}
+
+/** Every row whose path is `path`, oldest first. */
+async function rowsWithPath(t: T, path: string) {
+  return (await t.run((ctx) => ctx.db.query("ingestionItems").collect())).filter((row) => row.path === path);
+}
+
+async function storedFile(t: T, id: Id<"_storage">) {
+  return await t.run((ctx) => ctx.db.system.get("_storage", id));
+}
+
+describe("a file added on the page with a path a row already has", () => {
+  it("skips the same path and bytes as already here, and the row keeps what a person set", async () => {
+    const { t, admin } = await setup();
+    const path = "Report.docx";
+    await addOnPage(t, admin, [{ path, text: "Halden Foods proofing report" }]);
+    const [first] = await rowsWithPath(t, path);
+    await markRead(t, first._id);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [first._id], patch: { company: "Halden Foods" } });
+    const before = await getItem(t, first._id);
+
+    const again = await addOnPage(t, admin, [{ path, text: "Halden Foods proofing report" }]);
+    expect(again.outcomes).toEqual([{ path, outcome: "already_here" }]);
+    expect(await storedFile(t, again.sent[0].storageId)).toBeNull();
+    expect(await rowsWithPath(t, path)).toHaveLength(1);
+    expect(await getItem(t, first._id)).toMatchObject({
+      storageId: before.storageId,
+      contentHash: before.contentHash,
+      status: "pending_review",
+      clientName: "Halden Foods",
+      editedLabels: before.editedLabels,
+    });
+    expect(await batchOf(t, again.batchId)).toMatchObject({ added: 0, alreadyHere: 1 });
+    await expectCountsMatchRecount(t, "after the same file again");
+  });
+
+  it("stages a different file with the same path as its own row, and never touches the first on To review", async () => {
+    const { t, admin } = await setup();
+    const path = "Report.docx";
+    await addOnPage(t, admin, [{ path, text: "Halden Foods proofing report" }]);
+    const [first] = await rowsWithPath(t, path);
+    await markRead(t, first._id);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [first._id], patch: { company: "Halden Foods", fiscalYearEnd: Date.UTC(2025, 5, 30) } });
+    const before = await getItem(t, first._id);
+
+    // A second "Report.docx", dropped on its own: other bytes, same path.
+    const second = await addOnPage(t, admin, [{ path, text: "Northgate Labs sensor report" }]);
+    expect(second.outcomes).toEqual([{ path, outcome: "added" }]);
+    // The first row is exactly as it was: its bytes, labels and status.
+    expect(await getItem(t, first._id)).toEqual(before);
+    const rows = await rowsWithPath(t, path);
+    expect(rows).toHaveLength(2);
+    const added = rows.find((row) => row._id !== first._id)!;
+    const hash = second.sent[0].contentHash;
+    // Its own key; the path and name the admin sees stay as dropped.
+    expect(added).toMatchObject({
+      driveItemId: `local:${path}#${hash.slice(0, 12)}`,
+      path,
+      name: path,
+      contentHash: hash,
+      storageId: second.sent[0].storageId,
+      status: "fetched",
+      category: "unknown",
+      isNew: true,
+      batchId: second.batchId,
+      batchReadPending: true,
+    });
+    // Nothing a person set on the first file comes with it.
+    expect(added.clientName).toBeUndefined();
+    expect(added.fiscalYearEnd).toBeUndefined();
+    expect(added.editedLabels ?? []).toEqual([]);
+    expect(added.extractNote).toBeUndefined();
+    expect(await batchOf(t, second.batchId)).toMatchObject({ added: 1, alreadyHere: 0 });
+    await expectCountsMatchRecount(t, "after a second file with the same path");
+
+    // The second file again: already here, by its own row.
+    const repeat = await addOnPage(t, admin, [{ path, text: "Northgate Labs sensor report" }]);
+    expect(repeat.outcomes).toEqual([{ path, outcome: "already_here" }]);
+    expect(await rowsWithPath(t, path)).toHaveLength(2);
+
+    // The uploader's route is unchanged: there the same path is the same synced file.
+    const { uploadUpsertFields } = await import("./lib/ingestionClassify");
+    const changed = await sha256Hex("Halden Foods proofing report, edited");
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, { ...uploadUpsertFields(path, 64, 1_700_000_000_000, changed), via: "uploader" });
+    expect(await rowsWithPath(t, path)).toHaveLength(2);
+    expect((await getItem(t, first._id)).contentHash).toBe(changed);
+    expect((await getItem(t, added._id)).contentHash).toBe(hash);
+    await expectCountsMatchRecount(t, "after the uploader changes the first");
+  });
+
+  it("never touches an approved first file: no false note, and the new file is staged", async () => {
+    const { t, admin } = await setup();
+    await addOnPage(t, admin, [{ path: DROP_PD, text: "Cedarline cold chain PD, approved" }]);
+    const [first] = await rowsWithPath(t, DROP_PD);
+    await markRead(t, first._id);
+    await approveForTest(t, admin, first._id);
+    const before = await getItem(t, first._id);
+    expect(before.status).toBe("approved");
+
+    const second = await addOnPage(t, admin, [{ path: DROP_PD, text: "Cedarline cold chain PD, another file" }]);
+    expect(second.outcomes).toEqual([{ path: DROP_PD, outcome: "added" }]);
+    const after = await getItem(t, first._id);
+    expect(after).toEqual(before);
+    expect(after.extractNote).toBeUndefined();
+    // The new upload is kept and read, on To review.
+    const added = (await rowsWithPath(t, DROP_PD)).find((row) => row._id !== first._id)!;
+    expect(added).toMatchObject({ status: "fetched", sheetTab: "review", category: "final_pd", storageId: second.sent[0].storageId });
+    expect(await storedFile(t, second.sent[0].storageId)).not.toBeNull();
+    const reads = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((job) =>
+      job.name.includes("extractUploadedItem")
+    );
+    expect(reads.map((job) => job.args[0])).toContainEqual({ itemId: added._id });
+    await expectCountsMatchRecount(t, "after a new file beside an approved one");
+  });
+
+  it("never brings a deleted first file back: the new file is staged beside it", async () => {
+    const { t, admin } = await setup();
+    const path = "Northgate Labs/2024 - Sep 30/Drafts/Report.docx";
+    await addOnPage(t, admin, [{ path, text: "Northgate Labs draft, deleted" }]);
+    const [first] = await rowsWithPath(t, path);
+    await markRead(t, first._id);
+    await admin.mutation(api.ingestion.removeItems, { ids: [first._id] });
+    const before = await getItem(t, first._id);
+    expect(before).toMatchObject({ status: "deleted", sheetTab: "deleted" });
+
+    const second = await addOnPage(t, admin, [{ path, text: "Northgate Labs draft, a new one" }]);
+    expect(second.outcomes).toEqual([{ path, outcome: "added" }]);
+    expect(await getItem(t, first._id)).toEqual(before);
+    const added = (await rowsWithPath(t, path)).find((row) => row._id !== first._id)!;
+    expect(added).toMatchObject({ status: "fetched", sheetTab: "review", category: "draft", companyKey: "northgate labs" });
+    await expectCountsMatchRecount(t, "after a new file beside a deleted one");
+  });
+
+  it("lets two different files with one path in one drop both in, and the same bytes again once", async () => {
+    const { t, admin } = await setup();
+    const path = `${CEDARLINE_FY}/Drafts/Report.docx`;
+    const drop = await addOnPage(t, admin, [
+      { path, text: "Cedarline report, from the desktop" },
+      { path, text: "Cedarline report, from downloads" },
+      { path, text: "Cedarline report, from the desktop" },
+    ]);
+    expect(drop.outcomes).toEqual([
+      { path, outcome: "added" },
+      { path, outcome: "added" },
+      { path, outcome: "already_here" },
+    ]);
+    const rows = await rowsWithPath(t, path);
+    expect(rows.map((row) => [row.driveItemId, row.contentHash, row.storageId])).toEqual([
+      [`local:${path}`, drop.sent[0].contentHash, drop.sent[0].storageId],
+      [`local:${path}#${drop.sent[1].contentHash.slice(0, 12)}`, drop.sent[1].contentHash, drop.sent[1].storageId],
+    ]);
+    expect(await storedFile(t, drop.sent[2].storageId)).toBeNull();
+    expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 2, alreadyHere: 1 });
+    await expectCountsMatchRecount(t, "after two files with one path in one drop");
+  });
+});
+
+describe("a stored file that may not be this batch's own", () => {
+  it("is refused and never deleted, whatever else is wrong with it", async () => {
+    const { t, admin } = await setup();
+    const otherId = await t.run((ctx) => ctx.db.insert("users", { authId: "sheet-admin-2", role: "admin", firstName: "Sam", lastName: "Okafor" }));
+    // Uploaded before the batch started.
+    const early = await uploaded(t, "Halden Foods notes, uploaded earlier");
+    vi.advanceTimersByTime(1_000);
+    const batchId = await admin.mutation(api.ingestion.startImportBatch, { toSend: 5, alreadyHere: 0 });
+    // Held by a row, claimed by another person, and gone.
+    const held = await uploaded(t, "Cedarline file a row holds");
+    await t.run((ctx) => ctx.db.insert("ingestionItems", { ...discoveredArgs("Cedarline Systems/held.docx"), storageId: held.storageId, status: "pending_review", updatedAt: 1 }));
+    const claimed = await uploaded(t, "Sam Okafor's own upload");
+    await t.run((ctx) => ctx.db.insert("uploadClaims", { storageId: claimed.storageId, userId: otherId, claimedAt: Date.now() }));
+    const gone = await uploaded(t, "already deleted");
+    await t.run((ctx) => ctx.storage.delete(gone.storageId));
+
+    const outcomes = await admin.mutation(api.ingestion.stageImportFiles, {
+      batchId,
+      files: [
+        { path: "../..", ...early, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/~$held.docx`, ...held, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/budget.xlsx`, ...claimed, lastModifiedAt: 1 },
+        { path: `${CEDARLINE_FY}/gone.docx`, storageId: gone.storageId, contentHash: "not a hash", lastModifiedAt: 1 },
+      ],
+    });
+    expect(outcomes.map((outcome) => [outcome.outcome, outcome.reason])).toEqual([
+      ["refused", "not_this_batch"],
+      ["refused", "in_use"],
+      ["refused", "in_use"],
+      ["refused", "missing"],
+    ]);
+    for (const id of [early.storageId, held.storageId, claimed.storageId]) expect(await storedFile(t, id)).not.toBeNull();
+
+    // An upload older than an hour, with a hash that is no hash: kept too.
+    const stale = await uploaded(t, "Northgate Labs upload left behind");
+    vi.advanceTimersByTime(61 * 60_000);
+    expect(
+      await admin.mutation(api.ingestion.stageImportFiles, {
+        batchId,
+        files: [{ path: `${CEDARLINE_FY}/stale.docx`, storageId: stale.storageId, contentHash: "not a hash", lastModifiedAt: 1 }],
+      })
+    ).toEqual([{ path: `${CEDARLINE_FY}/stale.docx`, outcome: "refused", reason: "missing" }]);
+    expect(await storedFile(t, stale.storageId)).not.toBeNull();
+    expect(await batchOf(t, batchId)).toMatchObject({ added: 0, alreadyHere: 0 });
+  });
+});
+
+describe("a file rejected or deleted while it is still being read", () => {
+  it("counts as done for its batch, once, so the status line settles and History still counts it as added", async () => {
+    const { t, admin } = await setup();
+    const drop = await addOnPage(t, admin, [
+      { path: `${CEDARLINE_FY}/Drafts/rejected.docx`, text: "Cedarline draft, rejected before it was read" },
+      { path: `${CEDARLINE_FY}/Drafts/read.docx`, text: "Cedarline draft, read" },
+    ]);
+    await admin.mutation(api.ingestion.finishImportBatch, { batchId: drop.batchId, failed: 0 });
+    const rejected = await itemAt(t, `${CEDARLINE_FY}/Drafts/rejected.docx`);
+    const read = await itemAt(t, `${CEDARLINE_FY}/Drafts/read.docx`);
+    expect(rejected.status).toBe("fetched");
+
+    await admin.mutation(api.ingestion.rejectItem, { itemId: rejected._id });
+    expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 2, read: 1, couldNotRead: 0 });
+    expect((await getItem(t, rejected._id)).batchReadPending).toBeUndefined();
+    // Its reading still runs, and finds the file rejected: nothing is counted again.
+    await markRead(t, rejected._id);
+    expect(await batchOf(t, drop.batchId)).toMatchObject({ read: 1 });
+    await markRead(t, read._id);
+    const activity = await admin.query(api.ingestion.importActivity, {});
+    expect(activity!.find((batch) => batch._id === drop.batchId)).toMatchObject({ added: 2, read: 2, sendingDone: true });
+
+    // Deleted after it was rejected: still counted once.
+    await admin.mutation(api.ingestion.removeItems, { ids: [rejected._id] });
+    expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 2, read: 2, couldNotRead: 0 });
+    const history = await admin.query(api.ingestion.importHistory, { limit: 25 });
+    expect(history!.rows.find((row) => row.key === drop.batchId)).toMatchObject({ added: 2, alreadyHere: 0, couldNotRead: 0, notSent: 0 });
+    await expectCountsMatchRecount(t, "after a file rejected while it was read");
+  });
+
+  it("settles a batch still waiting on a file rejected before this fix, when that file is deleted", async () => {
+    const { t, admin } = await setup();
+    const path = `${CEDARLINE_FY}/Drafts/old reject.docx`;
+    const drop = await addOnPage(t, admin, [{ path, text: "Cedarline draft rejected long ago" }]);
+    const row = await itemAt(t, path);
+    await admin.mutation(api.ingestion.rejectItem, { itemId: row._id });
+    // As a row rejected before this fix was left: still waited for.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(row._id, { batchReadPending: true });
+      await ctx.db.patch(drop.batchId, { read: 0 });
+    });
+    await admin.mutation(api.ingestion.removeItems, { ids: [row._id] });
+    expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 1, read: 1, couldNotRead: 0 });
+    expect((await getItem(t, row._id)).batchReadPending).toBeUndefined();
+    await expectCountsMatchRecount(t, "after deleting an old rejected file");
   });
 });

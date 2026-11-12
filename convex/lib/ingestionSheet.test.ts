@@ -24,6 +24,7 @@ import {
   previewScienceCode,
   rememberedWriterFields,
   settleItem,
+  sheetSectionFor,
   sheetTabForStatus,
   sortKeyFor,
   writerInitialsKey,
@@ -696,14 +697,19 @@ describe("company band counts", () => {
     const a = countShareOf(counted({}))!;
     const b = countShareOf(counted({ needsCheck: true, status: "fetched", fiscalYearEnd: undefined }))!;
     let counts = addShare(addShare(emptyImportCounts(), a, 1), b, 1);
+    // b is still being read, so it waits under Not sorted yet ("unknown", 2026-11-12).
     expect(counts).toEqual({
       total: 2,
       needsCheck: 1,
       ready: 1,
       beingRead: 1,
-      categories: { final_pd: { total: 2, needsCheck: 1, fiscalYears: { "2025": 1, none: 1 } } },
+      categories: {
+        final_pd: { total: 1, needsCheck: 0, fiscalYears: { "2025": 1 } },
+        unknown: { total: 1, needsCheck: 1, fiscalYears: { none: 1 } },
+      },
     });
     counts = addShare(counts, b, -1);
+    expect(counts.categories.unknown).toBeUndefined();
     expect(counts.categories.final_pd.fiscalYears).toEqual({ "2025": 1 });
     counts = addShare(counts, a, -1);
     expect(counts).toEqual(emptyImportCounts());
@@ -738,5 +744,59 @@ describe("company band counts", () => {
     expect(addShare(legacy, share, -1).categories).toEqual({});
     const two = { ...legacy, total: 2, categories: { final_pd: { total: 2, needsCheck: 2, fiscalYears: { "2025": 2 } } } };
     expect(addShare(two, share, -1).categories.final_pd.checkReasons).toEqual({ no_writer: -1 });
+  });
+
+  it("counts a New file on To review in its band and section, with its year, and never on another tab", () => {
+    const fresh = countShareOf(counted({ isNew: true }))!;
+    expect(fresh.isNew).toBe(true);
+    expect(countShareOf(counted({ isNew: true, sheetTab: "deleted", status: "deleted" }))!.isNew).toBe(false);
+    expect(countShareOf(counted({ isNew: undefined }))!.isNew).toBe(false);
+    const old = countShareOf(counted({ fiscalYearEnd: Date.UTC(2024, 2, 31) }))!;
+    let counts = addShare(addShare(emptyImportCounts(), fresh, 1), old, 1);
+    expect(counts.newFiles).toBe(1);
+    expect(counts.categories.final_pd).toEqual({
+      total: 2,
+      needsCheck: 0,
+      fiscalYears: { "2025": 1, "2024": 1 },
+      newFiles: 1,
+      newFiscalYears: { "2025": 1 },
+    });
+    // The 24 hours end: the same file, no longer New, moves only the New counts.
+    counts = addShare(addShare(counts, fresh, -1), { ...fresh, isNew: false }, 1);
+    expect(counts.newFiles).toBeUndefined();
+    expect(counts.categories.final_pd).toEqual({ total: 2, needsCheck: 0, fiscalYears: { "2025": 1, "2024": 1 } });
+  });
+});
+
+describe("the section a file shows in (2026-11-12)", () => {
+  it("is Not sorted yet while the file is being read, then its category", () => {
+    expect(sheetSectionFor({ status: "discovered", category: "final_pd" })).toBe("unknown");
+    expect(sheetSectionFor({ status: "fetched", category: "transcript" })).toBe("unknown");
+    expect(sheetSectionFor({ status: "pending_review", category: "final_pd" })).toBe("final_pd");
+    expect(sheetSectionFor({ status: "failed", category: "draft" })).toBe("draft");
+    // A file still unsorted after reading stays there.
+    expect(sheetSectionFor({ status: "pending_review", category: "unknown" })).toBe("unknown");
+    expect(sheetSectionFor({ status: "approved", category: "supporting" })).toBe("supporting");
+    expect(sheetSectionFor({ status: "discovered", category: undefined })).toBeUndefined();
+  });
+
+  it("is settled on every write, so a file moves to its section when reading ends", () => {
+    const row = settleItem({
+      driveItemId: "local:Halden Foods/2025/Submitted/04 HaldenFoods 2025-06-30 T1.SO Proofing.docx",
+      path: "Halden Foods/2025/Submitted/04 HaldenFoods 2025-06-30 T1.SO Proofing.docx",
+      name: "04 HaldenFoods 2025-06-30 T1.SO Proofing.docx",
+      docKind: "pd",
+      size: 10,
+      lastModifiedAt: 1,
+      contentHash: "h",
+      pairGroupKey: "?",
+      status: "fetched",
+      updatedAt: 1,
+    });
+    expect(row.category).toBe("final_pd");
+    expect(row.sheetSection).toBe("unknown");
+    // Being read: no check reasons at all, so being read, ready and to check add up.
+    expect(row.checkReasons).toEqual([]);
+    expect(settleItem({ ...row, status: "pending_review" }).sheetSection).toBe("final_pd");
   });
 });

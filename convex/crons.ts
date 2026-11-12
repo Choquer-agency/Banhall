@@ -33,6 +33,15 @@ crons.interval(
   {}
 );
 
+// 2026-11-12 (Import page): a file is New for 24 hours after it arrives;
+// its flag is cleared in bounded batches so the bands' New counts follow.
+crons.interval(
+  "clear New on imported files after 24 hours",
+  { minutes: 15 },
+  internal.ingestion.clearExpiredNew,
+  {}
+);
+
 crons.interval(
   "purge stale Brief preparations",
   { hours: 1 },

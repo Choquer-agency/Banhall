@@ -19,6 +19,13 @@
   its read has answered, so a selected file that leaves it leaves the
   selection, and a "select when it opens" request is used up even when
   nothing here can be selected.
+
+  New (2026-11-12, Paper Files 2): with New on it lists only its New files,
+  its count and year split are the New ones', and the amber note (which
+  counts every file to check) gives way. Not sorted yet ("unknown") holds
+  the files still being read, whatever their kind, and those whose kind is
+  still unknown after reading; in place of a year split it says which
+  ("Each file moves to its category once Banhall has read it").
 -->
 <script lang="ts">
   import { untrack } from "svelte";
@@ -36,6 +43,7 @@
     SHOW_MORE_STEP,
     showMoreText,
     showSectionText,
+    notSortedNote,
     yearSplitText,
     type SectionSummary,
     type SheetFileRow,
@@ -50,6 +58,8 @@
     company = null,
     section,
     onlyToCheck,
+    onlyNew = false,
+    beingRead = 0,
     open,
     onToggle,
     selection = null,
@@ -60,6 +70,10 @@
     company?: string | null;
     section: SectionSummary;
     onlyToCheck: boolean;
+    /** The New filter (2026-11-12). */
+    onlyNew?: boolean;
+    /** The band's files still being read: all of them are in Not sorted yet. */
+    beingRead?: number;
     open: boolean;
     onToggle: () => void;
     selection?: ImportSelection | null;
@@ -74,11 +88,13 @@
   let listed = 0;
   const filesQ = usePaginatedQuery(
     api.ingestion.sheetFiles,
-    () => (open ? { tab, companyKey, category: section.category, onlyToCheck } : "skip"),
+    // onlyNew only when on, so the read of every other view keeps its arguments.
+    () => (open ? { tab, companyKey, category: section.category, onlyToCheck, ...(onlyNew ? { onlyNew: true } : {}) } : "skip"),
     () => ({ initialNumItems: reloadSize(listed, firstPage, FILES_PAGE_MAX), keepPreviousData: true })
   );
 
-  const note = $derived(tab === "review" ? sectionNote(section.counts) : null);
+  const note = $derived(tab === "review" && !onlyNew ? sectionNote(section.counts) : null);
+  const notSorted = $derived(section.category === "unknown");
 
   const rows = $derived(filesQ.results as SheetFileRow[]);
   $effect.pre(() => {
@@ -118,7 +134,7 @@
     const target = selection;
     if (!target || !answered) return;
     const list = selectable;
-    const read = onlyToCheck ? "to-check" : "all";
+    const read = onlyNew ? "new" : onlyToCheck ? "to-check" : "all";
     const name = company;
     untrack(() => target.list(companyKey, category, read, list, name));
   });
@@ -176,8 +192,11 @@
         >{section.count}</span>
       </button>
       <!-- On a narrow sheet the year split gives way first, then the note; "Show N" always shows. -->
-      {#if !onlyToCheck}
-        {@const years = yearSplitText(section.counts.fiscalYears)}
+      {#if notSorted}
+        {@const words = notSortedNote(section.counts.total, beingRead)}
+        <span data-import-section-not-sorted title={words} class={`ml-1.5 min-w-0 shrink-[100] truncate ${SHEET_SMALL} text-ink-faint`}>{words}</span>
+      {:else if !onlyToCheck}
+        {@const years = yearSplitText(onlyNew ? (section.counts.newFiscalYears ?? {}) : section.counts.fiscalYears)}
         <span data-import-section-years title={years} class={`ml-1.5 min-w-0 shrink-[100] truncate ${SHEET_SMALL} text-ink-faint`}>{years}</span>
       {/if}
       {#if note}

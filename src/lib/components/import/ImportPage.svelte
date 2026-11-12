@@ -12,10 +12,19 @@
   here, above the sheet, so "To check" and opening and closing companies
   keep it. A tab change turns Select off and clears it; while a search
   shows, the bar hides and Select is off. Approved is read only.
+
+  Adding files (2026-11-12, Paper Files 1 to 3): the top bar holds "Get the
+  uploader" and "Add files"; files or a folder dropped anywhere on the page
+  are added the same way (ImportDropZone). This tab sends them
+  (importUploads); once the first is in, the page shows To review with the
+  New filter on. "New N" sits beside "To check" while any file is New, and
+  one plain line under the toolbar says what is arriving
+  (ImportStatusLine). The History tab lists every batch.
 -->
 <script lang="ts">
-  import { tick, untrack } from "svelte";
-  import { useQuery } from "convex-svelte";
+  import { onMount, tick, untrack } from "svelte";
+  import { useConvexClient, useMutation, useQuery } from "convex-svelte";
+  import { toast } from "svelte-sonner";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import AdminWorkspacePage from "$lib/components/admin/AdminWorkspacePage.svelte";
@@ -26,8 +35,16 @@
   import ImportSheet from "./ImportSheet.svelte";
   import ImportSearchResults from "./ImportSearchResults.svelte";
   import ImportSelectionBar from "./ImportSelectionBar.svelte";
+  import ImportHeaderActions from "./ImportHeaderActions.svelte";
+  import ImportDropZone from "./ImportDropZone.svelte";
+  import ImportStatusLine from "./ImportStatusLine.svelte";
+  import ImportHistory from "./ImportHistory.svelte";
   import { ImportSelection } from "./importSelection.svelte";
   import { canSelect } from "./importEdit";
+  import { IMPORT_TOAST } from "./importActions";
+  import { importUploads, type AddCallbacks } from "./importUploads.svelte";
+  import type { IntakeFile } from "./importIntake";
+  import { userErrorMessage } from "$lib/errors";
   import {
     filesFromCompaniesText,
     formatCount,
@@ -39,11 +56,15 @@
 
   const auth = useAuth();
 
-  let tab = $state<SheetTab>("review");
+  /** The sheet's tabs, then History (2026-11-12), which has no count and no sheet. */
+  type PageTab = SheetTab | "history";
+  let tab = $state<PageTab>("review");
   let search = $state("");
   /** The search text once typing settles; null shows the sheet. */
   let settled = $state<string | null>(null);
   let onlyToCheck = $state(false);
+  /** The New filter (2026-11-12); never on with "To check". */
+  let onlyNew = $state(false);
   let jump = $state<{ key: string } | null>(null);
   const selection = new ImportSelection();
 
@@ -64,27 +85,87 @@
   const deletedQ = useQuery(api.ingestion.sheetTotals, () => (auth.isAuthenticated ? { tab: "deleted" as const } : "skip"));
 
   const totals = $derived({ review: reviewQ.data, approved: approvedQ.data, deleted: deletedQ.data });
-  const current = $derived(totals[tab] ?? null);
+  // History has no sheet: the top bar keeps To review's count there.
+  const current = $derived(totals[tab === "history" ? "review" : tab] ?? null);
   /** Not an admin: every sheet query answers null or nothing. */
   const denied = $derived(reviewQ.data === null);
   const loading = $derived(reviewQ.data === undefined && !reviewQ.error);
   const note = $derived(current ? filesFromCompaniesText(current) : null);
-  // Only the review tab has files to check.
+  // Only the review tab has files to check, or New files.
   const toCheck = $derived(tab === "review" && onlyToCheck);
+  const newFiles = $derived(totals.review?.newFiles ?? 0);
+  const onlyNewShown = $derived(tab === "review" && onlyNew);
+  // The 24 hours of the last New file ran out: the filter goes with its chip.
+  $effect(() => {
+    if (onlyNew && totals.review && newFiles === 0 && !importUploads.busy) onlyNew = false;
+  });
 
-  const tabs = $derived(
-    SHEET_TABS.map((entry) => {
+  const tabs = $derived([
+    ...SHEET_TABS.map((entry) => {
       const count = totals[entry.id];
-      return { id: entry.id, label: entry.label, count: count ? formatCount(count.files) : null };
-    })
-  );
+      return { id: entry.id as PageTab, label: entry.label, count: count ? formatCount(count.files) : null };
+    }),
+    { id: "history" as PageTab, label: "History", count: null },
+  ]);
 
   /** Searching hides the sheet, so nobody acts on rows they cannot see. */
   const searching = $derived(settled !== null);
+  /** The sheet's tab, or null on History. */
+  const sheetTab = $derived(tab === "history" ? null : tab);
   /** Select applies to To review and Deleted. */
-  const selectable = $derived(canSelect(tab));
+  const selectable = $derived(sheetTab !== null && canSelect(sheetTab));
 
-  function selectTab(next: SheetTab, focus: boolean) {
+  // ─── Adding files ───────────────────────────────────────────────────────
+  const client = useConvexClient();
+  const generateUploadUrl = useMutation(api.ingestion.generateUploadUrl);
+  const startBatch = useMutation(api.ingestion.startImportBatch);
+  const stage = useMutation(api.ingestion.stageImportFiles);
+  const finish = useMutation(api.ingestion.finishImportBatch);
+  const reopen = useMutation(api.ingestion.reopenImportBatch);
+  onMount(() => {
+    importUploads.connect({
+      filesHere: (hashes) => client.query(api.ingestion.importFilesHere, { hashes }),
+      startBatch: (args) => startBatch(args),
+      generateUploadUrl: () => generateUploadUrl({}),
+      stage: (args) => stage(args),
+      finish: (args) => finish(args),
+      reopen: (args) => reopen(args),
+      // Looked up at each call, so a test can stand in for the network.
+      fetch: (input, init) => globalThis.fetch(input, init),
+    });
+  });
+  // Closing the tab while files are checked or sent would lose them.
+  $effect(() => {
+    if (!importUploads.busy) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  });
+
+  const uploadCallbacks: AddCallbacks = {
+    onLeftOut: (text) => toast(text, IMPORT_TOAST),
+    // The person's own files are in: show what just arrived.
+    onFirstAdded: () => {
+      onlyToCheck = false;
+      onlyNew = true;
+    },
+    onError: (error) => toast.error(userErrorMessage(error, "The files could not be added."), IMPORT_TOAST),
+  };
+
+  /** Dropped or picked files: To review, the sheet in view, and this tab sends them. */
+  function addFiles(files: IntakeFile[]) {
+    if (tab !== "review") selectTab("review", false);
+    search = "";
+    settled = null;
+    void importUploads.add(files, uploadCallbacks);
+  }
+
+  let pageRoot = $state<HTMLElement | null>(null);
+
+  function selectTab(next: PageTab, focus: boolean) {
     if (next !== tab) selection.setOn(false);
     tab = next;
     jump = null;
@@ -98,6 +179,8 @@
    */
   function jumpTo(company: SheetSearchCompany) {
     if (toCheck && company.needsCheck === 0) onlyToCheck = false;
+    // The New filter may hide it too; show it among every company.
+    if (onlyNewShown) onlyNew = false;
     search = "";
     settled = null;
     jump = { key: company.companyKey };
@@ -105,6 +188,11 @@
 </script>
 
 <AdminWorkspacePage title="Import" count={denied ? null : note} flush>
+  {#snippet actions()}
+    {#if !denied && !loading}
+      <ImportHeaderActions onFiles={addFiles} />
+    {/if}
+  {/snippet}
   {#if denied}
     <p data-import-denied class={`${workPanelInline} mt-8 text-sm leading-[calc(10/7)] text-ink-muted`}>Admin access only.</p>
   {:else if loading}
@@ -112,7 +200,7 @@
       <WorkspacePanelSkeleton layout="list" label="Loading the import sheet" />
     </div>
   {:else}
-    <div data-import-page class="flex flex-col">
+    <div bind:this={pageRoot} data-import-page class="flex flex-col">
       <div class={`flex shrink-0 border-b border-line-soft ${workPanelInline}`}>
         <CompanyTabs {tabs} active={tab} label="Import" idPrefix="import" onSelect={selectTab} />
       </div>
@@ -122,29 +210,46 @@
         aria-labelledby={`import-tab-${tab}`}
         class={`${workPanelInline} flex flex-col gap-5 pt-6 pb-14 lg:pt-8`}
       >
-        <ImportToolbar
-          bind:search
-          bind:onlyToCheck
-          toCheckCount={totals.review ? totals.review.needsCheck : null}
-          showToCheck={tab === "review"}
-          showSelect={selectable}
-          selectOn={selection.on}
-          selectDisabled={searching}
-          onSelectChange={(on) => selection.setOn(on)}
-        />
-        {#if settled !== null}
-          <ImportSearchResults {tab} text={settled} onJump={jumpTo} />
+        {#if sheetTab === null}
+          <ImportHistory />
+        {:else}
+          <ImportToolbar
+            bind:search
+            bind:onlyToCheck
+            bind:onlyNew
+            toCheckCount={totals.review ? totals.review.needsCheck : null}
+            newCount={newFiles}
+            showToCheck={tab === "review"}
+            showSelect={selectable}
+            selectOn={selection.on}
+            selectDisabled={searching}
+            onSelectChange={(on) => selection.setOn(on)}
+          />
+          {#if tab === "review"}
+            <ImportStatusLine onRetry={() => void importUploads.retry(uploadCallbacks)} />
+          {/if}
+          {#if settled !== null}
+            <ImportSearchResults tab={sheetTab} text={settled} onJump={jumpTo} />
+          {/if}
+          <!-- Kept while searching, so open companies stay open. -->
+          <div hidden={searching}>
+            {#key sheetTab}
+              <ImportSheet
+                tab={sheetTab}
+                onlyToCheck={toCheck}
+                onlyNew={onlyNewShown}
+                companiesOnTab={current?.companies ?? null}
+                {jump}
+                selection={selectable ? selection : null}
+              />
+            {/key}
+          </div>
         {/if}
-        <!-- Kept while searching, so open companies stay open. -->
-        <div hidden={searching}>
-          {#key tab}
-            <ImportSheet {tab} onlyToCheck={toCheck} {jump} selection={selectable ? selection : null} />
-          {/key}
-        </div>
       </div>
     </div>
-    {#if selectable && !searching && selection.on && selection.size > 0}
-      <ImportSelectionBar {selection} {tab} />
+    {#if selectable && sheetTab !== null && !searching && selection.on && selection.size > 0}
+      <ImportSelectionBar {selection} tab={sheetTab} />
     {/if}
+    <ImportDropZone anchor={pageRoot} onFiles={addFiles} />
   {/if}
 </AdminWorkspacePage>

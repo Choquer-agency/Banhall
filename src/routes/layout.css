@@ -167,6 +167,8 @@
      control (its words are gap-text), and the fill behind a section's count. */
   --color-import-pick-line: #F0C674;
   --color-import-count: #E3F3F1;
+  /* The dashed outline round the page while files are dragged over it (Files 1). */
+  --color-import-drop-line: #9FD3CF;
 
   --color-star: #EAB308;              /* a starred project's filled star (owner, 2026-11-05) */
 

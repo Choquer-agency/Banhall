@@ -172,6 +172,17 @@ function nameFiscalYearEnd(
 }
 
 /**
+ * The fiscal year a fiscal year folder's name gives ("2025 - Mar 31" gives
+ * 2025): its first 19xx or 20xx, or undefined when it has none. classify
+ * reads a path's second folder with it, and the Import page reads a dropped
+ * folder's shape with it (src/lib/components/import/importIntake.ts).
+ */
+export function fiscalYearOfLabel(label: string | undefined): number | undefined {
+  const yearMatch = label?.match(/(19|20)\d{2}/);
+  return yearMatch ? Number(yearMatch[0]) : undefined;
+}
+
+/**
  * `<Client>/<Fiscal year>/…` convention (Jun 19 meeting): PDs are Word docs
  * whose immediate folder is a submission folder ("Submitted",
  * "To be submitted", …); transcripts live under an Audio folder inside
@@ -185,8 +196,7 @@ export function classify(
   const segments = relPath.split("/").filter(Boolean);
   const clientName = segments[0];
   const fiscalYearLabel = segments[1];
-  const yearMatch = fiscalYearLabel?.match(/(19|20)\d{2}/);
-  const fiscalYear = yearMatch ? Number(yearMatch[0]) : undefined;
+  const fiscalYear = fiscalYearOfLabel(fiscalYearLabel);
   const lower = segments.map((s) => s.toLowerCase());
   const parent = lower[lower.length - 1] ?? "";
   const ext = extensionOf(fileName);
@@ -427,6 +437,72 @@ export function readLabelFiscalYearEnd(
   }
 
   return { fiscalYearEnd: Date.UTC(fiscalYear, 11, 31), assumed: true };
+}
+
+/** File names a person never means to add (2026-11-12, the Import page's drop). */
+const JUNK_FILE_NAMES = new Set([".ds_store", "thumbs.db", "desktop.ini"]);
+
+/**
+ * A file the Import page leaves out of a drop or a picked folder: a hidden
+ * file or one inside a hidden folder (a name starting with "."), the
+ * system's own files (.DS_Store, Thumbs.db, desktop.ini) and an Office lock
+ * file ("~$Report.docx"). The client uploader skips the same (its README).
+ */
+export function isJunkPath(path: string): boolean {
+  const segments = path.split("/").filter(Boolean);
+  const name = segments[segments.length - 1] ?? "";
+  if (JUNK_FILE_NAMES.has(name.toLowerCase())) return true;
+  if (name.startsWith("~$")) return true;
+  return segments.some((segment) => segment.startsWith("."));
+}
+
+/** The fields an uploaded file is staged with (upsertDiscoveredItem's arguments). */
+export type UploadUpsertFields = {
+  driveItemId: string;
+  path: string;
+  name: string;
+  clientName?: string;
+  fiscalYearLabel?: string;
+  fiscalYear?: number;
+  docKind: Classified["docKind"];
+  size: number;
+  lastModifiedAt: number;
+  contentHash: string;
+  pairGroupKey: string;
+};
+
+/**
+ * What a file sent with its path relative to the folders it came from is
+ * staged as. The upload route (convex/http.ts, the uploader) and the Import
+ * page's drop and Add files (ingestion.stageImportFiles) both build their
+ * rows here, so a file is classified the same whichever way it arrives. The
+ * row's key is "local:<path>": for the uploader the same path is the same
+ * synced file. The page keeps that key only for the first file with a path;
+ * a different file with the same path gets a key of its own there
+ * (ingestion.ts pageItemKey).
+ */
+export function uploadUpsertFields(
+  relPath: string,
+  size: number,
+  lastModifiedAt: number,
+  contentHash: string
+): UploadUpsertFields {
+  const segments = relPath.split("/");
+  const name = segments[segments.length - 1]!;
+  const meta = classify(segments.slice(0, -1).join("/"), name);
+  return {
+    driveItemId: `local:${relPath}`,
+    path: relPath,
+    name,
+    clientName: meta.clientName,
+    fiscalYearLabel: meta.fiscalYearLabel,
+    fiscalYear: meta.fiscalYear,
+    docKind: meta.docKind,
+    size,
+    lastModifiedAt: Number.isFinite(lastModifiedAt) && lastModifiedAt > 0 ? lastModifiedAt : Date.now(),
+    contentHash,
+    pairGroupKey: meta.pairGroupKey,
+  };
 }
 
 /**

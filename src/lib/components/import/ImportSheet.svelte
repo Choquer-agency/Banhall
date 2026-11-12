@@ -19,6 +19,11 @@
 
   `selection` (phase 3b, board ao4) is the page's: with Select on, every row
   starts with its checkbox column.
+
+  `onlyNew` (2026-11-12, Paper Files 2) works like "To check" (the page
+  sends one of the two): only companies and files that are New. Once every
+  company with New files is listed, a last row says how many others have
+  none ("The other 6 companies have no new files."), from `companiesOnTab`.
 -->
 <script lang="ts">
   import { tick, untrack } from "svelte";
@@ -31,7 +36,10 @@
   import {
     COMPANIES_PAGE_MAX,
     EMPTY_TAB_TEXT,
+    NO_COMPANY_KEY,
+    NOTHING_NEW_TEXT,
     NOTHING_TO_CHECK_TEXT,
+    otherCompaniesText,
     reloadSize,
     type ImportCategory,
     type SheetBand,
@@ -42,11 +50,17 @@
   let {
     tab,
     onlyToCheck,
+    onlyNew = false,
+    companiesOnTab = null,
     jump = null,
     selection = null,
   }: {
     tab: SheetTab;
     onlyToCheck: boolean;
+    /** The New filter (2026-11-12); the page never sends it with "To check". */
+    onlyNew?: boolean;
+    /** Companies on the tab (sheetTotals), for the line that closes the New list. */
+    companiesOnTab?: number | null;
     /** A company to open and show; a new object asks again. */
     jump?: { key: string } | null;
     /** The page's selection (Select). */
@@ -68,7 +82,8 @@
 
   // How many companies are listed, read (untracked) when the read changes.
   let listed = 0;
-  const bandsQ = usePaginatedQuery(api.ingestion.sheetCompanies, () => ({ tab, onlyToCheck }), () => ({
+  // onlyNew only when on, so every other read keeps its arguments.
+  const bandsQ = usePaginatedQuery(api.ingestion.sheetCompanies, () => ({ tab, onlyToCheck, ...(onlyNew ? { onlyNew: true } : {}) }), () => ({
     initialNumItems: reloadSize(listed, COMPANY_PAGE, COMPANIES_PAGE_MAX),
     keepPreviousData: true,
   }));
@@ -105,20 +120,24 @@
    */
   let held = $state<{ bands: SheetBand[]; wanted: string[] } | null>(null);
   let pendingJump = $state<string | null>(null);
-  let shownFilter = untrack(() => onlyToCheck);
+  /** Which filter the list on screen is for: all, "check" or "new". */
+  const filterOf = (check: boolean, fresh: boolean) => (fresh ? "new" : check ? "check" : "all");
+  let shownFilter = untrack(() => filterOf(onlyToCheck, onlyNew));
   let seekReads = 0;
   let emptyReads = 0;
 
   // Before the list's own effect sees the new arguments, so what is on
   // screen is still the old list.
   $effect.pre(() => {
-    const filter = onlyToCheck;
+    const filter = filterOf(onlyToCheck, onlyNew);
     untrack(() => {
       if (filter === shownFilter) return;
       shownFilter = filter;
       const bands = held?.bands ?? live;
+      const matches = (band: SheetBand) =>
+        filter === "all" || (filter === "check" ? band.needsCheck > 0 : (band.newFiles ?? 0) > 0);
       const wanted = bands
-        .filter((band) => openCompanies.has(band.companyKey) && (!filter || band.needsCheck > 0))
+        .filter((band) => openCompanies.has(band.companyKey) && matches(band))
         .map((band) => band.companyKey);
       held = bands.length > 0 ? { bands, wanted } : null;
       seekReads = 0;
@@ -184,6 +203,12 @@
   const reloading = $derived(held !== null);
   const hasMore = $derived(!reloading && (bandsQ.status === "CanLoadMore" || bandsQ.status === "LoadingMore"));
   const done = $derived(!reloading && answered && bandsQ.status === "Exhausted");
+  /** With New on and every New company listed: the companies it leaves out. */
+  const othersLine = $derived.by(() => {
+    if (!onlyNew || !done || companiesOnTab === null || bands.length === 0) return null;
+    const listedCompanies = bands.filter((band) => band.companyKey !== NO_COMPANY_KEY).length;
+    return otherCompaniesText(companiesOnTab - listedCompanies);
+  });
 </script>
 
 <div bind:this={root} class="overflow-x-auto" data-import-sheet={tab}>
@@ -195,6 +220,7 @@
           {band}
           {tab}
           {onlyToCheck}
+          {onlyNew}
           {selection}
           open={openCompanies.has(band.companyKey)}
           openSections={openSections.get(band.companyKey) ?? NONE_OPEN}
@@ -208,7 +234,7 @@
       <p role="alert" data-import-sheet-error class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">The files could not be loaded.</p>
     {:else if bands.length === 0 && done}
       <p data-import-sheet-empty class="py-8 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">
-        {onlyToCheck ? NOTHING_TO_CHECK_TEXT : EMPTY_TAB_TEXT[tab]}
+        {onlyNew ? NOTHING_NEW_TEXT : onlyToCheck ? NOTHING_TO_CHECK_TEXT : EMPTY_TAB_TEXT[tab]}
       </p>
     {:else if hasMore}
       <!-- The boards' "Show N more" row: 14px under the last company, between two strong lines. -->
@@ -230,6 +256,9 @@
           </div>
         {/each}
       </div>
+    {:else if othersLine}
+      <!-- Paper Files 2: 14px under the last company, between two strong lines. -->
+      <p data-import-sheet-others class="mt-3.5 flex h-[3.25rem] items-center border-y border-gray-300 pl-6 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{othersLine}</p>
     {:else}
       <!-- The end of the list: the strong line closes the last company. -->
       <div data-import-sheet-end class="border-t border-gray-300" aria-hidden="true"></div>

@@ -190,6 +190,7 @@ const KNOWN_SERVER_STORAGE_WRITERS: Record<string, string> = {
   "./projectDuplication.ts": "projectDocuments.storageId and transcripts.originalStorageId (projects.finishProjectContentCopy)",
   "./documents.ts": "generateUploadUrl: the browser uploads, then saves the id (below); a profile photo lands in users.imageStorageId (account.setMyPhoto)",
   "./companyFiles.ts": "generateCompanyUploadUrl: the company page uploads, then addCompanyFile saves the id in companyFiles.storageId",
+  "./ingestion.ts": "generateUploadUrl: the Import page uploads, then stageImportFiles saves the id in ingestionItems.storageId (or deletes the upload)",
 };
 
 /** Browser code that uploads through an upload URL (`documents.generateUploadUrl`, `companyFiles.generateCompanyUploadUrl`), and where the id is saved. */
@@ -204,6 +205,8 @@ const KNOWN_CLIENT_UPLOADERS: Record<string, string> = {
   "../src/routes/project/new/+page.svelte": "projectDocuments.storageId and transcripts.originalStorageId",
   "../src/routes/settings/account/+page.svelte": "users.imageStorageId (account.setMyPhoto)",
   "../src/lib/components/projects/CompanyFiles.svelte": "companyFiles.storageId (companyFiles.generateCompanyUploadUrl, then addCompanyFile)",
+  "../src/lib/components/import/importUploads.svelte.ts": "ingestionItems.storageId (ingestion.generateUploadUrl, then stageImportFiles)",
+  "../src/lib/components/import/ImportPage.svelte": "ingestionItems.storageId (the page hands ingestion.generateUploadUrl to importUploads)",
 };
 
 const convexSources = import.meta.glob(["./**/*.ts", "!./_generated/**", "!./**/*.test.ts"], {

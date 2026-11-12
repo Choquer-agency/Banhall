@@ -18,6 +18,10 @@
   created on approval. There is no AI suggestion beside it: nothing in the
   app knows a new company's industry without a new AI call.
 
+  New (2026-11-12, Paper Files 2 and 3): on To review a band with New files
+  shows the green "N new" pill 12px before "N files"; with New on, its
+  sections count and list only their New files.
+
   With Select on (board ao4) a checkbox comes first. It selects every file
   its open sections list (never the ones not loaded), shows a dash when only
   some are selected, and on a closed company opens it and selects the files
@@ -40,6 +44,7 @@
     bandName,
     bandSections,
     bandStatusWords,
+    newCountText,
     NO_COMPANY_KEY,
     plural,
     type ImportCategory,
@@ -53,6 +58,7 @@
     band,
     tab,
     onlyToCheck,
+    onlyNew = false,
     open,
     openSections,
     onToggle,
@@ -62,6 +68,8 @@
     band: SheetBand;
     tab: SheetTab;
     onlyToCheck: boolean;
+    /** The New filter (2026-11-12). */
+    onlyNew?: boolean;
     open: boolean;
     /** The sections open in this company. */
     openSections: ReadonlySet<ImportCategory>;
@@ -76,7 +84,8 @@
   const industry = $derived(band.company?.industry?.trim() || null);
   const picked = $derived(band.pickedIndustry?.trim() || null);
   const words = $derived(bandStatusWords(band, tab));
-  const sections = $derived(open ? bandSections(band, onlyToCheck) : []);
+  const sections = $derived(open ? bandSections(band, onlyToCheck, onlyNew) : []);
+  const newFiles = $derived(tab === "review" ? (band.newFiles ?? 0) : 0);
   /** The company's name for its files' company picker; none for "No company yet". */
   const company = $derived(band.companyKey === NO_COMPANY_KEY ? null : name);
 
@@ -111,7 +120,7 @@
   function toggleSelect() {
     if (!selection) return;
     if (selection.toggleRows(selection.listed(band.companyKey))) return;
-    const present = bandSections(band, onlyToCheck).map((entry) => entry.category);
+    const present = bandSections(band, onlyToCheck, onlyNew).map((entry) => entry.category);
     const first = present[0];
     if (!first) return;
     let targets: ImportCategory[];
@@ -220,7 +229,15 @@
           {/if}
         </span>
       {/if}
-      <span data-import-band-files class="ml-auto shrink-0 pl-2 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{plural(band.total, "file")}</span>
+      <span class="ml-auto flex shrink-0 items-center gap-3 pl-2">
+        {#if newFiles > 0}
+          <span
+            data-import-band-new-count
+            class="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[0.6875rem] leading-[calc(14/11)] text-success-ink"
+          >{newCountText(newFiles)}</span>
+        {/if}
+        <span data-import-band-files class="shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{plural(band.total, "file")}</span>
+      </span>
     </div>
     <!-- When the Science code column is narrow, the words wrap onto a second line instead of running into "N files". -->
     <div role="cell" data-import-band-status class="flex min-w-0 flex-wrap content-center items-center justify-end gap-x-3 px-2 text-[0.8125rem] leading-[calc(16/13)]">
@@ -239,6 +256,8 @@
           {company}
           {section}
           {onlyToCheck}
+          {onlyNew}
+          beingRead={band.beingRead}
           {selection}
           open={openSections.has(section.category)}
           onToggle={() => onToggleSection(section.category)}

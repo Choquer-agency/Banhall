@@ -82,7 +82,7 @@ describe("company bands", () => {
     expect(bandStatusWords({ beingRead: 0, ready: 1204, needsCheck: 0 }, "approved")).toEqual([]);
   });
 
-  it("lists the sections in their fixed order, without empty ones, and Unsorted only with files", () => {
+  it("lists the sections in their fixed order, without empty ones, and Not sorted yet only with files", () => {
     const categories = {
       company_file: { total: 4, needsCheck: 0, fiscalYears: { none: 4 } },
       supporting: { total: 102, needsCheck: 3, fiscalYears: { "2025": 61, "2024": 41 } },
@@ -100,7 +100,21 @@ describe("company bands", () => {
       ["Supporting files", 3],
     ]);
     const unsorted = { unknown: { total: 21, needsCheck: 21, fiscalYears: { none: 21 } } };
-    expect(bandSections({ categories: unsorted }, false).map((s) => s.label)).toEqual(["Unsorted"]);
+    expect(bandSections({ categories: unsorted }, false).map((s) => s.label)).toEqual(["Not sorted yet"]);
+  });
+
+  it("with New on, lists only the sections with New files, counting those (2026-11-12)", () => {
+    const categories = {
+      final_pd: { total: 24, needsCheck: 12, fiscalYears: { "2025": 24 }, newFiles: 4, newFiscalYears: { "2025": 3, "2024": 1 } },
+      draft: { total: 45, needsCheck: 0, fiscalYears: { "2025": 45 } },
+      unknown: { total: 21, needsCheck: 0, fiscalYears: { "2025": 21 }, newFiles: 21, newFiscalYears: { "2025": 21 } },
+    };
+    expect(bandSections({ categories }, false, true).map((s) => [s.label, s.count])).toEqual([
+      ["Final PDs", 4],
+      ["Not sorted yet", 21],
+    ]);
+    // New wins over To check: the page never sends both.
+    expect(bandSections({ categories }, true, true).map((s) => s.count)).toEqual([4, 21]);
   });
 });
 
@@ -178,7 +192,9 @@ describe("section words", () => {
     expect(showMoreText("final_pd", 1)).toBe("Show 1 more final PD");
     expect(showMoreText("review_copy", 1)).toBe("Show 1 more review copy");
     expect(showMoreText("supporting", 99)).toBe("Show 25 of 99 more supporting files");
-    expect(showMoreText("unknown", 18)).toBe("Show 18 more unsorted files");
+    // Not sorted yet holds every kind of file (Paper Files 2).
+    expect(showMoreText("unknown", 18)).toBe("Show 18 more");
+    expect(showMoreText("unknown", 99)).toBe("Show 25 of 99 more");
     // Only for a caller with no count: a section never shows its row with none left.
     expect(showMoreText("draft", 0)).toBe("Show more drafts");
     expect(showSectionText(45)).toBe("Show 45");
@@ -229,6 +245,7 @@ describe("file rows", () => {
       })
     );
     expect(cells).toEqual({
+      isNew: false,
       prefix: "PD 1",
       title: "Route planning engine",
       state: null,
@@ -346,6 +363,9 @@ describe("file rows", () => {
     );
     expect(failed.state).toEqual({ text: "Could not be read", tone: "amber" });
     expect(failed.fiscalYear?.text).toBe("2025");
+    // New (2026-11-12) is carried whatever the state; the row shows it once the file is read.
+    expect(fileCells(row({ isNew: true })).isNew).toBe(true);
+    expect(fileCells(row({ isNew: true, status: "fetched" })).isNew).toBe(true);
     // Read, but no text came out (a scan): amber after the name, its cells as any read file's.
     const scan = fileCells(
       row({ status: "pending_review", category: "supporting", name: "Signed letter.pdf", fiscalYearEnd: MAR_31_2025, checkReasons: ["no_text"] })

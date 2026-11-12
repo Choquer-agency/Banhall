@@ -285,7 +285,7 @@ describe("ImportSheet", () => {
     expect(all("[data-import-section-toggle]", band("cedarline systems")).map((node) => node.getAttribute("aria-expanded"))[1]).toBe("false");
   });
 
-  it("hides sections with no files, and Unsorted unless it has some", async () => {
+  it("hides sections with no files, and Not sorted yet unless it has some", async () => {
     seedBands([{ ...HALDEN, categories: { ...HALDEN.categories, draft: { total: 0, needsCheck: 0, fiscalYears: {} } } }, NO_COMPANY]);
     await render(ImportSheet, { tab: "review", onlyToCheck: false });
     await userEvent.click(page.getByRole("button", { name: "Halden Foods" }));
@@ -295,7 +295,7 @@ describe("ImportSheet", () => {
       "supporting",
     ]);
     await userEvent.click(page.getByRole("button", { name: "No company yet" }));
-    await expect.poll(() => all("[data-import-section-label]", band("")).map((node) => text(node))).toEqual(["Unsorted"]);
+    await expect.poll(() => all("[data-import-section-label]", band("")).map((node) => text(node))).toEqual(["Not sorted yet"]);
   });
 
   it("lists a section's files: year only, version, writer or initials, and the science code with the AI mark only from the document", async () => {
