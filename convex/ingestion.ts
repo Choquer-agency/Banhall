@@ -446,7 +446,8 @@ const sheetBandValidator = v.object({
 /**
  * A page of company bands for a tab in name order (the no-company band, key
  * "", comes first), or only those with a file that needs a check. Each band
- * carries its counts and what the app knows about that company.
+ * carries its counts, with each category's check reasons for the section's
+ * note ("9 need a writer"), and what the app knows about that company.
  */
 export const sheetCompanies = query({
   args: {

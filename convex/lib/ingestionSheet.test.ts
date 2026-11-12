@@ -534,4 +534,35 @@ describe("company band counts", () => {
     counts = addShare(counts, a, -1);
     expect(counts).toEqual(emptyImportCounts());
   });
+
+  it("counts a file to check once in needsCheck and once under each of its reasons", () => {
+    const two = countShareOf(counted({ needsCheck: true, checkReasons: ["no_writer", "no_science_code"] }))!;
+    expect(two.checkReasons).toEqual(["no_science_code", "no_writer"]);
+    const one = countShareOf(counted({ needsCheck: true, checkReasons: ["no_science_code"] }))!;
+    let counts = addShare(addShare(emptyImportCounts(), two, 1), one, 1);
+    expect(counts.needsCheck).toBe(2);
+    expect(counts.categories.final_pd).toEqual({
+      total: 2,
+      needsCheck: 2,
+      fiscalYears: { "2025": 2 },
+      checkReasons: { no_science_code: 2, no_writer: 1 },
+    });
+    // A reason at zero goes, and the map goes once it is empty.
+    counts = addShare(counts, two, -1);
+    expect(counts.categories.final_pd.checkReasons).toEqual({ no_science_code: 1 });
+    counts = addShare(counts, one, -1);
+    expect(counts).toEqual(emptyImportCounts());
+    // Reasons count only while the file needs a check.
+    expect(countShareOf(counted({ needsCheck: false, checkReasons: ["no_writer"] }))!.checkReasons).toEqual([]);
+  });
+
+  it("starts a stored category with no reason map from an empty one", () => {
+    const legacy = { total: 1, needsCheck: 1, ready: 0, beingRead: 0, categories: { final_pd: { total: 1, needsCheck: 1, fiscalYears: { "2025": 1 } } } };
+    const share = countShareOf(counted({ needsCheck: true, checkReasons: ["no_writer"] }))!;
+    expect(addShare(legacy, share, 1).categories.final_pd.checkReasons).toEqual({ no_writer: 1 });
+    // Taking away a reason it never counted leaves a negative count for the repair to put right.
+    expect(addShare(legacy, share, -1).categories).toEqual({});
+    const two = { ...legacy, total: 2, categories: { final_pd: { total: 2, needsCheck: 2, fiscalYears: { "2025": 2 } } } };
+    expect(addShare(two, share, -1).categories.final_pd.checkReasons).toEqual({ no_writer: -1 });
+  });
 });

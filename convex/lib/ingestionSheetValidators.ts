@@ -67,11 +67,19 @@ export const sheetLabelPatchValidator = v.object({
 });
 export type SheetLabelPatch = Infer<typeof sheetLabelPatchValidator>;
 
-/** One category's counts in a company band. Year keys are "2025" or "none". */
+/**
+ * One category's counts in a company band. Year keys are "2025" or "none".
+ * `checkReasons` (2026-11-11, phase 3a): how many of the files that need a
+ * check have each check reason ("no_writer": 9). A file with two reasons
+ * counts once in `needsCheck` and once under each reason. Left out when no
+ * file needs a check. A band row written before it existed has none, which
+ * reads as empty; ingestion.repairImportCompanyTab fills it in.
+ */
 export const importCategoryCountsValidator = v.object({
   total: v.number(),
   needsCheck: v.number(),
   fiscalYears: v.record(v.string(), v.number()),
+  checkReasons: v.optional(v.record(v.string(), v.number())),
 });
 
 /**

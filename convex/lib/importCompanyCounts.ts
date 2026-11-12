@@ -16,7 +16,7 @@ export const NO_FISCAL_YEAR = "none";
 /** The fields of a row the counts read. */
 export type CountedRow = Pick<
   Doc<"ingestionItems">,
-  "sheetTab" | "companyKey" | "category" | "fiscalYearEnd" | "needsCheck" | "status" | "clientName"
+  "sheetTab" | "companyKey" | "category" | "fiscalYearEnd" | "needsCheck" | "checkReasons" | "status" | "clientName"
 >;
 
 /** What one row adds to its band. */
@@ -26,6 +26,8 @@ export type CountShare = {
   category: string;
   fiscalYear: string;
   needsCheck: boolean;
+  /** Why it needs a check, each reason once and sorted; empty when it needs none. */
+  checkReasons: string[];
   beingRead: boolean;
 };
 
@@ -37,12 +39,15 @@ export function fiscalYearBucket(fiscalYearEnd: number | undefined): string {
 /** The band a row counts in and what it adds, or null for a row not on the sheet. */
 export function countShareOf(row: CountedRow | null | undefined): CountShare | null {
   if (!row || row.sheetTab === undefined || row.category === undefined) return null;
+  const needsCheck = row.needsCheck === true;
   return {
     sheetTab: row.sheetTab,
     companyKey: row.companyKey ?? NO_COMPANY_KEY,
     category: row.category,
     fiscalYear: fiscalYearBucket(row.fiscalYearEnd),
-    needsCheck: row.needsCheck === true,
+    needsCheck,
+    // Only a file that needs a check counts under its reasons.
+    checkReasons: needsCheck ? [...new Set(row.checkReasons ?? [])].sort() : [],
     beingRead: isBeingRead(row.status),
   };
 }
@@ -54,6 +59,8 @@ function sameShare(a: CountShare, b: CountShare): boolean {
     a.category === b.category &&
     a.fiscalYear === b.fiscalYear &&
     a.needsCheck === b.needsCheck &&
+    a.checkReasons.length === b.checkReasons.length &&
+    a.checkReasons.every((reason, index) => reason === b.checkReasons[index]) &&
     a.beingRead === b.beingRead
   );
 }
@@ -64,7 +71,10 @@ export function emptyImportCounts(): ImportCounts {
 
 /**
  * `counts` with one row's share added (sign 1) or taken away (sign -1). A
- * category or year that reaches zero is removed. Returns a new object.
+ * category, year or check reason that reaches zero is removed, and so is a
+ * category's reason map once it is empty. A category stored without a reason
+ * map (a band row from before it existed) starts from an empty one. Returns
+ * a new object.
  */
 export function addShare(counts: ImportCounts, share: CountShare, sign: 1 | -1): ImportCounts {
   const categories = { ...counts.categories };
@@ -73,10 +83,17 @@ export function addShare(counts: ImportCounts, share: CountShare, sign: 1 | -1):
   const years = (fiscalYears[share.fiscalYear] ?? 0) + sign;
   if (years === 0) delete fiscalYears[share.fiscalYear];
   else fiscalYears[share.fiscalYear] = years;
+  const checkReasons = { ...before.checkReasons };
+  for (const reason of share.checkReasons) {
+    const count = (checkReasons[reason] ?? 0) + sign;
+    if (count === 0) delete checkReasons[reason];
+    else checkReasons[reason] = count;
+  }
   const category = {
     total: before.total + sign,
     needsCheck: before.needsCheck + (share.needsCheck ? sign : 0),
     fiscalYears,
+    ...(Object.keys(checkReasons).length > 0 ? { checkReasons } : {}),
   };
   if (category.total === 0) delete categories[share.category];
   else categories[share.category] = category;
@@ -104,7 +121,11 @@ export function countsOf(row: Doc<"importCompanies">): ImportCounts {
 function hasNegative(counts: ImportCounts): boolean {
   if (counts.total < 0 || counts.needsCheck < 0 || counts.ready < 0 || counts.beingRead < 0) return true;
   return Object.values(counts.categories).some(
-    (c) => c.total < 0 || c.needsCheck < 0 || Object.values(c.fiscalYears).some((n) => n < 0)
+    (c) =>
+      c.total < 0 ||
+      c.needsCheck < 0 ||
+      Object.values(c.fiscalYears).some((n) => n < 0) ||
+      Object.values(c.checkReasons ?? {}).some((n) => n < 0)
   );
 }
 

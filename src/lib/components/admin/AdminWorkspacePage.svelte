@@ -16,6 +16,7 @@
   let {
     title,
     description = null,
+    count = null,
     width = "wide",
     flush = false,
     children,
@@ -23,6 +24,8 @@
   }: {
     title: string;
     description?: string | null;
+    /** A muted note after the title in the top bar ("556 files from 7 companies"). */
+    count?: string | null;
     width?: "wide" | "compact";
     flush?: boolean;
     children: Snippet;
@@ -49,6 +52,7 @@
     <main class={`mx-auto w-full ${contentWidth} page-gutter page-gutter-y pb-10`}>
       <header class="border-b border-line-soft pb-5">
         <h1 class="text-display">{title}</h1>
+        {#if count}<p data-admin-page-count class="mt-1 text-[0.9375rem] leading-[calc(4/3)] text-ink-muted">{count}</p>{/if}
         {#if description}<p class="mt-2 text-body">{description}</p>{/if}
       </header>
       <div class="pt-6">
@@ -67,6 +71,7 @@
   <WorkspaceChrome
     sidebar={adminSidebar}
     {title}
+    {count}
     icon={IconShield}
     breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }}
     theme="light"

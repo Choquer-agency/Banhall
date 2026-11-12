@@ -358,7 +358,12 @@ describe("a move with unchanged bytes", () => {
 
 // ─── Company counts ─────────────────────────────────────────────────────────
 
-type CategoryCounts = { total: number; needsCheck: number; fiscalYears: Record<string, number> };
+type CategoryCounts = {
+  total: number;
+  needsCheck: number;
+  fiscalYears: Record<string, number>;
+  checkReasons?: Record<string, number>;
+};
 type BandCounts = {
   total: number;
   needsCheck: number;
@@ -378,25 +383,33 @@ function beingReadByHand(row: Doc<"ingestionItems">): boolean {
   return row.status === "discovered" || row.status === "fetched";
 }
 
-/** Whether a row needs a person to look at it, written out from its labels. */
-function needsCheckByHand(row: Doc<"ingestionItems">): boolean {
+/** Why a row needs a person to look at it, written out from its labels. */
+function checkReasonsByHand(row: Doc<"ingestionItems">): string[] {
   // Only files on the review tab are ever flagged.
-  if (tabByHand(row.status) !== "review") return false;
+  if (tabByHand(row.status) !== "review") return [];
+  const reasons: string[] = [];
   // No company folder or company name.
-  if (row.clientName === undefined) return true;
+  if (row.clientName === undefined) reasons.push("no_company");
   // Not known what kind of file it is.
-  if (row.category === "unknown") return true;
+  if (row.category === "unknown") reasons.push("unknown_category");
   // It could not be read.
-  if (row.status === "failed") return true;
-  // No fiscal year end, on a category that belongs to a fiscal year.
-  if (row.category !== "company_file" && row.fiscalYearEnd === undefined) return true;
+  if (row.status === "failed") reasons.push("could_not_read");
+  // No fiscal year end, on a category that belongs to a fiscal year: not a
+  // company file, and not an unsorted file (until a person sorts it).
+  if (row.category !== "company_file" && row.category !== "unknown" && row.fiscalYearEnd === undefined) {
+    reasons.push("no_fiscal_year");
+  }
   if (row.category === "final_pd") {
     // No science code, once reading is over (reading may still find one).
-    if (!row.scienceCode && !beingReadByHand(row)) return true;
+    if (!row.scienceCode && !beingReadByHand(row)) reasons.push("no_science_code");
     // No writer's name or initials.
-    if (!row.writerName && !row.writerInitials) return true;
+    if (!row.writerName && !row.writerInitials) reasons.push("no_writer");
   }
-  return false;
+  return reasons;
+}
+
+function needsCheckByHand(row: Doc<"ingestionItems">): boolean {
+  return checkReasonsByHand(row).length > 0;
 }
 
 /**
@@ -413,14 +426,18 @@ function needsCheckByHand(row: Doc<"ingestionItems">): boolean {
  * - categories[c].total, categories[c].needsCheck: the same counts for one category.
  * - categories[c].fiscalYears[y]: that category's files whose fiscal year end
  *   is in UTC year y, or y "none" for files with no fiscal year end.
- * A band, category or year with no file is left out.
+ * - categories[c].checkReasons[r]: that category's files with check reason r
+ *   (checkReasonsByHand). A file with two reasons counts under both.
+ * A band, category, year or reason with no file is left out, and so is a
+ * category's checkReasons when none of its files needs a check.
  */
 function recountByHand(items: Array<Doc<"ingestionItems">>): Record<string, BandCounts> {
   const bands: Record<string, BandCounts> = {};
   for (const row of items) {
     if (row.sheetTab === undefined) continue;
     expect(row.sheetTab, `${row.path} sheetTab`).toBe(tabByHand(row.status));
-    const check = needsCheckByHand(row);
+    const reasons = checkReasonsByHand(row);
+    const check = reasons.length > 0;
     const beingRead = beingReadByHand(row);
     expect(row.needsCheck === true, `${row.path} needsCheck`).toBe(check);
     const company = row.clientName === undefined ? "" : dashboardCompanyKey(row.clientName);
@@ -438,6 +455,10 @@ function recountByHand(items: Array<Doc<"ingestionItems">>): Record<string, Band
     if (check) category.needsCheck += 1;
     const year = row.fiscalYearEnd === undefined ? "none" : String(new Date(row.fiscalYearEnd).getUTCFullYear());
     category.fiscalYears[year] = (category.fiscalYears[year] ?? 0) + 1;
+    for (const reason of reasons) {
+      category.checkReasons ??= {};
+      category.checkReasons[reason] = (category.checkReasons[reason] ?? 0) + 1;
+    }
   }
   return bands;
 }
@@ -669,6 +690,7 @@ describe("importCompanies counts", () => {
       const used = new Set<string>();
       const statusesSeen = new Set<string>();
       const bandsSeen = new Set<string>();
+      let twoReasonsSeen = false;
       for (let step = 0; step < 220; step++) {
         const [name, run] = pick(steps);
         used.add(name);
@@ -679,9 +701,14 @@ describe("importCompanies counts", () => {
           console.error(`The random run failed with seed ${RANDOM_SEED} at step ${step} (${name}).`);
           throw error;
         }
-        for (const row of await rows()) statusesSeen.add(row.status);
+        for (const row of await rows()) {
+          statusesSeen.add(row.status);
+          if ((row.checkReasons?.length ?? 0) >= 2) twoReasonsSeen = true;
+        }
         for (const key of Object.keys((await countsNowAndRecount(t)).stored)) bandsSeen.add(key);
       }
+      // Some file needed a check for two reasons at once.
+      expect(twoReasonsSeen).toBe(true);
       // The run reached every kind of step, every status, every tab and the
       // no-company band.
       expect(used.size).toBe(steps.length);
@@ -1180,6 +1207,87 @@ describe("sheet queries", () => {
         paginationOpts: PAGE,
       })).page
     ).toEqual([]);
+  });
+
+  it("gives each section's check reasons with its band, a file with two counted under both", async () => {
+    const { t, admin } = await setup();
+    const ids = await seedSheet(t);
+    const result = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
+    const byKey = Object.fromEntries(result.page.map((band) => [band.companyKey, band]));
+    // Four final PDs with no science code; the one with nothing in its name
+    // has no writer either: four need a check, and it counts under both.
+    expect(byKey["cedarline systems"].categories.final_pd).toEqual({
+      total: 4,
+      needsCheck: 4,
+      fiscalYears: { "2025": 4 },
+      checkReasons: { no_science_code: 4, no_writer: 1 },
+    });
+    expect(byKey[""].categories.unknown).toEqual({
+      total: 1,
+      needsCheck: 1,
+      fiscalYears: { none: 1 },
+      checkReasons: { no_company: 1, unknown_category: 1 },
+    });
+    // A section with nothing to check has no reasons at all.
+    expect(byKey["halden foods"].categories.draft).toEqual({ total: 1, needsCheck: 0, fiscalYears: { "2025": 1 } });
+
+    // A person fills in the writer: that reason goes, the other stays.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [ids.pdBare], patch: { writerName: "Sam Okafor" } });
+    const after = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: true, paginationOpts: PAGE });
+    const cedarline = after.page.find((band) => band.companyKey === "cedarline systems")!;
+    expect(cedarline.categories.final_pd.checkReasons).toEqual({ no_science_code: 4 });
+    await expectCountsMatchRecount(t, "after a writer was filled in");
+
+    // Off the review tab nothing needs a check, so a rejected PD takes its reasons with it.
+    await admin.mutation(api.ingestion.rejectItem, { itemId: ids.pd4, note: "Not needed" });
+    const deleted = await admin.query(api.ingestion.sheetCompanies, { tab: "deleted", onlyToCheck: false, paginationOpts: PAGE });
+    expect(deleted.page.map((band) => band.categories)).toEqual([
+      { final_pd: { total: 1, needsCheck: 0, fiscalYears: { "2025": 1 } } },
+    ]);
+    const review = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
+    expect(review.page.find((band) => band.companyKey === "cedarline systems")!.categories.final_pd.checkReasons).toEqual({
+      no_science_code: 3,
+    });
+    await expectCountsMatchRecount(t, "after a reject");
+  });
+
+  it("reads a band row from before check reasons as having none, and the tab repair fills them in", async () => {
+    const { t, admin } = await setup();
+    const ids = await seedSheet(t);
+    const { stored: right } = await countsNowAndRecount(t);
+    // Band rows written before the reasons existed.
+    await t.run(async (ctx) => {
+      for (const band of await ctx.db.query("importCompanies").collect()) {
+        const categories = Object.fromEntries(
+          Object.entries(band.categories).map(([name, { checkReasons: _, ...counts }]) => [name, counts])
+        );
+        await ctx.db.patch(band._id, { categories });
+      }
+    });
+    const before = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
+    const cedarline = before.page.find((band) => band.companyKey === "cedarline systems")!;
+    expect(cedarline.categories.final_pd).toEqual({ total: 4, needsCheck: 4, fiscalYears: { "2025": 4 } });
+
+    // A write to such a band takes a reason it never counted below zero:
+    // drift, which the helper reports and the repair puts right.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await admin.mutation(api.ingestion.setSheetLabels, { ids: [ids.pdBare], patch: { writerName: "Sam Okafor" } });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("importCompanies went below zero"),
+        expect.objectContaining({ companyKey: "cedarline systems" })
+      );
+    } finally {
+      warn.mockRestore();
+    }
+    await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
+
+    await t.mutation(internal.ingestion.repairImportCompanyTab, { sheetTab: "review" });
+    await runScheduled(t);
+    await expectCountsMatchRecount(t, "after the tab repair");
+    const { stored } = await countsNowAndRecount(t);
+    expect(stored["review|cedarline systems"].categories.final_pd.checkReasons).toEqual({ no_science_code: 4 });
+    expect(stored["review|"]).toEqual(right["review|"]);
   });
 
   it("finds files by name on one tab, and bands by name", async () => {

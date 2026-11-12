@@ -26,7 +26,36 @@ const registry = $state<{
   /** Paginated reads seeded as having more pages ("CanLoadMore"). */
   morePages: Record<string, boolean>;
   queryVariants: Record<string, Record<string, unknown>>;
-}>({ queries: {}, errors: {}, stale: {}, pages: {}, morePages: {}, queryVariants: {} });
+  /** Paginated rows seeded for exact arguments (without paginationOpts). */
+  pageVariants: Record<string, Record<string, { rows: unknown[]; more: boolean }>>;
+}>({ queries: {}, errors: {}, stale: {}, pages: {}, morePages: {}, queryVariants: {}, pageVariants: {} });
+
+// `loadMore(n)` calls on paginated hooks, with the hook's arguments then.
+const loadMoreCalls: Array<{ name: string; args: unknown; numItems: number }> = [];
+// The `initialNumItems` each mounted paginated hook asked for.
+const paginatedInitialSizes: Array<{ name: string; args: unknown; initialNumItems: number | undefined }> = [];
+// The `initialNumItems` a paginated hook asked for when its arguments moved
+// from one read to another (the real hook reads its options again then).
+const paginatedReloadSizes: Array<{ name: string; args: unknown; initialNumItems: number | undefined }> = [];
+
+/** Every `loadMore(n)` on paginated hooks of `name`, in call order. */
+export function __loadMoreCalls(name: string) {
+  return loadMoreCalls.filter((call) => call.name === name).map(({ args, numItems }) => ({ args, numItems }));
+}
+
+/** The first page size each mounted paginated hook of `name` asked for, with its arguments. */
+export function __paginatedInitialSizes(name: string) {
+  return paginatedInitialSizes
+    .filter((entry) => entry.name === name)
+    .map(({ args, initialNumItems }) => ({ args, initialNumItems }));
+}
+
+/** The first page size paginated hooks of `name` asked for on each argument change, with the new arguments. */
+export function __paginatedReloadSizes(name: string) {
+  return paginatedReloadSizes
+    .filter((entry) => entry.name === name)
+    .map(({ args, initialNumItems }) => ({ args, initialNumItems }));
+}
 
 // Mutation/action calls a suite can assert on, plus the value each one
 // resolves with — a wizard that destructures its mutation result needs one.
@@ -97,9 +126,37 @@ function queryData(name: string, args: unknown) {
   return Object.hasOwn(variants, key) ? variants[key] : registry.queries[name];
 }
 
+/** Seed a paginated read's rows for any arguments ("name-only"); see usePaginatedQuery. */
 export function __setPaginatedRows(name: string, rows: unknown[], options: { more?: boolean } = {}) {
   registry.pages[name] = rows;
   registry.morePages[name] = options.more ?? false;
+}
+
+/**
+ * Seed a paginated read for exact arguments (without paginationOpts): the
+ * server's answer for them. Other arguments keep the name-only rows, or stay
+ * loading when there are none (see usePaginatedQuery for an argument change).
+ */
+export function __setPaginatedRowsForArgs(
+  name: string,
+  args: unknown,
+  rows: unknown[],
+  options: { more?: boolean } = {}
+) {
+  registry.pageVariants[name] = {
+    ...registry.pageVariants[name],
+    [JSON.stringify(args) ?? ""]: { rows, more: options.more ?? false },
+  };
+}
+
+function exactPageData(name: string, key: string): { rows: unknown[]; more: boolean } | undefined {
+  const variants = registry.pageVariants[name];
+  return variants && Object.hasOwn(variants, key) ? variants[key] : undefined;
+}
+
+function nameOnlyPageData(name: string): { rows: unknown[]; more: boolean } | undefined {
+  const rows = registry.pages[name];
+  return rows === undefined ? undefined : { rows, more: registry.morePages[name] ?? false };
 }
 
 export function __setMutationResult(name: string, value: unknown) {
@@ -134,6 +191,10 @@ export function __resetConvexStub() {
   registry.queryVariants = {};
   registry.pages = {};
   registry.morePages = {};
+  registry.pageVariants = {};
+  loadMoreCalls.length = 0;
+  paginatedInitialSizes.length = 0;
+  paginatedReloadSizes.length = 0;
   argsGetters.clear();
   argsHistory.clear();
   calls.length = 0;
@@ -237,29 +298,75 @@ export function useQuery(query: FunctionReference<"query">, ...rest: unknown[]) 
   };
 }
 
+type PaginatedOptions = { initialNumItems?: number; keepPreviousData?: boolean } | undefined;
+
+/**
+ * The paginated hook. A read is answered by rows seeded for its exact
+ * arguments, else by the name-only rows, else it is loading. For reads
+ * seeded by exact arguments it is faithful to convex-svelte 0.14 on an
+ * argument change: until the new arguments have an answer, the rows clear
+ * and the status is "LoadingFirstPage" (loading), unless `keepPreviousData`
+ * is set, in which case the last rows answered stay on screen (still
+ * "LoadingFirstPage" and loading) until then. "skip" clears them, as it does
+ * in the real hook. Name-only rows answer any arguments at once, as they
+ * always have here: suites that switch a hook's arguments with name-only
+ * rows (the chat's thread switches) rely on that, so a suite that tests what
+ * an argument change shows seeds by exact arguments instead.
+ */
 export function usePaginatedQuery(query: FunctionReference<"query">, ...rest: unknown[]) {
   const name = getFunctionName(query);
   const getArgs = typeof rest[0] === "function" ? (rest[0] as () => unknown) : undefined;
   registerGetter(name, getArgs);
+  // Like the real hook, options may be a getter, read again for each new read.
+  const readOptions = () => (typeof rest[1] === "function" ? (rest[1] as () => unknown)() : rest[1]) as PaginatedOptions;
+  const options = readOptions();
+  paginatedInitialSizes.push({ name, args: getArgs?.(), initialNumItems: options?.initialNumItems });
+
+  // What this hook shows. Plain variables: they change only while a getter
+  // runs, and every getter reads the reactive registry it depends on.
+  let shownKey: string | null | undefined; // undefined: nothing read yet; null: skipped
+  let lastRows: unknown[] = [];
+
+  function view(): { rows: unknown[]; status: string; loading: boolean } {
+    const args = getArgs?.();
+    if (args === "skip") {
+      shownKey = null;
+      lastRows = [];
+      return { rows: [], status: "LoadingFirstPage", loading: true };
+    }
+    const key = JSON.stringify(args) ?? "";
+    if (key !== shownKey) {
+      // From one read to another: the real hook subscribes again with its options read anew.
+      if (typeof shownKey === "string") {
+        paginatedReloadSizes.push({ name, args, initialNumItems: readOptions()?.initialNumItems });
+      }
+      shownKey = key;
+    }
+    const data = exactPageData(name, key) ?? nameOnlyPageData(name);
+    if (data === undefined) {
+      return { rows: options?.keepPreviousData === true ? lastRows : [], status: "LoadingFirstPage", loading: true };
+    }
+    lastRows = data.rows;
+    return { rows: data.rows, status: data.more ? "CanLoadMore" : "Exhausted", loading: false };
+  }
+
   return {
     get results() {
-      if (skipped(getArgs)) return [];
-      return registry.pages[name] ?? [];
+      return view().rows;
     },
     get status() {
-      if (skipped(getArgs)) return "LoadingFirstPage";
-      if (registry.pages[name] === undefined) return "LoadingFirstPage";
-      return registry.morePages[name] ? "CanLoadMore" : "Exhausted";
+      return view().status;
     },
     // Like the real client, a failed read leaves the status where it was.
     get error() {
       return skipped(getArgs) ? undefined : registry.errors[name];
     },
     get isLoading() {
-      if (skipped(getArgs)) return true;
-      return registry.pages[name] === undefined;
+      return view().loading;
     },
-    loadMore(_numItems: number) {},
+    loadMore(numItems: number) {
+      loadMoreCalls.push({ name, args: getArgs?.(), numItems });
+    },
   };
 }
 
