@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canDelete,
   canPutBack,
+  categoryTakes,
   deletedReasonFor,
   DELETED_IN_ONEDRIVE_NOTE,
   labelApplies,
@@ -45,6 +46,19 @@ describe("labelApplies", () => {
     expect(labelApplies("scienceCode", draft, "final_pd")).toBe(true);
     expect(labelApplies("writerName", { ...draft, category: "transcript" }, "draft")).toBe(true);
     expect(labelApplies("writerName", draft, "supporting")).toBe(false);
+  });
+});
+
+describe("categoryTakes", () => {
+  it("is labelApplies for a read file on To review, with the status left out", () => {
+    for (const label of LABELS) {
+      for (const category of CATEGORIES) {
+        expect(categoryTakes(label, category), `${label} ${category}`).toBe(byHand(label, "pending_review", category));
+      }
+    }
+    // A label the category takes stays taken on a read-only tab: the sheet still shows it there.
+    expect(categoryTakes("scienceCode", "final_pd")).toBe(true);
+    expect(labelApplies("scienceCode", { status: "approved", category: "final_pd" })).toBe(false);
   });
 });
 

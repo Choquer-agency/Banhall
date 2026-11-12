@@ -22,25 +22,30 @@ import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { checkState, type CheckState } from "./importEdit";
 import type { ImportCategory, SheetFileRow } from "./importFormat";
 
-export type SelectedFile = Pick<SheetFileRow, "_id" | "name" | "status" | "category">;
+export type SelectedFile = Pick<SheetFileRow, "_id" | "name" | "status" | "category" | "fiscalYearEnd">;
 type FileId = SheetFileRow["_id"];
 
 const sectionKey = (companyKey: string, category: ImportCategory) => JSON.stringify([companyKey, category]);
 
 function slim(row: SelectedFile): SelectedFile {
-  return { _id: row._id, name: row.name, status: row.status, category: row.category };
+  return { _id: row._id, name: row.name, status: row.status, category: row.category, fiscalYearEnd: row.fiscalYearEnd };
 }
 
 function same(a: SelectedFile, b: SelectedFile): boolean {
-  return a.name === b.name && a.status === b.status && a.category === b.category;
+  return a.name === b.name && a.status === b.status && a.category === b.category && a.fiscalYearEnd === b.fiscalYearEnd;
 }
 
 type Listing = {
   companyKey: string;
+  /** The company's name ("Halden Foods"), or null for "No company yet". */
+  company: string | null;
   /** The read the rows came from (its arguments): a new read may list other rows without any leaving. */
   read: string;
   rows: SelectedFile[];
 };
+
+/** A selected file as an open section lists it now, with its company. */
+export type OnScreen = { file: SelectedFile; companyKey: string; company: string | null };
 
 export class ImportSelection {
   /** Select is on: the checkbox column shows. */
@@ -106,17 +111,24 @@ export class ImportSelection {
 
   /**
    * What an open section lists once its read has answered: its selectable
-   * rows, from the read `read` (its arguments, such as "To check"). Refreshes
+   * rows, from the read `read` (its arguments, such as "To check"), in the
+   * company named `company` (null for "No company yet"). Refreshes
    * what the selection holds about those files; uses up the section's
    * "select when it opens" request (selecting its rows, if any); and when the
    * same read no longer lists a selected file it listed, that file leaves
    * the selection unless another open section lists it. Call it untracked:
    * it reads and writes the selection.
    */
-  list(companyKey: string, category: ImportCategory, read: string, rows: readonly SelectedFile[]) {
+  list(
+    companyKey: string,
+    category: ImportCategory,
+    read: string,
+    rows: readonly SelectedFile[],
+    company: string | null = null
+  ) {
     const key = sectionKey(companyKey, category);
     const before = this.#listed.get(key);
-    this.#listed.set(key, { companyKey, read, rows: rows.map(slim) });
+    this.#listed.set(key, { companyKey, company, read, rows: rows.map(slim) });
     for (const row of rows) {
       const held = this.files.get(row._id);
       if (held && !same(held, row)) this.files.set(row._id, slim(row));
@@ -165,6 +177,23 @@ export class ImportSelection {
   /** Whether a section's read has answered while it is open. */
   isListed(companyKey: string, category: ImportCategory): boolean {
     return this.#listed.has(sectionKey(companyKey, category));
+  }
+
+  /**
+   * The selected files an open section lists now, as it lists them, with
+   * their company (live QA fixes): what the bar knows for sure about each
+   * file, for where the year end calendar opens and a move's Undo.
+   */
+  get onScreen(): OnScreen[] {
+    const found = new Map<FileId, OnScreen>();
+    for (const entry of this.#listed.values()) {
+      for (const row of entry.rows) {
+        if (this.files.has(row._id) && !found.has(row._id)) {
+          found.set(row._id, { file: row, companyKey: entry.companyKey, company: entry.company });
+        }
+      }
+    }
+    return [...found.values()];
   }
 
   /** Selects one section's rows the first time it lists (it is opening, or still reading). */

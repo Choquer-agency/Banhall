@@ -175,6 +175,7 @@ describe("section words", () => {
     expect(showMoreText("review_copy", 1)).toBe("Show 1 more review copy");
     expect(showMoreText("supporting", 99)).toBe("Show 25 of 99 more supporting files");
     expect(showMoreText("unknown", 18)).toBe("Show 18 more unsorted files");
+    // Only for a caller with no count: a section never shows its row with none left.
     expect(showMoreText("draft", 0)).toBe("Show more drafts");
     expect(showSectionText(45)).toBe("Show 45");
   });
@@ -259,16 +260,41 @@ describe("file rows", () => {
     expect(noYear.fiscalYear).toEqual({ text: "No fiscal year", tone: "amber", tooltip: null });
 
     // Not applicable: a supporting file has no writer or science code, and a
-    // company file no fiscal year. Never amber.
+    // company file no fiscal year. Never amber, and the company file's cell
+    // is empty: its section already says "No fiscal year" (live QA fixes).
     const supporting = fileCells(row({ category: "supporting", fiscalYearEnd: MAR_31_2025 }));
     expect([supporting.writer, supporting.scienceCode, supporting.version]).toEqual([null, null, null]);
-    expect(fileCells(row({ category: "company_file" })).fiscalYear).toEqual({
-      text: "No fiscal year",
-      tone: "muted",
-      tooltip: null,
-    });
+    expect(fileCells(row({ category: "company_file" })).fiscalYear).toBeNull();
     // An approved final PD with no science code has nothing left to check.
     expect(fileCells(row({ status: "approved" })).scienceCode).toBeNull();
+  });
+
+  it("shows a stored value only where the file's category takes it, so a moved file shows what fits it", () => {
+    const stored = {
+      pdNumber: "3",
+      pdTitle: "Batch trace index",
+      fiscalYearEnd: MAR_31_2025,
+      versionCode: "S" as const,
+      versionNumber: 1,
+      writerName: "Priya Nair",
+      scienceCode: "2.02.09",
+      scienceCodeSource: "document" as const,
+    };
+    // A final PD moved to Drafts keeps its code stored, but a draft shows none.
+    const draft = fileCells(row({ ...stored, category: "draft" }));
+    expect(draft.scienceCode).toBeNull();
+    expect(draft.version).toBe("S1");
+    expect(draft.writer).toEqual({ text: "Priya Nair", tone: "ink" });
+    // Moved back, the code shows again.
+    expect(fileCells(row({ ...stored, category: "final_pd" })).scienceCode).toMatchObject({ kind: "code", code: "2.02.09" });
+    // A transcript takes no version, writer or code; its year stays.
+    for (const category of ["transcript", "supporting", "company_file", "unknown"] as const) {
+      const cells = fileCells(row({ ...stored, category, writerInitials: "PN" }));
+      expect([cells.version, cells.writer, cells.scienceCode], category).toEqual([null, null, null]);
+      expect(cells.fiscalYear?.text, category).toBe("2025");
+    }
+    // The same on a read-only tab.
+    expect(fileCells(row({ ...stored, category: "review_copy", status: "approved" })).scienceCode).toBeNull();
   });
 
   it("shows a file still being read with empty cells, and one that failed in amber", () => {

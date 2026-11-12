@@ -16,6 +16,8 @@
   });
 </script>
 
+<svelte:head><title>Import · Banhall</title></svelte:head>
+
 {#if auth.isLoading || !auth.isAuthenticated}
   <WorkspaceLoadingShell layout="page" title="Import" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}

@@ -3,6 +3,8 @@
  * shared by a row's menu, its "Put back" and the selection bar: the calls in
  * runs of at most 100, then the app's toast. A delete's toast offers Undo,
  * which puts back exactly the files that delete changed (its changedIds).
+ * A move's toast offers Undo too (moveBack), which sets the category or
+ * company each moved file had before.
  * Files a call left as they were are named in the toast, by reason.
  *
  * The toast and the selection bar both sit at the bottom centre, so while
@@ -12,7 +14,7 @@ import { toast } from "svelte-sonner";
 import { userErrorMessage } from "$lib/errors";
 import { boardRem } from "$lib/rootScale";
 import { TOAST_BOTTOM_OFFSET } from "$lib/components/shell/AppToaster.svelte";
-import type { SheetTab } from "./importFormat";
+import { plural, type SheetTab } from "./importFormat";
 import {
   deletedText,
   NOTHING_CHANGED,
@@ -24,9 +26,12 @@ import {
   type BatchResult,
   type ChunkRun,
   type FileId,
+  type MoveBackGroup,
+  type MovePatch,
 } from "./importEdit";
 
 export type BatchCall = (args: { ids: FileId[] }) => Promise<BatchResult>;
+export type MoveCall = (args: { ids: FileId[]; patch: MovePatch }) => Promise<BatchResult>;
 
 /**
  * Where the selection bar's top sits above the window's bottom: bottom-8
@@ -82,6 +87,42 @@ export async function putBackFiles(
     toast(title, { ...IMPORT_TOAST, description });
   }
   return run;
+}
+
+/**
+ * A move's Undo (live QA fixes, 2026-11-11): sets each moved file's category
+ * or company back through setSheetLabels, one group per value, in runs of at
+ * most 100. Like a delete's Undo it says nothing when every file went back;
+ * it names the files the server left as they were, and how far it got when
+ * a call failed.
+ */
+export async function moveBack(groups: readonly MoveBackGroup[], setLabels: MoveCall, tab: SheetTab): Promise<void> {
+  const total = groups.reduce((count, group) => count + group.ids.length, 0);
+  const changed: FileId[] = [];
+  const skipped: ChunkRun["skipped"] = [];
+  for (const group of groups) {
+    const run = await runInChunks(group.ids, (part) => setLabels({ ids: part, patch: group.patch }));
+    changed.push(...run.changedIds);
+    skipped.push(...run.skipped);
+    if (run.error) {
+      const reason = userErrorMessage(run.error, TRY_AGAIN);
+      toast.error(stoppedText("Changed", changed.length, total, reason), {
+        ...IMPORT_TOAST,
+        description: skippedText(skipped, tab) || undefined,
+      });
+      return;
+    }
+  }
+  const description = skippedText(skipped, tab);
+  if (description) {
+    toast(changed.length > 0 ? `${plural(changed.length, "file")} moved back` : NOTHING_CHANGED, { ...IMPORT_TOAST, description });
+  }
+}
+
+/** The Undo action for a move's toast, or nothing when the move cannot be undone. */
+export function moveUndo(groups: readonly MoveBackGroup[] | null, setLabels: MoveCall, tab: SheetTab) {
+  if (!groups || groups.length === 0) return {};
+  return { action: { label: "Undo", onClick: () => void moveBack(groups, setLabels, tab) } };
 }
 
 /**

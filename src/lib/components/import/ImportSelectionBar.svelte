@@ -17,6 +17,12 @@
   changed, the files changed or gone leave the selection and the rest stay
   selected; otherwise the selection clears. While the bar shows, the
   toasts sit above it.
+
+  Live QA fixes (2026-11-11): the year end calendar opens on the newest
+  year end among the selected files listed on screen (else last year's
+  Dec 31), so its quick picks land in that year. A move to another category
+  or company offers Undo when every file it took is listed on screen, so
+  the value each had is known; Undo sets those back for the files it changed.
 -->
 <script lang="ts">
   import { Popover } from "bits-ui";
@@ -41,7 +47,7 @@
   import { userErrorMessage } from "$lib/errors";
   import ImportCompanyList from "./ImportCompanyList.svelte";
   import ImportWriterList from "./ImportWriterList.svelte";
-  import { deleteFiles, IMPORT_TOAST, putBackFiles } from "./importActions";
+  import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
   import {
     changedText,
     changePatch,
@@ -50,6 +56,7 @@
     deleteLine,
     leftOutText,
     MOVE_CATEGORIES,
+    moveBackGroups,
     NOTHING_CHANGED,
     putBackLine,
     runInChunks,
@@ -59,11 +66,14 @@
     stoppedText,
     TRY_AGAIN,
     utcDayFromDateInput,
+    yearEndCalendarStart,
     YEAR_END_HELPER,
     YEAR_END_QUICK_PICKS,
     type BarChange,
     type ChangeSplit,
     type ChunkRun,
+    type FileId,
+    type MoveBackGroup,
   } from "./importEdit";
   import { formatCount, type ImportCategory, type SheetTab } from "./importFormat";
   import type { ImportSelection, SelectedFile } from "./importSelection.svelte";
@@ -157,6 +167,38 @@
     return selection.size;
   }
 
+  /**
+   * Where the year end calendar opens (live QA fixes): on the newest year end
+   * among the selected files listed on screen, else last year's Dec 31, so
+   * its quick picks land in that year and not in this one.
+   */
+  const yearStart = $derived(yearEndCalendarStart(selection.onScreen.map((entry) => entry.file.fiscalYearEnd)));
+
+  /**
+   * A move's Undo, from what the sheet lists now (live QA fixes): every
+   * file the move takes must be listed on screen, so its category, or the
+   * company whose band lists it, is known. Otherwise, or when a file has no
+   * company yet (which a change cannot set back), the toast has no Undo.
+   */
+  function moveBackFor(change: BarChange, taken: readonly SelectedFile[]): MoveBackGroup[] | null {
+    if (change.kind !== "category" && change.kind !== "company") return null;
+    const shown = new Map(selection.onScreen.map((entry) => [entry.file._id, entry]));
+    const files = [];
+    for (const file of taken) {
+      const entry = shown.get(file._id);
+      if (!entry) return null;
+      files.push({ _id: file._id, before: change.kind === "category" ? entry.file.category : entry.company });
+    }
+    return moveBackGroups(change.kind, files);
+  }
+
+  /** Only the files the move changed go back. */
+  function onlyChanged(groups: MoveBackGroup[] | null, changed: readonly FileId[]): MoveBackGroup[] | null {
+    if (!groups) return null;
+    const moved = new Set(changed);
+    return groups.map((group) => ({ ...group, ids: group.ids.filter((id) => moved.has(id)) })).filter((group) => group.ids.length > 0);
+  }
+
   // ─── Actions ────────────────────────────────────────────────────────────
   async function apply(change: BarChange) {
     if (busy) return;
@@ -164,18 +206,29 @@
     const { taken, leftOut } = splitForChange(change.kind, selection.selected);
     const ids = taken.map((file) => file._id);
     if (ids.length === 0) return;
+    // Read before the move: once it is saved, the rows list their new values.
+    const back = moveBackFor(change, taken);
     busy = true;
     try {
       const patch = changePatch(change);
       const run = await runInChunks(ids, (part) => setLabels({ ids: part, patch }));
       const stillSelected = settle(run);
       const description = [leftOutText(leftOut), skippedText(run.skipped, tab)].filter(Boolean).join(" ") || undefined;
+      const undo = moveUndo(onlyChanged(back, run.changedIds), setLabels, tab);
       if (run.error) {
         const reason = userErrorMessage(run.error, TRY_AGAIN);
-        toast.error(stoppedText("Changed", run.changedIds.length, ids.length, reason, stillSelected), { ...IMPORT_TOAST, description });
+        toast.error(stoppedText("Changed", run.changedIds.length, ids.length, reason, stillSelected), {
+          ...IMPORT_TOAST,
+          description,
+          ...undo,
+        });
         return;
       }
-      toast(run.changedIds.length > 0 ? changedText(change, run.changedIds.length) : NOTHING_CHANGED, { ...IMPORT_TOAST, description });
+      toast(run.changedIds.length > 0 ? changedText(change, run.changedIds.length) : NOTHING_CHANGED, {
+        ...IMPORT_TOAST,
+        description,
+        ...undo,
+      });
     } finally {
       busy = false;
     }
@@ -296,6 +349,7 @@
     <DatePicker
       bind:value={pickedDay}
       bind:open={yearOpen}
+      openOn={yearStart}
       side="top"
       closeOnPick={false}
       heading="Year end"

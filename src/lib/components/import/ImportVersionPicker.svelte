@@ -1,9 +1,13 @@
 <!--
   The version menu under a file's Version cell (board ao5): the three stages
   in words ("T - to be submitted", "S - submitted", "R - in review"), then
-  the numbers 1 to 9. Pick the stage (it starts on the file's own), then the
-  number, which sets both at once and closes the menu. Final PDs, drafts and
-  review copies only.
+  the numbers 1 to 9. It starts on the file's own stage. Picking a stage
+  saves it at once with the file's number (1 when it has none) and keeps the
+  menu open, so someone changing S1 to T1 sees it saved with one click and
+  can still pick a number (live QA fixes, 2026-11-11). The tick follows the
+  clicks while the menu is open, not saves reading back. Picking a number saves
+  the stage shown with that number and closes the menu. A stage the server
+  refuses goes back to the file's own. Final PDs, drafts and review copies only.
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
@@ -21,19 +25,40 @@
     code: VersionCode | undefined;
     number: number | undefined;
     trigger: Snippet<[{ props: Record<string, unknown> }]>;
-    onPick: (version: { code: VersionCode; number: number }) => void;
+    /** Saves the version; true when it was saved. */
+    onPick: (version: { code: VersionCode; number: number }) => Promise<boolean> | boolean | void;
   } = $props();
 
   let open = $state(false);
   let stage = $state<VersionCode>("T");
+  // The stage last sent to be saved while this menu is open.
+  let sent: VersionCode | undefined;
+  // The file's own stage, each time the menu opens. A save reading back while
+  // it is open never moves the tick: a quick second pick would be undone.
+  let wasOpen = false;
   $effect.pre(() => {
-    if (open) stage = code ?? "T";
+    if (open && !wasOpen) {
+      stage = code ?? "T";
+      sent = undefined;
+    }
+    wasOpen = open;
   });
+
+  async function pickStage(value: VersionCode) {
+    stage = value;
+    if (value === (sent ?? code)) return;
+    sent = value;
+    const saved = await onPick({ code: value, number: number ?? 1 });
+    if (saved !== false) return;
+    // Refused: forget it, and show the file's own stage again unless another was picked since.
+    if (sent === value) sent = undefined;
+    if (stage === value) stage = code ?? "T";
+  }
 
   function pickNumber(value: number) {
     open = false;
     if (stage === code && value === number) return;
-    onPick({ code: stage, number: value });
+    void onPick({ code: stage, number: value });
   }
 </script>
 
@@ -52,7 +77,7 @@
             type="button"
             aria-pressed={stage === entry.code}
             data-import-version-code={entry.code}
-            onclick={() => (stage = entry.code)}
+            onclick={() => void pickStage(entry.code)}
             class={CHOICE_ROW}
           >
             <span class="min-w-0 flex-1">{entry.label}</span>

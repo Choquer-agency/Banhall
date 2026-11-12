@@ -4,8 +4,9 @@
   medium), its industry muted when the app knows the company or the green
   "New company" label when it does not, then the file count and, on the
   review tab, the status words ("38 being read", "77 ready", "12 to check"
-  in amber). Closed by default; open, it lists its sections in their fixed
-  order and leaves 28px before the next company.
+  in amber) in the Science code column, wrapping onto a second line when
+  that column is narrow. Closed by default; open, it lists its sections in
+  their fixed order and leaves 28px before the next company.
 
   With Select on (board ao4) a checkbox comes first. It selects every file
   its open sections list (never the ones not loaded), shows a dash when only
@@ -130,9 +131,10 @@
       {/if}
       <span data-import-band-files class="ml-auto shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{plural(band.total, "file")}</span>
     </div>
-    <div role="cell" data-import-band-status class="flex min-w-0 items-center justify-end gap-3 px-2 text-[0.8125rem] leading-[calc(18/13)]">
+    <!-- When the Science code column is narrow, the words wrap onto a second line instead of running into "N files". -->
+    <div role="cell" data-import-band-status class="flex min-w-0 flex-wrap content-center items-center justify-end gap-x-3 px-2 text-[0.8125rem] leading-[calc(16/13)]">
       {#each words as word (word.text)}
-        <span class={`shrink-0 ${word.tone === "amber" ? AMBER : "text-ink-muted"}`}>{word.text}</span>
+        <span class={`shrink-0 whitespace-nowrap ${word.tone === "amber" ? AMBER : "text-ink-muted"}`}>{word.text}</span>
       {/each}
     </div>
   </div>

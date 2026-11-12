@@ -2,11 +2,12 @@
   One file on the Import sheet (boards ao4 and ao5): 44px, the lightest
   hairline above it, the four fixed columns each behind a light rule. File
   shows "PD 4" muted and the PD's title for a file named like a PD, else the
-  file name, then "Being read" (muted), "Could not be read" (amber) or, on
-  Deleted, why it is there. Fiscal year is the year alone with the year end
-  in a tooltip; Version "T2"; Writer the name, or the initials muted;
-  Science code the code and its title, after the AI mark when it was read
-  from the document. Amber marks only what a person must fill in.
+  file name, then "Being read" (muted) or "Could not be read" (amber).
+  Fiscal year is the year alone with the year end in a tooltip; Version
+  "T2"; Writer the name, or the initials muted; Science code the code and
+  its title, after the AI mark when it was read from the document. Amber
+  marks only what a person must fill in. A cell whose label the file's
+  category does not take stays empty (fileCells).
 
   On To review (2026-11-11 phase 3b) a read file's cells are its pickers,
   each cell's one tab stop: the year end calendar, the version menu, the
@@ -14,10 +15,19 @@
   code; a final PD with no writer or code shows the amber "Pick a writer" or
   "Pick a code". The "..." at the row's end moves or deletes the file, on
   any row, read or not; when that takes the row away, focus goes to the next
-  row's "...". On Deleted a file a person deleted or rejected ends with "Put
-  back". With Select on, a checkbox comes first, named with the file and its
-  company. Approved is read only. What a row may do is the shared rule
+  row's "...". A move says so in a toast with Undo, which sets the category
+  or company back. On Deleted the row ends with why the file is there and,
+  for a file a person deleted or rejected, "Put back". With Select on, a
+  checkbox comes first, named with the file and its company. Approved is
+  read only. What a row may do is the shared rule
   (shared/importSheetRules.ts) the server follows too.
+
+  Narrow windows (live QA fixes, 2026-11-11): the name keeps its room and
+  the words after it give way first; a name or science code title cut short
+  shows in full in a tooltip on hover (and on keyboard focus of the code's
+  control), with no new tab stops. The "..." sits over the end of the
+  Science code cell on hover and focus instead of keeping room there all
+  the time. In search results the company is a second line under the name.
 -->
 <script lang="ts">
   import { mergeProps } from "bits-ui";
@@ -36,17 +46,21 @@
   import ImportRowMenu from "./ImportRowMenu.svelte";
   import ImportVersionPicker from "./ImportVersionPicker.svelte";
   import ImportWriterList from "./ImportWriterList.svelte";
-  import { deleteFiles, IMPORT_TOAST, putBackFiles } from "./importActions";
+  import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
   import {
     dateInputFromUtcDay,
     deletedReasonText,
     fileSelectLabel,
+    moveBackGroups,
+    movedText,
     rowAbilities,
     settledIds,
     skippedText,
     utcDayFromDateInput,
+    yearEndCalendarStart,
     YEAR_END_HELPER,
     YEAR_END_QUICK_PICKS,
+    type MovePatch,
   } from "./importEdit";
   import { fileCells, type SheetFileRow, type SheetTab, type Tone } from "./importFormat";
   import type { ImportSelection } from "./importSelection.svelte";
@@ -56,6 +70,7 @@
     CELL_CARET,
     FIXED_CELL,
     PICK_CONTROL,
+    ROW_MENU_ROOM,
     SELECT_CELL,
     SELECT_CELL_NESTED,
     sheetGrid,
@@ -114,6 +129,23 @@
       toast.error(userErrorMessage(error, "The change could not be saved."), IMPORT_TOAST);
       return false;
     }
+  }
+
+  /**
+   * A move from the row's menu (live QA fixes): once it is saved, "Moved to
+   * Drafts" or "Moved to Halden Foods" with Undo, which sets back the
+   * category or company the file had. A file with no company yet cannot be
+   * set back to none, so that move's toast has no Undo.
+   */
+  async function move(patch: MovePatch): Promise<boolean> {
+    const id = row._id;
+    const back =
+      "category" in patch
+        ? moveBackGroups("category", [{ _id: id, before: row.category }])
+        : moveBackGroups("company", [{ _id: id, before: company }]);
+    const moved = await change(patch);
+    if (moved) toast(movedText(patch), { ...IMPORT_TOAST, ...moveUndo(back, setLabels, tab) });
+    return moved;
   }
 
   /** Delete from the row's menu; a deleted or gone file leaves the selection, so the bar never sends it. */
@@ -193,6 +225,27 @@
     void change({ fiscalYearEnd: end });
   }
 
+  // ─── Words cut short (live QA fixes) ────────────────────────────────────
+  // Measured as the pointer (or keyboard focus) arrives, so a tooltip only
+  // repeats a name or title the cell had to cut.
+  let nameCut = $state(false);
+  let codeCut = $state(false);
+
+  function isCut(event: Event, selector: string): boolean {
+    const target = event.currentTarget as HTMLElement | null;
+    const node = target?.matches(selector) ? target : target?.querySelector<HTMLElement>(selector);
+    return node ? node.scrollWidth > node.clientWidth : false;
+  }
+  const measureName = (event: Event) => (nameCut = isCut(event, "[data-import-file-title]"));
+  const measureCode = (event: Event) => (codeCut = isCut(event, "[data-import-code-title]"));
+
+  /** A PD's title stands for its file name, which the tooltip gives (and the whole title, when cut). */
+  const titleIsNotName = $derived(Boolean(cells.prefix) && cells.title !== row.name);
+  const nameTip = $derived(titleIsNotName ? (nameCut ? `${cells.title} (${row.name})` : row.name) : cells.title);
+  const codeTip = $derived(
+    cells.scienceCode?.kind === "code" && cells.scienceCode.title ? `${cells.scienceCode.code} ${cells.scienceCode.title}` : ""
+  );
+
   // Each name starts with the words the cell shows.
   const yearLabel = $derived(
     !cells.fiscalYear
@@ -224,8 +277,10 @@
 
 {#snippet yearPicker(tip: Record<string, unknown>)}
   <!-- Bound to the stored year end: the calendar shows what is saved, never a refused pick. -->
+  <!-- With no year end yet it opens on last year's Dec 31, so a quick pick never lands in this year by default. -->
   <DatePicker
     bind:value={() => dateInputFromUtcDay(row.fiscalYearEnd), () => {}}
+    openOn={yearEndCalendarStart([row.fiscalYearEnd])}
     heading="Year end"
     quickPicks={YEAR_END_QUICK_PICKS}
     helper={YEAR_END_HELPER}
@@ -240,7 +295,7 @@
   </DatePicker>
 {/snippet}
 
-{#snippet codeWords()}
+{#snippet codeWords(readOnly: boolean)}
   {#if cells.scienceCode?.kind === "code"}
     <!-- Codes line up whether or not the mark is there (ao5). -->
     {#if cells.scienceCode.fromDocument}
@@ -249,10 +304,47 @@
       <span class="size-[0.875rem] shrink-0" aria-hidden="true"></span>
     {/if}
     <span data-import-code class="shrink-0 text-ink">{cells.scienceCode.code}</span>
-    {#if cells.scienceCode.title}
+    {#if cells.scienceCode.title && readOnly}
+      <!-- Read only: the whole title on hover when it is cut; not a tab stop. -->
+      <Tooltip text={codeTip} delayDuration={400} disabled={!codeCut}>
+        {#snippet children({ props })}
+          <span {...mergeProps({ onpointerenter: measureCode }, props)} tabindex="-1" data-import-code-title class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted`}>{cells.scienceCode?.kind === "code" ? cells.scienceCode.title : ""}</span>
+        {/snippet}
+      </Tooltip>
+    {:else if cells.scienceCode.title}
       <span data-import-code-title class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted`}>{cells.scienceCode.title}</span>
     {/if}
   {/if}
+{/snippet}
+
+{#snippet nameLine()}
+  {#if cells.prefix}
+    <span data-import-file-prefix class="w-[3.125rem] shrink-0 truncate text-ink-muted">{cells.prefix}</span>
+  {/if}
+  <!--
+    The name never shrinks to make room for the words after it: they give way
+    first, down to a few letters (the name may take all but 4rem of the line).
+  -->
+  <span class="flex min-w-0 flex-1 items-center gap-2">
+    <!-- Hover only: a tab stop on every row would make the sheet slow to cross by keyboard. -->
+    <Tooltip text={nameTip} delayDuration={400} disabled={!titleIsNotName && !nameCut}>
+      {#snippet children({ props })}
+        <span
+          {...mergeProps({ onpointerenter: measureName }, props)}
+          tabindex="-1"
+          data-import-file-title
+          class={`min-w-0 shrink-0 truncate text-ink ${cells.state ? "max-w-[calc(100%-4rem)]" : "max-w-full"}`}
+        >{cells.title}</span>
+      {/snippet}
+    </Tooltip>
+    {#if cells.state}
+      <span
+        data-import-file-state
+        title={cells.state.text}
+        class={`min-w-0 truncate ${cells.state.tone === "amber" ? AMBER : `${SHEET_SMALL} text-ink-muted`}`}
+      >{cells.state.text}</span>
+    {/if}
+  </span>
 {/snippet}
 
 <div
@@ -261,7 +353,7 @@
   data-import-file={row._id}
   data-import-file-category={row.category}
   data-import-file-selected={selected ? "" : undefined}
-  class={`group/row relative ${sheetGrid(selectColumn)} h-11 border-t border-line-soft ${SHEET_TEXT} ${
+  class={`group/row relative ${sheetGrid(selectColumn, inset === "section")} h-11 border-t border-line-soft ${SHEET_TEXT} ${
     selected ? "bg-primary-wash" : can.menu || can.putBack ? "hover:bg-gray-50" : ""
   }`}
 >
@@ -277,28 +369,15 @@
     </div>
   {/if}
 
-  <div role="cell" class={`flex min-w-0 items-center gap-2 pr-3 ${inset === "section" ? "pl-6" : "pl-12"}`}>
-    {#if cells.prefix}
-      <span data-import-file-prefix class="w-[3.125rem] shrink-0 truncate text-ink-muted">{cells.prefix}</span>
-    {/if}
-    {#if cells.prefix && cells.title !== row.name}
-      <!-- Hover only: a tab stop on every row would make the sheet slow to cross by keyboard. -->
-      <Tooltip text={row.name} delayDuration={400}>
-        {#snippet children({ props })}
-          <span {...props} tabindex="-1" data-import-file-title class="min-w-0 truncate text-ink">{cells.title}</span>
-        {/snippet}
-      </Tooltip>
-    {:else}
-      <span data-import-file-title class="min-w-0 truncate text-ink">{cells.title}</span>
-    {/if}
-    {#if cells.state}
-      <span data-import-file-state class={`shrink-0 ${cells.state.tone === "amber" ? AMBER : `${SHEET_SMALL} text-ink-muted`}`}>{cells.state.text}</span>
-    {/if}
-    {#if reason}
-      <span data-import-file-deleted-reason class={`shrink-0 ${SHEET_SMALL} text-ink-muted`}>{reason}</span>
-    {/if}
+  <div role="cell" data-import-cell="file" class={`flex min-w-0 flex-col justify-center pr-3 ${inset === "section" ? "pl-6" : "pl-12"}`}>
+    <span class="flex min-w-0 items-center gap-2">{@render nameLine()}</span>
     {#if companyName}
-      <span data-import-file-company class={`min-w-0 shrink-[2] truncate ${SHEET_SMALL} text-ink-muted`}>{companyName}</span>
+      <!-- Search results: the company on its own line, under the name, so neither squeezes the other. -->
+      <span
+        data-import-file-company
+        title={companyName}
+        class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted ${cells.prefix ? "pl-[3.625rem]" : ""}`}
+      >{companyName}</span>
     {/if}
   </div>
 
@@ -329,7 +408,7 @@
 
   <div role="cell" data-import-cell="version" class={FIXED_CELL}>
     {#if can.version}
-      <ImportVersionPicker code={row.versionCode} number={row.versionNumber} onPick={(version) => void change({ version })}>
+      <ImportVersionPicker code={row.versionCode} number={row.versionNumber} onPick={(version) => change({ version })}>
         {#snippet trigger({ props })}
           <button {...props} type="button" aria-label={cells.version ? `Version ${cells.version}. Change the version` : "Set the version"} data-import-version-edit class={CELL_BUTTON}>
             {#if cells.version}<span class="truncate text-ink">{cells.version}</span>{/if}
@@ -375,7 +454,7 @@
     {/if}
   </div>
 
-  <div role="cell" data-import-cell="science-code" class={`${FIXED_CELL} gap-1.5`}>
+  <div role="cell" data-import-cell="science-code" class={`${FIXED_CELL} gap-1.5 ${can.menu ? ROW_MENU_ROOM : ""}`}>
     {#if can.scienceCode}
       <ImportPickerPopover label="Science code" align="end" width="w-[22rem]">
         {#snippet trigger({ props })}
@@ -385,10 +464,21 @@
               <CaretDownIcon size="0.6875rem" aria-hidden="true" class="shrink-0" />
             </button>
           {:else}
-            <button {...props} type="button" aria-label={codeLabel} data-import-code-edit class={`${CELL_BUTTON} gap-1.5`}>
-              {@render codeWords()}
-              <CaretDownIcon size="0.75rem" aria-hidden="true" class={CELL_CARET} />
-            </button>
+            <!-- The whole title in a tooltip when it is cut, on hover and on keyboard focus of the control. -->
+            <Tooltip text={codeTip} delayDuration={400} ignoreNonKeyboardFocus disabled={!codeCut}>
+              {#snippet children({ props: tip })}
+                <button
+                  {...mergeProps({ onpointerenter: measureCode, onfocus: measureCode }, tip, props)}
+                  type="button"
+                  aria-label={codeLabel}
+                  data-import-code-edit
+                  class={`${CELL_BUTTON} gap-1.5`}
+                >
+                  {@render codeWords(false)}
+                  <CaretDownIcon size="0.75rem" aria-hidden="true" class={CELL_CARET} />
+                </button>
+              {/snippet}
+            </Tooltip>
           {/if}
         {/snippet}
         {#snippet content({ close })}
@@ -405,29 +495,38 @@
         {/snippet}
       </ImportPickerPopover>
     {:else if cells.scienceCode?.kind === "code"}
-      {@render codeWords()}
+      {@render codeWords(true)}
     {:else if cells.scienceCode?.kind === "missing"}
       <span data-import-code-missing class={`truncate ${AMBER}`}>{cells.scienceCode.text}</span>
     {/if}
     {#if can.menu}
-      <span class="ml-auto flex shrink-0 items-center">
+      <!-- Over the cell's end, in the room the cell makes on hover and focus (ROW_MENU_ROOM). -->
+      <span data-import-row-end class="absolute inset-y-0 right-2 flex items-center pointer-coarse:right-1.5">
         <ImportRowMenu
           name={label}
           category={row.category}
           {company}
           canDelete={can.remove}
-          onCategory={(category) => void leaveWith(() => change({ category }))}
-          onCompany={(name) => void leaveWith(() => change({ company: name }))}
+          onCategory={(category) => void leaveWith(() => move({ category }))}
+          onCompany={(name) => void leaveWith(() => move({ company: name }))}
           onDelete={() => void leaveWith(remove)}
         />
       </span>
-    {:else if can.putBack}
-      <button
-        type="button"
-        data-import-put-back={row._id}
-        onclick={() => void putBack()}
-        class="relative z-[1] ml-auto shrink-0 rounded-sm px-1 text-xs leading-[calc(4/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
-      >Put back</button>
+    {:else if reason || can.putBack}
+      <!-- Deleted: why the file is here, where the empty cells leave room, then "Put back". -->
+      <span data-import-row-end class="ml-auto flex min-w-0 items-center gap-3 pl-1.5">
+        {#if reason}
+          <span data-import-file-deleted-reason title={reason} class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted`}>{reason}</span>
+        {/if}
+        {#if can.putBack}
+          <button
+            type="button"
+            data-import-put-back={row._id}
+            onclick={() => void putBack()}
+            class="relative z-[1] shrink-0 rounded-sm px-1 text-xs leading-[calc(4/3)] text-ink-muted transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
+          >Put back</button>
+        {/if}
+      </span>
     {/if}
   </div>
 </div>

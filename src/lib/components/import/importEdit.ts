@@ -91,6 +91,22 @@ export function dateInputFromUtcDay(timestamp: number | undefined | null): strin
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
 }
 
+/**
+ * The day ("2025-03-31") the year end calendar opens on while nothing is
+ * picked (live QA fixes, 2026-11-11), so its quick picks ("Dec 31") land in
+ * that year: the newest of these year ends (one file's own, or those of the
+ * selected files listed on screen), else Dec 31 of last year, the last year
+ * end that has surely passed. Imported files are past work, so the calendar
+ * never starts in the current year on its own.
+ */
+export function yearEndCalendarStart(yearEnds: readonly (number | null | undefined)[], now: Date = new Date()): string {
+  let newest: number | null = null;
+  for (const end of yearEnds) {
+    if (typeof end === "number" && Number.isFinite(end) && (newest === null || end > newest)) newest = end;
+  }
+  return newest !== null ? dateInputFromUtcDay(newest) : `${now.getFullYear() - 1}-12-31`;
+}
+
 // ─── Batches ────────────────────────────────────────────────────────────────
 
 /** The most files one setSheetLabels, removeItems or restoreItems call takes. */
@@ -355,6 +371,41 @@ export function changedText(change: BarChange, count: number): string {
     case "scienceCode":
       return `Science code set to ${change.scienceCode} for ${files(count)}`;
   }
+}
+
+/** A move: the setSheetLabels patch for a new category or company. */
+export type MovePatch = { category: ImportCategory } | { company: string };
+
+/** The toast once one file is moved from its menu: "Moved to Drafts", "Moved to Halden Foods". */
+export function movedText(patch: MovePatch): string {
+  return "category" in patch ? `Moved to ${CATEGORY_LABELS[patch.category]}` : `Moved to ${patch.company}`;
+}
+
+/** Files to set back to one value, for a move's Undo. */
+export type MoveBackGroup = { patch: MovePatch; ids: FileId[] };
+
+/**
+ * A move's Undo (live QA fixes, 2026-11-11): the moved files grouped by the
+ * category or company each had before, in the order first seen. Null when
+ * any file's value is not known, or is "No company yet", which a change
+ * cannot set back: then the toast offers no Undo.
+ */
+export function moveBackGroups(
+  kind: "category" | "company",
+  files: readonly { _id: FileId; before: ImportCategory | string | null | undefined }[]
+): MoveBackGroup[] | null {
+  const groups = new Map<string, MoveBackGroup>();
+  for (const file of files) {
+    const before = file.before;
+    if (before === null || before === undefined || before === "") return null;
+    const group = groups.get(before);
+    if (group) group.ids.push(file._id);
+    else {
+      const patch: MovePatch = kind === "category" ? { category: before as ImportCategory } : { company: before };
+      groups.set(before, { patch, ids: [file._id] });
+    }
+  }
+  return [...groups.values()];
 }
 
 /** "Delete 6 files" */

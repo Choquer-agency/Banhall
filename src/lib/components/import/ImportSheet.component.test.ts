@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import ImportSheet from "./ImportSheet.svelte";
@@ -668,6 +668,121 @@ describe("ImportSheet", () => {
     expect(halden.hasAttribute("data-import-band-open")).toBe(true);
   });
 
+  it("offers Show N more only while the section's count says more are left, never an empty Show more", async () => {
+    const NORTHGATE = {
+      companyKey: "northgate labs",
+      displayName: "Northgate Labs",
+      total: 17,
+      needsCheck: 2,
+      ready: 15,
+      beingRead: 0,
+      categories: {
+        final_pd: { total: 10, needsCheck: 2, fiscalYears: { "2025": 10 }, checkReasons: { no_science_code: 2 } },
+        review_copy: { total: 3, needsCheck: 0, fiscalYears: { "2025": 3 } },
+        transcript: { total: 4, needsCheck: 0, fiscalYears: { "2025": 4 } },
+      },
+      company: null,
+      isNew: true,
+    };
+    const args = (category: string, onlyToCheck = false) => ({ tab: "review", companyKey: "northgate labs", category, onlyToCheck });
+    const copies = [1, 2, 3].map((n) => fileRow(`rc${n}`, { category: "review_copy", pdNumber: String(n), versionCode: "R", versionNumber: 1 }));
+    const calls = [1, 2, 3].map((n) => fileRow(`tr${n}`, { name: `Call ${n}.vtt`, category: "transcript" }));
+    // Each read still says it can load more, as a page that holds exactly the rest does until an empty page comes back.
+    __setPaginatedRowsForArgs("ingestion:sheetCompanies", OFF, [NORTHGATE], { more: false });
+    __setPaginatedRowsForArgs("ingestion:sheetCompanies", ON, [NORTHGATE], { more: false });
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", args("final_pd"), FINAL_PDS, { more: true });
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", args("final_pd", true), FINAL_PDS.slice(0, 2), { more: true });
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", args("review_copy"), copies, { more: true });
+    // One more than the page listed: four transcripts, three listed.
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", args("transcript"), calls, { more: true });
+    const { rerender } = await render(ImportSheet, { tab: "review", onlyToCheck: false });
+    await userEvent.click(page.getByRole("button", { name: "Northgate Labs" }));
+    await userEvent.click(page.getByRole("button", { name: /^Review copies/ }));
+    await userEvent.click(page.getByRole("button", { name: /^Transcripts/ }));
+    const showMore = (category: string) => one("[data-import-show-more-files]", section("northgate labs", category));
+    await expect.poll(() => one('[data-import-file="tr3"]')).not.toBeNull();
+    await expect.poll(() => one('[data-import-file="rc3"]')).not.toBeNull();
+
+    // Ten final PDs, five listed: the numbered form.
+    expect(text(showMore("final_pd"))).toBe("Show 5 more final PDs");
+    // Exactly full: three review copies, all three listed. No row at all.
+    expect(showMore("review_copy")).toBeNull();
+    expect(text(section("northgate labs", "review_copy"))).not.toContain("Show more");
+    // One more than listed: numbered, singular.
+    expect(text(showMore("transcript"))).toBe("Show 1 more transcript");
+    expect(all("[data-import-show-more-files]").map((node) => text(node))).not.toContain("Show more transcripts");
+
+    // To check on: two final PDs to check, both listed. No row.
+    await rerender({ tab: "review", onlyToCheck: true });
+    await expect.poll(() => all('[data-import-section="final_pd"] [data-import-file]').length).toBe(2);
+    expect(text(one("[data-import-section-count]", section("northgate labs", "final_pd")))).toBe("2");
+    expect(showMore("final_pd")).toBeNull();
+  });
+
+  it("hides Show more on the Deleted tab when every deleted file is listed", async () => {
+    const deleted = {
+      ...CEDARLINE,
+      total: 2,
+      needsCheck: 0,
+      ready: 2,
+      beingRead: 0,
+      categories: { transcript: { total: 2, needsCheck: 0, fiscalYears: { "2024": 2 } } },
+    };
+    __setPaginatedRowsForArgs("ingestion:sheetCompanies", { tab: "deleted", onlyToCheck: false }, [deleted]);
+    __setPaginatedRowsForArgs(
+      "ingestion:sheetFiles",
+      { tab: "deleted", companyKey: "cedarline systems", category: "transcript", onlyToCheck: false },
+      [
+        fileRow("d1", { name: "2023-11-21 Cedarline servo call.txt", category: "transcript", status: "deleted", deletedReason: "deleted" }),
+        fileRow("d2", { name: "2024-11-14 Cedarline vision interview.vtt", category: "transcript", status: "deleted", deletedReason: "deleted" }),
+      ],
+      { more: true }
+    );
+    // The boards' window, where the screenshot cut these names short.
+    await page.viewport(1440, 900);
+    await render(ImportSheet, { tab: "deleted", onlyToCheck: false });
+    await openCedarline();
+    await userEvent.click(page.getByRole("button", { name: /^Transcripts/ }));
+    await expect.poll(() => all("[data-import-file]").length).toBe(2);
+    expect(one("[data-import-show-more-files]")).toBeNull();
+
+    // Why each file is here sits at the row's end, before Put back, so the name has the File column.
+    const row = one('[data-import-file="d1"]')!;
+    const reason = one("[data-import-file-deleted-reason]", row)!;
+    expect(text(reason)).toBe("Deleted in Import");
+    expect(reason.closest('[data-import-cell="science-code"]')).not.toBeNull();
+    expect(reason.compareDocumentPosition(one("[data-import-put-back]", row)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const name = one("[data-import-file-title]", row)!;
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+  });
+
+  it("leaves a cell empty where the file's category does not take its label, even with a value stored", async () => {
+    seedBands();
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("cedarline systems", "draft"), [
+      // A final PD moved to Drafts: its code is still stored, but a draft shows none.
+      fileRow("moved", { ...FINAL_PDS[0], _id: "moved", category: "draft" }),
+    ]);
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("cedarline systems", "company_file"), [
+      fileRow("glossary", { name: "Cedarline glossary.docx", category: "company_file" }),
+    ]);
+    await render(ImportSheet, { tab: "review", onlyToCheck: false });
+    await openCedarline();
+    await userEvent.click(page.getByRole("button", { name: /^Drafts/ }));
+    await userEvent.click(page.getByRole("button", { name: /^Company files/ }));
+    await expect.poll(() => one('[data-import-file="glossary"]')).not.toBeNull();
+    await expect.poll(() => one('[data-import-file="moved"]')).not.toBeNull();
+
+    const moved = one('[data-import-file="moved"]')!;
+    expect(text(one('[data-import-cell="science-code"]', moved))).toBe("");
+    expect(one("[data-import-code-edit], [data-import-code-pick]", moved)).toBeNull();
+    // A draft takes a version and a writer.
+    expect(text(one('[data-import-cell="version"]', moved))).toBe("T2");
+    expect(text(one('[data-import-cell="writer"]', moved))).toBe("Dana Whitlock");
+    // A company file's fiscal year cell is empty: its section already says "No fiscal year".
+    expect(text(one('[data-import-cell="fiscal-year"]', one('[data-import-file="glossary"]')!))).toBe("");
+    expect(text(one("[data-import-section-years]", section("cedarline systems", "company_file")))).toBe("No fiscal year");
+  });
+
   it("reads past empty pages a few times before offering Show more companies, and never calls it empty", async () => {
     __setPaginatedRowsForArgs("ingestion:sheetCompanies", OFF, [], { more: true });
     await render(ImportSheet, { tab: "review", onlyToCheck: false });
@@ -686,5 +801,195 @@ describe("ImportSheet", () => {
     expect(__loadMoreCalls("ingestion:sheetCompanies")).toHaveLength(4);
     __setPaginatedRowsForArgs("ingestion:sheetCompanies", OFF, [CEDARLINE]);
     await expect.poll(() => all("[data-import-band]").map((node) => node.dataset.importBand)).toEqual(["cedarline systems"]);
+  });
+});
+
+/**
+ * The sheet on laptop windows (live QA fixes, 2026-11-11). The widths are
+ * the sheet's own on the real page with the admin sidebar open: 900px in a
+ * 1280px window, 714px in a 1100px one, 1060px in a 1440px one (the boards).
+ * The window is set too, so the root size (and every rem) is the real one.
+ */
+describe("ImportSheet on laptop windows", () => {
+  const LAPTOPS = [
+    { window: 1280, sheet: 900 },
+    { window: 1100, sheet: 714 },
+  ];
+
+  const WIDE_ROWS = [
+    fileRow("lactose", {
+      name: "01 BrightwellDairy 2025-03-31 T2.DW LactoseFreeProcessValidation.docx",
+      pdNumber: "1",
+      pdTitle: "Lactose free process validation",
+      fiscalYearEnd: MAR_31_2025,
+      versionCode: "T",
+      versionNumber: 2,
+      writerInitials: "DW",
+      scienceCode: "2.02.09",
+      scienceCodeSource: "document",
+    }),
+    // A final PD with nothing filled in: both amber pick controls.
+    fileRow("bare", { name: "Brightwell final PD - membrane line.docx", fiscalYearEnd: MAR_31_2025, needsCheck: true, checkReasons: ["no_science_code", "no_writer"] }),
+  ];
+  const NOTE_ROWS = [
+    // Read, no text came out: the note must never take the name's place.
+    fileRow("scan", {
+      name: "Membrane cleaning cycle log.pdf",
+      category: "supporting",
+      fiscalYearEnd: MAR_31_2025,
+      needsCheck: true,
+      checkReasons: ["no_text"],
+    }),
+    fileRow("broken", { name: "Prototype invoice.pdf", category: "supporting", status: "failed", fiscalYearEnd: MAR_31_2025, needsCheck: true, checkReasons: ["could_not_read"] }),
+  ];
+
+  let holder: HTMLDivElement | null = null;
+
+  beforeEach(() => {
+    __resetConvexStub();
+  });
+  afterEach(() => {
+    holder?.remove();
+    holder = null;
+  });
+
+  async function mountAt(windowWidth: number, sheetWidth: number) {
+    await page.viewport(windowWidth, 900);
+    seedBands([CEDARLINE]);
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("cedarline systems", "final_pd"), WIDE_ROWS, { more: true });
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("cedarline systems", "supporting"), NOTE_ROWS, { more: true });
+    holder = document.createElement("div");
+    holder.style.width = `${sheetWidth}px`;
+    document.body.append(holder);
+    await render(ImportSheet, { target: holder, props: { tab: "review", onlyToCheck: false } });
+    await openCedarline();
+    await userEvent.click(page.getByRole("button", { name: /^Supporting files/ }));
+    await expect.poll(() => all("[data-import-file]").length).toBe(4);
+    await document.fonts.ready;
+  }
+
+  const box = (node: Element) => node.getBoundingClientRect();
+  /** Every element in a cell that draws something stays inside the cell (sr-only words aside). */
+  function overflowing(cell: HTMLElement): string[] {
+    const outer = box(cell);
+    return [...cell.querySelectorAll<HTMLElement>("*")]
+      .filter((node) => !node.closest(".sr-only") && box(node).width > 0)
+      .filter((node) => box(node).right > outer.right + 0.5 || box(node).left < outer.left - 0.5)
+      .map((node) => `${node.tagName} "${text(node)}"`);
+  }
+
+  for (const { window: windowWidth, sheet } of LAPTOPS) {
+    it(`keeps every column readable in a ${windowWidth}px window: the name has room, nothing runs into the next column`, async () => {
+      await mountAt(windowWidth, sheet);
+      const scroller = one("[data-import-sheet]")!;
+      // It fits: nothing to scroll at this width.
+      expect(scroller.scrollWidth).toBeLessThanOrEqual(scroller.clientWidth + 1);
+
+      for (const row of all("[data-import-file]")) {
+        const id = row.dataset.importFile!;
+        // The name keeps real room, even beside "No text could be read".
+        expect(box(one("[data-import-file-title]", row)!).width, id).toBeGreaterThan(board(110));
+        const cells = all(':scope > [role="cell"]', row);
+        for (const [index, cell] of cells.entries()) {
+          expect(overflowing(cell), `${id} cell ${index}`).toEqual([]);
+          const next = cells[index + 1];
+          if (next) expect(box(cell).right, `${id} cell ${index}`).toBeLessThanOrEqual(box(next).left + 0.5);
+        }
+      }
+      // The note gives way first, and still shows a few letters.
+      const note = one('[data-import-file="scan"] [data-import-file-state]')!;
+      expect(box(note).width).toBeGreaterThan(board(40));
+      expect(note.getAttribute("title")).toBe("No text could be read");
+
+      // The fixed columns line up with the header's, rows 24px in or not.
+      const header = all('[data-import-sheet-header] [role="columnheader"]');
+      const bandCells = all(':scope > [role="row"] > [role="cell"]', band("cedarline systems"));
+      for (const row of all("[data-import-file]")) {
+        const cells = all(':scope > [role="cell"]', row);
+        for (const index of [1, 2, 3, 4]) expect(box(cells[index]).left).toBeCloseTo(box(header[index]).left, 0);
+      }
+      // The band: its status words sit in the sheet, past "N files", and never run off its end.
+      const files = one("[data-import-band-files]", band("cedarline systems"))!;
+      const words = all("[data-import-band-status] span", band("cedarline systems"));
+      expect(words.map((node) => text(node))).toEqual(["8 being read", "200 ready", "15 to check"]);
+      for (const word of words) {
+        expect(box(word).left, text(word)).toBeGreaterThanOrEqual(box(files).right);
+        expect(box(word).right, text(word)).toBeLessThanOrEqual(box(scroller).right + 0.5);
+        expect(box(word).bottom, text(word)).toBeLessThanOrEqual(box(bandCells.at(-1)!).bottom + 0.5);
+      }
+      for (const cell of bandCells) expect(overflowing(cell)).toEqual([]);
+      // A section's "Show N" stays on its row.
+      const drafts = one('[data-import-section="draft"] [role="row"]')!;
+      const showDrafts = [...drafts.querySelectorAll<HTMLElement>("span")].find((node) => text(node) === "Show 45")!;
+      expect(box(showDrafts).right).toBeLessThanOrEqual(box(drafts).right + 0.5);
+    });
+  }
+
+  it("scrolls sideways in its own area below the narrowest it can be, the header and the band words with it", async () => {
+    await mountAt(1100, 560);
+    const scroller = one("[data-import-sheet]")!;
+    expect(scroller.scrollWidth).toBeGreaterThan(scroller.clientWidth);
+    // The header is as wide as what scrolls, so it scrolls with the rows.
+    const header = one("[data-import-sheet-header]")!;
+    expect(box(header).width).toBeCloseTo(scroller.scrollWidth, 0);
+    // Everything can be reached by scrolling: the band's words end inside the scrolled area.
+    const end = box(scroller).left + scroller.scrollWidth;
+    for (const word of all("[data-import-band-status] span")) expect(box(word).right).toBeLessThanOrEqual(end + 0.5);
+    for (const row of all("[data-import-file]")) {
+      for (const cell of all(':scope > [role="cell"]', row)) expect(overflowing(cell)).toEqual([]);
+    }
+    scroller.scrollLeft = scroller.scrollWidth;
+    await expect.poll(() => box(all("[data-import-band-status] span").at(-1)!).right).toBeLessThanOrEqual(box(scroller).right + 0.5);
+  });
+
+  it("fits a common science code title at the boards' 1440px, and keeps no room for the row's ... until the row is hovered", async () => {
+    await mountAt(1440, 1060);
+    const lactose = one('[data-import-file="lactose"]')!;
+    const title = one("[data-import-code-title]", lactose)!;
+    expect(text(title)).toBe("Software engineering and technology");
+    expect(title.scrollWidth).toBeLessThanOrEqual(title.clientWidth);
+    const menu = one("[data-import-row-menu]", lactose)!;
+    expect(getComputedStyle(menu).opacity).toBe("0");
+    // On hover the ... shows over the cell's end, clear of the code's words.
+    await userEvent.hover(lactose);
+    await expect.poll(() => getComputedStyle(menu).opacity).toBe("1");
+    await expect.poll(() => box(menu).left).toBeGreaterThanOrEqual(box(one("[data-import-code-edit]", lactose)!).right - 0.5);
+    expect(box(menu).right).toBeLessThanOrEqual(box(one('[data-import-cell="science-code"]', lactose)!).right);
+  });
+
+  it("gives a cut name or science code title in full in a tooltip, with no new tab stops", async () => {
+    await mountAt(1100, 714);
+    const tooltip = () => one("[data-tooltip-content]");
+    const lactose = one('[data-import-file="lactose"]')!;
+    // The code title is cut here: hover shows it whole.
+    const codeTitle = one("[data-import-code-title]", lactose)!;
+    expect(codeTitle.scrollWidth).toBeGreaterThan(codeTitle.clientWidth);
+    await userEvent.hover(codeTitle);
+    await expect.poll(() => text(tooltip())).toBe("2.02.09 Software engineering and technology");
+    await userEvent.unhover(codeTitle);
+    await expect.poll(() => tooltip()).toBeNull();
+    // And on keyboard focus of the code's control.
+    one("[data-import-version-edit]", lactose)!.focus();
+    await userEvent.tab();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(one("[data-import-code-edit]", lactose));
+    await expect.poll(() => text(tooltip())).toBe("2.02.09 Software engineering and technology");
+    (document.activeElement as HTMLElement).blur();
+
+    // A cut file name: the tooltip gives it whole.
+    const scan = one('[data-import-file="scan"] [data-import-file-title]')!;
+    expect(scan.scrollWidth).toBeGreaterThan(scan.clientWidth);
+    await userEvent.hover(scan);
+    await expect.poll(() => text(tooltip())).toBe("Membrane cleaning cycle log.pdf");
+    await userEvent.unhover(scan);
+    await expect.poll(() => tooltip()).toBeNull();
+    // A name that fits says nothing more.
+    const broken = one('[data-import-file="broken"] [data-import-file-title]')!;
+    expect(broken.scrollWidth).toBeLessThanOrEqual(broken.clientWidth);
+    await userEvent.hover(broken);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(tooltip()).toBeNull();
+    // None of these words is a tab stop.
+    for (const node of [...all("[data-import-file-title]"), ...all("[data-import-code-title]")]) expect(node.tabIndex).toBe(-1);
   });
 });

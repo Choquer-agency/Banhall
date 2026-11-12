@@ -80,6 +80,20 @@ export function isBeingRead(status: ImportItemStatus): boolean {
 const NUMBERED: ReadonlySet<ImportCategory> = new Set(["final_pd", "draft", "review_copy"]);
 
 /**
+ * Whether a file of this category takes a label at all, whatever its status
+ * or tab: pdNumber, version and writerName go on final PDs, drafts and
+ * review copies, scienceCode on final PDs, the rest on every file. The sheet
+ * shows a value only where its category takes it (live QA fixes,
+ * 2026-11-11): a final PD moved to Drafts keeps its stored science code, so
+ * moving it back brings the code back, but a draft shows no code.
+ */
+export function categoryTakes(label: ImportLabel, category: ImportCategory): boolean {
+  if (label === "scienceCode") return category === "final_pd";
+  if (label === "pdNumber" || label === "version" || label === "writerName") return NUMBERED.has(category);
+  return true;
+}
+
+/**
  * Whether one label can be set on a file. The rule, the same on the page
  * and the server:
  * - Only a file on To review (not approved, rejected or deleted).
@@ -99,9 +113,7 @@ export function labelApplies(
   if (tabForStatus(row.status) !== "review") return false;
   if (label === "company" || label === "category") return true;
   if (row.status !== "pending_review") return false;
-  if (label === "fiscalYearEnd") return true;
-  if (label === "scienceCode") return categoryAfter === "final_pd";
-  return NUMBERED.has(categoryAfter); // pdNumber, version, writerName
+  return categoryTakes(label, categoryAfter); // fiscalYearEnd on any category
 }
 
 /**

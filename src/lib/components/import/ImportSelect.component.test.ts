@@ -306,6 +306,96 @@ describe("selecting files on the Import page", () => {
     await expect.element(page.getByText("150 files moved to Transcripts")).toBeVisible();
   });
 
+  it("offers Undo for a move when every moved file is on screen, setting each one's category or company back", async () => {
+    seedPage();
+    __setQueryDataForArgs(
+      "ingestion:sheetSearch",
+      { tab: "review", text: "halden foods" },
+      { files: [], companies: [{ companyKey: "halden foods", displayName: "Halden Foods", total: 98, needsCheck: 0 }] }
+    );
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("supporting"), SUPPORTING.slice(0, 3));
+    await mount();
+    await selectOn();
+    await openCedarline();
+    await userEvent.click(page.getByRole("button", { name: /^Supporting files/ }));
+    await expect.poll(() => one('[data-import-file="s000"]')).not.toBeNull();
+    for (const id of ["pd1", "pd2", "s000"]) await userEvent.click(fileBox(id));
+
+    await userEvent.click(page.getByRole("button", { name: "Category", exact: true }));
+    await userEvent.click(one('[data-import-bar-category-choice="draft"]')!);
+    await userEvent.click(page.getByRole("button", { name: "Move 3 files to Drafts" }));
+    await expect.element(page.getByText("3 files moved to Drafts")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Undo" }));
+    // Each file back to the category it had, one call per category.
+    await expect.poll(() => __mutationCalls("ingestion:setSheetLabels").slice(1)).toEqual([
+      { ids: ["pd1", "pd2"], patch: { category: "final_pd" } },
+      { ids: ["s000"], patch: { category: "supporting" } },
+    ]);
+
+    // A company move goes back to the company whose band listed the file.
+    await userEvent.click(fileBox("pd3"));
+    await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
+    await userEvent.click(one('[data-import-bar-more-choice="company"]')!);
+    await userEvent.fill(page.getByRole("combobox", { name: "Company" }), "halden foods");
+    await expect.poll(() => one('[data-import-name-option="Halden Foods"]')).not.toBeNull();
+    await userEvent.click(one('[data-import-name-option="Halden Foods"]')!);
+    await userEvent.click(page.getByRole("button", { name: "Move 1 file to Halden Foods" }));
+    const moved = page.getByText("1 file moved to Halden Foods").element().closest<HTMLElement>("[data-sonner-toast]")!;
+    await userEvent.click(moved.querySelector<HTMLElement>("[data-button]")!);
+    await expect.poll(() => __mutationCalls("ingestion:setSheetLabels").at(-1)).toEqual({
+      ids: ["pd3"],
+      patch: { company: "Cedarline Systems" },
+    });
+
+    // A selected file no longer on screen (its company closed): what it had is not known, so no Undo.
+    await userEvent.click(fileBox("pd4"));
+    await userEvent.click(page.getByRole("button", { name: "Cedarline Systems" }));
+    await expect.poll(() => all("[data-import-file]").length).toBe(0);
+    await userEvent.click(page.getByRole("button", { name: "Category", exact: true }));
+    await userEvent.click(one('[data-import-bar-category-choice="transcript"]')!);
+    await userEvent.click(page.getByRole("button", { name: "Move 1 file to Transcripts" }));
+    const noUndo = page.getByText("1 file moved to Transcripts").element().closest<HTMLElement>("[data-sonner-toast]")!;
+    expect(noUndo.querySelector("[data-button]")).toBeNull();
+  });
+
+  it("opens the bar's year end calendar on the newest year end among the selected files on screen, else last year's Dec 31", async () => {
+    seedPage();
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("supporting"), [
+      row("old", { name: "Bench data.pdf", category: "supporting", fiscalYearEnd: Date.UTC(2023, 5, 30) }),
+      row("mid", { name: "Site notes.pdf", category: "supporting", fiscalYearEnd: Date.UTC(2024, 11, 31) }),
+    ]);
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("company_file"), [
+      row("cf1", { name: "Glossary.docx", category: "company_file", fiscalYearEnd: undefined }),
+    ]);
+    await mount();
+    await selectOn();
+    await userEvent.click(page.getByRole("button", { name: "Cedarline Systems" }));
+    await userEvent.click(page.getByRole("button", { name: /^Supporting files/ }));
+    await userEvent.click(page.getByRole("button", { name: /^Company files/ }));
+    await expect.poll(() => one('[data-import-file="cf1"]')).not.toBeNull();
+    await expect.poll(() => one('[data-import-file="mid"]')).not.toBeNull();
+
+    for (const id of ["old", "mid", "cf1"]) await userEvent.click(fileBox(id));
+    await userEvent.click(page.getByRole("button", { name: "Fiscal year", exact: true }));
+    // December 2024, the newest of the year ends selected.
+    await expect.poll(() => one('[role="gridcell"][data-value="2024-12-15"]')).not.toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Dec 31", exact: true }));
+    await expect.element(page.getByRole("button", { name: "Set the year end to Dec 31, 2024 for 3 files" })).toBeVisible();
+    // Mar 31 is in the year on screen too.
+    await userEvent.click(page.getByRole("button", { name: "Mar 31", exact: true }));
+    await expect.element(page.getByRole("button", { name: "Set the year end to Mar 31, 2024 for 3 files" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    // Only a file with no year end: last year's Dec 31, never this year's.
+    await userEvent.click(page.getByRole("button", { name: "Clear selection" }));
+    await userEvent.click(fileBox("cf1"));
+    await userEvent.click(page.getByRole("button", { name: "Fiscal year", exact: true }));
+    const lastYear = new Date().getFullYear() - 1;
+    await expect.poll(() => one(`[role="gridcell"][data-value="${lastYear}-12-15"]`)).not.toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Dec 31", exact: true }));
+    await expect.element(page.getByRole("button", { name: `Set the year end to Dec 31, ${lastYear} for 1 file` })).toBeVisible();
+  });
+
   it("stops at a failed run, says how many changed, drops what changed or left the tab, and keeps the rest selected", async () => {
     seedPage();
     let call = 0;
@@ -323,9 +413,10 @@ describe("selecting files on the Import page", () => {
     await expect.poll(barCount).toBe("150 files selected");
 
     await userEvent.click(page.getByRole("button", { name: "Fiscal year", exact: true }));
-    // The same calendar; a pick waits for its confirm line.
+    // The same calendar; a pick waits for its confirm line. It opens on the
+    // selected files' year end (Mar 31, 2025), so Dec 31 is in 2025.
     await userEvent.click(page.getByRole("button", { name: "Dec 31" }));
-    const year = new Date().getFullYear();
+    const year = 2025;
     const confirm = page.getByRole("button", { name: `Set the year end to Dec 31, ${year} for 150 files` });
     await expect.element(confirm).toBeVisible();
     expect(__mutationCalls("ingestion:setSheetLabels")).toEqual([]);
@@ -393,7 +484,7 @@ describe("selecting files on the Import page", () => {
     for (const id of ["pd1", "pd5", "t1"]) await userEvent.click(fileBox(id));
     await userEvent.click(page.getByRole("button", { name: "Fiscal year", exact: true }));
     await userEvent.click(page.getByRole("button", { name: "Dec 31", exact: true }));
-    await expect.element(page.getByRole("button", { name: /^Set the year end to Dec 31, \d{4} for 2 files$/ })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Set the year end to Dec 31, 2025 for 2 files" })).toBeVisible();
     expect(text(one("[data-import-bar-left-out]"))).toBe("1 final PD was left out: it is still being read.");
     await userEvent.click(page.getByRole("button", { name: /^Set the year end to Dec 31/ }));
     await expect.poll(() => (__mutationCalls("ingestion:setSheetLabels").at(-1) as Ids).ids).toEqual(["pd1", "t1"]);

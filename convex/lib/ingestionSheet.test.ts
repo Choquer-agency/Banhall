@@ -222,9 +222,40 @@ describe("sortKeyFor", () => {
     }
   });
 
+  it("puts the newest fiscal year first, then files with no year, before the PD number (live QA fixes)", () => {
+    const FY2025 = Date.UTC(2025, 2, 31);
+    const FY2024 = Date.UTC(2024, 11, 31);
+    for (const category of ["final_pd", "draft", "review_copy"] as const) {
+      const at = (name: string, extra: Partial<IngestionItemFields>) => sortKeyFor({ category, name, ...extra });
+      const rows = [
+        at("none-1.docx", { pdNumber: "1" }),
+        at("2024-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2024 }),
+        at("2025-pd2.docx", { pdNumber: "2", fiscalYearEnd: FY2025 }),
+        at("2024-pd1-s1.docx", { pdNumber: "1", fiscalYearEnd: FY2024, versionCode: "S", versionNumber: 1 }),
+        at("2025-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2025 }),
+      ];
+      expect([...rows].sort(), category).toEqual([
+        at("2025-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2025 }),
+        at("2025-pd2.docx", { pdNumber: "2", fiscalYearEnd: FY2025 }),
+        at("2024-pd1-s1.docx", { pdNumber: "1", fiscalYearEnd: FY2024, versionCode: "S", versionNumber: 1 }),
+        at("2024-pd1.docx", { pdNumber: "1", fiscalYearEnd: FY2024 }),
+        at("none-1.docx", { pdNumber: "1" }),
+      ]);
+    }
+    // A plain string: the year part is four digits, 9999 less the year.
+    expect(sortKeyFor({ category: "final_pd", name: "A.docx", pdNumber: "4", fiscalYearEnd: FY2025 })).toBe("7974 0004- ~ a.docx");
+    // Only the year counts: two year ends in one year sort by number.
+    expect(
+      sortKeyFor({ category: "final_pd", name: "z", pdNumber: "1", fiscalYearEnd: Date.UTC(2025, 11, 31) }) <
+        sortKeyFor({ category: "final_pd", name: "a", pdNumber: "2", fiscalYearEnd: FY2025 })
+    ).toBe(true);
+  });
+
   it("orders everything else by the lower-cased name", () => {
     for (const category of ["transcript", "supporting", "company_file", "unknown"] as const) {
-      expect(sortKeyFor({ category, name: "Budget 2025.PDF", pdNumber: "4" })).toBe("budget 2025.pdf");
+      expect(sortKeyFor({ category, name: "Budget 2025.PDF", pdNumber: "4", fiscalYearEnd: Date.UTC(2025, 2, 31) })).toBe(
+        "budget 2025.pdf"
+      );
     }
   });
 });

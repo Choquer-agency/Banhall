@@ -1,19 +1,43 @@
 /**
  * The Import sheet's one column grid (board ao5), shared by the header, the
  * company bands, the file rows and the search results so every column lines
- * up. File takes the rest; Fiscal year 96px, Version 60px, Writer 172px and
- * Science code 328px each add 8px either side of the light rule at their
- * left edge (the boards' 16px gaps). Indents step 24px: company, section, file.
+ * up. At the boards' width File takes the rest; Fiscal year 96px, Version
+ * 60px, Writer 172px and Science code 328px each add 8px either side of the
+ * light rule at their left edge (the boards' 16px gaps). Indents step 24px:
+ * company, section, file.
+ *
+ * On a narrower window (live QA fixes, 2026-11-11) File keeps at least 280px
+ * and the other four give up room first, down to their own minimums (Fiscal
+ * year 80px, Version 64px, Writer 120px, Science code 144px): a grid grows
+ * every fixed column to its widest before the File column gets any of the
+ * rest. Below the width where every column is at its minimum (SHEET_MIN_WIDTH)
+ * the sheet scrolls sideways in its own area, header and all.
  */
-export const SHEET_GRID = "grid grid-cols-[minmax(0,1fr)_7rem_4.75rem_11.75rem_21.5rem]";
+export const SHEET_GRID =
+  "grid grid-cols-[minmax(17.5rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
 
 /**
  * The same grid with Select on (board ao4): a 36px checkbox column first.
- * The File column gives up the room, so no other column moves.
+ * The File column gives up the room (its minimum too), so no other column moves.
  */
-export const SHEET_GRID_SELECT = "grid grid-cols-[2.25rem_minmax(0,1fr)_7rem_4.75rem_11.75rem_21.5rem]";
+export const SHEET_GRID_SELECT =
+  "grid grid-cols-[2.25rem_minmax(15.25rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
 
-export function sheetGrid(selecting: boolean): string {
+/**
+ * The grids of a file row inside a company, which starts 24px in (the
+ * company's sections are indented). Its File minimum is 24px less, so the
+ * other columns get exactly the room they get in the header and line up
+ * with it at every width, while they are still growing as much as when
+ * they are at their widest.
+ */
+export const SHEET_GRID_INDENTED =
+  "grid grid-cols-[minmax(16rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
+export const SHEET_GRID_INDENTED_SELECT =
+  "grid grid-cols-[2.25rem_minmax(13.75rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
+
+/** The grid for a row: with Select on or off, and 24px in (a file inside a company) or not. */
+export function sheetGrid(selecting: boolean, indented = false): string {
+  if (indented) return selecting ? SHEET_GRID_INDENTED_SELECT : SHEET_GRID_INDENTED;
   return selecting ? SHEET_GRID_SELECT : SHEET_GRID;
 }
 
@@ -30,11 +54,25 @@ export const SELECT_CELL = "relative z-[1] flex min-w-0 items-center pl-[0.5625r
  */
 export const SELECT_CELL_NESTED = `${SELECT_CELL} -ml-6 w-[3.75rem] shrink-0`;
 
-/** Below this the sheet scrolls sideways instead of squeezing the File column. */
-export const SHEET_MIN_WIDTH = "min-w-[54rem]";
+/**
+ * Every column at its minimum (17.5 + 5 + 4 + 7.5 + 9 rem): below this the
+ * sheet scrolls sideways instead of squeezing a column.
+ */
+export const SHEET_MIN_WIDTH = "min-w-[43rem]";
 
 /** A fixed column's cell on the header and file rows: the rule, then 8px in. */
 export const FIXED_CELL = "flex min-w-0 items-center border-l border-line-soft px-2";
+
+/**
+ * The Science code cell of a row with a "..." menu (live QA fixes): the menu
+ * sits over the cell's end, and the cell makes room for it only while the
+ * row is hovered, holds focus or has its menu open (a 28px button 8px in,
+ * clear of the cell control's 6px bleed), so a science code title has the
+ * whole cell the rest of the time. A touch screen has no hover: there the
+ * room (for a 44px button) is always kept.
+ */
+export const ROW_MENU_ROOM =
+  "relative pointer-fine:group-hover/row:pr-11 pointer-fine:group-focus-within/row:pr-11 pointer-fine:has-[[data-import-row-menu-active]]:pr-11 pointer-coarse:pr-14";
 
 /** 13/18, the sheet's body text. */
 export const SHEET_TEXT = "text-[0.8125rem] leading-[calc(18/13)]";

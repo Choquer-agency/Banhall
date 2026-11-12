@@ -114,7 +114,7 @@ export function checkReasonsFor(row: CheckInput): CheckReason[] {
   return reasons;
 }
 
-/** Categories whose rows are ordered by PD number and version. */
+/** Categories whose rows are ordered by fiscal year, PD number and version. */
 const NUMBERED_CATEGORIES: ReadonlySet<IngestionCategory> = new Set([
   "final_pd",
   "draft",
@@ -143,17 +143,34 @@ function versionSortPart(code: "T" | "S" | "R" | undefined, number: number | und
 }
 
 /**
- * The order of rows inside one category section. Final PDs, drafts and
- * review copies go by PD number (number, then letter), then version
- * (R, then T, then S, each by number), then name; rows with no number or
- * version come after the ones with one. Everything else goes by name.
+ * The fiscal year, newest first: 9999 less the UTC year of the year end, in
+ * four digits (2025 is "7974", 2024 "7975"), so a plain ascending sort puts
+ * the newest year first; a row with no year end sorts after every year.
+ */
+function fiscalYearSortPart(fiscalYearEnd: number | undefined): string {
+  if (fiscalYearEnd === undefined || !Number.isFinite(fiscalYearEnd)) return LAST;
+  const year = new Date(fiscalYearEnd).getUTCFullYear();
+  if (!(year >= 0 && year <= 9999)) return LAST;
+  return String(9999 - year).padStart(4, "0");
+}
+
+/**
+ * The order of rows inside one category section, as a plain string sorted
+ * ascending (the sheet's index). Final PDs, drafts and review copies go by
+ * fiscal year, newest first (live QA fixes, 2026-11-11: two "PD 1" rows of
+ * different years no longer sit together as if they were the same file),
+ * then PD number (number, then letter), then version (R, then T, then S,
+ * each by number), then name; rows with no year, number or version come
+ * after the ones with one. Everything else goes by name. Every write settles
+ * the row (settleItem), so a new year end moves the row at once, and the
+ * label backfill rewrites the key of rows stored before.
  */
 export function sortKeyFor(
-  row: Pick<IngestionItemFields, "category" | "pdNumber" | "versionCode" | "versionNumber" | "name">
+  row: Pick<IngestionItemFields, "category" | "fiscalYearEnd" | "pdNumber" | "versionCode" | "versionNumber" | "name">
 ): string {
   const name = row.name.toLowerCase();
   if (row.category === undefined || !NUMBERED_CATEGORIES.has(row.category)) return name;
-  return `${pdNumberSortPart(row.pdNumber)} ${versionSortPart(row.versionCode, row.versionNumber)} ${name}`;
+  return `${fiscalYearSortPart(row.fiscalYearEnd)} ${pdNumberSortPart(row.pdNumber)} ${versionSortPart(row.versionCode, row.versionNumber)} ${name}`;
 }
 
 /** The fields a path decides. Every key is present, so a patch clears old values. */

@@ -21,6 +21,7 @@
     delayDuration = 700,
     hint = null,
     ignoreNonKeyboardFocus = false,
+    disabled = false,
     children,
   }: {
     text: string;
@@ -34,12 +35,17 @@
      * pointer (for a trigger that gets focus back when its menu closes).
      */
     ignoreNonKeyboardFocus?: boolean;
+    /**
+     * Never opens while true, checked when the pointer or focus arrives (for
+     * a tooltip that only repeats words when they are cut off).
+     */
+    disabled?: boolean;
     children: Snippet<[{ props: Record<string, unknown> }]>;
   } = $props();
 </script>
 
 <Tooltip.Provider {delayDuration}>
-  <Tooltip.Root {ignoreNonKeyboardFocus}>
+  <Tooltip.Root {ignoreNonKeyboardFocus} {disabled}>
     <Tooltip.Trigger>
       {#snippet child({ props })}
         {@render children({ props })}

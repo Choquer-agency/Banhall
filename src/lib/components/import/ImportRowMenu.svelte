@@ -1,6 +1,8 @@
 <!--
   A file row's "..." menu on To review (board ao5), at the row's end, shown
-  on hover and on keyboard focus: Move to another category (the six), Move
+  on hover and on keyboard focus, and marked `data-import-row-menu-active`
+  while it or its company picker is open (the row keeps room for it then,
+  sheetLayout ROW_MENU_ROOM): Move to another category (the six), Move
   to another company (the companies on the sheet, or a new name, in a
   picker that opens from the same button) and Delete. A file still being
   read cannot be deleted yet; the menu says so. "Open the file" comes with
@@ -50,6 +52,7 @@
     bind:ref={button}
     aria-label={`More for ${name}`}
     data-import-row-menu
+    data-import-row-menu-active={companyOpen || menuOpen ? "" : undefined}
     class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-[opacity,background-color] hover:bg-gray-100 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash data-[state=open]:text-ink motion-reduce:transition-none pointer-coarse:size-11 ${
       companyOpen || menuOpen
         ? "bg-primary-wash text-ink"

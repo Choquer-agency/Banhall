@@ -11,10 +11,12 @@
 
   For a pick that is confirmed (the Import sheet's selection bar), `side`
   opens it above its trigger, `closeOnPick={false}` keeps it open after a
-  pick, and `footer` adds a line under the helper.
+  pick, and `footer` adds a line under the helper. `openOn` is the month it
+  opens on while nothing is picked (today's month when not given), so past
+  work need not start in the current year.
 -->
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import { Popover, Calendar } from "bits-ui";
   import {
     CalendarDate,
@@ -39,6 +41,7 @@
     side = "bottom",
     closeOnPick = true,
     footer,
+    openOn = "",
     onCommit,
   }: {
     /** yyyy-mm-dd, or "" when unset. */
@@ -64,17 +67,21 @@
     closeOnPick?: boolean;
     /** A line under the helper, such as a confirm button. */
     footer?: Snippet;
+    /** yyyy-mm-dd: the month to open on while `value` is empty; "" for today's month. */
+    openOn?: string;
     /** Called with the new yyyy-mm-dd value each time a date is picked. */
     onCommit?: (value: string) => void;
   } = $props();
 
-  const parsed = $derived.by(() => {
+  function parseOrUndefined(text: string): DateValue | undefined {
     try {
-      return value ? parseDate(value) : undefined;
+      return text ? parseDate(text) : undefined;
     } catch {
       return undefined;
     }
-  });
+  }
+
+  const parsed = $derived(parseOrUndefined(value));
 
   const label = $derived(
     parsed
@@ -86,11 +93,12 @@
       : ""
   );
 
-  // The month on screen: follows the value when the popover opens, then the
-  // month navigation. Quick picks use its year.
+  // The month on screen: follows the value (else `openOn`, else today) when
+  // the popover opens, then the month navigation. Quick picks use its year.
   let shownMonth = $state<DateValue>(today(getLocalTimeZone()));
   $effect(() => {
-    if (open) shownMonth = parsed ?? today(getLocalTimeZone());
+    // `openOn` is read once as it opens, so a caller's update never moves the month under the person.
+    if (open) shownMonth = parsed ?? untrack(() => parseOrUndefined(openOn)) ?? today(getLocalTimeZone());
   });
 
   function onValueChange(next: DateValue | undefined) {

@@ -7,6 +7,7 @@
  */
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "../../../../convex/_generated/api";
+import { categoryTakes } from "../../../../shared/importSheetRules";
 import { scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
 
 export type SheetTab = "review" | "approved" | "deleted";
@@ -237,7 +238,9 @@ export function reloadSize(listed: number, firstPage: number, max: number): numb
 /**
  * The "Show more" row under a section's files: "Show 19 more final PDs", or
  * when more are left than one step loads, "Show 25 of 99 more supporting
- * files". With no count left (the counts lag a moment), "Show more drafts".
+ * files". A section shows the row only while its count says some are left
+ * (ImportCategorySection), so it always has a number; "Show more drafts" is
+ * only for a caller with no count.
  */
 export function showMoreText(category: ImportCategory, remaining: number, step = SHOW_MORE_STEP): string {
   const [one, many] = CATEGORY_NOUNS[category];
@@ -327,6 +330,13 @@ export type FileCells = {
  * Everything a file row shows. A file still being read shows "Being read"
  * and empty cells. Amber marks only what a person must fill in (the row's
  * check reasons): never a value that does not apply.
+ *
+ * Live QA fixes (2026-11-11): a cell whose label the file's category does
+ * not take is empty, even when a value is stored (categoryTakes in
+ * shared/importSheetRules.ts): version and writer on final PDs, drafts and
+ * review copies only, the science code on final PDs only. The stored value
+ * stays, so moving the file back shows it again. A company file's fiscal
+ * year cell is empty too: its section already says "No fiscal year".
  */
 export function fileCells(
   row: Pick<
@@ -366,32 +376,34 @@ export function fileCells(
     ? { text: year, tone: "ink" as const, tooltip: fiscalYearTooltip(row.fiscalYearEnd, row.fiscalYearEndAssumed) }
     : reasons.has("no_fiscal_year")
       ? { text: "No fiscal year", tone: "amber" as const, tooltip: null }
-      : row.category === "company_file"
-        ? { text: "No fiscal year", tone: "muted" as const, tooltip: null }
-        : null;
+      : null;
 
   const writerName = row.writerName?.trim();
   const initials = row.writerInitials?.trim();
-  const writer: CellText | null = writerName
-    ? { text: writerName, tone: "ink" }
-    : initials
-      ? { text: initials, tone: "muted" }
-      : reasons.has("no_writer")
-        ? { text: "No writer", tone: "amber" }
-        : null;
+  const writer: CellText | null = !categoryTakes("writerName", row.category)
+    ? null
+    : writerName
+      ? { text: writerName, tone: "ink" }
+      : initials
+        ? { text: initials, tone: "muted" }
+        : reasons.has("no_writer")
+          ? { text: "No writer", tone: "amber" }
+          : null;
 
   const code = row.scienceCode?.trim();
   const display = code ? scienceCodeDisplay(code) : null;
-  const scienceCode: FileCells["scienceCode"] = code
-    ? {
-        kind: "code",
-        code,
-        title: display && display.label !== code ? display.label : null,
-        fromDocument: row.scienceCodeSource === "document",
-      }
-    : reasons.has("no_science_code")
-      ? { kind: "missing", text: "No science code" }
-      : null;
+  const scienceCode: FileCells["scienceCode"] = !categoryTakes("scienceCode", row.category)
+    ? null
+    : code
+      ? {
+          kind: "code",
+          code,
+          title: display && display.label !== code ? display.label : null,
+          fromDocument: row.scienceCodeSource === "document",
+        }
+      : reasons.has("no_science_code")
+        ? { kind: "missing", text: "No science code" }
+        : null;
 
   return {
     prefix,
@@ -403,7 +415,7 @@ export function fileCells(
           ? { text: "No text could be read", tone: "amber" }
           : null,
     fiscalYear,
-    version: versionText(row.versionCode, row.versionNumber),
+    version: categoryTakes("version", row.category) ? versionText(row.versionCode, row.versionNumber) : null,
     writer,
     scienceCode,
   };

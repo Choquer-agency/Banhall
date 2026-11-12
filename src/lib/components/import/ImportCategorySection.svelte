@@ -4,7 +4,8 @@
   words, an amber note when files need a person ("9 need a writer, 4 need a
   science code", from the band's counts), and "Show N" at the right while
   closed. Open, it lists a few files (sheetFiles, five final PDs or three of
-  anything else) and a "Show more" row that lists 25 more each time. Its
+  anything else) and, while its count says more are left, a "Show N more"
+  row that lists 25 more each time. Its
   files are read only while it is open. When "To check" changes what it
   reads, the files listed stay until the new ones come, and it asks for as
   many as it listed.
@@ -82,8 +83,23 @@
     listed = rows.length;
   });
   const loadingFirst = $derived(open && rows.length === 0 && filesQ.status === "LoadingFirstPage" && !filesQ.error);
-  const hasMore = $derived(filesQ.status === "CanLoadMore" || filesQ.status === "LoadingMore");
+  /**
+   * How many of the files this read lists (all of them, or only those to
+   * check: the band's count for the section) are not listed yet. A page that
+   * holds exactly the rest still reads as "can load more" until an empty page
+   * comes back, so the "Show N more" row goes by this count (live QA fixes):
+   * none left, no row, and never a row with no number on it.
+   */
   const remaining = $derived(Math.max(0, section.count - rows.length));
+  const hasMore = $derived(remaining > 0 && (filesQ.status === "CanLoadMore" || filesQ.status === "LoadingMore"));
+  // The count says none are left but the read has not reached its end: ask
+  // once, quietly. Usually an empty page comes back; if the count was behind,
+  // the files it missed are listed rather than left out of reach.
+  $effect(() => {
+    if (open && remaining === 0 && rows.length > 0 && filesQ.status === "CanLoadMore") {
+      untrack(() => filesQ.loadMore(SHOW_MORE_STEP));
+    }
+  });
 
   // ─── Select ─────────────────────────────────────────────────────────────
   // The band lists its sections keyed by category and is keyed by company,
@@ -101,7 +117,8 @@
     if (!target || !answered) return;
     const list = selectable;
     const read = onlyToCheck ? "to-check" : "all";
-    untrack(() => target.list(companyKey, category, read, list));
+    const name = company;
+    untrack(() => target.list(companyKey, category, read, list, name));
   });
   // Closing the section (or the section leaving the sheet) takes its listing away.
   $effect(() => {
@@ -154,11 +171,13 @@
           class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-chrome px-1 text-[0.625rem] leading-[1.2] text-primary-selected"
         >{section.count}</span>
       </button>
+      <!-- On a narrow sheet the year split gives way first, then the note; "Show N" always shows. -->
       {#if !onlyToCheck}
-        <span data-import-section-years class={`min-w-0 truncate ${SHEET_SMALL} text-ink-faint`}>{yearSplitText(section.counts.fiscalYears)}</span>
+        {@const years = yearSplitText(section.counts.fiscalYears)}
+        <span data-import-section-years title={years} class={`min-w-0 shrink-[100] truncate ${SHEET_SMALL} text-ink-faint`}>{years}</span>
       {/if}
       {#if note}
-        <span data-import-section-note class={`min-w-0 shrink-0 truncate ${SHEET_SMALL} ${AMBER}`}>{note}</span>
+        <span data-import-section-note title={note} class={`min-w-0 truncate ${SHEET_SMALL} ${AMBER}`}>{note}</span>
       {/if}
       {#if !open}
         <span aria-hidden="true" class="ml-auto shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-primary-selected">{showSectionText(section.count)}</span>

@@ -1291,6 +1291,43 @@ describe("sheet queries", () => {
     ).toEqual([]);
   });
 
+  it("lists final PDs newest fiscal year first, so two PD 1 files of different years never sit together", async () => {
+    const { t, admin } = await setup();
+    const FY2024 = "Cedarline Systems/2024 - Mar 31";
+    const ids = {
+      pd1Of2025: await stage(t, `${CEDARLINE_FY}/To be submitted/01 CedarlineSystems 2025-03-31 T1.DW LabelVision.docx`),
+      pd2Of2025: await stage(t, `${CEDARLINE_FY}/To be submitted/02 CedarlineSystems 2025-03-31 T1.DW Conveyor.docx`),
+      pd1Of2024: await stage(t, `${FY2024}/To be submitted/01 CedarlineSystems 2024-03-31 T1.DW Barcode.docx`),
+    };
+    for (const id of Object.values(ids)) await markRead(t, id);
+    const finalPds = async () =>
+      (
+        await admin.query(api.ingestion.sheetFiles, {
+          tab: "review",
+          companyKey: "cedarline systems",
+          category: "final_pd",
+          onlyToCheck: false,
+          paginationOpts: PAGE,
+        })
+      ).page.map((row) => row._id);
+    expect(await finalPds()).toEqual([ids.pd1Of2025, ids.pd2Of2025, ids.pd1Of2024]);
+
+    // A new year end moves the row at once: setSheetLabels settles it.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [ids.pd1Of2024], patch: { fiscalYearEnd: Date.UTC(2026, 2, 31) } });
+    expect(await finalPds()).toEqual([ids.pd1Of2024, ids.pd1Of2025, ids.pd2Of2025]);
+    expectInvariants(await getItem(t, ids.pd1Of2024));
+
+    // A row stored with the key from before the year led it: the label backfill rewrites it.
+    const oldKey = `0001- 10001 ${(await getItem(t, ids.pd2Of2025)).name.toLowerCase()}`;
+    await t.run((ctx) => ctx.db.patch(ids.pd2Of2025, { sortKey: oldKey }));
+    await t.mutation(internal.ingestion.backfillIngestionLabels, {});
+    const rewritten = await getItem(t, ids.pd2Of2025);
+    expect(rewritten.sortKey).not.toBe(oldKey);
+    expect(rewritten.sortKey!.startsWith("7974 0002- ")).toBe(true);
+    expectInvariants(rewritten);
+    expect(await finalPds()).toEqual([ids.pd1Of2024, ids.pd1Of2025, ids.pd2Of2025]);
+  });
+
   it("gives each section's check reasons with its band, a file with two counted under both", async () => {
     const { t, admin } = await setup();
     const ids = await seedSheet(t);
@@ -1445,6 +1482,8 @@ describe("setSheetLabels", () => {
           fiscalYearLabel: "2025 - Mar 31",
           pairGroupKey: "cedarline systems::2024",
           editedLabels: ["fiscalYearEnd"],
+          // The row moves with its year: FY 2024 now leads its sort key.
+          sortKey: `7975 0004- 20002 ${PD_NAME.toLowerCase()}`,
         },
       ],
       [{ pdNumber: "07" }, { pdNumber: "7", editedLabels: ["pdNumber"] }],
@@ -1481,7 +1520,8 @@ describe("setSheetLabels", () => {
       editedLabels: ["pdNumber", "writerName", "scienceCode"],
       needsCheck: false,
     });
-    expect(row.sortKey).toBe(`0012a 20002 ${PD_NAME.toLowerCase()}`);
+    // FY 2025 (9999 less the year, newest first), then the number and version.
+    expect(row.sortKey).toBe(`7974 0012a 20002 ${PD_NAME.toLowerCase()}`);
     vi.setSystemTime(Date.now() + 60_000);
     // Neither changed nor skipped: it already has those labels.
     await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toEqual({

@@ -13,6 +13,8 @@ import {
   fileSelectLabel,
   leftOutText,
   MOVE_CATEGORIES,
+  moveBackGroups,
+  movedText,
   putBackLine,
   putBackText,
   rowAbilities,
@@ -24,6 +26,7 @@ import {
   stoppedText,
   utcDayFromDateInput,
   VERSION_CODES,
+  yearEndCalendarStart,
   type BarChange,
   type BatchResult,
   type FileId,
@@ -111,6 +114,51 @@ describe("the year end day", () => {
     expect(utcDayFromDateInput("March 31")).toBeNull();
     expect(dateInputFromUtcDay(undefined)).toBe("");
     expect(dateInputFromUtcDay(Number.NaN)).toBe("");
+  });
+
+  it("opens the calendar on the newest year end it is given, else on last year's Dec 31, never in this year on its own", () => {
+    const today = new Date(2026, 10, 11);
+    expect(yearEndCalendarStart([Date.UTC(2024, 11, 31), Date.UTC(2025, 2, 31), undefined], today)).toBe("2025-03-31");
+    expect(yearEndCalendarStart([Date.UTC(2024, 5, 30)], today)).toBe("2024-06-30");
+    // None known: the last year end that has surely passed.
+    expect(yearEndCalendarStart([], today)).toBe("2025-12-31");
+    expect(yearEndCalendarStart([undefined, null, Number.NaN], today)).toBe("2025-12-31");
+    expect(yearEndCalendarStart([], new Date(2027, 0, 2))).toBe("2026-12-31");
+  });
+});
+
+describe("a move's toast and Undo", () => {
+  it("says where one file went", () => {
+    expect(movedText({ category: "draft" })).toBe("Moved to Drafts");
+    expect(movedText({ category: "review_copy" })).toBe("Moved to Review copies");
+    expect(movedText({ company: "Halden Foods" })).toBe("Moved to Halden Foods");
+  });
+
+  it("groups the moved files by the value each had, and gives up on one it cannot set back", () => {
+    const id = (name: string) => name as FileId;
+    expect(
+      moveBackGroups("category", [
+        { _id: id("a"), before: "final_pd" },
+        { _id: id("b"), before: "transcript" },
+        { _id: id("c"), before: "final_pd" },
+      ])
+    ).toEqual([
+      { patch: { category: "final_pd" }, ids: ["a", "c"] },
+      { patch: { category: "transcript" }, ids: ["b"] },
+    ]);
+    expect(
+      moveBackGroups("company", [
+        { _id: id("a"), before: "Cedarline Systems" },
+        { _id: id("b"), before: "Northgate Labs" },
+      ])
+    ).toEqual([
+      { patch: { company: "Cedarline Systems" }, ids: ["a"] },
+      { patch: { company: "Northgate Labs" }, ids: ["b"] },
+    ]);
+    // "No company yet" cannot be set back by a change, and an unknown value cannot either.
+    expect(moveBackGroups("company", [{ _id: id("a"), before: "Cedarline Systems" }, { _id: id("b"), before: null }])).toBeNull();
+    expect(moveBackGroups("category", [{ _id: id("a"), before: undefined }])).toBeNull();
+    expect(moveBackGroups("category", [])).toEqual([]);
   });
 });
 

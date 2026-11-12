@@ -89,6 +89,14 @@ const SUPPORTING = [row("sup1", { name: "Site notes.pdf", category: "supporting"
 const filesArgs = (category: string) => ({ tab: "review", companyKey: "cedarline systems", category, onlyToCheck: false });
 const labelCalls = () => __mutationCalls("ingestion:setSheetLabels");
 
+/** The Undo of the newest toast that says `words`: several toasts may be on screen at once. */
+function undoIn(words: string): HTMLElement {
+  const toasts = all("[data-sonner-toast]").filter((node) => text(node).includes(words));
+  const button = toasts[0]?.querySelector<HTMLElement>("[data-button]");
+  if (!button) throw new Error(`No Undo in a toast saying "${words}"`);
+  return button;
+}
+
 /** The server's answer to a batch call that changed every file it was sent. */
 const changedAll = (args: unknown) => {
   const ids = (args as { ids: string[] }).ids;
@@ -163,11 +171,60 @@ describe("changing one file on the Import sheet", () => {
     // It starts on the file's own T2.
     expect(one('[data-import-version-code="T"]', menu)!.getAttribute("aria-pressed")).toBe("true");
     expect(one('[data-import-version-number="2"]', menu)!.getAttribute("aria-pressed")).toBe("true");
+    // A stage alone saves at once with the file's number, and the menu stays open (live QA fixes).
     await userEvent.click(one('[data-import-version-code="S"]', menu)!);
-    expect(labelCalls()).toEqual([]);
+    await expect.poll(labelCalls).toEqual([{ ids: ["pd1"], patch: { version: { code: "S", number: 2 } } }]);
+    expect(one("[data-import-version-menu]")).toBe(menu);
+    expect(one('[data-import-version-code="S"]', menu)!.getAttribute("aria-pressed")).toBe("true");
+    // A number then saves the stage shown with it, and closes the menu.
     await userEvent.click(page.getByRole("button", { name: "S3" }));
-    await expect.poll(labelCalls).toEqual([{ ids: ["pd1"], patch: { version: { code: "S", number: 3 } } }]);
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd1"], patch: { version: { code: "S", number: 3 } } });
     await expect.poll(() => one("[data-import-version-menu]")).toBeNull();
+    expect(labelCalls()).toHaveLength(2);
+
+    // Clicking away after a stage keeps it: it was already saved.
+    await userEvent.click(inRow("pd2", "[data-import-version-edit]"));
+    await userEvent.click(one('[data-import-version-code="R"]')!);
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd2"], patch: { version: { code: "R", number: 1 } } });
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => one("[data-import-version-menu]")).toBeNull();
+    expect(labelCalls()).toHaveLength(3);
+
+    // Two stages picked one after the other: the tick stays on the last one
+    // while saves read back, and a number saves that last stage.
+    await userEvent.click(inRow("pd2", "[data-import-version-edit]"));
+    await userEvent.click(one('[data-import-version-code="S"]')!);
+    await userEvent.click(one('[data-import-version-code="R"]')!);
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd2"], patch: { version: { code: "R", number: 1 } } });
+    expect(one('[data-import-version-code="R"]')!.getAttribute("aria-pressed")).toBe("true");
+    await userEvent.click(page.getByRole("button", { name: "R4" }));
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd2"], patch: { version: { code: "R", number: 4 } } });
+    await expect.poll(() => one("[data-import-version-menu]")).toBeNull();
+
+    // A file with no version yet takes number 1 with its stage.
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
+      ...FINAL_PDS,
+      row("pd7", { pdNumber: "7", pdTitle: "Cold room alarm", fiscalYearEnd: MAR_31_2025, writerName: "Sam Okafor", scienceCode: "2.02.09", scienceCodeSource: "person" }),
+    ]);
+    await expect.poll(() => one('[data-import-file="pd7"]')).not.toBeNull();
+    await userEvent.click(inRow("pd7", "[data-import-version-edit]"));
+    await userEvent.click(one('[data-import-version-code="T"]')!);
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd7"], patch: { version: { code: "T", number: 1 } } });
+    await userEvent.keyboard("{Escape}");
+
+    // A stage the server refuses goes back to the file's own.
+    __setMutationHandler("ingestion:setSheetLabels", () => {
+      throw Object.assign(new Error("[CONVEX M(ingestion:setSheetLabels)] Server Error"), {
+        data: { code: "INVALID_INPUT", message: "That file can no longer take this change." },
+      });
+    });
+    await userEvent.click(inRow("pd1", "[data-import-version-edit]"));
+    await userEvent.click(one('[data-import-version-code="R"]')!);
+    await expect.element(page.getByText("That file can no longer take this change.")).toBeVisible();
+    await expect.poll(() => one('[data-import-version-code="T"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(one('[data-import-version-code="R"]')!.getAttribute("aria-pressed")).toBe("false");
+    await userEvent.keyboard("{Escape}");
+    __setMutationHandler("ingestion:setSheetLabels", changedAll);
 
     // A supporting file has no version to set.
     await userEvent.click(page.getByRole("button", { name: /^Supporting files/ }));
@@ -290,6 +347,10 @@ describe("changing one file on the Import sheet", () => {
     expect(one('[data-import-move-category="final_pd"]')!.hasAttribute("data-disabled")).toBe(true);
     await userEvent.click(one('[data-import-move-category="transcript"]')!);
     await expect.poll(labelCalls).toEqual([{ ids: ["pd2"], patch: { category: "transcript" } }]);
+    // It says so, with Undo, which sets the category it had back (live QA fixes).
+    await expect.element(page.getByText("Moved to Transcripts")).toBeVisible();
+    await userEvent.click(undoIn("Moved to Transcripts"));
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd2"], patch: { category: "final_pd" } });
 
     // Another company: the companies on the sheet, found with sheetSearch.
     await userEvent.click(inRow("pd2", "[data-import-row-menu]"));
@@ -302,6 +363,9 @@ describe("changing one file on the Import sheet", () => {
     await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd2"], patch: { company: "Halden Foods" } });
     // Focus goes back to the row's "...".
     await expect.poll(() => document.activeElement).toBe(inRow("pd2", "[data-import-row-menu]"));
+    await expect.element(page.getByText("Moved to Halden Foods")).toBeVisible();
+    await userEvent.click(undoIn("Moved to Halden Foods"));
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd2"], patch: { company: "Cedarline Systems" } });
 
     // A company's name typed in other capitals is that company, never a new one:
     // Enter picks it as it is spelled.
@@ -334,7 +398,7 @@ describe("changing one file on the Import sheet", () => {
     await userEvent.click(page.getByRole("menuitem", { name: "Delete" }));
     await expect.poll(() => __mutationCalls("ingestion:removeItems")).toEqual([{ ids: ["pd2"] }]);
     await expect.element(page.getByText("1 file deleted")).toBeVisible();
-    await userEvent.click(page.getByRole("button", { name: "Undo" }));
+    await userEvent.click(undoIn("1 file deleted"));
     await expect.poll(() => __mutationCalls("ingestion:restoreItems")).toEqual([{ ids: ["pd2"] }]);
 
     // A file still being read can be moved but not deleted yet.
