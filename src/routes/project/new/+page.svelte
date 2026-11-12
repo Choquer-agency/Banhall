@@ -965,7 +965,7 @@
       filled.push("title");
     }
     if (!filled.length) return;
-    if (parsed.revision) filled.push(`R${parsed.revision}`);
+    if (parsed.versionCode && parsed.revision) filled.push(`${parsed.versionCode}${parsed.revision}`);
     if (parsed.writerInitials) filled.push(`writer ${parsed.writerInitials}`);
     if (parsed.reviewerInitials) filled.push(`reviewer ${parsed.reviewerInitials}`);
     pdNameHint = `Filled from the file name: ${filled.join(", ")}`;

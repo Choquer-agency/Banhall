@@ -1,0 +1,452 @@
+// The Import sheet's row fields (2026-11-11, phase 2). Pure: no database.
+//
+// convex/ingestion.ts passes every row it writes through settleItem, so the
+// fields the old page, pairing and approval read (docKind, clientName,
+// fiscalYear, pairGroupKey) and the fields the sheet reads (category,
+// companyKey, fiscalYearEnd, sheetTab, needsCheck, sortKey) always agree.
+
+import type { WithoutSystemFields } from "convex/server";
+import type { Doc } from "../_generated/dataModel";
+import { dashboardCompanyKey, DASHBOARD_UNNAMED_COMPANY_KEY } from "../../shared/dashboardProjection";
+import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import {
+  classifyItemPath,
+  labelsOf,
+  pairGroupKeyFor,
+  type IngestionCategory,
+  type IngestionLabels,
+} from "./ingestionClassify";
+import { scienceCodeFromText } from "./scienceCodeFromText";
+import type {
+  CheckReason,
+  EditableLabel,
+  SheetLabelPatch,
+  SheetTab,
+} from "./ingestionSheetValidators";
+
+export type IngestionItemFields = WithoutSystemFields<Doc<"ingestionItems">>;
+type Status = Doc<"ingestionItems">["status"];
+type DocKind = Doc<"ingestionItems">["docKind"];
+
+/** The labels a person can set, in the order editedLabels keeps them. */
+export const EDITABLE_LABELS: readonly EditableLabel[] = [
+  "company",
+  "category",
+  "fiscalYearEnd",
+  "pdNumber",
+  "version",
+  "writerName",
+  "scienceCode",
+];
+
+/** The tab a status shows on. */
+export function sheetTabForStatus(status: Status): SheetTab {
+  if (status === "approved") return "approved";
+  if (status === "rejected" || status === "deleted") return "deleted";
+  return "review"; // discovered, fetched, pending_review, failed
+}
+
+/** True while the file is still being fetched or read. */
+export function isBeingRead(status: Status): boolean {
+  return status === "discovered" || status === "fetched";
+}
+
+/** docKind, which pairing, approval and porting read, from the category. */
+export function docKindForCategory(category: IngestionCategory): DocKind {
+  if (category === "final_pd") return "pd";
+  if (category === "transcript") return "transcript";
+  if (category === "unknown") return "unknown";
+  return "supporting";
+}
+
+/** Categories that do not belong to one fiscal year. */
+const NO_FISCAL_YEAR_NEEDED: ReadonlySet<IngestionCategory> = new Set(["company_file", "unknown"]);
+
+type CheckInput = Pick<
+  IngestionItemFields,
+  "status" | "category" | "companyKey" | "fiscalYearEnd" | "scienceCode" | "writerName" | "writerInitials"
+>;
+
+/**
+ * Why a row needs a person to look at it. Only rows on the review tab can.
+ * A file still being read is not flagged for a missing science code, which
+ * reading may still fill in.
+ */
+export function checkReasonsFor(row: CheckInput): CheckReason[] {
+  if (sheetTabForStatus(row.status) !== "review") return [];
+  const reasons: CheckReason[] = [];
+  if (row.companyKey === undefined) reasons.push("no_company");
+  if (row.category === "unknown") reasons.push("unknown_category");
+  if (row.status === "failed") reasons.push("could_not_read");
+  if (
+    row.category !== undefined &&
+    !NO_FISCAL_YEAR_NEEDED.has(row.category) &&
+    row.fiscalYearEnd === undefined
+  ) {
+    reasons.push("no_fiscal_year");
+  }
+  if (row.category === "final_pd") {
+    if (!row.scienceCode && !isBeingRead(row.status)) reasons.push("no_science_code");
+    if (!row.writerName && !row.writerInitials) reasons.push("no_writer");
+  }
+  return reasons;
+}
+
+/** Categories whose rows are ordered by PD number and version. */
+const NUMBERED_CATEGORIES: ReadonlySet<IngestionCategory> = new Set([
+  "final_pd",
+  "draft",
+  "review_copy",
+]);
+
+/** Version letters in the order a PD moves through them: in review, to be submitted, submitted. */
+const VERSION_STAGE: Record<"R" | "T" | "S", string> = { R: "1", T: "2", S: "3" };
+
+/** Sorts after every number or version. */
+const LAST = "~";
+
+function pdNumberSortPart(pdNumber: string | undefined): string {
+  const match = pdNumber === undefined ? null : /^(\d{1,4})([a-z]?)$/i.exec(pdNumber);
+  if (!match) return LAST;
+  // Fixed width: four digits, then the letter or "-", which sorts before
+  // every letter, so 4 < 4a < 4b < 12.
+  return `${match[1].padStart(4, "0")}${(match[2] || "-").toLowerCase()}`;
+}
+
+function versionSortPart(code: "T" | "S" | "R" | undefined, number: number | undefined): string {
+  if (code === undefined && number === undefined) return LAST;
+  const stage = code === undefined ? "0" : VERSION_STAGE[code];
+  const n = number === undefined || !Number.isFinite(number) ? 0 : Math.max(0, Math.floor(number));
+  return `${stage}${String(n).padStart(4, "0")}`;
+}
+
+/**
+ * The order of rows inside one category section. Final PDs, drafts and
+ * review copies go by PD number (number, then letter), then version
+ * (R, then T, then S, each by number), then name; rows with no number or
+ * version come after the ones with one. Everything else goes by name.
+ */
+export function sortKeyFor(
+  row: Pick<IngestionItemFields, "category" | "pdNumber" | "versionCode" | "versionNumber" | "name">
+): string {
+  const name = row.name.toLowerCase();
+  if (row.category === undefined || !NUMBERED_CATEGORIES.has(row.category)) return name;
+  return `${pdNumberSortPart(row.pdNumber)} ${versionSortPart(row.versionCode, row.versionNumber)} ${name}`;
+}
+
+/** The fields a path decides. Every key is present, so a patch clears old values. */
+export type PathFields = IngestionLabels & {
+  clientName: string | undefined;
+  fiscalYearLabel: string | undefined;
+};
+
+type KeptLabels = Pick<
+  IngestionItemFields,
+  | "editedLabels"
+  | "clientName"
+  | "category"
+  | "fiscalYearEnd"
+  | "fiscalYearEndAssumed"
+  | "pdNumber"
+  | "versionCode"
+  | "versionNumber"
+>;
+
+/**
+ * What a stored path and file name say about a file: the client and fiscal
+ * year folders and the sheet labels. A label in `kept.editedLabels` keeps the
+ * value a person gave it: a person's value wins over the path.
+ *
+ * fiscalYearLabel is always the fiscal year folder's name, even when a person
+ * set the year end: only the old page shows it, and pairing reads the year
+ * from fiscalYearEnd, not from the label.
+ */
+export function pathFieldsFor(path: string, name: string, kept?: KeptLabels | null): PathFields {
+  const c = classifyItemPath(path, name);
+  const fields: PathFields = {
+    clientName: c.clientName,
+    fiscalYearLabel: c.fiscalYearLabel,
+    ...labelsOf(c),
+  };
+  const edited = new Set(kept?.editedLabels ?? []);
+  if (!kept || edited.size === 0) return fields;
+  if (edited.has("company")) fields.clientName = kept.clientName;
+  if (edited.has("category") && kept.category !== undefined) fields.category = kept.category;
+  if (edited.has("fiscalYearEnd")) {
+    fields.fiscalYearEnd = kept.fiscalYearEnd;
+    fields.fiscalYearEndAssumed = kept.fiscalYearEndAssumed;
+  }
+  if (edited.has("pdNumber")) fields.pdNumber = kept.pdNumber;
+  if (edited.has("version")) {
+    fields.versionCode = kept.versionCode;
+    fields.versionNumber = kept.versionNumber;
+  }
+  return fields;
+}
+
+type ApprovedRow = KeptLabels &
+  Pick<IngestionItemFields, "path" | "name" | "clientName" | "fiscalYearLabel" | "docKind">;
+
+function pairingRoleOf(docKind: DocKind): "pd" | "transcript" | "other" {
+  return docKind === "pd" || docKind === "transcript" ? docKind : "other";
+}
+
+/**
+ * The labels of an approved row that has none yet (approved before the
+ * labels existed). An approved row keeps what it was approved as, which is
+ * what the Brain and porting hold: its stored client and fiscal year folder,
+ * with the folders below them from its current path (main moved the path
+ * but kept the client and year). When that still disagrees with the stored
+ * docKind on PD or transcript, the category follows the docKind.
+ */
+export function approvedPathFields(row: ApprovedRow): PathFields {
+  const segments = row.path.split("/").filter(Boolean);
+  const file = segments.pop() ?? row.name;
+  const folders =
+    row.clientName === undefined
+      ? []
+      : row.fiscalYearLabel === undefined
+        ? [row.clientName]
+        : [row.clientName, row.fiscalYearLabel, ...segments.slice(2)];
+  const fields = pathFieldsFor([...folders, file].join("/"), row.name, row);
+  const role = pairingRoleOf(row.docKind);
+  if (pairingRoleOf(docKindForCategory(fields.category!)) !== role) {
+    fields.category =
+      role === "pd"
+        ? "final_pd"
+        : role === "transcript"
+          ? "transcript"
+          : fields.clientName === undefined
+            ? "unknown"
+            : "supporting";
+  }
+  return fields;
+}
+
+/** The fields that follow from a row's own values. */
+export type DerivedFields = {
+  docKind: DocKind;
+  companyKey: string | undefined;
+  fiscalYear: number | undefined;
+  pairGroupKey: string;
+  scienceCodeSource: IngestionItemFields["scienceCodeSource"];
+  sheetTab: SheetTab;
+  needsCheck: boolean;
+  checkReasons: CheckReason[];
+  sortKey: string;
+};
+
+/**
+ * The invariants, worked out from the row: docKind follows category,
+ * companyKey is the app's company key of clientName, fiscalYear is the UTC
+ * year of fiscalYearEnd, pairGroupKey is built from companyKey and fiscalYear
+ * (ingestionClassify.ts pairGroupKeyFor), and the sheet fields follow from
+ * the rest.
+ */
+export function derivedFields(row: IngestionItemFields & { category: IngestionCategory }): DerivedFields {
+  const companyKey = row.clientName === undefined ? undefined : dashboardCompanyKey(row.clientName);
+  const fiscalYear =
+    row.fiscalYearEnd === undefined ? undefined : new Date(row.fiscalYearEnd).getUTCFullYear();
+  const checkReasons = checkReasonsFor({ ...row, companyKey });
+  return {
+    docKind: docKindForCategory(row.category),
+    companyKey,
+    fiscalYear,
+    pairGroupKey: pairGroupKeyFor(companyKey, fiscalYear),
+    scienceCodeSource: row.scienceCode === undefined ? undefined : row.scienceCodeSource,
+    sheetTab: sheetTabForStatus(row.status),
+    needsCheck: checkReasons.length > 0,
+    checkReasons,
+    sortKey: sortKeyFor(row),
+  };
+}
+
+/**
+ * A row ready to store: labels from its path when it has none yet (a row
+ * staged before the labels existed; an approved one keeps its approved client
+ * and year, see approvedPathFields), then every derived field.
+ */
+export function settleItem(row: IngestionItemFields): IngestionItemFields {
+  const fill = () =>
+    row.status === "approved" ? approvedPathFields(row) : pathFieldsFor(row.path, row.name, row);
+  const labelled = row.category === undefined ? { ...row, ...fill() } : row;
+  return { ...labelled, ...derivedFields(labelled as IngestionItemFields & { category: IngestionCategory }) };
+}
+
+type PreviewInput = Pick<
+  IngestionItemFields,
+  "category" | "status" | "scienceCode" | "scienceCodeSource" | "editedLabels" | "text"
+>;
+
+/**
+ * A science code read from the row's stored text preview (the first 8,000
+ * characters), for a final PD that was read and is waiting on the review tab
+ * with no science code and none set by a person; {} otherwise. Used where
+ * extraction's own reading (from the whole text) may have missed the row:
+ * the label backfill, and a person making a file a final PD. A row still
+ * being read is left to extraction; a failed one has nothing to trust.
+ */
+export function previewScienceCode(row: PreviewInput): Partial<IngestionItemFields> {
+  if (row.category !== "final_pd" || row.status !== "pending_review") return {};
+  if (row.scienceCode !== undefined) return {};
+  if (row.scienceCodeSource === "person" || (row.editedLabels ?? []).includes("scienceCode")) return {};
+  const code = row.text ? scienceCodeFromText(row.text) : undefined;
+  return code === undefined ? {} : { scienceCode: code, scienceCodeSource: "document" };
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** The keys whose value differs, with the value from `after` (undefined clears). */
+export function changedFields(
+  before: Partial<IngestionItemFields>,
+  after: Partial<IngestionItemFields>
+): Partial<IngestionItemFields> {
+  const changes: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of keys) {
+    if (key === "_id" || key === "_creationTime") continue;
+    const a = (before as Record<string, unknown>)[key];
+    const b = (after as Record<string, unknown>)[key];
+    if (!sameValue(a, b)) changes[key] = b;
+  }
+  return changes as Partial<IngestionItemFields>;
+}
+
+/** The object without its undefined values, for an insert. */
+export function definedFields<T extends object>(fields: T): T {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined)
+  ) as T;
+}
+
+/** editedLabels with `added` included, in EDITABLE_LABELS order. */
+export function mergeEditedLabels(
+  existing: readonly EditableLabel[] | undefined,
+  added: readonly EditableLabel[]
+): EditableLabel[] {
+  const all = new Set([...(existing ?? []), ...added]);
+  return EDITABLE_LABELS.filter((label) => all.has(label));
+}
+
+/** Numbered projects are capped at 20 per company, as in shared/pdFilename.ts. */
+const MAX_PD_NUMBER = 20;
+const MAX_VERSION_NUMBER = 99;
+const MAX_COMPANY_NAME = 200;
+const MAX_WRITER_NAME = 120;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "04" -> "4", "12a" -> "12a"; null when it is not a PD number from 1 to 20. */
+export function normalizePdNumber(value: string): string | null {
+  const match = /^(\d{1,3})([A-Za-z])?$/.exec(value.trim());
+  if (!match) return null;
+  const number = Number.parseInt(match[1], 10);
+  if (number < 1 || number > MAX_PD_NUMBER) return null;
+  return `${number}${match[2] ?? ""}`;
+}
+
+/**
+ * The row fields one sheet edit sets, and the labels it marks as set by a
+ * person. Throws a plain message for a value it cannot take. A picked fiscal
+ * year end leaves the fiscal year folder label as it is: fiscalYear and the
+ * pairing key follow fiscalYearEnd when the row is settled.
+ */
+export function labelPatchFields(patch: SheetLabelPatch): {
+  fields: Partial<IngestionItemFields>;
+  labels: EditableLabel[];
+} {
+  const fields: Partial<IngestionItemFields> = {};
+  const labels: EditableLabel[] = [];
+
+  if (patch.company !== undefined) {
+    const name = patch.company.trim().replace(/\s+/g, " ");
+    if (!name || dashboardCompanyKey(name) === DASHBOARD_UNNAMED_COMPANY_KEY) {
+      throw new Error("Type a company name.");
+    }
+    if (name.length > MAX_COMPANY_NAME) {
+      throw new Error(`A company name can be up to ${MAX_COMPANY_NAME} characters.`);
+    }
+    fields.clientName = name;
+    labels.push("company");
+  }
+
+  if (patch.category !== undefined) {
+    fields.category = patch.category;
+    labels.push("category");
+  }
+
+  if (patch.fiscalYearEnd !== undefined) {
+    const end = patch.fiscalYearEnd;
+    const year = Number.isFinite(end) ? new Date(end).getUTCFullYear() : NaN;
+    if (!Number.isInteger(end) || end % DAY_MS !== 0 || !(year >= 1990 && year <= 2100)) {
+      throw new Error("Pick a fiscal year end date.");
+    }
+    fields.fiscalYearEnd = end;
+    fields.fiscalYearEndAssumed = false;
+    labels.push("fiscalYearEnd");
+  }
+
+  if (patch.pdNumber !== undefined) {
+    const pdNumber = normalizePdNumber(patch.pdNumber);
+    if (pdNumber === null) {
+      throw new Error("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.");
+    }
+    fields.pdNumber = pdNumber;
+    labels.push("pdNumber");
+  }
+
+  if (patch.version !== undefined) {
+    const n = patch.version.number;
+    if (!Number.isInteger(n) || n < 0 || n > MAX_VERSION_NUMBER) {
+      throw new Error(`A version number is a whole number from 0 to ${MAX_VERSION_NUMBER}.`);
+    }
+    fields.versionCode = patch.version.code;
+    fields.versionNumber = n;
+    labels.push("version");
+  }
+
+  if (patch.writerName !== undefined) {
+    const name = patch.writerName.trim().replace(/\s+/g, " ");
+    if (!name) throw new Error("Type the writer's name.");
+    if (name.length > MAX_WRITER_NAME) {
+      throw new Error(`A writer's name can be up to ${MAX_WRITER_NAME} characters.`);
+    }
+    fields.writerName = name;
+    labels.push("writerName");
+  }
+
+  if (patch.scienceCode !== undefined) {
+    const code = normalizeCraScienceCode(patch.scienceCode);
+    if (!code) throw new Error("That is not a CRA field of science code.");
+    fields.scienceCode = code;
+    fields.scienceCodeSource = "person";
+    labels.push("scienceCode");
+  }
+
+  if (labels.length === 0) throw new Error("Choose a label to change.");
+  return { fields, labels };
+}
+
+/** Whether pairing must be recomputed: the group, the PD or transcript role, or liveness moved. */
+const LIVE_STATUSES: ReadonlySet<Status> = new Set(["discovered", "fetched", "pending_review", "approved"]);
+
+function pairingRole(row: Pick<IngestionItemFields, "docKind" | "status">): string {
+  const role = row.docKind === "pd" || row.docKind === "transcript" ? row.docKind : "other";
+  return `${role}:${LIVE_STATUSES.has(row.status) ? "live" : "out"}`;
+}
+
+/**
+ * The pair groups a write touched: both when the group changed (the row's
+ * group now first, then the one it left), none when nothing pairing reads moved.
+ */
+export function pairGroupsTouched(
+  before: Pick<IngestionItemFields, "pairGroupKey" | "docKind" | "status">,
+  after: Pick<IngestionItemFields, "pairGroupKey" | "docKind" | "status">
+): string[] {
+  if (before.pairGroupKey !== after.pairGroupKey) return [after.pairGroupKey, before.pairGroupKey];
+  if (pairingRole(before) !== pairingRole(after)) return [after.pairGroupKey];
+  return [];
+}
