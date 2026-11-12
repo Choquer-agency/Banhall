@@ -8,6 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import { classify } from "./lib/ingestionClassify";
 import { docKindForCategory, settleItem } from "./lib/ingestionSheet";
+import { adjustImportCompanyCounts } from "./lib/importCompanyCounts";
 import schema from "./schema";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -23,6 +24,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 /** Run every scheduled function, and what they schedule, to the end. */
@@ -113,6 +115,32 @@ async function getItem(t: T, id: Id<"ingestionItems">): Promise<Doc<"ingestionIt
 async function markRead(t: T, id: Id<"ingestionItems">, text = "Extracted text") {
   const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
   await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text });
+}
+
+const embedPoolRegistered = new WeakSet<T>();
+
+/** Approves a file into the Brain the way the old page does (its embedding is scheduled, never run). */
+async function approveForTest(t: T, admin: ReturnType<T["withIdentity"]>, id: Id<"ingestionItems">) {
+  vi.stubEnv("VOYAGE_API_KEY", "test-voyage-key");
+  if (!embedPoolRegistered.has(t)) {
+    t.registerComponent("embedPool", workpoolSchema, workpoolModules);
+    embedPoolRegistered.add(t);
+  }
+  await admin.mutation(internal.ingestion.finalizeApproval, {
+    itemId: id,
+    content: "Approved text",
+    industry: "Cold chain logistics",
+    writerTier: 0.5,
+  });
+}
+
+/** Takes a row out of Import altogether, with its band share, so a later call finds it missing. */
+async function removeRow(t: T, id: Id<"ingestionItems">) {
+  await t.run(async (ctx) => {
+    const row = await ctx.db.get(id);
+    await ctx.db.delete(id);
+    await adjustImportCompanyCounts(ctx, row, null);
+  });
 }
 
 /** Every stored row keeps the invariants the old page and the sheet both rely on. */
@@ -394,6 +422,10 @@ function checkReasonsByHand(row: Doc<"ingestionItems">): string[] {
   if (row.category === "unknown") reasons.push("unknown_category");
   // It could not be read.
   if (row.status === "failed") reasons.push("could_not_read");
+  // It was read, but no text came out (a scan): no preview text and no stored text.
+  if (row.status === "pending_review" && !(row.text ?? "").trim() && row.textStorageId === undefined) {
+    reasons.push("no_text");
+  }
   // No fiscal year end, on a category that belongs to a fiscal year: not a
   // company file, and not an unsorted file (until a person sorts it).
   if (row.category !== "company_file" && row.category !== "unknown" && row.fiscalYearEnd === undefined) {
@@ -406,6 +438,22 @@ function checkReasonsByHand(row: Doc<"ingestionItems">): string[] {
     if (!row.writerName && !row.writerInitials) reasons.push("no_writer");
   }
   return reasons;
+}
+
+/**
+ * Whether one label of an edit goes on a row, written out here (the rule
+ * shared/importSheetRules.ts labelApplies gives the page and the server):
+ * moves on any file on To review, other labels only once it is read, a
+ * writer, version or PD number on final PDs, drafts and review copies, a
+ * science code on final PDs, by the category the edit gives it.
+ */
+function labelGoesOnByHand(label: string, row: Doc<"ingestionItems">, categoryAfter: string): boolean {
+  if (tabByHand(row.status) !== "review") return false;
+  if (label === "company" || label === "category") return true;
+  if (row.status !== "pending_review") return false;
+  if (label === "fiscalYearEnd") return true;
+  if (label === "scienceCode") return categoryAfter === "final_pd";
+  return ["final_pd", "draft", "review_copy"].includes(categoryAfter);
 }
 
 function needsCheckByHand(row: Doc<"ingestionItems">): boolean {
@@ -624,11 +672,15 @@ describe("importCompanies counts", () => {
         ["process", async () => {
           const candidates = await withStatus("discovered", "fetched");
           if (candidates.length === 0) return;
+          const scan = rand() < 0.25;
           await t.mutation(internal.ingestion.markItemProcessed, {
             itemId: pick(candidates)._id,
             storageId,
-            text: "Field of science or technology: 2.02.09",
-            ...(rand() < 0.5 ? { documentScienceCode: "2.02.09" } : {}),
+            // A scan is read with a note and no text.
+            ...(scan
+              ? { extractNote: "The PDF has no text layer; a scan needs OCR." }
+              : { text: "Field of science or technology: 2.02.09" }),
+            ...(!scan && rand() < 0.5 ? { documentScienceCode: "2.02.09" } : {}),
           });
         }],
         ["fail", async () => {
@@ -680,16 +732,44 @@ describe("importCompanies counts", () => {
           if (all.length === 0) return;
           const chosen = [...new Set([pick(all), pick(all), pick(all)].slice(0, 1 + Math.floor(rand() * 3)))];
           const patch = pick(LABEL_PATCHES);
-          const refused = chosen.some((row) => ["approved", "rejected", "deleted"].includes(row.status));
-          const call = admin.mutation(api.ingestion.setSheetLabels, { ids: chosen.map((row) => row._id), patch });
-          if (refused) await expect(call).rejects.toThrow();
-          else await call;
+          const result = await admin.mutation(api.ingestion.setSheetLabels, { ids: chosen.map((row) => row._id), patch });
+          // Each file not on To review, or that takes none of the labels, is skipped and named.
+          expect(result.skipped).toEqual(
+            chosen.flatMap((row) => {
+              if (tabByHand(row.status) !== "review") return [{ id: row._id, reason: "not_on_tab" }];
+              const { _id, _creationTime, ...stored } = row;
+              const category = row.category ?? settleItem(stored).category!;
+              const goes = Object.keys(patch).some((label) => labelGoesOnByHand(label, row, patch.category ?? category));
+              return goes ? [] : [{ id: row._id, reason: "does_not_apply" }];
+            })
+          );
+          expect(result.changed).toBe(result.changedIds.length);
+        }],
+        ["delete many", async () => {
+          const all = await rows();
+          if (all.length === 0) return;
+          const chosen = [...new Set([pick(all), pick(all), pick(all)])];
+          const result = await admin.mutation(api.ingestion.removeItems, { ids: chosen.map((row) => row._id) });
+          const skipBy: Record<string, string> = { approved: "approved", deleted: "already_deleted", discovered: "being_read", fetched: "being_read" };
+          expect(result.skipped).toEqual(chosen.filter((row) => skipBy[row.status]).map((row) => ({ id: row._id, reason: skipBy[row.status] })));
+          expect(result.changedIds).toEqual(chosen.filter((row) => !skipBy[row.status]).map((row) => row._id));
+        }],
+        ["put back many", async () => {
+          const candidates = await withStatus("deleted", "rejected", "pending_review");
+          if (candidates.length === 0) return;
+          const chosen = [...new Set([pick(candidates), pick(candidates)])];
+          const result = await admin.mutation(api.ingestion.restoreItems, { ids: chosen.map((row) => row._id) });
+          const skip = (row: Doc<"ingestionItems">) =>
+            row.status === "pending_review" ? "not_on_tab" : row.reviewNote === "Deleted in OneDrive" ? "removed_in_onedrive" : null;
+          expect(result.skipped).toEqual(chosen.filter(skip).map((row) => ({ id: row._id, reason: skip(row) })));
+          for (const id of result.changedIds) expect(tabByHand((await getItem(t, id)).status)).toBe("review");
         }],
       ];
 
       const used = new Set<string>();
       const statusesSeen = new Set<string>();
       const bandsSeen = new Set<string>();
+      const reasonsSeen = new Set<string>();
       let twoReasonsSeen = false;
       for (let step = 0; step < 220; step++) {
         const [name, run] = pick(steps);
@@ -703,12 +783,14 @@ describe("importCompanies counts", () => {
         }
         for (const row of await rows()) {
           statusesSeen.add(row.status);
+          for (const reason of row.checkReasons ?? []) reasonsSeen.add(reason);
           if ((row.checkReasons?.length ?? 0) >= 2) twoReasonsSeen = true;
         }
         for (const key of Object.keys((await countsNowAndRecount(t)).stored)) bandsSeen.add(key);
       }
-      // Some file needed a check for two reasons at once.
+      // Some file needed a check for two reasons at once, and some read file gave no text.
       expect(twoReasonsSeen).toBe(true);
+      expect(reasonsSeen.has("no_text")).toBe(true);
       // The run reached every kind of step, every status, every tab and the
       // no-company band.
       expect(used.size).toBe(steps.length);
@@ -1375,7 +1457,11 @@ describe("setSheetLabels", () => {
     ];
     for (const [patch, expected] of cases) {
       const { admin, t, id } = await oneFinalPd();
-      await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toBe(1);
+      await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toEqual({
+        changed: 1,
+        changedIds: [id],
+        skipped: [],
+      });
       const row = await getItem(t, id);
       expect(row, JSON.stringify(patch)).toMatchObject(expected);
       expectInvariants(row);
@@ -1386,7 +1472,7 @@ describe("setSheetLabels", () => {
   it("sets several labels at once, and a second identical edit changes nothing", async () => {
     const { admin, t, id } = await oneFinalPd();
     const patch = { writerName: "Sam Okafor", scienceCode: "2.02.09", pdNumber: "12a" };
-    await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toBe(1);
+    await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toMatchObject({ changed: 1 });
     const row = await getItem(t, id);
     expect(row).toMatchObject({
       writerName: "Sam Okafor",
@@ -1397,7 +1483,12 @@ describe("setSheetLabels", () => {
     });
     expect(row.sortKey).toBe(`0012a 20002 ${PD_NAME.toLowerCase()}`);
     vi.setSystemTime(Date.now() + 60_000);
-    await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toBe(0);
+    // Neither changed nor skipped: it already has those labels.
+    await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch })).resolves.toEqual({
+      changed: 0,
+      changedIds: [],
+      skipped: [],
+    });
     expect((await getItem(t, id)).updatedAt).toBe(row.updatedAt);
   });
 
@@ -1410,7 +1501,7 @@ describe("setSheetLabels", () => {
     ).rejects.toThrow("Change up to 100 files at a time.");
     await expect(
       admin.mutation(api.ingestion.setSheetLabels, { ids: ids.slice(0, 100), patch: { company: "Northgate Labs" } })
-    ).resolves.toBe(100);
+    ).resolves.toMatchObject({ changed: 100, skipped: [] });
     const { stored } = await countsNowAndRecount(t);
     expect(stored["review|northgate labs"].total).toBe(100);
     expect(stored["review|cedarline systems"].total).toBe(1);
@@ -1432,27 +1523,173 @@ describe("setSheetLabels", () => {
     await expectCountsMatchRecount(t, "after the company change");
   });
 
-  it("refuses approved, rejected and deleted files, changing nothing", async () => {
+  it("skips approved, rejected, deleted and missing files, and changes the rest", async () => {
     const { admin, t } = await setup();
     const open = await stage(t, `${CEDARLINE_FY}/Drafts/open.docx`);
     const approved = await stage(t, `${CEDARLINE_FY}/Drafts/approved.docx`);
     const rejected = await stage(t, `${CEDARLINE_FY}/Drafts/rejected.docx`);
     const deleted = await stage(t, `${CEDARLINE_FY}/Drafts/deleted.docx`);
-    await markRead(t, deleted);
+    const gone = await stage(t, `${CEDARLINE_FY}/Drafts/gone.docx`);
+    for (const id of [open, deleted, approved]) await markRead(t, id);
     await admin.mutation(api.ingestion.removeItem, { itemId: deleted });
     await admin.mutation(api.ingestion.rejectItem, { itemId: rejected });
-    await t.run((ctx) => ctx.db.patch(approved, { status: "approved" }));
-    const before = await getItem(t, open);
+    await approveForTest(t, admin, approved);
+    await removeRow(t, gone);
+    const untouched = await Promise.all([approved, rejected, deleted].map((id) => getItem(t, id)));
+
     await expect(
-      admin.mutation(api.ingestion.setSheetLabels, { ids: [open, approved], patch: { writerName: "Dana Whitlock" } })
-    ).rejects.toThrow('"approved.docx" is already approved, so its labels cannot be changed here.');
-    await expect(
-      admin.mutation(api.ingestion.setSheetLabels, { ids: [open, rejected], patch: { writerName: "Dana Whitlock" } })
-    ).rejects.toThrow(/was rejected/);
-    await expect(
-      admin.mutation(api.ingestion.setSheetLabels, { ids: [open, deleted], patch: { writerName: "Dana Whitlock" } })
-    ).rejects.toThrow(/Restore it before changing its labels/);
-    expect(await getItem(t, open)).toEqual(before);
+      admin.mutation(api.ingestion.setSheetLabels, {
+        ids: [open, approved, rejected, deleted, gone],
+        patch: { writerName: "Dana Whitlock" },
+      })
+    ).resolves.toEqual({
+      changed: 1,
+      changedIds: [open],
+      skipped: [
+        { id: approved, reason: "not_on_tab" },
+        { id: rejected, reason: "not_on_tab" },
+        { id: deleted, reason: "not_on_tab" },
+        { id: gone, reason: "missing" },
+      ],
+    });
+    expect((await getItem(t, open)).writerName).toBe("Dana Whitlock");
+    expect(await Promise.all([approved, rejected, deleted].map((id) => getItem(t, id)))).toEqual(untouched);
+    await expectCountsMatchRecount(t, "after a change that skipped four files");
+  });
+
+  it("gives each file of a mixed selection only the labels that go on it", async () => {
+    const { admin, t } = await setup();
+    const pd = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
+    const draft = await stage(t, `${CEDARLINE_FY}/Drafts/03 CedarlineSystems 2025-03-31 R2.PN SensorDraft.docx`);
+    const transcript = await stage(t, `${CEDARLINE_FY}/WIP/Technical/Audio/interview.txt`);
+    const supporting = await stage(t, `${CEDARLINE_FY}/Financials/budget.pdf`);
+    const reading = await stage(t, `${CEDARLINE_FY}/To be submitted/05 CedarlineSystems 2025-03-31 T1 Reading.docx`);
+    const failed = await stage(t, `${CEDARLINE_FY}/Drafts/failed.docx`);
+    for (const id of [pd, draft, transcript, supporting]) await markRead(t, id);
+    await t.mutation(internal.ingestion.markItemFailed, { itemId: failed, error: "Could not open it" });
+    const all = [pd, draft, transcript, supporting, reading, failed];
+    const call = (patch: Record<string, unknown>) => admin.mutation(api.ingestion.setSheetLabels, { ids: all, patch });
+    const skipped = (ids: Array<Id<"ingestionItems">>) => ids.map((id) => ({ id, reason: "does_not_apply" }));
+
+    // The bar's actions, one at a time. A science code: final PDs only.
+    expect(await call({ scienceCode: "2.02.09" })).toEqual({
+      changed: 1,
+      changedIds: [pd],
+      skipped: skipped([draft, transcript, supporting, reading, failed]),
+    });
+    for (const id of [draft, transcript, supporting, reading, failed]) expect((await getItem(t, id)).scienceCode).toBeUndefined();
+    // A writer: final PDs, drafts and review copies, once read.
+    expect(await call({ writerName: "Priya Nair" })).toMatchObject({
+      changedIds: [pd, draft],
+      skipped: skipped([transcript, supporting, reading, failed]),
+    });
+    expect((await getItem(t, transcript)).writerName).toBeUndefined();
+    expect((await getItem(t, reading)).editedLabels ?? []).toEqual([]);
+    // A year end: any read file.
+    expect(await call({ fiscalYearEnd: Date.UTC(2024, 11, 31) })).toMatchObject({
+      changedIds: [pd, draft, transcript, supporting],
+      skipped: skipped([reading, failed]),
+    });
+    expect((await getItem(t, failed)).fiscalYearEnd).toBe(Date.UTC(2025, 2, 31));
+    // A company or a category: every file on To review, read or not.
+    expect(await call({ company: "Halden Foods" })).toMatchObject({ changedIds: all, skipped: [] });
+    // The supporting file already was one: a person confirming it still marks the label as theirs.
+    expect(await call({ category: "supporting" })).toMatchObject({ changedIds: all, skipped: [] });
+    // One change with several labels: each file takes those that go on it.
+    expect(await call({ category: "final_pd", scienceCode: "1.02.01", writerName: "Sam Okafor" })).toMatchObject({
+      changedIds: all,
+      skipped: [],
+    });
+    expect(await getItem(t, transcript)).toMatchObject({ category: "final_pd", scienceCode: "1.02.01", writerName: "Sam Okafor" });
+    expect(await getItem(t, reading)).toMatchObject({ category: "final_pd", editedLabels: ["company", "category"] });
+    expect((await getItem(t, reading)).writerName).toBeUndefined();
+    for (const id of all) expectInvariants(await getItem(t, id));
+    await expectCountsMatchRecount(t, "after a mixed selection");
+  });
+
+  it("changes the other 99 of a run of 100 when one was approved elsewhere, and names that one", async () => {
+    const { admin, t } = await setup();
+    const ids: Array<Id<"ingestionItems">> = [];
+    for (let i = 0; i < 100; i++) {
+      const id = await stage(t, `${CEDARLINE_FY}/Drafts/draft ${i}.docx`);
+      await markRead(t, id);
+      ids.push(id);
+    }
+    // Approved on the old page while it was selected here.
+    await approveForTest(t, admin, ids[42]);
+    const result = await admin.mutation(api.ingestion.setSheetLabels, { ids, patch: { category: "review_copy" } });
+    expect(result.changed).toBe(99);
+    expect(result.changedIds).toEqual(ids.filter((_, index) => index !== 42));
+    expect(result.skipped).toEqual([{ id: ids[42], reason: "not_on_tab" }]);
+    expect((await getItem(t, ids[42])).category).toBe("draft");
+    await expectCountsMatchRecount(t, "after 99 of 100");
+  });
+
+  it("stores a typed company in the spelling of the company that already has its key", async () => {
+    const { admin, t } = await setup();
+    await seedCompanies(t);
+    const a = await stage(t, "loose a.docx");
+    const b = await stage(t, "loose b.docx");
+    const c = await stage(t, "loose c.docx");
+    const d = await stage(t, "loose d.docx");
+    // Lower case and accents: the saved company Cedarline Systems keeps its name.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [a], patch: { company: "cedarline systems" } });
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [b], patch: { company: "  Cédarline   SYSTEMS " } });
+    expect((await getItem(t, a)).clientName).toBe("Cedarline Systems");
+    expect((await getItem(t, b)).clientName).toBe("Cedarline Systems");
+    // A key only a band has: the band's name.
+    await stage(t, "Brightwell Dairy/2025/Drafts/plan.docx");
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [c], patch: { company: "brightwell dairy" } });
+    expect((await getItem(t, c)).clientName).toBe("Brightwell Dairy");
+    // A company only projects know: their name.
+    const e = await stage(t, "loose e.docx");
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [e], patch: { company: "northgate LABS" } });
+    expect((await getItem(t, e)).clientName).toBe("Northgate Labs");
+    // A key that matches nothing (Halden Foods was merged away, so no
+    // active company has it): the name as typed, trimmed, inner spaces collapsed.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [d], patch: { company: "  halden   FOODS " } });
+    expect((await getItem(t, d)).clientName).toBe("halden FOODS");
+
+    const { bands } = await countsNowAndRecount(t);
+    const names = Object.fromEntries(bands.map((band) => [`${band.sheetTab}|${band.companyKey}`, band.displayName]));
+    expect(names["review|cedarline systems"]).toBe("Cedarline Systems");
+    expect(names["review|brightwell dairy"]).toBe("Brightwell Dairy");
+    expect(names["review|northgate labs"]).toBe("Northgate Labs");
+    expect(names["review|halden foods"]).toBe("halden FOODS");
+  });
+
+  it("never lets a later file's spelling rename a band: the company's name wins, else the first spelling stays", async () => {
+    const { t } = await setup();
+    const bandName = async (key: string) =>
+      (await countsNowAndRecount(t)).bands.find((band) => band.sheetTab === "review" && band.companyKey === key)?.displayName;
+    // No saved company: the first file's spelling stays.
+    await stage(t, "Brightwell Dairy/2025/Drafts/plan.docx", { driveItemId: "first" });
+    await stage(t, "BRIGHTWELL  dairy/2025/Drafts/later.docx", { driveItemId: "later" });
+    expect(await bandName("brightwell dairy")).toBe("Brightwell Dairy");
+    // The first file moving to another spelling does not rename it either.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, discoveredArgs("brightwell DAIRY/2025/Drafts/plan.docx", { driveItemId: "first" }));
+    expect(await bandName("brightwell dairy")).toBe("Brightwell Dairy");
+    // A saved company with the key: its name wins, from the next spelling that comes.
+    await seedCompanies(t);
+    await stage(t, "cedarline systems/2025 - Mar 31/Drafts/one.docx", { driveItemId: "one" });
+    expect(await bandName("cedarline systems")).toBe("Cedarline Systems");
+    await t.run(async (ctx) => {
+      const userId = (await ctx.db.query("users").first())!._id;
+      await ctx.db.insert("clients", {
+        name: "BrightWell Dairy",
+        nameKey: "brightwell dairy",
+        status: "active",
+        createdBy: userId,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+    });
+    // A company saved later: the next spelling that comes takes its name.
+    await stage(t, "brightwell dairy/2025/Drafts/third.docx", { driveItemId: "third" });
+    expect(await bandName("brightwell dairy")).toBe("BrightWell Dairy");
+    // A rebuild gives the same name.
+    await driveRebuild(t, { sheetTab: "review", companyKey: "brightwell dairy", pageSize: 2 });
+    expect(await bandName("brightwell dairy")).toBe("BrightWell Dairy");
   });
 
   it("refuses an unknown science code and anyone but an admin", async () => {
@@ -1521,7 +1758,7 @@ describe("setSheetLabels", () => {
 
     await expect(
       admin.mutation(api.ingestion.setSheetLabels, { ids: edited, patch: { company: "Northgate Labs" } })
-    ).resolves.toBe(100);
+    ).resolves.toMatchObject({ changed: 100 });
     // Nothing was recomputed in the edit: the transcripts still show their old pairing.
     for (const id of transcripts) expect(await getItem(t, id)).toMatchObject({ pairStatus: "paired" });
 
@@ -1544,10 +1781,14 @@ describe("setSheetLabels", () => {
     await markRead(t, copy, preview);
     // Still being read: extraction will read the whole text itself.
     const reading = await stage(t, `${CEDARLINE_FY}/In Review/reading.docx`);
-    // A person already set the code.
+    // A person set the code in the same change that makes it a final PD (a
+    // code goes only on a final PD, judged by the category after the change).
     const set = await stage(t, `${CEDARLINE_FY}/In Review/set.docx`);
     await markRead(t, set, preview);
-    await admin.mutation(api.ingestion.setSheetLabels, { ids: [set], patch: { scienceCode: "1.02.01" } });
+    await expect(
+      admin.mutation(api.ingestion.setSheetLabels, { ids: [set], patch: { scienceCode: "1.02.01" } })
+    ).resolves.toEqual({ changed: 0, changedIds: [], skipped: [{ id: set, reason: "does_not_apply" }] });
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [set], patch: { category: "final_pd", scienceCode: "1.02.01" } });
 
     await admin.mutation(api.ingestion.setSheetLabels, { ids: [copy, reading, set], patch: { category: "final_pd" } });
     expect(await getItem(t, copy)).toMatchObject({
@@ -1568,6 +1809,371 @@ describe("setSheetLabels", () => {
     expect((await getItem(t, pd)).scienceCode).toBeUndefined();
     await admin.mutation(api.ingestion.setSheetLabels, { ids: [pd], patch: { category: "final_pd" } });
     expect((await getItem(t, pd)).scienceCode).toBeUndefined();
+  });
+});
+
+// ─── Deleting and putting back many files (phase 3b) ────────────────────────
+
+describe("removeItems and restoreItems", () => {
+  /** The data a ConvexError carries, or the error itself when it is not one. */
+  async function refusal(promise: Promise<unknown>) {
+    const error = await promise.then(
+      () => null,
+      (caught: unknown) => caught
+    );
+    expect(error, "the call was refused").not.toBeNull();
+    return (error as { data?: unknown }).data ?? error;
+  }
+
+  async function pendingRecomputes(t: T) {
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    return jobs
+      .filter((job) => job.name.includes("recomputePairs") && job.state.kind === "pending")
+      .flatMap((job) => (job.args[0] as { groupKeys: string[] }).groupKeys);
+  }
+
+  /** The pending extractions scheduled for one file. */
+  async function pendingReads(t: T, id: Id<"ingestionItems">) {
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    return jobs.filter(
+      (job) =>
+        job.name.includes("extractUploadedItem") &&
+        job.state.kind === "pending" &&
+        (job.args[0] as { itemId: string }).itemId === id
+    ).length;
+  }
+
+  it("deletes a batch of mixed statuses with removeItem's rules, and puts exactly those back on To review", async () => {
+    const { t, admin } = await setup();
+    const pending = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
+    const rejected = await stage(t, `${CEDARLINE_FY}/Drafts/rejected.docx`);
+    const failed = await stage(t, `${CEDARLINE_FY}/WIP/Technical/Audio/interview.txt`);
+    const earlier = await stage(t, `${CEDARLINE_FY}/Drafts/earlier.docx`);
+    for (const id of [pending, rejected, earlier]) await markRead(t, id);
+    await admin.mutation(api.ingestion.rejectItem, { itemId: rejected });
+    await t.mutation(internal.ingestion.markItemFailed, { itemId: failed, error: "Could not open it" });
+    await admin.mutation(api.ingestion.removeItem, { itemId: earlier });
+    await runPairing(t);
+    const earlierRow = await getItem(t, earlier);
+
+    // A file already deleted is left as it is and named, never counted.
+    await expect(
+      admin.mutation(api.ingestion.removeItems, { ids: [pending, rejected, failed, earlier, pending] })
+    ).resolves.toEqual({
+      changed: 3,
+      changedIds: [pending, rejected, failed],
+      skipped: [{ id: earlier, reason: "already_deleted" }],
+    });
+    for (const [id, from] of [
+      [pending, "pending_review"],
+      [rejected, "rejected"],
+      [failed, "failed"],
+    ] as const) {
+      const row = await getItem(t, id);
+      expect(row, from).toMatchObject({ status: "deleted", deletedFromStatus: from, sheetTab: "deleted" });
+      expect(row.deletedBy, from).toEqual(expect.any(String));
+      expect(row.pairStatus, from).toBeUndefined();
+      expectInvariants(row);
+    }
+    expect(await getItem(t, earlier)).toEqual(earlierRow);
+    // Pairing is scheduled for the group, never read in the call itself.
+    expect(await pendingRecomputes(t)).toContain("cedarline systems::2025");
+    await expectCountsMatchRecount(t, "after removeItems");
+    const { stored } = await countsNowAndRecount(t);
+    expect(stored["deleted|cedarline systems"].total).toBe(4);
+    expect(stored["review|cedarline systems"]).toBeUndefined();
+    await runPairing(t);
+
+    // Undo puts back exactly those, every one onto To review: the read ones
+    // to wait for review (the rejected one too: its text was read), the
+    // failed one as could not be read.
+    await expect(admin.mutation(api.ingestion.restoreItems, { ids: [pending, rejected, failed] })).resolves.toEqual({
+      changed: 3,
+      changedIds: [pending, rejected, failed],
+      skipped: [],
+    });
+    expect((await getItem(t, pending)).status).toBe("pending_review");
+    expect(await getItem(t, rejected)).toMatchObject({ status: "pending_review", sheetTab: "review" });
+    expect((await getItem(t, rejected)).reviewNote).toBeUndefined();
+    expect((await getItem(t, failed)).status).toBe("failed");
+    for (const id of [pending, rejected, failed]) {
+      const row = await getItem(t, id);
+      expect(row.deletedFromStatus).toBeUndefined();
+      expect(row.deletedBy).toBeUndefined();
+      expect(row.deletedAt).toBeUndefined();
+      expectInvariants(row);
+    }
+    expect((await getItem(t, earlier)).status).toBe("deleted");
+    await expectCountsMatchRecount(t, "after restoreItems");
+    await runPairing(t);
+    // The PD is live again, so pairing sees it once more.
+    expect((await getItem(t, pending)).pairStatus).toBe("missing_transcript");
+  });
+
+  it("skips an approved file, one still being read and a missing one with their reasons, and deletes the rest", async () => {
+    const { t, admin, writer } = await setup();
+    const open = await stage(t, `${CEDARLINE_FY}/Drafts/open.docx`);
+    const approved = await stage(t, `${CEDARLINE_FY}/Drafts/approved.docx`);
+    const reading = await stage(t, `${CEDARLINE_FY}/Drafts/reading.docx`);
+    const gone = await stage(t, `${CEDARLINE_FY}/Drafts/gone.docx`);
+    for (const id of [open, approved]) await markRead(t, id);
+    await approveForTest(t, admin, approved);
+    await removeRow(t, gone);
+    const untouched = await Promise.all([approved, reading].map((id) => getItem(t, id)));
+
+    await expect(admin.mutation(api.ingestion.removeItems, { ids: [approved, open, reading, gone] })).resolves.toEqual({
+      changed: 1,
+      changedIds: [open],
+      skipped: [
+        { id: approved, reason: "approved" },
+        { id: reading, reason: "being_read" },
+        { id: gone, reason: "missing" },
+      ],
+    });
+    expect((await getItem(t, open)).status).toBe("deleted");
+    expect(await Promise.all([approved, reading].map((id) => getItem(t, id)))).toEqual(untouched);
+    await expectCountsMatchRecount(t, "after a delete that skipped three");
+
+    // The single-file mutations keep their rules, in plain words.
+    await expect(admin.mutation(api.ingestion.removeItem, { itemId: approved })).rejects.toThrow(
+      "This file is already approved into the Brain. Remove it from the Brain page instead."
+    );
+    await expect(admin.mutation(api.ingestion.rejectItem, { itemId: approved })).rejects.toThrow(
+      "This file is already approved into the Brain. Remove it from the Brain page instead."
+    );
+    await expect(admin.mutation(api.ingestion.restoreItem, { itemId: reading })).rejects.toThrow(
+      "This file is not deleted, so there is nothing to put back."
+    );
+    await expect(admin.mutation(api.ingestion.removeItem, { itemId: gone })).rejects.toThrow("This file is no longer in Import.");
+    await expect(admin.mutation(api.ingestion.restoreItem, { itemId: gone })).rejects.toThrow("This file is no longer in Import.");
+    await expect(writer.mutation(api.ingestion.removeItems, { ids: [open] })).rejects.toThrow(/admin only/i);
+    await expect(writer.mutation(api.ingestion.restoreItems, { ids: [open] })).rejects.toThrow(/admin only/i);
+
+    // Putting back a file that is not on Deleted, or is gone, is skipped the same way.
+    await expect(admin.mutation(api.ingestion.restoreItems, { ids: [open, reading, approved, gone] })).resolves.toEqual({
+      changed: 1,
+      changedIds: [open],
+      skipped: [
+        { id: reading, reason: "not_on_tab" },
+        { id: approved, reason: "not_on_tab" },
+        { id: gone, reason: "missing" },
+      ],
+    });
+    await expect(admin.mutation(api.ingestion.removeItems, { ids: [] })).resolves.toEqual({ changed: 0, changedIds: [], skipped: [] });
+  });
+
+  it("puts back with Undo only the files a partial delete took out", async () => {
+    const { t, admin } = await setup();
+    const a = await stage(t, `${CEDARLINE_FY}/Drafts/a.docx`);
+    const b = await stage(t, `${CEDARLINE_FY}/Drafts/b.docx`);
+    const reading = await stage(t, `${CEDARLINE_FY}/Drafts/reading.docx`);
+    const earlier = await stage(t, `${CEDARLINE_FY}/Drafts/earlier.docx`);
+    for (const id of [a, b, earlier]) await markRead(t, id);
+    await admin.mutation(api.ingestion.removeItem, { itemId: earlier });
+
+    const deleted = await admin.mutation(api.ingestion.removeItems, { ids: [a, reading, earlier, b] });
+    expect(deleted.changedIds).toEqual([a, b]);
+    // Undo sends exactly changedIds: the file deleted before stays deleted.
+    await expect(admin.mutation(api.ingestion.restoreItems, { ids: deleted.changedIds })).resolves.toMatchObject({
+      changedIds: [a, b],
+      skipped: [],
+    });
+    expect((await getItem(t, earlier)).status).toBe("deleted");
+    expect((await getItem(t, reading)).status).toBe("discovered");
+    for (const id of [a, b]) expect((await getItem(t, id)).status).toBe("pending_review");
+    await expectCountsMatchRecount(t, "after Undo of a partial delete");
+  });
+
+  it("puts each kind of file back onto To review in the state its data calls for, so none is stranded", async () => {
+    const { t, admin } = await setup();
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    const at = (name: string) => `${CEDARLINE_FY}/Drafts/${name}.docx`;
+    const ids = {
+      // Deleted in Import from To review: the status it was deleted from.
+      deletedRead: await stage(t, at("deleted read")),
+      deletedFailed: await stage(t, at("deleted failed")),
+      // Rejected on the old page at each stage: from what it holds.
+      rejectedRead: await stage(t, at("rejected read")),
+      rejectedScan: await stage(t, at("rejected scan")),
+      rejectedFailed: await stage(t, at("rejected failed")),
+      rejectedFetched: await stage(t, at("rejected fetched")),
+      rejectedDiscovered: await stage(t, at("rejected discovered")),
+      // Deleted after it was rejected: the same.
+      deletedRejected: await stage(t, at("deleted rejected")),
+      // Removed in OneDrive, then deleted too: neither is put back.
+      inOneDrive: await stage(t, at("in onedrive"), { driveItemId: "onedrive-a" }),
+      inOneDriveDeleted: await stage(t, at("in onedrive deleted"), { driveItemId: "onedrive-b" }),
+    };
+    for (const id of [ids.deletedRead, ids.rejectedRead, ids.deletedRejected, ids.inOneDrive, ids.inOneDriveDeleted]) {
+      await markRead(t, id);
+    }
+    await t.mutation(internal.ingestion.markItemProcessed, {
+      itemId: ids.rejectedScan,
+      storageId,
+      extractNote: "The PDF has no text layer; a scan needs OCR.",
+    });
+    for (const id of [ids.deletedFailed, ids.rejectedFailed]) {
+      await t.mutation(internal.ingestion.markItemFailed, { itemId: id, error: "Could not open it" });
+    }
+    await t.mutation(internal.ingestion.attachUpload, { itemId: ids.rejectedFetched, storageId });
+    for (const id of [ids.rejectedRead, ids.rejectedScan, ids.rejectedFailed, ids.rejectedFetched, ids.rejectedDiscovered, ids.deletedRejected]) {
+      await admin.mutation(api.ingestion.rejectItem, { itemId: id, note: "Not ours" });
+    }
+    for (const driveItemId of ["onedrive-a", "onedrive-b"]) await t.mutation(internal.ingestion.markDriveItemRemoved, { driveItemId });
+    await admin.mutation(api.ingestion.removeItems, {
+      ids: [ids.deletedRead, ids.deletedFailed, ids.deletedRejected, ids.inOneDriveDeleted],
+    });
+    await expectCountsMatchRecount(t, "before putting back");
+    expect(await admin.query(api.ingestion.sheetTotals, { tab: "review" })).toMatchObject({ files: 0 });
+    const readsBefore = await pendingReads(t, ids.rejectedFetched);
+
+    const all = Object.values(ids);
+    const result = await admin.mutation(api.ingestion.restoreItems, { ids: all });
+    expect(result.skipped).toEqual([
+      { id: ids.inOneDrive, reason: "removed_in_onedrive" },
+      { id: ids.inOneDriveDeleted, reason: "removed_in_onedrive" },
+    ]);
+    expect(result.changedIds).toEqual(all.filter((id) => id !== ids.inOneDrive && id !== ids.inOneDriveDeleted));
+    const status = async (id: Id<"ingestionItems">) => (await getItem(t, id)).status;
+    expect(await status(ids.deletedRead)).toBe("pending_review");
+    expect(await status(ids.deletedFailed)).toBe("failed");
+    expect(await status(ids.rejectedRead)).toBe("pending_review");
+    expect(await status(ids.deletedRejected)).toBe("pending_review");
+    // Read with a note and no text: waiting for review, flagged "no text".
+    expect(await getItem(t, ids.rejectedScan)).toMatchObject({ status: "pending_review", checkReasons: ["no_text"] });
+    expect(await getItem(t, ids.rejectedFailed)).toMatchObject({ status: "failed", error: "Could not open it" });
+    // Its bytes are here but were never read: read again, by a scheduled extraction.
+    expect(await status(ids.rejectedFetched)).toBe("fetched");
+    expect(await pendingReads(t, ids.rejectedFetched)).toBe(readsBefore + 1);
+    // Nothing stored: back where the next OneDrive sync fetches and reads it.
+    expect(await status(ids.rejectedDiscovered)).toBe("discovered");
+    expect(
+      (await t.query(internal.ingestion.takeUnprocessedItems, { limit: 50 })).map((row) => row._id)
+    ).toContain(ids.rejectedDiscovered);
+    for (const id of result.changedIds) {
+      const row = await getItem(t, id);
+      expect(row.sheetTab, row.name).toBe("review");
+      expect(row.reviewNote, row.name).toBeUndefined();
+      expectInvariants(row);
+    }
+    expect(await status(ids.inOneDrive)).toBe("rejected");
+    expect(await status(ids.inOneDriveDeleted)).toBe("deleted");
+
+    await expectCountsMatchRecount(t, "after putting back every kind");
+    const { stored } = await countsNowAndRecount(t);
+    expect(stored["review|cedarline systems"]).toMatchObject({ total: 8, beingRead: 2 });
+    expect(stored["review|cedarline systems"].categories.draft.checkReasons).toEqual({ could_not_read: 2, no_text: 1 });
+    expect(stored["deleted|cedarline systems"]).toMatchObject({ total: 2 });
+  });
+
+  it("deletes and puts back 100 files in one call, refuses 101, and keeps the counts right", async () => {
+    const { t, admin } = await setup();
+    const ids: Array<Id<"ingestionItems">> = [];
+    for (let i = 0; i < 101; i++) {
+      const id = await stage(t, `${CEDARLINE_FY}/Financials/sheet ${i}.pdf`);
+      await markRead(t, id);
+      ids.push(id);
+    }
+    expect(await refusal(admin.mutation(api.ingestion.removeItems, { ids }))).toEqual({
+      code: "INVALID_INPUT",
+      message: "Delete up to 100 files at a time.",
+    });
+    await expect(admin.mutation(api.ingestion.removeItems, { ids: ids.slice(0, 100) })).resolves.toMatchObject({ changed: 100 });
+    let { stored } = await countsNowAndRecount(t);
+    expect(stored["deleted|cedarline systems"].total).toBe(100);
+    expect(stored["review|cedarline systems"].total).toBe(1);
+    await expectCountsMatchRecount(t, "after deleting 100");
+    expect(await admin.query(api.ingestion.sheetTotals, { tab: "deleted" })).toMatchObject({ files: 100, companies: 1 });
+
+    await admin.mutation(api.ingestion.removeItems, { ids: [ids[100]] });
+    expect(await refusal(admin.mutation(api.ingestion.restoreItems, { ids }))).toEqual({
+      code: "INVALID_INPUT",
+      message: "Put back up to 100 files at a time.",
+    });
+    await expect(admin.mutation(api.ingestion.restoreItems, { ids: ids.slice(1) })).resolves.toMatchObject({ changed: 100 });
+    ({ stored } = await countsNowAndRecount(t));
+    expect(stored["review|cedarline systems"].total).toBe(100);
+    expect(stored["deleted|cedarline systems"].total).toBe(1);
+    await expectCountsMatchRecount(t, "after putting back 100");
+    expect(await admin.query(api.ingestion.sheetTotals, { tab: "review" })).toMatchObject({ files: 100 });
+  });
+
+  it("says on each Deleted tab row why it is there", async () => {
+    const { t, admin } = await setup();
+    const byPerson = await stage(t, `${CEDARLINE_FY}/Drafts/a.docx`, { driveItemId: "a" });
+    const inOneDrive = await stage(t, `${CEDARLINE_FY}/Drafts/b.docx`, { driveItemId: "b" });
+    const rejected = await stage(t, `${CEDARLINE_FY}/Drafts/c.docx`, { driveItemId: "c" });
+    const open = await stage(t, `${CEDARLINE_FY}/Drafts/d.docx`, { driveItemId: "d" });
+    for (const id of [byPerson, rejected, open]) await markRead(t, id);
+    await admin.mutation(api.ingestion.removeItems, { ids: [byPerson] });
+    await t.mutation(internal.ingestion.markDriveItemRemoved, { driveItemId: "b" });
+    await admin.mutation(api.ingestion.rejectItem, { itemId: rejected, note: "Not ours" });
+
+    const page = await admin.query(api.ingestion.sheetFiles, {
+      tab: "deleted",
+      companyKey: "cedarline systems",
+      category: "draft",
+      onlyToCheck: false,
+      paginationOpts: PAGE,
+    });
+    expect(page.page.map((row) => [row._id, row.status, row.deletedReason])).toEqual([
+      [byPerson, "deleted", "deleted"],
+      [inOneDrive, "rejected", "removed_in_onedrive"],
+      [rejected, "rejected", "rejected"],
+    ]);
+    const review = await admin.query(api.ingestion.sheetFiles, {
+      tab: "review",
+      companyKey: "cedarline systems",
+      category: "draft",
+      onlyToCheck: false,
+      paginationOpts: PAGE,
+    });
+    expect(review.page.map((row) => [row._id, row.deletedReason])).toEqual([[open, undefined]]);
+  });
+});
+
+// ─── A read file with no text (phase 3b fixes) ──────────────────────────────
+
+describe("a read file with no text", () => {
+  it("needs a check for no text, counted in its section and the tab, until text is read", async () => {
+    const { t, admin } = await setup();
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    const scans: Array<Id<"ingestionItems">> = [];
+    for (const name of ["scan a", "scan b", "scan c"]) {
+      const id = await stage(t, `${CEDARLINE_FY}/Financials/${name}.pdf`);
+      await t.mutation(internal.ingestion.markItemProcessed, {
+        itemId: id,
+        storageId,
+        extractNote: "The PDF has no text layer; a scan needs OCR.",
+      });
+      scans.push(id);
+    }
+    const read = await stage(t, `${CEDARLINE_FY}/Financials/budget.pdf`);
+    await markRead(t, read);
+    const failed = await stage(t, `${CEDARLINE_FY}/Financials/broken.pdf`);
+    await t.mutation(internal.ingestion.markItemFailed, { itemId: failed, error: "Damaged" });
+
+    for (const id of scans) expect(await getItem(t, id)).toMatchObject({ needsCheck: true, checkReasons: ["no_text"] });
+    expect(await getItem(t, read)).toMatchObject({ needsCheck: false, checkReasons: [] });
+    // A file that failed stays "could not be read" alone.
+    expect((await getItem(t, failed)).checkReasons).toEqual(["could_not_read"]);
+    const band = (
+      await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: true, paginationOpts: PAGE })
+    ).page.find((entry) => entry.companyKey === "cedarline systems")!;
+    expect(band.categories.supporting.checkReasons).toEqual({ no_text: 3, could_not_read: 1 });
+    expect(await admin.query(api.ingestion.sheetTotals, { tab: "review" })).toMatchObject({ files: 5, needsCheck: 4 });
+    await expectCountsMatchRecount(t, "with three scans");
+
+    // It can still be moved and deleted; its year end follows the read-file rule.
+    await expect(
+      admin.mutation(api.ingestion.setSheetLabels, { ids: [scans[0]], patch: { fiscalYearEnd: Date.UTC(2024, 11, 31) } })
+    ).resolves.toMatchObject({ changedIds: [scans[0]] });
+    await expect(admin.mutation(api.ingestion.removeItems, { ids: [scans[1]] })).resolves.toMatchObject({ changedIds: [scans[1]] });
+    // Read again with text, the check goes.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, discoveredArgs(`${CEDARLINE_FY}/Financials/scan c.pdf`, { contentHash: "hash-2" }));
+    await markRead(t, scans[2]);
+    expect(await getItem(t, scans[2])).toMatchObject({ needsCheck: false, checkReasons: [] });
+    await expectCountsMatchRecount(t, "after the scans changed");
   });
 });
 
@@ -1626,7 +2232,7 @@ describe("pairing by company key and fiscal year", () => {
     expect(await pairStatusOf(t, transcript)).toBe("paired");
   });
 
-  it("keeps the pair when a person retypes the company with other capitals", async () => {
+  it("keeps the pair, and the company spelling, when a person retypes the company with other capitals", async () => {
     const { t, admin } = await setup();
     const pd = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
     const transcript = await stage(t, `${CEDARLINE_FY}/WIP/Technical/Audio/interview.vtt`);
@@ -1636,7 +2242,8 @@ describe("pairing by company key and fiscal year", () => {
     // Nothing pairing reads moved, so nothing was even scheduled.
     expect(await runPairing(t)).toEqual([]);
     expect(await getItem(t, pd)).toMatchObject({
-      clientName: "CEDARLINE systems",
+      // The band already spells it "Cedarline Systems" (companyNameToStore).
+      clientName: "Cedarline Systems",
       companyKey: "cedarline systems",
       pairGroupKey: "cedarline systems::2025",
       pairStatus: "paired",
@@ -1769,8 +2376,13 @@ describe("the science code read from a final PD's text", () => {
   it("keeps a code a person set, and clears only a document code when new bytes arrive", async () => {
     const { t, admin } = await setup();
     const personal = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`, { driveItemId: "a" });
-    await admin.mutation(api.ingestion.setSheetLabels, { ids: [personal], patch: { scienceCode: "1.02.01" } });
+    // A code goes on a file only once it is read (labelApplies).
+    await expect(
+      admin.mutation(api.ingestion.setSheetLabels, { ids: [personal], patch: { scienceCode: "1.02.01" } })
+    ).resolves.toMatchObject({ skipped: [{ id: personal, reason: "does_not_apply" }] });
     await processWith(t, personal, "2.02.09");
+    // A person's code replaces the document's.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [personal], patch: { scienceCode: "1.02.01" } });
     expect(await getItem(t, personal)).toMatchObject({ scienceCode: "1.02.01", scienceCodeSource: "person" });
 
     const read = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`, { driveItemId: "b" });
@@ -1782,6 +2394,9 @@ describe("the science code read from a final PD's text", () => {
       );
     }
     expect(await getItem(t, personal)).toMatchObject({ scienceCode: "1.02.01", scienceCodeSource: "person", status: "discovered" });
+    // Read again, the person's code stays.
+    await processWith(t, personal, "2.02.09");
+    expect(await getItem(t, personal)).toMatchObject({ scienceCode: "1.02.01", scienceCodeSource: "person" });
     const reread = await getItem(t, read);
     expect(reread.scienceCode).toBeUndefined();
     expect(reread.scienceCodeSource).toBeUndefined();

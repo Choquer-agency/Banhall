@@ -8,6 +8,10 @@
   a `heading` beside the month navigation, `quickPicks` (month and day in the
   year on screen) and a `helper` line under the calendar. `onCommit` fires
   once per picked date.
+
+  For a pick that is confirmed (the Import sheet's selection bar), `side`
+  opens it above its trigger, `closeOnPick={false}` keeps it open after a
+  pick, and `footer` adds a line under the helper.
 -->
 <script lang="ts">
   import type { Snippet } from "svelte";
@@ -32,6 +36,9 @@
     quickPicks = [],
     helper,
     align = "start",
+    side = "bottom",
+    closeOnPick = true,
+    footer,
     onCommit,
   }: {
     /** yyyy-mm-dd, or "" when unset. */
@@ -51,6 +58,12 @@
     /** Muted line under the calendar. */
     helper?: string;
     align?: "start" | "center" | "end";
+    /** Which side of the trigger it opens on (it flips when there is no room). */
+    side?: "top" | "bottom";
+    /** Close once a date is picked (the default), or stay open for a confirm in `footer`. */
+    closeOnPick?: boolean;
+    /** A line under the helper, such as a confirm button. */
+    footer?: Snippet;
     /** Called with the new yyyy-mm-dd value each time a date is picked. */
     onCommit?: (value: string) => void;
   } = $props();
@@ -81,10 +94,12 @@
   });
 
   function onValueChange(next: DateValue | undefined) {
-    value = next ? next.toString() : "";
+    const picked = next ? next.toString() : "";
+    value = picked;
     if (next) {
-      open = false;
-      onCommit?.(value);
+      if (closeOnPick) open = false;
+      // The day picked, even where the caller binds `value` to its stored date.
+      onCommit?.(picked);
     }
   }
 
@@ -124,7 +139,7 @@
     <!-- Board 5.1y A2: 312px calendar card, 40px day columns, a 30px
          primary tile on the picked day, round quick-pick chips. -->
     <Popover.Content
-      side="bottom"
+      {side}
       {align}
       sideOffset={4}
       class="z-[120] w-[19.5rem] max-w-[calc(100vw-2rem)] rounded-xl border border-line bg-white p-1.5 shadow-popover"
@@ -210,6 +225,7 @@
       {#if helper}
         <p class="text-xs leading-[1.5] text-ink-muted">{helper}</p>
       {/if}
+      {@render footer?.()}
       </div>
     </Popover.Content>
   </Popover.Portal>

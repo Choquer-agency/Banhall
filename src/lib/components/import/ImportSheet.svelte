@@ -16,6 +16,9 @@
 
   `jump` (from a company found by the search) opens that company and brings
   it into view, reading further pages until it is loaded.
+
+  `selection` (phase 3b, board ao4) is the page's: with Select on, every row
+  starts with its checkbox column.
 -->
 <script lang="ts">
   import { tick, untrack } from "svelte";
@@ -24,6 +27,7 @@
   import { api } from "../../../../convex/_generated/api";
   import ImportSheetHeader from "./ImportSheetHeader.svelte";
   import ImportCompanyBand from "./ImportCompanyBand.svelte";
+  import type { ImportSelection } from "./importSelection.svelte";
   import {
     COMPANIES_PAGE_MAX,
     EMPTY_TAB_TEXT,
@@ -39,11 +43,14 @@
     tab,
     onlyToCheck,
     jump = null,
+    selection = null,
   }: {
     tab: SheetTab;
     onlyToCheck: boolean;
     /** A company to open and show; a new object asks again. */
     jump?: { key: string } | null;
+    /** The page's selection (Select). */
+    selection?: ImportSelection | null;
   } = $props();
 
   const COMPANY_PAGE = 25;
@@ -182,12 +189,13 @@
 <div bind:this={root} class="overflow-x-auto" data-import-sheet={tab}>
   <div class={SHEET_MIN_WIDTH}>
     <div role="table" aria-label={TABLE_NAMES[tab]}>
-      <ImportSheetHeader />
+      <ImportSheetHeader selecting={Boolean(selection?.on)} />
       {#each bands as band (band.companyKey)}
         <ImportCompanyBand
           {band}
           {tab}
           {onlyToCheck}
+          {selection}
           open={openCompanies.has(band.companyKey)}
           openSections={openSections.get(band.companyKey) ?? NONE_OPEN}
           onToggle={() => setCompanyOpen(band.companyKey, !openCompanies.has(band.companyKey))}

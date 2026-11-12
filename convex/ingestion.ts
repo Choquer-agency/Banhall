@@ -13,10 +13,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { importSource } from "./brain";
 import { getCurrentUserOrNull } from "./lib/auth";
+import { domainError } from "./lib/contracts";
 import { graphConfiguration } from "./lib/providerConfig";
 import {
   changedFields,
   definedFields,
+  fieldsForLabels,
+  hasReadText,
   labelPatchFields,
   mergeEditedLabels,
   pairGroupsTouched,
@@ -36,6 +39,7 @@ import {
   writeImportCompany,
 } from "./lib/importCompanyCounts";
 import {
+  batchResultValidator,
   checkReasonValidator,
   editableLabelValidator,
   importCategoryCountsValidator,
@@ -52,8 +56,16 @@ import {
   dashboardCompanyForKey,
   mergedClientForKey,
 } from "./lib/clients";
-import { normalizeDashboardText } from "../shared/dashboardProjection";
+import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import {
+  canDelete,
+  canPutBack,
+  DELETED_IN_ONEDRIVE_NOTE,
+  deletedReasonFor,
+  labelApplies,
+  type BatchSkipReason,
+} from "../shared/importSheetRules";
 
 // ─── OneDrive corpus ingestion staging (BNH-17) ─────────────────────────────
 // Human-in-the-loop bridge between the client's OneDrive and The Brain.
@@ -310,6 +322,14 @@ const sheetRowFields = {
   size: v.number(),
   extractNote: v.optional(v.string()),
   error: v.optional(v.string()),
+  // Why a file is on the Deleted tab (2026-11-11, phase 3b;
+  // shared/importSheetRules.ts deletedReasonFor): a person deleted it in
+  // Import, it was removed in OneDrive (its review note says so, even if a
+  // person deleted it after), or it was rejected on the old review page.
+  // "Put back" takes every kind but a file removed in OneDrive.
+  deletedReason: v.optional(
+    v.union(v.literal("deleted"), v.literal("removed_in_onedrive"), v.literal("rejected"))
+  ),
 };
 const sheetRowValidator = v.object(sheetRowFields);
 type SheetRow = Infer<typeof sheetRowValidator>;
@@ -337,6 +357,7 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     size: item.size,
     extractNote: item.extractNote,
     error: item.error,
+    deletedReason: deletedReasonFor(item),
   });
 }
 
@@ -509,7 +530,7 @@ export const sheetFiles = query({
     const files = args.onlyToCheck
       ? ctx.db
           .query("ingestionItems")
-          .withIndex("by_sheetTab_and_companyKey_and_category_and_needsCheck_and_sortKey", (q) =>
+          .withIndex("by_sheetTab_companyKey_category_needsCheck_sortKey", (q) =>
             q
               .eq("sheetTab", args.tab)
               .eq("companyKey", companyKey)
@@ -649,7 +670,7 @@ export const sheetFile = query({
       addedVia: item.driveItemId.startsWith("local:") ? ("folder_upload" as const) : ("onedrive_sync" as const),
       lastModifiedAt: item.lastModifiedAt,
       reviewedAt: item.reviewedAt,
-      hasText: Boolean(item.text?.trim()) || item.textStorageId !== undefined,
+      hasText: hasReadText(item),
       hasOriginal: item.storageId !== undefined,
     });
   },
@@ -657,13 +678,20 @@ export const sheetFile = query({
 
 // ─── Review actions (the human in the loop) ─────────────────────────────────
 
+// Refusals people read (2026-11-11, phase 3b fixes: plain words, as they
+// reach the Import page's toasts), shared by the single-file mutations below.
+const ITEM_NOT_FOUND = "This file is no longer in Import.";
+const ALREADY_IN_BRAIN = "This file is already approved into the Brain. Remove it from the Brain page instead.";
+const STILL_PROCESSING = "This file is still processing and cannot be deleted yet";
+const ONLY_DELETED_RESTORE = "This file is not deleted, so there is nothing to put back.";
+
 /** Auth + preconditions for approval; runs with the caller's identity. */
 export const getItemForApproval = internalQuery({
   args: { itemId: v.id("ingestionItems") },
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
+    if (!item) throw new Error(ITEM_NOT_FOUND);
     if (item.status !== "pending_review") {
       throw new Error("Only items pending review can be approved");
     }
@@ -778,12 +806,8 @@ export const rejectItem = mutation({
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
-    if (item.status === "approved") {
-      throw new Error(
-        "Already in the Brain — revoke it from the Brain admin page instead"
-      );
-    }
+    if (!item) throw new Error(ITEM_NOT_FOUND);
+    if (item.status === "approved") throw new Error(ALREADY_IN_BRAIN);
     if (item.status === "deleted") {
       throw new Error("Restore this item before rejecting it");
     }
@@ -801,6 +825,38 @@ export const rejectItem = mutation({
   },
 });
 
+/** Why a staged item cannot be deleted, or null when it can (or already is). */
+function removalRefusal(item: Doc<"ingestionItems">): string | null {
+  if (item.status === "approved") return ALREADY_IN_BRAIN;
+  if (item.status === "deleted") return null;
+  if (!canDelete(item.status)) return STILL_PROCESSING;
+  return null;
+}
+
+/** The deleted state for an item: reversible, restoreItem puts the old status back. */
+function removedFields(item: Doc<"ingestionItems">, admin: string): Partial<IngestionItemFields> {
+  const now = Date.now();
+  return {
+    status: "deleted",
+    pairStatus: undefined,
+    deletedFromStatus: item.status as NonNullable<Doc<"ingestionItems">["deletedFromStatus"]>,
+    deletedBy: admin,
+    deletedAt: now,
+    updatedAt: now,
+  };
+}
+
+/** The status a deleted item goes back to, with its deletion cleared (restoreItem, the old page). */
+function restoredFields(item: Doc<"ingestionItems">): Partial<IngestionItemFields> {
+  return {
+    status: item.deletedFromStatus ?? "pending_review",
+    deletedFromStatus: undefined,
+    deletedBy: undefined,
+    deletedAt: undefined,
+    updatedAt: Date.now(),
+  };
+}
+
 /**
  * Remove a staged item from active review without touching OneDrive or an
  * approved Brain source. The explicit deleted state keeps this reversible;
@@ -811,29 +867,11 @@ export const removeItem = mutation({
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
-    if (item.status === "approved") {
-      throw new Error(
-        "Already in the Brain — revoke it from the Brain admin page instead"
-      );
-    }
+    if (!item) throw new Error(ITEM_NOT_FOUND);
+    const refusal = removalRefusal(item);
+    if (refusal) throw new Error(refusal);
     if (item.status === "deleted") return null;
-    if (
-      item.status !== "pending_review" &&
-      item.status !== "rejected" &&
-      item.status !== "failed"
-    ) {
-      throw new Error("This file is still processing and cannot be deleted yet");
-    }
-    const now = Date.now();
-    const { after } = await patchItem(ctx, item, {
-      status: "deleted",
-      pairStatus: undefined,
-      deletedFromStatus: item.status,
-      deletedBy: admin,
-      deletedAt: now,
-      updatedAt: now,
-    });
+    const { after } = await patchItem(ctx, item, removedFields(item, admin));
     // The old group, and the new one if settling an old row moved it.
     await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
     return null;
@@ -845,79 +883,256 @@ export const restoreItem = mutation({
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error("Ingestion item not found");
-    if (item.status !== "deleted") {
-      throw new Error("Only deleted ingestion items can be restored");
-    }
-    const restoredStatus = item.deletedFromStatus ?? "pending_review";
-    const { after } = await patchItem(ctx, item, {
-      status: restoredStatus,
-      deletedFromStatus: undefined,
-      deletedBy: undefined,
-      deletedAt: undefined,
-      updatedAt: Date.now(),
-    });
+    if (!item) throw new Error(ITEM_NOT_FOUND);
+    if (item.status !== "deleted") throw new Error(ONLY_DELETED_RESTORE);
+    const { after } = await patchItem(ctx, item, restoredFields(item));
     // The old group, and the new one if settling an old row moved it.
     await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
     return null;
   },
 });
 
-/** Files one label edit may change. */
-const SHEET_LABEL_MAX_FILES = 100;
+// ─── The Import page's batch calls (2026-11-11, phase 3b fixes) ─────────────
+// setSheetLabels, removeItems and restoreItems take up to 100 files and never
+// refuse the whole call for one file: each file they cannot change is left as
+// it is and named in `skipped` with why (shared/importSheetRules.ts
+// BatchSkipReason), and `changedIds` is exactly what the call changed. Only a
+// call that is wrong in itself (more than 100 files, a value no file can take)
+// is refused, before anything is written.
+
+/** Files one Import page call may change, delete or put back. */
+const SHEET_BATCH_MAX_FILES = 100;
+
+/** Put-back files read again are spaced like the sync's PDFs (ingestionSync.ts PDF_READ_SPACING_MS). */
+const PUT_BACK_READ_SPACING_MS = 2_000;
+
+type BatchResult = Infer<typeof batchResultValidator>;
+
+/** What one batch call changed and left, as it goes. */
+function batchOutcome() {
+  const changedIds: Array<Id<"ingestionItems">> = [];
+  const skipped: BatchResult["skipped"] = [];
+  return {
+    changed: (id: Id<"ingestionItems">) => changedIds.push(id),
+    skip: (id: Id<"ingestionItems">, reason: BatchSkipReason) => skipped.push({ id, reason }),
+    result: (): BatchResult => ({ changed: changedIds.length, changedIds, skipped }),
+  };
+}
 
 /**
- * Change labels on up to 100 files of the review tab (2026-11-11, phase 2).
+ * The ids of one Import page batch, once each; refuses more than the
+ * batch limit with `tooMany`. Refusals here are ConvexErrors so the page
+ * can show their words (a plain Error's message never reaches a deployed page).
+ */
+function batchIds(ids: Array<Id<"ingestionItems">>, tooMany: string): Array<Id<"ingestionItems">> {
+  const unique = [...new Set(ids)];
+  if (unique.length > SHEET_BATCH_MAX_FILES) domainError("INVALID_INPUT", tooMany);
+  return unique;
+}
+
+/** Why removeItems leaves a file as it is, or null when it deletes it (removeItem's rules). */
+function removalSkip(item: Doc<"ingestionItems"> | null): BatchSkipReason | null {
+  if (!item) return "missing";
+  if (item.status === "approved") return "approved";
+  if (item.status === "deleted") return "already_deleted";
+  if (!canDelete(item.status)) return "being_read";
+  return null;
+}
+
+/**
+ * Delete up to 100 files from the Import page (2026-11-11, phase 3b), with
+ * removeItem's rules: a file that is missing, approved, already deleted or
+ * still being read is skipped with its reason, and the rest are deleted.
+ * Counts move through patchItem; pairing for every group touched is scheduled.
+ */
+export const removeItems = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: batchResultValidator,
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Delete up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    const groups = new Set<string>();
+    for (const id of ids) {
+      const item = await ctx.db.get(id);
+      const skip = removalSkip(item);
+      if (skip || !item) {
+        outcome.skip(id, skip ?? "missing");
+        continue;
+      }
+      const { after } = await patchItem(ctx, item, removedFields(item, admin));
+      groups.add(after.pairGroupKey);
+      groups.add(item.pairGroupKey);
+      outcome.changed(id);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return outcome.result();
+  },
+});
+
+/** Why restoreItems leaves a file as it is, or null when it puts it back (canPutBack). */
+function putBackSkip(item: Doc<"ingestionItems"> | null): BatchSkipReason | null {
+  if (!item) return "missing";
+  const deletedReason = deletedReasonFor(item);
+  if (deletedReason === "removed_in_onedrive") return "removed_in_onedrive";
+  if (!canPutBack({ status: item.status, deletedReason })) return "not_on_tab";
+  return null;
+}
+
+/**
+ * The status a put-back file takes on To review, so it is never stranded:
+ * - deleted while waiting for review or after it could not be read: that status;
+ * - otherwise (rejected, now or before it was deleted, so the status it had
+ *   before is not known), from what it holds: text read from it, or bytes
+ *   with a reading note but no text (a scan), waits for review; an error from
+ *   reading means it could not be read; bytes stored but never read go back
+ *   to be read ("fetched", and extractUploadedItem is scheduled, as for an
+ *   upload); nothing stored goes back to "discovered", which the next
+ *   OneDrive sync fetches and reads (takeUnprocessedItems).
+ */
+function putBackStatus(item: Doc<"ingestionItems">): "pending_review" | "failed" | "fetched" | "discovered" {
+  const from = item.status === "deleted" ? item.deletedFromStatus : undefined;
+  if (from === "pending_review" || from === "failed") return from;
+  if (hasReadText(item)) return "pending_review";
+  if (item.error !== undefined) return "failed";
+  if (item.storageId !== undefined) return item.extractNote !== undefined ? "pending_review" : "fetched";
+  return "discovered";
+}
+
+/** A put-back file: on To review again, its deletion and any rejection undone. */
+function putBackFields(item: Doc<"ingestionItems">): Partial<IngestionItemFields> {
+  return {
+    status: putBackStatus(item),
+    deletedFromStatus: undefined,
+    deletedBy: undefined,
+    deletedAt: undefined,
+    reviewNote: undefined,
+    reviewedBy: undefined,
+    reviewedAt: undefined,
+    updatedAt: Date.now(),
+  };
+}
+
+/**
+ * Put back up to 100 files on the Deleted tab (2026-11-11, phase 3b; the
+ * Undo after a delete and "Put back"): each returns to To review in the
+ * state its data calls for (putBackStatus), a file to be read again is
+ * handed to extraction, a few seconds apart. A file that is missing, not on
+ * the Deleted tab, or removed in OneDrive is skipped with its reason. The
+ * old page's restoreItem still returns a file to the status it was deleted from.
+ */
+export const restoreItems = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: batchResultValidator,
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Put back up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    const groups = new Set<string>();
+    let reads = 0;
+    for (const id of ids) {
+      const item = await ctx.db.get(id);
+      const skip = putBackSkip(item);
+      if (skip || !item) {
+        outcome.skip(id, skip ?? "missing");
+        continue;
+      }
+      const { after } = await patchItem(ctx, item, putBackFields(item));
+      if (after.status === "fetched") {
+        await ctx.scheduler.runAfter(reads * PUT_BACK_READ_SPACING_MS, internal.ingestionSync.extractUploadedItem, {
+          itemId: id,
+        });
+        reads += 1;
+      }
+      groups.add(after.pairGroupKey);
+      groups.add(item.pairGroupKey);
+      outcome.changed(id);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return outcome.result();
+  },
+});
+
+/**
+ * The company name a typed one is stored as (2026-11-11, phase 3b fixes): an
+ * existing company's own spelling wins, so typing "cedarline systems" or
+ * "Cédarline Systems" files into Cedarline Systems and never renames it. The
+ * active company with the typed name's key first, then a band with that key
+ * on any tab (its display name), then the name projects give a company with
+ * no company row; only a key that matches nothing keeps the typed name, as
+ * labelPatchFields cleaned it (trimmed, inner spaces collapsed).
+ */
+async function companyNameToStore(ctx: MutationCtx, typed: string): Promise<string> {
+  const key = dashboardCompanyKey(typed);
+  const company = await activeClientForKey(ctx, key);
+  if (company) return company.name;
+  for (const tab of ["review", "approved", "deleted"] as const) {
+    const band = await importCompanyRow(ctx, tab, key);
+    if (band && band.displayName.trim()) return band.displayName;
+  }
+  const projects = await dashboardCompanyForKey(ctx, key);
+  if (projects && projects.projectCount > 0 && projects.clientName.trim()) return projects.clientName;
+  return typed;
+}
+
+/**
+ * Change labels on up to 100 files of the review tab (2026-11-11, phase 2;
+ * per file since the phase 3b fixes). Each file gets the patch's labels that
+ * apply to it (shared/importSheetRules.ts labelApplies, judged by the
+ * category it has after the change, the rule the page offers by); a file to
+ * which none apply, or that is no longer on To review or no longer exists,
+ * is skipped with its reason. A patch wrong in itself (an unknown science
+ * code, a bad version) refuses the whole call before anything is written.
  * Each label set is marked in editedLabels, so a later move or new copy on
  * the drive keeps it. The row is settled (docKind, company key, fiscal year,
  * pairing key and sheet fields follow), the company counts move through
  * patchItem, and pairing for the groups the files left and joined is
  * scheduled (recomputePairs, two groups a run), so a 100-file edit never
  * reads whole pair groups in this transaction. A file a person makes a final
- * PD gets the science code its stored text preview gives, if it has none.
- * Approved or deleted files are refused before anything is written. Returns
- * how many files changed.
+ * PD gets the science code its stored text preview gives, if it has none. A
+ * company typed is stored in an existing company's spelling
+ * (companyNameToStore). Its refusals are ConvexErrors, so the page can show
+ * their words.
  */
 export const setSheetLabels = mutation({
   args: {
     ids: v.array(v.id("ingestionItems")),
     patch: sheetLabelPatchValidator,
   },
-  returns: v.number(),
+  returns: batchResultValidator,
   handler: async (ctx, args) => {
     await assertAdmin(ctx);
-    const ids = [...new Set(args.ids)];
-    if (ids.length === 0) return 0;
-    if (ids.length > SHEET_LABEL_MAX_FILES) {
-      throw new Error(`Change up to ${SHEET_LABEL_MAX_FILES} files at a time.`);
-    }
+    const ids = batchIds(args.ids, `Change up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const outcome = batchOutcome();
+    if (ids.length === 0) return outcome.result();
     const { fields, labels } = labelPatchFields(args.patch);
+    if (fields.clientName !== undefined) fields.clientName = await companyNameToStore(ctx, fields.clientName);
 
-    const items: Array<Doc<"ingestionItems">> = [];
+    const groups = new Set<string>();
     for (const id of ids) {
       const item = await ctx.db.get(id);
-      if (!item) throw new Error("One of these files is no longer in the import. Refresh and try again.");
-      const tab = sheetTabForStatus(item.status);
-      if (tab === "approved") {
-        throw new Error(`"${item.name}" is already approved, so its labels cannot be changed here.`);
+      if (!item) {
+        outcome.skip(id, "missing");
+        continue;
       }
-      if (item.status === "rejected") {
-        throw new Error(`"${item.name}" was rejected, so its labels cannot be changed here.`);
+      if (sheetTabForStatus(item.status) !== "review") {
+        outcome.skip(id, "not_on_tab");
+        continue;
       }
-      if (tab === "deleted") {
-        throw new Error(`"${item.name}" is deleted. Restore it before changing its labels.`);
+      const { _id, _creationTime, ...stored } = item;
+      const category = item.category ?? settleItem(stored).category ?? "unknown";
+      const applying = labels.filter((label) =>
+        labelApplies(label, { status: item.status, category }, fields.category ?? category)
+      );
+      if (applying.length === 0) {
+        outcome.skip(id, "does_not_apply");
+        continue;
       }
-      items.push(item);
-    }
-
-    let changed = 0;
-    const groups = new Set<string>();
-    for (const item of items) {
       const patch: Partial<IngestionItemFields> = {
-        ...fields,
-        editedLabels: mergeEditedLabels(item.editedLabels, labels),
+        ...fieldsForLabels(fields, applying),
+        editedLabels: mergeEditedLabels(item.editedLabels, applying),
       };
-      if (fields.category !== undefined && fields.category !== item.category) {
+      if (patch.category !== undefined && patch.category !== item.category) {
         // The file name is read for the category the person chose: a
         // scheme-named PD kept in a supporting folder gives its number,
         // version and initials once it is made a final PD (labels a person
@@ -930,18 +1145,17 @@ export const setSheetLabels = mutation({
         patch.reviewerInitials = read.reviewerInitials;
         patch.pdTitle = read.pdTitle;
       }
-      if (fields.category === "final_pd" && item.category !== "final_pd") {
+      if (patch.category === "final_pd" && item.category !== "final_pd") {
         // Extraction reads the code only for a file that was a final PD then.
-        const { _id, _creationTime, ...stored } = item;
         Object.assign(patch, previewScienceCode(settleItem({ ...stored, ...patch })));
       }
       const result = await patchItem(ctx, item, patch, { touch: true });
       if (!result.changed) continue;
-      changed += 1;
+      outcome.changed(id);
       for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
-    return changed;
+    return outcome.result();
   },
 });
 
@@ -1251,7 +1465,7 @@ export const markDriveItemRemoved = internalMutation({
     const { after } = await patchItem(ctx, existing, {
       status: "rejected",
       pairStatus: undefined,
-      reviewNote: "Deleted in OneDrive",
+      reviewNote: DELETED_IN_ONEDRIVE_NOTE,
       updatedAt: Date.now(),
     });
     // The old group, and the new one if settling an old row moved it.
@@ -1504,10 +1718,12 @@ export const rebuildImportCompanyCounts = internalMutation({
       const share = countShareOf(item);
       if (!share) continue;
       counts = addShare(counts, share, 1);
-      // The band shows the client name of the latest file written.
-      if (item.clientName !== undefined && item.updatedAt >= displayNameAt) {
+      // The earliest file's spelling (pages run in creation order), used only
+      // when the band has no name yet and no company has its key
+      // (bandDisplayName, 2026-11-11 phase 3b fixes).
+      if (item.clientName !== undefined && displayName === "") {
         displayName = item.clientName;
-        displayNameAt = item.updatedAt;
+        displayNameAt = item._creationTime;
       }
     }
     const scanned = page.page.length;
@@ -1550,13 +1766,16 @@ export const rebuildImportCompanyCounts = internalMutation({
       )
       .take(10);
     for (const extra of rows.slice(1)) await ctx.db.delete(extra._id);
+    // The name: the company's with this key, else the band's own, else the
+    // earliest file's spelling (bandDisplayName).
     await writeImportCompany(
       ctx,
       args.sheetTab,
       args.companyKey,
       rows[0] ?? null,
       counts,
-      displayName === "" ? undefined : displayName
+      displayName === "" ? undefined : displayName,
+      { checkCompany: true }
     );
     return { scanned, done: true, written: true };
   },

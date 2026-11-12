@@ -4442,7 +4442,9 @@ export default defineSchema({
       "category",
       "sortKey",
     ])
-    .index("by_sheetTab_and_companyKey_and_category_and_needsCheck_and_sortKey", [
+    // Named without "_and_": the full name is 66 characters and the backend
+    // allows 64 (tests/convexIndexNames.test.ts guards every name).
+    .index("by_sheetTab_companyKey_category_needsCheck_sortKey", [
       "sheetTab",
       "companyKey",
       "category",

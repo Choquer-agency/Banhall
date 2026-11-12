@@ -38,7 +38,7 @@ const CEDARLINE = {
   beingRead: 8,
   categories: {
     company_file: { total: 4, needsCheck: 0, fiscalYears: { none: 4 } },
-    supporting: { total: 102, needsCheck: 3, fiscalYears: { "2025": 61, "2024": 41 }, checkReasons: { could_not_read: 3 } },
+    supporting: { total: 102, needsCheck: 3, fiscalYears: { "2025": 61, "2024": 41 }, checkReasons: { could_not_read: 2, no_text: 1 } },
     transcript: { total: 17, needsCheck: 0, fiscalYears: { "2025": 10, "2024": 7 } },
     review_copy: { total: 31, needsCheck: 0, fiscalYears: { "2025": 18, "2024": 13 } },
     draft: { total: 45, needsCheck: 0, fiscalYears: { "2025": 26, "2024": 19 } },
@@ -364,7 +364,7 @@ describe("ImportSheet", () => {
     await expect.poll(() => text(tooltip())).toBe("pd1.docx");
   });
 
-  it("keeps the tooltip cells out of the tab order, leaving the date to screen readers in hidden words", async () => {
+  it("keeps the tooltip words out of the tab order: on To review each editable cell's control is its one tab stop", async () => {
     seedBands();
     __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("cedarline systems", "final_pd"), FINAL_PDS, { more: true });
     await render(ImportSheet, { tab: "review", onlyToCheck: false });
@@ -375,12 +375,35 @@ describe("ImportSheet", () => {
       expect(node.tabIndex, node.textContent ?? "").toBe(-1);
     }
     expect(text(one('[data-import-file="pd1"] [data-import-year] .sr-only'))).toBe(", Year ended Mar 31, 2025");
-    // From Final PDs, Tab passes over its five rows to "Show 19 more".
+    // Phase 3b: from Final PDs, Tab reaches PD 1's cells in order, then its "...".
+    one("[data-import-section-toggle]", section("cedarline systems", "final_pd"))!.focus();
+    const pd1 = one('[data-import-file="pd1"]')!;
+    for (const selector of ["[data-import-year-edit]", "[data-import-version-edit]", "[data-import-writer-edit]", "[data-import-code-edit]", "[data-import-row-menu]"]) {
+      await userEvent.tab();
+      expect(document.activeElement, selector).toBe(one(selector, pd1));
+    }
+    // The year control is not inside the tooltip's own trigger: it is the trigger.
+    expect(one("[data-import-year-edit]", pd1)!.querySelector("button, [tabindex='0']")).toBeNull();
+    // A file still being read has only its "...".
+    const pd5 = one('[data-import-file="pd5"]')!;
+    expect(all("button", pd5).map((node) => node.hasAttribute("data-import-row-menu"))).toEqual([true]);
+  });
+
+  it("leaves Approved read only: Tab passes over its rows", async () => {
+    seedBands([{ ...CEDARLINE, needsCheck: 0, beingRead: 0, ready: 223 }]);
+    __setPaginatedRowsForArgs(
+      "ingestion:sheetFiles",
+      { ...filesArgs("cedarline systems", "final_pd"), tab: "approved" },
+      FINAL_PDS.map((row) => ({ ...row, status: "approved" })),
+      { more: true }
+    );
+    await render(ImportSheet, { tab: "approved", onlyToCheck: false });
+    await openCedarline();
+    await expect.poll(() => all("[data-import-file]").length).toBe(5);
+    expect(all("[data-import-file] button")).toHaveLength(0);
     one("[data-import-section-toggle]", section("cedarline systems", "final_pd"))!.focus();
     await userEvent.tab();
     expect(document.activeElement).toBe(one("[data-import-show-more-files]"));
-    await userEvent.tab();
-    expect(document.activeElement).toBe(one("[data-import-section-toggle]", section("cedarline systems", "draft")));
   });
 
   it("marks in amber only what needs a person, and shows a file still being read with empty cells", async () => {
@@ -396,6 +419,14 @@ describe("ImportSheet", () => {
         checkReasons: ["could_not_read"],
       }),
       fileRow("notes", { name: "Site notes.pdf", category: "supporting", fiscalYearEnd: MAR_31_2025 }),
+      // Read, but no text came out: a scan.
+      fileRow("scan", {
+        name: "Signed letter.pdf",
+        category: "supporting",
+        fiscalYearEnd: MAR_31_2025,
+        needsCheck: true,
+        checkReasons: ["no_text"],
+      }),
     ]);
     await render(ImportSheet, { tab: "review", onlyToCheck: false });
     await openCedarline();
@@ -406,7 +437,9 @@ describe("ImportSheet", () => {
     const finalNote = one("[data-import-section-note]", section("cedarline systems", "final_pd"))!;
     expect(text(finalNote)).toBe("8 need a writer, 4 need a science code");
     expect(getComputedStyle(finalNote).color).toBe(AMBER);
-    expect(text(one("[data-import-section-note]", section("cedarline systems", "supporting")))).toBe("3 could not be read");
+    expect(text(one("[data-import-section-note]", section("cedarline systems", "supporting")))).toBe(
+      "2 could not be read, 1 with no text"
+    );
     // Sections with nothing to check have no note, and nothing but the open
     // section's files is read.
     expect(one("[data-import-section-note]", section("cedarline systems", "draft"))).toBeNull();
@@ -418,13 +451,13 @@ describe("ImportSheet", () => {
     await userEvent.click(page.getByRole("button", { name: "Halden Foods" }));
     await expect.poll(() => band("halden foods").hasAttribute("data-import-band-open")).toBe(false);
 
-    // A final PD with no writer and no science code.
+    // A final PD with no writer and no science code: the amber pick controls (phase 3b).
     const pd4 = one('[data-import-file="pd4"]')!;
     const noWriter = one("[data-import-writer-tone]", pd4)!;
-    expect(text(noWriter)).toBe("No writer");
+    expect(text(noWriter)).toBe("Pick a writer");
     expect(getComputedStyle(noWriter).color).toBe(AMBER);
     const noCode = one("[data-import-code-missing]", pd4)!;
-    expect(text(noCode)).toBe("No science code");
+    expect(text(noCode)).toBe("Pick a code");
     expect(getComputedStyle(noCode).color).toBe(AMBER);
 
     // Still being read: muted words after the name, and empty cells.
@@ -446,6 +479,15 @@ describe("ImportSheet", () => {
     const notes = one('[data-import-file="notes"]')!;
     expect(text(one('[data-import-cell="writer"]', notes))).toBe("");
     expect(text(one('[data-import-cell="science-code"]', notes))).toBe("");
+
+    // Read with no text (phase 3b fixes): amber words after the name; it is
+    // a read file, so its year end can be set and it can be moved or deleted.
+    const scan = one('[data-import-file="scan"]')!;
+    const noText = one("[data-import-file-state]", scan)!;
+    expect(text(noText)).toBe("No text could be read");
+    expect(getComputedStyle(noText).color).toBe(AMBER);
+    expect(one("[data-import-year-edit]", scan)).not.toBeNull();
+    expect(one("[data-import-row-menu]", scan)).not.toBeNull();
   });
 
   it("asks for 25 more files with Show more, and for the next companies", async () => {

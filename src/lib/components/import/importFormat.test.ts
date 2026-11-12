@@ -121,6 +121,10 @@ describe("section words", () => {
     expect(reasonSummary({ no_writer: 3, no_science_code: 1 })).toBe("3 need a writer, 1 needs a science code");
     expect(reasonSummary({ could_not_read: 3 })).toBe("3 could not be read");
     expect(reasonSummary({ could_not_read: 1 })).toBe("1 could not be read");
+    expect(reasonSummary({ no_text: 3 })).toBe("3 with no text");
+    expect(reasonSummary({ no_text: 1, could_not_read: 2, no_writer: 1 })).toBe(
+      "2 could not be read, 1 with no text, 1 needs a writer"
+    );
     expect(reasonSummary({ no_science_code: 2, no_company: 1, unknown_category: 1, no_fiscal_year: 5 })).toBe(
       "1 needs a company, 1 needs a category, 5 need a fiscal year, 2 need a science code"
     );
@@ -137,6 +141,7 @@ describe("section words", () => {
       "1 needs a company, 1 needs a category"
     );
     expect(sectionNote({ needsCheck: 3, checkReasons: { could_not_read: 3 } })).toBe("3 could not be read");
+    expect(sectionNote({ needsCheck: 3, checkReasons: { no_text: 3 } })).toBe("3 with no text");
     // A band row from before the reasons were counted, or one that drifted.
     expect(sectionNote({ needsCheck: 4 })).toBe("4 to check");
     expect(sectionNote({ needsCheck: 4, checkReasons: { no_writer: 1 } })).toBe("4 to check");
@@ -285,6 +290,14 @@ describe("file rows", () => {
     );
     expect(failed.state).toEqual({ text: "Could not be read", tone: "amber" });
     expect(failed.fiscalYear?.text).toBe("2025");
+    // Read, but no text came out (a scan): amber after the name, its cells as any read file's.
+    const scan = fileCells(
+      row({ status: "pending_review", category: "supporting", name: "Signed letter.pdf", fiscalYearEnd: MAR_31_2025, checkReasons: ["no_text"] })
+    );
+    expect(scan.state).toEqual({ text: "No text could be read", tone: "amber" });
+    expect(scan.fiscalYear?.text).toBe("2025");
+    // A failed file says it could not be read, even if it also had no text.
+    expect(fileCells(row({ status: "failed", checkReasons: ["could_not_read", "no_text"] })).state?.text).toBe("Could not be read");
   });
 });
 

@@ -1,0 +1,126 @@
+<!--
+  The science code list (ui-design-final.md section 8, board 5.1y A3): a
+  search field over the CRA codes grouped by field, the code in muted mono
+  before the name, a check on the current code. It opens on the current
+  code. The body of ScienceCodePicker, and of the Import sheet's science
+  code pickers, which hold it in their own popovers: mount it when the
+  popover opens.
+-->
+<script lang="ts">
+  import { untrack } from "svelte";
+  import { Command } from "bits-ui";
+  import { CheckIcon, MagnifyingGlassIcon } from "phosphor-svelte";
+  import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
+  import { scienceCodeGroups } from "./detailsFormat";
+
+  let {
+    value,
+    onSelect,
+    onSuggest,
+    clearLabel = undefined,
+    clearable = true,
+    maxHeight = "max-h-[min(24rem,calc(100dvh-8rem))]",
+  }: {
+    value: string | null;
+    onSelect: (code: string | null) => void;
+    /** Optional AI suggestion; the host saves the suggested code. */
+    onSuggest?: () => void;
+    /** Always offer Clear, with this label (bulk edit: clear on every project). */
+    clearLabel?: string;
+    /** False where a code cannot be taken away (the Import sheet). */
+    clearable?: boolean;
+    /** The list's height cap, as a class. */
+    maxHeight?: string;
+  } = $props();
+
+  const showClear = $derived(clearable && (Boolean(value) || clearLabel !== undefined));
+
+  let query = $state("");
+  // Opens on the current code (board 5.1y A3): the Command starts on it
+  // instead of the first item.
+  let highlighted = $state(untrack(() => value ?? ""));
+  let list = $state<HTMLElement | null>(null);
+  const groups = $derived(scienceCodeGroups(query));
+
+  // Its field then heads the list. Scroll the list itself, never the page.
+  $effect(() => {
+    const element = list;
+    if (!element) return;
+    const frame = requestAnimationFrame(() => {
+      const current = element.querySelector<HTMLElement>("[data-science-code-current]");
+      const target = current?.closest<HTMLElement>("[data-command-group]") ?? current;
+      if (!target) return;
+      element.scrollTop += target.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  const itemClass =
+    "flex min-h-[1.875rem] w-full cursor-default items-center gap-2.5 rounded-md px-2 py-1 text-left text-[0.8125rem] leading-[calc(18/13)] text-ink outline-none data-[selected]:bg-primary-wash";
+</script>
+
+<Command.Root shouldFilter={false} loop disableInitialScroll label="Science code" bind:value={highlighted} class={`flex flex-col ${maxHeight}`}>
+  <div class="shrink-0 px-2 pb-1 pt-2">
+    <div class="field-control-shell flex h-[2.125rem] items-center gap-2 rounded-md px-2.5">
+      <MagnifyingGlassIcon size="0.875rem" aria-hidden="true" class="pointer-events-none shrink-0 text-ink-muted" />
+      <Command.Input
+        bind:value={query}
+        placeholder="Search by name or code"
+        aria-label="Search science codes"
+        class="input-chromeless h-full min-w-0 flex-1 bg-transparent text-[0.8125rem] text-ink placeholder:text-ink-muted"
+      />
+    </div>
+  </div>
+  <Command.List bind:ref={list} class="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5">
+    <Command.Viewport>
+      {#each groups as group (group.field)}
+        <Command.Group>
+          <Command.GroupHeading class="px-2 pb-1 pt-2 text-[0.6875rem] font-medium uppercase leading-[calc(18/11)] tracking-[0.04em] text-ink-muted">{group.field}</Command.GroupHeading>
+          <Command.GroupItems>
+            {#each group.items as item (item.code)}
+              <Command.Item
+                value={item.code}
+                onSelect={() => onSelect(item.code)}
+                class={`${itemClass} ${item.code === value ? "bg-gray-50" : ""}`}
+                aria-current={item.code === value ? "true" : undefined}
+                data-science-code-current={item.code === value ? "" : undefined}
+                data-science-code={item.code}
+              >
+                <span class="w-[3.25rem] shrink-0 font-mono text-xs text-ink-muted">{item.code}</span>
+                <span class="min-w-0 flex-1">{item.label}</span>
+                {#if item.code === value}
+                  <CheckIcon size="0.875rem" aria-label="Current code" class="shrink-0 text-primary-selected" />
+                {/if}
+              </Command.Item>
+            {/each}
+          </Command.GroupItems>
+        </Command.Group>
+      {:else}
+        <p class="px-2 py-4 text-center text-[0.8125rem] text-ink-muted" role="status">No code matches.</p>
+      {/each}
+    </Command.Viewport>
+  </Command.List>
+  {#if onSuggest || showClear}
+    <div class="flex shrink-0 items-center gap-1 border-t border-line-soft p-1.5">
+      {#if onSuggest}
+        <button
+          type="button"
+          onclick={() => onSuggest?.()}
+          class="flex h-8 items-center gap-2 rounded-md px-2 text-[0.8125rem] text-ink transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+        >
+          <AuroraMark size={16} />
+          Suggest with AI
+        </button>
+      {/if}
+      {#if showClear}
+        <button
+          type="button"
+          onclick={() => onSelect(null)}
+          class="ml-auto flex h-8 items-center rounded-md px-2 text-[0.8125rem] text-ink-muted transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir"
+        >
+          {clearLabel ?? "Clear"}
+        </button>
+      {/if}
+    </div>
+  {/if}
+</Command.Root>

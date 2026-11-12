@@ -14,6 +14,7 @@ import {
   checkReasonsFor,
   derivedFields,
   docKindForCategory,
+  fieldsForLabels,
   labelPatchFields,
   mergeEditedLabels,
   normalizePdNumber,
@@ -98,10 +99,35 @@ describe("checkReasonsFor", () => {
     fiscalYearEnd: Date.UTC(2025, 2, 31),
     scienceCode: "2.02.09",
     writerInitials: "DW",
+    text: "Extracted text",
   };
 
   it("gives nothing for a complete final PD", () => {
     expect(checkReasonsFor(base)).toEqual([]);
+  });
+
+  it("flags a read file that gave no text, from its preview and stored text", () => {
+    // A PDF that is only a scan: read, with a note, and no text.
+    expect(checkReasonsFor({ ...base, text: undefined })).toEqual(["no_text"]);
+    expect(checkReasonsFor({ ...base, text: "  \n " })).toEqual(["no_text"]);
+    // The full text in storage is text, even with an empty preview.
+    expect(checkReasonsFor({ ...base, text: undefined, textStorageId: "kg2abc" as never })).toEqual([]);
+    // Only once read: a file still being read has no text yet, and one that
+    // failed is "could_not_read" alone.
+    for (const status of ["discovered", "fetched"] as const) {
+      expect(checkReasonsFor({ ...base, status, text: undefined }), status).toEqual([]);
+    }
+    expect(checkReasonsFor({ ...base, status: "failed", text: undefined })).toEqual(["could_not_read"]);
+    // Off the review tab nothing is flagged.
+    for (const status of ["approved", "rejected", "deleted"] as const) {
+      expect(checkReasonsFor({ ...base, status, text: undefined }), status).toEqual([]);
+    }
+    // With other reasons, in the fixed order.
+    expect(checkReasonsFor({ ...base, text: undefined, companyKey: undefined, writerInitials: undefined })).toEqual([
+      "no_company",
+      "no_text",
+      "no_writer",
+    ]);
   });
 
   it("gives each reason on its own", () => {
@@ -453,7 +479,36 @@ describe("labelPatchFields", () => {
     expect(() => labelPatchFields({ pdNumber: "4ab" })).toThrow(/PD number/);
     expect(() => labelPatchFields({ version: { code: "R", number: 1.5 } })).toThrow(/version number/);
     expect(() => labelPatchFields({ writerName: " " })).toThrow("Type the writer's name.");
+    // The roster falls back to an email address; it is never a writer.
+    expect(() => labelPatchFields({ writerName: "dana.whitlock@example.com" })).toThrow(
+      "Type the writer's name, not an email address."
+    );
     expect(() => labelPatchFields({ scienceCode: "9.99.99" })).toThrow(/not a CRA field of science code/);
+  });
+});
+
+describe("fieldsForLabels", () => {
+  it("keeps only the row fields of the labels that apply to one file", () => {
+    const { fields } = labelPatchFields({
+      category: "final_pd",
+      fiscalYearEnd: Date.UTC(2025, 2, 31),
+      version: { code: "T", number: 2 },
+      writerName: "Priya Nair",
+      scienceCode: "2.02.09",
+    });
+    expect(fieldsForLabels(fields, ["category"])).toEqual({ category: "final_pd" });
+    expect(fieldsForLabels(fields, ["fiscalYearEnd", "scienceCode"])).toEqual({
+      fiscalYearEnd: Date.UTC(2025, 2, 31),
+      fiscalYearEndAssumed: false,
+      scienceCode: "2.02.09",
+      scienceCodeSource: "person",
+    });
+    expect(fieldsForLabels(fields, ["version", "writerName"])).toEqual({
+      versionCode: "T",
+      versionNumber: 2,
+      writerName: "Priya Nair",
+    });
+    expect(fieldsForLabels(fields, [])).toEqual({});
   });
 });
 

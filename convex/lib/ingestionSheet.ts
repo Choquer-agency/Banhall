@@ -9,6 +9,7 @@ import type { WithoutSystemFields } from "convex/server";
 import type { Doc } from "../_generated/dataModel";
 import { dashboardCompanyKey, DASHBOARD_UNNAMED_COMPANY_KEY } from "../../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { isBeingRead as statusIsBeingRead, looksLikeEmail, tabForStatus } from "../../shared/importSheetRules";
 import {
   classifyItemPath,
   labelsOf,
@@ -17,6 +18,7 @@ import {
   type IngestionLabels,
 } from "./ingestionClassify";
 import { scienceCodeFromText } from "./scienceCodeFromText";
+import { domainError } from "./contracts";
 import type {
   CheckReason,
   EditableLabel,
@@ -39,16 +41,26 @@ export const EDITABLE_LABELS: readonly EditableLabel[] = [
   "scienceCode",
 ];
 
-/** The tab a status shows on. */
+/** The tab a status shows on (shared/importSheetRules.ts, which the page reads too). */
 export function sheetTabForStatus(status: Status): SheetTab {
-  if (status === "approved") return "approved";
-  if (status === "rejected" || status === "deleted") return "deleted";
-  return "review"; // discovered, fetched, pending_review, failed
+  return tabForStatus(status);
 }
 
 /** True while the file is still being fetched or read. */
 export function isBeingRead(status: Status): boolean {
-  return status === "discovered" || status === "fetched";
+  return statusIsBeingRead(status);
+}
+
+/**
+ * Whether a row holds text that was read from its file (2026-11-11, phase 3b
+ * fixes): its preview (`text`) is not blank, or its full text is in storage
+ * (`textStorageId`). The same test approval uses (getItemForApproval) and
+ * sheetFile's `hasText`. `extractNote` is not used: it also carries notes
+ * that are not about missing text (a truncation), and a read file with no
+ * text may have no note at all.
+ */
+export function hasReadText(row: Pick<IngestionItemFields, "text" | "textStorageId">): boolean {
+  return Boolean(row.text?.trim()) || row.textStorageId !== undefined;
 }
 
 /** docKind, which pairing, approval and porting read, from the category. */
@@ -64,13 +76,22 @@ const NO_FISCAL_YEAR_NEEDED: ReadonlySet<IngestionCategory> = new Set(["company_
 
 type CheckInput = Pick<
   IngestionItemFields,
-  "status" | "category" | "companyKey" | "fiscalYearEnd" | "scienceCode" | "writerName" | "writerInitials"
+  | "status"
+  | "category"
+  | "companyKey"
+  | "fiscalYearEnd"
+  | "scienceCode"
+  | "writerName"
+  | "writerInitials"
+  | "text"
+  | "textStorageId"
 >;
 
 /**
  * Why a row needs a person to look at it. Only rows on the review tab can.
  * A file still being read is not flagged for a missing science code, which
- * reading may still fill in.
+ * reading may still fill in. A file that was read but gave no text (a PDF
+ * that is only a scan) needs a person too: "no_text" (hasReadText).
  */
 export function checkReasonsFor(row: CheckInput): CheckReason[] {
   if (sheetTabForStatus(row.status) !== "review") return [];
@@ -78,6 +99,7 @@ export function checkReasonsFor(row: CheckInput): CheckReason[] {
   if (row.companyKey === undefined) reasons.push("no_company");
   if (row.category === "unknown") reasons.push("unknown_category");
   if (row.status === "failed") reasons.push("could_not_read");
+  if (row.status === "pending_review" && !hasReadText(row)) reasons.push("no_text");
   if (
     row.category !== undefined &&
     !NO_FISCAL_YEAR_NEEDED.has(row.category) &&
@@ -351,7 +373,8 @@ export function normalizePdNumber(value: string): string | null {
 
 /**
  * The row fields one sheet edit sets, and the labels it marks as set by a
- * person. Throws a plain message for a value it cannot take. A picked fiscal
+ * person. Throws a plain message for a value it cannot take, as a
+ * ConvexError (INVALID_INPUT) so the Import page can show it. A picked fiscal
  * year end leaves the fiscal year folder label as it is: fiscalYear and the
  * pairing key follow fiscalYearEnd when the row is settled.
  */
@@ -365,10 +388,10 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   if (patch.company !== undefined) {
     const name = patch.company.trim().replace(/\s+/g, " ");
     if (!name || dashboardCompanyKey(name) === DASHBOARD_UNNAMED_COMPANY_KEY) {
-      throw new Error("Type a company name.");
+      domainError("INVALID_INPUT", "Type a company name.");
     }
     if (name.length > MAX_COMPANY_NAME) {
-      throw new Error(`A company name can be up to ${MAX_COMPANY_NAME} characters.`);
+      domainError("INVALID_INPUT", `A company name can be up to ${MAX_COMPANY_NAME} characters.`);
     }
     fields.clientName = name;
     labels.push("company");
@@ -383,7 +406,7 @@ export function labelPatchFields(patch: SheetLabelPatch): {
     const end = patch.fiscalYearEnd;
     const year = Number.isFinite(end) ? new Date(end).getUTCFullYear() : NaN;
     if (!Number.isInteger(end) || end % DAY_MS !== 0 || !(year >= 1990 && year <= 2100)) {
-      throw new Error("Pick a fiscal year end date.");
+      domainError("INVALID_INPUT", "Pick a fiscal year end date.");
     }
     fields.fiscalYearEnd = end;
     fields.fiscalYearEndAssumed = false;
@@ -393,7 +416,7 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   if (patch.pdNumber !== undefined) {
     const pdNumber = normalizePdNumber(patch.pdNumber);
     if (pdNumber === null) {
-      throw new Error("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.");
+      domainError("INVALID_INPUT", "A PD number is 1 to 20, with an optional letter, for example 4 or 12a.");
     }
     fields.pdNumber = pdNumber;
     labels.push("pdNumber");
@@ -402,7 +425,7 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   if (patch.version !== undefined) {
     const n = patch.version.number;
     if (!Number.isInteger(n) || n < 0 || n > MAX_VERSION_NUMBER) {
-      throw new Error(`A version number is a whole number from 0 to ${MAX_VERSION_NUMBER}.`);
+      domainError("INVALID_INPUT", `A version number is a whole number from 0 to ${MAX_VERSION_NUMBER}.`);
     }
     fields.versionCode = patch.version.code;
     fields.versionNumber = n;
@@ -411,9 +434,10 @@ export function labelPatchFields(patch: SheetLabelPatch): {
 
   if (patch.writerName !== undefined) {
     const name = patch.writerName.trim().replace(/\s+/g, " ");
-    if (!name) throw new Error("Type the writer's name.");
+    if (!name) domainError("INVALID_INPUT", "Type the writer's name.");
+    if (looksLikeEmail(name)) domainError("INVALID_INPUT", "Type the writer's name, not an email address.");
     if (name.length > MAX_WRITER_NAME) {
-      throw new Error(`A writer's name can be up to ${MAX_WRITER_NAME} characters.`);
+      domainError("INVALID_INPUT", `A writer's name can be up to ${MAX_WRITER_NAME} characters.`);
     }
     fields.writerName = name;
     labels.push("writerName");
@@ -421,14 +445,37 @@ export function labelPatchFields(patch: SheetLabelPatch): {
 
   if (patch.scienceCode !== undefined) {
     const code = normalizeCraScienceCode(patch.scienceCode);
-    if (!code) throw new Error("That is not a CRA field of science code.");
+    if (!code) domainError("INVALID_INPUT", "That is not a CRA field of science code.");
     fields.scienceCode = code;
     fields.scienceCodeSource = "person";
     labels.push("scienceCode");
   }
 
-  if (labels.length === 0) throw new Error("Choose a label to change.");
+  if (labels.length === 0) domainError("INVALID_INPUT", "Choose a label to change.");
   return { fields, labels };
+}
+
+/** The row fields each label sets (labelPatchFields). */
+const LABEL_FIELDS: Record<EditableLabel, ReadonlyArray<keyof IngestionItemFields>> = {
+  company: ["clientName"],
+  category: ["category"],
+  fiscalYearEnd: ["fiscalYearEnd", "fiscalYearEndAssumed"],
+  pdNumber: ["pdNumber"],
+  version: ["versionCode", "versionNumber"],
+  writerName: ["writerName"],
+  scienceCode: ["scienceCode", "scienceCodeSource"],
+};
+
+/** Only the fields of `labels` from what labelPatchFields gave (2026-11-11, phase 3b fixes). */
+export function fieldsForLabels(
+  fields: Partial<IngestionItemFields>,
+  labels: readonly EditableLabel[]
+): Partial<IngestionItemFields> {
+  const picked: Record<string, unknown> = {};
+  for (const label of labels) {
+    for (const key of LABEL_FIELDS[label]) if (key in fields) picked[key] = fields[key];
+  }
+  return picked as Partial<IngestionItemFields>;
 }
 
 /** Whether pairing must be recomputed: the group, the PD or transcript role, or liveness moved. */

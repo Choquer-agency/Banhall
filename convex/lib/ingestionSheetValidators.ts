@@ -25,16 +25,45 @@ export const sheetTabValidator = v.union(
 );
 export type SheetTab = Infer<typeof sheetTabValidator>;
 
-/** Why a row on the review tab needs a person to look at it. */
+/**
+ * Why a row on the review tab needs a person to look at it. "no_text"
+ * (2026-11-11, phase 3b fixes): the file was read but no text came out of it
+ * (a PDF that is only a scan); "could_not_read" stays for a file that failed.
+ */
 export const checkReasonValidator = v.union(
   v.literal("no_company"),
   v.literal("unknown_category"),
   v.literal("could_not_read"),
+  v.literal("no_text"),
   v.literal("no_fiscal_year"),
   v.literal("no_science_code"),
   v.literal("no_writer")
 );
 export type CheckReason = Infer<typeof checkReasonValidator>;
+
+/** Why a batch call left a file as it was (shared/importSheetRules.ts BatchSkipReason). */
+export const batchSkipReasonValidator = v.union(
+  v.literal("missing"),
+  v.literal("not_on_tab"),
+  v.literal("being_read"),
+  v.literal("approved"),
+  v.literal("already_deleted"),
+  v.literal("does_not_apply"),
+  v.literal("removed_in_onedrive")
+);
+
+/**
+ * What setSheetLabels, removeItems and restoreItems did (2026-11-11, phase
+ * 3b fixes): how many files they changed, exactly which, and each file they
+ * left as it was with why. A file that already had the value asked for is in
+ * neither list.
+ */
+export const batchResultValidator = v.object({
+  changed: v.number(),
+  changedIds: v.array(v.id("ingestionItems")),
+  skipped: v.array(v.object({ id: v.id("ingestionItems"), reason: batchSkipReasonValidator })),
+});
+export type BatchResult = Infer<typeof batchResultValidator>;
 
 /** The labels a person can set on the sheet; a set one wins over the path. */
 export const editableLabelValidator = v.union(

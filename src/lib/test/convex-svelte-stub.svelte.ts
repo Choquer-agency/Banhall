@@ -65,6 +65,8 @@ const calls: Array<{ name: string; args: unknown }> = [];
 const clientQueries: Array<{ name: string; args: unknown }> = [];
 const results: Record<string, unknown> = {};
 const mutationErrors = new Map<string, unknown>();
+// Per-call answers for a suite that needs one call of several to fail.
+const mutationHandlers = new Map<string, (args: unknown) => unknown>();
 
 // Args getters per function name (one per mounted hook instance) — lets
 // tests observe which subscriptions are live (args !== "skip") and HOW MANY
@@ -168,6 +170,14 @@ export function __setMutationError(name: string, error: unknown) {
   mutationErrors.set(name, error);
 }
 
+/**
+ * Answer each call to `name` with `handler(args)`: its return value, or the
+ * error it throws. Recorded like any call; wins over a seeded result or error.
+ */
+export function __setMutationHandler(name: string, handler: (args: unknown) => unknown) {
+  mutationHandlers.set(name, handler);
+}
+
 /** Args of every call to `name`, in call order. */
 export function __mutationCalls(name: string) {
   return calls.filter((call) => call.name === name).map((call) => call.args);
@@ -199,6 +209,7 @@ export function __resetConvexStub() {
   argsHistory.clear();
   calls.length = 0;
   mutationErrors.clear();
+  mutationHandlers.clear();
   clientQueries.length = 0;
   clientSubscriptions.length = 0;
   for (const key of Object.keys(results)) delete results[key];
@@ -374,6 +385,8 @@ function recordingCall(fn: unknown) {
   const name = getFunctionName(fn as FunctionReference<"mutation">);
   return async (args?: unknown) => {
     calls.push({ name, args });
+    const handler = mutationHandlers.get(name);
+    if (handler) return handler(args);
     if (mutationErrors.has(name)) throw mutationErrors.get(name);
     return results[name];
   };

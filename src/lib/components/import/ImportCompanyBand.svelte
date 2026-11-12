@@ -6,20 +6,28 @@
   review tab, the status words ("38 being read", "77 ready", "12 to check"
   in amber). Closed by default; open, it lists its sections in their fixed
   order and leaves 28px before the next company.
+
+  With Select on (board ao4) a checkbox comes first. It selects every file
+  its open sections list (never the ones not loaded), shows a dash when only
+  some are selected, and on a closed company opens it and selects the files
+  of the section that opens, once that section lists them.
 -->
 <script lang="ts">
   import { IconChevronRight } from "$lib/components/icons";
+  import Checkbox from "$lib/components/ui/Checkbox.svelte";
   import ImportCategorySection from "./ImportCategorySection.svelte";
   import {
     bandName,
     bandSections,
     bandStatusWords,
+    NO_COMPANY_KEY,
     plural,
     type ImportCategory,
     type SheetBand,
     type SheetTab,
   } from "./importFormat";
-  import { AMBER, ROW_TOGGLE, SHEET_GRID } from "./sheetLayout";
+  import type { ImportSelection } from "./importSelection.svelte";
+  import { AMBER, ROW_TOGGLE, SELECT_CELL, sheetGrid } from "./sheetLayout";
 
   let {
     band,
@@ -29,6 +37,7 @@
     openSections,
     onToggle,
     onToggleSection,
+    selection = null,
   }: {
     band: SheetBand;
     tab: SheetTab;
@@ -38,6 +47,7 @@
     openSections: ReadonlySet<ImportCategory>;
     onToggle: () => void;
     onToggleSection: (category: ImportCategory) => void;
+    selection?: ImportSelection | null;
   } = $props();
 
   const uid = $props.id();
@@ -46,10 +56,56 @@
   const industry = $derived(band.company?.industry?.trim() || null);
   const words = $derived(bandStatusWords(band, tab));
   const sections = $derived(open ? bandSections(band, onlyToCheck) : []);
+  /** The company's name for its files' company picker; none for "No company yet". */
+  const company = $derived(band.companyKey === NO_COMPANY_KEY ? null : name);
+
+  const selecting = $derived(Boolean(selection?.on));
+  const state = $derived(selection ? selection.stateOf(selection.listed(band.companyKey)) : "none");
+
+  /**
+   * Nothing on screen to select: each section that opens now, or is open and
+   * still reading, gets its own request, used up the first time it lists.
+   * A closed company opens with its first section (Final PDs when it has
+   * them); an open one whose open sections have all listed opens its first
+   * closed section.
+   */
+  function toggleSelect() {
+    if (!selection) return;
+    if (selection.toggleRows(selection.listed(band.companyKey))) return;
+    const present = bandSections(band, onlyToCheck).map((entry) => entry.category);
+    const first = present[0];
+    if (!first) return;
+    let targets: ImportCategory[];
+    if (!open) {
+      // Opening a company opens its Final PDs.
+      onToggle();
+      if (first !== "final_pd") onToggleSection(first);
+      targets = [first];
+    } else {
+      targets = present.filter((category) => openSections.has(category) && !selection!.isListed(band.companyKey, category));
+      const closed = present.find((category) => !openSections.has(category));
+      if (targets.length === 0 && closed) {
+        onToggleSection(closed);
+        targets = [closed];
+      }
+    }
+    for (const category of targets) selection.selectWhenListed(band.companyKey, category);
+  }
 </script>
 
 <div role="rowgroup" data-import-band={band.companyKey} data-import-band-open={open ? "" : undefined} class={open ? "pb-7" : ""}>
-  <div role="row" class={`relative ${SHEET_GRID} h-[3.25rem] items-center border-t border-line hover:bg-gray-50`}>
+  <div role="row" class={`relative ${sheetGrid(selecting)} h-[3.25rem] items-center border-t border-line hover:bg-gray-50`}>
+    {#if selecting}
+      <div role="cell" data-import-select-cell class={`${SELECT_CELL} self-stretch`}>
+        <!-- Function bindings: the box always shows the selection, even when a click only opens the company. -->
+        <Checkbox
+          bind:checked={() => state === "all", () => toggleSelect()}
+          indeterminate={state === "some"}
+          aria-label={`Select ${name}`}
+          data-import-band-select={band.companyKey}
+        />
+      </div>
+    {/if}
     <div role="cell" aria-colspan={4} class="col-span-4 flex min-w-0 items-center gap-3 pr-2">
       <button
         type="button"
@@ -87,8 +143,10 @@
         <ImportCategorySection
           {tab}
           companyKey={band.companyKey}
+          {company}
           {section}
           {onlyToCheck}
+          {selection}
           open={openSections.has(section.category)}
           onToggle={() => onToggleSection(section.category)}
         />

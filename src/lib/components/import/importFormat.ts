@@ -166,6 +166,7 @@ export function yearSplitText(fiscalYears: Record<string, number>): string {
 /** The order reasons are named in a section's note, and how. */
 const REASON_WORDS: readonly [CheckReason, string, string][] = [
   ["could_not_read", "could not be read", "could not be read"],
+  ["no_text", "with no text", "with no text"],
   ["no_company", "needs a company", "need a company"],
   ["unknown_category", "needs a category", "need a category"],
   ["no_fiscal_year", "needs a fiscal year", "need a fiscal year"],
@@ -175,8 +176,9 @@ const REASON_WORDS: readonly [CheckReason, string, string][] = [
 
 /**
  * The amber note for a section's checks: "9 need a writer, 4 need a science
- * code", "3 could not be read". One file can need more than one thing.
- * Empty when nothing needs a check.
+ * code", "3 could not be read", "3 with no text" (read, but no text came out,
+ * such as a scan). One file can need more than one thing. Empty when nothing
+ * needs a check.
  */
 export function reasonSummary(counts: Partial<Record<CheckReason, number>>): string {
   return REASON_WORDS.filter(([reason]) => (counts[reason] ?? 0) > 0)
@@ -273,7 +275,7 @@ export function fileDisplayName(row: Pick<SheetFileRow, "name" | "pdNumber" | "p
 }
 
 /** "Mar 31, 2025", read in UTC: a year end is a UTC midnight. */
-function yearEndDate(fiscalYearEnd: number): string {
+export function yearEndDate(fiscalYearEnd: number): string {
   return new Date(fiscalYearEnd).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -310,7 +312,7 @@ export type CellText = { text: string; tone: Tone };
 export type FileCells = {
   prefix: string | null;
   title: string;
-  /** Words after the name: "Being read" (muted) or "Could not be read" (amber). */
+  /** Words after the name: "Being read" (muted), "Could not be read" or "No text could be read" (amber). */
   state: CellText | null;
   fiscalYear: (CellText & { tooltip: string | null }) | null;
   version: string | null;
@@ -394,7 +396,12 @@ export function fileCells(
   return {
     prefix,
     title,
-    state: row.status === "failed" ? { text: "Could not be read", tone: "amber" } : null,
+    state:
+      row.status === "failed"
+        ? { text: "Could not be read", tone: "amber" }
+        : reasons.has("no_text")
+          ? { text: "No text could be read", tone: "amber" }
+          : null,
     fiscalYear,
     version: versionText(row.versionCode, row.versionNumber),
     writer,

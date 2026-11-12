@@ -4,9 +4,14 @@
   with "N files from M companies"; then the tabs To review, Approved and
   Deleted with their counts (the company page's underlined tabs, as the
   boards draw them); then one toolbar row and the sheet, or the search
-  results in its place. Read only in this phase. Admin only: sheetTotals is
-  null for anyone else, and the page says so. The route keeps the sign-in
-  check and mounts this.
+  results in its place. Admin only: sheetTotals is null for anyone else, and
+  the page says so. The route keeps the sign-in check and mounts this.
+
+  Phase 3b (boards ao4 to ao6): a file's cells change its labels, and
+  "Select" picks files for the dark bar at the bottom. The selection lives
+  here, above the sheet, so "To check" and opening and closing companies
+  keep it. A tab change turns Select off and clears it; while a search
+  shows, the bar hides and Select is off. Approved is read only.
 -->
 <script lang="ts">
   import { tick, untrack } from "svelte";
@@ -20,6 +25,9 @@
   import ImportToolbar from "./ImportToolbar.svelte";
   import ImportSheet from "./ImportSheet.svelte";
   import ImportSearchResults from "./ImportSearchResults.svelte";
+  import ImportSelectionBar from "./ImportSelectionBar.svelte";
+  import { ImportSelection } from "./importSelection.svelte";
+  import { canSelect } from "./importEdit";
   import {
     filesFromCompaniesText,
     formatCount,
@@ -37,6 +45,7 @@
   let settled = $state<string | null>(null);
   let onlyToCheck = $state(false);
   let jump = $state<{ key: string } | null>(null);
+  const selection = new ImportSelection();
 
   $effect(() => {
     const next = searchText(search);
@@ -70,7 +79,13 @@
     })
   );
 
+  /** Searching hides the sheet, so nobody acts on rows they cannot see. */
+  const searching = $derived(settled !== null);
+  /** Select applies to To review and Deleted. */
+  const selectable = $derived(canSelect(tab));
+
   function selectTab(next: SheetTab, focus: boolean) {
+    if (next !== tab) selection.setOn(false);
     tab = next;
     jump = null;
     if (focus) void tick().then(() => document.getElementById(`import-tab-${next}`)?.focus());
@@ -112,17 +127,24 @@
           bind:onlyToCheck
           toCheckCount={totals.review ? totals.review.needsCheck : null}
           showToCheck={tab === "review"}
+          showSelect={selectable}
+          selectOn={selection.on}
+          selectDisabled={searching}
+          onSelectChange={(on) => selection.setOn(on)}
         />
         {#if settled !== null}
           <ImportSearchResults {tab} text={settled} onJump={jumpTo} />
         {/if}
         <!-- Kept while searching, so open companies stay open. -->
-        <div hidden={settled !== null}>
+        <div hidden={searching}>
           {#key tab}
-            <ImportSheet {tab} onlyToCheck={toCheck} {jump} />
+            <ImportSheet {tab} onlyToCheck={toCheck} {jump} selection={selectable ? selection : null} />
           {/key}
         </div>
       </div>
     </div>
+    {#if selectable && !searching && selection.on && selection.size > 0}
+      <ImportSelectionBar {selection} {tab} />
+    {/if}
   {/if}
 </AdminWorkspacePage>

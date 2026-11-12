@@ -5,6 +5,7 @@
 
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { activeClientForKey } from "./clients";
 import { isBeingRead } from "./ingestionSheet";
 import type { ImportCounts, SheetTab } from "./ingestionSheetValidators";
 
@@ -142,8 +143,32 @@ export async function importCompanyRow(
 }
 
 /**
+ * The name a band shows (2026-11-11, phase 3b fixes). The rule: the name of
+ * the active company with the band's key, when there is one; otherwise the
+ * name the band already has, so a later file's spelling ("CEDARLINE
+ * SYSTEMS" in one folder) never renames it; otherwise `offered`, the
+ * spelling of the file that starts the band. Only a different spelling can
+ * change a named band, so the company is read only then, or always with
+ * `checkCompany` (a rebuild). The band for files with no company has no name.
+ */
+export async function bandDisplayName(
+  ctx: QueryCtx | MutationCtx,
+  companyKey: string,
+  stored: string | undefined,
+  offered: string | undefined,
+  options: { checkCompany?: boolean } = {}
+): Promise<string> {
+  if (companyKey === NO_COMPANY_KEY) return "";
+  const kept = stored?.trim() ? stored : undefined;
+  if (!options.checkCompany && kept !== undefined && (offered === undefined || offered === kept)) return kept;
+  const company = await activeClientForKey(ctx, companyKey);
+  return company?.name ?? kept ?? offered ?? "";
+}
+
+/**
  * Write a band's new counts: deleted when the total reaches zero, created
- * when it did not exist. `displayName` replaces the stored name when given.
+ * when it did not exist. Its name follows bandDisplayName, with `offered`
+ * the spelling of the file just written (or, for a rebuild, its earliest).
  */
 export async function writeImportCompany(
   ctx: MutationCtx,
@@ -151,7 +176,8 @@ export async function writeImportCompany(
   companyKey: string,
   existing: Doc<"importCompanies"> | null,
   counts: ImportCounts,
-  displayName: string | undefined
+  offered: string | undefined,
+  options: { checkCompany?: boolean } = {}
 ): Promise<void> {
   if (hasNegative(counts)) {
     // Only a write that skipped this helper can cause it. Keep the band
@@ -168,7 +194,7 @@ export async function writeImportCompany(
   const fields = {
     ...counts,
     hasCheck: counts.needsCheck > 0,
-    displayName: companyKey === NO_COMPANY_KEY ? "" : (displayName ?? existing?.displayName ?? ""),
+    displayName: await bandDisplayName(ctx, companyKey, existing?.displayName, offered, options),
     updatedAt: Date.now(),
   };
   if (existing) {
@@ -209,13 +235,17 @@ export async function adjustImportCompanyCounts(
   const into = countShareOf(after);
   const displayName = after?.clientName;
   if (out && into && sameShare(out, into)) {
-    // Counts unchanged; only the latest client name may have moved.
+    // Counts unchanged; only the spelling of the client name may have moved,
+    // which renames the band only as bandDisplayName allows.
     if (before?.clientName === displayName || displayName === undefined) return;
+    if (into.companyKey === NO_COMPANY_KEY) return;
     const existing = await importCompanyRow(ctx, into.sheetTab, into.companyKey);
-    if (existing && existing.displayName !== displayName && into.companyKey !== NO_COMPANY_KEY) {
+    if (!existing) return;
+    const name = await bandDisplayName(ctx, into.companyKey, existing.displayName, displayName);
+    if (name !== existing.displayName) {
       // The revision moves too, so a rebuild running meanwhile starts again
       // rather than write back the name it read before.
-      await ctx.db.patch(existing._id, { displayName, revision: existing.revision + 1, updatedAt: Date.now() });
+      await ctx.db.patch(existing._id, { displayName: name, revision: existing.revision + 1, updatedAt: Date.now() });
     }
     return;
   }

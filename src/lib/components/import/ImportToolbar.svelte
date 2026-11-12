@@ -3,10 +3,13 @@
   (15rem, wide enough for its placeholder), the "To check N" chip (a bits-ui
   checkbox drawn as a chip; review tab only), and on the right the legend
   for the AI mark, which wraps to its own line before the field would
-  shrink. Nothing else sits above the sheet (owner rule).
+  shrink. Nothing else sits above the sheet (owner rule). Phase 3b adds the
+  "Select" toggle to the left of the legend (To review and Deleted; off
+  while a search is showing).
 -->
 <script lang="ts">
   import { Checkbox } from "bits-ui";
+  import { ListChecksIcon } from "phosphor-svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { IconClose, IconSearch } from "$lib/components/icons";
   import { formatCount } from "./importFormat";
@@ -16,12 +19,22 @@
     onlyToCheck = $bindable(false),
     toCheckCount = null,
     showToCheck = true,
+    showSelect = false,
+    selectOn = false,
+    selectDisabled = false,
+    onSelectChange,
   }: {
     search?: string;
     onlyToCheck?: boolean;
     /** Files on the tab that need a person; null while loading. */
     toCheckCount?: number | null;
     showToCheck?: boolean;
+    /** The Select toggle (not on Approved). */
+    showSelect?: boolean;
+    selectOn?: boolean;
+    /** While a search is showing, selection is off. */
+    selectDisabled?: boolean;
+    onSelectChange?: (on: boolean) => void;
   } = $props();
 
   let input: HTMLInputElement | null = $state(null);
@@ -93,9 +106,28 @@
     </Checkbox.Root>
   {/if}
 
-  <div data-import-legend class="ml-auto flex shrink-0 items-center gap-3 text-xs leading-[calc(4/3)] text-ink-muted">
-    <span class="flex items-center gap-1.5"><AuroraMark size={14} />Filled in by AI</span>
-    <span class="h-3.5 w-px bg-line" aria-hidden="true"></span>
-    <span>No mark: from the file name or a person</span>
+  <div class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2">
+    {#if showSelect}
+      <button
+        type="button"
+        aria-pressed={selectOn && !selectDisabled}
+        disabled={selectDisabled}
+        data-import-select-toggle
+        onclick={() => onSelectChange?.(!selectOn)}
+        class={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pr-3 pl-2.5 text-[0.8125rem] leading-[calc(18/13)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11 ${
+          selectOn && !selectDisabled
+            ? "bg-primary-wash text-ink shadow-[inset_0_0_0_1px_var(--color-primary-line)]"
+            : "bg-surface text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-gray-50"
+        }`}
+      >
+        <ListChecksIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+        Select
+      </button>
+    {/if}
+    <div data-import-legend class="flex shrink-0 items-center gap-3 text-xs leading-[calc(4/3)] text-ink-muted">
+      <span class="flex items-center gap-1.5"><AuroraMark size={14} />Filled in by AI</span>
+      <span class="h-3.5 w-px bg-line" aria-hidden="true"></span>
+      <span>No mark: from the file name or a person</span>
+    </div>
   </div>
 </div>
