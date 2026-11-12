@@ -129,6 +129,10 @@ describe("section words", () => {
       "1 needs a company, 1 needs a category, 5 need a fiscal year, 2 need a science code"
     );
     expect(reasonSummary({ no_writer: 0 })).toBe("");
+    // Initials no person has matched need a writer too, counted with the files that have none (2026-11-12).
+    expect(reasonSummary({ unmatched_initials: 9, no_science_code: 4 })).toBe("9 need a writer, 4 need a science code");
+    expect(reasonSummary({ unmatched_initials: 6, no_writer: 3 })).toBe("9 need a writer");
+    expect(reasonSummary({ unmatched_initials: 1 })).toBe("1 needs a writer");
     expect(reasonSummary({})).toBe("");
   });
 
@@ -230,7 +234,7 @@ describe("file rows", () => {
       state: null,
       fiscalYear: { text: "2025", tone: "ink", tooltip: "Year ended Mar 31, 2025" },
       version: "T2",
-      writer: { text: "Dana Whitlock", tone: "ink" },
+      writer: { text: "Dana Whitlock", tone: "ink", initials: "DW", remembered: false },
       scienceCode: {
         kind: "code",
         code: "2.02.09",
@@ -247,13 +251,39 @@ describe("file rows", () => {
     });
   });
 
-  it("shows initials in muted text when there is no writer name", () => {
-    expect(fileCells(row({ writerInitials: "KT" })).writer).toEqual({ text: "KT", tone: "muted" });
+  it("shows initials no person has matched in amber on a final PD that needs a writer, muted where none is needed", () => {
+    // A final PD: the check asks a person who KT is (2026-11-12).
+    expect(fileCells(row({ writerInitials: "KT", needsCheck: true, checkReasons: ["unmatched_initials"] })).writer).toEqual({
+      text: "KT",
+      tone: "amber",
+      initials: "KT",
+      remembered: false,
+    });
+    // A draft needs no writer: the initials stay quiet.
+    expect(fileCells(row({ category: "draft", writerInitials: "KT" })).writer).toEqual({
+      text: "KT",
+      tone: "muted",
+      initials: "KT",
+      remembered: false,
+    });
+  });
+
+  it("shows a name taken from matched initials in ink, with no AI mark, and knows where it came from", () => {
+    expect(fileCells(row({ writerInitials: "KT", writerName: "Kim Tran", writerNameSource: "initials" })).writer).toEqual({
+      text: "Kim Tran",
+      tone: "ink",
+      initials: "KT",
+      remembered: true,
+    });
+    expect(fileCells(row({ writerInitials: "KT", writerName: "Jordan Ellis", writerNameSource: "person" })).writer).toMatchObject({
+      text: "Jordan Ellis",
+      remembered: false,
+    });
   });
 
   it("marks in amber only what a person must fill in", () => {
     const missing = fileCells(row({ needsCheck: true, checkReasons: ["no_science_code", "no_writer"] }));
-    expect(missing.writer).toEqual({ text: "No writer", tone: "amber" });
+    expect(missing.writer).toEqual({ text: "No writer", tone: "amber", initials: null, remembered: false });
     expect(missing.scienceCode).toEqual({ kind: "missing", text: "No science code" });
 
     const noYear = fileCells(row({ category: "supporting", needsCheck: true, checkReasons: ["no_fiscal_year"] }));
@@ -284,7 +314,7 @@ describe("file rows", () => {
     const draft = fileCells(row({ ...stored, category: "draft" }));
     expect(draft.scienceCode).toBeNull();
     expect(draft.version).toBe("S1");
-    expect(draft.writer).toEqual({ text: "Priya Nair", tone: "ink" });
+    expect(draft.writer).toEqual({ text: "Priya Nair", tone: "ink", initials: null, remembered: false });
     // Moved back, the code shows again.
     expect(fileCells(row({ ...stored, category: "final_pd" })).scienceCode).toMatchObject({ kind: "code", code: "2.02.09" });
     // A transcript takes no version, writer or code; its year stays.

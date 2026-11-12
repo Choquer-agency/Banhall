@@ -80,12 +80,18 @@ export const SHEET_TEXT = "text-[0.8125rem] leading-[calc(18/13)]";
 /** 12/16, secondary words (code titles, year splits, "Being read"). */
 export const SHEET_SMALL = "text-xs leading-[calc(4/3)]";
 
-/** Amber words: only for something a person must do. */
-export const AMBER = "text-warning-ink-muted";
+/** Amber words: only for something a person must do (the boards' #A8500F, the app's gap-text). */
+export const AMBER = "text-gap-text";
 
-/** A "Show more" control: primary words on a 40px row. */
+/** A label cell's value (year, version, writer, code): secondary ink, as the boards draw it. */
+export const CELL_INK = "text-ink-secondary";
+
+/** A value inside a cell's control: secondary ink, ink while its picker is open (Files 5). */
+export const CELL_WORDS = "truncate text-ink-secondary group-data-[state=open]/cell:text-ink";
+
+/** A "Show more" control: primary words at 500 on a 40px row. */
 export const SHOW_MORE =
-  "inline-flex items-center gap-1 rounded-sm text-[0.8125rem] leading-[calc(18/13)] text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:text-ink-muted motion-reduce:transition-none pointer-coarse:min-h-11";
+  "inline-flex items-center gap-1 rounded-sm text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:text-ink-muted motion-reduce:transition-none pointer-coarse:min-h-11";
 
 /**
  * A disclosure button whose hit area covers its whole row (an `after:`
@@ -97,19 +103,30 @@ export const ROW_TOGGLE =
 
 /**
  * An editable label cell's control (board ao5): the cell's words, the whole
- * cell to click, the primary wash on hover and while its picker is open.
- * It is the cell's one tab stop.
+ * cell to click, the primary wash on hover. While its picker is open it is
+ * the boards' open cell (Files 5): white, a 1.5px primary-selected ring,
+ * radius 7, 28px, the words in ink. It is the cell's one tab stop. It
+ * reaches the cell's 8px padding, so its words stay where the cell's are.
  */
 export const CELL_BUTTON =
-  "group/cell -mx-1.5 flex h-8 min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir data-[state=open]:bg-primary-wash motion-reduce:transition-none pointer-coarse:h-11";
+  "group/cell -mx-2 flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[0.4375rem] pr-[0.4375rem] pl-2 text-left outline-none transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fir data-[state=open]:bg-surface data-[state=open]:shadow-[inset_0_0_0_1.5px_var(--color-primary-selected)] motion-reduce:transition-none pointer-coarse:h-11";
 
-/** The caret at an editable cell's end, shown on hover, focus and while open. */
+/** The 11px caret at an editable cell's end, shown on hover, focus and while open. */
 export const CELL_CARET =
   "ml-auto shrink-0 text-ink-muted opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100 group-data-[state=open]/cell:opacity-100 motion-reduce:transition-none";
 
-/** The amber control for a label a person must pick ("Pick a writer", board ao5). */
+/**
+ * The amber control for a label a person must pick ("Pick a writer for KT",
+ * "Pick a code", "Pick an industry"; Paper Files 1): 26px, radius 8, the
+ * warning surface inside a 1px amber line, 12/16 amber words, an 11px caret.
+ * On a narrow window it gives way before running out of its cell: its words
+ * are cut (put them in a truncating span), the caret stays.
+ */
 export const PICK_CONTROL =
-  "inline-flex h-6 min-w-0 shrink-0 items-center gap-1 rounded-md bg-warning-surface px-2 text-xs leading-[calc(4/3)] text-warning-ink-muted shadow-[inset_0_0_0_1px_var(--color-warning-line)] outline-none transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-warning-soft motion-reduce:transition-none pointer-coarse:h-11";
+  "inline-flex h-[1.625rem] max-w-full min-w-0 items-center gap-1.5 rounded-lg bg-warning-surface px-2 text-xs leading-[calc(4/3)] text-gap-text shadow-[inset_0_0_0_1px_var(--color-import-pick-line)] outline-none transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-warning-soft motion-reduce:transition-none pointer-coarse:h-11";
+
+/** The 11px caret in a pick control. */
+export const PICK_CARET_SIZE = "0.6875rem";
 
 /** A popover card under a cell or over the bar. */
 export const POPOVER_CARD = "z-[120] rounded-xl border border-line bg-surface shadow-popover outline-none";

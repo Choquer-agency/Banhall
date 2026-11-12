@@ -1,9 +1,11 @@
 <!--
-  One section of an open company on the Import sheet (board ao5): a 40px
-  label row in small capitals with its count, the per-year split in faint
-  words, an amber note when files need a person ("9 need a writer, 4 need a
-  science code", from the band's counts), and "Show N" at the right while
-  closed. Open, it lists a few files (sheetFiles, five final PDs or three of
+  One section of an open company on the Import sheet (board ao5, Paper
+  Files 1): a 40px label row under a line, the chevron in a 16px slot so the
+  label starts 24px in, on the same left edge as the files' names under it;
+  the label in muted small capitals with its count in a teal pill, the
+  per-year split in faint words 14px on, an amber note 18px on when files
+  need a person ("9 need a writer, 4 need a science code", from the band's
+  counts), and "Show N" at the right while closed. Open, it lists a few files (sheetFiles, five final PDs or three of
   anything else) and, while its count says more are left, a "Show N more"
   row that lists 25 more each time. Its
   files are read only while it is open. When "To check" changes what it
@@ -141,7 +143,7 @@
 </script>
 
 <div data-import-section={section.category} data-import-section-open={open ? "" : undefined}>
-  <div role="row" class="relative flex h-10 items-center border-t border-line-soft pr-2 hover:bg-gray-50">
+  <div role="row" class="relative flex h-10 items-center border-t border-line pr-2 hover:bg-gray-50">
     {#if selecting}
       <div role="cell" data-import-select-cell class={`${SELECT_CELL_NESTED} self-stretch`}>
         <!-- Function bindings: the box always shows the selection, even when a click only opens the section. -->
@@ -153,7 +155,7 @@
         />
       </div>
     {/if}
-    <div role="cell" aria-colspan={5} class="flex min-w-0 flex-1 items-center gap-3">
+    <div role="cell" aria-colspan={5} class="flex min-w-0 flex-1 items-center gap-2">
       <button
         type="button"
         aria-expanded={open}
@@ -162,25 +164,27 @@
         onclick={onToggle}
         class={`${ROW_TOGGLE} shrink-0 gap-2`}
       >
-        <span class="flex w-6 shrink-0 justify-center text-ink-muted">
-          <IconChevronRight size={12} strokeWidth={1.8} class={`transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`} />
+        <span data-import-section-chevron class="flex w-4 shrink-0 items-center text-ink-muted">
+          <span class={`flex size-3 items-center justify-center transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}>
+            <IconChevronRight size={12} strokeWidth={1.8} class="shrink-0" />
+          </span>
         </span>
-        <span data-import-section-label class={`${SHEET_SMALL} tracking-[0.06em] text-ink-secondary uppercase`}>{section.label}</span>
+        <span data-import-section-label class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{section.label}</span>
         <span
           data-import-section-count
-          class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-chrome px-1 text-[0.625rem] leading-[1.2] text-primary-selected"
+          class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-import-count px-[0.3125rem] text-[0.625rem] leading-[1.2] text-primary-selected"
         >{section.count}</span>
       </button>
       <!-- On a narrow sheet the year split gives way first, then the note; "Show N" always shows. -->
       {#if !onlyToCheck}
         {@const years = yearSplitText(section.counts.fiscalYears)}
-        <span data-import-section-years title={years} class={`min-w-0 shrink-[100] truncate ${SHEET_SMALL} text-ink-faint`}>{years}</span>
+        <span data-import-section-years title={years} class={`ml-1.5 min-w-0 shrink-[100] truncate ${SHEET_SMALL} text-ink-faint`}>{years}</span>
       {/if}
       {#if note}
-        <span data-import-section-note title={note} class={`min-w-0 truncate ${SHEET_SMALL} ${AMBER}`}>{note}</span>
+        <span data-import-section-note title={note} class={`ml-2.5 min-w-0 truncate ${SHEET_SMALL} ${AMBER}`}>{note}</span>
       {/if}
       {#if !open}
-        <span aria-hidden="true" class="ml-auto shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-primary-selected">{showSectionText(section.count)}</span>
+        <span aria-hidden="true" data-import-section-show class="ml-auto shrink-0 pl-2 text-[0.8125rem] leading-[calc(18/13)] font-medium text-primary-selected">{showSectionText(section.count)}</span>
       {/if}
     </div>
   </div>

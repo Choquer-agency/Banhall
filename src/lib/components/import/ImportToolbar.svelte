@@ -1,15 +1,15 @@
 <!--
-  The one row above the Import sheet (board ao5): "Find a file or company"
-  (15rem, wide enough for its placeholder), the "To check N" chip (a bits-ui
-  checkbox drawn as a chip; review tab only), and on the right the legend
-  for the AI mark, which wraps to its own line before the field would
-  shrink. Nothing else sits above the sheet (owner rule). Phase 3b adds the
-  "Select" toggle to the left of the legend (To review and Deleted; off
-  while a search is showing).
+  The one row above the Import sheet (board ao5, Paper Files 1), in the
+  drawing's order: "Find a file or company" (192px: the drawing's 176px
+  cuts the placeholder short in Geist, the app's font), the "To check N" chip
+  (a bits-ui checkbox drawn as a chip; review tab only), then on the right
+  the legend for the AI mark and, 16px after it, "Select" (To review and
+  Deleted; off while a search is showing). "Approve N ready" comes after
+  Select in a later pass. The right-hand group wraps to its own line before
+  the field would shrink. Nothing else sits above the sheet (owner rule).
 -->
 <script lang="ts">
   import { Checkbox } from "bits-ui";
-  import { ListChecksIcon } from "phosphor-svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import { IconClose, IconSearch } from "$lib/components/icons";
   import { formatCount } from "./importFormat";
@@ -47,7 +47,8 @@
 </script>
 
 <div data-import-toolbar class="flex flex-wrap items-center gap-2">
-  <div role="search" class="relative w-[15rem] shrink-0">
+  <!-- 192px; the clear button takes room only while there is text to clear. -->
+  <div role="search" class="relative w-[12rem] shrink-0">
     <IconSearch size={13} strokeWidth={1.8} class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-muted" />
     <input
       bind:this={input}
@@ -64,7 +65,7 @@
           search = "";
         }
       }}
-      class="field-control h-8 w-full rounded-md pr-7 pl-[1.875rem] text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 [&::-webkit-search-cancel-button]:appearance-none"
+      class={`field-control h-8 w-full rounded-lg pl-[1.9375rem] text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint pointer-coarse:h-11 [&::-webkit-search-cancel-button]:appearance-none ${search ? "pr-7" : "pr-2.5"}`}
     />
     {#if search}
       <button
@@ -83,12 +84,12 @@
     <Checkbox.Root
       bind:checked={onlyToCheck}
       data-import-to-check
-      class="group inline-flex h-8 shrink-0 items-center gap-2 rounded-md bg-surface px-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] transition-colors hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:bg-primary-wash data-[state=checked]:text-ink data-[state=checked]:shadow-[inset_0_0_0_1px_var(--color-primary-line)] motion-reduce:transition-none pointer-coarse:h-11"
+      class="group inline-flex h-8 shrink-0 items-center gap-2 rounded-lg bg-surface pr-3 pl-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] transition-colors hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=checked]:bg-primary-wash data-[state=checked]:text-ink data-[state=checked]:shadow-[inset_0_0_0_1px_var(--color-primary-line)] motion-reduce:transition-none pointer-coarse:h-11"
     >
       {#snippet children({ checked })}
         <span
           aria-hidden="true"
-          class={`flex size-4 shrink-0 items-center justify-center rounded-[0.25rem] border transition-colors motion-reduce:transition-none ${
+          class={`flex size-3.5 shrink-0 items-center justify-center rounded-[0.25rem] border-[1.5px] transition-colors motion-reduce:transition-none ${
             checked ? "border-primary-selected bg-primary-selected text-white" : "border-gray-300 bg-surface"
           }`}
         >
@@ -100,13 +101,20 @@
         </span>
         <span>To check</span>
         {#if toCheckCount !== null}
-          <span data-import-to-check-count class="text-ink-muted tabular-nums">{formatCount(toCheckCount)}</span>
+          <span data-import-to-check-count class="text-xs leading-[calc(4/3)] text-ink-muted tabular-nums">{formatCount(toCheckCount)}</span>
         {/if}
       {/snippet}
     </Checkbox.Root>
   {/if}
 
-  <div class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-2">
+  <!-- 24px between the legend and Select, 8px between the buttons after it (Paper Files 1). -->
+  <div data-import-toolbar-end class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-2">
+    <div data-import-legend class="mr-4 flex shrink-0 items-center gap-1.5 text-xs leading-[calc(4/3)] text-ink-muted">
+      <AuroraMark size={14} />
+      <span>Filled in by AI</span>
+      <span class="mx-1.5 h-3 w-px shrink-0 bg-line" aria-hidden="true"></span>
+      <span>No mark: from the file name or a person</span>
+    </div>
     {#if showSelect}
       <button
         type="button"
@@ -114,20 +122,12 @@
         disabled={selectDisabled}
         data-import-select-toggle
         onclick={() => onSelectChange?.(!selectOn)}
-        class={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pr-3 pl-2.5 text-[0.8125rem] leading-[calc(18/13)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11 ${
+        class={`inline-flex h-8 shrink-0 items-center rounded-lg px-3 text-[0.8125rem] leading-[calc(18/13)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11 ${
           selectOn && !selectDisabled
-            ? "bg-primary-wash text-ink shadow-[inset_0_0_0_1px_var(--color-primary-line)]"
+            ? "bg-primary-wash font-medium text-fir shadow-[inset_0_0_0_1px_var(--color-primary-line)]"
             : "bg-surface text-ink-secondary shadow-[inset_0_0_0_1px_var(--color-line)] hover:bg-gray-50"
         }`}
-      >
-        <ListChecksIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
-        Select
-      </button>
+      >Select</button>
     {/if}
-    <div data-import-legend class="flex shrink-0 items-center gap-3 text-xs leading-[calc(4/3)] text-ink-muted">
-      <span class="flex items-center gap-1.5"><AuroraMark size={14} />Filled in by AI</span>
-      <span class="h-3.5 w-px bg-line" aria-hidden="true"></span>
-      <span>No mark: from the file name or a person</span>
-    </div>
   </div>
 </div>

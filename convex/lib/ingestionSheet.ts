@@ -9,7 +9,12 @@ import type { WithoutSystemFields } from "convex/server";
 import type { Doc } from "../_generated/dataModel";
 import { dashboardCompanyKey, DASHBOARD_UNNAMED_COMPANY_KEY } from "../../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
-import { isBeingRead as statusIsBeingRead, looksLikeEmail, tabForStatus } from "../../shared/importSheetRules";
+import {
+  isBeingRead as statusIsBeingRead,
+  looksLikeEmail,
+  tabForStatus,
+  writerInitialsKey,
+} from "../../shared/importSheetRules";
 import {
   classifyItemPath,
   labelsOf,
@@ -89,12 +94,15 @@ type CheckInput = Pick<
 
 /**
  * Why a row needs a person to look at it. Only rows on the review tab can.
- * A file still being read is not flagged for a missing science code, which
- * reading may still fill in. A file that was read but gave no text (a PDF
- * that is only a scan) needs a person too: "no_text" (hasReadText).
+ * A file still being read is not flagged at all (2026-11-12): its row shows
+ * only "Being read" with nothing to pick, reading may still fill labels in,
+ * and the band counts it as being read, not as to check. It is settled again
+ * when reading ends. A file that was read but gave no text (a PDF that is
+ * only a scan) needs a person too: "no_text" (hasReadText).
  */
 export function checkReasonsFor(row: CheckInput): CheckReason[] {
   if (sheetTabForStatus(row.status) !== "review") return [];
+  if (isBeingRead(row.status)) return [];
   const reasons: CheckReason[] = [];
   if (row.companyKey === undefined) reasons.push("no_company");
   if (row.category === "unknown") reasons.push("unknown_category");
@@ -108,10 +116,51 @@ export function checkReasonsFor(row: CheckInput): CheckReason[] {
     reasons.push("no_fiscal_year");
   }
   if (row.category === "final_pd") {
-    if (!row.scienceCode && !isBeingRead(row.status)) reasons.push("no_science_code");
-    if (!row.writerName && !row.writerInitials) reasons.push("no_writer");
+    if (!row.scienceCode) reasons.push("no_science_code");
+    // Initials alone are not a writer (shared/pdFilename.ts): a person says
+    // who they are once, and every file with them takes the name.
+    if (!row.writerName) reasons.push(writerInitialsKey(row.writerInitials) ? "unmatched_initials" : "no_writer");
   }
   return reasons;
+}
+
+// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
+
+/** The initials a remembered writer is kept under (shared/importSheetRules.ts, which the page reads too). */
+export { writerInitialsKey };
+
+/** Whether a person set the file's writer on the file itself (its cell, or the bar). */
+export function writerSetByPerson(row: Pick<IngestionItemFields, "writerNameSource" | "editedLabels">): boolean {
+  return row.writerNameSource === "person" || (row.editedLabels ?? []).includes("writerName");
+}
+
+type RememberedInput = Pick<
+  IngestionItemFields,
+  "status" | "writerInitials" | "writerName" | "writerNameSource" | "editedLabels"
+>;
+
+/**
+ * Whether a row's writer follows the firm's remembered initials: a file not
+ * approved (an approved one keeps what it was approved as) whose writer no
+ * person set on the file, and which has initials or a name taken from them.
+ */
+export function followsRememberedWriter(row: RememberedInput): boolean {
+  if (row.status === "approved" || writerSetByPerson(row)) return false;
+  return writerInitialsKey(row.writerInitials) !== null || row.writerNameSource === "initials";
+}
+
+/**
+ * The writer fields a row takes from the remembered initials: `remembered`
+ * is the writer its initials stand for, or null when no person has said.
+ * A row that does not follow them (followsRememberedWriter) gets nothing;
+ * one whose initials have no writer any more loses the name it took.
+ */
+export function rememberedWriterFields(row: RememberedInput, remembered: string | null): Partial<IngestionItemFields> {
+  if (!followsRememberedWriter(row)) return {};
+  if (writerInitialsKey(row.writerInitials) !== null && remembered) {
+    return { writerName: remembered, writerNameSource: "initials" };
+  }
+  return row.writerNameSource === "initials" ? { writerName: undefined, writerNameSource: undefined } : {};
 }
 
 /** Categories whose rows are ordered by fiscal year, PD number and version. */
@@ -270,6 +319,7 @@ export type DerivedFields = {
   fiscalYear: number | undefined;
   pairGroupKey: string;
   scienceCodeSource: IngestionItemFields["scienceCodeSource"];
+  writerNameSource: IngestionItemFields["writerNameSource"];
   sheetTab: SheetTab;
   needsCheck: boolean;
   checkReasons: CheckReason[];
@@ -294,6 +344,7 @@ export function derivedFields(row: IngestionItemFields & { category: IngestionCa
     fiscalYear,
     pairGroupKey: pairGroupKeyFor(companyKey, fiscalYear),
     scienceCodeSource: row.scienceCode === undefined ? undefined : row.scienceCodeSource,
+    writerNameSource: row.writerName === undefined ? undefined : row.writerNameSource,
     sheetTab: sheetTabForStatus(row.status),
     needsCheck: checkReasons.length > 0,
     checkReasons,
@@ -379,6 +430,21 @@ const MAX_COMPANY_NAME = 200;
 const MAX_WRITER_NAME = 120;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * A writer's name as it is stored: trimmed, inner spaces collapsed. Refuses
+ * (INVALID_INPUT, words the page shows) an empty name, an email address and
+ * one longer than 120 characters.
+ */
+export function cleanWriterName(value: string): string {
+  const name = value.trim().replace(/\s+/g, " ");
+  if (!name) domainError("INVALID_INPUT", "Type the writer's name.");
+  if (looksLikeEmail(name)) domainError("INVALID_INPUT", "Type the writer's name, not an email address.");
+  if (name.length > MAX_WRITER_NAME) {
+    domainError("INVALID_INPUT", `A writer's name can be up to ${MAX_WRITER_NAME} characters.`);
+  }
+  return name;
+}
+
 /** "04" -> "4", "12a" -> "12a"; null when it is not a PD number from 1 to 20. */
 export function normalizePdNumber(value: string): string | null {
   const match = /^(\d{1,3})([A-Za-z])?$/.exec(value.trim());
@@ -450,13 +516,8 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   }
 
   if (patch.writerName !== undefined) {
-    const name = patch.writerName.trim().replace(/\s+/g, " ");
-    if (!name) domainError("INVALID_INPUT", "Type the writer's name.");
-    if (looksLikeEmail(name)) domainError("INVALID_INPUT", "Type the writer's name, not an email address.");
-    if (name.length > MAX_WRITER_NAME) {
-      domainError("INVALID_INPUT", `A writer's name can be up to ${MAX_WRITER_NAME} characters.`);
-    }
-    fields.writerName = name;
+    fields.writerName = cleanWriterName(patch.writerName);
+    fields.writerNameSource = "person";
     labels.push("writerName");
   }
 
@@ -479,7 +540,7 @@ const LABEL_FIELDS: Record<EditableLabel, ReadonlyArray<keyof IngestionItemField
   fiscalYearEnd: ["fiscalYearEnd", "fiscalYearEndAssumed"],
   pdNumber: ["pdNumber"],
   version: ["versionCode", "versionNumber"],
-  writerName: ["writerName"],
+  writerName: ["writerName", "writerNameSource"],
   scienceCode: ["scienceCode", "scienceCodeSource"],
 };
 

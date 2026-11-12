@@ -29,6 +29,9 @@ export type SheetTab = Infer<typeof sheetTabValidator>;
  * Why a row on the review tab needs a person to look at it. "no_text"
  * (2026-11-11, phase 3b fixes): the file was read but no text came out of it
  * (a PDF that is only a scan); "could_not_read" stays for a file that failed.
+ * "unmatched_initials" (2026-11-12): a final PD whose file name gave the
+ * writer's initials, which no person has said who they are yet
+ * (importWriterInitials); "no_writer" stays for one with no initials at all.
  */
 export const checkReasonValidator = v.union(
   v.literal("no_company"),
@@ -37,9 +40,18 @@ export const checkReasonValidator = v.union(
   v.literal("no_text"),
   v.literal("no_fiscal_year"),
   v.literal("no_science_code"),
-  v.literal("no_writer")
+  v.literal("no_writer"),
+  v.literal("unmatched_initials")
 );
 export type CheckReason = Infer<typeof checkReasonValidator>;
+
+/**
+ * Where a row's writer name came from (2026-11-12): a person set it on the
+ * file ("person"), or a person said once which writer the file name's
+ * initials stand for ("initials", importWriterInitials). Absent with no
+ * name; a name set before this existed is a person's (its editedLabels say so).
+ */
+export const writerNameSourceValidator = v.union(v.literal("person"), v.literal("initials"));
 
 /** Why a batch call left a file as it was (shared/importSheetRules.ts BatchSkipReason). */
 export const batchSkipReasonValidator = v.union(

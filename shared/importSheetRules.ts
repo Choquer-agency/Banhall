@@ -176,6 +176,17 @@ export function rowAbilities(
   };
 }
 
+/**
+ * The initials a file name gave, as a remembered writer is kept under
+ * (2026-11-12, importWriterInitials): trimmed and upper case, two or three
+ * letters as the naming scheme has them (shared/pdFilename.ts); null for
+ * anything else. Initials are only ever matched to a writer by a person.
+ */
+export function writerInitialsKey(initials: string | undefined | null): string | null {
+  const key = initials?.trim().toUpperCase() ?? "";
+  return /^[A-Z]{2,3}$/.test(key) ? key : null;
+}
+
 /** Looks like an email address, which is never saved as a writer's name. */
 export function looksLikeEmail(value: string): boolean {
   return /[^\s@]+@[^\s@]+\.[^\s@]+/.test(value);

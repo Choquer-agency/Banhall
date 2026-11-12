@@ -120,7 +120,7 @@
         role="tabpanel"
         id={`import-panel-${tab}`}
         aria-labelledby={`import-tab-${tab}`}
-        class={`${workPanelInline} flex flex-col gap-4 pt-6 pb-10 lg:pt-8`}
+        class={`${workPanelInline} flex flex-col gap-5 pt-6 pb-14 lg:pt-8`}
       >
         <ImportToolbar
           bind:search

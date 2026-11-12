@@ -15,15 +15,19 @@ import {
   derivedFields,
   docKindForCategory,
   fieldsForLabels,
+  followsRememberedWriter,
   labelPatchFields,
   mergeEditedLabels,
   normalizePdNumber,
   pairGroupsTouched,
   pathFieldsFor,
   previewScienceCode,
+  rememberedWriterFields,
   settleItem,
   sheetTabForStatus,
   sortKeyFor,
+  writerInitialsKey,
+  writerSetByPerson,
   type IngestionItemFields,
 } from "./ingestionSheet";
 
@@ -98,9 +102,11 @@ describe("checkReasonsFor", () => {
     companyKey: "cedarline systems",
     fiscalYearEnd: Date.UTC(2025, 2, 31),
     scienceCode: "2.02.09",
+    writerName: "Dana Whitlock",
     writerInitials: "DW",
     text: "Extracted text",
   };
+  const noWriter = { writerName: undefined, writerInitials: undefined };
 
   it("gives nothing for a complete final PD", () => {
     expect(checkReasonsFor(base)).toEqual([]);
@@ -123,7 +129,7 @@ describe("checkReasonsFor", () => {
       expect(checkReasonsFor({ ...base, status, text: undefined }), status).toEqual([]);
     }
     // With other reasons, in the fixed order.
-    expect(checkReasonsFor({ ...base, text: undefined, companyKey: undefined, writerInitials: undefined })).toEqual([
+    expect(checkReasonsFor({ ...base, text: undefined, companyKey: undefined, ...noWriter })).toEqual([
       "no_company",
       "no_text",
       "no_writer",
@@ -138,11 +144,15 @@ describe("checkReasonsFor", () => {
     expect(checkReasonsFor({ ...base, status: "failed" })).toEqual(["could_not_read"]);
     expect(checkReasonsFor({ ...base, fiscalYearEnd: undefined })).toEqual(["no_fiscal_year"]);
     expect(checkReasonsFor({ ...base, scienceCode: undefined })).toEqual(["no_science_code"]);
-    expect(checkReasonsFor({ ...base, writerInitials: undefined })).toEqual(["no_writer"]);
+    expect(checkReasonsFor({ ...base, ...noWriter })).toEqual(["no_writer"]);
+    expect(checkReasonsFor({ ...base, writerName: undefined })).toEqual(["unmatched_initials"]);
   });
 
-  it("takes a writer's name or initials", () => {
-    expect(checkReasonsFor({ ...base, writerInitials: undefined, writerName: "Dana Whitlock" })).toEqual([]);
+  it("takes a writer's name; initials alone need a person to say who they are (2026-11-12)", () => {
+    expect(checkReasonsFor({ ...base, writerInitials: undefined })).toEqual([]);
+    expect(checkReasonsFor({ ...base, writerName: undefined, writerInitials: "KT" })).toEqual(["unmatched_initials"]);
+    // Something that is not initials is no writer at all.
+    expect(checkReasonsFor({ ...base, writerName: undefined, writerInitials: "K" })).toEqual(["no_writer"]);
   });
 
   it("asks for a fiscal year on every category but company files and unknown", () => {
@@ -159,15 +169,20 @@ describe("checkReasonsFor", () => {
   });
 
   it("asks for a science code and writer on final PDs only", () => {
-    const reasons = checkReasonsFor({ ...base, category: "draft", scienceCode: undefined, writerInitials: undefined });
+    const reasons = checkReasonsFor({ ...base, category: "draft", scienceCode: undefined, ...noWriter });
     expect(reasons).toEqual([]);
+    expect(checkReasonsFor({ ...base, category: "draft", writerName: undefined })).toEqual([]);
   });
 
-  it("does not ask for a science code while the file is still being read", () => {
+  it("asks for nothing while the file is still being read", () => {
     for (const status of ["discovered", "fetched"] as const) {
       expect(checkReasonsFor({ ...base, status, scienceCode: undefined })).toEqual([]);
-      // Reading does not fill in a writer, so that is still asked for.
-      expect(checkReasonsFor({ ...base, status, writerInitials: undefined })).toEqual(["no_writer"]);
+      // The row shows only "Being read", so there is nothing to pick yet.
+      expect(checkReasonsFor({ ...base, status, ...noWriter })).toEqual([]);
+      expect(checkReasonsFor({ ...base, status, writerName: undefined })).toEqual([]);
+      expect(
+        checkReasonsFor({ ...base, status, companyKey: undefined, fiscalYearEnd: undefined, category: "unknown" })
+      ).toEqual([]);
     }
     // A file that could not be read will not get one from reading.
     expect(checkReasonsFor({ ...base, status: "failed", scienceCode: undefined })).toEqual([
@@ -380,6 +395,75 @@ describe("derivedFields and settleItem", () => {
     const row = rowAt(`${FY}/Drafts/notes.docx`, { scienceCodeSource: "document" });
     expect(derivedFields(row as IngestionItemFields & { category: "draft" }).scienceCodeSource).toBeUndefined();
   });
+
+  it("drops the writer name source when there is no name", () => {
+    const row = rowAt(`${FY}/Drafts/notes.docx`, { writerNameSource: "initials" });
+    expect(derivedFields(row as IngestionItemFields & { category: "draft" }).writerNameSource).toBeUndefined();
+  });
+});
+
+describe("writers by initials (2026-11-12)", () => {
+  const read = { status: "pending_review" as const, editedLabels: [] };
+
+  it("keys initials as the file names give them, upper case, two or three letters", () => {
+    expect(writerInitialsKey("kt")).toBe("KT");
+    expect(writerInitialsKey(" DWo ")).toBe("DWO");
+    for (const value of [undefined, null, "", "K", "KTDW", "K1", "K.T"]) expect(writerInitialsKey(value), String(value)).toBeNull();
+  });
+
+  it("knows a writer a person set on the file, before the source existed too", () => {
+    expect(writerSetByPerson({ writerNameSource: "person" })).toBe(true);
+    expect(writerSetByPerson({ editedLabels: ["writerName"] })).toBe(true);
+    expect(writerSetByPerson({ writerNameSource: "initials", editedLabels: ["category"] })).toBe(false);
+    expect(writerSetByPerson({})).toBe(false);
+  });
+
+  it("gives the remembered writer to a file with those initials and no writer a person set", () => {
+    expect(rememberedWriterFields({ ...read, writerInitials: "KT" }, "Kim Tran")).toEqual({
+      writerName: "Kim Tran",
+      writerNameSource: "initials",
+    });
+    // A new match replaces the name a file took from the old one.
+    expect(
+      rememberedWriterFields({ ...read, writerInitials: "KT", writerName: "Kim Tan", writerNameSource: "initials" }, "Kim Tran")
+    ).toEqual({ writerName: "Kim Tran", writerNameSource: "initials" });
+    // With no match (an Undo), or once its initials are gone, the name it took goes.
+    expect(rememberedWriterFields({ ...read, writerInitials: "KT", writerName: "Kim Tran", writerNameSource: "initials" }, null)).toEqual({
+      writerName: undefined,
+      writerNameSource: undefined,
+    });
+    expect(rememberedWriterFields({ ...read, writerName: "Kim Tran", writerNameSource: "initials" }, "Kim Tran")).toEqual({
+      writerName: undefined,
+      writerNameSource: undefined,
+    });
+    // Nothing to take: no match and no name from one.
+    expect(rememberedWriterFields({ ...read, writerInitials: "KT" }, null)).toEqual({});
+  });
+
+  it("never touches a writer a person set on the file, or an approved file", () => {
+    const person = { ...read, writerInitials: "KT", writerName: "Jordan Ellis", writerNameSource: "person" as const };
+    expect(followsRememberedWriter(person)).toBe(false);
+    expect(rememberedWriterFields(person, "Kim Tran")).toEqual({});
+    const before = { ...read, writerInitials: "KT", writerName: "Jordan Ellis", editedLabels: ["writerName" as const] };
+    expect(rememberedWriterFields(before, "Kim Tran")).toEqual({});
+    const approved = { ...read, status: "approved" as const, writerInitials: "KT" };
+    expect(followsRememberedWriter(approved)).toBe(false);
+    expect(rememberedWriterFields(approved, "Kim Tran")).toEqual({});
+    // A file with no initials and no name from them has nothing to follow.
+    expect(followsRememberedWriter({ ...read })).toBe(false);
+    // Deleted files follow too, so a file put back shows the name.
+    expect(followsRememberedWriter({ ...read, status: "deleted", writerInitials: "KT" })).toBe(true);
+  });
+
+  it("settles a remembered name with no check, and takes it back to a check without it", () => {
+    const row = rowAt(`${FY}/To be submitted/${PD_NAME}`);
+    const unmatched = settleItem({ ...row, status: "pending_review", scienceCode: "2.02.09" });
+    expect(unmatched.writerInitials).toBe("DW");
+    expect(unmatched.checkReasons).toContain("unmatched_initials");
+    const matched = settleItem({ ...unmatched, ...rememberedWriterFields(unmatched, "Dana Whitlock") });
+    expect(matched).toMatchObject({ writerName: "Dana Whitlock", writerNameSource: "initials" });
+    expect(matched.checkReasons).not.toContain("unmatched_initials");
+  });
 });
 
 describe("approved rows staged before the labels", () => {
@@ -483,7 +567,10 @@ describe("labelPatchFields", () => {
       versionCode: "R",
       versionNumber: 3,
     });
-    expect(labelPatchFields({ writerName: " Priya Nair " }).fields).toEqual({ writerName: "Priya Nair" });
+    expect(labelPatchFields({ writerName: " Priya Nair " }).fields).toEqual({
+      writerName: "Priya Nair",
+      writerNameSource: "person",
+    });
     expect(labelPatchFields({ scienceCode: " 2.02.09 " }).fields).toEqual({
       scienceCode: "2.02.09",
       scienceCodeSource: "person",
@@ -538,6 +625,7 @@ describe("fieldsForLabels", () => {
       versionCode: "T",
       versionNumber: 2,
       writerName: "Priya Nair",
+      writerNameSource: "person",
     });
     expect(fieldsForLabels(fields, [])).toEqual({});
   });

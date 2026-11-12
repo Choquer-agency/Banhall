@@ -53,7 +53,7 @@
     aria-label={`More for ${name}`}
     data-import-row-menu
     data-import-row-menu-active={companyOpen || menuOpen ? "" : undefined}
-    class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary transition-[opacity,background-color] hover:bg-gray-100 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash data-[state=open]:text-ink motion-reduce:transition-none pointer-coarse:size-11 ${
+    class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-[opacity,background-color] hover:bg-gray-100 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash data-[state=open]:text-ink motion-reduce:transition-none pointer-coarse:size-11 ${
       companyOpen || menuOpen
         ? "bg-primary-wash text-ink"
         : "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"

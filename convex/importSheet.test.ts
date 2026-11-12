@@ -56,6 +56,25 @@ async function runPairing(t: T): Promise<string[][]> {
   }
 }
 
+/** The scheduled writer-match runs runWriterWalk already ran, per test backend. */
+const writerJobsRun = new WeakMap<T, Set<string>>();
+
+/**
+ * Run only the scheduled rest of writer matches (applyWriterInitials) to the
+ * end, leaving other scheduled work waiting, as runPairing does for pairing.
+ */
+async function runWriterWalk(t: T) {
+  const done = writerJobsRun.get(t) ?? new Set<string>();
+  writerJobsRun.set(t, done);
+  for (;;) {
+    const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const next = jobs.find((job) => job.name.includes("applyWriterInitials") && job.state.kind === "pending" && !done.has(job._id));
+    if (!next) return;
+    done.add(next._id);
+    await t.mutation(internal.ingestion.applyWriterInitials, next.args[0] as { initials: string; tab: "review" | "deleted"; cursor: string | null });
+  }
+}
+
 async function setup() {
   const t = convexTest(schema, modules);
   await t.run(async (ctx) => {
@@ -156,7 +175,7 @@ function expectInvariants(row: Doc<"ingestionItems">) {
   expect(row.pairGroupKey, row.path).toBe(`${row.companyKey ?? "?"}::${row.fiscalYear ?? "?"}`);
   const { _id, _creationTime, ...fields } = row;
   const settled = settleItem(fields);
-  for (const key of ["sheetTab", "needsCheck", "checkReasons", "sortKey", "scienceCodeSource"] as const) {
+  for (const key of ["sheetTab", "needsCheck", "checkReasons", "sortKey", "scienceCodeSource", "writerNameSource"] as const) {
     expect(row[key], `${row.path} ${key}`).toEqual(settled[key]);
   }
 }
@@ -415,6 +434,8 @@ function beingReadByHand(row: Doc<"ingestionItems">): boolean {
 function checkReasonsByHand(row: Doc<"ingestionItems">): string[] {
   // Only files on the review tab are ever flagged.
   if (tabByHand(row.status) !== "review") return [];
+  // A file still being read is not flagged yet: its row has nothing to pick.
+  if (beingReadByHand(row)) return [];
   const reasons: string[] = [];
   // No company folder or company name.
   if (row.clientName === undefined) reasons.push("no_company");
@@ -432,10 +453,11 @@ function checkReasonsByHand(row: Doc<"ingestionItems">): string[] {
     reasons.push("no_fiscal_year");
   }
   if (row.category === "final_pd") {
-    // No science code, once reading is over (reading may still find one).
-    if (!row.scienceCode && !beingReadByHand(row)) reasons.push("no_science_code");
-    // No writer's name or initials.
-    if (!row.writerName && !row.writerInitials) reasons.push("no_writer");
+    // No science code.
+    if (!row.scienceCode) reasons.push("no_science_code");
+    // No writer's name: initials (two or three letters) a person has not
+    // matched to a writer yet, or nothing at all.
+    if (!row.writerName) reasons.push(/^[A-Z]{2,3}$/.test(row.writerInitials ?? "") ? "unmatched_initials" : "no_writer");
   }
   return reasons;
 }
@@ -745,6 +767,14 @@ describe("importCompanies counts", () => {
           );
           expect(result.changed).toBe(result.changedIds.length);
         }],
+        ["match initials", async () => {
+          // A person says who some initials are, or an Undo says no one has (2026-11-12).
+          const initials = pick(["DW", "PN", "SO"]);
+          const writerName = pick(["Dana Whitlock", "Priya Nair", "Sam Okafor", null]);
+          await admin.mutation(api.ingestion.matchWriterInitials, { initials, writerName });
+          // The rest of the walk, as the scheduler runs it.
+          await runWriterWalk(t);
+        }],
         ["delete many", async () => {
           const all = await rows();
           if (all.length === 0) return;
@@ -850,9 +880,11 @@ describe("importCompanies counts", () => {
       companyKey: "",
       displayName: "",
       total: 1,
-      needsCheck: 1,
-      hasCheck: true,
-      categories: { unknown: { total: 1, needsCheck: 1, fiscalYears: { none: 1 } } },
+      // Still being read, so not flagged yet (it is once reading ends).
+      needsCheck: 0,
+      hasCheck: false,
+      beingRead: 1,
+      categories: { unknown: { total: 1, needsCheck: 0, fiscalYears: { none: 1 } } },
     });
   });
 
@@ -1252,7 +1284,8 @@ describe("sheet queries", () => {
       reviewerInitials: "PN",
       editedLabels: [],
       needsCheck: true,
-      checkReasons: ["no_science_code"],
+      // Initials alone are not a writer until a person says who DW is (2026-11-12).
+      checkReasons: ["no_science_code", "unmatched_initials"],
       size: 2048,
     });
     expect("text" in pd4).toBe(false);
@@ -1265,9 +1298,9 @@ describe("sheet queries", () => {
       paginationOpts: PAGE,
     });
     expect(toCheck.page.map((row) => [row._id, row.checkReasons])).toEqual([
-      [ids.pd4r, ["no_science_code"]],
-      [ids.pd4, ["no_science_code"]],
-      [ids.pd12, ["no_science_code"]],
+      [ids.pd4r, ["no_science_code", "unmatched_initials"]],
+      [ids.pd4, ["no_science_code", "unmatched_initials"]],
+      [ids.pd12, ["no_science_code", "unmatched_initials"]],
       [ids.pdBare, ["no_science_code", "no_writer"]],
     ]);
 
@@ -1334,12 +1367,13 @@ describe("sheet queries", () => {
     const result = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
     const byKey = Object.fromEntries(result.page.map((band) => [band.companyKey, band]));
     // Four final PDs with no science code; the one with nothing in its name
-    // has no writer either: four need a check, and it counts under both.
+    // has no writer either, and the three whose name gave "DW" need a person
+    // to say who DW is: four need a check, each counted under its reasons.
     expect(byKey["cedarline systems"].categories.final_pd).toEqual({
       total: 4,
       needsCheck: 4,
       fiscalYears: { "2025": 4 },
-      checkReasons: { no_science_code: 4, no_writer: 1 },
+      checkReasons: { no_science_code: 4, no_writer: 1, unmatched_initials: 3 },
     });
     expect(byKey[""].categories.unknown).toEqual({
       total: 1,
@@ -1354,7 +1388,7 @@ describe("sheet queries", () => {
     await admin.mutation(api.ingestion.setSheetLabels, { ids: [ids.pdBare], patch: { writerName: "Sam Okafor" } });
     const after = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: true, paginationOpts: PAGE });
     const cedarline = after.page.find((band) => band.companyKey === "cedarline systems")!;
-    expect(cedarline.categories.final_pd.checkReasons).toEqual({ no_science_code: 4 });
+    expect(cedarline.categories.final_pd.checkReasons).toEqual({ no_science_code: 4, unmatched_initials: 3 });
     await expectCountsMatchRecount(t, "after a writer was filled in");
 
     // Off the review tab nothing needs a check, so a rejected PD takes its reasons with it.
@@ -1366,6 +1400,7 @@ describe("sheet queries", () => {
     const review = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
     expect(review.page.find((band) => band.companyKey === "cedarline systems")!.categories.final_pd.checkReasons).toEqual({
       no_science_code: 3,
+      unmatched_initials: 2,
     });
     await expectCountsMatchRecount(t, "after a reject");
   });
@@ -1405,7 +1440,7 @@ describe("sheet queries", () => {
     await runScheduled(t);
     await expectCountsMatchRecount(t, "after the tab repair");
     const { stored } = await countsNowAndRecount(t);
-    expect(stored["review|cedarline systems"].categories.final_pd.checkReasons).toEqual({ no_science_code: 4 });
+    expect(stored["review|cedarline systems"].categories.final_pd.checkReasons).toEqual({ no_science_code: 4, unmatched_initials: 3 });
     expect(stored["review|"]).toEqual(right["review|"]);
   });
 
@@ -1488,10 +1523,21 @@ describe("setSheetLabels", () => {
       ],
       [{ pdNumber: "07" }, { pdNumber: "7", editedLabels: ["pdNumber"] }],
       [{ version: { code: "S", number: 4 } }, { versionCode: "S", versionNumber: 4, editedLabels: ["version"] }],
-      [{ writerName: "Priya Nair" }, { writerName: "Priya Nair", editedLabels: ["writerName"] }],
+      [
+        { writerName: "Priya Nair" },
+        // A writer set on the file is a person's, and the initials no longer need one.
+        { writerName: "Priya Nair", writerNameSource: "person", checkReasons: ["no_science_code"], editedLabels: ["writerName"] },
+      ],
       [
         { scienceCode: "2.02.09" },
-        { scienceCode: "2.02.09", scienceCodeSource: "person", needsCheck: false, checkReasons: [], editedLabels: ["scienceCode"] },
+        // The code's check goes; "DW" from the file name still needs a person to say who it is.
+        {
+          scienceCode: "2.02.09",
+          scienceCodeSource: "person",
+          needsCheck: true,
+          checkReasons: ["unmatched_initials"],
+          editedLabels: ["scienceCode"],
+        },
       ],
     ];
     for (const [patch, expected] of cases) {
@@ -1836,7 +1882,8 @@ describe("setSheetLabels", () => {
       docKind: "pd",
       scienceCode: "2.02.09",
       scienceCodeSource: "document",
-      checkReasons: [],
+      // Only the writer's initials are left for a person.
+      checkReasons: ["unmatched_initials"],
     });
     expect((await getItem(t, reading)).scienceCode).toBeUndefined();
     expect(await getItem(t, set)).toMatchObject({ scienceCode: "1.02.01", scienceCodeSource: "person" });
@@ -2393,12 +2440,13 @@ describe("the science code read from a final PD's text", () => {
     });
   }
 
-  it("stores a final PD's code with its source, which clears the check", async () => {
+  it("stores a final PD's code with its source, which clears the code's check", async () => {
     const t = convexTest(schema, modules);
     const id = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
     await processWith(t, id, "2.02.09");
     const row = await getItem(t, id);
-    expect(row).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "document", needsCheck: false });
+    // "DW" from the file name still needs a person to say who it is.
+    expect(row).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "document", checkReasons: ["unmatched_initials"] });
     expectInvariants(row);
   });
 
@@ -2409,7 +2457,7 @@ describe("the science code read from a final PD's text", () => {
     expect((await getItem(t, draft)).scienceCode).toBeUndefined();
     const pd = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
     await processWith(t, pd, "2.02.99");
-    expect(await getItem(t, pd)).toMatchObject({ needsCheck: true, checkReasons: ["no_science_code"] });
+    expect(await getItem(t, pd)).toMatchObject({ needsCheck: true, checkReasons: ["no_science_code", "unmatched_initials"] });
     expect((await getItem(t, pd)).scienceCode).toBeUndefined();
   });
 
@@ -2494,7 +2542,11 @@ describe("the science code read from a final PD's text", () => {
     await t.mutation(internal.ingestion.backfillIngestionLabels, {});
     for (const id of [old, settled]) {
       const row = await getItem(t, id);
-      expect(row, row.driveItemId).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "document", checkReasons: [] });
+      expect(row, row.driveItemId).toMatchObject({
+        scienceCode: "2.02.09",
+        scienceCodeSource: "document",
+        checkReasons: ["unmatched_initials"],
+      });
       expectInvariants(row);
     }
     expect(await getItem(t, personal)).toMatchObject({ scienceCode: "1.02.01", scienceCodeSource: "person" });
@@ -2569,5 +2621,186 @@ describe("a row moved on main, before the move fix", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
+
+describe("matchWriterInitials", () => {
+  /** A read final PD whose name gives these initials, with its science code read, so only the writer is left. */
+  async function pdBy(t: T, initials: string, n: number, folder = CEDARLINE_FY) {
+    const name = `${String(n).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.${initials} Project${n}.docx`;
+    const id = await stage(t, `${folder}/To be submitted/${name}`, { driveItemId: `${initials}-${n}-${folder}` });
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text: "Text", documentScienceCode: "2.02.09" });
+    return id;
+  }
+
+  it("says who the initials are on every file with them, which then needs no writer, and Undo takes it back", async () => {
+    const { t, admin } = await setup();
+    const kt1 = await pdBy(t, "KT", 1);
+    const kt2 = await pdBy(t, "KT", 2);
+    const dw = await pdBy(t, "DW", 3);
+    // Before: initials alone need a person.
+    expect(await getItem(t, kt1)).toMatchObject({ needsCheck: true, checkReasons: ["unmatched_initials"] });
+
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "kt", writerName: " Kim  Tran " });
+    expect(result).toEqual({ initials: "KT", writerName: "Kim Tran", previous: null, changed: 2, more: false });
+    for (const id of [kt1, kt2]) {
+      const row = await getItem(t, id);
+      // The file name and a person: no AI mark, and not a writer set on the file.
+      expect(row).toMatchObject({ writerName: "Kim Tran", writerNameSource: "initials", needsCheck: false, checkReasons: [] });
+      expect(row.editedLabels ?? []).not.toContain("writerName");
+      expectInvariants(row);
+    }
+    // Other initials are left alone.
+    expect(await getItem(t, dw)).toMatchObject({ checkReasons: ["unmatched_initials"] });
+    expect((await getItem(t, dw)).writerName).toBeUndefined();
+    await expectCountsMatchRecount(t, "after the match");
+    const bands = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
+    expect(bands.page[0].categories.final_pd.checkReasons).toEqual({ unmatched_initials: 1 });
+
+    // Undo: no one has said who KT is any more.
+    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: result.previous })).resolves.toEqual({
+      initials: "KT",
+      writerName: null,
+      previous: "Kim Tran",
+      changed: 2,
+      more: false,
+    });
+    for (const id of [kt1, kt2]) {
+      const row = await getItem(t, id);
+      expect(row.writerName).toBeUndefined();
+      expect(row.writerNameSource).toBeUndefined();
+      expect(row.checkReasons).toEqual(["unmatched_initials"]);
+    }
+    expect(await t.run((ctx) => ctx.db.query("importWriterInitials").collect())).toEqual([]);
+    await expectCountsMatchRecount(t, "after the Undo");
+  });
+
+  it("keeps a writer a person set on one file, before and after, and that file's choice wins", async () => {
+    const { t, admin } = await setup();
+    const own = await pdBy(t, "KT", 1);
+    const other = await pdBy(t, "KT", 2);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [own], patch: { writerName: "Jordan Ellis" } });
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" });
+    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis", writerNameSource: "person" });
+    expect(await getItem(t, other)).toMatchObject({ writerName: "Kim Tran", writerNameSource: "initials" });
+    // A file that took the name can still be set to another writer: that wins for it.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [other], patch: { writerName: "Sam Okafor" } });
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tranh" });
+    expect(await getItem(t, other)).toMatchObject({ writerName: "Sam Okafor", writerNameSource: "person" });
+    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis" });
+    await expectCountsMatchRecount(t, "after a file's own writer");
+  });
+
+  it("gives the name to files that come later or are put back, and never to an approved file", async () => {
+    const { t, admin } = await setup();
+    const deleted = await pdBy(t, "KT", 1);
+    await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
+    const approved = await pdBy(t, "KT", 2);
+    await approveForTest(t, admin, approved);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" });
+    await runWriterWalk(t);
+    // The Deleted tab is walked after To review, so a file put back shows the name too.
+    expect(await getItem(t, deleted)).toMatchObject({ status: "deleted", writerName: "Kim Tran", writerNameSource: "initials" });
+    // An approved file keeps what it was approved as.
+    expect((await getItem(t, approved)).writerName).toBeUndefined();
+    // A file staged after the match takes the name as it is staged.
+    const later = await pdBy(t, "KT", 3);
+    expect(await getItem(t, later)).toMatchObject({ writerName: "Kim Tran", writerNameSource: "initials", checkReasons: [] });
+    await admin.mutation(api.ingestion.restoreItems, { ids: [deleted] });
+    expect(await getItem(t, deleted)).toMatchObject({ status: "pending_review", writerName: "Kim Tran", checkReasons: [] });
+    // A rename to other initials drops the name it took.
+    await t.mutation(
+      internal.ingestion.upsertDiscoveredItem,
+      discoveredArgs(`${CEDARLINE_FY}/To be submitted/03 CedarlineSystems 2025-03-31 T1.MN Project3.docx`, {
+        driveItemId: `KT-3-${CEDARLINE_FY}`,
+      })
+    );
+    const renamed = await getItem(t, later);
+    expect(renamed.writerInitials).toBe("MN");
+    expect(renamed.writerName).toBeUndefined();
+    expect(renamed.checkReasons).toEqual(["unmatched_initials"]);
+    await expectCountsMatchRecount(t, "after later files");
+  });
+
+  it("changes 100 files in the call and the rest in scheduled runs, keeping the counts right", async () => {
+    const { t, admin } = await setup();
+    // 120 files on To review: rows written straight in (staging each would be slow), then counted.
+    await t.run(async (ctx) => {
+      for (let n = 1; n <= 120; n++) {
+        const name = `${String(n % 20 || 20).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.KT Project${n}.docx`;
+        const fields = settleItem({
+          ...discoveredArgs(`${CEDARLINE_FY}/To be submitted/${name}`, { driveItemId: `many-${n}` }),
+          status: "pending_review",
+          text: "Text",
+          scienceCode: "2.02.09",
+          scienceCodeSource: "document",
+          updatedAt: 1,
+        });
+        const row = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as typeof fields;
+        await ctx.db.insert("ingestionItems", row);
+        await adjustImportCompanyCounts(ctx, null, row);
+      }
+    });
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" });
+    expect(result).toMatchObject({ changed: 100, more: true });
+    const named = async () => (await t.run((ctx) => ctx.db.query("ingestionItems").collect())).filter((row) => row.writerName === "Kim Tran").length;
+    expect(await named()).toBe(100);
+    await runWriterWalk(t);
+    expect(await named()).toBe(120);
+    await expectCountsMatchRecount(t, "after 120 files");
+    const { stored } = await countsNowAndRecount(t);
+    expect(stored["review|cedarline systems"]).toMatchObject({ needsCheck: 0, ready: 120 });
+  });
+
+  it("refuses anyone but an admin, initials that are not initials, and an email address", async () => {
+    const { admin, writer } = await setup();
+    await expect(writer.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" })).rejects.toThrow(/Admin only/);
+    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "K", writerName: "Kim Tran" })).rejects.toThrow(
+      "Initials are two or three letters, such as KT."
+    );
+    await expect(
+      admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "kim.tran@example.com" })
+    ).rejects.toThrow("Type the writer's name, not an email address.");
+  });
+});
+
+// ─── A new company's industry (2026-11-12) ──────────────────────────────────
+
+describe("setNewCompanyIndustry", () => {
+  it("keeps a new company's industry by its key, on every tab, as a slug from the industry list", async () => {
+    const { t, admin } = await setup();
+    const id = await stage(t, "Halden Foods/2025 - Jun 30/Drafts/plan.docx");
+    await markRead(t, id);
+    await expect(
+      admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "halden foods", industry: "Food processing" })
+    ).resolves.toEqual({ industry: "food-processing" });
+    const band = async (tab: "review" | "deleted") =>
+      (await admin.query(api.ingestion.sheetCompanies, { tab, onlyToCheck: false, paginationOpts: PAGE })).page[0];
+    expect(await band("review")).toMatchObject({ companyKey: "halden foods", isNew: true, pickedIndustry: "food-processing" });
+    // Changed, then the company's files move to Deleted: the pick goes with the company.
+    await admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "halden foods", industry: "manufacturing" });
+    await admin.mutation(api.ingestion.removeItems, { ids: [id] });
+    expect(await band("deleted")).toMatchObject({ companyKey: "halden foods", pickedIndustry: "manufacturing" });
+    expect(await t.run((ctx) => ctx.db.query("importNewCompanies").collect())).toHaveLength(1);
+  });
+
+  it("refuses a company the app already has, no company, and anyone but an admin", async () => {
+    const { t, admin, writer } = await setup();
+    await seedCompanies(t);
+    await expect(
+      admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "cedarline systems", industry: "software" })
+    ).rejects.toThrow("This company is already in Banhall. Change its industry on its company page.");
+    await expect(admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "", industry: "software" })).rejects.toThrow(
+      "Pick the company first."
+    );
+    await expect(admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "halden foods", industry: " - " })).rejects.toThrow(
+      "Pick an industry."
+    );
+    await expect(
+      writer.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "halden foods", industry: "software" })
+    ).rejects.toThrow(/Admin only/);
   });
 });

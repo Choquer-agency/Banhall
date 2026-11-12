@@ -47,10 +47,10 @@
 </script>
 
 {#snippet groupLabel(label: string, count: number)}
-  <div role="row" class="flex h-10 items-center border-t border-line-soft pl-6">
+  <div role="row" class="flex h-10 items-center border-t border-line pl-6">
     <div role="cell" aria-colspan={5} class="flex items-center gap-2">
-      <span class={`${SHEET_SMALL} tracking-[0.06em] text-ink-secondary uppercase`}>{label}</span>
-      <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-chrome px-1 text-[0.625rem] leading-[1.2] text-primary-selected">{count}</span>
+      <span class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{label}</span>
+      <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-import-count px-[0.3125rem] text-[0.625rem] leading-[1.2] text-primary-selected">{count}</span>
     </div>
   </div>
 {/snippet}
@@ -63,19 +63,19 @@
         <div role="rowgroup" data-import-found-companies>
           {@render groupLabel("Companies", result.companies.length)}
           {#each result.companies as company (company.companyKey)}
-            <div role="row" data-import-found-company={company.companyKey} class={`relative ${SHEET_GRID} h-[3.25rem] items-center border-t border-line hover:bg-gray-50`}>
-              <div role="cell" aria-colspan={4} class="col-span-4 flex min-w-0 items-center gap-3 pr-2">
+            <div role="row" data-import-found-company={company.companyKey} class={`relative ${SHEET_GRID} h-[3.25rem] items-center border-t border-gray-300 hover:bg-gray-50`}>
+              <div role="cell" aria-colspan={4} class="col-span-4 flex min-w-0 items-center gap-2">
                 <button
                   type="button"
                   aria-label={`${bandName(company)}, show in the sheet`}
                   data-import-found-company-open
                   onclick={() => onJump(company)}
-                  class={`${ROW_TOGGLE} min-w-0 shrink`}
+                  class={`${ROW_TOGGLE} min-w-0 shrink gap-2`}
                 >
-                  <span class="flex w-6 shrink-0 justify-center text-ink-muted"><IconChevronRight size={14} strokeWidth={1.8} /></span>
+                  <span class="flex w-4 shrink-0 text-ink-muted"><IconChevronRight size={14} strokeWidth={1.8} /></span>
                   <span class="truncate text-[0.9375rem] leading-[calc(4/3)] font-medium text-ink">{bandName(company)}</span>
                 </button>
-                <span class="ml-auto shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{plural(company.total, "file")}</span>
+                <span class="ml-auto shrink-0 pl-2 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{plural(company.total, "file")}</span>
               </div>
               <div role="cell" class="flex min-w-0 items-center justify-end px-2 text-[0.8125rem] leading-[calc(18/13)]">
                 {#if tab === "review" && company.needsCheck > 0}
@@ -106,7 +106,7 @@
       {#if result.files.length >= FILE_LIMIT}
         <p class={`border-t border-line-soft py-3 pl-6 ${SHEET_SMALL} text-ink-muted`}>Showing the first {FILE_LIMIT} files. Type more of the name to narrow it.</p>
       {/if}
-      <div class="border-t border-line" aria-hidden="true"></div>
+      <div class="border-t border-gray-300" aria-hidden="true"></div>
     {/if}
   </div>
 </div>

@@ -25,7 +25,7 @@ const one = (selector: string, root: ParentNode = document) => root.querySelecto
 const band = (key: string) => one(`[data-import-band="${key}"]`)!;
 const section = (bandKey: string, category: string) => one(`[data-import-section="${category}"]`, band(bandKey))!;
 
-const AMBER = "rgb(180, 83, 9)"; // --color-warning-ink-muted
+const AMBER = "rgb(168, 80, 15)"; // --color-gap-text, the drawing's amber
 const MAR_31_2025 = Date.UTC(2025, 2, 31);
 const DEC_31_2024 = Date.UTC(2024, 11, 31);
 
@@ -217,8 +217,8 @@ describe("ImportSheet", () => {
     // Board sizes: a 36px header and 52px bands.
     expect(one("[data-import-sheet-header]")!.getBoundingClientRect().height).toBeCloseTo(board(36), 0);
     expect(one('[role="row"]', cedarline)!.getBoundingClientRect().height).toBeCloseTo(board(52), 0);
-    // The band line is the strongest hairline (--color-line).
-    expect(getComputedStyle(one('[role="row"]', cedarline)!).borderTopColor).toBe("rgb(218, 229, 227)");
+    // The band line is the sheet's strongest line (gray-300, Paper Files 1).
+    expect(getComputedStyle(one('[role="row"]', cedarline)!).borderTopColor).toBe("rgb(194, 208, 205)");
   });
 
   it("shows no status words on the approved tab", async () => {
@@ -827,6 +827,9 @@ describe("ImportSheet on laptop windows", () => {
       writerInitials: "DW",
       scienceCode: "2.02.09",
       scienceCodeSource: "document",
+      // Initials no person has matched (2026-11-12): the longest pick control, "Pick a writer for DW".
+      needsCheck: true,
+      checkReasons: ["unmatched_initials"],
     }),
     // A final PD with nothing filled in: both amber pick controls.
     fileRow("bare", { name: "Brightwell final PD - membrane line.docx", fiscalYearEnd: MAR_31_2025, needsCheck: true, checkReasons: ["no_science_code", "no_writer"] }),
@@ -866,6 +869,8 @@ describe("ImportSheet on laptop windows", () => {
     await userEvent.click(page.getByRole("button", { name: /^Supporting files/ }));
     await expect.poll(() => all("[data-import-file]").length).toBe(4);
     await document.fonts.ready;
+    // Let the chevrons finish turning (150ms): half turned, a chevron's box is wider than it is at rest.
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
   const box = (node: Element) => node.getBoundingClientRect();

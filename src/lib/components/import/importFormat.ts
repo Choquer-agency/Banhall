@@ -7,7 +7,7 @@
  */
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "../../../../convex/_generated/api";
-import { categoryTakes } from "../../../../shared/importSheetRules";
+import { categoryTakes, writerInitialsKey } from "../../../../shared/importSheetRules";
 import { scienceCodeDisplay } from "$lib/components/project/details/detailsFormat";
 
 export type SheetTab = "review" | "approved" | "deleted";
@@ -164,15 +164,19 @@ export function yearSplitText(fiscalYears: Record<string, number>): string {
   return parts.join(", ");
 }
 
-/** The order reasons are named in a section's note, and how. */
-const REASON_WORDS: readonly [CheckReason, string, string][] = [
-  ["could_not_read", "could not be read", "could not be read"],
-  ["no_text", "with no text", "with no text"],
-  ["no_company", "needs a company", "need a company"],
-  ["unknown_category", "needs a category", "need a category"],
-  ["no_fiscal_year", "needs a fiscal year", "need a fiscal year"],
-  ["no_writer", "needs a writer", "need a writer"],
-  ["no_science_code", "needs a science code", "need a science code"],
+/**
+ * The order reasons are named in a section's note, and how. A file with no
+ * writer and one whose initials no person has matched yet (2026-11-12) both
+ * "need a writer": a file has one or the other, never both.
+ */
+const REASON_WORDS: readonly [readonly CheckReason[], string, string][] = [
+  [["could_not_read"], "could not be read", "could not be read"],
+  [["no_text"], "with no text", "with no text"],
+  [["no_company"], "needs a company", "need a company"],
+  [["unknown_category"], "needs a category", "need a category"],
+  [["no_fiscal_year"], "needs a fiscal year", "need a fiscal year"],
+  [["no_writer", "unmatched_initials"], "needs a writer", "need a writer"],
+  [["no_science_code"], "needs a science code", "need a science code"],
 ];
 
 /**
@@ -182,11 +186,11 @@ const REASON_WORDS: readonly [CheckReason, string, string][] = [
  * needs a check.
  */
 export function reasonSummary(counts: Partial<Record<CheckReason, number>>): string {
-  return REASON_WORDS.filter(([reason]) => (counts[reason] ?? 0) > 0)
-    .map(([reason, one, many]) => {
-      const count = counts[reason]!;
-      return `${formatCount(count)} ${count === 1 ? one : many}`;
-    })
+  return REASON_WORDS.map(([reasons, one, many]) => {
+    const count = reasons.reduce((sum, reason) => sum + (counts[reason] ?? 0), 0);
+    return count > 0 ? `${formatCount(count)} ${count === 1 ? one : many}` : "";
+  })
+    .filter(Boolean)
     .join(", ");
 }
 
@@ -312,6 +316,15 @@ export function versionText(code: SheetFileRow["versionCode"], number: number | 
 export type Tone = "ink" | "muted" | "amber";
 export type CellText = { text: string; tone: Tone };
 
+/**
+ * The Writer cell (2026-11-12): a name (ink), the file name's initials when
+ * no person has said who they are (amber on a final PD, which needs a
+ * writer; muted on a draft or review copy), or amber "No writer". `initials`
+ * are the file name's; `remembered` is a name that came from them, which a
+ * person matched once for every file (no AI mark: the file name and a person).
+ */
+export type WriterCell = CellText & { initials: string | null; remembered: boolean };
+
 export type FileCells = {
   prefix: string | null;
   title: string;
@@ -319,7 +332,7 @@ export type FileCells = {
   state: CellText | null;
   fiscalYear: (CellText & { tooltip: string | null }) | null;
   version: string | null;
-  writer: CellText | null;
+  writer: WriterCell | null;
   scienceCode:
     | { kind: "code"; code: string; title: string | null; fromDocument: boolean }
     | { kind: "missing"; text: string }
@@ -351,6 +364,7 @@ export function fileCells(
     | "versionCode"
     | "versionNumber"
     | "writerName"
+    | "writerNameSource"
     | "writerInitials"
     | "scienceCode"
     | "scienceCodeSource"
@@ -379,15 +393,15 @@ export function fileCells(
       : null;
 
   const writerName = row.writerName?.trim();
-  const initials = row.writerInitials?.trim();
-  const writer: CellText | null = !categoryTakes("writerName", row.category)
+  const initials = writerInitialsKey(row.writerInitials);
+  const writer: WriterCell | null = !categoryTakes("writerName", row.category)
     ? null
     : writerName
-      ? { text: writerName, tone: "ink" }
+      ? { text: writerName, tone: "ink", initials, remembered: row.writerNameSource === "initials" }
       : initials
-        ? { text: initials, tone: "muted" }
+        ? { text: initials, tone: reasons.has("unmatched_initials") ? "amber" : "muted", initials, remembered: false }
         : reasons.has("no_writer")
-          ? { text: "No writer", tone: "amber" }
+          ? { text: "No writer", tone: "amber", initials: null, remembered: false }
           : null;
 
   const code = row.scienceCode?.trim();

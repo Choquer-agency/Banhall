@@ -8,6 +8,7 @@ import {
   labelApplies,
   looksLikeEmail,
   rosterWriterName,
+  writerInitialsKey,
   type ImportCategory,
   type ImportItemStatus,
   type ImportLabel,
@@ -93,5 +94,14 @@ describe("writer names", () => {
     expect(rosterWriterName({ name: "   " })).toBeNull();
     expect(looksLikeEmail("Priya Nair")).toBe(false);
     expect(looksLikeEmail("priya@northgate.example")).toBe(true);
+  });
+});
+
+describe("writer initials (2026-11-12)", () => {
+  it("keys the initials a file name gives, so a person's match finds every file with them", () => {
+    expect(writerInitialsKey("KT")).toBe("KT");
+    expect(writerInitialsKey(" kt ")).toBe("KT");
+    expect(writerInitialsKey("DWo")).toBe("DWO");
+    for (const value of [undefined, null, "", "K", "ABCD", "K1", "K T"]) expect(writerInitialsKey(value), String(value)).toBeNull();
   });
 });

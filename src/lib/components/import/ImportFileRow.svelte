@@ -4,10 +4,18 @@
   shows "PD 4" muted and the PD's title for a file named like a PD, else the
   file name, then "Being read" (muted) or "Could not be read" (amber).
   Fiscal year is the year alone with the year end in a tooltip; Version
-  "T2"; Writer the name, or the initials muted; Science code the code and
-  its title, after the AI mark when it was read from the document. Amber
-  marks only what a person must fill in. A cell whose label the file's
-  category does not take stays empty (fileCells).
+  "T2"; Writer the name, or the file name's initials; Science code the code
+  and its title, after the AI mark when it was read from the document. The
+  cells' words are secondary ink (Paper Files 1). Amber marks only what a
+  person must fill in. A cell whose label the file's category does not take
+  stays empty (fileCells).
+
+  Writers by initials (2026-11-12): a final PD whose initials no person has
+  said who they are shows the amber "Pick a writer for KT"; a draft or
+  review copy shows the initials muted. A writer picked on a file whose
+  initials have no writer yet says "KT is Kim Tran" for the whole firm
+  (matchWriter, with Undo); on any other file it sets that file alone, and
+  that wins for the file. A name taken from initials has no AI mark.
 
   On To review (2026-11-11 phase 3b) a read file's cells are its pickers,
   each cell's one tab stop: the year end calendar, the version menu, the
@@ -46,13 +54,14 @@
   import ImportRowMenu from "./ImportRowMenu.svelte";
   import ImportVersionPicker from "./ImportVersionPicker.svelte";
   import ImportWriterList from "./ImportWriterList.svelte";
-  import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
+  import { deleteFiles, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles } from "./importActions";
   import {
     dateInputFromUtcDay,
     deletedReasonText,
     fileSelectLabel,
     moveBackGroups,
     movedText,
+    pickWriterText,
     rowAbilities,
     settledIds,
     skippedText,
@@ -68,7 +77,10 @@
     AMBER,
     CELL_BUTTON,
     CELL_CARET,
+    CELL_INK,
+    CELL_WORDS,
     FIXED_CELL,
+    PICK_CARET_SIZE,
     PICK_CONTROL,
     ROW_MENU_ROOM,
     SELECT_CELL,
@@ -106,11 +118,25 @@
   const selected = $derived(selection?.has(row._id) ?? false);
   const reason = $derived(tab === "deleted" ? deletedReasonText(row.deletedReason) : null);
   const label = $derived(cells.prefix ? `${cells.prefix} ${cells.title}` : cells.title);
-  const toneClass: Record<Tone, string> = { ink: "text-ink", muted: "text-ink-muted", amber: AMBER };
+  const toneClass: Record<Tone, string> = { ink: CELL_INK, muted: "text-ink-muted", amber: AMBER };
+  /** The same inside a cell's control, where the words turn ink while its picker is open. */
+  const wordsClass: Record<Tone, string> = { ink: CELL_WORDS, muted: "truncate text-ink-muted", amber: `truncate ${AMBER}` };
 
   const setLabels = useMutation(api.ingestion.setSheetLabels);
   const removeItems = useMutation(api.ingestion.removeItems);
   const restoreItems = useMutation(api.ingestion.restoreItems);
+  const matchInitials = useMutation(api.ingestion.matchWriterInitials);
+
+  /**
+   * A writer picked in the Writer cell (2026-11-12). On a file whose name
+   * gave initials no person has matched yet, the pick says who they are for
+   * the whole firm; otherwise it sets this file's writer, which wins for it.
+   */
+  function pickWriter(name: string) {
+    const initials = row.writerName ? null : cells.writer?.initials ?? null;
+    if (initials) void matchWriter(initials, name, matchInitials);
+    else if (name !== row.writerName) void change({ writerName: name });
+  }
 
   /**
    * One label on this file; a refusal shows the server's words, and a file
@@ -259,7 +285,9 @@
       ? "Set the writer"
       : cells.writer.tone === "muted"
         ? `Writer ${cells.writer.text}, initials only. Set the writer's name`
-        : `Writer ${cells.writer.text}. Change the writer`
+        : cells.writer.remembered && cells.writer.initials
+          ? `Writer ${cells.writer.text}, from the initials ${cells.writer.initials}. Change the writer for this file`
+          : `Writer ${cells.writer.text}. Change the writer`
   );
   const codeLabel = $derived(
     cells.scienceCode?.kind === "code"
@@ -271,7 +299,7 @@
 {#snippet yearWords()}
   {#if cells.fiscalYear}
     {@const year = cells.fiscalYear}
-    <span data-import-year class={`truncate ${toneClass[year.tone]}`}>{year.text}{#if year.tooltip}<span class="sr-only">, {year.tooltip}</span>{/if}</span>
+    <span data-import-year class={wordsClass[year.tone]}>{year.text}{#if year.tooltip}<span class="sr-only">, {year.tooltip}</span>{/if}</span>
   {/if}
 {/snippet}
 
@@ -289,7 +317,7 @@
     {#snippet trigger({ props })}
       <button {...mergeProps(tip, props)} type="button" aria-label={yearLabel} data-import-year-edit class={CELL_BUTTON}>
         {@render yearWords()}
-        <CaretDownIcon size="0.75rem" aria-hidden="true" class={CELL_CARET} />
+        <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class={CELL_CARET} />
       </button>
     {/snippet}
   </DatePicker>
@@ -303,7 +331,7 @@
     {:else}
       <span class="size-[0.875rem] shrink-0" aria-hidden="true"></span>
     {/if}
-    <span data-import-code class="shrink-0 text-ink">{cells.scienceCode.code}</span>
+    <span data-import-code class={`shrink-0 ${readOnly ? CELL_INK : "text-ink-secondary group-data-[state=open]/cell:text-ink"}`}>{cells.scienceCode.code}</span>
     {#if cells.scienceCode.title && readOnly}
       <!-- Read only: the whole title on hover when it is cut; not a tab stop. -->
       <Tooltip text={codeTip} delayDuration={400} disabled={!codeCut}>
@@ -319,13 +347,14 @@
 
 {#snippet nameLine()}
   {#if cells.prefix}
-    <span data-import-file-prefix class="w-[3.125rem] shrink-0 truncate text-ink-muted">{cells.prefix}</span>
+    <!-- 40px, then 10px to the title (Paper Files 1). -->
+    <span data-import-file-prefix class="w-10 shrink-0 truncate text-ink-muted">{cells.prefix}</span>
   {/if}
   <!--
     The name never shrinks to make room for the words after it: they give way
     first, down to a few letters (the name may take all but 4rem of the line).
   -->
-  <span class="flex min-w-0 flex-1 items-center gap-2">
+  <span class="flex min-w-0 flex-1 items-center gap-2.5">
     <!-- Hover only: a tab stop on every row would make the sheet slow to cross by keyboard. -->
     <Tooltip text={nameTip} delayDuration={400} disabled={!titleIsNotName && !nameCut}>
       {#snippet children({ props })}
@@ -341,7 +370,7 @@
       <span
         data-import-file-state
         title={cells.state.text}
-        class={`min-w-0 truncate ${cells.state.tone === "amber" ? AMBER : `${SHEET_SMALL} text-ink-muted`}`}
+        class={`min-w-0 truncate ${SHEET_SMALL} ${cells.state.tone === "amber" ? AMBER : "text-ink-muted"}`}
       >{cells.state.text}</span>
     {/if}
   </span>
@@ -370,13 +399,13 @@
   {/if}
 
   <div role="cell" data-import-cell="file" class={`flex min-w-0 flex-col justify-center pr-3 ${inset === "section" ? "pl-6" : "pl-12"}`}>
-    <span class="flex min-w-0 items-center gap-2">{@render nameLine()}</span>
+    <span class="flex min-w-0 items-center gap-2.5">{@render nameLine()}</span>
     {#if companyName}
       <!-- Search results: the company on its own line, under the name, so neither squeezes the other. -->
       <span
         data-import-file-company
         title={companyName}
-        class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted ${cells.prefix ? "pl-[3.625rem]" : ""}`}
+        class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted ${cells.prefix ? "pl-[3.125rem]" : ""}`}
       >{companyName}</span>
     {/if}
   </div>
@@ -411,13 +440,13 @@
       <ImportVersionPicker code={row.versionCode} number={row.versionNumber} onPick={(version) => change({ version })}>
         {#snippet trigger({ props })}
           <button {...props} type="button" aria-label={cells.version ? `Version ${cells.version}. Change the version` : "Set the version"} data-import-version-edit class={CELL_BUTTON}>
-            {#if cells.version}<span class="truncate text-ink">{cells.version}</span>{/if}
-            <CaretDownIcon size="0.75rem" aria-hidden="true" class={CELL_CARET} />
+            {#if cells.version}<span class={CELL_WORDS}>{cells.version}</span>{/if}
+            <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class={CELL_CARET} />
           </button>
         {/snippet}
       </ImportVersionPicker>
     {:else if cells.version}
-      <span class="truncate text-ink">{cells.version}</span>
+      <span class={`truncate ${CELL_INK}`}>{cells.version}</span>
     {/if}
   </div>
 
@@ -426,16 +455,29 @@
       <ImportPickerPopover label="Writer">
         {#snippet trigger({ props })}
           {#if cells.writer?.tone === "amber"}
-            <button {...props} type="button" data-import-writer-pick data-import-writer-tone="amber" class={PICK_CONTROL}>
-              Pick a writer
-              <CaretDownIcon size="0.6875rem" aria-hidden="true" class="shrink-0" />
+            <!-- It may shrink on a narrow window: its words are cut, and given whole on hover. -->
+            <button
+              {...props}
+              type="button"
+              title={pickWriterText(cells.writer.initials)}
+              data-import-writer-pick
+              data-import-writer-tone="amber"
+              data-import-writer-initials={cells.writer.initials ?? undefined}
+              class={PICK_CONTROL}
+            >
+              <span class="truncate">{pickWriterText(cells.writer.initials)}</span>
+              <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
             </button>
           {:else}
             <button {...props} type="button" aria-label={writerLabel} data-import-writer-edit class={CELL_BUTTON}>
               {#if cells.writer}
-                <span data-import-writer-tone={cells.writer.tone} class={`truncate ${toneClass[cells.writer.tone]}`}>{cells.writer.text}</span>
+                <span
+                  data-import-writer-tone={cells.writer.tone}
+                  data-import-writer-remembered={cells.writer.remembered ? "" : undefined}
+                  class={wordsClass[cells.writer.tone]}
+                >{cells.writer.text}</span>
               {/if}
-              <CaretDownIcon size="0.75rem" aria-hidden="true" class={CELL_CARET} />
+              <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class={CELL_CARET} />
             </button>
           {/if}
         {/snippet}
@@ -444,13 +486,16 @@
             current={row.writerName ?? null}
             onPick={(name) => {
               close();
-              if (name !== row.writerName) void change({ writerName: name });
+              pickWriter(name);
             }}
           />
         {/snippet}
       </ImportPickerPopover>
     {:else if cells.writer}
-      <span data-import-writer-tone={cells.writer.tone} class={`truncate ${toneClass[cells.writer.tone]}`}>{cells.writer.text}</span>
+      <!-- Read only: an amber writer cell says what is missing. -->
+      <span data-import-writer-tone={cells.writer.tone} class={`truncate ${toneClass[cells.writer.tone]}`}>{
+        cells.writer.tone === "amber" && cells.writer.initials ? `No writer for ${cells.writer.initials}` : cells.writer.text
+      }</span>
     {/if}
   </div>
 
@@ -460,8 +505,8 @@
         {#snippet trigger({ props })}
           {#if cells.scienceCode?.kind === "missing"}
             <button {...props} type="button" data-import-code-pick data-import-code-missing class={PICK_CONTROL}>
-              Pick a code
-              <CaretDownIcon size="0.6875rem" aria-hidden="true" class="shrink-0" />
+              <span class="truncate">Pick a code</span>
+              <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
             </button>
           {:else}
             <!-- The whole title in a tooltip when it is cut, on hover and on keyboard focus of the control. -->
@@ -475,7 +520,7 @@
                   class={`${CELL_BUTTON} gap-1.5`}
                 >
                   {@render codeWords(false)}
-                  <CaretDownIcon size="0.75rem" aria-hidden="true" class={CELL_CARET} />
+                  <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class={CELL_CARET} />
                 </button>
               {/snippet}
             </Tooltip>

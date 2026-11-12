@@ -297,12 +297,13 @@ describe("ImportToolbar", () => {
       const input = one("[data-import-search]", holder) as HTMLInputElement;
       await expect.poll(() => input.isConnected).toBe(true);
       expect(input.placeholder).toBe("Find a file or company");
-      // 15rem (240 board px). The placeholder fits with a fifth to spare, for
-      // fonts that set wider than this browser's (it ran out of room at 12.5rem).
+      // 12rem (192 board px; the drawing's 176 cuts the placeholder in Geist,
+      // the app's own bundled font). The whole placeholder fits with room to
+      // spare while the field is empty (the clear button's room comes with text).
       await document.fonts.ready;
-      expect(input.getBoundingClientRect().width).toBeCloseTo(board(240), 0);
+      expect(input.getBoundingClientRect().width).toBeCloseTo(board(192), 0);
       const { text, box } = placeholderFit(input);
-      expect(text * 1.2).toBeLessThanOrEqual(box);
+      expect(text * 1.05).toBeLessThanOrEqual(box);
       const legend = one("[data-import-legend]", holder)!;
       const search = one('[role="search"]', holder)!;
       // One row: the legend sits on the field's middle line.

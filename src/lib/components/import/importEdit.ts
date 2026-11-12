@@ -408,6 +408,24 @@ export function moveBackGroups(
   return [...groups.values()];
 }
 
+/**
+ * The toast once a person says who some initials are (2026-11-12): "KT is
+ * Kim Tran on 9 files", or "KT is Kim Tran" when no file changed. While more
+ * files are still to follow, "on 100 files so far".
+ */
+export function writerMatchedText(initials: string, writerName: string, changed: number, more: boolean): string {
+  if (changed <= 0) return `${initials} is ${writerName}`;
+  return `${initials} is ${writerName} on ${files(changed)}${more ? " so far" : ""}`;
+}
+
+/** Said under that toast while more files are still to follow. */
+export const WRITER_MATCH_MORE = "The other files with these initials follow in a moment.";
+
+/** "Pick a writer for KT", or "Pick a writer" for a file whose name gave no initials. */
+export function pickWriterText(initials: string | null): string {
+  return initials ? `Pick a writer for ${initials}` : "Pick a writer";
+}
+
 /** "Delete 6 files" */
 export function deleteLine(count: number): string {
   return `Delete ${files(count)}`;

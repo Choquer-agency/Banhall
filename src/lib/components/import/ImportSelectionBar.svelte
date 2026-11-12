@@ -312,7 +312,7 @@
   aria-label="Selected files"
   data-import-selection-bar
   data-menu-open={categoryOpen || yearOpen || moreOpen || deleteOpen ? "" : undefined}
-  class="fixed bottom-8 left-1/2 z-[90] flex h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl bg-ink pr-1.5 pl-4 shadow-dialog"
+  class="fixed bottom-8 left-1/2 z-[90] flex h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl bg-ink pr-1.5 pl-4 shadow-review-bar"
 >
   <span data-import-bar-count class="flex h-6 items-center border-r border-white/20 pr-3.5 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap text-white" aria-live="polite">
     {formatCount(count)} {count === 1 ? "file" : "files"} selected

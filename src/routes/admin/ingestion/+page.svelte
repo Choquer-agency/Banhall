@@ -451,17 +451,10 @@
     {/each}
   </div>
 {/snippet}
-{#snippet newImportLink()}
-  <a
-    href={resolve("/admin/import")}
-    data-new-import-link
-    class="rounded-sm text-sm leading-[calc(10/7)] text-primary-selected hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir"
-  >Try the new Import page</a>
-{/snippet}
 {#if auth.isLoading || !auth.isAuthenticated}
   <WorkspaceLoadingShell layout="page" title="OneDrive import" icon={IconShield} breadcrumb={{ label: "Admin", href: resolve("/admin/house-rules") }} />
 {:else}
-  <AdminWorkspacePage title="OneDrive import" description="Review historical PDs and transcripts before anything enters the Brain." flush actions={newImportLink}>
+  <AdminWorkspacePage title="OneDrive import" description="Review historical PDs and transcripts before anything enters the Brain." flush>
     {#if stats === null}
       <p class="mt-8 text-sm text-ink-muted">Admin access only.</p>
     {:else}

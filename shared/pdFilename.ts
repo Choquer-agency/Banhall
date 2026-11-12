@@ -15,7 +15,9 @@
  * tolerant: the project number and client are the anchor; every later token
  * is optional and whatever follows the recognised prefix becomes the title.
  * Initials are returned as data only — callers must never turn them into an
- * Owner or writer (ownership is never inferred from metadata).
+ * Owner or writer (ownership is never inferred from metadata). On the Import
+ * sheet a person may say once which writer some initials stand for
+ * (importWriterInitials, 2026-11-12); the code never makes that match itself.
  */
 
 /** The version letter: T to be submitted, S submitted, R in review. */

@@ -41,6 +41,7 @@ import {
   pdVersionCodeValidator,
   scienceCodeSourceValidator,
   sheetTabValidator,
+  writerNameSourceValidator,
 } from "./lib/ingestionSheetValidators";
 import {
   sectionMetricsValidator,
@@ -4413,9 +4414,14 @@ export default defineSchema({
     // Order inside a category section: PD number, version, then name for
     // final PDs, drafts and review copies; the lower-cased name otherwise.
     sortKey: v.optional(v.string()),
-    // Set by a person on the sheet (ingestion.setSheetLabels). Text only:
-    // never linked to a user.
+    // Set by a person on the sheet (ingestion.setSheetLabels), or since
+    // 2026-11-12 taken from the writer a person said the file name's
+    // initials stand for (importWriterInitials). Text only: never linked to
+    // a user.
     writerName: v.optional(v.string()),
+    // 2026-11-12 widen: where writerName came from. Absent on names set
+    // before (a person's: editedLabels has "writerName").
+    writerNameSource: v.optional(writerNameSourceValidator),
     // A code from shared/craScienceCodes.ts: read from a final PD's text
     // ("document") or set by a person ("person"). Source is absent with no code.
     scienceCode: v.optional(v.string()),
@@ -4451,7 +4457,35 @@ export default defineSchema({
       "needsCheck",
       "sortKey",
     ])
+    // 2026-11-12: the files whose name gave these initials, for applying a
+    // writer a person matched to them (ingestion.matchWriterInitials).
+    .index("by_sheetTab_and_writerInitials", ["sheetTab", "writerInitials"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
+
+  // 2026-11-12 (Import sheet): "these initials are this writer", said once
+  // by a person for the whole firm (ingestion.matchWriterInitials). The code
+  // never makes a match itself (shared/pdFilename.ts): only a person's pick
+  // does. Every import file whose name gave these initials and whose writer
+  // no person set on the file shows this name (writerNameSource "initials").
+  // One row per initials (upper case, as the file names give them).
+  importWriterInitials: defineTable({
+    initials: v.string(),
+    writerName: v.string(),
+    setBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_initials", ["initials"]),
+
+  // 2026-11-12 (Import sheet): what a person picked on the sheet for a
+  // company the app does not have yet, kept by company key so it holds on
+  // every tab until the company is created on approval. `industry` is a
+  // slug from the app's industry list (shared/industries.ts), as on
+  // clients.industry.
+  importNewCompanies: defineTable({
+    companyKey: v.string(),
+    industry: v.optional(v.string()),
+    setBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_companyKey", ["companyKey"]),
 
   // 2026-11-11 (Import sheet, phase 2): what one company band shows without
   // reading its files. One row per sheet tab and company key; companyKey is

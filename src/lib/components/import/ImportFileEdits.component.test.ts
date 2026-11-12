@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import ImportSheet from "./ImportSheet.svelte";
@@ -25,7 +25,7 @@ const one = (selector: string, root: ParentNode = document) => root.querySelecto
 const fileRow = (id: string) => one(`[data-import-file="${id}"]`)!;
 const inRow = (id: string, selector: string) => one(selector, fileRow(id))!;
 
-const AMBER = "rgb(180, 83, 9)";
+const AMBER = "rgb(168, 80, 15)"; // --color-gap-text, the drawing's amber
 const MAR_31_2025 = Date.UTC(2025, 2, 31);
 
 const CEDARLINE = {
@@ -69,7 +69,8 @@ const FINAL_PDS = [
     scienceCode: "2.02.09",
     scienceCodeSource: "document",
   }),
-  row("pd2", { pdNumber: "2", pdTitle: "Yard map solver", fiscalYearEnd: MAR_31_2025, versionCode: "T", versionNumber: 1, writerInitials: "KT", scienceCode: "1.02.02", scienceCodeSource: "person" }),
+  // Initials no person has matched yet (2026-11-12): the file needs a writer.
+  row("pd2", { pdNumber: "2", pdTitle: "Yard map solver", fiscalYearEnd: MAR_31_2025, versionCode: "T", versionNumber: 1, writerInitials: "KT", scienceCode: "1.02.02", scienceCodeSource: "person", needsCheck: true, checkReasons: ["unmatched_initials"] }),
   row("pd4", {
     pdNumber: "4",
     pdTitle: "Label vision check",
@@ -238,18 +239,15 @@ describe("changing one file on the Import sheet", () => {
 
   it("picks a writer from the firm's people, or takes a typed name", async () => {
     await mount();
-    // Initials only stay muted until a name is set.
-    const initials = one("[data-import-writer-tone]", fileRow("pd2"))!;
-    expect(text(initials)).toBe("KT");
-    expect(initials.dataset.importWriterTone).toBe("muted");
-    await userEvent.click(inRow("pd2", "[data-import-writer-edit]"));
+    // A file with a writer: the pick sets that file alone.
+    await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
     await expect.poll(() => all("[data-import-name-option]").map((node) => text(node))).toEqual([
       "Dana Whitlock",
       "Priya Nair",
       "Sam Okafor",
     ]);
     await userEvent.click(one('[data-import-name-option="Priya Nair"]')!);
-    await expect.poll(labelCalls).toEqual([{ ids: ["pd2"], patch: { writerName: "Priya Nair" } }]);
+    await expect.poll(labelCalls).toEqual([{ ids: ["pd1"], patch: { writerName: "Priya Nair" } }]);
 
     // Someone not on the roster: type the name and take it.
     await userEvent.click(inRow("pd4", "[data-import-writer-pick]"));
@@ -262,7 +260,7 @@ describe("changing one file on the Import sheet", () => {
 
   it("lists only people with a real name, and refuses a typed email address as a writer", async () => {
     await mount();
-    await userEvent.click(inRow("pd2", "[data-import-writer-edit]"));
+    await userEvent.click(inRow("pd2", "[data-import-writer-pick]"));
     await expect.poll(() => all("[data-import-name-option]").map((node) => text(node))).toEqual([
       "Dana Whitlock",
       "Priya Nair",
@@ -273,6 +271,53 @@ describe("changing one file on the Import sheet", () => {
     expect(one("[data-import-name-new]")).toBeNull();
     await userEvent.keyboard("{Enter}");
     expect(labelCalls()).toEqual([]);
+    expect(__mutationCalls("ingestion:matchWriterInitials")).toEqual([]);
+  });
+
+  it("asks who unmatched initials are, says the pick holds for every file with them, and Undo takes it back (2026-11-12)", async () => {
+    __setMutationHandler("ingestion:matchWriterInitials", (args) => {
+      const { initials, writerName } = args as { initials: string; writerName: string | null };
+      return { initials, writerName, previous: null, changed: 9, more: false };
+    });
+    await mount();
+    const pick = inRow("pd2", "[data-import-writer-pick]");
+    expect(text(pick)).toBe("Pick a writer for KT");
+    expect(getComputedStyle(pick).color).toBe(AMBER);
+    await userEvent.click(pick);
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="Priya Nair"]')!));
+    // The pick says who KT is for the whole firm: never a label on this file alone.
+    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials")).toEqual([{ initials: "KT", writerName: "Priya Nair" }]);
+    expect(labelCalls()).toEqual([]);
+    await expect.element(page.getByText("KT is Priya Nair on 9 files")).toBeVisible();
+    await userEvent.click(undoIn("KT is Priya Nair on 9 files"));
+    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials").at(-1)).toEqual({ initials: "KT", writerName: null });
+
+    // A name taken from matched initials shows like any name, with no AI mark;
+    // a pick there changes this file alone, and wins for it.
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
+      { ...FINAL_PDS[1], writerName: "Priya Nair", writerNameSource: "initials", needsCheck: false, checkReasons: [] },
+      ...FINAL_PDS.filter((entry) => entry._id !== "pd2"),
+    ]);
+    await expect.poll(() => text(one("[data-import-writer-tone]", fileRow("pd2")))).toBe("Priya Nair");
+    const named = inRow("pd2", "[data-import-writer-edit]");
+    expect(named.getAttribute("aria-label")).toBe("Writer Priya Nair, from the initials KT. Change the writer for this file");
+    expect(one('[data-import-cell="writer"] [data-ai-mark]', fileRow("pd2"))).toBeNull();
+    await userEvent.click(named);
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="Sam Okafor"]')!));
+    await expect.poll(labelCalls).toEqual([{ ids: ["pd2"], patch: { writerName: "Sam Okafor" } }]);
+    expect(__mutationCalls("ingestion:matchWriterInitials")).toHaveLength(2);
+  });
+
+  it("says when a match could not be saved", async () => {
+    __setMutationHandler("ingestion:matchWriterInitials", () => {
+      throw Object.assign(new Error("[CONVEX M(ingestion:matchWriterInitials)] Server Error"), {
+        data: { code: "INVALID_INPUT", message: "Initials are two or three letters, such as KT." },
+      });
+    });
+    await mount();
+    await userEvent.click(inRow("pd2", "[data-import-writer-pick]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="Dana Whitlock"]')!));
+    await expect.element(page.getByText("Initials are two or three letters, such as KT.")).toBeVisible();
   });
 
   it("finds a science code by number or words and sends a real code; a person's pick drops the AI mark", async () => {
@@ -312,10 +357,11 @@ describe("changing one file on the Import sheet", () => {
       expect(getComputedStyle(control).color, selector).toBe(AMBER);
       expect(control.tagName, selector).toBe("BUTTON");
     }
-    // pd1 and pd2 have a writer (or initials) and a code: no pick controls.
-    for (const id of ["pd1", "pd2"]) {
-      expect(one("[data-import-writer-pick], [data-import-code-pick]", fileRow(id)), id).toBeNull();
-    }
+    // pd1 has a writer and a code: no pick controls. pd2 has a code, and
+    // initials no person has matched: only the writer is asked for.
+    expect(one("[data-import-writer-pick], [data-import-code-pick]", fileRow("pd1"))).toBeNull();
+    expect(one("[data-import-code-pick]", fileRow("pd2"))).toBeNull();
+    expect(text(inRow("pd2", "[data-import-writer-pick]"))).toBe("Pick a writer for KT");
     // Still being read: nothing to pick yet, and its cells are empty.
     expect(one("[data-import-writer-pick], [data-import-code-pick], [data-import-year-edit]", fileRow("pd5"))).toBeNull();
     // Could not be read: the amber words stay, but nothing opens.

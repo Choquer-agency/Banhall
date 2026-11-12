@@ -15,6 +15,7 @@ import {
   MOVE_CATEGORIES,
   moveBackGroups,
   movedText,
+  pickWriterText,
   putBackLine,
   putBackText,
   rowAbilities,
@@ -26,6 +27,7 @@ import {
   stoppedText,
   utcDayFromDateInput,
   VERSION_CODES,
+  writerMatchedText,
   yearEndCalendarStart,
   type BarChange,
   type BatchResult,
@@ -357,5 +359,19 @@ describe("the bar's words", () => {
     for (const words of [...VERSION_CODES.map((entry) => entry.label), confirmLine(year, 2)]) {
       expect(words).not.toMatch(/[\u2013\u2014]/);
     }
+  });
+});
+
+describe("writers by initials (2026-11-12)", () => {
+  it("asks for the writer of the initials, or for a writer", () => {
+    expect(pickWriterText("KT")).toBe("Pick a writer for KT");
+    expect(pickWriterText(null)).toBe("Pick a writer");
+  });
+
+  it("says who the initials are, on how many files, and when more are still to follow", () => {
+    expect(writerMatchedText("KT", "Kim Tran", 9, false)).toBe("KT is Kim Tran on 9 files");
+    expect(writerMatchedText("KT", "Kim Tran", 1, false)).toBe("KT is Kim Tran on 1 file");
+    expect(writerMatchedText("KT", "Kim Tran", 100, true)).toBe("KT is Kim Tran on 100 files so far");
+    expect(writerMatchedText("KT", "Kim Tran", 0, false)).toBe("KT is Kim Tran");
   });
 });

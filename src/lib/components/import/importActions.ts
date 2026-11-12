@@ -4,7 +4,8 @@
  * runs of at most 100, then the app's toast. A delete's toast offers Undo,
  * which puts back exactly the files that delete changed (its changedIds).
  * A move's toast offers Undo too (moveBack), which sets the category or
- * company each moved file had before.
+ * company each moved file had before. Saying who some initials are
+ * (matchWriter, 2026-11-12) offers Undo the same way.
  * Files a call left as they were are named in the toast, by reason.
  *
  * The toast and the selection bar both sit at the bottom centre, so while
@@ -23,6 +24,8 @@ import {
   skippedText,
   stoppedText,
   TRY_AGAIN,
+  WRITER_MATCH_MORE,
+  writerMatchedText,
   type BatchResult,
   type ChunkRun,
   type FileId,
@@ -123,6 +126,45 @@ export async function moveBack(groups: readonly MoveBackGroup[], setLabels: Move
 export function moveUndo(groups: readonly MoveBackGroup[] | null, setLabels: MoveCall, tab: SheetTab) {
   if (!groups || groups.length === 0) return {};
   return { action: { label: "Undo", onClick: () => void moveBack(groups, setLabels, tab) } };
+}
+
+export type WriterMatch = {
+  initials: string;
+  writerName: string | null;
+  previous: string | null;
+  changed: number;
+  more: boolean;
+};
+export type WriterMatchCall = (args: { initials: string; writerName: string | null }) => Promise<WriterMatch>;
+
+/**
+ * Says who some initials are for the whole firm (2026-11-12,
+ * ingestion.matchWriterInitials), then "KT is Kim Tran on 9 files" with
+ * Undo, which sets the initials back to the writer they had before (or to
+ * none). Like the other Undos, it says nothing unless it fails. True when
+ * the match was saved.
+ */
+export async function matchWriter(initials: string, writerName: string, match: WriterMatchCall): Promise<boolean> {
+  let result: WriterMatch;
+  try {
+    result = await match({ initials, writerName });
+  } catch (error) {
+    toast.error(userErrorMessage(error, "The writer could not be saved."), IMPORT_TOAST);
+    return false;
+  }
+  const undo = async () => {
+    try {
+      await match({ initials, writerName: result.previous });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The writer could not be set back."), IMPORT_TOAST);
+    }
+  };
+  toast(writerMatchedText(initials, result.writerName ?? writerName, result.changed, result.more), {
+    ...IMPORT_TOAST,
+    description: result.more ? WRITER_MATCH_MORE : undefined,
+    action: { label: "Undo", onClick: () => void undo() },
+  });
+  return true;
 }
 
 /**

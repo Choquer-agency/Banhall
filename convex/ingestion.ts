@@ -17,16 +17,20 @@ import { domainError } from "./lib/contracts";
 import { graphConfiguration } from "./lib/providerConfig";
 import {
   changedFields,
+  cleanWriterName,
   definedFields,
   fieldsForLabels,
+  followsRememberedWriter,
   hasReadText,
   labelPatchFields,
   mergeEditedLabels,
   pairGroupsTouched,
   pathFieldsFor,
   previewScienceCode,
+  rememberedWriterFields,
   settleItem,
   sheetTabForStatus,
+  writerInitialsKey,
   type IngestionItemFields,
 } from "./lib/ingestionSheet";
 import {
@@ -49,6 +53,7 @@ import {
   scienceCodeSourceValidator,
   sheetLabelPatchValidator,
   sheetTabValidator,
+  writerNameSourceValidator,
 } from "./lib/ingestionSheetValidators";
 import {
   activeClientAfterMerges,
@@ -58,6 +63,7 @@ import {
 } from "./lib/clients";
 import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { industrySlug } from "../shared/industries";
 import {
   canDelete,
   canPutBack,
@@ -103,9 +109,50 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
 // (convex/projects.ts, which clears the ported* fields): none of them writes
 // a field the sheet fields or the counts are worked out from.
 
+/**
+ * The writer a person said some initials stand for, by initials, as one
+ * mutation has read them (2026-11-12). A batch passes one so it reads each
+ * match once; a mutation that writes a match fills it with the new value.
+ */
+type RememberedWriters = Map<string, string | null>;
+
+async function rememberedWriter(
+  ctx: QueryCtx,
+  initials: string,
+  memo?: RememberedWriters
+): Promise<string | null> {
+  if (memo?.has(initials)) return memo.get(initials) ?? null;
+  const match = await ctx.db
+    .query("importWriterInitials")
+    .withIndex("by_initials", (q) => q.eq("initials", initials))
+    .first();
+  const name = match?.writerName ?? null;
+  memo?.set(initials, name);
+  return name;
+}
+
+/**
+ * A settled row with the writer its initials stand for (2026-11-12): every
+ * write of a row that follows the remembered initials (not approved, no
+ * writer a person set on the file) reads the match, so a new file, a file
+ * put back or renamed, and a match made or undone all show the same name.
+ */
+async function settleWithWriter(
+  ctx: MutationCtx,
+  row: IngestionItemFields,
+  memo?: RememberedWriters
+): Promise<IngestionItemFields> {
+  const settled = settleItem(row);
+  if (!followsRememberedWriter(settled)) return settled;
+  const initials = writerInitialsKey(settled.writerInitials);
+  const name = initials === null ? null : await rememberedWriter(ctx, initials, memo);
+  const writer = rememberedWriterFields(settled, name);
+  return Object.keys(writer).length === 0 ? settled : settleItem({ ...settled, ...writer });
+}
+
 /** Insert an ingestion item: the one place rows are created. */
 async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promise<Id<"ingestionItems">> {
-  const row = definedFields(settleItem(fields));
+  const row = definedFields(await settleWithWriter(ctx, fields));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
   return id;
@@ -114,16 +161,17 @@ async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promis
 /**
  * Patch an ingestion item: settles the patched row, writes only the fields
  * that changed and keeps the company counts right. With `touch`, updatedAt
- * moves only when something else changed.
+ * moves only when something else changed. `writers` lets a batch read each
+ * remembered writer once.
  */
 async function patchItem(
   ctx: MutationCtx,
   before: Doc<"ingestionItems">,
   patch: Partial<IngestionItemFields>,
-  options: { touch?: boolean } = {}
+  options: { touch?: boolean; writers?: RememberedWriters } = {}
 ): Promise<{ after: Doc<"ingestionItems">; changed: boolean }> {
   const { _id, _creationTime, ...fields } = before;
-  let settled = settleItem({ ...fields, ...patch });
+  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, options.writers);
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
   if (changed && options.touch) {
@@ -312,6 +360,9 @@ const sheetRowFields = {
   versionCode: v.optional(pdVersionCodeValidator),
   versionNumber: v.optional(v.number()),
   writerName: v.optional(v.string()),
+  // 2026-11-12: "initials" when the name is the writer a person said the
+  // file name's initials stand for (no AI mark: the file name and a person).
+  writerNameSource: v.optional(writerNameSourceValidator),
   writerInitials: v.optional(v.string()),
   reviewerInitials: v.optional(v.string()),
   scienceCode: v.optional(v.string()),
@@ -347,6 +398,7 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     versionCode: item.versionCode,
     versionNumber: item.versionNumber,
     writerName: item.writerName,
+    writerNameSource: item.writerNameSource,
     writerInitials: item.writerInitials,
     reviewerInitials: item.reviewerInitials,
     scienceCode: item.scienceCode,
@@ -462,13 +514,26 @@ const sheetBandValidator = v.object({
   company: v.union(v.null(), knownCompanyValidator),
   // A company key the app does not know yet (never true for the no-company band).
   isNew: v.boolean(),
+  // A new company's industry, as a person picked it on the sheet
+  // (2026-11-12, importNewCompanies): a slug from the app's industry list.
+  pickedIndustry: v.optional(v.string()),
 });
+
+/** What a person picked on the sheet for a company the app does not have yet. */
+async function newCompanyPicks(ctx: QueryCtx, companyKey: string): Promise<Doc<"importNewCompanies"> | null> {
+  return await ctx.db
+    .query("importNewCompanies")
+    .withIndex("by_companyKey", (q) => q.eq("companyKey", companyKey))
+    .first();
+}
 
 /**
  * A page of company bands for a tab in name order (the no-company band, key
  * "", comes first), or only those with a file that needs a check. Each band
  * carries its counts, with each category's check reasons for the section's
- * note ("9 need a writer"), and what the app knows about that company.
+ * note ("9 need a writer"), what the app knows about that company (its
+ * industry among it), and for a new company the industry a person picked on
+ * the sheet (2026-11-12).
  */
 export const sheetCompanies = query({
   args: {
@@ -494,17 +559,22 @@ export const sheetCompanies = query({
       // A rebuild's start row has no files yet (rebuildImportCompanyCounts).
       if (band.total <= 0) continue;
       const company = await knownCompany(ctx, band.companyKey);
-      page.push({
-        companyKey: band.companyKey,
-        displayName: band.displayName,
-        total: band.total,
-        needsCheck: band.needsCheck,
-        ready: band.ready,
-        beingRead: band.beingRead,
-        categories: band.categories,
-        company,
-        isNew: band.companyKey !== NO_COMPANY_KEY && company === null,
-      });
+      const isNew = band.companyKey !== NO_COMPANY_KEY && company === null;
+      const picks = isNew ? await newCompanyPicks(ctx, band.companyKey) : null;
+      page.push(
+        definedFields({
+          companyKey: band.companyKey,
+          displayName: band.displayName,
+          total: band.total,
+          needsCheck: band.needsCheck,
+          ready: band.ready,
+          beingRead: band.beingRead,
+          categories: band.categories,
+          company,
+          isNew,
+          pickedIndustry: picks?.industry,
+        })
+      );
     }
     return { ...result, page };
   },
@@ -1156,6 +1226,164 @@ export const setSheetLabels = mutation({
     }
     await recomputeGroups(ctx, groups, MANY_ROWS);
     return outcome.result();
+  },
+});
+
+// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
+// A final PD's file name gives its writer's initials ("T2.KT"), never a
+// person (shared/pdFilename.ts): the code never guesses who KT is. When an
+// admin picks a writer on a file whose initials have no writer yet, that pick
+// says "KT is Kim Tran" for the whole firm (importWriterInitials), and every
+// import file with those initials whose writer no person set on the file
+// takes the name (writerNameSource "initials"; patchItem reads the match on
+// every write, so new and put-back files take it too). A writer set on one
+// file still wins for that file. Undo sets the match back the same way.
+
+/** Files one run of a writer match settles before it schedules the rest. */
+const WRITER_MATCH_BATCH = 100;
+
+/** The tabs a match walks, To review first. Approved files keep what they were approved as. */
+const WRITER_MATCH_TABS = ["review", "deleted"] as const;
+type WriterMatchTab = (typeof WRITER_MATCH_TABS)[number];
+const writerMatchTabValidator = v.union(v.literal("review"), v.literal("deleted"));
+
+/**
+ * One page of the files on `tab` whose name gave `initials`, each settled
+ * with the writer they stand for now (patchItem reads it, from `writers`).
+ * Counts move through patchItem; pairing does not read the writer, but a row
+ * written for the first time since the labels may move group, so the groups
+ * touched are recomputed.
+ */
+async function applyWriterPage(
+  ctx: MutationCtx,
+  initials: string,
+  tab: WriterMatchTab,
+  cursor: string | null,
+  writers: RememberedWriters
+): Promise<{ changed: number; isDone: boolean; continueCursor: string }> {
+  const page = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_sheetTab_and_writerInitials", (q) => q.eq("sheetTab", tab).eq("writerInitials", initials))
+    .paginate({ cursor, numItems: WRITER_MATCH_BATCH });
+  let changed = 0;
+  const groups = new Set<string>();
+  for (const item of page.page) {
+    if (!followsRememberedWriter(item)) continue;
+    const result = await patchItem(ctx, item, {}, { touch: true, writers });
+    if (!result.changed) continue;
+    changed += 1;
+    for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+  }
+  await recomputeGroups(ctx, groups, MANY_ROWS);
+  return { changed, isDone: page.isDone, continueCursor: page.continueCursor };
+}
+
+/** Schedules the rest of a match's walk: the next page of `tab`, else the next tab. */
+async function continueWriterMatch(
+  ctx: MutationCtx,
+  initials: string,
+  tab: WriterMatchTab,
+  page: { isDone: boolean; continueCursor: string }
+): Promise<void> {
+  const next = page.isDone ? WRITER_MATCH_TABS[WRITER_MATCH_TABS.indexOf(tab) + 1] : tab;
+  if (next === undefined) return;
+  await ctx.scheduler.runAfter(0, internal.ingestion.applyWriterInitials, {
+    initials,
+    tab: next,
+    cursor: page.isDone ? null : page.continueCursor,
+  });
+}
+
+/**
+ * Says which writer some initials stand for, for the whole firm, or with
+ * `writerName` null that no one has said (Undo). Admin only. The first 100
+ * files with those initials on To review take the name in this call; the
+ * rest of To review, then Deleted, follow in scheduled runs of 100.
+ * Returns the match before (for Undo), how many files changed now, and
+ * whether more To review files are still to follow. The name follows the
+ * writer name rules (cleanWriterName); refusals are ConvexErrors.
+ */
+export const matchWriterInitials = mutation({
+  args: { initials: v.string(), writerName: v.union(v.string(), v.null()) },
+  returns: v.object({
+    initials: v.string(),
+    writerName: v.union(v.string(), v.null()),
+    previous: v.union(v.string(), v.null()),
+    changed: v.number(),
+    more: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const initials = writerInitialsKey(args.initials);
+    if (initials === null) domainError("INVALID_INPUT", "Initials are two or three letters, such as KT.");
+    const name = args.writerName === null ? null : cleanWriterName(args.writerName);
+    const match = await ctx.db
+      .query("importWriterInitials")
+      .withIndex("by_initials", (q) => q.eq("initials", initials))
+      .first();
+    const previous = match?.writerName ?? null;
+    if (name === null) {
+      if (match) await ctx.db.delete(match._id);
+    } else if (!match) {
+      await ctx.db.insert("importWriterInitials", { initials, writerName: name, setBy: admin, updatedAt: Date.now() });
+    } else if (match.writerName !== name) {
+      await ctx.db.patch(match._id, { writerName: name, setBy: admin, updatedAt: Date.now() });
+    }
+    const page = await applyWriterPage(ctx, initials, "review", null, new Map([[initials, name]]));
+    await continueWriterMatch(ctx, initials, "review", page);
+    return { initials, writerName: name, previous, changed: page.changed, more: !page.isDone };
+  },
+});
+
+/** The rest of a match's walk (matchWriterInitials): one page, then it schedules the next. */
+export const applyWriterInitials = internalMutation({
+  args: { initials: v.string(), tab: writerMatchTabValidator, cursor: v.union(v.string(), v.null()) },
+  returns: v.object({ changed: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const initials = writerInitialsKey(args.initials);
+    if (initials === null) return { changed: 0, done: true };
+    // The match as it is now: a later pick or an Undo meanwhile wins.
+    const page = await applyWriterPage(ctx, initials, args.tab, args.cursor, new Map());
+    await continueWriterMatch(ctx, initials, args.tab, page);
+    return { changed: page.changed, done: page.isDone && args.tab === WRITER_MATCH_TABS[WRITER_MATCH_TABS.length - 1] };
+  },
+});
+
+// ─── A new company's industry (2026-11-12) ──────────────────────────────────
+
+/** The longest industry slug kept. */
+const MAX_INDUSTRY = 60;
+
+/**
+ * Picks the industry of a company on the sheet that the app does not have
+ * yet (no company, merged company or projects with its key), kept by company
+ * key so it holds on every tab and can be used when the company is created
+ * on approval. `industry` is from the app's industry list (stored as its
+ * slug, as clients.industry is); admins may add one, as on New company.
+ * Admin only.
+ */
+export const setNewCompanyIndustry = mutation({
+  args: { companyKey: v.string(), industry: v.string() },
+  returns: v.object({ industry: v.string() }),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const companyKey = args.companyKey.trim();
+    if (companyKey === NO_COMPANY_KEY || dashboardCompanyKey(companyKey) !== companyKey) {
+      domainError("INVALID_INPUT", "Pick the company first.");
+    }
+    const industry = industrySlug(args.industry);
+    if (!industry) domainError("INVALID_INPUT", "Pick an industry.");
+    if (industry.length > MAX_INDUSTRY) domainError("INVALID_INPUT", `An industry can be up to ${MAX_INDUSTRY} characters.`);
+    if ((await knownCompany(ctx, companyKey)) !== null) {
+      domainError("INVALID_INPUT", "This company is already in Banhall. Change its industry on its company page.");
+    }
+    const picks = await newCompanyPicks(ctx, companyKey);
+    if (!picks) {
+      await ctx.db.insert("importNewCompanies", { companyKey, industry, setBy: admin, updatedAt: Date.now() });
+    } else if (picks.industry !== industry) {
+      await ctx.db.patch(picks._id, { industry, setBy: admin, updatedAt: Date.now() });
+    }
+    return { industry };
   },
 });
 
