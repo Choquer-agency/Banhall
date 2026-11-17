@@ -4492,6 +4492,14 @@ export default defineSchema({
     // ("document") or set by a person ("person"). Source is absent with no code.
     scienceCode: v.optional(v.string()),
     scienceCodeSource: v.optional(scienceCodeSourceValidator),
+    // 2026-11-16 widen (writers from initials): the distinct names that
+    // follow a writer cue ("Prepared by Dana Whitlock") in the file's full
+    // text, at most 5 (shared/writerNameFromText.ts), read by the
+    // extraction or by ingestion.backfillDocumentWriterNames. [] when the
+    // text names no one; absent when the text has not been read for them.
+    // The one that matches the file's writer initials names a past writer
+    // the check made (convex/lib/teamRoster.ts nameWriterFromDocument).
+    documentWriterNames: v.optional(v.array(v.string())),
     // The labels a person set. A move or a new copy on the drive keeps
     // these instead of what the new path says.
     editedLabels: v.optional(v.array(editableLabelValidator)),
@@ -4589,8 +4597,16 @@ export default defineSchema({
     // govern) and on one a person typed on Import (the pick, if any,
     // carries the initials).
     initials: v.optional(v.string()),
-    // A name an Admin or a person on Import gave it. Absent: shown as its initials.
+    // A name an Admin or a person on Import gave it, or since 2026-11-16 one
+    // read from a PD (nameSource). Absent: shown as its initials.
     name: v.optional(v.string()),
+    // 2026-11-16 widen: where the name came from. "document": read from a
+    // PD's writer cue, only ever on a writer the check made with no login,
+    // which no person named. "person": an Admin's Edit name (also with no
+    // name: they cleared it), so no PD names it again. "documents_disagree":
+    // two PDs named different people, so it went back to its initials and
+    // no PD names it again. Absent: a person's name (as before), or never named.
+    nameSource: v.optional(v.union(v.literal("document"), v.literal("person"), v.literal("documents_disagree"))),
     // The team member this writer is: their own writer, or a past writer an
     // Admin linked to them (linkedBy, linkedAt).
     userId: v.optional(v.id("users")),

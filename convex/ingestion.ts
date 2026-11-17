@@ -2,8 +2,10 @@ import {
   query,
   mutation,
   action,
+  internalAction,
   internalMutation,
   internalQuery,
+  type ActionCtx,
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
@@ -31,6 +33,7 @@ import {
   fieldsForLabels,
   followsRememberedWriter,
   hasReadText,
+  isBeingRead,
   labelPatchFields,
   initialsWriterFields,
   initialsWriterStep,
@@ -56,6 +59,7 @@ import {
   listTeamRoster,
   liveWriter,
   membersWithInitials,
+  nameWriterFromDocument,
   pickedWriter,
   userDisplayLabel,
   writerForChoice,
@@ -97,6 +101,7 @@ import {
 } from "./lib/clients";
 import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
 import {
   canDelete,
@@ -153,9 +158,49 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
  * initials changed. A file that has a writer from the check keeps it, so
  * editing a file (its science code, its year) never re-runs the match.
  * `previousInitials` are the row's initials before this write (a patch).
- * The lookup may make a writer; it reads only indexes.
+ * The lookup may make a writer; it reads only indexes. Then a past writer
+ * the check made may take its name from the file's PD text (withDocumentName).
  */
 async function settleWithWriter(
+  ctx: MutationCtx,
+  row: IngestionItemFields,
+  previousInitials?: string | null
+): Promise<IngestionItemFields> {
+  const settled = await settleInitialsWriter(ctx, row, previousInitials);
+  return await withDocumentName(ctx, { ...settled, ...previewWriterNames(settled) });
+}
+
+/**
+ * The writer names of a file that needs them (needsDocumentWriterNames)
+ * and has no full text in storage, only its preview (a row read long ago):
+ * read from the preview here, as previewScienceCode does for the science
+ * code; {} otherwise. A file with full text in storage has it read in an
+ * action (scheduleNamesRead).
+ */
+function previewWriterNames(row: IngestionItemFields): Partial<IngestionItemFields> {
+  if (row.textStorageId !== undefined || !needsDocumentWriterNames(row)) return {};
+  return { documentWriterNames: writerNamesFromText(row.text ?? "") };
+}
+
+/**
+ * A settled row after its writer may have taken a name from the row's PD
+ * text (2026-11-16, convex/lib/teamRoster.ts nameWriterFromDocument), in
+ * whichever order the text was read and the writer set. When the writer's
+ * name changed, this row stores its new label (an approved one keeps the
+ * name it was approved with) and the writer's other files on To review and
+ * Deleted are written again in scheduled pages (refreshWriterFiles), as
+ * after an Admin's rename.
+ */
+async function withDocumentName(ctx: MutationCtx, settled: IngestionItemFields): Promise<IngestionItemFields> {
+  const named = await nameWriterFromDocument(ctx, settled);
+  if (named === null) return settled;
+  await ctx.scheduler.runAfter(0, internal.ingestion.refreshWriterFiles, { writerId: named.writerId, tab: "review", cursor: null });
+  if (settled.status === "approved" || settled.writerName === undefined) return settled;
+  return settleItem({ ...settled, writerName: named.label });
+}
+
+/** settleWithWriter's first step: the row settled with the writer its initials give. */
+async function settleInitialsWriter(
   ctx: MutationCtx,
   row: IngestionItemFields,
   previousInitials?: string | null
@@ -188,6 +233,7 @@ async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promis
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
   await adjustWriterFiles(ctx, null, row.writerId, null, row.writerBeforePick?.writerId);
+  await scheduleNamesRead(ctx, null, { _id: id, _creationTime: 0, ...row });
   return id;
 }
 
@@ -214,6 +260,7 @@ async function patchItem(
   const after = { _id, _creationTime, ...definedFields(settled) } as Doc<"ingestionItems">;
   await adjustImportCompanyCounts(ctx, before, after);
   await adjustWriterFiles(ctx, before.writerId, after.writerId, before.writerBeforePick?.writerId, after.writerBeforePick?.writerId);
+  await scheduleNamesRead(ctx, before, after);
   return { after, changed };
 }
 
@@ -1493,7 +1540,8 @@ export const applyWriterInitials = internalMutation({
 
 /**
  * One page of a writer's files on To review or Deleted, written again
- * (2026-11-16) after the writer was renamed, linked or unlinked: a file a
+ * (2026-11-16) after the writer was renamed, linked or unlinked, or took
+ * or lost a name from a PD (withDocumentName): a file a
  * person set takes the writer's new label as its stored name, and every
  * file is settled again. Approved files keep the name they were approved
  * with (the sheet shows the writer's label as it is now anyway). Then it
@@ -1720,8 +1768,225 @@ export const backfillImportWriters = internalMutation({
         tab: next,
         cursor: page.isDone ? null : page.continueCursor,
       });
+    } else {
+      // Every file has its writer: now past writers can take names from PDs read before.
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentWriterNames, {});
     }
     return { changed, done: next === undefined };
+  },
+});
+
+// ─── Names from PDs read before (2026-11-16, run after the deploy) ──────────
+// Files read before the names were kept have their text in storage but no
+// documentWriterNames. backfillDocumentWriterNames reads that text for the
+// final PDs, drafts and review copies on To review, Deleted and Approved, a
+// page at a time, keeps the names on each file, and so lets a past writer
+// the check made take its name from them (settleWithWriter). It runs after
+// backfillImportWriters, and on its own. Safe to run again: a file that has
+// its names already is skipped. A file that comes to need its names later
+// (a person makes it a final PD, draft or review copy, or a reading that
+// started before the deploy lands without them) is read on its own
+// (readDocumentWriterNames, scheduled by insertItem and patchItem).
+
+/** Rows one run of the names backfill pages through. */
+const NAMES_BACKFILL_ROWS = 100;
+/** Files whose full text one run reads, at most: each is up to 700 KB. */
+const NAMES_BACKFILL_READS = 25;
+
+/** Whether a file still needs its writer names read: it takes a writer from its initials, has read text and no names yet. */
+function needsDocumentWriterNames(item: IngestionItemFields): boolean {
+  return item.documentWriterNames === undefined && takesInitialsWriter(item) && hasReadText(item) && !isBeingRead(item.status);
+}
+
+/**
+ * Schedules readDocumentWriterNames for a file a write left needing its
+ * names (needsDocumentWriterNames) with full text in storage: one that just
+ * came to take a writer (a person changed its category), or whose text just
+ * landed without names (a reading begun before the deploy).
+ */
+async function scheduleNamesRead(ctx: MutationCtx, before: IngestionItemFields | null, after: Doc<"ingestionItems">) {
+  if (after.textStorageId === undefined || !needsDocumentWriterNames(after)) return;
+  if (before && needsDocumentWriterNames(before) && before.textStorageId === after.textStorageId) return;
+  await ctx.scheduler.runAfter(0, internal.ingestion.readDocumentWriterNames, { itemId: after._id });
+}
+
+const namesBackfillItemValidator = v.object({
+  itemId: v.id("ingestionItems"),
+  textStorageId: v.union(v.id("_storage"), v.null()),
+  // Only for a file with no full text in storage.
+  preview: v.union(v.string(), v.null()),
+});
+const namesBackfillPageValidator = v.object({
+  items: v.array(namesBackfillItemValidator),
+  isDone: v.boolean(),
+  continueCursor: v.string(),
+});
+
+function namesBackfillItem(item: Doc<"ingestionItems">): Infer<typeof namesBackfillItemValidator> {
+  return {
+    itemId: item._id,
+    textStorageId: item.textStorageId ?? null,
+    preview: item.textStorageId === undefined ? (item.text ?? null) : null,
+  };
+}
+
+/**
+ * One page of 100 rows on `tab`, with the files among them the names
+ * backfill reads (needsDocumentWriterNames).
+ */
+export const documentWriterNamesPage = internalQuery({
+  args: { tab: writerBackfillTabValidator, cursor: v.union(v.string(), v.null()) },
+  returns: namesBackfillPageValidator,
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
+      .paginate({ cursor: args.cursor, numItems: NAMES_BACKFILL_ROWS });
+    const items = page.page.filter(needsDocumentWriterNames).map(namesBackfillItem);
+    return { items, isDone: page.isDone, continueCursor: page.continueCursor };
+  },
+});
+
+/** One file, when it still needs its names read; null otherwise. */
+export const documentWriterNamesItem = internalQuery({
+  args: { itemId: v.id("ingestionItems") },
+  returns: v.union(namesBackfillItemValidator, v.null()),
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId);
+    return item && needsDocumentWriterNames(item) ? namesBackfillItem(item) : null;
+  },
+});
+
+/**
+ * Keeps the names read from each file's text (the names backfill's write),
+ * which may name the file's past writer (settleWithWriter). A file that has
+ * names already (a fresh read got there first), or whose text changed since
+ * it was read, is left alone. Up to 25 files.
+ */
+export const recordDocumentWriterNames = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        itemId: v.id("ingestionItems"),
+        textStorageId: v.union(v.id("_storage"), v.null()),
+        names: v.array(v.string()),
+      })
+    ),
+  },
+  returns: v.object({ recorded: v.number() }),
+  handler: async (ctx, args) => {
+    let recorded = 0;
+    const groups = new Set<string>();
+    for (const entry of args.entries.slice(0, NAMES_BACKFILL_READS)) {
+      const item = await ctx.db.get(entry.itemId);
+      if (!item || item.documentWriterNames !== undefined || (item.textStorageId ?? null) !== entry.textStorageId) continue;
+      const result = await patchItem(ctx, item, { documentWriterNames: cleanDocumentWriterNames(entry.names) });
+      recorded += 1;
+      for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return { recorded };
+  },
+});
+
+/**
+ * The writer names in each file's text: its full text from storage, else its
+ * preview (none when the stored text is gone or cannot be read).
+ */
+async function readNames(
+  ctx: ActionCtx,
+  items: ReadonlyArray<Infer<typeof namesBackfillItemValidator>>
+): Promise<Array<{ itemId: Id<"ingestionItems">; textStorageId: Id<"_storage"> | null; names: string[] }>> {
+  const entries = [];
+  for (const item of items) {
+    let names: string[] = [];
+    try {
+      const blob = item.textStorageId ? await ctx.storage.get(item.textStorageId) : null;
+      names = writerNamesFromText(blob ? await blob.text() : (item.preview ?? ""));
+    } catch (error) {
+      // One unreadable text never stops the walk: the file keeps no names
+      // (a person can still name its writer) and the rest go on.
+      console.warn("Could not read a file's text for its writer names", {
+        itemId: item.itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    entries.push({ itemId: item.itemId, textStorageId: item.textStorageId, names });
+  }
+  return entries;
+}
+
+/**
+ * Reads the writer names in the text of files read before 2026-11-16 (see
+ * above): To review, then Deleted, then Approved, 100 rows a run, reading
+ * at most 25 files' text (a page with more is run again, without the files
+ * just read), each run scheduling the next. Run it on its own with no
+ * arguments. Returns how many files it kept names for in this run.
+ */
+export const backfillDocumentWriterNames = internalAction({
+  args: { tab: v.optional(writerBackfillTabValidator), cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ recorded: v.number(), done: v.boolean() }),
+  handler: async (ctx, args): Promise<{ recorded: number; done: boolean }> => {
+    const tab = args.tab ?? "review";
+    const cursor = args.cursor ?? null;
+    const page: Infer<typeof namesBackfillPageValidator> = await ctx.runQuery(internal.ingestion.documentWriterNamesPage, {
+      tab,
+      cursor,
+    });
+    const entries = await readNames(ctx, page.items.slice(0, NAMES_BACKFILL_READS));
+    let recorded = 0;
+    let saved = true;
+    if (entries.length > 0) {
+      try {
+        recorded = (await ctx.runMutation(internal.ingestion.recordDocumentWriterNames, { entries })).recorded;
+      } catch (error) {
+        // Keep walking: these files stay without names until a later run.
+        saved = false;
+        console.warn("Could not keep the writer names of a page of files", {
+          tab,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    // More files on this page than one run reads: the same page again (the
+    // files just read have names now, so they are left out). Else, or when
+    // keeping them failed, the next page, then the next tab.
+    const again = page.items.length > NAMES_BACKFILL_READS && saved;
+    const next = again || !page.isDone ? tab : WRITER_BACKFILL_TABS[WRITER_BACKFILL_TABS.indexOf(tab) + 1];
+    if (next !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentWriterNames, {
+        tab: next,
+        cursor: again ? cursor : page.isDone ? null : page.continueCursor,
+      });
+    }
+    return { recorded, done: next === undefined };
+  },
+});
+
+/**
+ * Reads the writer names of one file that came to need them after the
+ * backfill (scheduleNamesRead), and keeps them. Nothing when it no longer
+ * needs them.
+ */
+export const readDocumentWriterNames = internalAction({
+  args: { itemId: v.id("ingestionItems") },
+  returns: v.object({ recorded: v.number() }),
+  handler: async (ctx, args): Promise<{ recorded: number }> => {
+    const item: Infer<typeof namesBackfillItemValidator> | null = await ctx.runQuery(
+      internal.ingestion.documentWriterNamesItem,
+      { itemId: args.itemId }
+    );
+    if (item === null) return { recorded: 0 };
+    const entries = await readNames(ctx, [item]);
+    try {
+      return await ctx.runMutation(internal.ingestion.recordDocumentWriterNames, { entries });
+    } catch (error) {
+      console.warn("Could not keep a file's writer names", {
+        itemId: args.itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { recorded: 0 };
+    }
   },
 });
 
@@ -2103,6 +2368,7 @@ async function upsertDiscovered(
     status: "discovered",
     text: undefined,
     textStorageId: undefined,
+    documentWriterNames: undefined,
     extractNote: undefined,
     error: undefined,
     deletedFromStatus: undefined,
@@ -2285,6 +2551,9 @@ export const markItemProcessed = internalMutation({
     // 2026-11-11 (Import sheet, phase 2): the CRA science code the
     // extraction read from the full text (lib/scienceCodeFromText.ts), if any.
     documentScienceCode: v.optional(v.string()),
+    // 2026-11-16 (writers from initials): the names after a writer cue in
+    // the full text (shared/writerNameFromText.ts), [] when there are none.
+    documentWriterNames: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
@@ -2309,6 +2578,10 @@ export const markItemProcessed = internalMutation({
       text: args.text,
       textStorageId: args.textStorageId,
       extractNote: args.extractNote,
+      // Kept for every file (its category may change); only a final PD,
+      // draft or review copy names its writer (settleWithWriter).
+      documentWriterNames:
+        args.documentWriterNames === undefined ? undefined : cleanDocumentWriterNames(args.documentWriterNames),
       // No text (pdf/legacy .doc) still lands in review — the admin can see
       // the file exists and chase a readable copy; it just can't be approved.
       status: "pending_review",

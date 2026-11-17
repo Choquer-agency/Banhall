@@ -166,6 +166,34 @@ describe("Team: writers from initials", () => {
     expect(Number(getComputedStyle(one("[data-past-writer-name]")!).fontWeight)).toBeLessThanOrEqual(500);
   });
 
+  it("marks a name read from a PD with a quiet \"From a PD\", and Edit name starts from that name", async () => {
+    seed(ADMIN, [
+      ...PAST_WRITERS,
+      { _id: "w-pn", name: "Priya Nair", initials: "PN", label: "Priya Nair", nameFromDocument: true, fileCount: 2, canDelete: false, sameInitialsAs: null },
+    ]);
+    __setMutationHandler("users:renamePastWriter", (args) => ({ label: (args as { name: string }).name }));
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one('[data-past-writer-row="w-pn"]')).not.toBeNull();
+    // Only the name a PD gave has the note; a name an Admin typed and initials alone do not.
+    expect(all("[data-past-writer-from-pd]").map((node) => node.closest("[data-past-writer-row]")?.getAttribute("data-past-writer-row"))).toEqual(["w-pn"]);
+    const note = one("[data-past-writer-from-pd]", writerRow("w-pn"))!;
+    expect(text(note)).toBe("From a PD");
+    expect(text(one("[data-past-writer-name]", writerRow("w-pn")))).toBe("Priya Nair");
+    expect(note.className).toContain("text-ink-muted");
+    expect(Number(getComputedStyle(note).fontWeight)).toBeLessThanOrEqual(500);
+    // It has a name, so no "Add a name".
+    expect(one("[data-past-writer-add-name]", writerRow("w-pn"))).toBeNull();
+    writerRow("w-pn").scrollIntoView({ block: "center" });
+    await page.screenshot({ path: `${CAPTURES}/team-from-a-pd.png` });
+
+    await openMenu('[data-past-writer-menu="w-pn"]');
+    await page.getByRole("menuitem", { name: "Edit name" }).click();
+    await expect.element(page.getByRole("heading", { name: "Edit the name of Priya Nair" })).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "Name" })).toHaveValue("Priya Nair");
+    await userEvent.click(one("[data-writer-name-save]")!);
+    await expect.poll(() => __mutationCalls("users:renamePastWriter")).toEqual([{ writerId: "w-pn", name: "Priya Nair" }]);
+  });
+
   it("names a past writer, links it to an account after saying what moves, and deletes one with no PDs after a confirm", async () => {
     seed(ADMIN);
     __setMutationHandler("users:renamePastWriter", (args) => ({ label: (args as { name: string }).name }));

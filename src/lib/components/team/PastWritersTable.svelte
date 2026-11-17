@@ -6,8 +6,9 @@
   // import files point at it). Admins get a row menu (Edit name, Link to an
   // account, Delete when no file points at it). When exactly one member has
   // the same saved initials the row says so quietly, with Link; it is never
-  // linked automatically. Others see it read only. Same table look as
-  // Pending invites: 36px header, 48px rows.
+  // linked automatically. A name read from a PD ("Prepared by ...") rather
+  // than typed by a person has a quiet "From a PD" tag beside it. Others see
+  // it read only. Same table look as Pending invites: 36px header, 48px rows.
   import PastWriterRowMenu from "./PastWriterRowMenu.svelte";
   import { formatCount } from "$lib/components/import/importFormat";
 
@@ -16,6 +17,8 @@
     name: string | null;
     initials: string | null;
     label: string;
+    /** Its name was read from a PD, not typed by a person. */
+    nameFromDocument?: boolean;
     fileCount: number;
     /** No file points at it or remembers it from before a pick. */
     canDelete: boolean;
@@ -63,6 +66,9 @@
         <div role="row" data-past-writer-row={writer._id} class="relative flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
           <span role="cell" class="flex min-w-0 flex-1 items-center gap-2.5">
             <span data-past-writer-name class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{writer.label}</span>
+            {#if writer.name && writer.nameFromDocument}
+              <span data-past-writer-from-pd class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted">From a PD</span>
+            {/if}
             {#if !writer.name && showActions}
               <button type="button" data-past-writer-add-name onclick={() => onEditName(writer)} class={QUIET_BUTTON}>Add a name</button>
             {/if}

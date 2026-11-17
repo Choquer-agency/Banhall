@@ -11,10 +11,16 @@ import { readFileOnServer, SERVER_READER_VERSION } from "./fileReader";
 import { RICH_WORD_MARKDOWN, richWordFile, textPdf } from "./testFiles.fixture";
 import { spreadsheetText } from "../../shared/spreadsheetText";
 import { emlToText } from "../../shared/emailText";
+import { writerNamesFromText } from "../../shared/writerNameFromText";
 import { MAX_CONTENT_CHARS } from "../../shared/documentContent";
 
 /** A Word file with one paragraph per line. */
 async function docx(paragraphs: readonly string[]): Promise<Uint8Array> {
+  return await docxBody(paragraphs.map((text) => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`).join(""));
+}
+
+/** A Word file whose body is this WordprocessingML. */
+async function docxBody(body: string): Promise<Uint8Array> {
   const zip = new JSZip();
   zip.file(
     "[Content_Types].xml",
@@ -26,9 +32,7 @@ async function docx(paragraphs: readonly string[]): Promise<Uint8Array> {
   );
   zip.file(
     "word/document.xml",
-    `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraphs
-      .map((text) => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`)
-      .join("")}</w:body></w:document>`
+    `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
   );
   return await zip.generateAsync({ type: "uint8array" });
 }
@@ -88,6 +92,22 @@ describe("reading a stored file on the server", () => {
     const plain = await readFileOnServer(bytes, "trials.docx", { word: "plain" });
     expect(plain.textFormat).toBeUndefined();
     expect(plain.text).toContain("The seal held at 4.2 bar in trial 3, and 5 * 3 = 15.");
+  });
+
+  it("reads who wrote a PD from the import's plain Word text: a paragraph with a tab and a two-cell cover table (2026-11-16)", async () => {
+    const paragraph = (runs: string) => `<w:p><w:r>${runs}</w:r></w:p>`;
+    const cell = (text: string) => `<w:tc>${paragraph(`<w:t>${text}</w:t>`)}</w:tc>`;
+    const bytes = await docxBody(
+      paragraph("<w:t>Cold chain sensor drift</w:t>") +
+        paragraph('<w:t xml:space="preserve">Written by Priya Nair</w:t><w:tab/><w:t>Date: 2025-03-31</w:t>') +
+        `<w:tbl><w:tr>${cell("Prepared by:")}${cell("Dana Whitlock")}</w:tr><w:tr>${cell("Reviewed by:")}${cell("Sam Okafor")}</w:tr></w:tbl>` +
+        paragraph("<w:t>Author</w:t>") +
+        paragraph("<w:t>Date Written</w:t>")
+    );
+    // The same reading as the import's extraction (convex/ingestionSync.ts extractText).
+    const reading = await readFileOnServer(bytes, "04 CedarlineSystems 2025-03-31 T1.DW Project4.docx", { word: "plain" });
+    expect(reading.text).toContain("Written by Priya Nair\tDate: 2025-03-31\n\nPrepared by:\n\nDana Whitlock");
+    expect(writerNamesFromText(reading.text)).toEqual(["Priya Nair", "Dana Whitlock"]);
   });
 
   it("reads an email and a mailbox with the shared email text", async () => {

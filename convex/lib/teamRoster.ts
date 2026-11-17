@@ -2,8 +2,9 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { normalizeEmail } from "./email";
 import { domainError } from "./contracts";
-import { cleanWriterName, type InitialsWriter } from "./ingestionSheet";
+import { cleanWriterName, takesInitialsWriter, type IngestionItemFields, type InitialsWriter } from "./ingestionSheet";
 import { looksLikeEmail, writerInitialsKey } from "../../shared/importSheetRules";
+import { sameWriterName, writerNameForInitials } from "../../shared/writerNameFromText";
 import type { WriterChoice } from "./ingestionSheetValidators";
 
 type Ctx = QueryCtx | MutationCtx;
@@ -109,6 +110,8 @@ type WriterDoc = Doc<"pdWriters">;
 const INITIALS_READ = 20;
 /** Writers read for one set of initials, one account or one name. */
 const WRITERS_READ = 10;
+/** Writers with no login read when checking a name is free (the Team page lists as many). */
+const PAST_WRITERS_READ = 200;
 
 /** A team member who has a login: on the roster, with a role. */
 export function isLoginMember(user: Doc<"users"> | null): user is Doc<"users"> {
@@ -280,19 +283,96 @@ async function newWriterFromInitials(ctx: MutationCtx, initials: string): Promis
 /**
  * The bare writer with no login for these initials, for an Undo that names
  * one which has since been removed (removableWhenUnused): the one the check
- * made with no name and no account, else a new one. Same initials, no name:
- * the same writer as far as anyone can see.
+ * made with no account and no name a person gave it (just its initials, or
+ * a name read from a PD, which is still THE writer for those initials),
+ * else a new one. Same initials, no name a person gave: the same writer as
+ * far as anyone can see.
  */
 export async function bareWriterFromInitials(ctx: MutationCtx, initials: string): Promise<WriterDoc> {
   const made = await writersMadeFromInitials(ctx, initials);
-  return made.find((row) => !row.name && !row.userId) ?? (await newWriterFromInitials(ctx, initials));
+  return made.find((row) => !row.userId && !nameByPerson(row)) ?? (await newWriterFromInitials(ctx, initials));
+}
+
+/** Whether a person gave the writer its name: a name not read from a PD. */
+function nameByPerson(writer: WriterDoc): boolean {
+  return Boolean(writer.name) && writer.nameSource !== "document";
+}
+
+/**
+ * Whether a PD may name this writer (2026-11-16): a writer the check made
+ * from initials, with no login, whose name (if any) was read from a PD, and
+ * which no person named or cleared and whose PDs never disagreed.
+ */
+export function documentMayName(writer: WriterDoc): boolean {
+  return (
+    writer.createdVia === "import" &&
+    !writer.userId &&
+    writer.nameSource !== "person" &&
+    writer.nameSource !== "documents_disagree" &&
+    !nameByPerson(writer)
+  );
+}
+
+/**
+ * Whether a name read from a PD is someone's already, in any case: another
+ * writer with no login has it (one a person typed on Import, say), or a
+ * team member with a login is called that. Then a person decides: two
+ * writers never share a name. Bounded reads (the past writers and the
+ * roster, 200 each), made only when a writer is about to be named.
+ */
+async function nameTaken(ctx: MutationCtx, name: string, writerId: Id<"pdWriters">): Promise<boolean> {
+  const pastWriters = await ctx.db
+    .query("pdWriters")
+    .withIndex("by_userId", (q) => q.eq("userId", undefined))
+    .take(PAST_WRITERS_READ);
+  if (pastWriters.some((other) => other._id !== writerId && other.name && sameWriterName(other.name, name))) return true;
+  const members = (await listTeamRoster(ctx)).filter(isLoginMember);
+  return members.some((member) => sameWriterName(userDisplayLabel(member), name));
+}
+
+type NamingInput = Pick<IngestionItemFields, "writerId" | "writerInitials" | "category" | "documentWriterNames" | "clientName">;
+
+/**
+ * A past writer's name from a file's PD text (2026-11-16, docs/product-domain.md):
+ * when the file is a final PD, draft or review copy whose writer is a past
+ * writer the check made from these same initials (documentMayName), and
+ * exactly one name its text gives matches the initials and is not the
+ * file's company name (shared/writerNameFromText.ts writerNameForInitials),
+ * the writer with no name takes it (nameSource "document"), unless another
+ * writer with no login or a team member already has that name (nameTaken). A writer named by a PD that a
+ * later file names differently goes back to its initials and is never
+ * named by a PD again ("documents_disagree"); the same name changes
+ * nothing. An Admin's name always wins. Returns the writer and its new
+ * label when it changed (the caller writes its files again), else null.
+ * Reads one writer; writes it only when its name changes.
+ */
+export async function nameWriterFromDocument(
+  ctx: MutationCtx,
+  row: NamingInput
+): Promise<{ writerId: Id<"pdWriters">; label: string } | null> {
+  if (!row.writerId || !row.documentWriterNames?.length || !takesInitialsWriter(row)) return null;
+  const initials = writerInitialsKey(row.writerInitials);
+  const candidate = writerNameForInitials(row.documentWriterNames, initials, { companyName: row.clientName });
+  if (candidate === null) return null;
+  const writer = await ctx.db.get(row.writerId);
+  if (!writer || writer.initials !== initials || !documentMayName(writer)) return null;
+  let patch: Partial<WriterDoc>;
+  if (!writer.name) {
+    if (await nameTaken(ctx, candidate, writer._id)) return null;
+    patch = { name: candidate, nameSource: "document" };
+  } else if (sameWriterName(writer.name, candidate)) return null;
+  else patch = { name: undefined, nameSource: "documents_disagree" };
+  await ctx.db.patch(writer._id, patch);
+  forgetWriterMatches(ctx);
+  return { writerId: writer._id, label: writerLabelFor({ ...writer, ...patch }, null) };
 }
 
 /**
  * The writer a person chose (writerChoiceValidator): a team member's own
  * (made if they have none), a writer by id, or, for a typed name, the
  * writer with no login that has exactly that name, else a new one with that
- * name and no initials (a pick carries the initials).
+ * name and no initials (a pick carries the initials). Choosing a writer
+ * whose name came from a PD makes that name a person's (confirmDocumentName).
  */
 export async function writerForChoice(
   ctx: MutationCtx,
@@ -306,7 +386,7 @@ export async function writerForChoice(
   }
   if (choice.kind === "writer") {
     const writer = await liveWriter(ctx, choice.writerId);
-    if (writer) return writer;
+    if (writer) return await confirmDocumentName(ctx, writer, options.by);
     const initials = writerInitialsKey(choice.orInitials);
     if (initials !== null) return await bareWriterFromInitials(ctx, initials);
     domainError("NOT_FOUND", "That writer is no longer in Banhall.");
@@ -317,7 +397,7 @@ export async function writerForChoice(
     .withIndex("by_name", (q) => q.eq("name", name))
     .take(WRITERS_READ);
   const existing = named.find((row) => row.userId === undefined);
-  if (existing) return existing;
+  if (existing) return await confirmDocumentName(ctx, existing, options.by);
   const id = await ctx.db.insert("pdWriters", {
     name,
     createdVia: "person",
@@ -329,12 +409,31 @@ export async function writerForChoice(
   return (await ctx.db.get(id))!;
 }
 
-/** Whether a writer is a bare one the check made that no person ever changed (named, linked or unlinked). */
+/**
+ * A person chose this writer (by its name or from a list, on one file or
+ * for some initials): a name it took from a PD is now a person's
+ * (nameSource "person"), so no later PD that disagrees takes it back and
+ * the files they set keep showing it. Any other writer is returned as it is.
+ */
+async function confirmDocumentName(ctx: MutationCtx, writer: WriterDoc, by: Id<"users"> | undefined): Promise<WriterDoc> {
+  if (!writer.name || writer.nameSource !== "document") return writer;
+  const patch: Partial<WriterDoc> = { nameSource: "person", ...(by ? { updatedBy: by, updatedAt: Date.now() } : {}) };
+  await ctx.db.patch(writer._id, patch);
+  forgetWriterMatches(ctx);
+  return { ...writer, ...patch };
+}
+
+/**
+ * Whether a writer is a bare one the check made that no person ever changed
+ * (named, linked or unlinked). A name read from a PD is not a person's
+ * change: such a writer is still bare.
+ */
 function untouchedBareWriter(writer: WriterDoc): boolean {
   return (
     writer.createdVia === "import" &&
     !writer.userId &&
-    !writer.name &&
+    !nameByPerson(writer) &&
+    writer.nameSource !== "person" &&
     writer.linkedAt === undefined &&
     writer.updatedBy === undefined
   );

@@ -460,6 +460,9 @@ const pastWriterValidator = v.object({
   name: v.union(v.string(), v.null()),
   initials: v.union(v.string(), v.null()),
   label: v.string(),
+  // 2026-11-16: its name was read from a PD ("Prepared by ..."), not typed
+  // by a person: Team says "From a PD" beside it.
+  nameFromDocument: v.boolean(),
   fileCount: v.number(),
   // No file points at it, and none remembers it from before a pick: Delete is offered.
   canDelete: v.boolean(),
@@ -509,6 +512,7 @@ export const listPastWriters = query({
         name: writer.name ?? null,
         initials: writer.initials ?? null,
         label: writerLabelFor(writer, null),
+        nameFromDocument: Boolean(writer.name) && writer.nameSource === "document",
         fileCount: writer.fileCount,
         canDelete: writer.fileCount === 0 && (writer.heldCount ?? 0) === 0,
         sameInitialsAs,
@@ -530,7 +534,10 @@ async function pastWriterOrRefuse(ctx: MutationCtx, writerId: Id<"pdWriters">): 
  * Names a past writer, or with an empty name goes back to its initials
  * (Team, "Edit name" and "Add a name"). Admin only. The name follows the
  * writer name rules. Its files show the name at once; those on To review
- * and Deleted are written again in scheduled pages.
+ * and Deleted are written again in scheduled pages. Since 2026-11-16 the
+ * name is a person's (nameSource "person"), even when it is the name a PD
+ * gave, and a cleared one stays cleared: no PD names the writer again.
+ * Saving an empty name on a writer that has none changes nothing.
  */
 export const renamePastWriter = mutation({
   args: { writerId: v.id("pdWriters"), name: v.string() },
@@ -541,10 +548,12 @@ export const renamePastWriter = mutation({
     const typed = args.name.trim();
     if (!typed && !writer.initials) domainError("INVALID_INPUT", "Type the writer's name.");
     const name = typed ? cleanWriterName(typed) : undefined;
-    if (name !== writer.name) {
-      await ctx.db.patch(writer._id, { name, updatedBy: admin._id, updatedAt: Date.now() });
+    // An empty name on a writer with none changes nothing (PDs may still name it).
+    const nothingToDo = name === undefined && !writer.name;
+    if (!nothingToDo && (name !== writer.name || writer.nameSource !== "person")) {
+      await ctx.db.patch(writer._id, { name, nameSource: "person", updatedBy: admin._id, updatedAt: Date.now() });
       forgetWriterMatches(ctx);
-      await refreshFilesOf(ctx, writer._id);
+      if (name !== writer.name) await refreshFilesOf(ctx, writer._id);
     }
     return { label: writerLabelFor({ ...writer, name }, null) };
   },

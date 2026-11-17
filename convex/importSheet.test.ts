@@ -9,6 +9,8 @@ import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import { classify } from "./lib/ingestionClassify";
 import { docKindForCategory, settleItem } from "./lib/ingestionSheet";
 import { adjustImportCompanyCounts } from "./lib/importCompanyCounts";
+import { bareWriterFromInitials } from "./lib/teamRoster";
+import { nameMatchesInitials, writerNamesFromText } from "../shared/writerNameFromText";
 import schema from "./schema";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -68,6 +70,12 @@ const WRITER_WALKS = {
   backfillUserInitials: internal.users.backfillUserInitials,
 } as const;
 
+/** The scheduled writer walks that are actions (the names backfill reads text from storage). */
+const WRITER_ACTION_WALKS = {
+  backfillDocumentWriterNames: internal.ingestion.backfillDocumentWriterNames,
+  readDocumentWriterNames: internal.ingestion.readDocumentWriterNames,
+} as const;
+
 /**
  * Run only the scheduled writer walks (the rest of a match, a refresh after
  * a writer changed, the moves to writers) to the end, leaving other
@@ -80,16 +88,22 @@ async function runWriterWalk(t: T): Promise<Record<string, number>> {
   const runs: Record<string, number> = {};
   for (;;) {
     const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    const names = [...Object.keys(WRITER_WALKS), ...Object.keys(WRITER_ACTION_WALKS)];
     const next = jobs.find(
-      (job) => job.state.kind === "pending" && !done.has(job._id) && Object.keys(WRITER_WALKS).some((name) => job.name.endsWith(`:${name}`))
+      (job) => job.state.kind === "pending" && !done.has(job._id) && names.some((name) => job.name.endsWith(`:${name}`))
     );
     if (!next) return runs;
     done.add(next._id);
-    const name = next.name.split(":").pop() as keyof typeof WRITER_WALKS;
+    const name = next.name.split(":").pop()!;
     runs[name] = (runs[name] ?? 0) + 1;
     // Each walk's own arguments, as the scheduler stored them.
-    const run = t.mutation as (fn: (typeof WRITER_WALKS)[typeof name], args: unknown) => Promise<unknown>;
-    await run(WRITER_WALKS[name], next.args[0]);
+    if (name in WRITER_ACTION_WALKS) {
+      const act = t.action as (fn: unknown, args: unknown) => Promise<unknown>;
+      await act(WRITER_ACTION_WALKS[name as keyof typeof WRITER_ACTION_WALKS], next.args[0]);
+      continue;
+    }
+    const run = t.mutation as (fn: unknown, args: unknown) => Promise<unknown>;
+    await run(WRITER_WALKS[name as keyof typeof WRITER_WALKS], next.args[0]);
   }
 }
 
@@ -720,6 +734,22 @@ describe("importCompanies counts", () => {
       const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
       const driveIds: string[] = [];
       let hashes = 0;
+      // Who each read text says wrote it (2026-11-16): for each file's
+      // initials in turn, without drawing more randoms, so a past writer the
+      // check made may take a name from a PD, or lose it when PDs disagree,
+      // under the same recount after every step.
+      const namesRead: Record<string, string[][]> = {
+        DW: [["Dana Whitlock"], ["Dana Whitlock", "Priya Nair"], ["Dan Wells"], []],
+        PN: [["Priya Nair"], ["Priya Nair"], ["Pat Nolan"]],
+        SO: [["Sam Okafor"]],
+      };
+      const reads = new Map<string, number>();
+      const namesFor = (initials: string | undefined) => {
+        const list = namesRead[initials ?? ""] ?? [["Kim Tran"]];
+        const n = reads.get(initials ?? "") ?? 0;
+        reads.set(initials ?? "", n + 1);
+        return list[n % list.length];
+      };
       const rows = async () => await t.run((ctx) => ctx.db.query("ingestionItems").collect());
       const withStatus = async (...statuses: Array<Doc<"ingestionItems">["status"]>) =>
         (await rows()).filter((row) => statuses.includes(row.status));
@@ -766,14 +796,16 @@ describe("importCompanies counts", () => {
           const candidates = await withStatus("discovered", "fetched");
           if (candidates.length === 0) return;
           const scan = rand() < 0.25;
+          const chosen = pick(candidates);
           await t.mutation(internal.ingestion.markItemProcessed, {
-            itemId: pick(candidates)._id,
+            itemId: chosen._id,
             storageId,
             // A scan is read with a note and no text.
             ...(scan
               ? { extractNote: "The PDF has no text layer; a scan needs OCR." }
               : { text: "Field of science or technology: 2.02.09" }),
             ...(!scan && rand() < 0.5 ? { documentScienceCode: "2.02.09" } : {}),
+            ...(scan ? {} : { documentWriterNames: namesFor(chosen.writerInitials) }),
           });
         }],
         ["fail", async () => {
@@ -3325,7 +3357,7 @@ describe("files checked again when the facts change", () => {
     const so = (await writerOf(t, open))!;
     const sam = await addMember(t, "Sam", "Okafor", { initials: "SK" });
     const past = await admin.query(api.users.listPastWriters, {});
-    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", fileCount: 2, canDelete: false, sameInitialsAs: null }]);
+    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, canDelete: false, sameInitialsAs: null }]);
 
     await expect(admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam })).resolves.toEqual({ label: "Sam Okafor" });
     for (const id of [open, approved]) expect(await shownWriter(admin, id)).toEqual({ name: "Sam Okafor", hasLogin: true });
@@ -3734,6 +3766,500 @@ describe("moving to writers (2026-11-16)", () => {
     expect(await initials(kim)).toBe("KT");
     await t.withIdentity({ subject: "member-Kim-" }).mutation(api.users.updateMyProfile, { firstName: "Kimberly", lastName: "Hale" });
     expect(await initials(kim)).toBe("KT");
+  });
+});
+
+// ─── Past writers named from their PDs (2026-11-16) ─────────────────────────
+
+/**
+ * A read PD whose name gives these initials and whose full text is `text`,
+ * read the way extraction reads it: the names after a writer cue come from
+ * the whole text (writerNamesFromText), the preview is only the start.
+ * `folder` is the stage folder under the fiscal year.
+ */
+async function readPd(t: T, initials: string, n: number, text: string, folder = "To be submitted", fy = CEDARLINE_FY) {
+  const name = `${String(n).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.${initials} Project${n}.docx`;
+  const id = await stage(t, `${fy}/${folder}/${name}`, { driveItemId: `${initials}-${n}-${folder}` });
+  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+  const textStorageId = await t.run((ctx) => ctx.storage.store(new Blob([text], { type: "text/plain" })));
+  await t.mutation(internal.ingestion.markItemProcessed, {
+    itemId: id,
+    storageId,
+    text: "Text",
+    textStorageId,
+    documentScienceCode: "2.02.09",
+    documentWriterNames: writerNamesFromText(text),
+  });
+  return id;
+}
+
+/**
+ * A file read before 2026-11-16: its full text is in storage, its names are
+ * not kept. Its text id is written straight in, as the old code left it, so
+ * no read of its names is scheduled.
+ */
+async function readBefore(t: T, initials: string, n: number, text: string, path = pdPath(initials, n)) {
+  const id = await stage(t, path, { driveItemId: `before-${initials}-${n}` });
+  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+  await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text: "Text", documentScienceCode: "2.02.09" });
+  const textStorageId = await t.run((ctx) => ctx.storage.store(new Blob([text], { type: "text/plain" })));
+  await t.run((ctx) => ctx.db.patch(id, { textStorageId, documentWriterNames: undefined }));
+  return id;
+}
+
+const DANA_PD = "Cold chain sensor drift\nPrepared by Dana Whitlock, reviewed by Priya Nair.\nCedarline Systems";
+
+describe("past writers named from their PDs (2026-11-16)", () => {
+  it("names a past writer from its PD's writer cue, shows it on every file, and gives it the next file with those initials", async () => {
+    const { t, admin } = await setup();
+    // Staged before anything was read: its stored name is the initials for now.
+    const waiting = await stage(t, pdPath("DW", 9), { driveItemId: "dw-waiting" });
+    expect((await getItem(t, waiting)).writerName).toBe("DW");
+    const pd = await readPd(t, "DW", 1, DANA_PD);
+    const writer = (await writerOf(t, pd))!;
+    expect(writer).toMatchObject({ initials: "DW", name: "Dana Whitlock", nameSource: "document", createdVia: "import" });
+    expect(writer.userId).toBeUndefined();
+    expect(writer.updatedBy).toBeUndefined();
+    expect(await getItem(t, pd)).toMatchObject({ documentWriterNames: ["Dana Whitlock"], writerName: "Dana Whitlock", writerNameSource: "initials" });
+    expect(await shownWriter(admin, pd)).toEqual({ name: "Dana Whitlock", hasLogin: false });
+    // Shown at once on the file staged before; its stored name follows in the walk.
+    expect(await shownWriter(admin, waiting)).toEqual({ name: "Dana Whitlock", hasLogin: false });
+    expect(await runWriterWalk(t)).toMatchObject({ refreshWriterFiles: 2 });
+    expect((await getItem(t, waiting)).writerName).toBe("Dana Whitlock");
+
+    // The next DW file, whatever its text, goes to the same writer: no second DW.
+    const next = await pdBy(t, "DW", 2);
+    expect((await getItem(t, next)).writerId).toBe(writer._id);
+    expect((await getItem(t, next)).writerName).toBe("Dana Whitlock");
+    // The same name again changes nothing.
+    await readPd(t, "DW", 3, "Prepared by DANA WHITLOCK");
+    expect(await allWriters(t)).toHaveLength(1);
+    expect((await allWriters(t))[0]).toMatchObject({ name: "Dana Whitlock", nameSource: "document", fileCount: 4 });
+    expect(await runWriterWalk(t)).toEqual({});
+
+    expect(await admin.query(api.users.listPastWriters, {})).toEqual([
+      expect.objectContaining({ _id: writer._id, name: "Dana Whitlock", label: "Dana Whitlock", nameFromDocument: true, fileCount: 4 }),
+    ]);
+    await expectCountsMatchRecount(t, "after a past writer was named from its PD");
+  });
+
+  it("leaves the initials when no name in the text matches, or when two do", async () => {
+    const { t } = await setup();
+    // Reviewer only, a name for other initials, and a single word.
+    const none = await readPd(t, "KT", 1, "Reviewed by Kim Tran.\nPrepared by Priya Nair.\nWriter: Kim");
+    expect(await getItem(t, none)).toMatchObject({ documentWriterNames: ["Priya Nair"], writerName: "KT" });
+    expect((await writerOf(t, none))!.name).toBeUndefined();
+    const two = await readPd(t, "SO", 2, "Prepared by Sam Okafor.\nWritten by Sara Oduya.");
+    expect((await writerOf(t, two))!).toMatchObject({ initials: "SO" });
+    expect((await writerOf(t, two))!.name).toBeUndefined();
+    expect((await writerOf(t, two))!.nameSource).toBeUndefined();
+    // A later file with only one of them names it.
+    await readPd(t, "SO", 3, "Prepared by Sam Okafor.");
+    expect((await writerOf(t, two))!.name).toBe("Sam Okafor");
+    await expectCountsMatchRecount(t, "after texts with no clear name");
+  });
+
+  it("names a writer set after the text was read, in either order", async () => {
+    const { t, admin } = await setup();
+    // Two members have DW: the file is read with no writer.
+    const dana = await addMember(t, "Dana", "Wells", { initials: "DW" });
+    const dan = await addMember(t, "Dan", "Walsh", { initials: "DW" });
+    const pd = await readPd(t, "DW", 1, DANA_PD);
+    expect(await getItem(t, pd)).toMatchObject({ documentWriterNames: ["Dana Whitlock"], checkReasons: ["unmatched_initials"] });
+    expect((await getItem(t, pd)).writerId).toBeUndefined();
+    expect(await allWriters(t)).toEqual([]);
+    // Neither has DW any more: the check makes a past writer, which takes the name the text gave.
+    await admin.mutation(api.users.setUserInitials, { userId: dana, initials: "DN" });
+    await admin.mutation(api.users.setUserInitials, { userId: dan, initials: "DA" });
+    await runWriterWalk(t);
+    expect(await writerOf(t, pd)).toMatchObject({ initials: "DW", name: "Dana Whitlock", nameSource: "document" });
+    expect(await getItem(t, pd)).toMatchObject({ writerName: "Dana Whitlock", needsCheck: false });
+    await expectCountsMatchRecount(t, "after the writer came after the text");
+  });
+
+  it("names drafts' and review copies' writers too, never a transcript's", async () => {
+    const { t } = await setup();
+    const draft = await readPd(t, "PN", 1, "Written by Priya Nair", "Drafts");
+    expect((await getItem(t, draft)).category).toBe("draft");
+    expect((await writerOf(t, draft))!.name).toBe("Priya Nair");
+    const review = await readPd(t, "SO", 2, "Author: Sam Okafor", "In Review");
+    expect((await getItem(t, review)).category).toBe("review_copy");
+    expect((await writerOf(t, review))!.name).toBe("Sam Okafor");
+    const transcript = await readPd(t, "KT", 3, "Prepared by Kim Tran", "WIP/Technical/Audio");
+    expect(await getItem(t, transcript)).toMatchObject({ category: "transcript", documentWriterNames: ["Kim Tran"] });
+    expect((await getItem(t, transcript)).writerId).toBeUndefined();
+    expect((await allWriters(t)).map((writer) => writer.initials).sort()).toEqual(["PN", "SO"]);
+    await expectCountsMatchRecount(t, "after drafts, review copies and a transcript");
+  });
+
+  it("never overwrites an Admin's name, and an Admin clearing the name stops PDs naming it", async () => {
+    const { t, admin } = await setup();
+    const first = await readPd(t, "DW", 1, DANA_PD);
+    const writer = (await writerOf(t, first))!;
+    // Saving the name a PD gave makes it the Admin's.
+    await admin.mutation(api.users.renamePastWriter, { writerId: writer._id, name: "Dana Whitlock" });
+    expect(await writerOf(t, first)).toMatchObject({ name: "Dana Whitlock", nameSource: "person" });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ nameFromDocument: false });
+    await readPd(t, "DW", 2, "Prepared by Dan Wells");
+    expect(await writerOf(t, first)).toMatchObject({ name: "Dana Whitlock", nameSource: "person" });
+    await admin.mutation(api.users.renamePastWriter, { writerId: writer._id, name: "Dana R Whitlock" });
+    await readPd(t, "DW", 3, DANA_PD);
+    expect((await writerOf(t, first))!.name).toBe("Dana R Whitlock");
+    // Cleared: just the initials, and no PD names it again.
+    await expect(admin.mutation(api.users.renamePastWriter, { writerId: writer._id, name: "" })).resolves.toEqual({ label: "DW" });
+    await readPd(t, "DW", 4, DANA_PD);
+    const cleared = (await writerOf(t, first))!;
+    expect(cleared.name).toBeUndefined();
+    expect(cleared.nameSource).toBe("person");
+    expect(await allWriters(t)).toHaveLength(1);
+    await runWriterWalk(t);
+    expect((await getItem(t, first)).writerName).toBe("DW");
+    // The Admin's writer is never removed on its own, even with no files.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...discoveredArgs(`${CEDARLINE_FY}/WIP/Technical/Audio/x.docx`, { driveItemId: "DW-1-To be submitted" }),
+    });
+    expect(await allWriters(t)).toHaveLength(1);
+    await expectCountsMatchRecount(t, "after an Admin's names");
+  });
+
+  it("goes back to the initials when two PDs name different people, and stays there until an Admin names it", async () => {
+    const { t, admin } = await setup();
+    const first = await readPd(t, "DW", 1, DANA_PD);
+    const writer = (await writerOf(t, first))!;
+    await runWriterWalk(t);
+    const second = await readPd(t, "DW", 2, "Written by Dan Wells");
+    expect(await writerOf(t, first)).toMatchObject({ nameSource: "documents_disagree" });
+    expect((await writerOf(t, first))!.name).toBeUndefined();
+    expect((await getItem(t, second)).writerName).toBe("DW");
+    await runWriterWalk(t);
+    expect((await getItem(t, first)).writerName).toBe("DW");
+    expect(await shownWriter(admin, first)).toEqual({ name: "DW", hasLogin: false });
+    // Another PD that agrees with either one changes nothing.
+    await readPd(t, "DW", 3, DANA_PD);
+    expect((await writerOf(t, first))!.name).toBeUndefined();
+    expect(await allWriters(t)).toHaveLength(1);
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ label: "DW", name: null, nameFromDocument: false });
+    // The Admin can still name it.
+    await admin.mutation(api.users.renamePastWriter, { writerId: writer._id, name: "Dana Whitlock" });
+    expect(await writerOf(t, first)).toMatchObject({ name: "Dana Whitlock", nameSource: "person" });
+    await expectCountsMatchRecount(t, "after PDs that disagree");
+  });
+
+  it("never names a member's writer or a linked past writer, and a member with the initials still comes first", async () => {
+    const { t, admin } = await setup();
+    const dana = await addMember(t, "Dana", "Wells", { initials: "DW" });
+    const pd = await readPd(t, "DW", 1, DANA_PD);
+    const own = (await ownWriterOf(t, dana))!;
+    expect((await getItem(t, pd)).writerId).toBe(own._id);
+    expect(own.name).toBeUndefined();
+    expect(await shownWriter(admin, pd)).toEqual({ name: "Dana Wells", hasLogin: true });
+    // A past writer linked to Sam keeps no name of its own while linked.
+    const so = (await writerOf(t, await pdBy(t, "SO", 2)))!;
+    const sam = await addMember(t, "Sam", "Okafor", { initials: "SK" });
+    await admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam });
+    const later = await readPd(t, "SO", 3, "Prepared by Sven Olsen");
+    expect((await getItem(t, later)).writerId).toBe(so._id);
+    expect((await writerOf(t, later))!.name).toBeUndefined();
+    expect(await shownWriter(admin, later)).toEqual({ name: "Sam Okafor", hasLogin: true });
+    // A past writer a person named on Import (no initials) is never named by a PD.
+    const typed = await readPd(t, "KT", 4, "Prepared by Kevin Tse");
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [typed], patch: { writer: { kind: "name", name: "Kim Tran" } } });
+    expect((await writerOf(t, typed))!).toMatchObject({ name: "Kim Tran", createdVia: "person" });
+    await expectCountsMatchRecount(t, "after writers a PD may not name");
+  });
+
+  it("makes a PD's name a person's once a person chooses that writer, so a later PD that disagrees never takes it back", async () => {
+    const { t, admin } = await setup();
+    // Typed on one file: the same name is the same writer, now confirmed.
+    const first = await readPd(t, "DW", 1, DANA_PD);
+    const dw = (await writerOf(t, first))!;
+    const other = await readPd(t, "KT", 2, "No writer here.");
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [other], patch: { writer: { kind: "name", name: "Dana Whitlock" } } });
+    expect((await getItem(t, other)).writerId).toBe(dw._id);
+    expect(await writerOf(t, first)).toMatchObject({ name: "Dana Whitlock", nameSource: "person" });
+    await readPd(t, "DW", 3, "Written by Dan Wells");
+    expect(await writerOf(t, first)).toMatchObject({ name: "Dana Whitlock", nameSource: "person" });
+    expect(await shownWriter(admin, other)).toEqual({ name: "Dana Whitlock", hasLogin: false });
+
+    // Chosen from the list for some initials (a firm-wide pick): confirmed too.
+    const so = await readPd(t, "SO", 4, "Prepared by Sam Okafor");
+    const sam = (await writerOf(t, so))!;
+    expect(sam.nameSource).toBe("document");
+    await readPd(t, "SK", 5, "No writer here.");
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "SK", writer: { kind: "writer", writerId: sam._id } });
+    expect(await writerOf(t, so)).toMatchObject({ name: "Sam Okafor", nameSource: "person" });
+    await readPd(t, "SO", 6, "Prepared by Sara Oduya");
+    expect(await writerOf(t, so)).toMatchObject({ name: "Sam Okafor", nameSource: "person" });
+    await runWriterWalk(t);
+    await expectCountsMatchRecount(t, "after people chose writers named by PDs");
+  });
+
+  it("leaves a past writer with no name as it was when an Admin saves an empty name", async () => {
+    const { t, admin } = await setup();
+    const pd = await pdBy(t, "DW", 1);
+    const dw = (await writerOf(t, pd))!;
+    await expect(admin.mutation(api.users.renamePastWriter, { writerId: dw._id, name: "  " })).resolves.toEqual({ label: "DW" });
+    const after = (await writerOf(t, pd))!;
+    expect(after.nameSource).toBeUndefined();
+    expect(after.updatedBy).toBeUndefined();
+    // So a PD can still name it, and it is still removed when nothing points at it.
+    await readPd(t, "DW", 2, DANA_PD);
+    expect(await writerOf(t, pd)).toMatchObject({ name: "Dana Whitlock", nameSource: "document" });
+  });
+
+  it("never takes the file's company name, nor a name another past writer already has", async () => {
+    const { t } = await setup();
+    // The company is called Delta Wave, and DW is its initials.
+    const company = await readPd(t, "DW", 1, "Prepared by Delta Wave", "To be submitted", "Delta Wave/2025 - Mar 31");
+    expect((await getItem(t, company)).documentWriterNames).toEqual(["Delta Wave"]);
+    expect((await writerOf(t, company))!.name).toBeUndefined();
+    // A person typed "Priya Nair" on Import first: the PN writer the check makes stays PN.
+    const typed = await readPd(t, "KT", 2, "No writer here.");
+    const { admin } = { admin: t.withIdentity({ subject: "sheet-admin" }) };
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [typed], patch: { writer: { kind: "name", name: "Priya Nair" } } });
+    const pn = await readPd(t, "PN", 3, "Author: Priya Nair");
+    expect((await writerOf(t, pn))!).toMatchObject({ initials: "PN" });
+    expect((await writerOf(t, pn))!.name).toBeUndefined();
+    expect((await allWriters(t)).filter((writer) => writer.name === "Priya Nair")).toHaveLength(1);
+    // A team member called Dana Whitlock (initials DAW): the DW writer stays DW.
+    await addMember(t, "Dana", "Whitlock", { initials: "DAW" });
+    const dw = await readPd(t, "DW", 4, DANA_PD);
+    expect((await writerOf(t, dw))!.name).toBeUndefined();
+    // A writer typed in lower case blocks the same name too.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [typed], patch: { writer: { kind: "name", name: "sam okafor" } } });
+    const so = await readPd(t, "SO", 5, "Prepared by Sam Okafor");
+    expect((await writerOf(t, so))!.name).toBeUndefined();
+    await expectCountsMatchRecount(t, "after names a PD may not take");
+  });
+
+  it("reads the names of a file that comes to take a writer later, or whose reading began before the deploy", async () => {
+    const { t, admin } = await setup();
+    // A file in a supporting folder, read before its names were kept, then
+    // moved on the drive into To be submitted: a final PD with initials now.
+    const name = "01 CedarlineSystems 2025-03-31 T1.DW Project1.docx";
+    const moved = await readBefore(t, "DW", 1, DANA_PD, `${CEDARLINE_FY}/Financials/${name}`);
+    expect((await getItem(t, moved)).category).toBe("supporting");
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...discoveredArgs(`${CEDARLINE_FY}/To be submitted/${name}`, { driveItemId: "before-DW-1" }),
+    });
+    expect((await getItem(t, moved))).toMatchObject({ category: "final_pd", writerInitials: "DW", status: "pending_review" });
+    expect(await runWriterWalk(t)).toMatchObject({ readDocumentWriterNames: 1 });
+    expect((await getItem(t, moved)).documentWriterNames).toEqual(["Dana Whitlock"]);
+    expect(await writerOf(t, moved)).toMatchObject({ initials: "DW", name: "Dana Whitlock", nameSource: "document" });
+
+    // A reading that began before the deploy lands with its text and no names.
+    const late = await stage(t, pdPath("SO", 2), { driveItemId: "late-so" });
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    const textStorageId = await t.run((ctx) => ctx.storage.store(new Blob(["Prepared by Sam Okafor"], { type: "text/plain" })));
+    await t.mutation(internal.ingestion.markItemProcessed, { itemId: late, storageId, text: "Text", textStorageId });
+    expect(await runWriterWalk(t)).toMatchObject({ readDocumentWriterNames: 1 });
+    expect(await writerOf(t, late)).toMatchObject({ name: "Sam Okafor", nameSource: "document" });
+    // A row read long ago with only its preview, no full text: its names come
+    // from the preview at its next write, with nothing to schedule.
+    const old = await stage(t, pdPath("KT", 4), { driveItemId: "old-kt" });
+    const oldStorage = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    await t.mutation(internal.ingestion.markItemProcessed, { itemId: old, storageId: oldStorage, text: "Text" });
+    await t.run((ctx) => ctx.db.patch(old, { text: "Cover page\nPrepared by Kim Tran", documentWriterNames: undefined }));
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [old], patch: { scienceCode: "1.02.01" } });
+    expect((await getItem(t, old)).documentWriterNames).toEqual(["Kim Tran"]);
+    expect(await writerOf(t, old)).toMatchObject({ name: "Kim Tran", nameSource: "document" });
+    // A file read with its names schedules nothing more.
+    await readPd(t, "PN", 3, "Author: Priya Nair");
+    expect(await runWriterWalk(t)).not.toHaveProperty("readDocumentWriterNames");
+    await expectCountsMatchRecount(t, "after files read on their own");
+  });
+
+  it("keeps an approved file's stored name while the sheet shows the writer's new one", async () => {
+    const { t, admin } = await setup();
+    const approved = await pdBy(t, "DW", 1);
+    await approveForTest(t, admin, approved);
+    expect((await getItem(t, approved)).writerName).toBe("DW");
+    await readPd(t, "DW", 2, DANA_PD);
+    await runWriterWalk(t);
+    expect((await getItem(t, approved)).writerName).toBe("DW");
+    expect(await shownWriter(admin, approved)).toEqual({ name: "Dana Whitlock", hasLogin: false });
+    await expectCountsMatchRecount(t, "after a name over an approved file");
+  });
+
+  it("removes a writer named only by a PD once nothing points at it, and an Undo's stand-in is that writer", async () => {
+    const { t } = await setup();
+    const pd = await readPd(t, "DW", 1, DANA_PD);
+    expect((await writerOf(t, pd))!.name).toBe("Dana Whitlock");
+    const standIn = await t.run((ctx) => bareWriterFromInitials(ctx, "DW"));
+    expect(standIn._id).toBe((await getItem(t, pd)).writerId);
+    // Moved to Transcripts: no file points at it, and it goes like a bare writer.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...discoveredArgs(`${CEDARLINE_FY}/WIP/Technical/Audio/01 CedarlineSystems 2025-03-31 T1.DW Project1.docx`, {
+        driveItemId: "DW-1-To be submitted",
+      }),
+    });
+    expect(await allWriters(t)).toEqual([]);
+    await expectCountsMatchRecount(t, "after the named writer went");
+  });
+
+  it("clears the names when new bytes arrive, and a new text naming someone else counts as PDs that disagree", async () => {
+    const { t } = await setup();
+    const pd = await readPd(t, "SO", 1, "Prepared by Sam Okafor");
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...discoveredArgs(pdPath("SO", 1), { driveItemId: "SO-1-To be submitted", contentHash: "hash-2" }),
+    });
+    const restaged = await getItem(t, pd);
+    expect(restaged.status).toBe("discovered");
+    expect(restaged.documentWriterNames).toBeUndefined();
+    expect((await writerOf(t, pd))!.name).toBe("Sam Okafor");
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    await t.mutation(internal.ingestion.markItemProcessed, {
+      itemId: pd,
+      storageId,
+      text: "Text",
+      documentWriterNames: writerNamesFromText("Prepared by Sara Oduya"),
+    });
+    expect((await getItem(t, pd)).documentWriterNames).toEqual(["Sara Oduya"]);
+    expect(await writerOf(t, pd)).toMatchObject({ initials: "SO", nameSource: "documents_disagree" });
+    await expectCountsMatchRecount(t, "after new bytes");
+  });
+
+  it("keeps every count and the naming rules through a seeded run of reads, new bytes, picks, renames, deletes and approvals", async () => {
+    vi.stubEnv("VOYAGE_API_KEY", "test-voyage-key");
+    const { t, admin } = await setup();
+    t.registerComponent("embedPool", workpoolSchema, workpoolModules);
+    const rand = seeded(RANDOM_SEED + 16);
+    const pick = <X>(list: readonly X[]): X => list[Math.floor(rand() * list.length)];
+    const TEXTS: Record<string, string[]> = {
+      DW: [DANA_PD, "Written by Dan Wells", "Prepared by Dana Whitlock. Written by Dan Wells.", "No writer here.", "Reviewed by Dana Whitlock"],
+      PN: ["Author: Priya Nair", "Prepared by Pat Nolan", "Prepared by PN."],
+      SO: ["Prepared by Sam Okafor", "Writer: Sam Okafor"],
+    };
+    const ids: Array<Id<"ingestionItems">> = [];
+    /** The name an Admin last gave each writer: no PD ever changes it. */
+    const adminNames = new Map<string, string | undefined>();
+    const sourcesSeen = new Set<string>();
+    let n = 0;
+    const steps: Array<[string, () => Promise<unknown>]> = [
+      ["read", async () => {
+        const initials = pick(["DW", "PN", "SO"]);
+        ids.push(await readPd(t, initials, ++n, pick(TEXTS[initials])));
+      }],
+      ["new bytes", async () => {
+        if (ids.length === 0) return;
+        const row = await getItem(t, pick(ids));
+        if (row.status === "approved" || !row.writerInitials) return;
+        await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+          ...discoveredArgs(row.path, { driveItemId: row.driveItemId, contentHash: `h${++n}` }),
+        });
+        const text = pick(TEXTS[row.writerInitials]);
+        const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+        await t.mutation(internal.ingestion.markItemProcessed, {
+          itemId: row._id,
+          storageId,
+          text: "Text",
+          documentScienceCode: "2.02.09",
+          documentWriterNames: writerNamesFromText(text),
+        });
+      }],
+      ["pick and Undo", async () => {
+        const initials = pick(["DW", "PN", "SO"]);
+        const before = await writerState(t);
+        const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer: { kind: "name", name: "Jordan Ellis" } });
+        await runWriterWalk(t);
+        await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer: result.previous });
+        await runWriterWalk(t);
+        expect(await writerState(t)).toEqual(before);
+      }],
+      ["rename", async () => {
+        const past = (await allWriters(t)).filter((writer) => !writer.userId && writer.initials);
+        if (past.length === 0) return;
+        const writer = pick(past);
+        const name = pick(["Dana Whitlock", "Kim Tran", ""]);
+        await admin.mutation(api.users.renamePastWriter, { writerId: writer._id, name });
+        // An empty name on a writer with none changes nothing.
+        if (name || writer.name) adminNames.set(writer._id, name || undefined);
+      }],
+      ["delete or put back", async () => {
+        if (ids.length === 0) return;
+        const id = pick(ids);
+        const row = await getItem(t, id);
+        if (row.status === "pending_review") await admin.mutation(api.ingestion.removeItems, { ids: [id] });
+        else if (row.status === "deleted") await admin.mutation(api.ingestion.restoreItems, { ids: [id] });
+      }],
+      ["approve", async () => {
+        const open = [];
+        for (const id of ids) if ((await getItem(t, id)).status === "pending_review") open.push(id);
+        if (open.length === 0) return;
+        await approveForTest(t, admin, pick(open));
+      }],
+    ];
+    for (let step = 0; step < 60; step += 1) {
+      // Reads three times as often as each other step.
+      const [name, run] = step < 4 ? steps[0] : pick([steps[0], steps[0], ...steps]);
+      await run();
+      await runWriterWalk(t);
+      const label = `seed ${RANDOM_SEED + 16}, step ${step}: ${name}`;
+      await expectCountsMatchRecount(t, label);
+      for (const writer of await allWriters(t)) {
+        if (writer.nameSource) sourcesSeen.add(writer.nameSource);
+        if (adminNames.has(writer._id)) {
+          expect(writer.name, label).toBe(adminNames.get(writer._id));
+          expect(writer.nameSource, label).toBe("person");
+        }
+        if (writer.nameSource === "document") {
+          expect(writer, label).toMatchObject({ createdVia: "import" });
+          expect(writer.userId, label).toBeUndefined();
+          expect(nameMatchesInitials(writer.name!, writer.initials!), label).toBe(true);
+        }
+        if (writer.nameSource === "documents_disagree") expect(writer.name, label).toBeUndefined();
+      }
+      // At most one writer the check made per initials: a named one is still THE writer for them.
+      const made = (await allWriters(t)).filter((writer) => writer.createdVia === "import" && writer.initials);
+      expect(new Set(made.map((writer) => writer.initials)).size, label).toBe(made.length);
+    }
+    // The run reaches each case.
+    expect([...sourcesSeen].sort()).toEqual(["document", "documents_disagree", "person"]);
+  });
+
+  it("reads the names of files read before, in pages on To review, Deleted and Approved, after the writers backfill, and can run again", async () => {
+    const { t, admin } = await setup();
+    const named = await readBefore(t, "DW", 1, DANA_PD);
+    // More files to read on To review than one run reads (25), so its page runs twice.
+    for (let n = 2; n <= 27; n += 1) await readBefore(t, "DW", n, "No writer here.");
+    const deleted = await readBefore(t, "PN", 30, "Written by Priya Nair");
+    await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
+    const approved = await readBefore(t, "SO", 31, "Author: Sam Okafor");
+    await approveForTest(t, admin, approved);
+    const transcriptId = await stage(t, `${CEDARLINE_FY}/WIP/Technical/Audio/interview.docx`);
+    await markRead(t, transcriptId, "Prepared by Kim Tran");
+    expect((await writerOf(t, named))!.name).toBeUndefined();
+
+    // Chained after the writers backfill: To review twice, then Deleted and Approved.
+    await t.mutation(internal.ingestion.backfillImportWriters, { tab: "review", cursor: null });
+    const runs = await runWriterWalk(t);
+    expect(runs).toMatchObject({ backfillImportWriters: 2, backfillDocumentWriterNames: 4 });
+    expect(await writerOf(t, named)).toMatchObject({ name: "Dana Whitlock", nameSource: "document" });
+    expect(await writerOf(t, deleted)).toMatchObject({ name: "Priya Nair", nameSource: "document" });
+    expect(await writerOf(t, approved)).toMatchObject({ name: "Sam Okafor", nameSource: "document" });
+    // Every file with initials has its names; the transcript was not read for them.
+    expect((await getItem(t, named)).documentWriterNames).toEqual(["Dana Whitlock"]);
+    expect((await getItem(t, await stage(t, pdPath("DW", 2), { driveItemId: "before-DW-2" }))).documentWriterNames).toEqual([]);
+    expect((await getItem(t, transcriptId)).documentWriterNames).toBeUndefined();
+    // Stored names follow on To review and Deleted; the approved file keeps its own.
+    expect((await getItem(t, named)).writerName).toBe("Dana Whitlock");
+    expect((await getItem(t, deleted)).writerName).toBe("Priya Nair");
+    expect((await getItem(t, approved)).writerName).toBe("SO");
+    await expectCountsMatchRecount(t, "after the names backfill");
+
+    // On its own, again: nothing more.
+    const before = await t.run(async (ctx) => ({
+      items: await ctx.db.query("ingestionItems").collect(),
+      writers: await ctx.db.query("pdWriters").collect(),
+    }));
+    await expect(t.action(internal.ingestion.backfillDocumentWriterNames, {})).resolves.toEqual({ recorded: 0, done: false });
+    // To review fits one page of 100 rows now; then Deleted and Approved.
+    expect(await runWriterWalk(t)).toEqual({ backfillDocumentWriterNames: 2 });
+    const after = await t.run(async (ctx) => ({
+      items: await ctx.db.query("ingestionItems").collect(),
+      writers: await ctx.db.query("pdWriters").collect(),
+    }));
+    expect(after).toEqual(before);
   });
 });
 
