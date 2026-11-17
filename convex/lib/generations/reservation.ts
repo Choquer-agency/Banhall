@@ -988,6 +988,7 @@ export async function retryFromSummaryHandler(
       projectDocumentId: current.projectDocumentId,
       companyFileId: current.companyFileId,
       clientId: current.clientId,
+      ...(current.fiscalYear !== undefined ? { fiscalYear: current.fiscalYear } : {}),
       label: current.label,
       // B1, second part: an old row's own copy, or a new row's reference.
       ...(current.content !== undefined ? { content: current.content } : {}),

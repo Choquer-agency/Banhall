@@ -300,6 +300,8 @@ export interface ChatCompanyFile {
   fileName: string;
   category?: string;
   textLength: number;
+  /** 2026-11-17: how Import filed it, with its fiscal year ("final PD, FY 2024"); absent for a file added by hand. */
+  filedAs?: string;
   /** The file's label title, from labels of its current text (never evidence). */
   title?: string;
 }
@@ -327,11 +329,15 @@ function companyFilesListText(files: readonly ChatCompanyFile[]): string {
       quotedFileName(file.fileName),
       ANALYZER_CATEGORY_LABELS[(file.category && file.category in ANALYZER_CATEGORY_LABELS ? file.category : "other") as ContextDocCategory],
       `${formatCount(file.textLength)} characters`,
+      ...(file.filedAs ? [`filed as ${file.filedAs}`] : []),
       ...(file.title ? [`titled ${quotedFileName(file.title)}`] : []),
     ].join(" | ")
   );
+  // 2026-11-17 (company history): search reaches the company's files that
+  // are not listed too, and the list says how Import filed a file.
+  const filed = files.some((file) => file.filedAs) ? " | how it was filed, for an imported file" : "";
   return [
-    `${COMPANY_FILES_NOTE} They are not in the evidence blocks: searchDocuments finds them after this project's own files, and readDocument opens one by its handle. ${formatCount(files.length)} file(s). Each line: handle | name | category | text size | title.`,
+    `${COMPANY_FILES_NOTE} They are not in the evidence blocks: searchDocuments finds them after this project's own files, including company files not listed here, and readDocument opens one by its handle, or one a search found by the handle it gave, such as C31. ${formatCount(files.length)} file(s) listed. Each line: handle | name | category | text size${filed} | title.`,
     ...lines,
   ].join("\n");
 }

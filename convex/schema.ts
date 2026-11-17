@@ -1331,8 +1331,9 @@ export default defineSchema({
     // read every frozen row tell whether the project has left that company.
     companyFilesFrom: v.optional(v.id("clients")),
     // 2026-10-28 (third, owner): the company files this draft could read but
-    // did not fit in the frozen total (at most FROZEN_COMPANY_FILES), so the
-    // Inputs band lists them as not captured.
+    // did not fit in the frozen total (at most FROZEN_COMPANY_FILES, and
+    // since 2026-11-17 the PINNED_FINAL_PDS on top), so the Inputs band
+    // lists them as not captured.
     companyFilesLeftOut: v.optional(v.array(v.id("companyFiles"))),
     // 2026-10-27 (twelfth, owner): whether the draft froze anything from a
     // previous year (a file in the previous-year category, or a transcript a
@@ -2690,7 +2691,18 @@ export default defineSchema({
         v.literal("scoping_notes"),
         v.literal("writer_notes"),
         v.literal("background"),
-        v.literal("other")
+        v.literal("other"),
+        // 2026-11-17 widen (company history, docs/product-domain.md): the
+        // categories an approved Import file keeps on its company. Set only
+        // by Import (a person cannot pick one in Edit details). A final PD
+        // is a company file, never a project's previous-year report
+        // (decision 42): drafts read it as background
+        // (lib/briefEvidence.ts companyFileCategory).
+        v.literal("final_pd"),
+        v.literal("draft"),
+        v.literal("review_copy"),
+        v.literal("transcript"),
+        v.literal("supporting")
       )
     ),
     mimeType: v.optional(v.string()),
@@ -2744,11 +2756,30 @@ export default defineSchema({
     /** The browser's key for the save that made this row, so a retried save finds it. */
     attemptKey: v.optional(v.string()),
     // 2026-11-04 (Edit details): the fiscal year a person filed the file
-    // under, a label only (drafts read company files exactly as before).
-    // Unset: the AI label's year is shown; null: a person said none.
+    // under. Unset: the AI label's year is shown; null: a person said none.
+    // Since 2026-11-17 a draft pins a final PD by this year (never by the AI
+    // label's): the final PDs of the two fiscal years before the project's.
     fiscalYear: v.optional(v.union(v.number(), v.null())),
+    // 2026-11-17 widen (company history): the Import file this company file
+    // was approved from, the PD's writer and reviewer (pdWriters), and the
+    // PD number from its file name ("04"). Set only by Import's approve
+    // (a later change); absent on every file added by hand. A draft prefers
+    // a final PD whose number matches the project's when a year has several.
+    importItemId: v.optional(v.id("ingestionItems")),
+    writerId: v.optional(v.id("pdWriters")),
+    reviewerId: v.optional(v.id("pdWriters")),
+    pdNumber: v.optional(v.string()),
   })
     .index("by_clientId_and_archived", ["clientId", "archived"])
+    // 2026-11-17: a company's files of one category, newest first within it
+    // (a draft's company files and the chat's list read the hand-added
+    // categories this way, so imported history never crowds them out).
+    .index("by_clientId_and_archived_and_category", ["clientId", "archived", "category"])
+    // 2026-11-17: a company's final PDs of one fiscal year, not archived,
+    // read by a draft's pinned set without scanning the company's other
+    // files (archived ones never use up its places).
+    .index("by_clientId_and_category_and_archived_and_fiscalYear", ["clientId", "category", "archived", "fiscalYear"])
+    .index("by_importItemId", ["importItemId"])
     // The same file: one company, text, name, not archived.
     .index("by_clientId_and_textHash_and_fileName_and_archived", ["clientId", "textHash", "fileName", "archived"])
     .index("by_clientId_and_attemptKey", ["clientId", "attemptKey"])
@@ -3550,6 +3581,10 @@ export default defineSchema({
     // A company_file row's file and the company it came from at the freeze.
     companyFileId: v.optional(v.id("companyFiles")),
     clientId: v.optional(v.id("clients")),
+    // 2026-11-17 widen (company history): a company_file row's fiscal year
+    // (companyFiles.fiscalYear) at the freeze, so a pinned final PD traces
+    // to its year after the file's year is edited. Absent: the file had none.
+    fiscalYear: v.optional(v.number()),
     label: v.string(),
     // B1, second part (2026-10-27), widen only: the text the draft read.
     // Present on every row written before the change; a new project file or
@@ -5015,6 +5050,8 @@ export default defineSchema({
     projectDocumentId: v.optional(v.id("projectDocuments")),
     companyFileId: v.optional(v.id("companyFiles")),
     clientId: v.optional(v.id("clients")),
+    // 2026-11-17 widen: as generationSources.fiscalYear.
+    fiscalYear: v.optional(v.number()),
     // A draft's frozen row names its intake source; promotion adds the
     // project's transcript or file id through the exact source-key link.
     intakeSourceId: v.optional(v.id("intakeSources")),

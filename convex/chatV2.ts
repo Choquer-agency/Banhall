@@ -3646,7 +3646,12 @@ export const getChatContextV2 = internalQuery({
     // Phase C (W1): whether the chat may see PDFs and images.
     const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
     // 2026-10-26 (Phase C): the company's files, facts only (at most 30).
-    const companyFilesRead = await budget.read(() => chatCompanyFilesFor(ctx, report.projectId, args.userId), 64 * 1024);
+    // 2026-11-17: every company file row it reads is charged as read (final
+    // PDs by year, the newest hand-added and Import files), not a flat guess.
+    const companyFilesRead = await budget.read(
+      () => chatCompanyFilesFor(ctx, report.projectId, args.userId, { read: (row) => void budget.charge(row as Value | null | undefined) }),
+      4 * 1024
+    );
 
     // BNH-24: archived docs are out of AI context.
     const activeDocuments = documents.filter((d) => !d.archived);

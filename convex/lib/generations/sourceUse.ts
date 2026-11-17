@@ -39,7 +39,7 @@ export const sourceUseEntryValidator = v.object({
 });
 export type SourceUseEntry = Infer<typeof sourceUseEntryValidator>;
 
-/** At most this many rows one call records: a draft freezes at most 123. */
+/** At most this many rows one call records: a draft freezes at most 127 (2026-11-17). */
 export const MAX_SOURCE_USE_ENTRIES = 200;
 
 /**
@@ -114,7 +114,7 @@ const STATE_RANK = { left_out: 0, part: 1, whole: 2 } as const;
  * were sent, and a run that sends other parts of a row it read in part (its
  * inputs moved, say a changed budget) adds a record, up to
  * MAX_PART_RECORDS_PER_RUN a row (review: so one run's records of a draft's
- * at most 123 rows, 6 a row, stay within this read; a test holds the bound).
+ * at most 127 rows, 6 a row, stay within this read; a test holds the bound).
  */
 export async function insertSourceUses(
   ctx: MutationCtx,

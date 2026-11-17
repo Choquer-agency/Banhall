@@ -9,6 +9,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { documentTextHash } from "./documentText";
 import { SEARCH_PIECES_VERSION, checkedPageStarts, searchTextOf, splitSearchPieces, type PieceTextKind } from "../../shared/searchPieces";
+import { collapseVersionFamilies, versionFamily } from "./companyEvidence";
 
 /** Whose pieces: a project file in its project, or a company file in its company. */
 export type PieceOwner =
@@ -202,13 +203,25 @@ export async function searchProjectPieces(
   return { hits, complete: notIndexed === null && scanComplete, scanComplete };
 }
 
-export type CompanyPieceHit = Omit<PieceHit, "documentId"> & { companyFileId: Id<"companyFiles"> };
+export type CompanyPieceHit = Omit<PieceHit, "documentId" | "category"> & {
+  companyFileId: Id<"companyFiles">;
+  /** 2026-11-17: the file's category and fiscal year, as stored. */
+  category?: Doc<"companyFiles">["category"];
+  fiscalYear?: number;
+};
+
+/** Hits one company search gathers before collapsing version families, per hit it returns. */
+const FAMILY_GATHER = 3;
 
 /**
  * A company's pieces a keyword search finds, best first (Phase C): only
  * files the company holds now, not archived, and pieces cut from their
  * current text; at most `perFile` pieces of one file, `limit` in all. The
  * caller has checked that the asking project belongs to this company.
+ * Since 2026-11-17 it searches every file of the company (not only the ones
+ * a chat lists, unless `onlyFileIds` says so), and a PD's versions count as
+ * one family (`collapseVersionFamilies`): at most two excerpts, its final
+ * PD's first.
  */
 export async function searchCompanyPieces(
   ctx: QueryCtx,
@@ -232,9 +245,15 @@ export async function searchCompanyPieces(
     .take(scanCap);
   const files = new Map<string, Doc<"companyFiles"> | null>();
   const perFileCount = new Map<string, number>();
-  const hits: CompanyPieceHit[] = [];
+  const gathered: Array<CompanyPieceHit & { family: string; final: boolean }> = [];
+  // Review (2026-11-17): the gathering stopped before the scan's end, so
+  // collapsing families may leave fewer hits than a full read would.
+  let stoppedEarly = false;
   for (const piece of scanned) {
-    if (hits.length >= limit) break;
+    if (gathered.length >= limit * FAMILY_GATHER) {
+      stoppedEarly = true;
+      break;
+    }
     const companyFileId = piece.companyFileId;
     if (!companyFileId || (args.onlyFileIds && !args.onlyFileIds.has(companyFileId))) continue;
     let file = files.get(companyFileId);
@@ -248,9 +267,13 @@ export async function searchCompanyPieces(
     const count = perFileCount.get(companyFileId) ?? 0;
     if (count >= perFile) continue;
     perFileCount.set(companyFileId, count + 1);
-    hits.push({
+    gathered.push({
+      family: versionFamily(file),
+      final: file.category === "final_pd",
       companyFileId,
       fileName: file.fileName,
+      ...(file.category ? { category: file.category } : {}),
+      ...(typeof file.fiscalYear === "number" ? { fiscalYear: file.fiscalYear } : {}),
       textHash: piece.textHash,
       start: piece.start,
       end: piece.end,
@@ -259,9 +282,18 @@ export async function searchCompanyPieces(
       text: piece.searchText.slice(piece.prefixChars),
     });
   }
+  const hits: CompanyPieceHit[] = collapseVersionFamilies(gathered, perFile)
+    .slice(0, limit)
+    .map((hit) => {
+      const { family, final, ...rest } = hit;
+      void family;
+      void final;
+      return rest;
+    });
   const notIndexed = await ctx.db
     .query("companyFiles")
     .withIndex("by_clientId_and_searchPiecesDue", (q) => q.eq("clientId", args.clientId).eq("searchPiecesDue", true))
     .first();
-  return { hits, complete: notIndexed === null && (scanned.length < scanCap || hits.length >= limit) };
+  const scanComplete = hits.length >= limit || (!stoppedEarly && scanned.length < scanCap);
+  return { hits, complete: notIndexed === null && scanComplete };
 }
