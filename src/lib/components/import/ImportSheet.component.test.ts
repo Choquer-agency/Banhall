@@ -454,7 +454,7 @@ describe("ImportSheet", () => {
     // A final PD with no writer and no science code: the amber pick controls (phase 3b).
     const pd4 = one('[data-import-file="pd4"]')!;
     const noWriter = one("[data-import-writer-tone]", pd4)!;
-    expect(text(noWriter)).toBe("Pick a writer");
+    expect(text(noWriter)).toBe("Choose writer");
     expect(getComputedStyle(noWriter).color).toBe(AMBER);
     const noCode = one("[data-import-code-missing]", pd4)!;
     expect(text(noCode)).toBe("Pick a code");
@@ -827,7 +827,7 @@ describe("ImportSheet on laptop windows", () => {
       writerInitials: "DW",
       scienceCode: "2.02.09",
       scienceCodeSource: "document",
-      // Initials no person has matched (2026-11-12): the longest pick control, "Pick a writer for DW".
+      // Initials two people share (2026-11-16): a person must choose, "Choose writer".
       needsCheck: true,
       checkReasons: ["unmatched_initials"],
     }),

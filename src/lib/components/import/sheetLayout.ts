@@ -116,7 +116,7 @@ export const CELL_CARET =
   "ml-auto shrink-0 text-ink-muted opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100 group-data-[state=open]/cell:opacity-100 motion-reduce:transition-none";
 
 /**
- * The amber control for a label a person must pick ("Pick a writer for KT",
+ * The amber control for a label a person must pick ("Choose writer",
  * "Pick a code", "Pick an industry"; Paper Files 1): 26px, radius 8, the
  * warning surface inside a 1px amber line, 12/16 amber words, an 11px caret.
  * On a narrow window it gives way before running out of its cell: its words

@@ -48,7 +48,7 @@
   import { userErrorMessage } from "$lib/errors";
   import ImportCompanyList from "./ImportCompanyList.svelte";
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
-  import ImportWriterList from "./ImportWriterList.svelte";
+  import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
   import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
   import {
     changedText,
@@ -102,7 +102,7 @@
   let pickedDay = $state("");
   let moreView = $state<"list" | "company" | "writer" | "pdNumber" | "scienceCode">("list");
   let pickedCompany = $state<string | null>(null);
-  let pickedWriter = $state<string | null>(null);
+  let pickedWriter = $state<PickedWriter | null>(null);
   let pickedPdNumber = $state<string | null>(null);
   let pickedCode = $state<string | null>(null);
 
@@ -130,7 +130,7 @@
   const pickedYearEnd = $derived(pickedDay ? utcDayFromDateInput(pickedDay) : null);
   const moreChange = $derived.by((): BarChange | null => {
     if (moreView === "company" && pickedCompany) return { kind: "company", company: pickedCompany };
-    if (moreView === "writer" && pickedWriter) return { kind: "writer", writerName: pickedWriter };
+    if (moreView === "writer" && pickedWriter) return { kind: "writer", writer: pickedWriter.choice, writerName: pickedWriter.label };
     if (moreView === "pdNumber" && pickedPdNumber) return { kind: "pdNumber", pdNumber: pickedPdNumber };
     if (moreView === "scienceCode" && pickedCode) return { kind: "scienceCode", scienceCode: pickedCode };
     return null;
@@ -408,7 +408,7 @@
             <ImportCompanyList current={pickedCompany} onPick={(name) => (pickedCompany = name)} />
           {:else if moreView === "writer"}
             {@render back("Writer")}
-            <ImportWriterList current={pickedWriter} onPick={(name) => (pickedWriter = name)} />
+            <ImportWriterList currentValue={pickedWriter?.value ?? null} onPick={(picked) => (pickedWriter = picked)} />
           {:else if moreView === "pdNumber"}
             {@render back("PD number")}
             <ImportPdNumberList current={pickedPdNumber} onPick={(value) => (pickedPdNumber = value)} />

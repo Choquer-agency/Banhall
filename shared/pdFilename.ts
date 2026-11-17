@@ -14,10 +14,11 @@
  * dropped file and tests can pin the grammar. Parsing is positional and
  * tolerant: the project number and client are the anchor; every later token
  * is optional and whatever follows the recognised prefix becomes the title.
- * Initials are returned as data only — callers must never turn them into an
- * Owner or writer (ownership is never inferred from metadata). On the Import
- * sheet a person may say once which writer some initials stand for
- * (importWriterInitials, 2026-11-12); the code never makes that match itself.
+ * Initials are returned as data only: callers must never turn them into an
+ * Owner (ownership is never inferred from metadata). Only the Import sheet
+ * turns them into a writer (docs/product-domain.md, 2026-11-16, writers from
+ * initials): the one team member whose saved initials they are, else a
+ * writer with no login made from them, and never a guess between two.
  */
 
 /** The version letter: T to be submitted, S submitted, R in review. */

@@ -59,19 +59,37 @@ async function runPairing(t: T): Promise<string[][]> {
 /** The scheduled writer-match runs runWriterWalk already ran, per test backend. */
 const writerJobsRun = new WeakMap<T, Set<string>>();
 
+/** The scheduled writer walks (2026-11-16), by the name the scheduler gives each. */
+const WRITER_WALKS = {
+  applyWriterInitials: internal.ingestion.applyWriterInitials,
+  refreshWriterFiles: internal.ingestion.refreshWriterFiles,
+  migrateImportWriterInitials: internal.ingestion.migrateImportWriterInitials,
+  backfillImportWriters: internal.ingestion.backfillImportWriters,
+  backfillUserInitials: internal.users.backfillUserInitials,
+} as const;
+
 /**
- * Run only the scheduled rest of writer matches (applyWriterInitials) to the
- * end, leaving other scheduled work waiting, as runPairing does for pairing.
+ * Run only the scheduled writer walks (the rest of a match, a refresh after
+ * a writer changed, the moves to writers) to the end, leaving other
+ * scheduled work waiting, as runPairing does for pairing. Returns how many
+ * runs it made of each.
  */
-async function runWriterWalk(t: T) {
+async function runWriterWalk(t: T): Promise<Record<string, number>> {
   const done = writerJobsRun.get(t) ?? new Set<string>();
   writerJobsRun.set(t, done);
+  const runs: Record<string, number> = {};
   for (;;) {
     const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
-    const next = jobs.find((job) => job.name.includes("applyWriterInitials") && job.state.kind === "pending" && !done.has(job._id));
-    if (!next) return;
+    const next = jobs.find(
+      (job) => job.state.kind === "pending" && !done.has(job._id) && Object.keys(WRITER_WALKS).some((name) => job.name.endsWith(`:${name}`))
+    );
+    if (!next) return runs;
     done.add(next._id);
-    await t.mutation(internal.ingestion.applyWriterInitials, next.args[0] as { initials: string; tab: "review" | "deleted"; cursor: string | null });
+    const name = next.name.split(":").pop() as keyof typeof WRITER_WALKS;
+    runs[name] = (runs[name] ?? 0) + 1;
+    // Each walk's own arguments, as the scheduler stored them.
+    const run = t.mutation as (fn: (typeof WRITER_WALKS)[typeof name], args: unknown) => Promise<unknown>;
+    await run(WRITER_WALKS[name], next.args[0]);
   }
 }
 
@@ -86,6 +104,17 @@ async function setup() {
     admin: t.withIdentity({ subject: "sheet-admin" }),
     writer: t.withIdentity({ subject: "sheet-writer" }),
   };
+}
+
+/**
+ * Gives both setup users these saved initials (2026-11-16), so files with
+ * them could be either person: they get no writer, and need a person to
+ * choose one ("unmatched_initials").
+ */
+async function twoMembersWith(t: T, initials: string) {
+  await t.run(async (ctx) => {
+    for (const user of await ctx.db.query("users").collect()) await ctx.db.patch(user._id, { initials });
+  });
 }
 
 const CEDARLINE_FY = "Cedarline Systems/2025 - Mar 31";
@@ -607,6 +636,27 @@ async function expectCountsMatchRecount(t: T, label: string) {
   const { items, recount, stored } = await countsNowAndRecount(t);
   for (const item of items) if (item.sheetTab !== undefined) expectInvariants(item);
   expect(stored, label).toEqual(recount);
+  await expectWriterCountsMatchRecount(t, items, label);
+}
+
+/**
+ * Each writer's file count (2026-11-16) is the number of import files that
+ * point at it, counted here by hand on every tab; every file's writer is
+ * there, and a file not approved has a writer's name with it.
+ */
+async function expectWriterCountsMatchRecount(t: T, items: Array<Doc<"ingestionItems">>, label: string) {
+  const writers = await t.run((ctx) => ctx.db.query("pdWriters").collect());
+  const byHand = new Map<string, number>();
+  for (const item of items) {
+    if (item.writerId === undefined) continue;
+    byHand.set(item.writerId, (byHand.get(item.writerId) ?? 0) + 1);
+    expect(writers.some((writer) => writer._id === item.writerId), `${label}: ${item.path} writer is there`).toBe(true);
+    // An approved file given its writer by the backfill keeps the stored name it had (maybe none).
+    if (item.status !== "approved") expect(item.writerName, `${label}: ${item.path} writer name`).toBeTruthy();
+  }
+  for (const writer of writers) {
+    expect(writer.fileCount, `${label}: files of writer ${writer.name ?? writer.initials ?? writer.userId}`).toBe(byHand.get(writer._id) ?? 0);
+  }
 }
 
 /** The random run's seed: fixed, and printed when the run fails, so it can be replayed. */
@@ -652,6 +702,7 @@ const LABEL_PATCHES = [
   { pdNumber: "9" },
   { version: { code: "R" as const, number: 1 } },
   { writerName: "Priya Nair" },
+  { writer: { kind: "name" as const, name: "Sam Okafor" } },
   { scienceCode: "2.02.09" },
   { company: "Northgate Labs", category: "draft" as const, fiscalYearEnd: Date.UTC(2025, 8, 30) },
 ];
@@ -673,6 +724,8 @@ describe("importCompanies counts", () => {
       const withStatus = async (...statuses: Array<Doc<"ingestionItems">["status"]>) =>
         (await rows()).filter((row) => statuses.includes(row.status));
 
+      /** Writer steps that changed something (2026-11-16), so the run is known to reach them. */
+      const writerSteps = { linked: 0, unlinked: 0, renamed: 0, undone: 0 };
       const steps: Array<[string, () => Promise<unknown>]> = [
         ["insert", async () => {
           const id = `d${driveIds.length}`;
@@ -786,11 +839,71 @@ describe("importCompanies counts", () => {
           expect(result.changed).toBe(result.changedIds.length);
         }],
         ["match initials", async () => {
-          // A person says who some initials are, or an Undo says no one has (2026-11-12).
+          // A person says who some initials are, or an Undo takes the pick away (2026-11-12, 2026-11-16).
           const initials = pick(["DW", "PN", "SO"]);
-          const writerName = pick(["Dana Whitlock", "Priya Nair", "Sam Okafor", null]);
-          await admin.mutation(api.ingestion.matchWriterInitials, { initials, writerName });
+          const users = await t.run((ctx) => ctx.db.query("users").collect());
+          const writer = pick([
+            { kind: "name" as const, name: "Dana Whitlock" },
+            { kind: "name" as const, name: "Priya Nair" },
+            { kind: "user" as const, userId: pick(users)._id },
+            null,
+          ]);
+          await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer });
           // The rest of the walk, as the scheduler runs it.
+          await runWriterWalk(t);
+        }],
+        ["pick and Undo", async () => {
+          // A person picks a writer for some initials over files that already had
+          // different writers, then Undo (2026-11-16): every file is exactly as it was.
+          const initials = pick(["DW", "PN", "SO"]);
+          const users = await t.run((ctx) => ctx.db.query("users").collect());
+          const before = await writerState(t);
+          const choice = pick([
+            { kind: "name" as const, name: "Jordan Ellis" },
+            { kind: "user" as const, userId: pick(users)._id },
+          ]);
+          const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer: choice });
+          await runWriterWalk(t);
+          await admin.mutation(api.ingestion.matchWriterInitials, { initials, writer: result.previous });
+          await runWriterWalk(t);
+          expect(await writerState(t)).toEqual(before);
+          writerSteps.undone += 1;
+        }],
+        ["link a past writer", async () => {
+          // An Admin links a past writer to a member (2026-11-16): no file and no pick changes writer.
+          const writers = await t.run((ctx) => ctx.db.query("pdWriters").collect());
+          const users = await t.run((ctx) => ctx.db.query("users").collect());
+          const past = writers.filter((writer) => !writer.userId);
+          const free = users.filter((user) => !writers.some((writer) => writer.userId === user._id && writer.linkedAt !== undefined));
+          if (past.length === 0 || free.length === 0) return;
+          const before = await writerPointers(t);
+          await admin.mutation(api.users.linkPastWriter, { writerId: pick(past)._id, userId: pick(free)._id });
+          await runWriterWalk(t);
+          expect(await writerPointers(t)).toEqual(before);
+          writerSteps.linked += 1;
+        }],
+        ["unlink a past writer", async () => {
+          const linked = (await t.run((ctx) => ctx.db.query("pdWriters").collect())).filter((writer) => writer.linkedAt !== undefined);
+          if (linked.length === 0) return;
+          const before = await writerPointers(t);
+          await admin.mutation(api.users.unlinkPastWriter, { writerId: pick(linked)._id });
+          await runWriterWalk(t);
+          expect(await writerPointers(t)).toEqual(before);
+          writerSteps.unlinked += 1;
+        }],
+        ["rename a past writer", async () => {
+          const past = (await t.run((ctx) => ctx.db.query("pdWriters").collect())).filter((writer) => !writer.userId);
+          if (past.length === 0) return;
+          const writer = pick(past);
+          const name = writer.initials ? pick(["Priya Nair", "Jordan Ellis", ""]) : pick(["Priya Nair", "Jordan Ellis"]);
+          await admin.mutation(api.users.renamePastWriter, { writerId: writer._id, name });
+          await runWriterWalk(t);
+          writerSteps.renamed += 1;
+        }],
+        ["member initials", async () => {
+          // An Admin changes a team member's saved initials (2026-11-16): files with the old and new ones are checked again.
+          const users = await t.run((ctx) => ctx.db.query("users").collect());
+          await admin.mutation(api.users.setUserInitials, { userId: pick(users)._id, initials: pick(["DW", "PN", "SO", ""]) });
           await runWriterWalk(t);
         }],
         ["delete many", async () => {
@@ -819,7 +932,7 @@ describe("importCompanies counts", () => {
       const bandsSeen = new Set<string>();
       const reasonsSeen = new Set<string>();
       let twoReasonsSeen = false;
-      for (let step = 0; step < 220; step++) {
+      for (let step = 0; step < 300; step++) {
         const [name, run] = pick(steps);
         used.add(name);
         try {
@@ -836,6 +949,11 @@ describe("importCompanies counts", () => {
         }
         for (const key of Object.keys((await countsNowAndRecount(t)).stored)) bandsSeen.add(key);
       }
+      // Past writers were linked, unlinked and renamed along the way.
+      expect(writerSteps.linked).toBeGreaterThan(0);
+      expect(writerSteps.unlinked).toBeGreaterThan(0);
+      expect(writerSteps.renamed).toBeGreaterThan(0);
+      expect(writerSteps.undone).toBeGreaterThan(0);
       // Some file needed a check for two reasons at once, and some read file gave no text.
       expect(twoReasonsSeen).toBe(true);
       expect(reasonsSeen.has("no_text")).toBe(true);
@@ -1305,12 +1423,17 @@ describe("sheet queries", () => {
       fiscalYearEndAssumed: false,
       versionCode: "T",
       versionNumber: 2,
+      // No one on the team has the initials DW, so the file's writer is a
+      // new writer with no login, just "DW" (2026-11-16).
+      writerName: "DW",
+      writerNameSource: "initials",
+      writerId: expect.any(String),
+      writerHasLogin: false,
       writerInitials: "DW",
       reviewerInitials: "PN",
       editedLabels: [],
       needsCheck: true,
-      // Initials alone are not a writer until a person says who DW is (2026-11-12).
-      checkReasons: ["no_science_code", "unmatched_initials"],
+      checkReasons: ["no_science_code"],
       size: 2048,
       // It arrived in the last 24 hours (2026-11-12).
       isNew: true,
@@ -1325,11 +1448,13 @@ describe("sheet queries", () => {
       paginationOpts: PAGE,
     });
     expect(toCheck.page.map((row) => [row._id, row.checkReasons])).toEqual([
-      [ids.pd4r, ["no_science_code", "unmatched_initials"]],
-      [ids.pd4, ["no_science_code", "unmatched_initials"]],
-      [ids.pd12, ["no_science_code", "unmatched_initials"]],
+      [ids.pd4r, ["no_science_code"]],
+      [ids.pd4, ["no_science_code"]],
+      [ids.pd12, ["no_science_code"]],
       [ids.pdBare, ["no_science_code", "no_writer"]],
     ]);
+    // The three DW files share one writer.
+    expect(new Set(result.page.slice(0, 3).map((row) => row.writerId)).size).toBe(1);
 
     const loose = await admin.query(api.ingestion.sheetFiles, {
       tab: "review",
@@ -1390,12 +1515,14 @@ describe("sheet queries", () => {
 
   it("gives each section's check reasons with its band, a file with two counted under both", async () => {
     const { t, admin } = await setup();
+    await twoMembersWith(t, "DW");
     const ids = await seedSheet(t);
     const result = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
     const byKey = Object.fromEntries(result.page.map((band) => [band.companyKey, band]));
     // Four final PDs with no science code; the one with nothing in its name
     // has no writer either, and the three whose name gave "DW" need a person
-    // to say who DW is: four need a check, each counted under its reasons.
+    // to choose (two team members have the initials DW): four need a
+    // check, each counted under its reasons.
     expect(byKey["cedarline systems"].categories.final_pd).toEqual({
       total: 4,
       needsCheck: 4,
@@ -1444,6 +1571,7 @@ describe("sheet queries", () => {
 
   it("reads a band row from before check reasons as having none, and the tab repair fills them in", async () => {
     const { t, admin } = await setup();
+    await twoMembersWith(t, "DW");
     const ids = await seedSheet(t);
     const { stored: right } = await countsNowAndRecount(t);
     // Band rows written before the reasons existed.
@@ -1568,17 +1696,19 @@ describe("setSheetLabels", () => {
       [{ version: { code: "S", number: 4 } }, { versionCode: "S", versionNumber: 4, editedLabels: ["version"] }],
       [
         { writerName: "Priya Nair" },
-        // A writer set on the file is a person's, and the initials no longer need one.
+        // A writer set on the file is a person's, and wins over the one its initials gave.
         { writerName: "Priya Nair", writerNameSource: "person", checkReasons: ["no_science_code"], editedLabels: ["writerName"] },
       ],
       [
         { scienceCode: "2.02.09" },
-        // The code's check goes; "DW" from the file name still needs a person to say who it is.
+        // The code's check goes; "DW" from the file name already gave it a writer (2026-11-16).
         {
           scienceCode: "2.02.09",
           scienceCodeSource: "person",
-          needsCheck: true,
-          checkReasons: ["unmatched_initials"],
+          needsCheck: false,
+          checkReasons: [],
+          writerName: "DW",
+          writerNameSource: "initials",
           editedLabels: ["scienceCode"],
         },
       ],
@@ -1945,8 +2075,9 @@ describe("setSheetLabels", () => {
       docKind: "pd",
       scienceCode: "2.02.09",
       scienceCodeSource: "document",
-      // Only the writer's initials are left for a person.
-      checkReasons: ["unmatched_initials"],
+      // Its initials already gave it a writer (2026-11-16): nothing is left to check.
+      writerName: "DW",
+      checkReasons: [],
     });
     expect((await getItem(t, reading)).scienceCode).toBeUndefined();
     expect(await getItem(t, set)).toMatchObject({ scienceCode: "1.02.01", scienceCodeSource: "person" });
@@ -2508,8 +2639,8 @@ describe("the science code read from a final PD's text", () => {
     const id = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
     await processWith(t, id, "2.02.09");
     const row = await getItem(t, id);
-    // "DW" from the file name still needs a person to say who it is.
-    expect(row).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "document", checkReasons: ["unmatched_initials"] });
+    // "DW" from the file name gave it a writer with no login (2026-11-16).
+    expect(row).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "document", writerName: "DW", checkReasons: [] });
     expectInvariants(row);
   });
 
@@ -2520,7 +2651,7 @@ describe("the science code read from a final PD's text", () => {
     expect((await getItem(t, draft)).scienceCode).toBeUndefined();
     const pd = await stage(t, `${CEDARLINE_FY}/To be submitted/${PD_NAME}`);
     await processWith(t, pd, "2.02.99");
-    expect(await getItem(t, pd)).toMatchObject({ needsCheck: true, checkReasons: ["no_science_code", "unmatched_initials"] });
+    expect(await getItem(t, pd)).toMatchObject({ needsCheck: true, checkReasons: ["no_science_code"] });
     expect((await getItem(t, pd)).scienceCode).toBeUndefined();
   });
 
@@ -2608,7 +2739,9 @@ describe("the science code read from a final PD's text", () => {
       expect(row, row.driveItemId).toMatchObject({
         scienceCode: "2.02.09",
         scienceCodeSource: "document",
-        checkReasons: ["unmatched_initials"],
+        // The backfill's write gives it the writer its initials give (2026-11-16).
+        writerName: "DW",
+        checkReasons: [],
       });
       expectInvariants(row);
     }
@@ -2687,146 +2820,920 @@ describe("a row moved on main, before the move fix", () => {
   });
 });
 
-// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
+// ─── Writers from initials (2026-11-12, 2026-11-16) ─────────────────────────
+
+/** A read final PD whose name gives these initials, with its science code read, so only the writer is left. */
+async function pdBy(t: T, initials: string, n: number, folder = CEDARLINE_FY) {
+  const name = `${String(n).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.${initials} Project${n}.docx`;
+  const id = await stage(t, `${folder}/To be submitted/${name}`, { driveItemId: `${initials}-${n}-${folder}` });
+  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+  await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text: "Text", documentScienceCode: "2.02.09" });
+  return id;
+}
+
+/** A team member with a login, with these saved initials (or none saved). */
+async function addMember(
+  t: T,
+  firstName: string,
+  lastName: string,
+  options: { initials?: string; role?: "writer" | "manager" | "admin" } = {}
+): Promise<Id<"users">> {
+  return await t.run((ctx) =>
+    ctx.db.insert("users", {
+      authId: `member-${firstName}-${lastName}`,
+      firstName,
+      lastName,
+      role: options.role ?? "writer",
+      ...(options.initials === undefined ? {} : { initials: options.initials }),
+    })
+  );
+}
+
+async function allWriters(t: T) {
+  return await t.run((ctx) => ctx.db.query("pdWriters").collect());
+}
+
+async function writerOf(t: T, id: Id<"ingestionItems">) {
+  const row = await getItem(t, id);
+  return row.writerId ? await t.run((ctx) => ctx.db.get(row.writerId!)) : null;
+}
+
+/** The writer's label the sheet shows for a file (as it is now). */
+async function shownWriter(admin: ReturnType<T["withIdentity"]>, id: Id<"ingestionItems">) {
+  const file = await admin.query(api.ingestion.sheetFile, { id });
+  return { name: file?.writerName, hasLogin: file?.writerHasLogin };
+}
+
+/** Rows written straight in, settled and counted but with no writer yet (as before 2026-11-16). */
+async function insertRaw(t: T, rows: Array<{ path: string; driveItemId: string; extra?: Partial<Doc<"ingestionItems">> }>) {
+  return await t.run(async (ctx) => {
+    const ids: Array<Id<"ingestionItems">> = [];
+    for (const { path, driveItemId, extra } of rows) {
+      const fields = settleItem({
+        ...discoveredArgs(path, { driveItemId }),
+        status: "pending_review",
+        text: "Text",
+        scienceCode: "2.02.09",
+        scienceCodeSource: "document",
+        updatedAt: 1,
+        ...extra,
+      });
+      const row = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as typeof fields;
+      ids.push(await ctx.db.insert("ingestionItems", row));
+      await adjustImportCompanyCounts(ctx, null, row);
+    }
+    return ids;
+  });
+}
+
+const pdPath = (initials: string, n: number) =>
+  `${CEDARLINE_FY}/To be submitted/${String(n).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.${initials} Project${n}.docx`;
+
+/** A member's own writer (not a past writer linked to them). */
+async function ownWriterOf(t: T, userId: Id<"users">) {
+  const rows = await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_userId", (q) => q.eq("userId", userId)).collect());
+  return rows.find((row) => row.linkedAt === undefined) ?? null;
+}
+
+/** Every file's writer and source, and every pick: what Link and Unlink never change. */
+async function writerPointers(t: T) {
+  return await t.run(async (ctx) => ({
+    files: (await ctx.db.query("ingestionItems").collect()).map((row) => [row._id, row.writerId ?? null, row.writerNameSource ?? null]),
+    picks: (await ctx.db.query("pdWriterPicks").collect()).map((pick) => [pick.initials, pick.writerId]),
+  }));
+}
+
+/** Every file's writer and source, and every pick, to compare a state before and after. */
+async function writerState(t: T) {
+  return await t.run(async (ctx) => ({
+    files: (await ctx.db.query("ingestionItems").collect()).map((row) => [
+      row._id,
+      row.writerId ?? null,
+      row.writerNameSource ?? null,
+      row.writerName ?? null,
+      row.writerBeforePick ?? null,
+    ]),
+    picks: (await ctx.db.query("pdWriterPicks").collect()).map((pick) => [pick.initials, pick.writerId]),
+  }));
+}
+
+describe("the writer check on each imported file", () => {
+  it("gives a file the one team member whose saved initials are its own, however the file arrives", async () => {
+    const { t, admin } = await setup();
+    const dana = await addMember(t, "Dana", "Whitlock", { initials: "DW" });
+    // OneDrive sync, one file.
+    const sync = await stage(t, pdPath("DW", 1));
+    // The client uploader.
+    const uploader = await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...discoveredArgs(pdPath("DW", 2), { driveItemId: `local:${pdPath("DW", 2)}` }),
+      via: "uploader",
+    });
+    // OneDrive sync, a page of files.
+    await t.mutation(internal.ingestion.upsertDiscoveredBatch, { items: [discoveredArgs(pdPath("DW", 3), { driveItemId: "batch-3" })] });
+    const batch = (await t.run((ctx) => ctx.db.query("ingestionItems").withIndex("by_driveItemId", (q) => q.eq("driveItemId", "batch-3")).unique()))!._id;
+    // A drop on the Import page.
+    const bytes = await uploaded(t, "Dana's PD");
+    const batchId = await admin.mutation(api.ingestion.startImportBatch, { toSend: 1, alreadyHere: 0 });
+    await admin.mutation(api.ingestion.stageImportFiles, { batchId, files: [{ path: pdPath("DW", 4), ...bytes, lastModifiedAt: 1 }] });
+    const dropped = (await itemAt(t, pdPath("DW", 4)))._id;
+    // Put back: a file deleted while two people had KT (no writer); once only
+    // Kim has KT, putting it back gives it Kim.
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    const jordan = await addMember(t, "Jordan", "Ellis", { initials: "KT" });
+    const putBack = await pdBy(t, "KT", 5);
+    expect((await getItem(t, putBack)).writerId).toBeUndefined();
+    await admin.mutation(api.ingestion.removeItems, { ids: [putBack] });
+    await t.run((ctx) => ctx.db.patch(jordan, { initials: "JE" }));
+    await admin.mutation(api.ingestion.restoreItems, { ids: [putBack] });
+
+    const danaWriter = (await ownWriterOf(t, dana))!;
+    for (const id of [sync, uploader!, batch, dropped]) {
+      expect(await getItem(t, id), id).toMatchObject({ writerId: danaWriter._id, writerName: "Dana Whitlock", writerNameSource: "initials" });
+      expect(await shownWriter(admin, id)).toEqual({ name: "Dana Whitlock", hasLogin: true });
+    }
+    expect(await getItem(t, putBack)).toMatchObject({ writerId: (await ownWriterOf(t, kim))!._id, needsCheck: false, checkReasons: [] });
+    expect(danaWriter.fileCount).toBe(4);
+    await expectCountsMatchRecount(t, "after five ways in");
+  });
+
+  it("gives no writer when two team members share the initials, so the file waits for a person to choose", async () => {
+    const { t, admin } = await setup();
+    await addMember(t, "Kim", "Tran", { initials: "KT" });
+    // An Admin gave Jordan the same initials.
+    await addMember(t, "Jordan", "Ellis", { initials: "KT" });
+    const pd = await pdBy(t, "KT", 1);
+    const row = await getItem(t, pd);
+    expect(row.writerId).toBeUndefined();
+    expect(row.writerName).toBeUndefined();
+    expect(row).toMatchObject({ needsCheck: true, checkReasons: ["unmatched_initials"] });
+    expect(await allWriters(t)).toEqual([]);
+    const bands = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: true, paginationOpts: PAGE });
+    expect(bands.page[0].categories.final_pd.checkReasons).toEqual({ unmatched_initials: 1 });
+    await expectCountsMatchRecount(t, "after a file two people could have written");
+  });
+
+  it("makes one writer with no login from new initials and gives it every later file; two such writers mean a person chooses", async () => {
+    const { t, admin } = await setup();
+    const first = await pdBy(t, "SO", 1);
+    const second = await pdBy(t, "SO", 2);
+    const writers = await allWriters(t);
+    expect(writers).toHaveLength(1);
+    expect(writers[0]).toMatchObject({ initials: "SO", createdVia: "import", fileCount: 2 });
+    expect(writers[0].name).toBeUndefined();
+    expect(writers[0].userId).toBeUndefined();
+    for (const id of [first, second]) expect(await shownWriter(admin, id)).toEqual({ name: "SO", hasLogin: false });
+    // A writer a person made with these initials (the migration of a match) is not one the check made: it does not count.
+    await t.run((ctx) => ctx.db.insert("pdWriters", { initials: "SO", name: "Sam Okafor", createdVia: "person", createdAt: 1, fileCount: 0 }));
+    expect((await getItem(t, await pdBy(t, "SO", 3))).writerId).toBe(writers[0]._id);
+    // A second writer the check made from SO: it never guesses between them.
+    await t.run((ctx) => ctx.db.insert("pdWriters", { initials: "SO", createdVia: "import", createdAt: 1, fileCount: 0 }));
+    const fourth = await pdBy(t, "SO", 4);
+    expect((await getItem(t, fourth)).writerId).toBeUndefined();
+    expect((await getItem(t, fourth)).checkReasons).toEqual(["unmatched_initials"]);
+    await expectCountsMatchRecount(t, "after two writers with the same initials");
+  });
+
+  it("gives no writer to a file whose name has no initials, nor to a file whose category takes none", async () => {
+    const { t } = await setup();
+    const bare = await stage(t, `${CEDARLINE_FY}/To be submitted/pd.docx`);
+    await markRead(t, bare);
+    expect(await getItem(t, bare)).toMatchObject({ checkReasons: ["no_science_code", "no_writer"] });
+    const pd = await pdBy(t, "SO", 1);
+    expect((await getItem(t, pd)).writerName).toBe("SO");
+    // Moved to Transcripts: a transcript takes no writer, so it loses the one its initials gave, and the bare writer goes.
+    await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+      ...discoveredArgs(`${CEDARLINE_FY}/WIP/Technical/Audio/01 CedarlineSystems 2025-03-31 T1.SO Project1.docx`, {
+        driveItemId: `SO-1-${CEDARLINE_FY}`,
+      }),
+    });
+    const moved = await getItem(t, pd);
+    expect(moved.category).toBe("transcript");
+    expect(moved.writerId).toBeUndefined();
+    expect(await allWriters(t)).toEqual([]);
+    await expectCountsMatchRecount(t, "after a file that takes no writer");
+  });
+
+  it("keeps a file's writer once it has one: new saved initials and an edit to the file never move it (the freeze rule)", async () => {
+    const { t, admin } = await setup();
+    const frozen = await pdBy(t, "DW", 1);
+    const pastDw = (await writerOf(t, frozen))!;
+    // Dana saves her name on Settings: her initials are prefilled as DW.
+    const dana = await addMember(t, "Dana", "Whitlock");
+    await t.withIdentity({ subject: "member-Dana-Whitlock" }).mutation(api.users.updateMyProfile, { firstName: "Dana", lastName: "Whitlock" });
+    expect((await t.run((ctx) => ctx.db.get(dana)))?.initials).toBe("DW");
+    // Editing the file (its science code, its year) never runs the match again.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [frozen], patch: { scienceCode: "1.02.01" } });
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [frozen], patch: { fiscalYearEnd: Date.UTC(2024, 11, 31) } });
+    expect(await getItem(t, frozen)).toMatchObject({ writerId: pastDw._id, writerName: "DW", writerNameSource: "initials" });
+    // Nor does an Admin changing her initials (away and back).
+    await admin.mutation(api.users.setUserInitials, { userId: dana, initials: "DN" });
+    await admin.mutation(api.users.setUserInitials, { userId: dana, initials: "DW" });
+    await runWriterWalk(t);
+    expect((await getItem(t, frozen)).writerId).toBe(pastDw._id);
+    // A new DW file is hers; the Team hint is the way to move the old ones.
+    expect((await writerOf(t, await pdBy(t, "DW", 2)))?.userId).toBe(dana);
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({
+      _id: pastDw._id,
+      sameInitialsAs: { userId: dana, name: "Dana Whitlock", canLink: true },
+    });
+    await expectCountsMatchRecount(t, "after the facts changed under a frozen file");
+  });
+
+  it("keeps a writer a person set on one file over the check, a pick and a change of initials", async () => {
+    const { t, admin } = await setup();
+    const own = await pdBy(t, "KT", 1);
+    const other = await pdBy(t, "KT", 2);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [own], patch: { writer: { kind: "name", name: "Jordan Ellis" } } });
+    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis", writerNameSource: "person" });
+    expect(await writerOf(t, own)).toMatchObject({ name: "Jordan Ellis", createdVia: "person" });
+    expect((await writerOf(t, own))?.initials).toBeUndefined();
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "name", name: "Kim Tran" } });
+    expect(await getItem(t, other)).toMatchObject({ writerName: "Kim Tran", writerNameSource: "pick" });
+    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis", writerNameSource: "person" });
+    // A member with KT: the pick a person made still wins, and the file a person set keeps its writer.
+    const kim = await addMember(t, "Kim", "Tran");
+    await admin.mutation(api.users.setUserInitials, { userId: kim, initials: "kt" });
+    await runWriterWalk(t);
+    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis", writerNameSource: "person" });
+    expect((await writerOf(t, other))?.userId).toBeUndefined();
+    // The same name typed again is the same writer, not a second one.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [other], patch: { writer: { kind: "name", name: "Jordan  Ellis" } } });
+    expect((await getItem(t, other)).writerId).toBe((await getItem(t, own)).writerId);
+    await expectCountsMatchRecount(t, "after a file's own writer");
+  });
+});
 
 describe("matchWriterInitials", () => {
-  /** A read final PD whose name gives these initials, with its science code read, so only the writer is left. */
-  async function pdBy(t: T, initials: string, n: number, folder = CEDARLINE_FY) {
-    const name = `${String(n).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.${initials} Project${n}.docx`;
-    const id = await stage(t, `${folder}/To be submitted/${name}`, { driveItemId: `${initials}-${n}-${folder}` });
-    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
-    await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text: "Text", documentScienceCode: "2.02.09" });
-    return id;
-  }
-
-  it("says who the initials are on every file with them, which then needs no writer, and Undo takes it back", async () => {
+  it("says which writer the initials are for the whole firm, and Undo takes the pick away", async () => {
     const { t, admin } = await setup();
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    await addMember(t, "Jordan", "Ellis", { initials: "KT" });
     const kt1 = await pdBy(t, "KT", 1);
     const kt2 = await pdBy(t, "KT", 2);
     const dw = await pdBy(t, "DW", 3);
-    // Before: initials alone need a person.
+    // Before: two people have KT, so a person must choose.
     expect(await getItem(t, kt1)).toMatchObject({ needsCheck: true, checkReasons: ["unmatched_initials"] });
 
-    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "kt", writerName: " Kim  Tran " });
-    expect(result).toEqual({ initials: "KT", writerName: "Kim Tran", previous: null, changed: 2, more: false });
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "kt", writer: { kind: "user", userId: kim } });
+    const kimWriter = (await ownWriterOf(t, kim))!;
+    expect(result).toEqual({ initials: "KT", writerId: kimWriter._id, writerName: "Kim Tran", previous: null, changed: 2, more: false });
     for (const id of [kt1, kt2]) {
       const row = await getItem(t, id);
-      // The file name and a person: no AI mark, and not a writer set on the file.
-      expect(row).toMatchObject({ writerName: "Kim Tran", writerNameSource: "initials", needsCheck: false, checkReasons: [] });
+      // Not a writer set on the file: it follows the pick.
+      expect(row).toMatchObject({ writerId: kimWriter._id, writerName: "Kim Tran", writerNameSource: "pick", needsCheck: false, checkReasons: [] });
       expect(row.editedLabels ?? []).not.toContain("writerName");
-      expectInvariants(row);
     }
     // Other initials are left alone.
-    expect(await getItem(t, dw)).toMatchObject({ checkReasons: ["unmatched_initials"] });
-    expect((await getItem(t, dw)).writerName).toBeUndefined();
-    await expectCountsMatchRecount(t, "after the match");
-    const bands = await admin.query(api.ingestion.sheetCompanies, { tab: "review", onlyToCheck: false, paginationOpts: PAGE });
-    expect(bands.page[0].categories.final_pd.checkReasons).toEqual({ unmatched_initials: 1 });
+    expect((await getItem(t, dw)).writerName).toBe("DW");
+    await expectCountsMatchRecount(t, "after the pick");
 
-    // Undo: no one has said who KT is any more.
-    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: result.previous })).resolves.toEqual({
+    // Undo: no pick, so the check decides again (two people: choose).
+    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: result.previous })).resolves.toEqual({
       initials: "KT",
+      writerId: null,
       writerName: null,
-      previous: "Kim Tran",
+      // A member's writer is never removed, so a later Undo always finds it by id.
+      previous: { kind: "writer", writerId: kimWriter._id },
       changed: 2,
       more: false,
     });
     for (const id of [kt1, kt2]) {
       const row = await getItem(t, id);
-      expect(row.writerName).toBeUndefined();
+      expect(row.writerId).toBeUndefined();
       expect(row.writerNameSource).toBeUndefined();
       expect(row.checkReasons).toEqual(["unmatched_initials"]);
     }
+    expect(await t.run((ctx) => ctx.db.query("pdWriterPicks").collect())).toEqual([]);
+    // A member's writer is never removed, even with no file left.
+    expect(await t.run((ctx) => ctx.db.get(kimWriter._id))).toMatchObject({ fileCount: 0 });
+    // The old table is not written any more.
     expect(await t.run((ctx) => ctx.db.query("importWriterInitials").collect())).toEqual([]);
     await expectCountsMatchRecount(t, "after the Undo");
   });
 
-  it("keeps a writer a person set on one file, before and after, and that file's choice wins", async () => {
+  it("undoes a second pick back to the first, even when the first writer's last file left it", async () => {
     const { t, admin } = await setup();
-    const own = await pdBy(t, "KT", 1);
-    const other = await pdBy(t, "KT", 2);
-    await admin.mutation(api.ingestion.setSheetLabels, { ids: [own], patch: { writerName: "Jordan Ellis" } });
-    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" });
-    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis", writerNameSource: "person" });
-    expect(await getItem(t, other)).toMatchObject({ writerName: "Kim Tran", writerNameSource: "initials" });
-    // A file that took the name can still be set to another writer: that wins for it.
-    await admin.mutation(api.ingestion.setSheetLabels, { ids: [other], patch: { writerName: "Sam Okafor" } });
-    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tranh" });
-    expect(await getItem(t, other)).toMatchObject({ writerName: "Sam Okafor", writerNameSource: "person" });
-    expect(await getItem(t, own)).toMatchObject({ writerName: "Jordan Ellis" });
-    await expectCountsMatchRecount(t, "after a file's own writer");
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    const jordan = await addMember(t, "Jordan", "Ellis", { initials: "KT" });
+    const kt = await pdBy(t, "KT", 1);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "user", userId: kim } });
+    const kimWriter = (await ownWriterOf(t, kim))!;
+    const second = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "user", userId: jordan } });
+    expect(second.previous).toEqual({ kind: "writer", writerId: kimWriter._id });
+    expect((await getItem(t, kt)).writerName).toBe("Jordan Ellis");
+    // Kim's writer has no file left, and stays: a writer with an account is never removed.
+    expect(await t.run((ctx) => ctx.db.get(kimWriter._id))).toMatchObject({ fileCount: 0 });
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: second.previous });
+    expect(await getItem(t, kt)).toMatchObject({ writerId: kimWriter._id, writerName: "Kim Tran" });
+
+    // A bare writer no file had before the pick: picked, then replaced, it is removed; Undo brings back an equal one.
+    const dw = await pdBy(t, "DW", 2);
+    const own = (await writerOf(t, dw))!;
+    const spare = await t.run((ctx) => ctx.db.insert("pdWriters", { initials: "DW", createdVia: "import", createdAt: 1, fileCount: 0 }));
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "writer", writerId: spare } });
+    const replaced = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "name", name: "Sam Okafor" } });
+    expect(replaced.previous).toEqual({ kind: "writer", writerId: spare, orInitials: "DW" });
+    expect(await t.run((ctx) => ctx.db.get(spare))).toBeNull();
+    // The file's own writer is kept for it: it had that one before the picks.
+    expect(await t.run((ctx) => ctx.db.get(own._id))).toMatchObject({ fileCount: 0, heldCount: 1 });
+    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: replaced.previous })).resolves.toMatchObject({
+      writerName: "DW",
+      changed: 1,
+    });
+    expect(await getItem(t, dw)).toMatchObject({ writerName: "DW", writerNameSource: "pick" });
+    // The last Undo: exactly the writer it had at first.
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: null });
+    expect(await getItem(t, dw)).toMatchObject({ writerId: own._id, writerName: "DW", writerNameSource: "initials" });
+    expect((await getItem(t, dw)).writerBeforePick).toBeUndefined();
+    await expectCountsMatchRecount(t, "after the Undos");
   });
 
-  it("gives the name to files that come later or are put back, and never to an approved file", async () => {
+  it("makes a writer with no login and no initials for a typed name, and its Undo gives the files back to the check", async () => {
+    const { t, admin } = await setup();
+    const pd = await pdBy(t, "SO", 1);
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "SO", writer: { kind: "name", name: " Sam  Okafor " } });
+    expect(result).toMatchObject({ writerName: "Sam Okafor", changed: 1, previous: null });
+    const writers = await allWriters(t);
+    // The typed writer carries no initials (the pick does). The bare "SO"
+    // writer has no file now, and is kept: the file remembers it.
+    const typed = writers.find((writer) => writer.name === "Sam Okafor")!;
+    expect(typed).toMatchObject({ createdVia: "person", fileCount: 1 });
+    expect(typed.initials).toBeUndefined();
+    const bare = writers.find((writer) => writer.initials === "SO")!;
+    expect(bare).toMatchObject({ fileCount: 0, heldCount: 1 });
+    expect(await shownWriter(admin, pd)).toEqual({ name: "Sam Okafor", hasLogin: false });
+    // The same name again is the same writer.
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "SO", writer: { kind: "name", name: "Sam Okafor" } });
+    expect(await allWriters(t)).toHaveLength(2);
+    // Undo: never "Choose writer", never stuck on Sam Okafor: exactly the SO writer it had.
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "SO", writer: null });
+    expect(await getItem(t, pd)).toMatchObject({ writerId: bare._id, writerName: "SO", writerNameSource: "initials", checkReasons: [] });
+    await expectCountsMatchRecount(t, "after a typed writer and its Undo");
+  });
+
+  it("follows on files that come later or are put back, and never on an approved file", async () => {
     const { t, admin } = await setup();
     const deleted = await pdBy(t, "KT", 1);
     await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
     const approved = await pdBy(t, "KT", 2);
     await approveForTest(t, admin, approved);
-    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" });
+    const approvedWriter = (await getItem(t, approved)).writerId;
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "name", name: "Kim Tran" } });
     await runWriterWalk(t);
-    // The Deleted tab is walked after To review, so a file put back shows the name too.
-    expect(await getItem(t, deleted)).toMatchObject({ status: "deleted", writerName: "Kim Tran", writerNameSource: "initials" });
+    // The Deleted tab is walked after To review, so a file put back shows the writer too.
+    expect(await getItem(t, deleted)).toMatchObject({ status: "deleted", writerName: "Kim Tran", writerNameSource: "pick" });
     // An approved file keeps what it was approved as.
-    expect((await getItem(t, approved)).writerName).toBeUndefined();
-    // A file staged after the match takes the name as it is staged.
+    expect(await getItem(t, approved)).toMatchObject({ writerId: approvedWriter, writerName: "KT" });
+    // A file staged after the pick takes the writer as it is staged.
     const later = await pdBy(t, "KT", 3);
-    expect(await getItem(t, later)).toMatchObject({ writerName: "Kim Tran", writerNameSource: "initials", checkReasons: [] });
+    expect(await getItem(t, later)).toMatchObject({ writerName: "Kim Tran", writerNameSource: "pick", checkReasons: [] });
     await admin.mutation(api.ingestion.restoreItems, { ids: [deleted] });
     expect(await getItem(t, deleted)).toMatchObject({ status: "pending_review", writerName: "Kim Tran", checkReasons: [] });
-    // A rename to other initials drops the name it took.
+    // A rename to other initials takes the writer those give.
     await t.mutation(
       internal.ingestion.upsertDiscoveredItem,
       discoveredArgs(`${CEDARLINE_FY}/To be submitted/03 CedarlineSystems 2025-03-31 T1.MN Project3.docx`, {
         driveItemId: `KT-3-${CEDARLINE_FY}`,
       })
     );
-    const renamed = await getItem(t, later);
-    expect(renamed.writerInitials).toBe("MN");
-    expect(renamed.writerName).toBeUndefined();
-    expect(renamed.checkReasons).toEqual(["unmatched_initials"]);
+    expect(await getItem(t, later)).toMatchObject({ writerInitials: "MN", writerName: "MN", writerNameSource: "initials", checkReasons: [] });
     await expectCountsMatchRecount(t, "after later files");
   });
 
   it("changes 100 files in the call and the rest in scheduled runs, keeping the counts right", async () => {
     const { t, admin } = await setup();
-    // 120 files on To review: rows written straight in (staging each would be slow), then counted.
-    await t.run(async (ctx) => {
-      for (let n = 1; n <= 120; n++) {
-        const name = `${String(n % 20 || 20).padStart(2, "0")} CedarlineSystems 2025-03-31 T1.KT Project${n}.docx`;
-        const fields = settleItem({
-          ...discoveredArgs(`${CEDARLINE_FY}/To be submitted/${name}`, { driveItemId: `many-${n}` }),
-          status: "pending_review",
-          text: "Text",
-          scienceCode: "2.02.09",
-          scienceCodeSource: "document",
-          updatedAt: 1,
-        });
-        const row = Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as typeof fields;
-        await ctx.db.insert("ingestionItems", row);
-        await adjustImportCompanyCounts(ctx, null, row);
-      }
-    });
-    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" });
+    // 120 files on To review, two people with KT: rows written straight in (staging each would be slow).
+    await twoMembersWith(t, "KT");
+    await insertRaw(
+      t,
+      Array.from({ length: 120 }, (_, i) => ({ path: pdPath("KT", (i % 20) + 1).replace("Project", `P${i} Project`), driveItemId: `many-${i}` }))
+    );
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "name", name: "Kim Tran" } });
     expect(result).toMatchObject({ changed: 100, more: true });
     const named = async () => (await t.run((ctx) => ctx.db.query("ingestionItems").collect())).filter((row) => row.writerName === "Kim Tran").length;
     expect(await named()).toBe(100);
-    await runWriterWalk(t);
+    expect(await runWriterWalk(t)).toMatchObject({ applyWriterInitials: 2 });
     expect(await named()).toBe(120);
     await expectCountsMatchRecount(t, "after 120 files");
     const { stored } = await countsNowAndRecount(t);
     expect(stored["review|cedarline systems"]).toMatchObject({ needsCheck: 0, ready: 120 });
   });
 
-  it("refuses anyone but an admin, initials that are not initials, and an email address", async () => {
-    const { admin, writer } = await setup();
-    await expect(writer.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "Kim Tran" })).rejects.toThrow(/Admin only/);
-    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "K", writerName: "Kim Tran" })).rejects.toThrow(
+  it("refuses anyone but an admin, initials that are not initials, an email address and a writer that is gone", async () => {
+    const { t, admin, writer } = await setup();
+    const kim = { kind: "name" as const, name: "Kim Tran" };
+    await expect(writer.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: kim })).rejects.toThrow(/Admin only/);
+    await expect(admin.mutation(api.ingestion.matchWriterInitials, { initials: "K", writer: kim })).rejects.toThrow(
       "Initials are two or three letters, such as KT."
     );
     await expect(
-      admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writerName: "kim.tran@example.com" })
+      admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "name", name: "kim.tran@example.com" } })
     ).rejects.toThrow("Type the writer's name, not an email address.");
+    const gone = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("pdWriters", { initials: "KT", createdVia: "import", createdAt: 1, fileCount: 0 });
+      await ctx.db.delete(id);
+      return id;
+    });
+    await expect(
+      admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "writer", writerId: gone } })
+    ).rejects.toThrow("That writer is no longer in Banhall.");
+    expect(await t.run((ctx) => ctx.db.query("pdWriterPicks").collect())).toEqual([]);
+  });
+});
+
+describe("files checked again when the facts change", () => {
+  it("fills the files that have no writer after an Admin sets a member's initials, in pages, on To review and Deleted only", async () => {
+    const { t, admin } = await setup();
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    const jordan = await addMember(t, "Jordan", "Ellis", { initials: "KT" });
+    const deleted = await pdBy(t, "KT", 1);
+    await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
+    const approved = await pdBy(t, "KT", 2);
+    await approveForTest(t, admin, approved);
+    const review = await insertRaw(
+      t,
+      Array.from({ length: 104 }, (_, i) => ({ path: pdPath("KT", (i % 20) + 1).replace("Project", `P${i} Project`), driveItemId: `kt-${i}` }))
+    );
+
+    const saved = await admin.mutation(api.users.setUserInitials, { userId: jordan, initials: " je " });
+    expect(saved).toEqual({ initials: "JE", sharedWith: [] });
+    // Nothing moves in the call itself: the files follow in scheduled pages of 100.
+    expect((await getItem(t, review[0])).writerId).toBeUndefined();
+    const runs = await runWriterWalk(t);
+    // KT: To review in two pages, then Deleted; JE: To review, then Deleted.
+    expect(runs).toMatchObject({ applyWriterInitials: 5 });
+    const kimWriter = (await ownWriterOf(t, kim))!;
+    for (const id of [...review, deleted]) expect((await getItem(t, id)).writerId, id).toBe(kimWriter._id);
+    // An approved file keeps what it was approved with (no writer).
+    expect((await getItem(t, approved)).writerId).toBeUndefined();
+    await expectCountsMatchRecount(t, "after Jordan's initials");
+
+    // Kim's initials change: her files keep her (frozen).
+    await admin.mutation(api.users.setUserInitials, { userId: kim, initials: "KM" });
+    await runWriterWalk(t);
+    expect((await getItem(t, review[0])).writerId).toBe(kimWriter._id);
+    // Empty means no initials.
+    await expect(admin.mutation(api.users.setUserInitials, { userId: kim, initials: "" })).resolves.toEqual({ initials: "", sharedWith: [] });
+    expect((await t.run((ctx) => ctx.db.get(kim)))?.initials).toBe("");
+    await expectCountsMatchRecount(t, "after Kim's initials changed");
+  });
+
+  it("says which other members already have the initials, and refuses initials that are not 1 to 4 letters", async () => {
+    const { t, admin } = await setup();
+    await addMember(t, "Kim", "Tran", { initials: "KT" });
+    const jordan = await addMember(t, "Jordan", "Ellis");
+    await expect(admin.mutation(api.users.setUserInitials, { userId: jordan, initials: "kt" })).resolves.toEqual({
+      initials: "KT",
+      sharedWith: ["Kim Tran"],
+    });
+    for (const bad of ["K1", "ABCDE", "K T", "É"]) {
+      await expect(admin.mutation(api.users.setUserInitials, { userId: jordan, initials: bad }), bad).rejects.toThrow(
+        "Initials are 1 to 4 letters, such as DW."
+      );
+    }
+    await expect(admin.mutation(api.users.setUserInitials, { userId: jordan, initials: "J" })).resolves.toMatchObject({ initials: "J" });
+  });
+
+  it("shows a past writer's new name on every file at once, and writes its files on To review and Deleted again", async () => {
+    const { t, admin } = await setup();
+    const open = await pdBy(t, "SO", 1);
+    const deleted = await pdBy(t, "SO", 2);
+    await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
+    const approved = await pdBy(t, "SO", 3);
+    await approveForTest(t, admin, approved);
+    const so = (await writerOf(t, open))!;
+
+    await expect(admin.mutation(api.users.renamePastWriter, { writerId: so._id, name: " Sam  Okafor " })).resolves.toEqual({ label: "Sam Okafor" });
+    // Shown at once everywhere, approved files too: the sheet reads the writer's label.
+    for (const id of [open, deleted, approved]) expect((await shownWriter(admin, id)).name).toBe("Sam Okafor");
+    expect((await getItem(t, open)).writerName).toBe("SO");
+    await runWriterWalk(t);
+    expect((await getItem(t, open)).writerName).toBe("Sam Okafor");
+    expect((await getItem(t, deleted)).writerName).toBe("Sam Okafor");
+    // The approved file keeps the name it was approved with.
+    expect((await getItem(t, approved)).writerName).toBe("SO");
+    // An empty name goes back to the initials.
+    await expect(admin.mutation(api.users.renamePastWriter, { writerId: so._id, name: "" })).resolves.toEqual({ label: "SO" });
+    await expectCountsMatchRecount(t, "after the renames");
+  });
+
+  it("links a past writer to a member, so its PDs, approved ones too, show under that person; Unlink takes it back", async () => {
+    const { t, admin } = await setup();
+    const open = await pdBy(t, "SO", 1);
+    const approved = await pdBy(t, "SO", 2);
+    await approveForTest(t, admin, approved);
+    const so = (await writerOf(t, open))!;
+    const sam = await addMember(t, "Sam", "Okafor", { initials: "SK" });
+    const past = await admin.query(api.users.listPastWriters, {});
+    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", fileCount: 2, canDelete: false, sameInitialsAs: null }]);
+
+    await expect(admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam })).resolves.toEqual({ label: "Sam Okafor" });
+    for (const id of [open, approved]) expect(await shownWriter(admin, id)).toEqual({ name: "Sam Okafor", hasLogin: true });
+    await runWriterWalk(t);
+    expect((await getItem(t, open)).writerName).toBe("Sam Okafor");
+    // Later SO files are Sam's too: the writer made from SO is his now.
+    const later = await pdBy(t, "SO", 3);
+    expect((await getItem(t, later)).writerId).toBe(so._id);
+    expect(await admin.query(api.users.listPastWriters, {})).toEqual([]);
+    const members = await admin.query(api.team.listMembers, {});
+    expect(members.find((member) => member._id === sam)).toMatchObject({
+      initials: "SK",
+      linkedWriter: { writerId: so._id, label: "SO", initials: "SO", fileCount: 3 },
+    });
+    // One past writer per account.
+    const other = (await writerOf(t, await pdBy(t, "PN", 4)))!;
+    await expect(admin.mutation(api.users.linkPastWriter, { writerId: other._id, userId: sam })).rejects.toThrow(
+      "Sam Okafor already has past PDs linked. Unlink them first."
+    );
+    await expectCountsMatchRecount(t, "after the link");
+
+    await admin.mutation(api.users.unlinkPastWriter, { writerId: so._id });
+    await runWriterWalk(t);
+    expect(await shownWriter(admin, open)).toEqual({ name: "SO", hasLogin: false });
+    expect((await admin.query(api.users.listPastWriters, {})).map((row) => row.label)).toEqual(["PN", "SO"]);
+    await expectCountsMatchRecount(t, "after the unlink");
+  });
+
+  it("puts back exactly what there was when a link is undone: a person's writer and a pick stay with the member", async () => {
+    const { t, admin } = await setup();
+    const dana = await addMember(t, "Dana", "Whitlock");
+    // Scenario A: an Admin set Dana on file X; DW is a past writer from file Y.
+    const x = await pdBy(t, "DW", 1);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [x], patch: { writer: { kind: "user", userId: dana } } });
+    const y = await pdBy(t, "DW", 2);
+    const dw = (await writerOf(t, y))!;
+    // Scenario B: a pick says DX is Dana; DZ is another past writer.
+    const z = await pdBy(t, "DX", 3);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DX", writer: { kind: "user", userId: dana } });
+    const q = await pdBy(t, "DZ", 4);
+    const dz = (await writerOf(t, q))!;
+    await runWriterWalk(t);
+    const before = await writerState(t);
+
+    await admin.mutation(api.users.linkPastWriter, { writerId: dw._id, userId: dana });
+    await runWriterWalk(t);
+    for (const id of [x, y, z]) expect((await shownWriter(admin, id)).name, id).toBe("Dana Whitlock");
+    await admin.mutation(api.users.unlinkPastWriter, { writerId: dw._id });
+    await runWriterWalk(t);
+    expect(await shownWriter(admin, x)).toEqual({ name: "Dana Whitlock", hasLogin: true });
+    expect(await getItem(t, x)).toMatchObject({ writerNameSource: "person" });
+    expect(await shownWriter(admin, y)).toEqual({ name: "DW", hasLogin: false });
+
+    // The other past writer, linked and unlinked: the DX files stay Dana's.
+    await admin.mutation(api.users.linkPastWriter, { writerId: dz._id, userId: dana });
+    await runWriterWalk(t);
+    await admin.mutation(api.users.unlinkPastWriter, { writerId: dz._id });
+    await runWriterWalk(t);
+    expect(await shownWriter(admin, z)).toEqual({ name: "Dana Whitlock", hasLogin: true });
+    expect(await shownWriter(admin, q)).toEqual({ name: "DZ", hasLogin: false });
+    expect(await writerState(t)).toEqual(before);
+    await expectCountsMatchRecount(t, "after link and unlink");
+  });
+
+  it("links a past writer to a member who already has a writer of their own: both show under that person, and Unlink parts them", async () => {
+    const { t, admin } = await setup();
+    const a = await pdBy(t, "DW", 1);
+    const b = await pdBy(t, "DW", 2);
+    const past = (await writerOf(t, a))!;
+    // Dana joins with DW (no file is checked again), and a new DW file is hers.
+    const dana = await addMember(t, "Dana", "Whitlock", { initials: "DW" });
+    const c = await pdBy(t, "DW", 3);
+    const own = (await writerOf(t, c))!;
+    expect(own).toMatchObject({ userId: dana });
+    expect(own.linkedAt).toBeUndefined();
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({
+      _id: past._id,
+      fileCount: 2,
+      sameInitialsAs: { userId: dana, name: "Dana Whitlock", canLink: true },
+    });
+
+    await admin.mutation(api.users.linkPastWriter, { writerId: past._id, userId: dana });
+    await runWriterWalk(t);
+    for (const id of [a, b, c]) expect((await shownWriter(admin, id)).name, id).toBe("Dana Whitlock");
+    expect((await getItem(t, a)).writerId).toBe(past._id);
+    expect((await getItem(t, c)).writerId).toBe(own._id);
+    await admin.mutation(api.users.unlinkPastWriter, { writerId: past._id });
+    await runWriterWalk(t);
+    expect((await shownWriter(admin, a)).name).toBe("DW");
+    expect((await shownWriter(admin, c)).name).toBe("Dana Whitlock");
+    await expectCountsMatchRecount(t, "after the link and unlink");
+  });
+
+  it("deletes a past writer only when no file points at it, and the picks that named it go too", async () => {
+    const { t, admin } = await setup();
+    const pd = await pdBy(t, "KT", 1);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "name", name: "Jordan Ellis" } });
+    const jordan = (await writerOf(t, pd))!;
+    await expect(admin.mutation(api.users.deletePastWriter, { writerId: jordan._id })).rejects.toThrow(
+      "Files still point at this writer, so it cannot be deleted."
+    );
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [pd], patch: { writer: { kind: "name", name: "Priya Nair" } } });
+    await admin.mutation(api.users.deletePastWriter, { writerId: jordan._id });
+    expect(await t.run((ctx) => ctx.db.get(jordan._id))).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("pdWriterPicks").collect())).toEqual([]);
+    await runWriterWalk(t);
+    await expectCountsMatchRecount(t, "after the delete");
+  });
+
+  it("lets only Admins change initials and writers, Managers read Past writers, and the picker's list only Admins", async () => {
+    const { t, admin, writer } = await setup();
+    await addMember(t, "Kim", "Tran", { role: "manager" });
+    const manager = t.withIdentity({ subject: "member-Kim-Tran" });
+    const pd = await pdBy(t, "SO", 1);
+    const so = (await writerOf(t, pd))!;
+    const sam = await addMember(t, "Sam", "Okafor");
+    for (const who of [writer, manager]) {
+      await expect(who.mutation(api.users.setUserInitials, { userId: sam, initials: "SO" })).rejects.toThrow(/elevated role/);
+      await expect(who.mutation(api.users.renamePastWriter, { writerId: so._id, name: "Sam Okafor" })).rejects.toThrow(/elevated role/);
+      await expect(who.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam })).rejects.toThrow(/elevated role/);
+      await expect(who.mutation(api.users.unlinkPastWriter, { writerId: so._id })).rejects.toThrow(/elevated role/);
+      await expect(who.mutation(api.users.deletePastWriter, { writerId: so._id })).rejects.toThrow(/elevated role/);
+      await expect(who.mutation(api.ingestion.setSheetLabels, { ids: [pd], patch: { writer: { kind: "user", userId: sam } } })).rejects.toThrow(/Admin only/);
+    }
+    expect(await writer.query(api.users.listPastWriters, {})).toEqual([]);
+    expect((await manager.query(api.users.listPastWriters, {})).map((row) => row.label)).toEqual(["SO"]);
+    expect(await manager.query(api.ingestion.writerChoices, {})).toBeNull();
+    const choices = await admin.query(api.ingestion.writerChoices, {});
+    // Dana and Sam (setup) have no last name or initials, but a name: they are listed; past writers after.
+    expect(choices!.members.map((member) => member.label)).toEqual(["Dana", "Kim Tran", "Sam", "Sam Okafor"]);
+    expect(choices!.pastWriters).toEqual([{ writerId: so._id, label: "SO", initials: "SO" }]);
+    // Nothing changed.
+    expect(await writerOf(t, pd)).toMatchObject({ _id: so._id, fileCount: 1 });
+    expect((await t.run((ctx) => ctx.db.get(sam)))?.initials).toBeUndefined();
+  });
+});
+
+describe("a pick and its Undo put back exactly what there was (review round 2)", () => {
+  it("gives a past writer's old PDs back after a pick and Undo, even once a member has its initials", async () => {
+    const { t, admin } = await setup();
+    // Old DW files, on a bare past writer.
+    const old1 = await pdBy(t, "DW", 1);
+    const old2 = await pdBy(t, "DW", 2);
+    await admin.mutation(api.ingestion.removeItems, { ids: [old2] });
+    const past = (await writerOf(t, old1))!;
+    // Dana joins and gets DW: the old files stay with the past writer (the freeze rule).
+    const dana = await addMember(t, "Dana", "Whitlock");
+    await admin.mutation(api.users.setUserInitials, { userId: dana, initials: "DW" });
+    await runWriterWalk(t);
+    expect((await getItem(t, old1)).writerId).toBe(past._id);
+    const before = await writerState(t);
+    // Someone chooses Sam on a DW file, then Undo at once.
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "name", name: "Sam Okafor" } });
+    await runWriterWalk(t);
+    expect((await shownWriter(admin, old1)).name).toBe("Sam Okafor");
+    // The past writer has no file while the pick stands, and is kept for the Undo.
+    expect(await t.run((ctx) => ctx.db.get(past._id))).toMatchObject({ fileCount: 0, heldCount: 2 });
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: result.previous });
+    await runWriterWalk(t);
+    expect(await shownWriter(admin, old1)).toEqual({ name: "DW", hasLogin: false });
+    expect(await writerState(t)).toEqual(before);
+    expect(await t.run((ctx) => ctx.db.get(past._id))).toMatchObject({ fileCount: 2, heldCount: 0 });
+    await expectCountsMatchRecount(t, "after a pick and its Undo");
+  });
+
+  it("lets go of the writer a file remembered once the file is approved, so that writer can be removed", async () => {
+    const { t, admin } = await setup();
+    const file = await pdBy(t, "DW", 1);
+    const bare = (await writerOf(t, file))!;
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "name", name: "Sam Okafor" } });
+    await runWriterWalk(t);
+    expect(await t.run((ctx) => ctx.db.get(bare._id))).toMatchObject({ fileCount: 0, heldCount: 1 });
+    await approveForTest(t, admin, file);
+    expect((await getItem(t, file)).writerBeforePick).toBeUndefined();
+    // Nothing holds the bare writer any more, and the approved file keeps Sam after the Undo.
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: result.previous });
+    await runWriterWalk(t);
+    expect(await t.run((ctx) => ctx.db.get(bare._id))).toBeNull();
+    expect(await getItem(t, file)).toMatchObject({ status: "approved", writerName: "Sam Okafor" });
+    await expectCountsMatchRecount(t, "after an approved file let go of its remembered writer");
+  });
+
+  it("walks a chain of picks back one Undo at a time to where it started", async () => {
+    const { t, admin } = await setup();
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    const jordan = await addMember(t, "Jordan", "Ellis", { initials: "KT" });
+    const kt = await pdBy(t, "KT", 1);
+    const first = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "user", userId: kim } });
+    const second = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "user", userId: jordan } });
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: second.previous });
+    expect((await shownWriter(admin, kt)).name).toBe("Kim Tran");
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: first.previous });
+    expect(await getItem(t, kt)).toMatchObject({ checkReasons: ["unmatched_initials"] });
+    expect((await getItem(t, kt)).writerId).toBeUndefined();
+
+    // A bare DW writer picked, replaced by a typed name, then by Kim, and back, on To review and Deleted.
+    const dw = await pdBy(t, "DW", 2);
+    const deleted = await pdBy(t, "DW", 3);
+    await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
+    const bare = (await writerOf(t, dw))!;
+    const start = await writerState(t);
+    const p1 = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "writer", writerId: bare._id } });
+    const p2 = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "name", name: "Dana W" } });
+    await runWriterWalk(t);
+    const p3 = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "user", userId: kim } });
+    await runWriterWalk(t);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: p3.previous });
+    await runWriterWalk(t);
+    for (const id of [dw, deleted]) expect((await shownWriter(admin, id)).name).toBe("Dana W");
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: p2.previous });
+    await runWriterWalk(t);
+    for (const id of [dw, deleted]) expect((await shownWriter(admin, id)).name).toBe("DW");
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: p1.previous });
+    await runWriterWalk(t);
+    expect(await writerState(t)).toEqual(start);
+    await expectCountsMatchRecount(t, "after the chain");
+  });
+
+  it("gives a member's files back after a typed-name pick and its Undo, on To review and Deleted", async () => {
+    const { t, admin } = await setup();
+    const dana = await addMember(t, "Dana", "Whitlock", { initials: "DW" });
+    const a = await pdBy(t, "DW", 1);
+    const b = await pdBy(t, "DW", 2);
+    await admin.mutation(api.ingestion.removeItems, { ids: [b] });
+    const before = await writerState(t);
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "name", name: "Dana W" } });
+    await runWriterWalk(t);
+    for (const id of [a, b]) expect((await shownWriter(admin, id)).name).toBe("Dana W");
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: result.previous });
+    await runWriterWalk(t);
+    for (const id of [a, b]) expect((await getItem(t, id)).writerId).toBe((await ownWriterOf(t, dana))!._id);
+    expect(await writerState(t)).toEqual(before);
+    await expectCountsMatchRecount(t, "after the typed pick and Undo");
+  });
+
+  it("undoes a pick whose earlier writer is a member who has left the team, or a past writer linked and unlinked since", async () => {
+    const { t, admin } = await setup();
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    const jordan = await addMember(t, "Jordan", "Ellis", { initials: "KT" });
+    const kt = await pdBy(t, "KT", 1);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "user", userId: kim } });
+    const second = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: { kind: "user", userId: jordan } });
+    await t.run((ctx) => ctx.db.patch(kim, { isAnonymous: true }));
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "KT", writer: second.previous });
+    expect((await getItem(t, kt)).writerId).toBe((await ownWriterOf(t, kim))!._id);
+
+    const dw = await pdBy(t, "DW", 2);
+    const past = (await writerOf(t, dw))!;
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "writer", writerId: past._id } });
+    await admin.mutation(api.users.linkPastWriter, { writerId: past._id, userId: jordan });
+    const result = await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "user", userId: jordan } });
+    await admin.mutation(api.users.unlinkPastWriter, { writerId: past._id });
+    await runWriterWalk(t);
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: result.previous });
+    await runWriterWalk(t);
+    expect(await shownWriter(admin, dw)).toEqual({ name: "DW", hasLogin: false });
+    expect((await getItem(t, dw)).writerId).toBe(past._id);
+    // Linked once, it is never removed on its own: it stays until an Admin deletes it.
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "DW", writer: { kind: "name", name: "Priya Nair" } });
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [dw], patch: { writer: { kind: "name", name: "Priya Nair" } } });
+    expect(await t.run((ctx) => ctx.db.get(past._id))).toMatchObject({ fileCount: 0, heldCount: 0 });
+    await expectCountsMatchRecount(t, "after the Undos");
+  });
+
+  it("never moves a frozen file on a name saved, a change of initials, an edit or a new read", async () => {
+    const { t, admin } = await setup();
+    const a = await pdBy(t, "KT", 1);
+    const past = (await writerOf(t, a))!;
+    const kim = await addMember(t, "Kim", "");
+    await t.withIdentity({ subject: "member-Kim-" }).mutation(api.users.updateMyProfile, { firstName: "Kim", lastName: "Tran" });
+    await runWriterWalk(t);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [a], patch: { scienceCode: "2.02.01" } });
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [a], patch: { fiscalYearEnd: Date.UTC(2024, 2, 31) } });
+    await admin.mutation(api.users.setUserInitials, { userId: kim, initials: "KX" });
+    await admin.mutation(api.users.setUserInitials, { userId: kim, initials: "KT" });
+    await runWriterWalk(t);
+    const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
+    await t.mutation(internal.ingestion.markItemProcessed, { itemId: a, storageId, text: "Text 2", documentScienceCode: "2.02.09" });
+    expect((await getItem(t, a)).writerId).toBe(past._id);
+    await expectCountsMatchRecount(t, "after the facts changed");
+  });
+
+  it("shows a member with no real name by their initials, never their email", async () => {
+    const { t, admin } = await setup();
+    const id = await t.run((ctx) => ctx.db.insert("users", { authId: "email-only", role: "writer", email: "pat@example.com" }));
+    await admin.mutation(api.users.setUserInitials, { userId: id, initials: "PQ" });
+    const file = await pdBy(t, "PQ", 1);
+    expect((await getItem(t, file)).writerName).toBe("PQ");
+    expect(await shownWriter(admin, file)).toEqual({ name: "PQ", hasLogin: true });
+  });
+});
+
+describe("moving to writers (2026-11-16)", () => {
+  it("copies each saved match into a writer and a pick, linked only to the one member with that name and those initials, then gives every file its writer", async () => {
+    const { t, admin } = await setup();
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    // Priya's saved initials are not the ones the match was made for: not linked.
+    await addMember(t, "Priya", "Nair", { initials: "PR" });
+    const setBy = (await t.run((ctx) => ctx.db.query("users").first()))!._id;
+    await t.run(async (ctx) => {
+      for (const [initials, writerName] of [["KT", "Kim Tran"], ["PN", "Priya Nair"], ["SO", "Sam Okafor"]]) {
+        await ctx.db.insert("importWriterInitials", { initials, writerName, setBy, updatedAt: 5 });
+      }
+    });
+    const [kt, pn, so, setKim, setJordan, approvedDw, approvedSet] = await insertRaw(t, [
+      { path: pdPath("KT", 1), driveItemId: "kt", extra: { writerName: "Kim Tran", writerNameSource: "initials" } },
+      { path: pdPath("PN", 2), driveItemId: "pn" },
+      { path: pdPath("SO", 3), driveItemId: "so" },
+      // Writers a person typed on one file, as text, before writers existed.
+      { path: `${CEDARLINE_FY}/To be submitted/a.docx`, driveItemId: "set-kim", extra: { writerName: "Kim Tran", writerNameSource: "person", editedLabels: ["writerName"] } },
+      { path: `${CEDARLINE_FY}/To be submitted/b.docx`, driveItemId: "set-jordan", extra: { writerName: "Jordan Ellis", editedLabels: ["writerName"] } },
+      // Approved before the deploy: one with only initials, one a person named.
+      { path: pdPath("DW", 4), driveItemId: "approved-dw", extra: { status: "approved" } },
+      { path: `${CEDARLINE_FY}/To be submitted/c.docx`, driveItemId: "approved-set", extra: { status: "approved", writerName: "Jordan Ellis", editedLabels: ["writerName"] } },
+    ]);
+
+    await expect(t.mutation(internal.ingestion.migrateImportWriterInitials, {})).resolves.toEqual({ migrated: 3, done: true });
+    // To review, Deleted, then Approved.
+    expect(await runWriterWalk(t)).toMatchObject({ backfillImportWriters: 3 });
+    const kimWriter = (await ownWriterOf(t, kim))!;
+    const picks = await t.run((ctx) => ctx.db.query("pdWriterPicks").collect());
+    expect(picks.map((pick) => pick.initials).sort()).toEqual(["KT", "PN", "SO"]);
+    expect(picks.find((pick) => pick.initials === "KT")!.writerId).toBe(kimWriter._id);
+    expect(await writerOf(t, pn)).toMatchObject({ name: "Priya Nair", initials: "PN", createdVia: "person" });
+    expect((await writerOf(t, pn))?.userId).toBeUndefined();
+    expect(await shownWriter(admin, kt)).toEqual({ name: "Kim Tran", hasLogin: true });
+    expect(await shownWriter(admin, so)).toEqual({ name: "Sam Okafor", hasLogin: false });
+    expect((await getItem(t, setKim)).writerId).toBe(kimWriter._id);
+    expect(await writerOf(t, setJordan)).toMatchObject({ name: "Jordan Ellis" });
+    expect((await getItem(t, setJordan)).writerNameSource).toBeUndefined();
+    // Approved files gain a writer, never a new stored name; the sheet shows the writer.
+    expect((await getItem(t, approvedDw)).writerName).toBeUndefined();
+    expect(await writerOf(t, approvedDw)).toMatchObject({ initials: "DW", fileCount: 1 });
+    expect(await shownWriter(admin, approvedDw)).toEqual({ name: "DW", hasLogin: false });
+    expect((await getItem(t, approvedSet)).writerId).toBe((await getItem(t, setJordan)).writerId);
+    expect((await getItem(t, approvedSet)).writerName).toBe("Jordan Ellis");
+    expect(await writerOf(t, setJordan)).toMatchObject({ fileCount: 2 });
+    await expectCountsMatchRecount(t, "after the move to writers");
+
+    // Run again: nothing more.
+    const before = await allWriters(t);
+    await expect(t.mutation(internal.ingestion.migrateImportWriterInitials, {})).resolves.toEqual({ migrated: 0, done: true });
+    await runWriterWalk(t);
+    expect(await allWriters(t)).toEqual(before);
+    expect(await t.run((ctx) => ctx.db.query("pdWriterPicks").collect())).toHaveLength(3);
+  });
+
+  it("gives an approved file the writer it was approved with, even when its initials stand for someone else now", async () => {
+    const { t, admin } = await setup();
+    const setBy = (await t.run((ctx) => ctx.db.query("users").first()))!._id;
+    // KT was matched to Kim Tran when the file was approved, and to Kevin Tse since.
+    await t.run((ctx) => ctx.db.insert("importWriterInitials", { initials: "KT", writerName: "Kevin Tse", setBy, updatedAt: 5 }));
+    const [approvedKt, approvedPn] = await insertRaw(t, [
+      { path: pdPath("KT", 1), driveItemId: "akt", extra: { status: "approved", writerName: "Kim Tran", writerNameSource: "initials" } },
+      // PN's match was undone after approval: no old row for it.
+      { path: pdPath("PN", 2), driveItemId: "apn", extra: { status: "approved", writerName: "Priya Nair", writerNameSource: "initials" } },
+    ]);
+    await t.mutation(internal.users.backfillUserInitials, {});
+    await t.mutation(internal.ingestion.migrateImportWriterInitials, {});
+    await runWriterWalk(t);
+    expect(await shownWriter(admin, approvedKt)).toEqual({ name: "Kim Tran", hasLogin: false });
+    expect(await shownWriter(admin, approvedPn)).toEqual({ name: "Priya Nair", hasLogin: false });
+    expect((await getItem(t, approvedKt)).writerName).toBe("Kim Tran");
+    await expectCountsMatchRecount(t, "after approved files got their writers");
+  });
+
+  it("never brings back a pick a person undid when the migration runs again", async () => {
+    const { t, admin } = await setup();
+    const setBy = (await t.run((ctx) => ctx.db.query("users").first()))!._id;
+    await t.run((ctx) => ctx.db.insert("importWriterInitials", { initials: "SO", writerName: "Sam Okafor", setBy, updatedAt: 5 }));
+    const [so] = await insertRaw(t, [{ path: pdPath("SO", 1), driveItemId: "so", extra: { writerName: "Sam Okafor", writerNameSource: "initials" } }]);
+    await t.mutation(internal.ingestion.migrateImportWriterInitials, {});
+    await runWriterWalk(t);
+    expect((await shownWriter(admin, so)).name).toBe("Sam Okafor");
+    expect((await t.run((ctx) => ctx.db.query("importWriterInitials").collect()))[0].migratedAt).toEqual(expect.any(Number));
+    await admin.mutation(api.ingestion.matchWriterInitials, { initials: "SO", writer: null });
+    await runWriterWalk(t);
+    expect((await shownWriter(admin, so)).name).toBe("SO");
+    await expect(t.mutation(internal.ingestion.migrateImportWriterInitials, {})).resolves.toEqual({ migrated: 0, done: true });
+    await runWriterWalk(t);
+    expect((await shownWriter(admin, so)).name).toBe("SO");
+    expect(await t.run((ctx) => ctx.db.query("pdWriterPicks").collect())).toEqual([]);
+  });
+
+  it("prefills saved initials from first and last names for team members only, keeps what an Admin saved, and can run again", async () => {
+    const { t } = await setup();
+    const jordan = await addMember(t, "Jordan", "Ellis");
+    const priya = await addMember(t, "Priya", "Nair", { initials: "" });
+    const sam = await addMember(t, "Sam", "Okafor", { initials: "SAM" });
+    const kim = await addMember(t, "Kim", "");
+    // No role: not a team member, never given initials.
+    const roleless = await t.run((ctx) => ctx.db.insert("users", { authId: "no-role", firstName: "Dana", lastName: "Whitlock" }));
+    await expect(
+      t.mutation(internal.users.backfillUserInitials, { paginationOpts: { numItems: 2, cursor: null } })
+    ).resolves.toMatchObject({ done: false });
+    await runWriterWalk(t);
+    const initials = async (id: Id<"users">) => (await t.run((ctx) => ctx.db.get(id)))?.initials;
+    expect(await initials(jordan)).toBe("JE");
+    expect(await initials(priya)).toBe("");
+    expect(await initials(sam)).toBe("SAM");
+    expect(await initials(kim)).toBeUndefined();
+    expect(await initials(roleless)).toBeUndefined();
+    await expect(t.mutation(internal.users.backfillUserInitials, {})).resolves.toEqual({ updated: 0, done: true });
+    // A name saved on Settings fills initials only while none are saved.
+    await t.withIdentity({ subject: "member-Kim-" }).mutation(api.users.updateMyProfile, { firstName: "Kim", lastName: "Tran" });
+    expect(await initials(kim)).toBe("KT");
+    await t.withIdentity({ subject: "member-Kim-" }).mutation(api.users.updateMyProfile, { firstName: "Kimberly", lastName: "Hale" });
+    expect(await initials(kim)).toBe("KT");
   });
 });
 

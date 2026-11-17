@@ -4,8 +4,8 @@
  * runs of at most 100, then the app's toast. A delete's toast offers Undo,
  * which puts back exactly the files that delete changed (its changedIds).
  * A move's toast offers Undo too (moveBack), which sets the category or
- * company each moved file had before. Saying who some initials are
- * (matchWriter, 2026-11-12) offers Undo the same way.
+ * company each moved file had before. Saying which writer some initials
+ * are (matchWriter, 2026-11-12) offers Undo the same way.
  * Files a call left as they were are named in the toast, by reason.
  *
  * The toast and the selection bar both sit at the bottom centre, so while
@@ -31,6 +31,7 @@ import {
   type FileId,
   type MoveBackGroup,
   type MovePatch,
+  type WriterChoice,
 } from "./importEdit";
 
 export type BatchCall = (args: { ids: FileId[] }) => Promise<BatchResult>;
@@ -131,35 +132,41 @@ export function moveUndo(groups: readonly MoveBackGroup[] | null, setLabels: Mov
 export type WriterMatch = {
   initials: string;
   writerName: string | null;
-  previous: string | null;
+  /** The pick before, as a choice an Undo sends back (null: there was none). */
+  previous: WriterChoice | null;
   changed: number;
   more: boolean;
 };
-export type WriterMatchCall = (args: { initials: string; writerName: string | null }) => Promise<WriterMatch>;
+export type WriterMatchCall = (args: { initials: string; writer: WriterChoice | null }) => Promise<WriterMatch>;
 
 /**
- * Says who some initials are for the whole firm (2026-11-12,
+ * Says which writer some initials are for the whole firm (2026-11-12; since
+ * 2026-11-16 a pick that wins over the check on saved initials,
  * ingestion.matchWriterInitials), then "KT is Kim Tran on 9 files" with
- * Undo, which sets the initials back to the writer they had before (or to
- * none). Like the other Undos, it says nothing unless it fails. True when
- * the match was saved.
+ * Undo, which puts back the pick there was before (or none, so the check
+ * decides again). Like the other Undos, it says nothing unless it fails.
+ * True when the pick was saved.
  */
-export async function matchWriter(initials: string, writerName: string, match: WriterMatchCall): Promise<boolean> {
+export async function matchWriter(
+  initials: string,
+  picked: { choice: WriterChoice; label: string },
+  match: WriterMatchCall
+): Promise<boolean> {
   let result: WriterMatch;
   try {
-    result = await match({ initials, writerName });
+    result = await match({ initials, writer: picked.choice });
   } catch (error) {
     toast.error(userErrorMessage(error, "The writer could not be saved."), IMPORT_TOAST);
     return false;
   }
   const undo = async () => {
     try {
-      await match({ initials, writerName: result.previous });
+      await match({ initials, writer: result.previous });
     } catch (error) {
       toast.error(userErrorMessage(error, "The writer could not be set back."), IMPORT_TOAST);
     }
   };
-  toast(writerMatchedText(initials, result.writerName ?? writerName, result.changed, result.more), {
+  toast(writerMatchedText(initials, result.writerName ?? picked.label, result.changed, result.more), {
     ...IMPORT_TOAST,
     description: result.more ? WRITER_MATCH_MORE : undefined,
     action: { label: "Undo", onClick: () => void undo() },

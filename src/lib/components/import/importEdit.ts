@@ -5,10 +5,11 @@
  * date the calendar works in, the batches the bar sends, and the words of
  * the bar's confirm lines and toasts.
  */
-import type { FunctionReturnType } from "convex/server";
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type { api } from "../../../../convex/_generated/api";
 import {
   canDelete,
+  CHOOSE_WRITER,
   isBeingRead as statusIsBeingRead,
   labelApplies,
   type BatchSkipReason,
@@ -323,12 +324,15 @@ export function checkState(ids: readonly string[], isSelected: (id: string) => b
 
 const files = (count: number) => plural(count, "file");
 
-/** What the bar can do to the selected files, and the value picked. */
+/** A writer a person chose on Import (2026-11-16): a team member, a writer by id, or a typed name. */
+export type WriterChoice = NonNullable<FunctionArgs<typeof api.ingestion.matchWriterInitials>["writer"]>;
+
+/** What the bar can do to the selected files, and the value picked (a writer with its label). */
 export type BarChange =
   | { kind: "category"; category: ImportCategory }
   | { kind: "fiscalYearEnd"; fiscalYearEnd: number }
   | { kind: "company"; company: string }
-  | { kind: "writer"; writerName: string }
+  | { kind: "writer"; writer: WriterChoice; writerName: string }
   | { kind: "pdNumber"; pdNumber: string }
   | { kind: "scienceCode"; scienceCode: string };
 
@@ -342,7 +346,7 @@ export function changePatch(change: BarChange) {
     case "company":
       return { company: change.company };
     case "writer":
-      return { writerName: change.writerName };
+      return { writer: change.writer };
     case "pdNumber":
       return { pdNumber: change.pdNumber };
     case "scienceCode":
@@ -434,10 +438,12 @@ export function writerMatchedText(initials: string, writerName: string, changed:
 /** Said under that toast while more files are still to follow. */
 export const WRITER_MATCH_MORE = "The other files with these initials follow in a moment.";
 
-/** "Pick a writer for KT", or "Pick a writer" for a file whose name gave no initials. */
-export function pickWriterText(initials: string | null): string {
-  return initials ? `Pick a writer for ${initials}` : "Pick a writer";
-}
+/**
+ * The amber control on a file whose writer a person still has to choose
+ * (2026-11-16): "Choose writer", with no initials in it, whether the file
+ * name gave initials that could be more than one person or none at all.
+ */
+export { CHOOSE_WRITER };
 
 /** "Delete 6 files" */
 export function deleteLine(count: number): string {

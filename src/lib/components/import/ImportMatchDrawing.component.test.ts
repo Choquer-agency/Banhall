@@ -255,7 +255,7 @@ describe("the Import page against the drawing (Paper Files 1)", () => {
     expect(getComputedStyle(one("[data-import-code]", pd1)!).color).toBe(secondary);
     expect(getComputedStyle(one("[data-import-file-title]", pd1)!).color).toBe(ink);
     const pick = one('[data-import-file="pd2"] [data-import-writer-pick]')!;
-    expect(text(pick)).toBe("Pick a writer for KT");
+    expect(text(pick)).toBe("Choose writer");
     expect(box(pick).height).toBeCloseTo(board(26), 0);
     // A known company's industry, and a new one's picker.
     expect(text(one('[data-import-band="northgate labs"] [data-import-band-industry]'))).toBe("Manufacturing");

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Id } from "../_generated/dataModel";
 import { dashboardCompanyKey } from "../../shared/dashboardProjection";
 import { classifyItemPath, INGESTION_CATEGORIES } from "./ingestionClassify";
 import {
@@ -16,17 +17,21 @@ import {
   docKindForCategory,
   fieldsForLabels,
   followsRememberedWriter,
+  initialsWriterFields,
+  initialsWriterStep,
   labelPatchFields,
   mergeEditedLabels,
   normalizePdNumber,
   pairGroupsTouched,
   pathFieldsFor,
+  pickWriterFields,
   previewScienceCode,
-  rememberedWriterFields,
   settleItem,
   sheetSectionFor,
   sheetTabForStatus,
   sortKeyFor,
+  takesInitialsWriter,
+  writerBeforePickFields,
   writerInitialsKey,
   writerSetByPerson,
   type IngestionItemFields,
@@ -403,8 +408,10 @@ describe("derivedFields and settleItem", () => {
   });
 });
 
-describe("writers by initials (2026-11-12)", () => {
-  const read = { status: "pending_review" as const, editedLabels: [] };
+describe("writers from initials (2026-11-12, 2026-11-16)", () => {
+  const read = { status: "pending_review" as const, category: "final_pd" as const, editedLabels: [] };
+  const kim = { id: "writer-kim" as Id<"pdWriters">, label: "Kim Tran" };
+  const facts = { hasPick: false, initialsChanged: false };
 
   it("keys initials as the file names give them, upper case, two or three letters", () => {
     expect(writerInitialsKey("kt")).toBe("KT");
@@ -419,51 +426,79 @@ describe("writers by initials (2026-11-12)", () => {
     expect(writerSetByPerson({})).toBe(false);
   });
 
-  it("gives the remembered writer to a file with those initials and no writer a person set", () => {
-    expect(rememberedWriterFields({ ...read, writerInitials: "KT" }, "Kim Tran")).toEqual({
-      writerName: "Kim Tran",
-      writerNameSource: "initials",
-    });
-    // A new match replaces the name a file took from the old one.
-    expect(
-      rememberedWriterFields({ ...read, writerInitials: "KT", writerName: "Kim Tan", writerNameSource: "initials" }, "Kim Tran")
-    ).toEqual({ writerName: "Kim Tran", writerNameSource: "initials" });
-    // With no match (an Undo), or once its initials are gone, the name it took goes.
-    expect(rememberedWriterFields({ ...read, writerInitials: "KT", writerName: "Kim Tran", writerNameSource: "initials" }, null)).toEqual({
-      writerName: undefined,
-      writerNameSource: undefined,
-    });
-    expect(rememberedWriterFields({ ...read, writerName: "Kim Tran", writerNameSource: "initials" }, "Kim Tran")).toEqual({
-      writerName: undefined,
-      writerNameSource: undefined,
-    });
-    // Nothing to take: no match and no name from one.
-    expect(rememberedWriterFields({ ...read, writerInitials: "KT" }, null)).toEqual({});
+  it("fills a writer only while a file has none, then keeps it: the freeze rule", () => {
+    expect(initialsWriterStep({ ...read, writerInitials: "KT" }, facts)).toBe("fill");
+    const frozen = { ...read, writerInitials: "KT", writerId: kim.id, writerName: "KT", writerNameSource: "initials" as const };
+    expect(initialsWriterStep(frozen, facts)).toBe("keep");
+    // Its initials changed (a rename): the check runs again.
+    expect(initialsWriterStep(frozen, { ...facts, initialsChanged: true })).toBe("fill");
+    // An old row with a name from initials but no writer record: filled.
+    expect(initialsWriterStep({ ...frozen, writerId: undefined }, facts)).toBe("fill");
   });
 
-  it("never touches a writer a person set on the file, or an approved file", () => {
+  it("follows a pick whatever writer the file had, and when the pick goes the check fills it again", () => {
+    const frozen = { ...read, writerInitials: "KT", writerId: kim.id, writerName: "KT", writerNameSource: "initials" as const };
+    expect(initialsWriterStep(frozen, { ...facts, hasPick: true })).toBe("pick");
+    expect(initialsWriterStep({ ...frozen, writerNameSource: "pick" as const }, facts)).toBe("fill");
+  });
+
+  it("drops a writer from initials a file no longer takes, and never touches one a person set or an approved file", () => {
+    const moved = { ...read, category: "transcript" as const, writerInitials: "KT", writerId: kim.id, writerName: "Kim Tran", writerNameSource: "initials" as const };
+    expect(takesInitialsWriter(moved)).toBe(false);
+    expect(initialsWriterStep(moved, facts)).toBe("clear");
+    expect(initialsWriterStep({ ...read, category: "transcript" as const, writerInitials: "KT" }, facts)).toBe("none");
+    expect(takesInitialsWriter({ category: "draft", writerInitials: "KT" })).toBe(true);
     const person = { ...read, writerInitials: "KT", writerName: "Jordan Ellis", writerNameSource: "person" as const };
     expect(followsRememberedWriter(person)).toBe(false);
-    expect(rememberedWriterFields(person, "Kim Tran")).toEqual({});
+    expect(initialsWriterStep(person, { hasPick: true, initialsChanged: true })).toBe("none");
     const before = { ...read, writerInitials: "KT", writerName: "Jordan Ellis", editedLabels: ["writerName" as const] };
-    expect(rememberedWriterFields(before, "Kim Tran")).toEqual({});
+    expect(initialsWriterStep(before, { ...facts, hasPick: true })).toBe("none");
     const approved = { ...read, status: "approved" as const, writerInitials: "KT" };
-    expect(followsRememberedWriter(approved)).toBe(false);
-    expect(rememberedWriterFields(approved, "Kim Tran")).toEqual({});
-    // A file with no initials and no name from them has nothing to follow.
+    expect(initialsWriterStep(approved, { ...facts, hasPick: true })).toBe("none");
+    // A file with no initials and no writer from them has nothing to follow.
     expect(followsRememberedWriter({ ...read })).toBe(false);
-    // Deleted files follow too, so a file put back shows the name.
+    // Deleted files follow too, so a file put back shows the writer.
     expect(followsRememberedWriter({ ...read, status: "deleted", writerInitials: "KT" })).toBe(true);
   });
 
-  it("settles a remembered name with no check, and takes it back to a check without it", () => {
+  it("gives the writer fields of a writer from initials, or takes them away", () => {
+    expect(initialsWriterFields(kim, "pick")).toEqual({ writerId: kim.id, writerName: "Kim Tran", writerNameSource: "pick" });
+    expect(initialsWriterFields(null, "initials")).toEqual({ writerId: undefined, writerName: undefined, writerNameSource: undefined });
+  });
+
+  it("remembers the writer a file had when it starts to follow a pick, and gives exactly that back on Undo", () => {
+    const sam = { id: "writer-sam" as Id<"pdWriters">, label: "Sam Okafor" };
+    const frozen = { writerId: kim.id, writerName: "KT", writerNameSource: "initials" as const };
+    const picked = pickWriterFields(frozen, sam, false);
+    expect(picked).toEqual({ writerId: sam.id, writerName: "Sam Okafor", writerNameSource: "pick", writerBeforePick: frozen });
+    // A second pick keeps what the file had before the first.
+    const jordan = { id: "writer-jordan" as Id<"pdWriters">, label: "Jordan Ellis" };
+    expect(pickWriterFields({ ...frozen, ...picked }, jordan, false).writerBeforePick).toEqual(frozen);
+    // A file with no writer remembers none; one whose initials just changed forgets.
+    expect(pickWriterFields({}, sam, false).writerBeforePick).toEqual({});
+    expect(pickWriterFields({ ...frozen, ...picked }, jordan, true).writerBeforePick).toEqual({});
+    // Undo: exactly the writer, name and source it had; none remembered means the check fills it.
+    expect(writerBeforePickFields({ ...picked }, false)).toEqual({ ...frozen, writerBeforePick: undefined });
+    expect(writerBeforePickFields({ writerNameSource: "pick", writerBeforePick: {} }, false)).toBeNull();
+    expect(writerBeforePickFields({ ...picked }, true)).toBeNull();
+    // Only a file following a pick keeps what it remembered.
+    const row = rowAt(`${FY}/To be submitted/${PD_NAME}`);
+    expect(settleItem({ ...row, status: "pending_review", ...picked }).writerBeforePick).toEqual(frozen);
+    expect(settleItem({ ...row, status: "pending_review", ...picked, writerNameSource: "person" }).writerBeforePick).toBeUndefined();
+  });
+
+  it("settles a writer from initials with no check, and keeps an approved file's writer with no stored name", () => {
     const row = rowAt(`${FY}/To be submitted/${PD_NAME}`);
     const unmatched = settleItem({ ...row, status: "pending_review", scienceCode: "2.02.09" });
     expect(unmatched.writerInitials).toBe("DW");
     expect(unmatched.checkReasons).toContain("unmatched_initials");
-    const matched = settleItem({ ...unmatched, ...rememberedWriterFields(unmatched, "Dana Whitlock") });
-    expect(matched).toMatchObject({ writerName: "Dana Whitlock", writerNameSource: "initials" });
+    const dana = { id: "writer-dana" as Id<"pdWriters">, label: "Dana Whitlock" };
+    const matched = settleItem({ ...unmatched, ...initialsWriterFields(dana, "initials") });
+    expect(matched).toMatchObject({ writerId: dana.id, writerName: "Dana Whitlock", writerNameSource: "initials" });
     expect(matched.checkReasons).not.toContain("unmatched_initials");
+    // The writer goes with its name, except on an approved file.
+    expect(settleItem({ ...matched, writerName: undefined }).writerId).toBeUndefined();
+    expect(settleItem({ ...matched, status: "approved", writerName: undefined }).writerId).toBe(dana.id);
   });
 });
 
@@ -568,10 +603,22 @@ describe("labelPatchFields", () => {
       versionCode: "R",
       versionNumber: 3,
     });
-    expect(labelPatchFields({ writerName: " Priya Nair " }).fields).toEqual({
-      writerName: "Priya Nair",
-      writerNameSource: "person",
+    expect(labelPatchFields({ writerName: " Priya Nair " })).toEqual({
+      fields: { writerName: "Priya Nair", writerNameSource: "person" },
+      labels: ["writerName"],
+      // A typed name, cleaned, for the server to turn into a writer (2026-11-16).
+      writer: { kind: "name", name: "Priya Nair" },
     });
+    // A chosen writer: the server sets its id and label.
+    const chosen = { kind: "user" as const, userId: "user-priya" as Id<"users"> };
+    expect(labelPatchFields({ writer: chosen })).toEqual({
+      fields: { writerNameSource: "person" },
+      labels: ["writerName"],
+      writer: chosen,
+    });
+    expect(() => labelPatchFields({ writer: { kind: "name", name: "priya@example.com" } })).toThrow(
+      "Type the writer's name, not an email address."
+    );
     expect(labelPatchFields({ scienceCode: " 2.02.09 " }).fields).toEqual({
       scienceCode: "2.02.09",
       scienceCodeSource: "person",

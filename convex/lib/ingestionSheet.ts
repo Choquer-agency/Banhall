@@ -6,10 +6,11 @@
 // companyKey, fiscalYearEnd, sheetTab, needsCheck, sortKey) always agree.
 
 import type { WithoutSystemFields } from "convex/server";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { dashboardCompanyKey, DASHBOARD_UNNAMED_COMPANY_KEY } from "../../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
+  categoryTakes,
   isBeingRead as statusIsBeingRead,
   looksLikeEmail,
   normalizePdNumber,
@@ -31,6 +32,7 @@ import type {
   EditableLabel,
   SheetLabelPatch,
   SheetTab,
+  WriterChoice,
 } from "./ingestionSheetValidators";
 
 export type IngestionItemFields = WithoutSystemFields<Doc<"ingestionItems">>;
@@ -119,16 +121,17 @@ export function checkReasonsFor(row: CheckInput): CheckReason[] {
   }
   if (row.category === "final_pd") {
     if (!row.scienceCode) reasons.push("no_science_code");
-    // Initials alone are not a writer (shared/pdFilename.ts): a person says
-    // who they are once, and every file with them takes the name.
+    // Since 2026-11-16 a file's initials give its writer (convex/lib/teamRoster.ts
+    // writerForInitials), unless they could be more than one person: then
+    // the file has no writer and a person must choose one.
     if (!row.writerName) reasons.push(writerInitialsKey(row.writerInitials) ? "unmatched_initials" : "no_writer");
   }
   return reasons;
 }
 
-// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
+// ─── Writers from initials (2026-11-12, 2026-11-16) ─────────────────────────
 
-/** The initials a remembered writer is kept under (shared/importSheetRules.ts, which the page reads too). */
+/** The initials writers are matched by (shared/importSheetRules.ts, which the page reads too). */
 export { writerInitialsKey };
 
 /** Whether a person set the file's writer on the file itself (its cell, or the bar). */
@@ -138,31 +141,115 @@ export function writerSetByPerson(row: Pick<IngestionItemFields, "writerNameSour
 
 type RememberedInput = Pick<
   IngestionItemFields,
-  "status" | "writerInitials" | "writerName" | "writerNameSource" | "editedLabels"
+  "status" | "category" | "writerInitials" | "writerId" | "writerName" | "writerNameSource" | "editedLabels"
 >;
 
-/**
- * Whether a row's writer follows the firm's remembered initials: a file not
- * approved (an approved one keeps what it was approved as) whose writer no
- * person set on the file, and which has initials or a name taken from them.
- */
-export function followsRememberedWriter(row: RememberedInput): boolean {
-  if (row.status === "approved" || writerSetByPerson(row)) return false;
-  return writerInitialsKey(row.writerInitials) !== null || row.writerNameSource === "initials";
+/** Whether a row's writer came from its initials: filled by the check ("initials") or following a pick ("pick"). */
+export function writerFromInitials(row: Pick<IngestionItemFields, "writerNameSource">): boolean {
+  return row.writerNameSource === "initials" || row.writerNameSource === "pick";
+}
+
+/** Whether a row takes a writer from its initials at all: it has them, and its category takes a writer. */
+export function takesInitialsWriter(row: Pick<IngestionItemFields, "category" | "writerInitials">): boolean {
+  return (
+    writerInitialsKey(row.writerInitials) !== null && row.category !== undefined && categoryTakes("writerName", row.category)
+  );
 }
 
 /**
- * The writer fields a row takes from the remembered initials: `remembered`
- * is the writer its initials stand for, or null when no person has said.
- * A row that does not follow them (followsRememberedWriter) gets nothing;
- * one whose initials have no writer any more loses the name it took.
+ * Whether a row's writer follows its file name's initials: a file not
+ * approved (an approved one keeps what it was approved as) whose writer no
+ * person set on the file, and which takes a writer from its initials or has
+ * one from them. Since 2026-11-16 only a file whose category takes a writer
+ * (a final PD, draft or review copy): a transcript named like a PD never
+ * makes a writer.
  */
-export function rememberedWriterFields(row: RememberedInput, remembered: string | null): Partial<IngestionItemFields> {
-  if (!followsRememberedWriter(row)) return {};
-  if (writerInitialsKey(row.writerInitials) !== null && remembered) {
-    return { writerName: remembered, writerNameSource: "initials" };
-  }
-  return row.writerNameSource === "initials" ? { writerName: undefined, writerNameSource: undefined } : {};
+export function followsRememberedWriter(row: RememberedInput): boolean {
+  if (row.status === "approved" || writerSetByPerson(row)) return false;
+  return takesInitialsWriter(row) || writerFromInitials(row);
+}
+
+/**
+ * What a write does to a row's writer from its initials (2026-11-16, the
+ * freeze rule in docs/product-domain.md):
+ * - "none": it does not follow its initials (approved, set by a person, or
+ *   no initials and no writer from them).
+ * - "clear": its writer came from initials it no longer takes (its category
+ *   takes no writer, or the initials are gone): the writer goes.
+ * - "pick": a person's pick for its initials exists: it takes the pick's
+ *   writer, whatever it had.
+ * - "keep": it already has a writer the check gave it, from the initials it
+ *   still has: frozen. A change of the facts (a member's initials, a new
+ *   writer) never moves it.
+ * - "fill": it has no writer (or its writer followed a pick that is gone, or
+ *   its initials changed): the check gives it one, or none when the
+ *   initials could be more than one person.
+ */
+export type InitialsWriterStep = "none" | "clear" | "pick" | "keep" | "fill";
+
+export function initialsWriterStep(
+  row: RememberedInput,
+  facts: { hasPick: boolean; initialsChanged: boolean }
+): InitialsWriterStep {
+  if (!followsRememberedWriter(row)) return "none";
+  if (!takesInitialsWriter(row)) return "clear";
+  if (facts.hasPick) return "pick";
+  if (row.writerNameSource === "pick" || facts.initialsChanged) return "fill";
+  return row.writerId !== undefined ? "keep" : "fill";
+}
+
+/** The writer some initials give (convex/lib/teamRoster.ts): its id and its label now. */
+export type InitialsWriter = { id: Id<"pdWriters">; label: string };
+
+/** The writer fields of a row that takes `writer` from its initials (null: none), from `source`. */
+export function initialsWriterFields(
+  writer: InitialsWriter | null,
+  source: "initials" | "pick"
+): Partial<IngestionItemFields> {
+  return writer
+    ? { writerId: writer.id, writerName: writer.label, writerNameSource: source, writerBeforePick: undefined }
+    : { writerId: undefined, writerName: undefined, writerNameSource: undefined, writerBeforePick: undefined };
+}
+
+/**
+ * The writer fields of a row that follows a pick (step "pick"). A row that
+ * starts to follow it now remembers the writer it had (writerBeforePick,
+ * empty when it had none or when its initials just changed); a row already
+ * following a pick keeps what it remembered, so a chain of picks and their
+ * Undos ends where it started.
+ */
+export function pickWriterFields(
+  row: Pick<IngestionItemFields, "writerId" | "writerName" | "writerNameSource" | "writerBeforePick">,
+  pick: InitialsWriter,
+  initialsChanged: boolean
+): Partial<IngestionItemFields> {
+  const writerBeforePick =
+    row.writerNameSource === "pick" && !initialsChanged
+      ? (row.writerBeforePick ?? {})
+      : initialsChanged
+        ? {}
+        : definedFields({ writerId: row.writerId, writerName: row.writerName, writerNameSource: row.writerNameSource });
+  return { writerId: pick.id, writerName: pick.label, writerNameSource: "pick", writerBeforePick };
+}
+
+/**
+ * The writer a row that followed a pick that is gone goes back to: exactly
+ * the one it remembered (writer, stored name and source), or null when it
+ * remembered none (it had no writer, arrived while the pick stood, or its
+ * initials changed): then the check fills it.
+ */
+export function writerBeforePickFields(
+  row: Pick<IngestionItemFields, "writerNameSource" | "writerBeforePick">,
+  initialsChanged: boolean
+): Partial<IngestionItemFields> | null {
+  const before = row.writerNameSource === "pick" && !initialsChanged ? row.writerBeforePick : undefined;
+  if (!before?.writerId) return null;
+  return {
+    writerId: before.writerId,
+    writerName: before.writerName,
+    writerNameSource: before.writerNameSource,
+    writerBeforePick: undefined,
+  };
 }
 
 /** Categories whose rows are ordered by fiscal year, PD number and version. */
@@ -334,6 +421,8 @@ export type DerivedFields = {
   pairGroupKey: string;
   scienceCodeSource: IngestionItemFields["scienceCodeSource"];
   writerNameSource: IngestionItemFields["writerNameSource"];
+  writerId: IngestionItemFields["writerId"];
+  writerBeforePick: IngestionItemFields["writerBeforePick"];
   sheetTab: SheetTab;
   needsCheck: boolean;
   checkReasons: CheckReason[];
@@ -360,6 +449,16 @@ export function derivedFields(row: IngestionItemFields & { category: IngestionCa
     pairGroupKey: pairGroupKeyFor(companyKey, fiscalYear),
     scienceCodeSource: row.scienceCode === undefined ? undefined : row.scienceCodeSource,
     writerNameSource: row.writerName === undefined ? undefined : row.writerNameSource,
+    // An approved file may point at a writer with no stored name (one
+    // approved before writers existed, given its writer by the backfill).
+    writerId: row.writerName === undefined && row.status !== "approved" ? undefined : row.writerId,
+    // Only a file following a pick remembers the writer it had before. An
+    // approved file never follows an Undo, so it lets go (and stops holding
+    // that writer, which may then be removed).
+    writerBeforePick:
+      row.writerNameSource === "pick" && row.writerName !== undefined && row.status !== "approved"
+        ? row.writerBeforePick
+        : undefined,
     sheetTab: sheetTabForStatus(row.status),
     needsCheck: checkReasons.length > 0,
     checkReasons,
@@ -472,9 +571,16 @@ export { normalizePdNumber };
 export function labelPatchFields(patch: SheetLabelPatch): {
   fields: Partial<IngestionItemFields>;
   labels: EditableLabel[];
+  /**
+   * The writer chosen (2026-11-16), a typed name cleaned: the caller turns
+   * it into a writer (ingestion.ts setSheetLabels) and sets writerId and
+   * writerName from it. A typed name is also in fields.writerName.
+   */
+  writer?: WriterChoice;
 } {
   const fields: Partial<IngestionItemFields> = {};
   const labels: EditableLabel[] = [];
+  let writer: WriterChoice | undefined;
 
   if (patch.company !== undefined) {
     const name = patch.company.trim().replace(/\s+/g, " ");
@@ -523,8 +629,10 @@ export function labelPatchFields(patch: SheetLabelPatch): {
     labels.push("version");
   }
 
-  if (patch.writerName !== undefined) {
-    fields.writerName = cleanWriterName(patch.writerName);
+  if (patch.writer !== undefined || patch.writerName !== undefined) {
+    const chosen: WriterChoice = patch.writer ?? { kind: "name", name: patch.writerName! };
+    writer = chosen.kind === "name" ? { kind: "name", name: cleanWriterName(chosen.name) } : chosen;
+    if (writer.kind === "name") fields.writerName = writer.name;
     fields.writerNameSource = "person";
     labels.push("writerName");
   }
@@ -538,7 +646,7 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   }
 
   if (labels.length === 0) domainError("INVALID_INPUT", "Choose a label to change.");
-  return { fields, labels };
+  return writer === undefined ? { fields, labels } : { fields, labels, writer };
 }
 
 /** The row fields each label sets (labelPatchFields). */
@@ -548,7 +656,7 @@ const LABEL_FIELDS: Record<EditableLabel, ReadonlyArray<keyof IngestionItemField
   fiscalYearEnd: ["fiscalYearEnd", "fiscalYearEndAssumed"],
   pdNumber: ["pdNumber"],
   version: ["versionCode", "versionNumber"],
-  writerName: ["writerName", "writerNameSource"],
+  writerName: ["writerId", "writerName", "writerNameSource"],
   scienceCode: ["scienceCode", "scienceCodeSource"],
 };
 

@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { hasCapability } from "./lib/roleCapabilities";
-import { userDisplayLabel } from "./lib/teamRoster";
+import { linkedWriterOf, userDisplayLabel, writerLabelFor } from "./lib/teamRoster";
 
 /**
  * Round 2 Team page (C1, C2; decisions 47 and 54). Members are read by
@@ -34,6 +34,19 @@ export const listMembers = query({
       isDeveloper: v.boolean(),
       lastActiveAt: v.union(v.number(), v.null()),
       isSelf: v.boolean(),
+      // 2026-11-16: the saved initials Import matches file names against
+      // (null: none saved), and the past writer an Admin linked to this
+      // account, if any.
+      initials: v.union(v.string(), v.null()),
+      linkedWriter: v.union(
+        v.object({
+          writerId: v.id("pdWriters"),
+          label: v.string(),
+          initials: v.union(v.string(), v.null()),
+          fileCount: v.number(),
+        }),
+        v.null(),
+      ),
     }),
   ),
   handler: async (ctx) => {
@@ -55,6 +68,7 @@ export const listMembers = query({
           .query("userActivity")
           .withIndex("by_userId", (q) => q.eq("userId", user._id))
           .unique();
+        const linked = await linkedWriterOf(ctx, user._id);
         return {
           _id: user._id,
           name: userDisplayLabel(user),
@@ -66,6 +80,16 @@ export const listMembers = query({
           isDeveloper: user.isDeveloper === true,
           lastActiveAt: activity?.lastActiveAt ?? null,
           isSelf: user._id === viewer._id,
+          initials: user.initials || null,
+          linkedWriter: linked
+            ? {
+                writerId: linked._id,
+                // Its own name or initials: the member's name is already on the row.
+                label: writerLabelFor({ ...linked, userId: undefined }, null),
+                initials: linked.initials ?? null,
+                fileCount: linked.fileCount,
+              }
+            : null,
         };
       }),
     );

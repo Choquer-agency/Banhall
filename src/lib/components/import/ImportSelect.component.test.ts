@@ -150,10 +150,13 @@ describe("selecting files on the Import page", () => {
     __setPageUrl("/admin/import");
     __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
     __setQueryData("users:getCurrentUser", { _id: "a", role: "admin", firstName: "Jordan", lastName: "Ellis" });
-    __setQueryData("users:listTeam", [
-      { id: "u1", name: "Dana Whitlock", email: null, role: "writer" },
-      { id: "u2", name: "Priya Nair", email: null, role: "writer" },
-    ]);
+    __setQueryData("ingestion:writerChoices", {
+      members: [
+        { userId: "u1", label: "Dana Whitlock", writerId: null, linkedWriterId: null },
+        { userId: "u2", label: "Priya Nair", writerId: null, linkedWriterId: null },
+      ],
+      pastWriters: [],
+    });
   });
 
   it("adds a checkbox column to every row with Select, without moving the other columns", async () => {
@@ -494,7 +497,7 @@ describe("selecting files on the Import page", () => {
     for (const id of ["t1", "t2", "t3"]) await userEvent.click(fileBox(id));
     await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
     await userEvent.click(one('[data-import-bar-more-choice="writer"]')!);
-    await userEvent.click(one('[data-import-name-option="Priya Nair"]')!);
+    await userEvent.click(one('[data-import-name-option="user:u2"]')!);
     expect(text(one("[data-import-bar-left-out]"))).toBe(
       "3 transcripts were left out: a writer only goes on a final PD, draft or review copy."
     );
@@ -529,11 +532,16 @@ describe("selecting files on the Import page", () => {
     await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
     expect(all("[data-import-bar-more-choice]").map((node) => text(node))).toEqual(["Company", "Writer", "PD number", "Science code"]);
     await userEvent.click(one('[data-import-bar-more-choice="writer"]')!);
-    await userEvent.click(one('[data-import-name-option="Priya Nair"]')!);
+    await userEvent.click(one('[data-import-name-option="user:u2"]')!);
+    // The picked one is checked in the list.
+    expect(one('[data-import-name-option="user:u2"]')?.getAttribute("aria-current")).toBe("true");
     const confirm = page.getByRole("button", { name: "Set the writer to Priya Nair for 2 files" });
     await expect.element(confirm).toBeVisible();
     await userEvent.click(confirm);
-    await expect.poll(() => __mutationCalls("ingestion:setSheetLabels")).toEqual([{ ids: ["pd1", "pd4"], patch: { writerName: "Priya Nair" } }]);
+    // Set on these files alone (2026-11-16: the writer by who it is, not by name).
+    await expect.poll(() => __mutationCalls("ingestion:setSheetLabels")).toEqual([
+      { ids: ["pd1", "pd4"], patch: { writer: { kind: "user", userId: "u2" } } },
+    ]);
     await expect.poll(bar).toBeNull();
   });
 
@@ -854,11 +862,13 @@ describe("captures", () => {
     __resetAuthState();
     __setQueryData("myWork:getViewConfig", { killSwitch: false, ready: true });
     __setQueryData("users:getCurrentUser", { _id: "a", role: "admin", firstName: "Jordan", lastName: "Ellis" });
-    __setQueryData("users:listTeam", [
-      { id: "u1", name: "Dana Whitlock", email: null, role: "writer" },
-      { id: "u2", name: "Priya Nair", email: null, role: "writer" },
-      { id: "u3", name: "Sam Okafor", email: null, role: "manager" },
-    ]);
+    __setQueryData("ingestion:writerChoices", {
+      members: [
+        { userId: "u1", label: "Dana Whitlock", writerId: null, linkedWriterId: null },
+        { userId: "u2", label: "Priya Nair", writerId: null, linkedWriterId: null },
+      ],
+      pastWriters: [{ writerId: "w-so", label: "SO", initials: "SO" }],
+    });
   });
 
   it("one file's calendar and pickers, then the selection, its bar and a menu over it", async () => {
