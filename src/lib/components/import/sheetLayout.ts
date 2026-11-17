@@ -1,27 +1,33 @@
 /**
  * The Import sheet's one column grid (board ao5), shared by the header, the
  * company bands, the file rows and the search results so every column lines
- * up. At the boards' width File takes the rest; Fiscal year 96px, Version
- * 60px, Writer 172px and Science code 328px each add 8px either side of the
- * light rule at their left edge (the boards' 16px gaps). Indents step 24px:
+ * up. At the boards' width File takes the rest; Fiscal year, Version,
+ * Writer, Reviewer and Science code each add 8px either side of the light
+ * rule at their left edge (the boards' 16px gaps). Indents step 24px:
  * company, section, file.
  *
- * On a narrower window (live QA fixes, 2026-11-11) File keeps at least 280px
- * and the other four give up room first, down to their own minimums (Fiscal
- * year 80px, Version 64px, Writer 120px, Science code 144px): a grid grows
- * every fixed column to its widest before the File column gets any of the
- * rest. Below the width where every column is at its minimum (SHEET_MIN_WIDTH)
- * the sheet scrolls sideways in its own area, header and all.
+ * Reviewer (2026-11-17) sits after Writer. To make room the widest Writer
+ * and Reviewer are 152px and Fiscal year 104px (Science code keeps its
+ * 344px, so a common code title still fits at the boards' width), and on
+ * a narrow window File keeps at least 224px while the other five give up
+ * room first, down to their own minimums: Fiscal year 80px, Version 60px,
+ * Writer 132px (so the required "Choose writer" and a full name such as
+ * "Dana Whitlock" stay whole), Reviewer 108px (a short name whole; the
+ * quiet "Choose reviewer" is cut, and whole on hover) and Science code
+ * 108px, which is the code alone: its title shows once there is room. A
+ * grid grows every fixed column to its widest before the File column gets
+ * any of the rest. Every column at its minimum is 712px, which still fits
+ * the sheet's 714px at a 1100px window; below that (SHEET_MIN_WIDTH) the
+ * sheet scrolls sideways in its own area, header and all.
  */
-export const SHEET_GRID =
-  "grid grid-cols-[minmax(17.5rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
+// Written out whole in each grid: Tailwind finds a class only as literal text.
+export const SHEET_GRID = "grid grid-cols-[minmax(14rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
 /**
  * The same grid with Select on (board ao4): a 36px checkbox column first.
  * The File column gives up the room (its minimum too), so no other column moves.
  */
-export const SHEET_GRID_SELECT =
-  "grid grid-cols-[2.25rem_minmax(15.25rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
+export const SHEET_GRID_SELECT = "grid grid-cols-[2.25rem_minmax(11.75rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
 /**
  * The grids of a file row inside a company, which starts 24px in (the
@@ -30,10 +36,8 @@ export const SHEET_GRID_SELECT =
  * with it at every width, while they are still growing as much as when
  * they are at their widest.
  */
-export const SHEET_GRID_INDENTED =
-  "grid grid-cols-[minmax(16rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
-export const SHEET_GRID_INDENTED_SELECT =
-  "grid grid-cols-[2.25rem_minmax(13.75rem,1fr)_minmax(5rem,7rem)_minmax(4rem,4.75rem)_minmax(7.5rem,11.75rem)_minmax(9rem,21.5rem)]";
+export const SHEET_GRID_INDENTED = "grid grid-cols-[minmax(12.5rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
+export const SHEET_GRID_INDENTED_SELECT = "grid grid-cols-[2.25rem_minmax(10.25rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
 /** The grid for a row: with Select on or off, and 24px in (a file inside a company) or not. */
 export function sheetGrid(selecting: boolean, indented = false): string {
@@ -55,10 +59,10 @@ export const SELECT_CELL = "relative z-[1] flex min-w-0 items-center pl-[0.5625r
 export const SELECT_CELL_NESTED = `${SELECT_CELL} -ml-6 w-[3.75rem] shrink-0`;
 
 /**
- * Every column at its minimum (17.5 + 5 + 4 + 7.5 + 9 rem): below this the
- * sheet scrolls sideways instead of squeezing a column.
+ * Every column at its minimum (14 + 5 + 3.75 + 8.25 + 6.75 + 6.75 rem): below this
+ * the sheet scrolls sideways instead of squeezing a column.
  */
-export const SHEET_MIN_WIDTH = "min-w-[43rem]";
+export const SHEET_MIN_WIDTH = "min-w-[44.5rem]";
 
 /** A fixed column's cell on the header and file rows: the rule, then 8px in. */
 export const FIXED_CELL = "flex min-w-0 items-center border-l border-line-soft px-2";

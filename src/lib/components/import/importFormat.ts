@@ -377,6 +377,17 @@ export type CellText = { text: string; tone: Tone };
  */
 export type WriterCell = CellText & { initials: string | null; remembered: boolean };
 
+/**
+ * The Reviewer cell (2026-11-17): the reviewer's label (ink: a team member's
+ * name, a past writer's name or initials such as "PN"), with `remembered`
+ * when it came from the file name's reviewer initials; or, with no reviewer
+ * (initials that could be more than one person, or none), `missing`, which
+ * an editable cell shows as the quiet "Choose reviewer" and a read only one
+ * as the initials, muted, or nothing. Never amber: a reviewer is never
+ * required.
+ */
+export type ReviewerCell = CellText & { initials: string | null; remembered: boolean; missing: boolean };
+
 export type FileCells = {
   /** New (2026-11-12): the green label after the name, on To review. */
   isNew: boolean;
@@ -387,6 +398,10 @@ export type FileCells = {
   fiscalYear: (CellText & { tooltip: string | null }) | null;
   version: string | null;
   writer: WriterCell | null;
+  /** Final PDs, drafts and review copies only (2026-11-17). */
+  reviewer: ReviewerCell | null;
+  /** "Reviewed by CRA" (2026-11-17): a final PD an Admin marked. */
+  craReviewed: boolean;
   scienceCode:
     | { kind: "code"; code: string; title: string | null; fromDocument: boolean }
     | { kind: "missing"; text: string }
@@ -420,6 +435,10 @@ export function fileCells(
     | "writerName"
     | "writerNameSource"
     | "writerInitials"
+    | "reviewerName"
+    | "reviewerSource"
+    | "reviewerInitials"
+    | "craReviewed"
     | "scienceCode"
     | "scienceCodeSource"
     | "checkReasons"
@@ -437,6 +456,8 @@ export function fileCells(
       fiscalYear: null,
       version: null,
       writer: null,
+      reviewer: null,
+      craReviewed: false,
       scienceCode: null,
     };
   }
@@ -460,6 +481,20 @@ export function fileCells(
         : reasons.has("no_writer")
           ? { text: "No writer", tone: "amber", initials: null, remembered: false }
           : null;
+
+  const reviewerName = row.reviewerName?.trim();
+  const reviewerInitials = writerInitialsKey(row.reviewerInitials);
+  const reviewer: ReviewerCell | null = !categoryTakes("writerName", row.category)
+    ? null
+    : reviewerName
+      ? {
+          text: reviewerName,
+          tone: "ink",
+          initials: reviewerInitials,
+          remembered: row.reviewerSource === "initials" || row.reviewerSource === "pick",
+          missing: false,
+        }
+      : { text: reviewerInitials ?? "", tone: "muted", initials: reviewerInitials, remembered: false, missing: true };
 
   const code = row.scienceCode?.trim();
   const display = code ? scienceCodeDisplay(code) : null;
@@ -489,6 +524,8 @@ export function fileCells(
     fiscalYear,
     version: categoryTakes("version", row.category) ? versionText(row.versionCode, row.versionNumber) : null,
     writer,
+    reviewer,
+    craReviewed: row.category === "final_pd" && row.craReviewed === true,
     scienceCode,
   };
 }

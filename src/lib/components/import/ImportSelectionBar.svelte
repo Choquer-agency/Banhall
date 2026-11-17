@@ -2,10 +2,14 @@
   The dark bar at the bottom of the Import page while files are selected
   (boards ao4 and ao6), in the look of a company's Files bar: "6 files
   selected", then on To review Category, Fiscal year and More (Company,
-  Writer, PD number, Science code), each a menu above the bar with the same picker as
-  one file and a confirm line that names the action ("Move 6 files to
-  Transcripts"), and Delete, which says once that nothing changes outside
-  Import. On Deleted, only Put back. The X clears the selection.
+  Writer, Reviewer, PD number, Science code, Reviewed by CRA), each a menu
+  above the bar with the same picker as one file and a confirm line that
+  names the action ("Move 6 files to Transcripts"), and Delete, which says
+  once that nothing changes outside Import. On Deleted, Put back, and More
+  with Reviewer and Reviewed by CRA (2026-11-17). The X clears the
+  selection. A reviewer chosen here sets those files alone
+  (setFileReviewers), never a pick for initials; "Reviewed by CRA"
+  (setCraReviewed) takes final PDs only.
 
   Changes go to setSheetLabels, deletes to removeItems and put backs to
   restoreItems, at most 100 files a call, one call after another. Each
@@ -37,8 +41,10 @@
     CheckIcon,
     FlaskIcon,
     HashIcon,
+    SealCheckIcon,
     TagIcon,
     TrashIcon,
+    UserCheckIcon,
     UserIcon,
     XIcon,
   } from "phosphor-svelte";
@@ -88,6 +94,8 @@
   const setLabels = useMutation(api.ingestion.setSheetLabels);
   const removeItems = useMutation(api.ingestion.removeItems);
   const restoreItems = useMutation(api.ingestion.restoreItems);
+  const setReviewers = useMutation(api.ingestion.setFileReviewers);
+  const setCraReviewed = useMutation(api.ingestion.setCraReviewed);
 
   let busy = $state(false);
   const count = $derived(selection.size);
@@ -100,11 +108,14 @@
 
   let pickedCategory = $state<ImportCategory | null>(null);
   let pickedDay = $state("");
-  let moreView = $state<"list" | "company" | "writer" | "pdNumber" | "scienceCode">("list");
+  type MoreView = "list" | "company" | "writer" | "reviewer" | "pdNumber" | "scienceCode" | "craReviewed";
+  let moreView = $state<MoreView>("list");
   let pickedCompany = $state<string | null>(null);
   let pickedWriter = $state<PickedWriter | null>(null);
+  let pickedReviewer = $state<PickedWriter | null>(null);
   let pickedPdNumber = $state<string | null>(null);
   let pickedCode = $state<string | null>(null);
+  let pickedCra = $state<boolean | null>(null);
 
   // A menu that closes forgets what was picked in it.
   $effect(() => {
@@ -118,8 +129,10 @@
     moreView = "list";
     pickedCompany = null;
     pickedWriter = null;
+    pickedReviewer = null;
     pickedPdNumber = null;
     pickedCode = null;
+    pickedCra = null;
   });
 
   /** The category every selected file is in, checked in the menu; null when they differ. */
@@ -131,10 +144,29 @@
   const moreChange = $derived.by((): BarChange | null => {
     if (moreView === "company" && pickedCompany) return { kind: "company", company: pickedCompany };
     if (moreView === "writer" && pickedWriter) return { kind: "writer", writer: pickedWriter.choice, writerName: pickedWriter.label };
+    if (moreView === "reviewer" && pickedReviewer) {
+      return { kind: "reviewer", reviewer: pickedReviewer.choice, reviewerName: pickedReviewer.label };
+    }
     if (moreView === "pdNumber" && pickedPdNumber) return { kind: "pdNumber", pdNumber: pickedPdNumber };
     if (moreView === "scienceCode" && pickedCode) return { kind: "scienceCode", scienceCode: pickedCode };
+    if (moreView === "craReviewed" && pickedCra !== null) return { kind: "craReviewed", reviewed: pickedCra };
     return null;
   });
+
+  /** What More offers on each tab: every change on To review; the reviewer and the CRA mark on Deleted (2026-11-17). */
+  const moreChoices = $derived(
+    tab === "review"
+      ? (["company", "writer", "reviewer", "pdNumber", "scienceCode", "craReviewed"] as const)
+      : (["reviewer", "craReviewed"] as const)
+  );
+  const MORE_NAMES: Record<Exclude<MoreView, "list">, string> = {
+    company: "Company",
+    writer: "Writer",
+    reviewer: "Reviewer",
+    pdNumber: "PD number",
+    scienceCode: "Science code",
+    craReviewed: "Reviewed by CRA",
+  };
 
   // ─── Which selected files each action takes ─────────────────────────────
   // The shared rule, so the bar never sends what the server would skip.
@@ -213,8 +245,7 @@
     const back = moveBackFor(change, taken);
     busy = true;
     try {
-      const patch = changePatch(change);
-      const run = await runInChunks(ids, (part) => setLabels({ ids: part, patch }));
+      const run = await runInChunks(ids, (part) => send(change, part));
       const stillSelected = settle(run);
       const description = [leftOutText(leftOut), skippedText(run.skipped, tab)].filter(Boolean).join(" ") || undefined;
       const undo = moveUndo(onlyChanged(back, run.changedIds), setLabels, tab);
@@ -235,6 +266,13 @@
     } finally {
       busy = false;
     }
+  }
+
+  /** One call of a change: the reviewer and the CRA mark have their own (2026-11-17), the rest go through setSheetLabels. */
+  function send(change: BarChange, ids: FileId[]) {
+    if (change.kind === "reviewer") return setReviewers({ ids, reviewer: change.reviewer });
+    if (change.kind === "craReviewed") return setCraReviewed({ ids, reviewed: change.reviewed });
+    return setLabels({ ids, patch: changePatch(change) });
   }
 
   async function remove() {
@@ -310,6 +348,79 @@
   </div>
 {/snippet}
 
+{#snippet moreMenu()}
+  <Popover.Root bind:open={moreOpen}>
+    <Popover.Trigger disabled={busy} data-import-bar-more class={plainButton}>
+      More
+      {@render caret()}
+    </Popover.Trigger>
+    <Popover.Portal>
+      <Popover.Content
+        side="top"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        aria-label="More changes"
+        class={`${menuContent} ${moreView === "scienceCode" ? "w-[22rem]" : moreView === "list" ? "w-[13.5rem]" : "w-[17.5rem]"}`}
+      >
+        {#if moreView === "list"}
+          <div role="group" aria-label="Change" class="flex flex-col p-1.5">
+            {#each moreChoices as choice (choice)}
+              <button type="button" data-import-bar-more-choice={choice} onclick={() => (moreView = choice)} class={CHOICE_ROW}>
+                {#if choice === "company"}
+                  <BuildingsIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+                {:else if choice === "writer"}
+                  <UserIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+                {:else if choice === "reviewer"}
+                  <UserCheckIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+                {:else if choice === "pdNumber"}
+                  <HashIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+                {:else if choice === "scienceCode"}
+                  <FlaskIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+                {:else}
+                  <SealCheckIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />
+                {/if}
+                {MORE_NAMES[choice]}
+              </button>
+            {/each}
+          </div>
+        {:else if moreView === "company"}
+          {@render back("Company")}
+          <ImportCompanyList current={pickedCompany} onPick={(name) => (pickedCompany = name)} />
+        {:else if moreView === "writer"}
+          {@render back("Writer")}
+          <ImportWriterList currentValue={pickedWriter?.value ?? null} onPick={(picked) => (pickedWriter = picked)} />
+        {:else if moreView === "reviewer"}
+          {@render back("Reviewer")}
+          <ImportWriterList role="reviewer" currentValue={pickedReviewer?.value ?? null} onPick={(picked) => (pickedReviewer = picked)} />
+        {:else if moreView === "pdNumber"}
+          {@render back("PD number")}
+          <ImportPdNumberList current={pickedPdNumber} onPick={(value) => (pickedPdNumber = value)} />
+        {:else if moreView === "craReviewed"}
+          {@render back("Reviewed by CRA")}
+          <div role="group" aria-label="Reviewed by CRA" class="flex flex-col p-1.5">
+            {#each [true, false] as reviewed (reviewed)}
+              <button
+                type="button"
+                aria-pressed={pickedCra === reviewed}
+                data-import-bar-cra-choice={reviewed ? "mark" : "clear"}
+                onclick={() => (pickedCra = reviewed)}
+                class={CHOICE_ROW}
+              >
+                <span class="min-w-0 flex-1">{reviewed ? "Mark as reviewed by CRA" : 'Clear "Reviewed by CRA"'}</span>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          {@render back("Science code")}
+          <ScienceCodeList value={pickedCode} clearable={false} maxHeight="max-h-[min(20rem,calc(100dvh-10rem))]" onSelect={(code) => (pickedCode = code)} />
+        {/if}
+        {@render confirm(moreChange, forMore)}
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>
+{/snippet}
+
 <div
   role="toolbar"
   aria-label="Selected files"
@@ -374,52 +485,7 @@
       {/snippet}
     </DatePicker>
 
-    <Popover.Root bind:open={moreOpen}>
-      <Popover.Trigger disabled={busy} data-import-bar-more class={plainButton}>
-        More
-        {@render caret()}
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          side="top"
-          align="start"
-          sideOffset={8}
-          collisionPadding={12}
-          aria-label="More changes"
-          class={`${menuContent} ${moreView === "scienceCode" ? "w-[22rem]" : moreView === "list" ? "w-[13.5rem]" : "w-[17.5rem]"}`}
-        >
-          {#if moreView === "list"}
-            <div role="group" aria-label="Change" class="flex flex-col p-1.5">
-              <button type="button" data-import-bar-more-choice="company" onclick={() => (moreView = "company")} class={CHOICE_ROW}>
-                <BuildingsIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Company
-              </button>
-              <button type="button" data-import-bar-more-choice="writer" onclick={() => (moreView = "writer")} class={CHOICE_ROW}>
-                <UserIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Writer
-              </button>
-              <button type="button" data-import-bar-more-choice="pdNumber" onclick={() => (moreView = "pdNumber")} class={CHOICE_ROW}>
-                <HashIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />PD number
-              </button>
-              <button type="button" data-import-bar-more-choice="scienceCode" onclick={() => (moreView = "scienceCode")} class={CHOICE_ROW}>
-                <FlaskIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Science code
-              </button>
-            </div>
-          {:else if moreView === "company"}
-            {@render back("Company")}
-            <ImportCompanyList current={pickedCompany} onPick={(name) => (pickedCompany = name)} />
-          {:else if moreView === "writer"}
-            {@render back("Writer")}
-            <ImportWriterList currentValue={pickedWriter?.value ?? null} onPick={(picked) => (pickedWriter = picked)} />
-          {:else if moreView === "pdNumber"}
-            {@render back("PD number")}
-            <ImportPdNumberList current={pickedPdNumber} onPick={(value) => (pickedPdNumber = value)} />
-          {:else}
-            {@render back("Science code")}
-            <ScienceCodeList value={pickedCode} clearable={false} maxHeight="max-h-[min(20rem,calc(100dvh-10rem))]" onSelect={(code) => (pickedCode = code)} />
-          {/if}
-          {@render confirm(moreChange, forMore)}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    {@render moreMenu()}
 
     <Popover.Root bind:open={deleteOpen}>
       <Popover.Trigger disabled={busy || forDelete.taken.length === 0} data-import-bar-delete class={`${barButton} bg-danger/15 text-danger-border hover:bg-danger/25 data-[state=open]:bg-danger/25`}>
@@ -447,6 +513,7 @@
       <ArrowCounterClockwiseIcon size="0.875rem" aria-hidden="true" class="text-on-ink-muted" />
       Put back
     </button>
+    {@render moreMenu()}
   {/if}
 
   <span class="ml-1.5 flex h-6 w-[2.375rem] shrink-0 items-center justify-center border-l border-white/20 pl-1">

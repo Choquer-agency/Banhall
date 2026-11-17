@@ -9,9 +9,13 @@ import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import type { api } from "../../../../convex/_generated/api";
 import {
   canDelete,
+  CHOOSE_REVIEWER,
   CHOOSE_WRITER,
+  craReviewedApplies,
+  CRA_REVIEWED,
   isBeingRead as statusIsBeingRead,
   labelApplies,
+  reviewerApplies,
   type BatchSkipReason,
   type ImportLabel,
 } from "../../../../shared/importSheetRules";
@@ -171,8 +175,8 @@ export function settledIds(run: Pick<ChunkRun, "changedIds" | "skipped">): FileI
 
 // ─── Which selected files a bar action takes ───────────────────────────────
 
-/** The label each bar change sets. */
-const CHANGE_LABEL: Record<BarChange["kind"], ImportLabel> = {
+/** The label each bar change sets through setSheetLabels (the reviewer and the CRA mark have their own calls). */
+const CHANGE_LABEL: Record<LabelChange["kind"], ImportLabel> = {
   category: "category",
   fiscalYearEnd: "fiscalYearEnd",
   company: "company",
@@ -181,10 +185,25 @@ const CHANGE_LABEL: Record<BarChange["kind"], ImportLabel> = {
   scienceCode: "scienceCode",
 };
 
+/** Whether a bar change takes a file: the shared rule the server follows too. */
+function changeTakes(kind: BarChange["kind"], row: Candidate): boolean {
+  if (kind === "reviewer") return reviewerApplies(row);
+  if (kind === "craReviewed") return craReviewedApplies(row);
+  return labelApplies(CHANGE_LABEL[kind], row);
+}
+
 type Candidate = { _id: FileId; status: SheetFileRow["status"]; category: ImportCategory };
 
 /** Why a selected file cannot take a change: the words after "were left out:". */
-export type LeftOutWhy = "being_read" | "could_not_read" | "final_pd_only" | "numbered_only" | "pd_number_only" | "not_here";
+export type LeftOutWhy =
+  | "being_read"
+  | "could_not_read"
+  | "final_pd_only"
+  | "numbered_only"
+  | "pd_number_only"
+  | "reviewer_numbered_only"
+  | "cra_final_pd_only"
+  | "not_here";
 
 function whyLeftOut(kind: BarChange["kind"] | "delete", row: Candidate): LeftOutWhy {
   if (statusIsBeingRead(row.status)) return "being_read";
@@ -193,6 +212,8 @@ function whyLeftOut(kind: BarChange["kind"] | "delete", row: Candidate): LeftOut
   if (kind === "scienceCode") return "final_pd_only";
   if (kind === "writer") return "numbered_only";
   if (kind === "pdNumber") return "pd_number_only";
+  if (kind === "reviewer") return "reviewer_numbered_only";
+  if (kind === "craReviewed") return "cra_final_pd_only";
   return "not_here";
 }
 
@@ -213,7 +234,7 @@ export function splitForChange<R extends Candidate>(
   const taken: R[] = [];
   const groups = new Map<LeftOutWhy, LeftOutGroup>();
   for (const row of rows) {
-    const takes = kind === "delete" ? canDelete(row.status) : labelApplies(CHANGE_LABEL[kind], row);
+    const takes = kind === "delete" ? canDelete(row.status) : changeTakes(kind, row);
     if (takes) {
       taken.push(row);
       continue;
@@ -230,7 +251,16 @@ export function splitForChange<R extends Candidate>(
 }
 
 /** The order the left-out reasons are said in: what the change is for first, then the files' state. */
-const WHY_ORDER: readonly LeftOutWhy[] = ["final_pd_only", "numbered_only", "pd_number_only", "not_here", "being_read", "could_not_read"];
+const WHY_ORDER: readonly LeftOutWhy[] = [
+  "final_pd_only",
+  "numbered_only",
+  "pd_number_only",
+  "reviewer_numbered_only",
+  "cra_final_pd_only",
+  "not_here",
+  "being_read",
+  "could_not_read",
+];
 
 /** What one file of a category is called, singular then plural, for the left-out words. */
 const NOUNS: Record<ImportCategory, readonly [string, string]> = {
@@ -255,6 +285,11 @@ const WHY_WORDS: Record<LeftOutWhy, readonly [string, string]> = {
     "a PD number only goes on a final PD, draft or review copy",
     "a PD number only goes on a final PD, draft or review copy",
   ],
+  reviewer_numbered_only: [
+    "a reviewer only goes on a final PD, draft or review copy",
+    "a reviewer only goes on a final PD, draft or review copy",
+  ],
+  cra_final_pd_only: ["only a final PD is marked as reviewed by CRA", "only a final PD is marked as reviewed by CRA"],
   not_here: ["it cannot take this change", "they cannot take this change"],
 };
 
@@ -327,8 +362,8 @@ const files = (count: number) => plural(count, "file");
 /** A writer a person chose on Import (2026-11-16): a team member, a writer by id, or a typed name. */
 export type WriterChoice = NonNullable<FunctionArgs<typeof api.ingestion.matchWriterInitials>["writer"]>;
 
-/** What the bar can do to the selected files, and the value picked (a writer with its label). */
-export type BarChange =
+/** The bar's changes that go through setSheetLabels. */
+export type LabelChange =
   | { kind: "category"; category: ImportCategory }
   | { kind: "fiscalYearEnd"; fiscalYearEnd: number }
   | { kind: "company"; company: string }
@@ -336,8 +371,18 @@ export type BarChange =
   | { kind: "pdNumber"; pdNumber: string }
   | { kind: "scienceCode"; scienceCode: string };
 
-/** The setSheetLabels patch for a change. */
-export function changePatch(change: BarChange) {
+/**
+ * What the bar can do to the selected files, and the value picked (a writer
+ * or reviewer with its label). The reviewer (2026-11-17) goes through
+ * setFileReviewers and the CRA mark through setCraReviewed.
+ */
+export type BarChange =
+  | LabelChange
+  | { kind: "reviewer"; reviewer: WriterChoice; reviewerName: string }
+  | { kind: "craReviewed"; reviewed: boolean };
+
+/** The setSheetLabels patch for a label change. */
+export function changePatch(change: LabelChange) {
   switch (change.kind) {
     case "category":
       return { category: change.category };
@@ -367,6 +412,10 @@ export function confirmLine(change: BarChange, count: number): string {
       return `Set the writer to ${change.writerName} for ${files(count)}`;
     case "pdNumber":
       return `Set the PD number to ${change.pdNumber} for ${files(count)}`;
+    case "reviewer":
+      return `Set the reviewer to ${change.reviewerName} for ${files(count)}`;
+    case "craReviewed":
+      return change.reviewed ? `Mark ${files(count)} as reviewed by CRA` : `Clear "${CRA_REVIEWED}" on ${files(count)}`;
     case "scienceCode":
       return `Set the science code to ${change.scienceCode} for ${files(count)}`;
   }
@@ -385,6 +434,12 @@ export function changedText(change: BarChange, count: number): string {
       return `Writer set to ${change.writerName} for ${files(count)}`;
     case "pdNumber":
       return `PD number set to ${change.pdNumber} for ${files(count)}`;
+    case "reviewer":
+      return `Reviewer set to ${change.reviewerName} for ${files(count)}`;
+    case "craReviewed":
+      return change.reviewed
+        ? `${files(count)} marked as reviewed by CRA`
+        : `Cleared "${CRA_REVIEWED}" on ${files(count)}`;
     case "scienceCode":
       return `Science code set to ${change.scienceCode} for ${files(count)}`;
   }
@@ -444,6 +499,9 @@ export const WRITER_MATCH_MORE = "The other files with these initials follow in 
  * name gave initials that could be more than one person or none at all.
  */
 export { CHOOSE_WRITER };
+
+/** The quiet words in an editable Reviewer cell with no reviewer, and the CRA tag (2026-11-17). */
+export { CHOOSE_REVIEWER, CRA_REVIEWED };
 
 /** "Delete 6 files" */
 export function deleteLine(count: number): string {

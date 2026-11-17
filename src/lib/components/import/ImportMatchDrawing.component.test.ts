@@ -220,7 +220,7 @@ describe("the Import page against the drawing (Paper Files 1)", () => {
     // A section's chevron sits at the sections' own edge, 24px in.
     expect(box(one("[data-import-section-chevron]", cedarline)!).left - sheetLeft).toBeCloseTo(board(24), 0);
     // "N files" ends on the Science code column's rule; the status words end 8px inside the sheet.
-    const codeHeader = all('[role="columnheader"]', header)[4];
+    const codeHeader = all('[role="columnheader"]', header)[5];
     expect(box(one("[data-import-band-files]", cedarline)!).right).toBeCloseTo(box(codeHeader).left, 0);
     const words = all("[data-import-band-status] span", cedarline);
     expect(box(words.at(-1)!).right).toBeCloseTo(box(header).right - board(8), 0);

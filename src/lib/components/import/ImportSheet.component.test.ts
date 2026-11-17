@@ -338,7 +338,7 @@ describe("ImportSheet", () => {
     expect(row("pd1").getBoundingClientRect().height).toBeCloseTo(board(44), 0);
     const headerCells = all('[data-import-sheet-header] [role="columnheader"]');
     const rowCells = all('[role="cell"]', row("pd1"));
-    for (const index of [1, 2, 3, 4]) {
+    for (const index of [1, 2, 3, 4, 5]) {
       expect(rowCells[index].getBoundingClientRect().left).toBeCloseTo(headerCells[index].getBoundingClientRect().left, 0);
     }
     expect(getComputedStyle(rowCells[1]).borderLeftWidth).toBe("1px");
@@ -359,9 +359,13 @@ describe("ImportSheet", () => {
     await userEvent.hover(one('[data-import-file="pd2"] [data-import-year]')!);
     await expect.poll(() => text(tooltip())).toBe("Year end not in the folder name. Using Dec 31, 2024 for now.");
     await userEvent.unhover(one('[data-import-file="pd2"] [data-import-year]')!);
-    // The PD title's tooltip gives the file name, on hover too.
+    // Closed first: at the sheet's narrowest it would sit over PD 1's title.
+    await expect.poll(() => tooltip()).toBeNull();
+    // The PD title's tooltip gives the file name, on hover too (here, with
+    // the sheet at its narrowest since the Reviewer column, the title is cut,
+    // so the tooltip gives it whole before the name).
     await userEvent.hover(one('[data-import-file="pd1"] [data-import-file-title]')!);
-    await expect.poll(() => text(tooltip())).toBe("pd1.docx");
+    await expect.poll(() => text(tooltip())).toBe("Route planning engine (pd1.docx)");
   });
 
   it("keeps the tooltip words out of the tab order: on To review each editable cell's control is its one tab stop", async () => {
@@ -378,7 +382,7 @@ describe("ImportSheet", () => {
     // Phase 3b: from Final PDs, Tab reaches PD 1's cells in order, then its "...".
     one("[data-import-section-toggle]", section("cedarline systems", "final_pd"))!.focus();
     const pd1 = one('[data-import-file="pd1"]')!;
-    for (const selector of ["[data-import-year-edit]", "[data-import-version-edit]", "[data-import-writer-edit]", "[data-import-code-edit]", "[data-import-row-menu]"]) {
+    for (const selector of ["[data-import-year-edit]", "[data-import-version-edit]", "[data-import-writer-edit]", "[data-import-reviewer-edit]", "[data-import-code-edit]", "[data-import-row-menu]"]) {
       await userEvent.tab();
       expect(document.activeElement, selector).toBe(one(selector, pd1));
     }
@@ -843,7 +847,8 @@ describe("ImportSheet on laptop windows", () => {
       needsCheck: true,
       checkReasons: ["no_text"],
     }),
-    fileRow("broken", { name: "Prototype invoice.pdf", category: "supporting", status: "failed", fiscalYearEnd: MAR_31_2025, needsCheck: true, checkReasons: ["could_not_read"] }),
+    // A short name (since the Reviewer column, 2026-11-17, File is 232px at its narrowest).
+    fileRow("broken", { name: "Invoice.pdf", category: "supporting", status: "failed", fiscalYearEnd: MAR_31_2025, needsCheck: true, checkReasons: ["could_not_read"] }),
   ];
 
   let holder: HTMLDivElement | null = null;
@@ -892,8 +897,10 @@ describe("ImportSheet on laptop windows", () => {
 
       for (const row of all("[data-import-file]")) {
         const id = row.dataset.importFile!;
-        // The name keeps real room, even beside "No text could be read".
-        expect(box(one("[data-import-file-title]", row)!).width, id).toBeGreaterThan(board(110));
+        // The name keeps real room, even beside "No text could be read": it
+        // shows whole, or has more than 110px when it is cut.
+        const title = one("[data-import-file-title]", row)!;
+        if (title.scrollWidth > title.clientWidth) expect(box(title).width, id).toBeGreaterThan(board(110));
         const cells = all(':scope > [role="cell"]', row);
         for (const [index, cell] of cells.entries()) {
           expect(overflowing(cell), `${id} cell ${index}`).toEqual([]);
@@ -911,7 +918,7 @@ describe("ImportSheet on laptop windows", () => {
       const bandCells = all(':scope > [role="row"] > [role="cell"]', band("cedarline systems"));
       for (const row of all("[data-import-file]")) {
         const cells = all(':scope > [role="cell"]', row);
-        for (const index of [1, 2, 3, 4]) expect(box(cells[index]).left).toBeCloseTo(box(header[index]).left, 0);
+        for (const index of [1, 2, 3, 4, 5]) expect(box(cells[index]).left).toBeCloseTo(box(header[index]).left, 0);
       }
       // The band: its status words sit in the sheet, past "N files", and never run off its end.
       const files = one("[data-import-band-files]", band("cedarline systems"))!;
@@ -963,7 +970,9 @@ describe("ImportSheet on laptop windows", () => {
   });
 
   it("gives a cut name or science code title in full in a tooltip, with no new tab stops", async () => {
-    await mountAt(1100, 714);
+    // Since the Reviewer column (2026-11-17) the Science code column is the
+    // code alone at 1100: its title is cut, and still shown, a little wider.
+    await mountAt(1440, 1000);
     const tooltip = () => one("[data-tooltip-content]");
     const lactose = one('[data-import-file="lactose"]')!;
     // The code title is cut here: hover shows it whole.
@@ -975,13 +984,20 @@ describe("ImportSheet on laptop windows", () => {
     await expect.poll(() => tooltip()).toBeNull();
     // And on keyboard focus of the code's control.
     one("[data-import-version-edit]", lactose)!.focus();
+    // Writer, then Reviewer (2026-11-17), then the code.
+    await userEvent.tab();
     await userEvent.tab();
     await userEvent.tab();
     expect(document.activeElement).toBe(one("[data-import-code-edit]", lactose));
     await expect.poll(() => text(tooltip())).toBe("2.02.09 Software engineering and technology");
     (document.activeElement as HTMLElement).blur();
+    await expect.poll(() => tooltip()).toBeNull();
 
-    // A cut file name: the tooltip gives it whole.
+    // A cut file name: the tooltip gives it whole (at 1100, where names are cut).
+    holder?.remove();
+    holder = null;
+    __resetConvexStub();
+    await mountAt(1100, 714);
     const scan = one('[data-import-file="scan"] [data-import-file-title]')!;
     expect(scan.scrollWidth).toBeGreaterThan(scan.clientWidth);
     await userEvent.hover(scan);

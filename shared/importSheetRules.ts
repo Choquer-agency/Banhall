@@ -155,6 +155,27 @@ export function canPutBack(row: { status: ImportItemStatus; deletedReason?: Dele
   return (row.status === "deleted" || row.status === "rejected") && row.deletedReason !== "removed_in_onedrive";
 }
 
+/**
+ * Whether a file's reviewer can be set (2026-11-17): a read final PD, draft
+ * or review copy on To review, or one of those on Deleted. Approved files
+ * are read only. The page's Reviewer cell and bar, and the server's
+ * setFileReviewers, follow this.
+ */
+export function reviewerApplies(row: { status: ImportItemStatus; category: ImportCategory }): boolean {
+  if (!categoryTakes("writerName", row.category)) return false;
+  const tab = tabForStatus(row.status);
+  if (tab === "review") return row.status === "pending_review";
+  return tab === "deleted";
+}
+
+/**
+ * Whether "Reviewed by CRA" can be set or cleared on a file (2026-11-17,
+ * by hand only): a final PD, where its reviewer can be set (reviewerApplies).
+ */
+export function craReviewedApplies(row: { status: ImportItemStatus; category: ImportCategory }): boolean {
+  return row.category === "final_pd" && reviewerApplies(row);
+}
+
 export type RowAbilities = {
   /** The fiscal year cell opens its calendar (any category). */
   edit: boolean;
@@ -162,6 +183,10 @@ export type RowAbilities = {
   pdNumber: boolean;
   version: boolean;
   writer: boolean;
+  /** The Reviewer cell opens its picker (2026-11-17: To review and Deleted). */
+  reviewer: boolean;
+  /** "Reviewed by CRA" can be set or cleared (2026-11-17: final PDs, To review and Deleted). */
+  craReviewed: boolean;
   scienceCode: boolean;
   /** The "..." menu: move to another category or company, delete. */
   menu: boolean;
@@ -189,6 +214,8 @@ export function rowAbilities(
     pdNumber: review && labelApplies("pdNumber", row),
     version: review && labelApplies("version", row),
     writer: review && labelApplies("writerName", row),
+    reviewer: tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row),
+    craReviewed: tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row),
     scienceCode: review && labelApplies("scienceCode", row),
     menu: review,
     remove: review && canDelete(row.status),
@@ -198,7 +225,7 @@ export function rowAbilities(
 }
 
 /**
- * The initials a file name gave, as writers are matched by (2026-11-16):
+ * The initials a file name gave, as writers and reviewers are matched by (2026-11-16):
  * trimmed and upper case, two or three letters as the naming scheme has them
  * (shared/pdFilename.ts); null for anything else. A team member matches only
  * when their saved initials are exactly these (savedInitials).
@@ -212,6 +239,15 @@ export function writerInitialsKey(initials: string | undefined | null): string |
 
 /** The amber control on a file whose writer a person still has to choose. */
 export const CHOOSE_WRITER = "Choose writer";
+
+/**
+ * The quiet words in the Reviewer cell of a file with no reviewer
+ * (2026-11-17): never amber, since a reviewer is never required.
+ */
+export const CHOOSE_REVIEWER = "Choose reviewer";
+
+/** The quiet tag on a final PD an Admin marked as reviewed by CRA (2026-11-17). */
+export const CRA_REVIEWED = "Reviewed by CRA";
 
 /** The quiet tag on a writer who has no login (a past writer). */
 export const NO_LOGIN = "No login";

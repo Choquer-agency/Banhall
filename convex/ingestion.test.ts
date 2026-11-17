@@ -123,6 +123,7 @@ const LABEL_KEYS = [
   "versionNumber",
   "writerInitials",
   "reviewerInitials",
+  "initialsGroups",
   "pdTitle",
 ] as const;
 

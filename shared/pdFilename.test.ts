@@ -300,6 +300,96 @@ describe("parsePdFilename", () => {
   });
 });
 
+describe("parsePdFilename on the firm's real name shapes (2026-11-17)", () => {
+  // Made-up names in the exact shapes a dry run on the firm's files found:
+  // "01 Word Word 2026-03-31 T0.AA.AA.AA WordWord.docx" and
+  // "03 Word Word 2026-03-31 T0.AA.AA.AA.AA WordWord-WordWord.docx".
+  it("reads a client part of two or more words, up to the date", () => {
+    expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.PN LabelVisionCheck.docx")).toEqual({
+      projectNumber: "1",
+      clientName: "Cedarline Systems",
+      fiscalYearEnd: "2025-03-31",
+      versionCode: "T",
+      revision: "1",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      title: "Label Vision Check",
+    });
+    expect(parsePdFilename("02 Halden Fine Foods 2024-12-31 R3.SO ShelfLife.docx")?.clientName).toBe("Halden Fine Foods");
+    // Up to the version when there is no date.
+    expect(parsePdFilename("02 Halden Foods S2.KT Title.docx")).toMatchObject({ clientName: "Halden Foods", writerInitials: "KT" });
+    // Each word is split like a one-word client.
+    expect(parsePdFilename("05 HaldenFoods Canada 2025-06-30 T1.DW Title.docx")?.clientName).toBe("Halden Foods Canada");
+  });
+
+  it("reads a version numbered 0", () => {
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN Title.docx")).toMatchObject({
+      versionCode: "T",
+      revision: "0",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+    });
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.docx")).toMatchObject({ versionCode: "T", revision: "0" });
+  });
+
+  it("keeps three or four initials groups as groups only, with no writer or reviewer until the client confirms them", () => {
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT LabelVision.docx")).toEqual({
+      projectNumber: "1",
+      clientName: "Cedarline Systems",
+      fiscalYearEnd: "2026-03-31",
+      versionCode: "T",
+      revision: "0",
+      initialsGroups: ["DW", "PN", "KT"],
+      title: "Label Vision",
+    });
+    expect(parsePdFilename("03 Halden Foods 2026-03-31 T0.dw.pn.kt.so ColdChain-SensorDrift.docx")).toEqual({
+      projectNumber: "3",
+      clientName: "Halden Foods",
+      fiscalYearEnd: "2026-03-31",
+      versionCode: "T",
+      revision: "0",
+      initialsGroups: ["DW", "PN", "KT", "SO"],
+      title: "Cold Chain-Sensor Drift",
+    });
+    // One or two groups keep today's meaning and give no groups.
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW LabelVision.docx")?.initialsGroups).toBeUndefined();
+    // Five groups are not a version token: they stay title text.
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT.SO.AB Title.docx")).toMatchObject({
+      title: "T0.DW.PN.KT.SO.AB Title",
+    });
+    // No extension: the last group is not mistaken for one.
+    expect(parsePdFilename("01 Cedarline Systems 2026-03-31 T0.DW.PN.KT")?.initialsGroups).toEqual(["DW", "PN", "KT"]);
+  });
+
+  it("never reads a file extension as an initials group, and keeps one or two groups as writer and reviewer", () => {
+    for (const extension of ["msg", "MSG", "eml", "rtf", "xlsx", "pptx", "docx", "doc", "pdf"]) {
+      const parsed = parsePdFilename(`01 Cedarline Systems 2025-03-31 T1.DW.PN.${extension}`);
+      expect(parsed, extension).toMatchObject({ versionCode: "T", revision: "1", writerInitials: "DW", reviewerInitials: "PN" });
+      expect(parsed?.initialsGroups, extension).toBeUndefined();
+    }
+    expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.msg")).toMatchObject({ writerInitials: "DW" });
+    expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.PN.msg")?.initialsGroups).toBeUndefined();
+    // Three groups and an extension: the groups alone.
+    expect(parsePdFilename("01 Cedarline Systems 2025-03-31 T1.DW.PN.KT.msg")?.initialsGroups).toEqual(["DW", "PN", "KT"]);
+    // Initials that are not a known extension, with no extension: still groups.
+    expect(parsePdFilename("3 Client 2025-12-31 R1.LR.mo")).toMatchObject({ writerInitials: "LR", reviewerInitials: "MO" });
+  });
+
+  it("reads a title of hyphenated CamelCase words", () => {
+    expect(parsePdFilename("03 Cedarline Systems 2026-03-31 T0.DW.PN LabelVision-ColdChain.docx")?.title).toBe(
+      "Label Vision-Cold Chain"
+    );
+  });
+
+  it("still needs a date or version right after the client words", () => {
+    expect(parsePdFilename("3 Cedarline Systems Notes.docx")).toBeNull();
+    expect(parsePdFilename("3 Cedarline Systems (copy) 2025-03-31 T1.DW.docx")).toBeNull();
+    // More than six client words is not a scheme name.
+    expect(parsePdFilename("3 A B C D E F G 2025-03-31 T1.DW Title.docx")).toBeNull();
+    expect(parsePdFilename("3 A B C D E F 2025-03-31 T1.DW Title.docx")?.clientName).toBe("A B C D E F");
+  });
+});
+
 describe("splitCamelCase", () => {
   it.each([
     ["3GAMarine", "3GA Marine"],

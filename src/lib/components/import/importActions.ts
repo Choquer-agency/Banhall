@@ -150,20 +150,23 @@ export type WriterMatchCall = (args: { initials: string; writer: WriterChoice | 
 export async function matchWriter(
   initials: string,
   picked: { choice: WriterChoice; label: string },
-  match: WriterMatchCall
+  match: WriterMatchCall,
+  role: "writer" | "reviewer" = "writer"
 ): Promise<boolean> {
+  // The cell it came from (2026-11-17: a pick from the Reviewer cell says "reviewer").
+  const who = role === "reviewer" ? "reviewer" : "writer";
   let result: WriterMatch;
   try {
     result = await match({ initials, writer: picked.choice });
   } catch (error) {
-    toast.error(userErrorMessage(error, "The writer could not be saved."), IMPORT_TOAST);
+    toast.error(userErrorMessage(error, `The ${who} could not be saved.`), IMPORT_TOAST);
     return false;
   }
   const undo = async () => {
     try {
       await match({ initials, writer: result.previous });
     } catch (error) {
-      toast.error(userErrorMessage(error, "The writer could not be set back."), IMPORT_TOAST);
+      toast.error(userErrorMessage(error, `The ${who} could not be set back.`), IMPORT_TOAST);
     }
   };
   toast(writerMatchedText(initials, result.writerName ?? picked.label, result.changed, result.more), {

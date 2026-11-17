@@ -6,7 +6,8 @@
   to another company (the companies on the sheet, or a new name, in a
   picker that opens from the same button) and Delete. A file still being
   read cannot be deleted yet; the menu says so. "Open the file" comes with
-  the file panel.
+  the file panel. On a final PD (2026-11-17) it also marks the file as
+  reviewed by CRA, or clears that mark, by hand.
 
   On a read final PD, draft or review copy (Greptile fix, 2026-11-17) the
   menu also sets the PD number, in a picker that opens from the same button
@@ -15,7 +16,7 @@
 -->
 <script lang="ts">
   import { DropdownMenu, Popover } from "bits-ui";
-  import { BuildingsIcon, CaretRightIcon, CheckIcon, DotsThreeIcon, HashIcon, TagIcon, TrashIcon } from "phosphor-svelte";
+  import { BuildingsIcon, CaretRightIcon, CheckIcon, DotsThreeIcon, HashIcon, SealCheckIcon, TagIcon, TrashIcon } from "phosphor-svelte";
   import ImportCompanyList from "./ImportCompanyList.svelte";
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import { MOVE_CATEGORIES } from "./importEdit";
@@ -29,9 +30,11 @@
     canDelete,
     pdNumber = null,
     canPdNumber = false,
+    craReviewed = null,
     onCategory,
     onCompany,
     onPdNumber,
+    onCra,
     onDelete,
   }: {
     /** The file, for the button's name. */
@@ -44,9 +47,13 @@
     pdNumber?: string | null;
     /** The menu offers "Set the PD number" (rowAbilities). */
     canPdNumber?: boolean;
+    /** Whether the file is marked as reviewed by CRA; null when the mark does not go on it. */
+    craReviewed?: boolean | null;
     onCategory: (category: ImportCategory) => void;
     onCompany: (name: string) => void;
     onPdNumber?: (pdNumber: string) => void;
+    /** Sets (true) or clears (false) the CRA mark. */
+    onCra?: (reviewed: boolean) => void;
     onDelete: () => void;
   } = $props();
 
@@ -124,6 +131,12 @@
           <HashIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
           <span class="flex-1">{pdNumber ? "Change the PD number" : "Set the PD number"}</span>
           {#if pdNumber}<span class={`shrink-0 ${SHEET_SMALL} text-ink-muted`}>PD {pdNumber}</span>{/if}
+        </DropdownMenu.Item>
+      {/if}
+      {#if craReviewed !== null && onCra}
+        <DropdownMenu.Item onSelect={() => onCra?.(!craReviewed)} data-import-row-action="cra" class={MENU_ITEM}>
+          <SealCheckIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
+          {craReviewed ? 'Clear "Reviewed by CRA"' : "Mark as reviewed by CRA"}
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Separator class="-mx-1 my-1 h-px bg-line-soft" />

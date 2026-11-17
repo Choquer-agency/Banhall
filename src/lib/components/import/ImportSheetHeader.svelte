@@ -9,7 +9,7 @@
 
   let { selecting = false }: { selecting?: boolean } = $props();
 
-  const COLUMNS = ["Fiscal year", "Version", "Writer", "Science code"] as const;
+  const COLUMNS = ["Fiscal year", "Version", "Writer", "Reviewer", "Science code"] as const;
 </script>
 
 <div role="rowgroup">

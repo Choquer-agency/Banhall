@@ -4454,6 +4454,12 @@ export default defineSchema({
     versionNumber: v.optional(v.number()),
     writerInitials: v.optional(v.string()),
     reviewerInitials: v.optional(v.string()),
+    // 2026-11-17 widen: every initials group of a version token with three
+    // or four ("T0.DW.PN.KT"). Such a name gives no writerInitials and no
+    // reviewerInitials until the client confirms what the later groups mean
+    // (shared/pdFilename.ts); a later backfill reads them again then.
+    // Shown nowhere yet. Absent with one or two groups.
+    initialsGroups: v.optional(v.array(v.string())),
     pdTitle: v.optional(v.string()),
     // 2026-11-11 widen (Import sheet, phase 2). Worked out on every write by
     // convex/lib/ingestionSheet.ts settleItem; absent on rows not written
@@ -4495,6 +4501,37 @@ export default defineSchema({
         writerNameSource: v.optional(writerNameSourceValidator),
       })
     ),
+    // 2026-11-17 widen (reviewers from the file name): the writer
+    // (pdWriters) who reviewed the PD, from reviewerInitials by the same
+    // check as the writer and the same freeze rule: filled only while the
+    // file has no reviewer, then it moves only on a firm-wide pick for the
+    // initials (and its Undo), an Admin's Link or Unlink (which change the
+    // writer's account, never the file's reviewer) or a person setting it
+    // on the file. No stored name: the sheet shows the writer's label as it
+    // is now. Final PDs, drafts and review copies only. A missing reviewer
+    // is never a check reason.
+    reviewerId: v.optional(v.id("pdWriters")),
+    // Where reviewerId came from, as writerNameSource: "person", "initials"
+    // or "pick". Absent with no reviewer.
+    reviewerSource: v.optional(writerNameSourceValidator),
+    // On a file whose reviewer follows a pick (reviewerSource "pick"), the
+    // reviewer it had before it (both absent: none), so the pick's Undo puts
+    // back exactly that. Absent on every other file.
+    reviewerBeforePick: v.optional(
+      v.object({
+        reviewerId: v.optional(v.id("pdWriters")),
+        reviewerSource: v.optional(writerNameSourceValidator),
+      })
+    ),
+    // 2026-11-17 widen: an Admin marked this final PD "Reviewed by CRA"
+    // (ingestion.setCraReviewed), by hand only, never by AI. Who and when
+    // with it. Set on final PDs only; like the science code it stays stored
+    // when a file is moved to another category and shows again when it is
+    // moved back, but only a final PD shows it.
+    // Never written into any craOutcome field, which steers retrieval.
+    craReviewed: v.optional(v.boolean()),
+    craReviewedBy: v.optional(v.id("users")),
+    craReviewedAt: v.optional(v.number()),
     // A code from shared/craScienceCodes.ts: read from a final PD's text
     // ("document") or set by a person ("person"). Source is absent with no code.
     scienceCode: v.optional(v.string()),
@@ -4569,6 +4606,9 @@ export default defineSchema({
     // 2026-11-16: a writer's files by tab, for refreshing them after a
     // rename, link or unlink, and for moving them when two writers become one.
     .index("by_writerId_and_sheetTab", ["writerId", "sheetTab"])
+    // 2026-11-17: the files whose name gave these reviewer initials, for a
+    // pick's walk.
+    .index("by_sheetTab_and_reviewerInitials", ["sheetTab", "reviewerInitials"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
 
   // 2026-11-12 (Import sheet): "these initials are this writer", said once
@@ -4637,6 +4677,12 @@ export default defineSchema({
     // had before it (ingestionItems.writerBeforePick), so the pick's Undo
     // can give them back: a writer held this way is never removed. Absent: 0.
     heldCount: v.optional(v.number()),
+    // 2026-11-17 widen: how many import files point at this writer as their
+    // reviewer (ingestionItems.reviewerId), on every tab, kept in step like
+    // fileCount. A writer with reviewed files is never removed on its own
+    // and cannot be deleted. heldCount above also counts the files that
+    // remember it as their reviewer before a pick. Absent: 0.
+    reviewCount: v.optional(v.number()),
   })
     .index("by_initials", ["initials"])
     .index("by_userId", ["userId"])

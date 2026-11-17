@@ -48,7 +48,7 @@
 
 {#snippet groupLabel(label: string, count: number)}
   <div role="row" class="flex h-10 items-center border-t border-line pl-6">
-    <div role="cell" aria-colspan={5} class="flex items-center gap-2">
+    <div role="cell" aria-colspan={6} class="flex items-center gap-2">
       <span class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>{label}</span>
       <span class="flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-import-count px-[0.3125rem] text-[0.625rem] leading-[1.2] text-primary-selected">{count}</span>
     </div>
@@ -64,7 +64,7 @@
           {@render groupLabel("Companies", result.companies.length)}
           {#each result.companies as company (company.companyKey)}
             <div role="row" data-import-found-company={company.companyKey} class={`relative ${SHEET_GRID} h-[3.25rem] items-center border-t border-gray-300 hover:bg-gray-50`}>
-              <div role="cell" aria-colspan={4} class="col-span-4 flex min-w-0 items-center gap-2">
+              <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2">
                 <button
                   type="button"
                   aria-label={`${bandName(company)}, show in the sheet`}

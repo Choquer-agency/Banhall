@@ -22,6 +22,18 @@
   initials says "KT is Kim Tran" for the whole firm (matchWriter, with
   Undo); on any other file it sets that file alone, and that wins for it.
 
+  Reviewers (2026-11-17): the Reviewer cell after Writer shows who reviewed
+  the PD, from the file name's reviewer initials by the same check, as plain
+  words. With no reviewer (initials that could be more than one person, or
+  none) an editable cell says "Choose reviewer" in quiet words, never
+  amber: a reviewer is never required. The same picker as Writer; a choice
+  on a file whose reviewer follows its initials is a pick for those
+  initials for the whole firm (matchWriter, with Undo, which moves writers
+  and reviewers alike); on any other file it sets that file alone
+  (setFileReviewers). It is editable on To review and Deleted. A final PD
+  an Admin marked as reviewed by CRA shows a quiet "Reviewed by CRA" tag
+  after its name; the "..." sets and clears it.
+
   On To review (2026-11-11 phase 3b) a read file's cells are its pickers,
   each cell's one tab stop: the year end calendar, the version menu, the
   writer (team members, past writers or a typed name) and, on a final PD,
@@ -49,7 +61,7 @@
   import type { FunctionArgs } from "convex/server";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { CaretDownIcon, SealCheckIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -64,6 +76,8 @@
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
   import { deleteFiles, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles } from "./importActions";
   import {
+    CHOOSE_REVIEWER,
+    CRA_REVIEWED,
     dateInputFromUtcDay,
     deletedReasonText,
     fileSelectLabel,
@@ -77,6 +91,7 @@
     yearEndCalendarStart,
     YEAR_END_HELPER,
     YEAR_END_QUICK_PICKS,
+    type BatchResult,
     type MovePatch,
   } from "./importEdit";
   import { fileCells, isBeingRead, type SheetFileRow, type SheetTab, type Tone } from "./importFormat";
@@ -123,12 +138,18 @@
   const cells = $derived(fileCells(row));
   /** The New label: on To review, once the file is read (until then it says "Being read"). */
   const showNew = $derived(tab === "review" && cells.isNew && !isBeingRead(row.status));
-  /** The name gives way only to the words after it: the New label and the state. */
+  /** The name gives way only to the words after it: the New label, the CRA tag and the state. */
   const titleRoom = $derived(
-    cells.state && showNew
+    cells.craReviewed
+      ? showNew
+        ? "max-w-[calc(100%-6rem)]"
+        : cells.state
+          ? "max-w-[calc(100%-6.5rem)]"
+          : "max-w-[calc(100%-2rem)]"
+      : cells.state && showNew
       ? "max-w-[calc(100%-7rem)]"
       : cells.state
-        ? "max-w-[calc(100%-4rem)]"
+        ? "max-w-[calc(100%-3.25rem)]"
         : showNew
           ? "max-w-[calc(100%-3rem)]"
           : "max-w-full"
@@ -147,6 +168,8 @@
   const restoreItems = useMutation(api.ingestion.restoreItems);
   const matchInitials = useMutation(api.ingestion.matchWriterInitials);
   const confirmName = useMutation(api.ingestion.confirmWriterName);
+  const setReviewers = useMutation(api.ingestion.setFileReviewers);
+  const setCraReviewed = useMutation(api.ingestion.setCraReviewed);
 
   /** Whether the file's writer follows its name's initials: no person set one on the file itself. */
   const followsInitials = $derived(
@@ -178,6 +201,41 @@
       await confirmName({ writerId });
     } catch (error) {
       toast.error(userErrorMessage(error, "The writer could not be saved."), IMPORT_TOAST);
+    }
+  }
+
+  /**
+   * A reviewer chosen in the Reviewer cell (2026-11-17), as for the writer:
+   * on a file whose reviewer follows its name's initials the choice is a
+   * pick for those initials for the whole firm (writers and reviewers);
+   * otherwise it sets this file's reviewer alone, which wins for it.
+   */
+  function pickReviewer(picked: PickedWriter) {
+    if (picked.current) return;
+    const initials = row.reviewerSource !== "person" ? (cells.reviewer?.initials ?? null) : null;
+    if (initials) void matchWriter(initials, picked, matchInitials, "reviewer");
+    else void oneFile(() => setReviewers({ ids: [row._id], reviewer: picked.choice }), "The reviewer could not be saved.");
+  }
+
+  /** Marks this final PD as reviewed by CRA, or clears the mark (2026-11-17). */
+  function markCra(reviewed: boolean) {
+    void oneFile(() => setCraReviewed({ ids: [row._id], reviewed }), "The change could not be saved.").then((done) => {
+      if (done) toast(reviewed ? "Marked as reviewed by CRA" : `Cleared "${CRA_REVIEWED}"`, IMPORT_TOAST);
+    });
+  }
+
+  /** One call for this file alone; a refusal or a skip says why. True when the file changed. */
+  async function oneFile(call: () => Promise<BatchResult>, fallback: string): Promise<boolean> {
+    try {
+      const result = await call();
+      if (result.skipped.length > 0) {
+        toast.error("The change was not saved.", { ...IMPORT_TOAST, description: skippedText(result.skipped, tab) });
+        selection?.remove(settledIds({ changedIds: [], skipped: result.skipped }));
+      }
+      return result.changedIds.includes(row._id);
+    } catch (error) {
+      toast.error(userErrorMessage(error, fallback), IMPORT_TOAST);
+      return false;
     }
   }
 
@@ -332,6 +390,15 @@
           ? `Writer ${cells.writer.text}, from the initials ${cells.writer.initials}. Change the writer for ${cells.writer.initials}`
           : `Writer ${cells.writer.text}. Change the writer`
   );
+  const reviewerLabel = $derived(
+    !cells.reviewer || cells.reviewer.missing
+      ? cells.reviewer?.initials
+        ? `${CHOOSE_REVIEWER}, initials ${cells.reviewer.initials}`
+        : CHOOSE_REVIEWER
+      : cells.reviewer.remembered && cells.reviewer.initials && row.reviewerSource !== "person"
+        ? `Reviewer ${cells.reviewer.text}, from the initials ${cells.reviewer.initials}. Change the reviewer for ${cells.reviewer.initials}`
+        : `Reviewer ${cells.reviewer.text}. Change the reviewer`
+  );
   const codeLabel = $derived(
     cells.scienceCode?.kind === "code"
       ? `Science code ${cells.scienceCode.code}${cells.scienceCode.title ? ` ${cells.scienceCode.title}` : ""}${cells.scienceCode.fromDocument ? ", filled in by AI" : ""}. Change the science code`
@@ -379,11 +446,11 @@
       <!-- Read only: the whole title on hover when it is cut; not a tab stop. -->
       <Tooltip text={codeTip} delayDuration={400} disabled={!codeCut}>
         {#snippet children({ props })}
-          <span {...mergeProps({ onpointerenter: measureCode }, props)} tabindex="-1" data-import-code-title class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted`}>{cells.scienceCode?.kind === "code" ? cells.scienceCode.title : ""}</span>
+          <span {...mergeProps({ onpointerenter: measureCode }, props)} tabindex="-1" data-import-code-title class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted @max-[8rem]:hidden`}>{cells.scienceCode?.kind === "code" ? cells.scienceCode.title : ""}</span>
         {/snippet}
       </Tooltip>
     {:else if cells.scienceCode.title}
-      <span data-import-code-title class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted`}>{cells.scienceCode.title}</span>
+      <span data-import-code-title class={`min-w-0 truncate ${SHEET_SMALL} text-ink-muted @max-[8rem]:hidden`}>{cells.scienceCode.title}</span>
     {/if}
   {/if}
 {/snippet}
@@ -397,7 +464,7 @@
     The name never shrinks to make room for the words after it: they give way
     first, down to a few letters (the name may take all but 4rem of the line).
   -->
-  <span class="flex min-w-0 flex-1 items-center gap-2.5">
+  <span class="@container flex min-w-0 flex-1 items-center gap-2.5">
     <!-- Hover only: a tab stop on every row would make the sheet slow to cross by keyboard. -->
     <Tooltip text={nameTip} delayDuration={400} disabled={!titleIsNotName && !nameCut}>
       {#snippet children({ props })}
@@ -414,6 +481,23 @@
         data-import-file-new
         class="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[0.6875rem] leading-[calc(14/11)] text-success-ink"
       >New</span>
+    {/if}
+    {#if cells.craReviewed}
+      <!-- A quiet neutral tag (2026-11-17): a fact an Admin recorded, nothing to do. -->
+      <!--
+        Just the seal while the name's line is narrow, as it is on laptop
+        windows, so the name keeps its room; the seal and the words where the
+        line has room. The words on hover and for screen readers always.
+      -->
+      <span
+        data-import-file-cra
+        title={CRA_REVIEWED}
+        class="inline-flex h-5 max-w-max min-w-5 shrink items-center justify-center gap-1 overflow-hidden rounded-full bg-gray-100 px-1 text-[0.6875rem] leading-[calc(14/11)] whitespace-nowrap text-ink-muted @min-[18rem]:px-2"
+      >
+        <SealCheckIcon size="0.75rem" aria-hidden="true" class="shrink-0" />
+        <span aria-hidden="true" data-import-file-cra-words class="hidden min-w-0 truncate @min-[18rem]:inline">{CRA_REVIEWED}</span>
+        <span class="sr-only">{CRA_REVIEWED}</span>
+      </span>
     {/if}
     {#if cells.state}
       <span
@@ -548,7 +632,44 @@
     {/if}
   </div>
 
-  <div role="cell" data-import-cell="science-code" class={`${FIXED_CELL} gap-1.5 ${can.menu ? ROW_MENU_ROOM : ""}`}>
+  <div role="cell" data-import-cell="reviewer" class={FIXED_CELL}>
+    {#if can.reviewer}
+      <ImportPickerPopover label="Reviewer">
+        {#snippet trigger({ props })}
+          <button {...props} type="button" aria-label={reviewerLabel} data-import-reviewer-edit class={CELL_BUTTON}>
+            {#if cells.reviewer && !cells.reviewer.missing}
+              <!-- Cut on a narrow window: the whole name on hover. -->
+              <span
+                title={cells.reviewer.text}
+                data-import-reviewer-tone={cells.reviewer.tone}
+                data-import-reviewer-remembered={cells.reviewer.remembered ? "" : undefined}
+                class={wordsClass[cells.reviewer.tone]}
+              >{cells.reviewer.text}</span>
+            {:else}
+              <span title={CHOOSE_REVIEWER} data-import-reviewer-choose class="truncate text-ink-muted group-data-[state=open]/cell:text-ink">{CHOOSE_REVIEWER}</span>
+            {/if}
+            <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class={CELL_CARET} />
+          </button>
+        {/snippet}
+        {#snippet content({ close })}
+          <ImportWriterList
+            role="reviewer"
+            currentWriterId={row.reviewerId ?? null}
+            onPick={(picked) => {
+              close();
+              pickReviewer(picked);
+            }}
+          />
+        {/snippet}
+      </ImportPickerPopover>
+    {:else if cells.reviewer && cells.reviewer.text}
+      <!-- Read only: the reviewer, or the file name's initials, muted, when they give none. -->
+      <span title={cells.reviewer.text} data-import-reviewer-tone={cells.reviewer.tone} class={`truncate ${toneClass[cells.reviewer.tone]}`}>{cells.reviewer.text}</span>
+    {/if}
+  </div>
+
+  <!-- A container: on a narrow window (the column at its 108px) the code shows alone, never a sliver of its title. -->
+  <div role="cell" data-import-cell="science-code" class={`@container ${FIXED_CELL} gap-1.5 ${can.menu ? ROW_MENU_ROOM : ""}`}>
     {#if can.scienceCode}
       <ImportPickerPopover label="Science code" align="end" width="w-[22rem]">
         {#snippet trigger({ props })}
@@ -566,7 +687,7 @@
                   type="button"
                   aria-label={codeLabel}
                   data-import-code-edit
-                  class={`${CELL_BUTTON} gap-1.5`}
+                  class={`${CELL_BUTTON} gap-1.5 overflow-hidden`}
                 >
                   {@render codeWords(false)}
                   <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class={CELL_CARET} />
@@ -603,6 +724,8 @@
           canDelete={can.remove}
           pdNumber={row.pdNumber ?? null}
           canPdNumber={can.pdNumber}
+          craReviewed={can.craReviewed ? cells.craReviewed : null}
+          onCra={markCra}
           onCategory={(category) => void leaveWith(() => move({ category }))}
           onCompany={(name) => void leaveWith(() => move({ company: name }))}
           onPdNumber={(pdNumber) => void change({ pdNumber })}
