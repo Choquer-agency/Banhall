@@ -1,23 +1,28 @@
 <script lang="ts">
   // Admin actions on a past writer (Team, Past writers; writers from
-  // initials, 2026-11-16): Edit name, Link to an account, and Delete, which
-  // is offered only when no file points at the writer.
+  // initials, 2026-11-16, 2026-11-17): Invite to Banhall (not while an
+  // invite for them waits), Link to a team member, Edit name, and Delete,
+  // which is offered only when no file points at the writer.
   import { DropdownMenu } from "bits-ui";
-  import { LinkIcon, TrashIcon } from "phosphor-svelte";
+  import { LinkIcon, TrashIcon, UserPlusIcon } from "phosphor-svelte";
   import { IconMore, IconPencil } from "$lib/components/icons";
   import { MENU_CONTENT, MENU_ITEM, ROW_MENU_TRIGGER } from "./menuStyles";
 
   let {
     label,
     writerId,
+    canInvite,
     canDelete,
+    onInvite,
     onEditName,
     onLink,
     onDelete,
   }: {
     label: string;
     writerId: string;
+    canInvite: boolean;
     canDelete: boolean;
+    onInvite: () => void;
     onEditName: () => void;
     onLink: () => void;
     onDelete: () => void;
@@ -30,11 +35,16 @@
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
     <DropdownMenu.Content side="bottom" align="end" sideOffset={4} class={`w-[13.5rem] ${MENU_CONTENT}`}>
+      {#if canInvite}
+        <DropdownMenu.Item data-menu-item="invite" onSelect={onInvite} class={`${MENU_ITEM} text-ink`}>
+          <UserPlusIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Invite to Banhall
+        </DropdownMenu.Item>
+      {/if}
+      <DropdownMenu.Item data-menu-item="link" onSelect={onLink} class={`${MENU_ITEM} text-ink`}>
+        <LinkIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Link to a team member
+      </DropdownMenu.Item>
       <DropdownMenu.Item data-menu-item="edit-name" onSelect={onEditName} class={`${MENU_ITEM} text-ink`}>
         <IconPencil size={15} strokeWidth={1.5} class="shrink-0" />Edit name
-      </DropdownMenu.Item>
-      <DropdownMenu.Item data-menu-item="link" onSelect={onLink} class={`${MENU_ITEM} text-ink`}>
-        <LinkIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Link to an account
       </DropdownMenu.Item>
       {#if canDelete}
         <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />

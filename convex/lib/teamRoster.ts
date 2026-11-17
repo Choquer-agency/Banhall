@@ -1,7 +1,9 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { normalizeEmail } from "./email";
 import { domainError } from "./contracts";
+import { hasCapability } from "./roleCapabilities";
 import { cleanWriterName, takesInitialsWriter, type IngestionItemFields, type InitialsWriter } from "./ingestionSheet";
 import { looksLikeEmail, writerInitialsKey } from "../../shared/importSheetRules";
 import { sameWriterName, writerNameForInitials } from "../../shared/writerNameFromText";
@@ -459,7 +461,8 @@ export function choiceForUndo(writer: WriterDoc): WriterChoice {
 /**
  * Whether a writer can go once nothing points at it (no file, no file
  * remembering it from before a pick, no person's pick): only a bare one the
- * check made that no person ever named, linked or unlinked. It is made again
+ * check made that no person ever named, linked or unlinked, and that no
+ * waiting invite was sent for. It is made again
  * if a file needs it, and an Undo that named it gets an equal one
  * (bareWriterFromInitials). Every other writer with no files (one typed on
  * Import, one at 0 after Unlink) stays until an Admin deletes it.
@@ -470,7 +473,79 @@ async function removableWhenUnused(ctx: Ctx, writer: WriterDoc): Promise<boolean
     .query("pdWriterPicks")
     .withIndex("by_writerId", (q) => q.eq("writerId", writer._id))
     .first();
-  return pick === null;
+  // An invite an Admin sent for it still waits (2026-11-17): it stays.
+  return pick === null && (await waitingWriterInvite(ctx, writer._id)) === null;
+}
+
+/**
+ * Links a past writer to a team member's account (2026-11-16; users.ts
+ * linkPastWriter, and since 2026-11-17 the acceptance of an invite an Admin
+ * sent for it): its files show that person from then on. No file changes
+ * writer. Its files on To review and Deleted take the new label, and files
+ * with no writer yet whose initials it was made from are checked again, in
+ * scheduled pages. The caller checks who may link and to whom.
+ */
+export async function linkWriterToUser(
+  ctx: MutationCtx,
+  writer: WriterDoc,
+  userId: Id<"users">,
+  by: Id<"users">
+): Promise<void> {
+  const now = Date.now();
+  await ctx.db.patch(writer._id, { userId, linkedBy: by, linkedAt: now, updatedBy: by, updatedAt: now });
+  forgetWriterMatches(ctx);
+  await ctx.scheduler.runAfter(0, internal.ingestion.refreshWriterFiles, { writerId: writer._id, tab: "review", cursor: null });
+  const initials = writerInitialsKey(writer.initials);
+  if (initials !== null) {
+    await ctx.scheduler.runAfter(0, internal.ingestion.applyWriterInitials, { initials, tab: "review", cursor: null });
+  }
+}
+
+/** Invites read for one past writer, newest first: enough to find the one that waits. */
+const WRITER_INVITES_READ = 10;
+
+/**
+ * The invite an Admin sent for this past writer that still waits (pending
+ * and not expired), newest first, other than `except`; null when none
+ * (2026-11-17). Expired invites stay "pending", so the newest are read.
+ */
+export async function waitingWriterInvite(
+  ctx: Ctx,
+  writerId: Id<"pdWriters">,
+  except?: Id<"invites">
+): Promise<Doc<"invites"> | null> {
+  const rows = await ctx.db
+    .query("invites")
+    .withIndex("by_pdWriterId_and_status", (q) => q.eq("pdWriterId", writerId).eq("status", "pending"))
+    .order("desc")
+    .take(WRITER_INVITES_READ);
+  const now = Date.now();
+  return rows.find((invite) => invite._id !== except && invite.expiresAt > now) ?? null;
+}
+
+/**
+ * The link an invite for a past writer asks for, once its new account
+ * exists (2026-11-17, auth.ts onCreate, in the acceptance's transaction):
+ * the Admin who sent it links the writer to the account. Skipped quietly,
+ * changing nothing, when the one who sent it is no longer an Admin, the
+ * writer has been deleted or linked meanwhile, or the account already has
+ * a past writer linked. True when it linked.
+ */
+export async function linkWriterFromInvite(
+  ctx: MutationCtx,
+  writerId: Id<"pdWriters">,
+  userId: Id<"users">,
+  by: Id<"users">
+): Promise<boolean> {
+  // Linking is Admin only: the Admin who sent it must still be one.
+  const inviter = await ctx.db.get(by);
+  if (!isLoginMember(inviter) || !hasCapability(inviter.role, "roles.manage")) return false;
+  const writer = await liveWriter(ctx, writerId);
+  if (!writer || writer.userId) return false;
+  if (!isLoginMember(await ctx.db.get(userId))) return false;
+  if ((await linkedWriterOf(ctx, userId)) !== null) return false;
+  await linkWriterToUser(ctx, writer, userId, by);
+  return true;
 }
 
 /**

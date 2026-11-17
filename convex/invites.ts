@@ -5,7 +5,7 @@ import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { normalizeEmail } from "./lib/email";
 import { hasCapability } from "./lib/roleCapabilities";
-import { userDisplayLabel } from "./lib/teamRoster";
+import { userDisplayLabel, waitingWriterInvite } from "./lib/teamRoster";
 import { canManageInvite } from "../shared/capabilities";
 import { personInitials } from "../shared/personInitials";
 
@@ -73,6 +73,47 @@ async function requirePendingInvite(ctx: MutationCtx, inviteId: Id<"invites">) {
   return invite;
 }
 
+/**
+ * An invite for a past writer (2026-11-17): only an Admin, since accepting
+ * it links the writer to the account (linking is Admin only); one address;
+ * a writer with no login that has no invite waiting already.
+ */
+async function requirePastWriterInvite(
+  ctx: MutationCtx,
+  viewer: Doc<"users">,
+  writerId: Id<"pdWriters">,
+  emails: readonly string[],
+) {
+  if (!hasCapability(viewer.role, "roles.manage")) {
+    domainError("NOT_AUTHORIZED", "Only an Admin can invite a past writer");
+  }
+  if (emails.length !== 1) domainError("INVALID_INPUT", "Add one email address for this person");
+  const writer = await ctx.db.get(writerId);
+  if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+  if (writer.userId) domainError("INVALID_STATE", "This writer is linked to an account already.");
+  if ((await waitingWriterInvite(ctx, writerId)) !== null) {
+    domainError("INVALID_STATE", "This person has an invite waiting already. Manage it under Pending invites.");
+  }
+}
+
+/**
+ * Resending an invite for a past writer (2026-11-17) revives its link: only
+ * an Admin, only while the writer has no login, and only when no other
+ * invite for it waits.
+ */
+async function requirePastWriterResend(ctx: MutationCtx, viewer: Doc<"users">, invite: Doc<"invites">) {
+  if (!invite.pdWriterId) return;
+  if (!hasCapability(viewer.role, "roles.manage")) {
+    domainError("NOT_AUTHORIZED", "Only an Admin can resend an invite for a past writer");
+  }
+  const writer = await ctx.db.get(invite.pdWriterId);
+  if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+  if (writer.userId) domainError("INVALID_STATE", "This writer is linked to an account already.");
+  if ((await waitingWriterInvite(ctx, invite.pdWriterId, invite._id)) !== null) {
+    domainError("INVALID_STATE", "This person has a newer invite waiting. Use that one.");
+  }
+}
+
 const createResultValidator = v.union(
   v.object({
     email: v.string(),
@@ -95,11 +136,18 @@ const createResultValidator = v.union(
  * hidden). Names are not asked for (decision 51); the invitee enters them.
  */
 export const createInvites = mutation({
-  args: { emails: v.array(v.string()), role: roleValidator },
+  args: {
+    emails: v.array(v.string()),
+    role: roleValidator,
+    // 2026-11-17: an Admin inviting a past writer (Team, "Invite to
+    // Banhall"): one address, and accepting links the writer to the account.
+    pdWriterId: v.optional(v.id("pdWriters")),
+  },
   returns: v.array(createResultValidator),
   handler: async (ctx, args) => {
     // Actor first, so an ineligible caller learns nothing about the addresses.
     const viewer = await requireInviteManager(ctx, args.role);
+    if (args.pdWriterId !== undefined) await requirePastWriterInvite(ctx, viewer, args.pdWriterId, args.emails);
     if (args.emails.length === 0) {
       domainError("INVALID_INPUT", "Add at least one email address");
     }
@@ -149,6 +197,7 @@ export const createInvites = mutation({
         sentAt: now,
         expiresAt: now + INVITE_TTL_MS,
         status: "pending",
+        ...(args.pdWriterId !== undefined ? { pdWriterId: args.pdWriterId } : {}),
       });
       results.push({ email, status: "created" as const, inviteId, token });
     }
@@ -226,6 +275,7 @@ export const resendInvite = mutation({
     if (!canManageInvite(viewer.role, invite.role)) {
       domainError("NOT_AUTHORIZED", "You cannot resend this invite");
     }
+    await requirePastWriterResend(ctx, viewer, invite);
     const now = Date.now();
     const token = generateInviteToken();
     await ctx.db.patch(invite._id, {

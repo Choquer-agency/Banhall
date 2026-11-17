@@ -12,6 +12,7 @@ import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
 import { notify } from "./lib/notify";
+import { linkWriterFromInvite } from "./lib/teamRoster";
 import { ROLE_LABELS } from "../shared/roles";
 import { initialsFromName } from "../shared/importSheetRules";
 import { notificationCopy } from "../shared/notifications";
@@ -123,6 +124,12 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
           acceptedAt: now,
           acceptedUserId: userId,
         });
+        // 2026-11-17: an invite an Admin sent for a past writer links that
+        // writer to the new account, in this same transaction (skipped
+        // quietly if the writer is gone or linked meanwhile).
+        if (invite.pdWriterId) {
+          await linkWriterFromInvite(ctx, invite.pdWriterId, userId, invite.invitedBy);
+        }
         // Round 2 (I3): tell the inviter.
         const copy = notificationCopy.inviteAccepted({
           name: `${firstName} ${lastName}`,

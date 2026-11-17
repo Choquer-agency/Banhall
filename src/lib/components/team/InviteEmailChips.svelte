@@ -11,13 +11,26 @@
     chips = $bindable([]),
     id = "invite-emails",
     disabled = false,
-  }: { chips?: EmailChip[]; id?: string; disabled?: boolean } = $props();
+    max = undefined,
+  }: {
+    chips?: EmailChip[];
+    id?: string;
+    disabled?: boolean;
+    /** At most this many addresses (one, for a past writer, 2026-11-17): the field takes no more once full. */
+    max?: number;
+  } = $props();
+
+  const full = $derived(max !== undefined && chips.length >= max);
 
   let draft = $state("");
   let input: HTMLInputElement | undefined = $state();
 
   function commit(text = draft) {
     const values = splitEmails(text);
+    if (full) {
+      draft = "";
+      return;
+    }
     if (values.length) chips = addChips(chips, values);
     draft = "";
   }
@@ -81,19 +94,21 @@
       </Tooltip>
     {/if}
   {/each}
-  <input
-    bind:this={input}
-    {id}
-    {disabled}
-    type="text"
-    inputmode="email"
-    autocomplete="off"
-    spellcheck="false"
-    bind:value={draft}
-    {onkeydown}
-    {onpaste}
-    onblur={() => commit()}
-    placeholder={chips.length ? "Add more, separate with commas" : "name@banhall.com, separate with commas"}
-    class="input-chromeless h-[1.125rem] min-w-[12rem] flex-1 bg-transparent pl-1 text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint"
-  />
+  {#if !full}
+    <input
+      bind:this={input}
+      {id}
+      {disabled}
+      type="text"
+      inputmode="email"
+      autocomplete="off"
+      spellcheck="false"
+      bind:value={draft}
+      {onkeydown}
+      {onpaste}
+      onblur={() => commit()}
+      placeholder={chips.length ? "Add more, separate with commas" : max === 1 ? "name@banhall.com" : "name@banhall.com, separate with commas"}
+      class="input-chromeless h-[1.125rem] min-w-[12rem] flex-1 bg-transparent pl-1 text-[0.8125rem] leading-[calc(18/13)] text-ink placeholder:text-ink-faint"
+    />
+  {/if}
 </div>

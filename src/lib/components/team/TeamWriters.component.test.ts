@@ -17,8 +17,10 @@ import { reloadSectionSidebar } from "$lib/workspace/sectionSidebar.svelte";
 /**
  * Team, writers from initials (2026-11-16): each member's saved initials
  * with an Admin's "Edit initials", and the Past writers section (writers
- * with no login) with Add a name, Link to an account, the same-initials
- * hint and Delete. Made-up people only.
+ * with no login). Since 2026-11-17 (owner) Past writers use the members'
+ * columns, show no PD count or where a name came from, and an Admin
+ * invites, links, names or deletes one from its row menu, in dialogs.
+ * Made-up people only.
  */
 const CAPTURES = "../../../../.vitest-attachments/import-writers";
 const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -57,10 +59,14 @@ const MEMBERS = [
 ];
 
 const PAST_WRITERS = [
-  // Only initials, and one member has them too: the quiet hint with Link.
-  { _id: "w-dw", name: null, initials: "DW", label: "DW", fileCount: 12, canDelete: false, sameInitialsAs: { userId: "u-dana", name: "Dana Whitlock", canLink: true } },
-  { _id: "w-jordan", name: "Jordan Ellis", initials: "JE", label: "Jordan Ellis", fileCount: 0, canDelete: true, sameInitialsAs: null },
-  { _id: "w-so", name: "Sam Okafor", initials: "SO", label: "Sam Okafor", fileCount: 3, canDelete: false, sameInitialsAs: null },
+  // Only initials, and one member has them too: the Link dialog starts with her.
+  { _id: "w-dw", name: null, initials: "DW", label: "DW", nameFromDocument: false, fileCount: 12, canDelete: false, invitePending: false, sameInitialsAs: { userId: "u-dana", name: "Dana Whitlock", canLink: true } },
+  // A name read from a PD, and no files: Delete is offered. The server keeps
+  // where the name came from; the page never shows it. An Admin invited
+  // Jordan: the invite waits under Pending invites (INVITES below).
+  { _id: "w-jordan", name: "Jordan Ellis", initials: "JE", label: "Jordan Ellis", nameFromDocument: true, fileCount: 0, canDelete: true, invitePending: true, sameInitialsAs: null },
+  // Only initials no member has saved.
+  { _id: "w-so", name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 3, canDelete: false, invitePending: false, sameInitialsAs: null },
 ];
 
 const INVITES = [
@@ -150,62 +156,175 @@ describe("Team: writers from initials", () => {
     );
   });
 
-  it("lists Past writers under the invites, with initials, PDs, Add a name and the same-initials hint", async () => {
+  it("lists Past writers under the invites in the members' own columns, with a quiet No login tag and no PD details", async () => {
     seed(ADMIN);
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
     const section = one("[data-past-writers]")!;
+    const membersTable = one("[data-team-members]")!;
     const invites = one("#team-pending-invites")!;
     expect(invites.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(text(one("h2", section))).toBe("Past writers 3");
-    expect(all('[role="columnheader"]', section).map((node) => text(node))).toEqual(["Writer", "Initials", "PDs", "Actions"]);
-    expect(all("[data-past-writer-name]").map((node) => text(node))).toEqual(["DW", "Jordan Ellis", "Sam Okafor"]);
-    expect(all("[data-past-writer-pds]").map((node) => text(node))).toEqual(["12", "0", "3"]);
-    // Only a writer with no name gets "Add a name".
-    expect(all("[data-past-writer-add-name]").map((node) => node.closest("[data-past-writer-row]")?.getAttribute("data-past-writer-row"))).toEqual(["w-dw"]);
-    expect(text(one("[data-past-writer-hint]", writerRow("w-dw")))).toBe("Same initials as Dana Whitlock Link");
-    expect(one("[data-past-writer-hint]", writerRow("w-jordan"))).toBeNull();
+    const headers = (root: ParentNode) => all('[role="columnheader"]', root);
+    expect(headers(section).map((node) => text(node))).toEqual(["Name", "Initials", "Email", "Role", "Last active", "Actions"]);
+    expect(headers(membersTable).map((node) => text(node))).toEqual(headers(section).map((node) => text(node)));
+    // Every column starts and ends where the members' column does.
+    const box = (node: HTMLElement) => node.getBoundingClientRect();
+    headers(section).slice(0, 5).forEach((node, index) => {
+      const above = headers(membersTable)[index]!;
+      expect(Math.round(box(node).left), text(node)).toBe(Math.round(box(above).left));
+      expect(Math.round(box(node).width), text(node)).toBe(Math.round(box(above).width));
+    });
+    expect(Math.round(box(writerRow("w-dw")).height)).toBe(Math.round(box(memberRow("u-dana")).height));
+    expect(all("[data-past-writer-name]").map((node) => text(node))).toEqual(["DW", "Jordan Ellis", "SO"]);
+    expect(all("[data-past-writer-initials]").map((node) => text(node))).toEqual(["DW", "JE", "SO"]);
+    expect(all("[data-past-writer-email]").map((node) => text(node))).toEqual(["", "", ""]);
+    expect(all("[data-past-writer-role]").map((node) => text(node))).toEqual(["No login", "No login", "No login"]);
+    expect(all("[data-past-writer-last-active]").map((node) => text(node))).toEqual(["", "Invite sent", ""]);
+    // The tag sits where a member's role chip does, at the chip's height.
+    expect(Math.round(box(one("[data-past-writer-role]")!).left)).toBe(Math.round(box(one("[data-role-chip]", memberRow("u-dana"))!).left));
+    expect(Math.round(box(one("[data-past-writer-role]")!).height)).toBe(Math.round(box(one("[data-role-chip]", memberRow("u-dana"))!).height));
+    // Gone from the page: the PD count, where a name came from, the inline hint and Add a name.
+    expect(section.textContent).not.toContain("From a PD");
+    expect(one('[role="table"]', section)!.textContent).not.toContain("PDs");
+    expect(section.textContent).not.toContain("Same initials");
+    expect(all("[data-past-writer-pds], [data-past-writer-from-pd], [data-past-writer-hint], [data-past-writer-add-name]")).toEqual([]);
     // Weight 500 at most.
-    expect(Number(getComputedStyle(one("[data-past-writer-name]")!).fontWeight)).toBeLessThanOrEqual(500);
+    for (const node of [one("[data-past-writer-name]")!, one("[data-past-writer-role]")!]) {
+      expect(Number(getComputedStyle(node).fontWeight)).toBeLessThanOrEqual(500);
+    }
   });
 
-  it("marks a name read from a PD with a quiet \"From a PD\", and Edit name starts from that name", async () => {
-    seed(ADMIN, [
-      ...PAST_WRITERS,
-      { _id: "w-pn", name: "Priya Nair", initials: "PN", label: "Priya Nair", nameFromDocument: true, fileCount: 2, canDelete: false, sameInitialsAs: null },
-    ]);
-    __setMutationHandler("users:renamePastWriter", (args) => ({ label: (args as { name: string }).name }));
+  it("offers an Admin Invite to Banhall, Link to a team member, Edit name and Delete, and no second invite while one waits", async () => {
+    seed(ADMIN);
     await render(TeamPage, { origin: "https://example.com" });
-    await expect.poll(() => one('[data-past-writer-row="w-pn"]')).not.toBeNull();
-    // Only the name a PD gave has the note; a name an Admin typed and initials alone do not.
-    expect(all("[data-past-writer-from-pd]").map((node) => node.closest("[data-past-writer-row]")?.getAttribute("data-past-writer-row"))).toEqual(["w-pn"]);
-    const note = one("[data-past-writer-from-pd]", writerRow("w-pn"))!;
-    expect(text(note)).toBe("From a PD");
-    expect(text(one("[data-past-writer-name]", writerRow("w-pn")))).toBe("Priya Nair");
-    expect(note.className).toContain("text-ink-muted");
-    expect(Number(getComputedStyle(note).fontWeight)).toBeLessThanOrEqual(500);
-    // It has a name, so no "Add a name".
-    expect(one("[data-past-writer-add-name]", writerRow("w-pn"))).toBeNull();
-    writerRow("w-pn").scrollIntoView({ block: "center" });
-    await page.screenshot({ path: `${CAPTURES}/team-from-a-pd.png` });
-
-    await openMenu('[data-past-writer-menu="w-pn"]');
-    await page.getByRole("menuitem", { name: "Edit name" }).click();
-    await expect.element(page.getByRole("heading", { name: "Edit the name of Priya Nair" })).toBeVisible();
-    await expect.element(page.getByRole("textbox", { name: "Name" })).toHaveValue("Priya Nair");
-    await userEvent.click(one("[data-writer-name-save]")!);
-    await expect.poll(() => __mutationCalls("users:renamePastWriter")).toEqual([{ writerId: "w-pn", name: "Priya Nair" }]);
+    await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
+    const items = () => all('[role="menuitem"]').map((node) => text(node));
+    await openMenu('[data-past-writer-menu="w-dw"]');
+    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name"]);
+    await userEvent.keyboard("{Escape}");
+    await openMenu('[data-past-writer-menu="w-jordan"]');
+    expect(items()).toEqual(["Link to a team member", "Edit name", "Delete"]);
+    await userEvent.keyboard("{Escape}");
+    await openMenu('[data-past-writer-menu="w-so"]');
+    expect(items()).toEqual(["Invite to Banhall", "Link to a team member", "Edit name"]);
+    await userEvent.keyboard("{Escape}");
   });
 
-  it("names a past writer, links it to an account after saying what moves, and deletes one with no PDs after a confirm", async () => {
+  it("invites a past writer with the Invite people dialog, for that one person, and sends the writer with the invite", async () => {
+    seed(ADMIN);
+    __setMutationHandler("invites:createInvites", (args) => {
+      const { emails } = args as { emails: string[] };
+      return emails.map((email) => ({ email, status: "created", inviteId: "i-new", token: "tok-new" }));
+    });
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
+    await openMenu('[data-past-writer-menu="w-so"]');
+    await page.getByRole("menuitem", { name: "Invite to Banhall" }).click();
+    await expect.element(page.getByRole("heading", { name: "Invite SO" })).toBeVisible();
+    await expect.poll(() => one('[role="menu"]')).toBeNull();
+    const dialog = one('[data-testid="invite-dialog"]')!;
+    expect(text(dialog)).toContain("When they join, their past PDs show under their account.");
+    expect(text(dialog)).toContain("Email address");
+    // Starts empty, with the dialog's usual role.
+    expect(all("[data-email-chip]", dialog)).toEqual([]);
+    expect(one('input[name="invite-role"]:checked', dialog)?.getAttribute("value")).toBe("writer");
+    const send = () => one("[data-send-invites]") as HTMLButtonElement;
+    expect(text(send())).toBe("Send invite");
+    // Two addresses pasted at once: said, and nothing to send.
+    const pasted = new DataTransfer();
+    pasted.setData("text", "s.okafor@example.com, other@example.com");
+    one("#invite-emails", dialog)!.dispatchEvent(new ClipboardEvent("paste", { clipboardData: pasted, bubbles: true, cancelable: true }));
+    await expect.poll(() => text(one("[data-invite-too-many]"))).toBe("Add one email address for SO.");
+    expect(text(send())).toBe("Send invite");
+    expect(send().disabled).toBe(true);
+    await page.getByRole("button", { name: "Remove other@example.com" }).click();
+    // One address: the field takes no more.
+    await expect.poll(() => one("[data-invite-too-many]")).toBeNull();
+    expect(one("#invite-emails", dialog)).toBeNull();
+    expect(text(send())).toBe("Send invite");
+    expect(send().disabled).toBe(false);
+    await page.screenshot({ path: `${CAPTURES}/team-invite-past-writer.png` });
+    await userEvent.click(send());
+    await expect.poll(() => __mutationCalls("invites:createInvites")).toEqual([
+      { emails: ["s.okafor@example.com"], role: "writer", pdWriterId: "w-so" },
+    ]);
+    await expect.element(page.getByRole("heading", { name: "1 invite ready" })).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "Done" }));
+    await expect.poll(() => one('[data-testid="invite-dialog"]')).toBeNull();
+
+    // Invite people from the top bar is the plain dialog again, with no writer.
+    await userEvent.click(page.getByRole("button", { name: "Invite people" }).first());
+    await expect.element(page.getByRole("heading", { name: "Invite people" })).toBeVisible();
+    await page.getByLabelText("Email addresses").click();
+    await userEvent.keyboard("kim@example.com,");
+    await userEvent.click(one("[data-send-invites]")!);
+    await expect.poll(() => __mutationCalls("invites:createInvites").at(-1)).toEqual({ emails: ["kim@example.com"], role: "writer" });
+  });
+
+  it("says what to do when a past writer's address is already invited or already has an account", async () => {
+    seed(ADMIN);
+    let status = "already_invited";
+    __setMutationHandler("invites:createInvites", (args) => (args as { emails: string[] }).emails.map((email) => ({ email, status })));
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
+    for (const [result, line] of [
+      ["already_invited", "Already invited without this writer. Revoke that invite, then invite again from Past writers."],
+      ["already_member", "Already has an account. Use Link to a team member."],
+    ] as const) {
+      status = result;
+      await openMenu('[data-past-writer-menu="w-dw"]');
+      await page.getByRole("menuitem", { name: "Invite to Banhall" }).click();
+      await expect.element(page.getByRole("heading", { name: "Invite DW" })).toBeVisible();
+      await page.getByLabelText("Email address", { exact: true }).click();
+      await userEvent.keyboard("dw@example.com,");
+      await userEvent.click(one("[data-send-invites]")!);
+      await expect.poll(() => text(one(`[data-invite-result="${result}"]`))).toBe(`dw@example.com ${line}`);
+      await userEvent.click(page.getByRole("button", { name: "Done" }));
+      await expect.poll(() => one('[data-testid="invite-dialog"]')).toBeNull();
+    }
+  });
+
+  it("links a past writer to a team member in a dialog that starts with the one member who has its initials", async () => {
+    seed(ADMIN);
+    __setMutationHandler("users:linkPastWriter", () => ({ label: "Dana Whitlock" }));
+    await render(TeamPage, { origin: "https://example.com" });
+    await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
+    await openMenu('[data-past-writer-menu="w-dw"]');
+    await page.getByRole("menuitem", { name: "Link to a team member" }).click();
+    await expect.element(page.getByRole("heading", { name: "Link DW to a team member" })).toBeVisible();
+    await expect.poll(() => one('[role="menu"]')).toBeNull();
+    await expect.poll(() => text(one("[data-link-writer-same-initials]"))).toBe("Dana Whitlock has the same initials.");
+    expect(text(one("[data-link-writer-confirm]"))).toBe("The past PDs of DW will show under Dana Whitlock.");
+    expect(__mutationCalls("users:linkPastWriter")).toEqual([]);
+    await page.screenshot({ path: `${CAPTURES}/team-link-past-writer.png` });
+    await userEvent.click(one("[data-link-writer-save]")!);
+    await expect.poll(() => __mutationCalls("users:linkPastWriter")).toEqual([{ writerId: "w-dw", userId: "u-dana" }]);
+    await expect.poll(() => one('[data-testid="link-writer-dialog"]')).toBeNull();
+
+    // No one with the same initials: no line, nothing chosen, and a member who already has a past writer (Kim) is left out.
+    await openMenu('[data-past-writer-menu="w-so"]');
+    await page.getByRole("menuitem", { name: "Link to a team member" }).click();
+    await expect.element(page.getByRole("heading", { name: "Link SO to a team member" })).toBeVisible();
+    expect(one("[data-link-writer-same-initials]")).toBeNull();
+    expect(one("[data-link-writer-confirm]")).toBeNull();
+    expect((one("[data-link-writer-save]") as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(page.getByRole("combobox", { name: "Team member" }));
+    await expect.poll(() => all('[role="option"]').map((node) => text(node))).toEqual(["Dana Whitlock", "Priya Nair", "Sam Okafor"]);
+    await userEvent.keyboard("{Escape}");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => one('[data-testid="link-writer-dialog"]')).toBeNull();
+  });
+
+  it("edits a past writer's name from its menu, starting from the name it has, and deletes one with no PDs after a confirm", async () => {
     seed(ADMIN);
     __setMutationHandler("users:renamePastWriter", (args) => ({ label: (args as { name: string }).name }));
-    __setMutationHandler("users:linkPastWriter", () => ({ label: "Dana Whitlock" }));
     __setMutationHandler("users:deletePastWriter", () => null);
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
 
-    await userEvent.click(one("[data-past-writer-add-name]", writerRow("w-dw"))!);
+    await openMenu('[data-past-writer-menu="w-dw"]');
+    await page.getByRole("menuitem", { name: "Edit name" }).click();
     await expect.element(page.getByRole("heading", { name: "Add a name for DW" })).toBeVisible();
     // The shared field (ui/Input), focused when the dialog opens.
     await expect.poll(() => document.activeElement?.id).toBe("writer-name");
@@ -215,26 +334,12 @@ describe("Team: writers from initials", () => {
     await expect.poll(() => __mutationCalls("users:renamePastWriter")).toEqual([{ writerId: "w-dw", name: "Dana Whitlock" }]);
     await expect.poll(() => one('[data-testid="writer-name-dialog"]')).toBeNull();
 
-    // The hint's Link starts with that member, and says what will move before anything does.
-    await userEvent.click(one("[data-past-writer-hint-link]", writerRow("w-dw"))!);
-    await expect.element(page.getByRole("heading", { name: "Link DW to an account" })).toBeVisible();
-    await expect.poll(() => text(one("[data-link-writer-confirm]"))).toBe(
-      "The past PDs of DW will show under Dana Whitlock."
-    );
-    expect(__mutationCalls("users:linkPastWriter")).toEqual([]);
-    await userEvent.click(one("[data-link-writer-save]")!);
-    await expect.poll(() => __mutationCalls("users:linkPastWriter")).toEqual([{ writerId: "w-dw", userId: "u-dana" }]);
-    await expect.poll(() => one('[data-testid="link-writer-dialog"]')).toBeNull();
-
-    // From the menu, the list leaves out a member who already has a past writer linked (Kim).
-    await openMenu('[data-past-writer-menu="w-so"]');
-    expect(one('[data-menu-item="delete"]')).toBeNull();
-    await page.getByRole("menuitem", { name: "Link to an account" }).click();
-    await userEvent.click(page.getByRole("combobox", { name: "Team member" }));
-    await expect.poll(() => all('[role="option"]').map((node) => text(node))).toEqual(["Dana Whitlock", "Priya Nair", "Sam Okafor"]);
+    await openMenu('[data-past-writer-menu="w-jordan"]');
+    await page.getByRole("menuitem", { name: "Edit name" }).click();
+    await expect.element(page.getByRole("heading", { name: "Edit the name of Jordan Ellis" })).toBeVisible();
+    await expect.element(page.getByRole("textbox", { name: "Name" })).toHaveValue("Jordan Ellis");
     await userEvent.keyboard("{Escape}");
-    await userEvent.keyboard("{Escape}");
-    await expect.poll(() => one('[data-testid="link-writer-dialog"]')).toBeNull();
+    await expect.poll(() => one('[data-testid="writer-name-dialog"]')).toBeNull();
 
     // Delete asks first, and Cancel keeps the writer.
     await openMenu('[data-past-writer-menu="w-jordan"]');
@@ -273,13 +378,15 @@ describe("Team: writers from initials", () => {
     expect(toast.success).toHaveBeenCalledWith("KT is unlinked from Kim Tran. It is listed under Past writers again.");
   });
 
+
   it("shows Past writers read only to a Manager, and no section when there are none", async () => {
     seed(MANAGER);
     await render(TeamPage, { origin: "https://example.com" });
     await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
-    expect(all("[data-past-writer-menu], [data-past-writer-add-name], [data-past-writer-hint-link], [data-member-menu]")).toEqual([]);
-    // The hint still says it.
-    expect(text(one("[data-past-writer-hint]", writerRow("w-dw")))).toBe("Same initials as Dana Whitlock");
+    expect(all("[data-past-writer-menu], [data-member-menu]")).toEqual([]);
+    expect(all('[role="columnheader"]', one("[data-past-writers]")!).map((node) => text(node))).toEqual(["Name", "Initials", "Email", "Role", "Last active"]);
+    // The waiting invite still shows.
+    expect(text(one("[data-past-writer-last-active]", writerRow("w-jordan")))).toBe("Invite sent");
 
     document.body.innerHTML = "";
     seed(ADMIN, []);
@@ -288,18 +395,22 @@ describe("Team: writers from initials", () => {
     expect(one("[data-past-writers]")).toBeNull();
   });
 
-  it("captures the Team page with Past writers and the initials dialog at 1280 and 1100 wide", async () => {
+  it("captures the Team page with members and Past writers lined up at 1440 and 1100 wide, and the initials dialog", async () => {
     seed(ADMIN);
-    for (const width of [1280, 1100]) {
+    for (const width of [1440, 1100]) {
       document.body.innerHTML = "";
       await page.viewport(width, 1000);
       await render(TeamPage, { origin: "https://example.com" });
       await expect.poll(() => one("[data-past-writers]")).not.toBeNull();
       // Nothing runs past the window, and the members and past writers fit with no scroll of their own.
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-      for (const table of [one("[data-team-members]")!, one("[data-past-writers] .overflow-x-auto")!]) {
+      for (const table of [one("[data-team-members]")!, one("[data-past-writers] [role=table]")!.parentElement!]) {
         expect(table.scrollWidth, `${width}`).toBeLessThanOrEqual(table.clientWidth);
       }
+      // Name and Initials line up at every width.
+      const left = (selector: string) => Math.round(one(selector)!.getBoundingClientRect().left);
+      expect(left("[data-past-writer-initials]"), `${width}`).toBe(left("[data-member-initials]"));
+      expect(left("[data-past-writer-name]"), `${width}`).toBe(left("[data-member-name]"));
       await page.screenshot({ path: `${CAPTURES}/team-${width}.png` });
       await openMenu('[data-member-menu="u-sam"]');
       await page.getByRole("menuitem", { name: "Edit initials" }).click();
