@@ -20,8 +20,19 @@
   /** A writer a person can choose: a team member, a writer by id, or a typed name. */
   export type WriterChoice = NonNullable<FunctionArgs<typeof apiType.ingestion.matchWriterInitials>["writer"]>;
 
-  /** What the list gives back: the choice, its label, its option value, and whether it is the file's writer now. */
-  export type PickedWriter = { choice: WriterChoice; label: string; value: string | null; current: boolean };
+  /**
+   * What the list gives back: the choice, its label, its option value,
+   * whether it is the file's writer now, and whether its name came from a PD
+   * (a past writer's; choosing it makes the name a person's, even when it is
+   * the file's writer now).
+   */
+  export type PickedWriter = {
+    choice: WriterChoice;
+    label: string;
+    value: string | null;
+    current: boolean;
+    nameFromDocument: boolean;
+  };
 </script>
 
 <script lang="ts">
@@ -45,7 +56,15 @@
   const choicesQ = useQuery(api.ingestion.writerChoices, () => ({}));
 
   /** One option; `writerIds`: the writers that are this option (a member's own and the past writer linked to them). */
-  type Entry = { value: string; label: string; detail: string | null; group: string; choice: WriterChoice; writerIds: Id<"pdWriters">[] };
+  type Entry = {
+    value: string;
+    label: string;
+    detail: string | null;
+    group: string;
+    choice: WriterChoice;
+    writerIds: Id<"pdWriters">[];
+    nameFromDocument: boolean;
+  };
 
   const entries = $derived.by((): Entry[] => {
     const data = choicesQ.data;
@@ -58,6 +77,7 @@
         group: "Team members",
         choice: { kind: "user" as const, userId: member.userId },
         writerIds: [member.writerId, member.linkedWriterId].filter((id): id is Id<"pdWriters"> => id !== null),
+        nameFromDocument: false,
       })),
       ...data.pastWriters.map((writer) => ({
         value: `writer:${writer.writerId}`,
@@ -66,6 +86,7 @@
         group: "Past writers",
         choice: { kind: "writer" as const, writerId: writer.writerId },
         writerIds: [writer.writerId],
+        nameFromDocument: writer.nameFromDocument,
       })),
     ];
   });
@@ -77,7 +98,13 @@
   function pick(value: string) {
     const entry = entries.find((option) => option.value === value);
     if (!entry) return;
-    onPick({ choice: entry.choice, label: entry.label, value: entry.value, current: entry.value === current });
+    onPick({
+      choice: entry.choice,
+      label: entry.label,
+      value: entry.value,
+      current: entry.value === current,
+      nameFromDocument: entry.nameFromDocument,
+    });
   }
 </script>
 
@@ -91,5 +118,6 @@
   newText={(typed) => `Use "${typed}"`}
   refuseTyped={(typed) => (looksLikeEmail(typed) ? "Type the writer's name, not an email address." : null)}
   onPick={pick}
-  onNew={(typed) => onPick({ choice: { kind: "name", name: typed }, label: typed, value: null, current: false })}
+  onNew={(typed) =>
+    onPick({ choice: { kind: "name", name: typed }, label: typed, value: null, current: false, nameFromDocument: false })}
 />

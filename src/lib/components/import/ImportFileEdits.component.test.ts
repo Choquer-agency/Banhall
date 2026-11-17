@@ -96,8 +96,8 @@ const WRITER_CHOICES = {
     { userId: "u3", label: "Sam Okafor", writerId: "w-sam", linkedWriterId: "w-so" },
   ],
   pastWriters: [
-    { writerId: "w-dw", label: "DW", initials: "DW" },
-    { writerId: "w-jordan", label: "Jordan Ellis", initials: "JE" },
+    { writerId: "w-dw", label: "DW", initials: "DW", nameFromDocument: false },
+    { writerId: "w-jordan", label: "Jordan Ellis", initials: "JE", nameFromDocument: false },
   ],
 };
 const OPTION_LABELS = ["Dana Whitlock", "Priya Nair", "Sam Okafor", "DW", "Jordan Ellis"];
@@ -296,6 +296,58 @@ describe("changing one file on the Import sheet", () => {
     await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
     await expect.poll(() => one('[data-import-name-option="user:u3"]')?.getAttribute("aria-current")).toBe("true");
     expect(__mutationCalls("ingestion:matchWriterInitials")).toEqual([]);
+  });
+
+  it("makes a PD's name a person's when the writer a file has is chosen again, and changes nothing else (Greptile fix, 2026-11-17)", async () => {
+    // Dara Wynn's name came from a PD; Jordan Ellis's did not.
+    __setQueryData("ingestion:writerChoices", {
+      ...WRITER_CHOICES,
+      pastWriters: [
+        { writerId: "w-dw", label: "Dara Wynn", initials: "DW", nameFromDocument: true },
+        { writerId: "w-jordan", label: "Jordan Ellis", initials: "JE", nameFromDocument: false },
+      ],
+    });
+    __setMutationHandler("ingestion:confirmWriterName", () => true);
+    const confirmCalls = () => __mutationCalls("ingestion:confirmWriterName");
+    await mount();
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
+      // Its writer follows the initials DW: a different writer would be a firm-wide pick.
+      { ...FINAL_PDS[0], writerId: "w-dw", writerName: "Dara Wynn", writerHasLogin: false, writerInitials: "DW", writerNameSource: "initials" },
+      // A writer a person set on this file.
+      { ...FINAL_PDS[1], writerId: "w-dw", writerName: "Dara Wynn", writerHasLogin: false, writerNameSource: "person", editedLabels: ["writerName"], needsCheck: false, checkReasons: [] },
+      { ...FINAL_PDS[2], writerId: "w-jordan", writerName: "Jordan Ellis", writerHasLogin: false, needsCheck: true, checkReasons: ["no_science_code"] },
+      ...FINAL_PDS.slice(3),
+    ]);
+    await expect.poll(() => text(one("[data-import-writer-tone]", fileRow("pd1")))).toBe("Dara Wynn");
+
+    for (const id of ["pd1", "pd2"]) {
+      await userEvent.click(inRow(id, "[data-import-writer-edit]"));
+      const option = await vi.waitFor(() => one('[data-import-name-option="writer:w-dw"]')!);
+      expect(option.getAttribute("aria-current")).toBe("true");
+      await userEvent.click(option);
+      await expect.poll(() => one('[data-import-name-option="writer:w-dw"]')).toBeNull();
+    }
+    // Each choice confirms the name; no file's writer and no pick is sent.
+    await expect.poll(confirmCalls).toEqual([{ writerId: "w-dw" }, { writerId: "w-dw" }]);
+    expect(labelCalls()).toEqual([]);
+    expect(__mutationCalls("ingestion:matchWriterInitials")).toEqual([]);
+
+    // A writer whose name did not come from a PD: choosing it again is nothing.
+    await userEvent.click(inRow("pd4", "[data-import-writer-edit]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="writer:w-jordan"]')!));
+    await expect.poll(() => one('[data-import-name-option="writer:w-jordan"]')).toBeNull();
+    expect(confirmCalls()).toHaveLength(2);
+    expect(labelCalls()).toEqual([]);
+
+    // A refusal shows the server's words.
+    __setMutationHandler("ingestion:confirmWriterName", () => {
+      throw Object.assign(new Error("[CONVEX M(ingestion:confirmWriterName)] Server Error"), {
+        data: { code: "NOT_FOUND", message: "That writer is no longer in Banhall." },
+      });
+    });
+    await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="writer:w-dw"]')!));
+    await expect.element(page.getByText("That writer is no longer in Banhall.")).toBeVisible();
   });
 
   it("asks a person to choose on initials that could be more than one person, holds the pick for every file with them, and Undo takes it back (2026-11-16)", async () => {

@@ -112,6 +112,9 @@ describe("Team: writers from initials", () => {
     await page.getByRole("menuitem", { name: "Edit initials" }).click();
     const input = page.getByRole("textbox", { name: "Initials" });
     await expect.element(input).toBeVisible();
+    // The shared field (ui/Input), focused when the dialog opens.
+    await expect.poll(() => document.activeElement?.id).toBe("member-initials");
+    expect(one("#member-initials")!.classList.contains("field-control")).toBe(true);
     await userEvent.fill(input, "pn");
     // Another member has them: said, and still saved.
     await expect.poll(() => text(one("[data-initials-shared]"))).toBe(
@@ -204,6 +207,9 @@ describe("Team: writers from initials", () => {
 
     await userEvent.click(one("[data-past-writer-add-name]", writerRow("w-dw"))!);
     await expect.element(page.getByRole("heading", { name: "Add a name for DW" })).toBeVisible();
+    // The shared field (ui/Input), focused when the dialog opens.
+    await expect.poll(() => document.activeElement?.id).toBe("writer-name");
+    expect(one("#writer-name")!.classList.contains("field-control")).toBe(true);
     await userEvent.fill(page.getByRole("textbox", { name: "Name" }), "Dana Whitlock");
     await userEvent.click(one("[data-writer-name-save]")!);
     await expect.poll(() => __mutationCalls("users:renamePastWriter")).toEqual([{ writerId: "w-dw", name: "Dana Whitlock" }]);

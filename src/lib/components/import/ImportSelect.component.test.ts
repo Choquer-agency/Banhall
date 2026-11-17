@@ -867,7 +867,7 @@ describe("captures", () => {
         { userId: "u1", label: "Dana Whitlock", writerId: null, linkedWriterId: null },
         { userId: "u2", label: "Priya Nair", writerId: null, linkedWriterId: null },
       ],
-      pastWriters: [{ writerId: "w-so", label: "SO", initials: "SO" }],
+      pastWriters: [{ writerId: "w-so", label: "SO", initials: "SO", nameFromDocument: false }],
     });
   });
 

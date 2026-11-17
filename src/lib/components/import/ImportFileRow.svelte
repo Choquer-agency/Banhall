@@ -51,6 +51,7 @@
   import { toast } from "svelte-sonner";
   import { CaretDownIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -145,6 +146,7 @@
   const removeItems = useMutation(api.ingestion.removeItems);
   const restoreItems = useMutation(api.ingestion.restoreItems);
   const matchInitials = useMutation(api.ingestion.matchWriterInitials);
+  const confirmName = useMutation(api.ingestion.confirmWriterName);
 
   /** Whether the file's writer follows its name's initials: no person set one on the file itself. */
   const followsInitials = $derived(
@@ -155,13 +157,28 @@
    * A writer chosen in the Writer cell (2026-11-12, 2026-11-16). On a file
    * whose name gave initials and whose writer follows them, the choice says
    * which writer those initials are for the whole firm; otherwise it sets
-   * this file's writer, which wins for it. Choosing the writer it has is nothing.
+   * this file's writer, which wins for it. Choosing the writer it has
+   * changes no file; when that writer's name came from a PD, the choice
+   * makes the name a person's (Greptile fix, 2026-11-17), so a later PD
+   * never takes it back. Otherwise it is nothing.
    */
   function pickWriter(picked: PickedWriter) {
-    if (picked.current) return;
+    if (picked.current) {
+      if (picked.nameFromDocument && picked.choice.kind === "writer") void confirmWriter(picked.choice.writerId);
+      return;
+    }
     const initials = followsInitials ? (cells.writer?.initials ?? null) : null;
     if (initials) void matchWriter(initials, picked, matchInitials);
     else void change({ writer: picked.choice });
+  }
+
+  /** A writer's name from a PD made a person's; it says nothing unless it fails. */
+  async function confirmWriter(writerId: Id<"pdWriters">) {
+    try {
+      await confirmName({ writerId });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The writer could not be saved."), IMPORT_TOAST);
+    }
   }
 
   /**

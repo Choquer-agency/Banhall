@@ -4,6 +4,7 @@
   // shown as on Import. Empty goes back to the initials. The server refuses
   // an email address and a name over 120 characters, in words shown here.
   import TeamDialog from "./TeamDialog.svelte";
+  import Input from "$lib/components/ui/Input.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { looksLikeEmail } from "../../../../shared/importSheetRules";
 
@@ -69,17 +70,16 @@
 >
   <form id="writer-name-form" class="flex flex-col gap-1.5 px-7 pt-5" onsubmit={submit} novalidate>
     <label for="writer-name" class="text-xs leading-[calc(4/3)] font-medium text-ink-secondary">Name</label>
-    <input
-      bind:this={input}
+    <Input
+      bind:ref={input}
       id="writer-name"
       data-writer-name-input
       type="text"
       autocomplete="off"
-      maxlength="120"
+      maxlength={120}
       placeholder="Dana Whitlock"
       bind:value
       aria-invalid={error ? "true" : undefined}
-      class="field-control h-10 rounded-[0.625rem] px-3 text-[0.8125rem] text-ink placeholder:text-ink-muted"
     />
     {#if initials}
       <p class="text-xs leading-[calc(4/3)] text-ink-muted">Leave it empty to show {initials}.</p>

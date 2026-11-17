@@ -3488,7 +3488,7 @@ describe("files checked again when the facts change", () => {
     const choices = await admin.query(api.ingestion.writerChoices, {});
     // Dana and Sam (setup) have no last name or initials, but a name: they are listed; past writers after.
     expect(choices!.members.map((member) => member.label)).toEqual(["Dana", "Kim Tran", "Sam", "Sam Okafor"]);
-    expect(choices!.pastWriters).toEqual([{ writerId: so._id, label: "SO", initials: "SO" }]);
+    expect(choices!.pastWriters).toEqual([{ writerId: so._id, label: "SO", initials: "SO", nameFromDocument: false }]);
     // Nothing changed.
     expect(await writerOf(t, pd)).toMatchObject({ _id: so._id, fileCount: 1 });
     expect((await t.run((ctx) => ctx.db.get(sam)))?.initials).toBeUndefined();
@@ -3992,6 +3992,62 @@ describe("past writers named from their PDs (2026-11-16)", () => {
     expect(await writerOf(t, so)).toMatchObject({ name: "Sam Okafor", nameSource: "person" });
     await runWriterWalk(t);
     await expectCountsMatchRecount(t, "after people chose writers named by PDs");
+  });
+
+  it("confirms a PD's name when a person chooses the writer a file already has, and changes no file, pick or count (Greptile fix, 2026-11-17)", async () => {
+    const { t, admin, writer } = await setup();
+    const first = await readPd(t, "DW", 1, DANA_PD);
+    await readPd(t, "DW", 2, "No writer here.");
+    const dw = (await writerOf(t, first))!;
+    expect(dw).toMatchObject({ name: "Dana Whitlock", nameSource: "document", fileCount: 2 });
+    await runWriterWalk(t);
+    // The picker's list says which past writer's name came from a PD.
+    const listed = async () => (await admin.query(api.ingestion.writerChoices, {}))!.pastWriters.find((row) => row.writerId === dw._id);
+    expect(await listed()).toEqual({ writerId: dw._id, label: "Dana Whitlock", initials: "DW", nameFromDocument: true });
+
+    const files = async () => await t.run((ctx) => ctx.db.query("ingestionItems").collect());
+    const filesBefore = await files();
+    const stateBefore = await writerState(t);
+    // Only an Admin can.
+    await addMember(t, "Kim", "Tran", { role: "manager" });
+    const manager = t.withIdentity({ subject: "member-Kim-Tran" });
+    for (const who of [writer, manager]) {
+      await expect(who.mutation(api.ingestion.confirmWriterName, { writerId: dw._id })).rejects.toThrow(/Admin only/);
+    }
+    expect((await writerOf(t, first))!.nameSource).toBe("document");
+
+    await expect(admin.mutation(api.ingestion.confirmWriterName, { writerId: dw._id })).resolves.toBe(true);
+    const after = (await writerOf(t, first))!;
+    expect(after).toMatchObject({ _id: dw._id, name: "Dana Whitlock", nameSource: "person", fileCount: 2 });
+    expect(after.updatedBy).toBeDefined();
+    // No file, pick or count moved: the writer's label is the same.
+    expect(await files()).toEqual(filesBefore);
+    expect(await writerState(t)).toEqual(stateBefore);
+    await expectCountsMatchRecount(t, "after a PD's name was confirmed");
+    expect(await listed()).toMatchObject({ label: "Dana Whitlock", nameFromDocument: false });
+    // Once more changes nothing.
+    await expect(admin.mutation(api.ingestion.confirmWriterName, { writerId: dw._id })).resolves.toBe(false);
+
+    // A later PD that names someone else no longer takes the name back.
+    await readPd(t, "DW", 3, "Written by Dan Wells");
+    expect(await writerOf(t, first)).toMatchObject({ name: "Dana Whitlock", nameSource: "person" });
+    expect(await shownWriter(admin, first)).toEqual({ name: "Dana Whitlock", hasLogin: false });
+
+    // A writer whose name did not come from a PD is left as it was.
+    const so = (await writerOf(t, await pdBy(t, "SO", 4)))!;
+    await expect(admin.mutation(api.ingestion.confirmWriterName, { writerId: so._id })).resolves.toBe(false);
+    const soAfter = (await writerOf(t, await pdBy(t, "SO", 5)))!;
+    expect(soAfter._id).toBe(so._id);
+    expect(soAfter.nameSource).toBeUndefined();
+    expect(soAfter.updatedBy).toBeUndefined();
+    // A writer that is gone says so.
+    const gone = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("pdWriters", { initials: "ZZ", createdVia: "import", createdAt: Date.now(), fileCount: 0 });
+      await ctx.db.delete(id);
+      return id;
+    });
+    await expect(admin.mutation(api.ingestion.confirmWriterName, { writerId: gone })).rejects.toThrow(/no longer in Banhall/);
+    await expectCountsMatchRecount(t, "after confirming writers");
   });
 
   it("leaves a past writer with no name as it was when an Admin saves an empty name", async () => {

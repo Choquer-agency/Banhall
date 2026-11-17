@@ -415,7 +415,11 @@ export async function writerForChoice(
  * (nameSource "person"), so no later PD that disagrees takes it back and
  * the files they set keep showing it. Any other writer is returned as it is.
  */
-async function confirmDocumentName(ctx: MutationCtx, writer: WriterDoc, by: Id<"users"> | undefined): Promise<WriterDoc> {
+export async function confirmDocumentName(
+  ctx: MutationCtx,
+  writer: WriterDoc,
+  by: Id<"users"> | undefined
+): Promise<WriterDoc> {
   if (!writer.name || writer.nameSource !== "document") return writer;
   const patch: Partial<WriterDoc> = { nameSource: "person", ...(by ? { updatedBy: by, updatedAt: Date.now() } : {}) };
   await ctx.db.patch(writer._id, patch);

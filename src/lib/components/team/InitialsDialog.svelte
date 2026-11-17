@@ -7,6 +7,7 @@
   // show "Choose writer" (a file that has a writer keeps it). A member with
   // no real name (only an email) is shown on files by these initials.
   import TeamDialog from "./TeamDialog.svelte";
+  import Input from "$lib/components/ui/Input.svelte";
   import { userErrorMessage } from "$lib/errors";
   import { INITIALS_RULE, savedInitials } from "../../../../shared/importSheetRules";
 
@@ -77,18 +78,18 @@
 >
   <form id="initials-form" class="flex flex-col gap-1.5 px-7 pt-5" onsubmit={submit} novalidate>
     <label for="member-initials" class="text-xs leading-[calc(4/3)] font-medium text-ink-secondary">Initials</label>
-    <input
-      bind:this={input}
+    <Input
+      bind:ref={input}
       id="member-initials"
       data-initials-input
       type="text"
       autocomplete="off"
       spellcheck="false"
-      maxlength="8"
+      maxlength={8}
       bind:value
       aria-invalid={error ? "true" : undefined}
       aria-describedby="member-initials-help"
-      class="field-control h-10 w-32 rounded-[0.625rem] px-3 text-[0.8125rem] uppercase text-ink"
+      class="w-32 uppercase"
     />
     <p id="member-initials-help" class="text-xs leading-[calc(4/3)] text-ink-muted">1 to 4 letters. Leave it empty for none.</p>
     {#if shared.length > 0}

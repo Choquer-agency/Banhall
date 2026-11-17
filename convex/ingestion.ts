@@ -53,6 +53,7 @@ import {
 import {
   adjustWriterFiles,
   choiceForUndo,
+  confirmDocumentName,
   forgetWriterMatches,
   isLoginMember,
   linkedWriterOf,
@@ -1583,6 +1584,26 @@ export const refreshWriterFiles = internalMutation({
   },
 });
 
+/**
+ * A person chose, on one file or for some initials, the writer the file
+ * already has (2026-11-16; Greptile fix, 2026-11-17). When that writer's name
+ * came from a PD, the name is now a person's (confirmDocumentName), so a
+ * later PD that names someone else never takes it back. Nothing else
+ * changes: no file's writer or stored name (the writer's label is the same),
+ * no pick and no count. Admin only. True when the name became a person's.
+ */
+export const confirmWriterName = mutation({
+  args: { writerId: v.id("pdWriters") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const writer = await liveWriter(ctx, args.writerId);
+    if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+    const after = await confirmDocumentName(ctx, writer, admin);
+    return after.nameSource !== writer.nameSource;
+  },
+});
+
 /** Past writers one read lists. */
 const PAST_WRITERS_READ = 200;
 
@@ -1590,7 +1611,9 @@ const PAST_WRITERS_READ = 200;
  * The writers the Import page's writer picker lists (2026-11-16): the team
  * members with a login (their own writer, if they have one yet, and the
  * past writer an Admin linked to them), then the writers with no login
- * (past writers), each with its label. Admin only (null otherwise).
+ * (past writers), each with its label and whether its name came from a PD
+ * (so choosing it on a file that has it can confirm that name,
+ * confirmWriterName). Admin only (null otherwise).
  * Bounded: the roster's 200 people and 200 past writers (the index read
  * holds only writers with no account, so the cap counts them alone).
  */
@@ -1607,7 +1630,14 @@ export const writerChoices = query({
           linkedWriterId: v.union(v.id("pdWriters"), v.null()),
         })
       ),
-      pastWriters: v.array(v.object({ writerId: v.id("pdWriters"), label: v.string(), initials: v.union(v.string(), v.null()) })),
+      pastWriters: v.array(
+        v.object({
+          writerId: v.id("pdWriters"),
+          label: v.string(),
+          initials: v.union(v.string(), v.null()),
+          nameFromDocument: v.boolean(),
+        })
+      ),
     })
   ),
   handler: async (ctx) => {
@@ -1627,7 +1657,12 @@ export const writerChoices = query({
       .withIndex("by_userId", (q) => q.eq("userId", undefined))
       .take(PAST_WRITERS_READ);
     const pastWriters = unlinked
-      .map((writer) => ({ writerId: writer._id, label: writerLabelFor(writer, null), initials: writer.initials ?? null }))
+      .map((writer) => ({
+        writerId: writer._id,
+        label: writerLabelFor(writer, null),
+        initials: writer.initials ?? null,
+        nameFromDocument: Boolean(writer.name) && writer.nameSource === "document",
+      }))
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
     return { members, pastWriters };
   },
