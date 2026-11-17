@@ -5,14 +5,15 @@
   were already here and how many could not be read. OneDrive sync runs from
   before batches are rows too (the old page's sync log), with what they did
   not count said so. 25 rows, then "Show 25 more". The header row and the
-  column lines are the sheet's.
+  column lines are the sheet's. "Show 25 more" pages on through every row
+  (Greptile fix, 2026-11-17), the oldest sync runs last.
 
   Rows are plain, not links: listing one batch's files on To review would
   need per-batch counts the sheet does not keep. A batch's files show on To
   review, where the New filter lists what arrived in the last 24 hours.
 -->
 <script lang="ts">
-  import { useQuery } from "convex-svelte";
+  import { usePaginatedQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
   import { api } from "../../../../convex/_generated/api";
   import { formatCount } from "./importFormat";
@@ -20,12 +21,12 @@
   import { FIXED_CELL, SHEET_SMALL, SHEET_TEXT, SHOW_MORE } from "./sheetLayout";
 
   const auth = useAuth();
-  let limit = $state(HISTORY_PAGE);
-  const historyQ = useQuery(api.ingestion.importHistory, () => (auth.isAuthenticated ? { limit } : "skip"), () => ({
-    keepPreviousData: true,
-  }));
-  const rows = $derived((historyQ.data?.rows ?? []) as HistoryRow[]);
-  const loading = $derived(historyQ.data === undefined && !historyQ.error);
+  const historyQ = usePaginatedQuery(api.ingestion.importHistory, () => (auth.isAuthenticated ? {} : "skip"), {
+    initialNumItems: HISTORY_PAGE,
+  });
+  const rows = $derived(historyQ.results as HistoryRow[]);
+  const loading = $derived(rows.length === 0 && historyQ.status === "LoadingFirstPage" && !historyQ.error);
+  const loadingMore = $derived(historyQ.status === "LoadingMore");
 
   const GRID =
     "grid grid-cols-[minmax(9rem,1.1fr)_minmax(8rem,1fr)_minmax(9rem,1fr)_minmax(5.5rem,0.6fr)_minmax(6.5rem,0.6fr)_minmax(8rem,0.7fr)]";
@@ -74,9 +75,15 @@
       </div>
     {:else if rows.length === 0}
       <p data-import-history-empty class={`border-t border-line-soft py-8 pl-4 ${SHEET_TEXT} text-ink-secondary`}>Nothing has been added yet.</p>
-    {:else if historyQ.data?.more}
+    {:else if historyQ.status === "CanLoadMore" || loadingMore}
       <div class="flex h-10 items-center border-t border-line-soft pl-4">
-        <button type="button" data-import-history-more class={SHOW_MORE} onclick={() => (limit += HISTORY_PAGE)}>Show {HISTORY_PAGE} more</button>
+        <button
+          type="button"
+          data-import-history-more
+          disabled={loadingMore}
+          class={SHOW_MORE}
+          onclick={() => historyQ.loadMore(HISTORY_PAGE)}
+        >{loadingMore ? "Loading..." : `Show ${HISTORY_PAGE} more`}</button>
       </div>
     {:else}
       <div class="border-t border-line-soft" aria-hidden="true"></div>

@@ -30,7 +30,9 @@
   or company back. On Deleted the row ends with why the file is there and,
   for a file a person deleted or rejected, "Put back". With Select on, a
   checkbox comes first, named with the file and its company. Approved is
-  read only. What a row may do is the shared rule
+  read only. The row's "..." also sets the PD number on a read final PD,
+  draft or review copy (Greptile fix, 2026-11-17), with or without one from
+  the file name; "PD 4" then shows before the title. What a row may do is the shared rule
   (shared/importSheetRules.ts) the server follows too.
 
   Narrow windows (live QA fixes, 2026-11-11): the name keeps its room and
@@ -573,8 +575,11 @@
           category={row.category}
           {company}
           canDelete={can.remove}
+          pdNumber={row.pdNumber ?? null}
+          canPdNumber={can.pdNumber}
           onCategory={(category) => void leaveWith(() => move({ category }))}
           onCompany={(name) => void leaveWith(() => move({ company: name }))}
+          onPdNumber={(pdNumber) => void change({ pdNumber })}
           onDelete={() => void leaveWith(remove)}
         />
       </span>

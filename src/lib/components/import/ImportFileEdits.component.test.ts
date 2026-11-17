@@ -504,6 +504,55 @@ describe("changing one file on the Import sheet", () => {
     await expect.element(page.getByText("1 file is no longer on To review.")).toBeVisible();
   });
 
+  it("sets or corrects the PD number from the row's menu, also on a file whose name gave none, by the server's rule (Greptile fix)", async () => {
+    await mount();
+    // A final PD whose file name gave no number.
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
+      ...FINAL_PDS,
+      row("pd8", { name: "route notes.docx", fiscalYearEnd: MAR_31_2025, writerName: "Priya Nair", scienceCode: "2.02.09", scienceCodeSource: "person" }),
+    ]);
+    await expect.poll(() => all("[data-import-file]").length).toBe(FINAL_PDS.length + 1);
+    expect(one("[data-import-file-prefix]", fileRow("pd8"))).toBeNull();
+    const search = () => one("[data-import-pd-number-picker] [data-import-name-search]") as HTMLInputElement;
+
+    await userEvent.hover(fileRow("pd8"));
+    await userEvent.click(inRow("pd8", "[data-import-row-menu]"));
+    await userEvent.click(page.getByRole("menuitem", { name: "Set the PD number" }));
+    await expect.poll(() => document.activeElement).toBe(search());
+    await expect.poll(() => all("[data-import-pd-number-picker] [data-import-name-option]").length).toBe(20);
+    // A number the server would refuse is refused here, in its words, and nothing is sent.
+    await userEvent.fill(search(), "25");
+    await expect.element(page.getByText("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.")).toBeVisible();
+    expect(one("[data-import-name-new]")).toBeNull();
+    // "07" is PD 7, one of the list.
+    await userEvent.fill(search(), "07");
+    await expect.poll(() => all("[data-import-pd-number-picker] [data-import-name-option]").map((node) => text(node))).toEqual(["PD 7"]);
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(labelCalls).toEqual([{ ids: ["pd8"], patch: { pdNumber: "7" } }]);
+    await expect.poll(() => document.activeElement).toBe(inRow("pd8", "[data-import-row-menu]"));
+
+    // A wrong number is corrected the same way; a letter is typed.
+    await userEvent.click(inRow("pd4", "[data-import-row-menu]"));
+    await expect.element(page.getByRole("menuitem", { name: /^Change the PD number/ })).toBeVisible();
+    expect(text(one('[data-import-row-action="pd-number"]'))).toBe("Change the PD number PD 4");
+    await userEvent.click(page.getByRole("menuitem", { name: /^Change the PD number/ }));
+    await expect.poll(() => one('[data-import-pd-number-picker] [data-import-name-option="4"]')?.getAttribute("aria-current")).toBe("true");
+    await userEvent.fill(search(), "12A");
+    await userEvent.click(page.getByText('Use "PD 12A"'));
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd4"], patch: { pdNumber: "12A" } });
+
+    // Only where a PD number goes: not on a supporting file, nor one still being read.
+    await userEvent.click(page.getByRole("button", { name: /^Supporting files/ }));
+    await expect.poll(() => one('[data-import-file="sup1"]')).not.toBeNull();
+    await userEvent.click(inRow("sup1", "[data-import-row-menu]"));
+    await expect.element(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    expect(one('[data-import-row-action="pd-number"]')).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(inRow("pd5", "[data-import-row-menu]"));
+    await expect.element(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    expect(one('[data-import-row-action="pd-number"]')).toBeNull();
+  });
+
   it("shows the server's words when a change is refused", async () => {
     await mount();
     __setMutationHandler("ingestion:setSheetLabels", () => {

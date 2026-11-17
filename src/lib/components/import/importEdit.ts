@@ -176,13 +176,14 @@ const CHANGE_LABEL: Record<BarChange["kind"], ImportLabel> = {
   fiscalYearEnd: "fiscalYearEnd",
   company: "company",
   writer: "writerName",
+  pdNumber: "pdNumber",
   scienceCode: "scienceCode",
 };
 
 type Candidate = { _id: FileId; status: SheetFileRow["status"]; category: ImportCategory };
 
 /** Why a selected file cannot take a change: the words after "were left out:". */
-export type LeftOutWhy = "being_read" | "could_not_read" | "final_pd_only" | "numbered_only" | "not_here";
+export type LeftOutWhy = "being_read" | "could_not_read" | "final_pd_only" | "numbered_only" | "pd_number_only" | "not_here";
 
 function whyLeftOut(kind: BarChange["kind"] | "delete", row: Candidate): LeftOutWhy {
   if (statusIsBeingRead(row.status)) return "being_read";
@@ -190,6 +191,7 @@ function whyLeftOut(kind: BarChange["kind"] | "delete", row: Candidate): LeftOut
   if (row.status === "failed") return "could_not_read";
   if (kind === "scienceCode") return "final_pd_only";
   if (kind === "writer") return "numbered_only";
+  if (kind === "pdNumber") return "pd_number_only";
   return "not_here";
 }
 
@@ -227,7 +229,7 @@ export function splitForChange<R extends Candidate>(
 }
 
 /** The order the left-out reasons are said in: what the change is for first, then the files' state. */
-const WHY_ORDER: readonly LeftOutWhy[] = ["final_pd_only", "numbered_only", "not_here", "being_read", "could_not_read"];
+const WHY_ORDER: readonly LeftOutWhy[] = ["final_pd_only", "numbered_only", "pd_number_only", "not_here", "being_read", "could_not_read"];
 
 /** What one file of a category is called, singular then plural, for the left-out words. */
 const NOUNS: Record<ImportCategory, readonly [string, string]> = {
@@ -247,6 +249,10 @@ const WHY_WORDS: Record<LeftOutWhy, readonly [string, string]> = {
   numbered_only: [
     "a writer only goes on a final PD, draft or review copy",
     "a writer only goes on a final PD, draft or review copy",
+  ],
+  pd_number_only: [
+    "a PD number only goes on a final PD, draft or review copy",
+    "a PD number only goes on a final PD, draft or review copy",
   ],
   not_here: ["it cannot take this change", "they cannot take this change"],
 };
@@ -323,6 +329,7 @@ export type BarChange =
   | { kind: "fiscalYearEnd"; fiscalYearEnd: number }
   | { kind: "company"; company: string }
   | { kind: "writer"; writerName: string }
+  | { kind: "pdNumber"; pdNumber: string }
   | { kind: "scienceCode"; scienceCode: string };
 
 /** The setSheetLabels patch for a change. */
@@ -336,6 +343,8 @@ export function changePatch(change: BarChange) {
       return { company: change.company };
     case "writer":
       return { writerName: change.writerName };
+    case "pdNumber":
+      return { pdNumber: change.pdNumber };
     case "scienceCode":
       return { scienceCode: change.scienceCode };
   }
@@ -352,6 +361,8 @@ export function confirmLine(change: BarChange, count: number): string {
       return `Move ${files(count)} to ${change.company}`;
     case "writer":
       return `Set the writer to ${change.writerName} for ${files(count)}`;
+    case "pdNumber":
+      return `Set the PD number to ${change.pdNumber} for ${files(count)}`;
     case "scienceCode":
       return `Set the science code to ${change.scienceCode} for ${files(count)}`;
   }
@@ -368,6 +379,8 @@ export function changedText(change: BarChange, count: number): string {
       return `${files(count)} moved to ${change.company}`;
     case "writer":
       return `Writer set to ${change.writerName} for ${files(count)}`;
+    case "pdNumber":
+      return `PD number set to ${change.pdNumber} for ${files(count)}`;
     case "scienceCode":
       return `Science code set to ${change.scienceCode} for ${files(count)}`;
   }

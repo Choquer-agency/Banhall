@@ -7,11 +7,17 @@
   picker that opens from the same button) and Delete. A file still being
   read cannot be deleted yet; the menu says so. "Open the file" comes with
   the file panel.
+
+  On a read final PD, draft or review copy (Greptile fix, 2026-11-17) the
+  menu also sets the PD number, in a picker that opens from the same button
+  the way the company picker does, so a missing or wrong number can be put
+  right whether or not the file name gave one.
 -->
 <script lang="ts">
   import { DropdownMenu, Popover } from "bits-ui";
-  import { BuildingsIcon, CaretRightIcon, CheckIcon, DotsThreeIcon, TagIcon, TrashIcon } from "phosphor-svelte";
+  import { BuildingsIcon, CaretRightIcon, CheckIcon, DotsThreeIcon, HashIcon, TagIcon, TrashIcon } from "phosphor-svelte";
   import ImportCompanyList from "./ImportCompanyList.svelte";
+  import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import { MOVE_CATEGORIES } from "./importEdit";
   import type { ImportCategory } from "./importFormat";
   import { POPOVER_CARD, SHEET_SMALL } from "./sheetLayout";
@@ -21,8 +27,11 @@
     category,
     company = null,
     canDelete,
+    pdNumber = null,
+    canPdNumber = false,
     onCategory,
     onCompany,
+    onPdNumber,
     onDelete,
   }: {
     /** The file, for the button's name. */
@@ -31,17 +40,25 @@
     /** The company the file is in now. */
     company?: string | null;
     canDelete: boolean;
+    /** The file's PD number now. */
+    pdNumber?: string | null;
+    /** The menu offers "Set the PD number" (rowAbilities). */
+    canPdNumber?: boolean;
     onCategory: (category: ImportCategory) => void;
     onCompany: (name: string) => void;
+    onPdNumber?: (pdNumber: string) => void;
     onDelete: () => void;
   } = $props();
 
   let menuOpen = $state(false);
   let companyOpen = $state(false);
+  let pdNumberOpen = $state(false);
   let button = $state<HTMLElement | null>(null);
-  // Set when "Move to another company" is chosen: the company picker opens
-  // once the menu has closed, so focus goes into the picker, not back here.
-  let toCompany = false;
+  // Set when "Move to another company" or "Set the PD number" is chosen: its
+  // picker opens once the menu has closed, so focus goes into the picker, not
+  // back here.
+  let opening: "company" | "pdNumber" | null = null;
+  const pickerOpen = $derived(companyOpen || pdNumberOpen);
 
   const MENU_ITEM =
     "flex min-h-9 w-full cursor-default items-center gap-2.5 rounded-md px-2.5 text-sm leading-[calc(9/7)] text-ink-secondary outline-none data-[highlighted]:bg-primary-wash data-[highlighted]:text-ink data-[disabled]:opacity-50 pointer-coarse:min-h-11";
@@ -52,9 +69,9 @@
     bind:ref={button}
     aria-label={`More for ${name}`}
     data-import-row-menu
-    data-import-row-menu-active={companyOpen || menuOpen ? "" : undefined}
+    data-import-row-menu-active={pickerOpen || menuOpen ? "" : undefined}
     class={`relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-ink-muted transition-[opacity,background-color] hover:bg-gray-100 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-primary-wash data-[state=open]:text-ink motion-reduce:transition-none pointer-coarse:size-11 ${
-      companyOpen || menuOpen
+      pickerOpen || menuOpen
         ? "bg-primary-wash text-ink"
         : "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
     }`}
@@ -68,10 +85,12 @@
       sideOffset={6}
       collisionPadding={12}
       onCloseAutoFocus={(event) => {
-        if (!toCompany) return;
-        toCompany = false;
+        if (!opening) return;
+        const next = opening;
+        opening = null;
         event.preventDefault();
-        companyOpen = true;
+        if (next === "company") companyOpen = true;
+        else pdNumberOpen = true;
       }}
       class="z-[100] w-[16.5rem] rounded-lg border border-line bg-surface p-1 shadow-menu outline-none"
       data-import-row-menu-content
@@ -96,10 +115,17 @@
           {/each}
         </DropdownMenu.SubContent>
       </DropdownMenu.Sub>
-      <DropdownMenu.Item onSelect={() => (toCompany = true)} data-import-row-action="company" class={MENU_ITEM}>
+      <DropdownMenu.Item onSelect={() => (opening = "company")} data-import-row-action="company" class={MENU_ITEM}>
         <BuildingsIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
         Move to another company
       </DropdownMenu.Item>
+      {#if canPdNumber}
+        <DropdownMenu.Item onSelect={() => (opening = "pdNumber")} data-import-row-action="pd-number" class={MENU_ITEM}>
+          <HashIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
+          <span class="flex-1">{pdNumber ? "Change the PD number" : "Set the PD number"}</span>
+          {#if pdNumber}<span class={`shrink-0 ${SHEET_SMALL} text-ink-muted`}>PD {pdNumber}</span>{/if}
+        </DropdownMenu.Item>
+      {/if}
       <DropdownMenu.Separator class="-mx-1 my-1 h-px bg-line-soft" />
       <DropdownMenu.Item
         disabled={!canDelete}
@@ -138,6 +164,33 @@
         onPick={(next) => {
           companyOpen = false;
           if (next !== company) onCompany(next);
+        }}
+      />
+    </Popover.Content>
+  </Popover.Portal>
+</Popover.Root>
+
+<Popover.Root bind:open={pdNumberOpen}>
+  <Popover.Portal>
+    <Popover.Content
+      customAnchor={button}
+      side="bottom"
+      align="end"
+      sideOffset={6}
+      collisionPadding={12}
+      aria-label="PD number"
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        button?.focus();
+      }}
+      class={`${POPOVER_CARD} w-[17.5rem] max-w-[calc(100vw-1.5rem)] overflow-hidden`}
+      data-import-pd-number-picker
+    >
+      <ImportPdNumberList
+        current={pdNumber}
+        onPick={(next) => {
+          pdNumberOpen = false;
+          if (next !== pdNumber) onPdNumber?.(next);
         }}
       />
     </Popover.Content>

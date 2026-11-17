@@ -19,7 +19,8 @@
   (importUploads); once the first is in, the page shows To review with the
   New filter on. "New N" sits beside "To check" while any file is New, and
   one plain line under the toolbar says what is arriving
-  (ImportStatusLine). The History tab lists every batch.
+  (ImportStatusLine). The History tab lists every batch. The sender warns
+  before the tab is closed while it checks or sends, on any page.
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
@@ -134,16 +135,8 @@
       fetch: (input, init) => globalThis.fetch(input, init),
     });
   });
-  // Closing the tab while files are checked or sent would lose them.
-  $effect(() => {
-    if (!importUploads.busy) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  });
+  // The close-tab warning lives with the sender (importUploads), so it stays
+  // while files are sent after this page unmounts.
 
   const uploadCallbacks: AddCallbacks = {
     onLeftOut: (text) => toast(text, IMPORT_TOAST),

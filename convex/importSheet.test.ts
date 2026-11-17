@@ -1621,6 +1621,25 @@ describe("setSheetLabels", () => {
     expect((await getItem(t, id)).updatedAt).toBe(row.updatedAt);
   });
 
+  it("sets a PD number on a draft whose file name gave none, and refuses one that is not 1 to 20", async () => {
+    const { admin, t } = await setup();
+    const id = await stage(t, `${CEDARLINE_FY}/Drafts/route planning notes.docx`);
+    await markRead(t, id);
+    expect((await getItem(t, id)).pdNumber).toBeUndefined();
+    for (const pdNumber of ["21", "0", "PD 4", "4ab"]) {
+      await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch: { pdNumber } }), pdNumber).rejects.toThrow(
+        "A PD number is 1 to 20, with an optional letter, for example 4 or 12a."
+      );
+    }
+    await expect(admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch: { pdNumber: "06" } })).resolves.toMatchObject({
+      changed: 1,
+    });
+    const row = await getItem(t, id);
+    expect(row).toMatchObject({ category: "draft", pdNumber: "6", editedLabels: ["pdNumber"] });
+    expectInvariants(row);
+    await expectCountsMatchRecount(t, "after a PD number on a draft");
+  });
+
   it("changes up to 100 files in one call, and refuses more", async () => {
     const { admin, t } = await setup();
     const ids: Array<Id<"ingestionItems">> = [];
@@ -3151,8 +3170,8 @@ describe("adding files on the Import page", () => {
     await t.mutation(internal.ingestion.upsertDiscoveredBatch, { items: items.slice(0, 1), runId });
     expect(await batchOf(t, batchId)).toMatchObject({ added: 2, alreadyHere: 1 });
     // The History tab shows the run once, as its batch.
-    const history = await admin.query(api.ingestion.importHistory, { limit: 25 });
-    expect(history!.rows.map((row) => [row.source, row.who, row.added, row.alreadyHere])).toEqual([["onedrive", "Dana", 2, 1]]);
+    const history = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 25, cursor: null } });
+    expect(history.page.map((row) => [row.source, row.who, row.added, row.alreadyHere])).toEqual([["onedrive", "Dana", 2, 1]]);
   });
 
   it("marks a file New when it arrives or its bytes change, never on a rename, and clears it after 24 hours in batches", async () => {
@@ -3259,18 +3278,77 @@ describe("adding files on the Import page", () => {
       await ctx.db.insert("importBatches", { source: "uploader", startedAt: 200, lastFileAt: 250, added: 30, alreadyHere: 5, failed: 0, read: 30, couldNotRead: 2 });
       await ctx.db.insert("importBatches", { source: "page", addedBy: userId, startedAt: 300, lastFileAt: 300, toSend: 52, sendingDone: true, added: 50, alreadyHere: 12, failed: 2, read: 50, couldNotRead: 1 });
     });
-    const history = await admin.query(api.ingestion.importHistory, { limit: 2 });
-    expect(history).toEqual({
-      rows: [
-        { key: expect.any(String), startedAt: 300, source: "page", who: "Dana", added: 50, alreadyHere: 12, couldNotRead: 1, notSent: 2 },
-        { key: expect.any(String), startedAt: 200, source: "uploader", who: null, added: 30, alreadyHere: 5, couldNotRead: 2, notSent: 0 },
-      ],
-      more: true,
+    const first = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 1, cursor: null } });
+    expect(first).toMatchObject({
+      page: [{ key: expect.any(String), startedAt: 300, source: "page", who: "Dana", added: 50, alreadyHere: 12, couldNotRead: 1, notSent: 2 }],
+      isDone: false,
     });
-    const everything = await admin.query(api.ingestion.importHistory, { limit: 25 });
-    expect(everything!.rows.at(-1)).toMatchObject({ source: "onedrive", who: "Dana", added: 40, alreadyHere: null, couldNotRead: null });
-    expect(everything!.more).toBe(false);
-    expect(await writer.query(api.ingestion.importHistory, { limit: 25 })).toBeNull();
+    // The pages after it: the other batch, then the old sync run once no batches are left.
+    const rest = [];
+    let cursor = first.continueCursor;
+    for (let page = 0; page < 5; page++) {
+      const next = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 1, cursor } });
+      rest.push(...next.page);
+      if (next.isDone) break;
+      cursor = next.continueCursor;
+    }
+    expect(rest).toEqual([
+      { key: expect.any(String), startedAt: 200, source: "uploader", who: null, added: 30, alreadyHere: 5, couldNotRead: 2, notSent: 0 },
+      { key: expect.any(String), startedAt: 100, source: "onedrive", who: "Dana", added: 40, alreadyHere: null, couldNotRead: null, notSent: 0 },
+    ]);
+    const everything = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 25, cursor: null } });
+    expect(everything.page.map((row) => row.startedAt)).toEqual([300, 200, 100]);
+    expect(everything.isDone).toBe(true);
+    expect(await writer.query(api.ingestion.importHistory, { paginationOpts: { numItems: 25, cursor: null } })).toEqual({
+      page: [],
+      isDone: true,
+      continueCursor: "",
+    });
+  });
+
+  it("pages History past 500 batches, then through the old sync runs, each row once", async () => {
+    const { t, admin } = await setup();
+    await t.run(async (ctx) => {
+      const userId = (await ctx.db.query("users").first())!._id;
+      // Three old runs, two of them started at the same time, and a run that is a batch's (not its own row).
+      for (const startedAt of [10, 20, 20]) {
+        await ctx.db.insert("oneDriveSyncRuns", { status: "completed", triggeredBy: userId, startedAt, discovered: startedAt, processed: 0, skipped: 0 });
+      }
+      for (let n = 0; n < 530; n++) {
+        await ctx.db.insert("importBatches", { source: "uploader", startedAt: 1000 + n, lastFileAt: 1000 + n, added: 1, alreadyHere: 0, failed: 0, read: 1, couldNotRead: 0 });
+      }
+      const linked = await ctx.db.query("importBatches").withIndex("by_startedAt").order("desc").first();
+      await ctx.db.insert("oneDriveSyncRuns", { status: "completed", triggeredBy: userId, startedAt: 1529, discovered: 1, processed: 1, skipped: 0, batchId: linked!._id });
+    });
+    const keys: string[] = [];
+    const sources: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    for (;;) {
+      const result: { page: Array<{ key: string; source: string }>; isDone: boolean; continueCursor: string } = await admin.query(
+        api.ingestion.importHistory,
+        { paginationOpts: { numItems: 25, cursor } }
+      );
+      keys.push(...result.page.map((row) => row.key));
+      sources.push(...result.page.map((row) => row.source));
+      pages += 1;
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+      expect(pages).toBeLessThan(40);
+    }
+    expect(keys).toHaveLength(533);
+    expect(new Set(keys).size).toBe(533);
+    expect(sources.filter((source) => source === "uploader")).toHaveLength(530);
+    expect(sources.slice(-3)).toEqual(["onedrive", "onedrive", "onedrive"]);
+    // 25 batches a page; the old runs come with the last batches, or on one page after them.
+    expect(pages).toBeLessThanOrEqual(23);
+    // One run per page once the batches are done.
+    const runsOnly = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 1, cursor: "runs:" } });
+    expect(runsOnly.page.map((row) => row.added)).toEqual([20]);
+    const nextRun = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 1, cursor: runsOnly.continueCursor } });
+    expect(nextRun.page.map((row) => row.added)).toEqual([20]);
+    expect(nextRun.page[0]!.key).not.toBe(runsOnly.page[0]!.key);
+    await expect(admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 1, cursor: "nonsense" } })).rejects.toThrow(/InvalidCursor/);
   });
 });
 
@@ -3512,8 +3590,8 @@ describe("a file rejected or deleted while it is still being read", () => {
     // Deleted after it was rejected: still counted once.
     await admin.mutation(api.ingestion.removeItems, { ids: [rejected._id] });
     expect(await batchOf(t, drop.batchId)).toMatchObject({ added: 2, read: 2, couldNotRead: 0 });
-    const history = await admin.query(api.ingestion.importHistory, { limit: 25 });
-    expect(history!.rows.find((row) => row.key === drop.batchId)).toMatchObject({ added: 2, alreadyHere: 0, couldNotRead: 0, notSent: 0 });
+    const history = await admin.query(api.ingestion.importHistory, { paginationOpts: { numItems: 25, cursor: null } });
+    expect(history.page.find((row) => row.key === drop.batchId)).toMatchObject({ added: 2, alreadyHere: 0, couldNotRead: 0, notSent: 0 });
     await expectCountsMatchRecount(t, "after a file rejected while it was read");
   });
 

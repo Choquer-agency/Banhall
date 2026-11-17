@@ -42,6 +42,7 @@ describe("rowAbilities", () => {
   it("lets a read file on To review change its labels, by category", () => {
     expect(rowAbilities(row("pending_review", "final_pd"), "review")).toEqual({
       edit: true,
+      pdNumber: true,
       version: true,
       writer: true,
       scienceCode: true,
@@ -50,11 +51,12 @@ describe("rowAbilities", () => {
       putBack: false,
       select: true,
     });
-    expect(rowAbilities(row("pending_review", "draft"), "review")).toMatchObject({ version: true, writer: true, scienceCode: false });
-    expect(rowAbilities(row("pending_review", "review_copy"), "review")).toMatchObject({ version: true, writer: true, scienceCode: false });
+    expect(rowAbilities(row("pending_review", "draft"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, scienceCode: false });
+    expect(rowAbilities(row("pending_review", "review_copy"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, scienceCode: false });
     for (const category of ["transcript", "supporting", "company_file", "unknown"]) {
       expect(rowAbilities(row("pending_review", category), "review"), category).toMatchObject({
         edit: true,
+        pdNumber: false,
         version: false,
         writer: false,
         scienceCode: false,
@@ -66,6 +68,7 @@ describe("rowAbilities", () => {
     for (const status of ["discovered", "fetched"]) {
       expect(rowAbilities(row(status, "final_pd"), "review"), status).toMatchObject({
         edit: false,
+        pdNumber: false,
         scienceCode: false,
         menu: true,
         // The server refuses to delete a file still being read.
@@ -84,6 +87,7 @@ describe("rowAbilities", () => {
     }
     expect(rowAbilities(row("approved", "final_pd"), "approved")).toEqual({
       edit: false,
+      pdNumber: false,
       version: false,
       writer: false,
       scienceCode: false,
@@ -247,6 +251,7 @@ describe("what a bar action takes", () => {
     expect(taken("company")).toEqual(["pd", "draft", "t1", "t2", "t3", "reading", "failed"]);
     expect(taken("fiscalYearEnd")).toEqual(["pd", "draft", "t1", "t2", "t3"]);
     expect(taken("writer")).toEqual(["pd", "draft"]);
+    expect(taken("pdNumber")).toEqual(["pd", "draft"]);
     expect(taken("scienceCode")).toEqual(["pd"]);
     expect(taken("delete")).toEqual(["pd", "draft", "t1", "t2", "t3", "failed"]);
   });
@@ -259,6 +264,9 @@ describe("what a bar action takes", () => {
     );
     expect(leftOutText(splitForChange("writer", mixed.slice(1)).leftOut)).toBe(
       "3 transcripts were left out: a writer only goes on a final PD, draft or review copy. 1 final PD was left out: it is still being read. 1 supporting file was left out: it could not be read."
+    );
+    expect(leftOutText(splitForChange("pdNumber", mixed.slice(1)).leftOut)).toBe(
+      "3 transcripts were left out: a PD number only goes on a final PD, draft or review copy. 1 final PD was left out: it is still being read. 1 supporting file was left out: it could not be read."
     );
     expect(leftOutText(splitForChange("delete", mixed).leftOut)).toBe("1 final PD was left out: it is still being read.");
     expect(leftOutText(splitForChange("category", mixed).leftOut)).toBe("");
@@ -310,6 +318,7 @@ describe("the bar's words", () => {
     expect(confirmLine(year, 1)).toBe("Set the year end to Mar 31, 2025 for 1 file");
     expect(confirmLine({ kind: "company", company: "Halden Foods" }, 1_204)).toBe("Move 1,204 files to Halden Foods");
     expect(confirmLine({ kind: "writer", writerName: "Priya Nair" }, 2)).toBe("Set the writer to Priya Nair for 2 files");
+    expect(confirmLine({ kind: "pdNumber", pdNumber: "12a" }, 3)).toBe("Set the PD number to 12a for 3 files");
     expect(confirmLine({ kind: "scienceCode", scienceCode: "2.02.09" }, 1)).toBe("Set the science code to 2.02.09 for 1 file");
     expect(deleteLine(6)).toBe("Delete 6 files");
     expect(deleteLine(1)).toBe("Delete 1 file");
@@ -320,6 +329,7 @@ describe("the bar's words", () => {
     expect(changedText({ kind: "category", category: "transcript" }, 6)).toBe("6 files moved to Transcripts");
     expect(changedText(year, 1)).toBe("Year end set to Mar 31, 2025 for 1 file");
     expect(changedText({ kind: "writer", writerName: "Sam Okafor" }, 3)).toBe("Writer set to Sam Okafor for 3 files");
+    expect(changedText({ kind: "pdNumber", pdNumber: "4" }, 1)).toBe("PD number set to 4 for 1 file");
     expect(deletedText(1)).toBe("1 file deleted");
     expect(deletedText(6)).toBe("6 files deleted");
     expect(putBackText(1)).toBe("1 file put back");
@@ -338,6 +348,7 @@ describe("the bar's words", () => {
     expect(changePatch({ kind: "category", category: "draft" })).toEqual({ category: "draft" });
     expect(changePatch(year)).toEqual({ fiscalYearEnd: Date.UTC(2025, 2, 31) });
     expect(changePatch({ kind: "company", company: "Northgate Labs" })).toEqual({ company: "Northgate Labs" });
+    expect(changePatch({ kind: "pdNumber", pdNumber: "7" })).toEqual({ pdNumber: "7" });
     expect(changePatch({ kind: "writer", writerName: "Jordan Ellis" })).toEqual({ writerName: "Jordan Ellis" });
     expect(changePatch({ kind: "scienceCode", scienceCode: "1.02.02" })).toEqual({ scienceCode: "1.02.02" });
   });

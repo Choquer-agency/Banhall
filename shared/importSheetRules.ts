@@ -76,6 +76,24 @@ export function isBeingRead(status: ImportItemStatus): boolean {
   return status === "discovered" || status === "fetched";
 }
 
+/** Numbered projects are capped at 20 per company, as in shared/pdFilename.ts. */
+export const MAX_PD_NUMBER = 20;
+
+/** The words for a PD number that is not one, the same on the page and from the server. */
+export const PD_NUMBER_RULE = `A PD number is 1 to ${MAX_PD_NUMBER}, with an optional letter, for example 4 or 12a.`;
+
+/**
+ * A PD number as it is stored (setSheetLabels): "04" -> "4", "12a" -> "12a";
+ * null when it is not a PD number from 1 to 20 with an optional letter.
+ */
+export function normalizePdNumber(value: string): string | null {
+  const match = /^(\d{1,3})([A-Za-z])?$/.exec(value.trim());
+  if (!match) return null;
+  const number = Number.parseInt(match[1]!, 10);
+  if (number < 1 || number > MAX_PD_NUMBER) return null;
+  return `${number}${match[2] ?? ""}`;
+}
+
 /** Categories whose files carry a PD number, a version and a writer. */
 const NUMBERED: ReadonlySet<ImportCategory> = new Set(["final_pd", "draft", "review_copy"]);
 
@@ -140,6 +158,8 @@ export function canPutBack(row: { status: ImportItemStatus; deletedReason?: Dele
 export type RowAbilities = {
   /** The fiscal year cell opens its calendar (any category). */
   edit: boolean;
+  /** "Set the PD number" in the row's menu (final PDs, drafts and review copies). */
+  pdNumber: boolean;
   version: boolean;
   writer: boolean;
   scienceCode: boolean;
@@ -166,6 +186,7 @@ export function rowAbilities(
   const putBack = tab === "deleted" && canPutBack(row);
   return {
     edit: review && labelApplies("fiscalYearEnd", row),
+    pdNumber: review && labelApplies("pdNumber", row),
     version: review && labelApplies("version", row),
     writer: review && labelApplies("writerName", row),
     scienceCode: review && labelApplies("scienceCode", row),

@@ -527,13 +527,38 @@ describe("selecting files on the Import page", () => {
     await userEvent.click(fileBox("pd1"));
     await userEvent.click(fileBox("pd4"));
     await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
-    expect(all("[data-import-bar-more-choice]").map((node) => text(node))).toEqual(["Company", "Writer", "Science code"]);
+    expect(all("[data-import-bar-more-choice]").map((node) => text(node))).toEqual(["Company", "Writer", "PD number", "Science code"]);
     await userEvent.click(one('[data-import-bar-more-choice="writer"]')!);
     await userEvent.click(one('[data-import-name-option="Priya Nair"]')!);
     const confirm = page.getByRole("button", { name: "Set the writer to Priya Nair for 2 files" });
     await expect.element(confirm).toBeVisible();
     await userEvent.click(confirm);
     await expect.poll(() => __mutationCalls("ingestion:setSheetLabels")).toEqual([{ ids: ["pd1", "pd4"], patch: { writerName: "Priya Nair" } }]);
+    await expect.poll(bar).toBeNull();
+  });
+
+  it("sets one PD number on the selected files from More, by the server's rule, leaving out a file still being read (Greptile fix)", async () => {
+    seedPage();
+    await mount();
+    await selectOn();
+    await openCedarline();
+    for (const id of ["pd1", "pd4", "pd5"]) await userEvent.click(fileBox(id));
+    await userEvent.click(page.getByRole("button", { name: "More", exact: true }));
+    await userEvent.click(one('[data-import-bar-more-choice="pdNumber"]')!);
+    const search = one("[data-import-name-search]") as HTMLInputElement;
+    await expect.poll(() => all("[data-import-name-option]").length).toBe(20);
+    await userEvent.fill(search, "30");
+    await expect.element(page.getByText("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.")).toBeVisible();
+    expect(one("[data-import-bar-confirm]")).toBeNull();
+    await userEvent.fill(search, "3");
+    await expect.poll(() => all("[data-import-name-option]").map((node) => text(node))).toEqual(["PD 3", "PD 13"]);
+    await userEvent.click(one('[data-import-name-option="3"]')!);
+    expect(text(one("[data-import-bar-left-out]"))).toBe("1 final PD was left out: it is still being read.");
+    const confirm = page.getByRole("button", { name: "Set the PD number to 3 for 2 files" });
+    await expect.element(confirm).toBeVisible();
+    await userEvent.click(confirm);
+    await expect.poll(() => __mutationCalls("ingestion:setSheetLabels")).toEqual([{ ids: ["pd1", "pd4"], patch: { pdNumber: "3" } }]);
+    await expect.element(page.getByText("PD number set to 3 for 2 files")).toBeVisible();
     await expect.poll(bar).toBeNull();
   });
 

@@ -2,7 +2,7 @@
   The dark bar at the bottom of the Import page while files are selected
   (boards ao4 and ao6), in the look of a company's Files bar: "6 files
   selected", then on To review Category, Fiscal year and More (Company,
-  Writer, Science code), each a menu above the bar with the same picker as
+  Writer, PD number, Science code), each a menu above the bar with the same picker as
   one file and a confirm line that names the action ("Move 6 files to
   Transcripts"), and Delete, which says once that nothing changes outside
   Import. On Deleted, only Put back. The X clears the selection.
@@ -36,6 +36,7 @@
     CaretLeftIcon,
     CheckIcon,
     FlaskIcon,
+    HashIcon,
     TagIcon,
     TrashIcon,
     UserIcon,
@@ -46,6 +47,7 @@
   import ScienceCodeList from "$lib/components/project/details/ScienceCodeList.svelte";
   import { userErrorMessage } from "$lib/errors";
   import ImportCompanyList from "./ImportCompanyList.svelte";
+  import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import ImportWriterList from "./ImportWriterList.svelte";
   import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
   import {
@@ -98,9 +100,10 @@
 
   let pickedCategory = $state<ImportCategory | null>(null);
   let pickedDay = $state("");
-  let moreView = $state<"list" | "company" | "writer" | "scienceCode">("list");
+  let moreView = $state<"list" | "company" | "writer" | "pdNumber" | "scienceCode">("list");
   let pickedCompany = $state<string | null>(null);
   let pickedWriter = $state<string | null>(null);
+  let pickedPdNumber = $state<string | null>(null);
   let pickedCode = $state<string | null>(null);
 
   // A menu that closes forgets what was picked in it.
@@ -115,6 +118,7 @@
     moreView = "list";
     pickedCompany = null;
     pickedWriter = null;
+    pickedPdNumber = null;
     pickedCode = null;
   });
 
@@ -127,6 +131,7 @@
   const moreChange = $derived.by((): BarChange | null => {
     if (moreView === "company" && pickedCompany) return { kind: "company", company: pickedCompany };
     if (moreView === "writer" && pickedWriter) return { kind: "writer", writerName: pickedWriter };
+    if (moreView === "pdNumber" && pickedPdNumber) return { kind: "pdNumber", pdNumber: pickedPdNumber };
     if (moreView === "scienceCode" && pickedCode) return { kind: "scienceCode", scienceCode: pickedCode };
     return null;
   });
@@ -135,9 +140,7 @@
   // The shared rule, so the bar never sends what the server would skip.
   const forCategory = $derived(splitForChange("category", selection.selected));
   const forYear = $derived(splitForChange("fiscalYearEnd", selection.selected));
-  const forMore = $derived(
-    moreView === "list" ? null : splitForChange(moreView === "writer" ? "writer" : moreView === "scienceCode" ? "scienceCode" : "company", selection.selected)
-  );
+  const forMore = $derived(moreView === "list" ? null : splitForChange(moreView, selection.selected));
   const forDelete = $derived(splitForChange("delete", selection.selected));
 
   function closeMenus() {
@@ -393,6 +396,9 @@
               <button type="button" data-import-bar-more-choice="writer" onclick={() => (moreView = "writer")} class={CHOICE_ROW}>
                 <UserIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Writer
               </button>
+              <button type="button" data-import-bar-more-choice="pdNumber" onclick={() => (moreView = "pdNumber")} class={CHOICE_ROW}>
+                <HashIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />PD number
+              </button>
               <button type="button" data-import-bar-more-choice="scienceCode" onclick={() => (moreView = "scienceCode")} class={CHOICE_ROW}>
                 <FlaskIcon size="0.875rem" aria-hidden="true" class="shrink-0 text-ink-muted" />Science code
               </button>
@@ -403,6 +409,9 @@
           {:else if moreView === "writer"}
             {@render back("Writer")}
             <ImportWriterList current={pickedWriter} onPick={(name) => (pickedWriter = name)} />
+          {:else if moreView === "pdNumber"}
+            {@render back("PD number")}
+            <ImportPdNumberList current={pickedPdNumber} onPick={(value) => (pickedPdNumber = value)} />
           {:else}
             {@render back("Science code")}
             <ScienceCodeList value={pickedCode} clearable={false} maxHeight="max-h-[min(20rem,calc(100dvh-10rem))]" onSelect={(code) => (pickedCode = code)} />

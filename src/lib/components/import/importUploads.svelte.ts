@@ -12,9 +12,16 @@
  * uploadOriginal transport) while one queue stages what went up, up to ten
  * files a call (ingestion.stageImportFiles), one call after another, so the
  * company counts are written once a group. A file that fails never stops
- * the rest; the tab keeps it for "Try again". At the end the batch hears how
+ * the rest; the tab keeps it, with its batch, for "Try again". At the end the batch hears how
  * many could not be sent (ingestion.finishImportBatch). A second drop
  * waits for the first to finish.
+ *
+ * Greptile fixes (2026-11-17): files that could not be sent are kept with
+ * their own batch, so a later drop never takes "Try again" away from them;
+ * "Try again" sends each batch's files back into that batch. And the sender
+ * itself warns before the tab is closed while it checks or sends, so the
+ * warning stays when the person leaves the Import page mid-send (the send
+ * carries on) and goes once nothing is being sent.
  */
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { uploadOriginal } from "$lib/uploads/originalUpload";
@@ -62,51 +69,90 @@ export async function sha256OfFile(file: File): Promise<string> {
 }
 
 export class ImportUploads {
-  phase = $state<"idle" | "checking" | "sending" | "done">("idle");
+  #phase = $state<"idle" | "checking" | "sending" | "done">("idle");
+  /** The batch of the latest drop (the status line's own). */
   batchId = $state<Id<"importBatches"> | null>(null);
   checking = $state(0);
   checked = $state(0);
   toSend = $state(0);
   sent = $state(0);
-  /** Files this tab could not send, kept for "Try again". */
-  failed = $state.raw<Prepared[]>([]);
+  /** Files this tab could not send, each batch's kept apart for "Try again". */
+  failedBatches = $state.raw<Array<{ batchId: Id<"importBatches">; files: Prepared[] }>>([]);
 
   #deps: UploadDeps | null = null;
   #queue: Promise<void> = Promise.resolve();
+  #warning = false;
+  #warn = (event: BeforeUnloadEvent) => {
+    event.preventDefault();
+    event.returnValue = "";
+  };
 
   /** The page hands in its Convex calls (they keep working after it unmounts). */
   connect(deps: UploadDeps) {
     this.#deps = deps;
   }
 
+  get phase(): "idle" | "checking" | "sending" | "done" {
+    return this.#phase;
+  }
+
   /** Checking or sending: the tab should not be closed. */
   get busy(): boolean {
-    return this.phase === "checking" || this.phase === "sending";
+    return this.#phase === "checking" || this.#phase === "sending";
+  }
+
+  /** Every file this tab could not send, whichever batch it belongs to. */
+  get failed(): readonly Prepared[] {
+    return this.failedBatches.flatMap((entry) => entry.files);
   }
 
   /** What the status line needs from this tab. */
   get local(): LocalSending | null {
-    if (this.phase === "idle") return null;
+    if (this.#phase === "idle") return null;
     return {
       batchId: this.batchId,
-      phase: this.phase,
+      phase: this.#phase,
       checking: this.checking,
       checked: this.checked,
       toSend: this.toSend,
       sent: this.sent,
+      // All this tab holds: "Try again" sends every one of them.
       failed: this.failed.length,
     };
   }
 
+  /**
+   * Closing the tab while files are checked or sent would lose them, so the
+   * tab warns then, wherever the person is in the app. The warning goes as
+   * soon as nothing is being sent.
+   */
+  #setPhase(next: "idle" | "checking" | "sending" | "done") {
+    this.#phase = next;
+    const busy = this.busy;
+    if (busy === this.#warning || typeof window === "undefined") return;
+    this.#warning = busy;
+    if (busy) window.addEventListener("beforeunload", this.#warn);
+    else window.removeEventListener("beforeunload", this.#warn);
+  }
+
+  /** The files of one batch that could not be sent, in its place (oldest first); none drops the batch. */
+  #keepFailed(batchId: Id<"importBatches">, files: Prepared[]) {
+    const known = this.failedBatches.some((entry) => entry.batchId === batchId);
+    const next = known
+      ? this.failedBatches.map((entry) => (entry.batchId === batchId ? { batchId, files } : entry))
+      : [...this.failedBatches, { batchId, files }];
+    this.failedBatches = next.filter((entry) => entry.files.length > 0);
+  }
+
   /** Back to nothing (tests, and nothing else). */
   reset() {
-    this.phase = "idle";
+    this.#setPhase("idle");
     this.batchId = null;
     this.checking = 0;
     this.checked = 0;
     this.toSend = 0;
     this.sent = 0;
-    this.failed = [];
+    this.failedBatches = [];
     this.#deps = null;
     this.#queue = Promise.resolve();
   }
@@ -118,20 +164,26 @@ export class ImportUploads {
     return run;
   }
 
-  /** "Try again": sends the files that could not be sent, into the same batch. */
+  /**
+   * "Try again": sends the files that could not be sent, each into its own
+   * batch, the older batches first. A drop made since never takes them away.
+   */
   retry(callbacks: AddCallbacks = {}): Promise<void> {
     const run = this.#queue.then(async () => {
       const deps = this.#deps;
-      const batchId = this.batchId;
-      // A file the browser could not read stays failed: sending cannot help it.
-      const files = this.failed.filter((entry) => entry.hash);
-      if (!deps || !batchId || files.length === 0) return;
-      try {
-        await deps.reopen({ batchId });
-        await this.#send(deps, batchId, files, callbacks);
-      } catch (error) {
-        this.phase = "done";
-        callbacks.onError?.(error);
+      if (!deps) return;
+      for (const entry of this.failedBatches) {
+        // A file the browser could not read stays failed: sending cannot help it.
+        const files = entry.files.filter((file) => file.hash);
+        if (files.length === 0) continue;
+        try {
+          await deps.reopen({ batchId: entry.batchId });
+          await this.#send(deps, entry.batchId, files, callbacks);
+        } catch (error) {
+          this.#setPhase("done");
+          callbacks.onError?.(error);
+          return;
+        }
       }
     });
     this.#queue = run.catch(() => {});
@@ -145,10 +197,11 @@ export class ImportUploads {
     const left = leftOutText(leftOut);
     if (left) callbacks.onLeftOut?.(left);
     if (add.length === 0) return;
+    // Files an earlier drop could not send stay with that batch ("Try again").
+    const earlier = this.batchId;
     try {
-      this.failed = [];
       this.batchId = null;
-      this.phase = "checking";
+      this.#setPhase("checking");
       this.checking = add.length;
       this.checked = 0;
       const hash = deps.hash ?? sha256OfFile;
@@ -190,18 +243,21 @@ export class ImportUploads {
       }
       const batchId = await deps.startBatch({ toSend: toSend.length + unreadable.length, alreadyHere });
       this.batchId = batchId;
-      this.failed = unreadable;
+      this.#keepFailed(batchId, unreadable);
       await this.#send(deps, batchId, toSend, callbacks);
     } catch (error) {
-      this.phase = this.batchId ? "done" : "idle";
+      // Stopped before its batch began: the line goes back to the earlier one.
+      if (!this.batchId) this.batchId = earlier;
+      this.#setPhase(this.batchId ? "done" : "idle");
       callbacks.onError?.(error);
     }
   }
 
   /** Sends `files` three at a time and stages them ten at a time, then tells the batch how many failed. */
   async #send(deps: UploadDeps, batchId: Id<"importBatches">, files: readonly Prepared[], callbacks: AddCallbacks) {
-    const failed: Prepared[] = [...this.failed.filter((entry) => !entry.hash)];
-    this.phase = "sending";
+    const kept = this.failedBatches.find((entry) => entry.batchId === batchId)?.files ?? [];
+    const failed: Prepared[] = kept.filter((entry) => !entry.hash);
+    this.#setPhase("sending");
     this.toSend = files.length + failed.length;
     this.sent = 0;
     let firstAdded = false;
@@ -269,8 +325,8 @@ export class ImportUploads {
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, worker));
     while (staging) await staging;
 
-    this.failed = failed;
-    this.phase = "done";
+    this.#keepFailed(batchId, failed);
+    this.#setPhase("done");
     await deps.finish({ batchId, failed: failed.length });
   }
 }

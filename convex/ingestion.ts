@@ -2381,8 +2381,11 @@ export const importActivity = query({
   },
 });
 
-/** The most History rows one read returns ("Show more" asks for more). */
-const HISTORY_MAX_ROWS = 500;
+/** The most History rows one page asks for ("Show 25 more" asks for 25). */
+const HISTORY_PAGE_MAX = 100;
+/** History cursors: a batches cursor, then (once every batch is listed) where the old sync runs are up to. */
+const HISTORY_BATCHES = "batches:";
+const HISTORY_RUNS = "runs:";
 
 const historyRowValidator = v.object({
   key: v.string(),
@@ -2395,25 +2398,98 @@ const historyRowValidator = v.object({
   couldNotRead: v.union(v.null(), v.number()),
   notSent: v.number(),
 });
+type HistoryRow = Infer<typeof historyRowValidator>;
+
+/** The old sync runs after `after` (a "startedAt:creationTime" cursor, or "" for the newest), up to `numItems`. */
+async function legacySyncRuns(
+  ctx: QueryCtx,
+  after: string,
+  numItems: number
+): Promise<{ rows: HistoryRow[]; isDone: boolean; continueCursor: string }> {
+  // Runs from before batches all started before the first batch: every run
+  // since has its batch, and is that batch's row (startSync makes both at once).
+  const firstBatch = await ctx.db.query("importBatches").withIndex("by_startedAt").order("asc").first();
+  let bound: { startedAt: number; creationTime: number } | null = null;
+  if (after) {
+    const [startedAt, creationTime] = after.split(":").map(Number);
+    if (!Number.isFinite(startedAt) || !Number.isFinite(creationTime)) throw new Error("InvalidCursor: not a History cursor");
+    bound = { startedAt, creationTime };
+  }
+  const want = numItems + 1;
+  const found: Doc<"oneDriveSyncRuns">[] = [];
+  if (bound) {
+    const { startedAt, creationTime } = bound;
+    // Runs that started at the same time as the last one listed, then older.
+    found.push(
+      ...(await ctx.db
+        .query("oneDriveSyncRuns")
+        .withIndex("by_startedAt", (q) => q.eq("startedAt", startedAt).lt("_creationTime", creationTime))
+        .order("desc")
+        .take(want))
+    );
+  }
+  if (found.length < want) {
+    const below = bound?.startedAt ?? firstBatch?.startedAt;
+    const older =
+      below === undefined
+        ? ctx.db.query("oneDriveSyncRuns").withIndex("by_startedAt")
+        : ctx.db.query("oneDriveSyncRuns").withIndex("by_startedAt", (q) => q.lt("startedAt", below));
+    found.push(...(await older.order("desc").take(want - found.length)));
+  }
+  const page = found.slice(0, numItems);
+  const rows: HistoryRow[] = [];
+  for (const run of page) {
+    if (run.batchId) continue;
+    rows.push({
+      key: run._id,
+      startedAt: run.startedAt,
+      source: "onedrive",
+      who: await addedByName(ctx, run.triggeredBy),
+      added: run.discovered,
+      alreadyHere: null,
+      couldNotRead: null,
+      notSent: 0,
+    });
+  }
+  const last = page.at(-1);
+  return {
+    rows,
+    isDone: found.length <= numItems,
+    continueCursor: last ? `${last.startedAt}:${last._creationTime}` : after,
+  };
+}
 
 /**
- * The History tab: one row per batch, newest first, with the OneDrive sync
- * runs from before batches (the old page's sync log) among them. Up to
- * `limit` rows (at most 500); `more` when there are older ones. Rows are
+ * The History tab, a page at a time (Greptile fix, 2026-11-17: "Show 25
+ * more" reaches every row, not only the newest 500): one row per batch,
+ * newest first, then the OneDrive sync runs from before batches (the old
+ * page's sync log), which all started before the first batch. Batches are
+ * paged with paginate, so a page keeps its rows while new batches arrive;
+ * the page that lists the last batches also lists the first `numItems` old
+ * runs, so a new batch never pushes one of those out between pages. Rows are
  * plain: a batch's files are not listed on their own (its files show on To
  * review, where the New filter shows what arrived lately).
  */
 export const importHistory = query({
-  args: { limit: v.number() },
-  returns: v.union(v.null(), v.object({ rows: v.array(historyRowValidator), more: v.boolean() })),
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(historyRowValidator),
   handler: async (ctx, args) => {
-    if ((await adminOrNull(ctx)) === null) return null;
-    const limit = countArg(args.limit, HISTORY_MAX_ROWS) || 1;
-    const batches = await ctx.db.query("importBatches").withIndex("by_startedAt").order("desc").take(limit + 1);
-    const runs = await ctx.db.query("oneDriveSyncRuns").withIndex("by_startedAt").order("desc").take(limit + 1);
-    const rows: Array<Infer<typeof historyRowValidator>> = [];
-    for (const batch of batches.slice(0, limit)) {
-      rows.push({
+    if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
+    const { numItems } = boundedPage(args.paginationOpts, HISTORY_PAGE_MAX);
+    const cursor = args.paginationOpts.cursor ?? HISTORY_BATCHES;
+    if (cursor.startsWith(HISTORY_RUNS)) {
+      const runs = await legacySyncRuns(ctx, cursor.slice(HISTORY_RUNS.length), numItems);
+      return { page: runs.rows, isDone: runs.isDone, continueCursor: HISTORY_RUNS + runs.continueCursor };
+    }
+    if (!cursor.startsWith(HISTORY_BATCHES)) throw new Error("InvalidCursor: not a History cursor");
+    const batches = await ctx.db
+      .query("importBatches")
+      .withIndex("by_startedAt")
+      .order("desc")
+      .paginate({ numItems, cursor: cursor.slice(HISTORY_BATCHES.length) || null });
+    const page: HistoryRow[] = [];
+    for (const batch of batches.page) {
+      page.push({
         key: batch._id,
         startedAt: batch.startedAt,
         source: batch.source,
@@ -2424,25 +2500,9 @@ export const importHistory = query({
         notSent: batch.failed,
       });
     }
-    // A run with a batch is that batch's row.
-    for (const run of runs.slice(0, limit)) {
-      if (run.batchId) continue;
-      rows.push({
-        key: run._id,
-        startedAt: run.startedAt,
-        source: "onedrive",
-        who: await addedByName(ctx, run.triggeredBy),
-        added: run.discovered,
-        alreadyHere: null,
-        couldNotRead: null,
-        notSent: 0,
-      });
-    }
-    rows.sort((a, b) => b.startedAt - a.startedAt);
-    return {
-      rows: rows.slice(0, limit),
-      more: rows.length > limit || batches.length > limit || runs.length > limit,
-    };
+    if (!batches.isDone) return { page, isDone: false, continueCursor: HISTORY_BATCHES + batches.continueCursor };
+    const runs = await legacySyncRuns(ctx, "", numItems);
+    return { page: [...page, ...runs.rows], isDone: runs.isDone, continueCursor: HISTORY_RUNS + runs.continueCursor };
   },
 });
 

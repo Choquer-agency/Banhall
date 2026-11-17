@@ -12,6 +12,8 @@ import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
 import {
   isBeingRead as statusIsBeingRead,
   looksLikeEmail,
+  normalizePdNumber,
+  PD_NUMBER_RULE,
   tabForStatus,
   writerInitialsKey,
 } from "../../shared/importSheetRules";
@@ -437,8 +439,6 @@ export function mergeEditedLabels(
   return EDITABLE_LABELS.filter((label) => all.has(label));
 }
 
-/** Numbered projects are capped at 20 per company, as in shared/pdFilename.ts. */
-const MAX_PD_NUMBER = 20;
 const MAX_VERSION_NUMBER = 99;
 const MAX_COMPANY_NAME = 200;
 const MAX_WRITER_NAME = 120;
@@ -459,14 +459,8 @@ export function cleanWriterName(value: string): string {
   return name;
 }
 
-/** "04" -> "4", "12a" -> "12a"; null when it is not a PD number from 1 to 20. */
-export function normalizePdNumber(value: string): string | null {
-  const match = /^(\d{1,3})([A-Za-z])?$/.exec(value.trim());
-  if (!match) return null;
-  const number = Number.parseInt(match[1], 10);
-  if (number < 1 || number > MAX_PD_NUMBER) return null;
-  return `${number}${match[2] ?? ""}`;
-}
+/** "04" -> "4", "12a" -> "12a" (shared/importSheetRules.ts, which the page checks a typed number with too). */
+export { normalizePdNumber };
 
 /**
  * The row fields one sheet edit sets, and the labels it marks as set by a
@@ -513,7 +507,7 @@ export function labelPatchFields(patch: SheetLabelPatch): {
   if (patch.pdNumber !== undefined) {
     const pdNumber = normalizePdNumber(patch.pdNumber);
     if (pdNumber === null) {
-      domainError("INVALID_INPUT", "A PD number is 1 to 20, with an optional letter, for example 4 or 12a.");
+      domainError("INVALID_INPUT", PD_NUMBER_RULE);
     }
     fields.pdNumber = pdNumber;
     labels.push("pdNumber");

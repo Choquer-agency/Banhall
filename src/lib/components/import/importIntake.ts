@@ -266,7 +266,10 @@ export type LocalSending = {
   /** Files to send, after leaving out those already here. */
   toSend: number;
   sent: number;
-  /** Files this tab could not send, and can try again. */
+  /**
+   * Files this tab could not send, and can try again: every batch's, not only
+   * `batchId`'s, since "Try again" sends them all (each into its own batch).
+   */
   failed: number;
 };
 
@@ -399,7 +402,7 @@ export function spokenDueAt(said: string, saidAt: number, next: string, now: num
 
 // ─── History ────────────────────────────────────────────────────────────────
 
-export type HistoryRow = NonNullable<FunctionReturnType<typeof api.ingestion.importHistory>>["rows"][number];
+export type HistoryRow = FunctionReturnType<typeof api.ingestion.importHistory>["page"][number];
 
 /** How a batch came. */
 export const HOW_IT_CAME: Record<HistoryRow["source"], string> = {

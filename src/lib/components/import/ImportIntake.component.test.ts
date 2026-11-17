@@ -7,6 +7,7 @@ import { importUploads } from "./importUploads.svelte";
 import {
   __activeQueryArgs,
   __clientQueryCalls,
+  __loadMoreCalls,
   __mutationCalls,
   __resetConvexStub,
   __setMutationHandler,
@@ -303,8 +304,9 @@ async function sha256Hex(body: string): Promise<string> {
 function answerSends(failing: ReadonlySet<string> = new Set()) {
   let urls = 0;
   let stored = 0;
+  let batches = 0;
   __setMutationHandler("ingestion:generateUploadUrl", () => `https://upload.test/${++urls}`);
-  __setMutationHandler("ingestion:startImportBatch", () => "batch-1");
+  __setMutationHandler("ingestion:startImportBatch", () => `batch-${++batches}`);
   let newFiles = 0;
   __setMutationHandler("ingestion:stageImportFiles", (args) => {
     const files = (args as { files: Array<{ path: string }> }).files;
@@ -433,7 +435,7 @@ describe("Files 1: dropping files on the Import page", () => {
     __setQueryData("ingestion:importFilesHere", [await sha256Hex("already.pdf")]);
     // Switch to History first: a drop brings the page back to To review.
     await userEvent.click(page.getByRole("tab", { name: "History" }));
-    __setQueryData("ingestion:importHistory", { rows: [], more: false });
+    __setPaginatedRows("ingestion:importHistory", []);
     const transfer = transferOf([pdf("already.pdf"), pdf("fresh one.pdf"), pdf("fresh two.pdf"), new File(["x"], ".DS_Store"), pdf("empty.pdf", "")]);
     const target = one("[data-import-page]")!;
     drag("dragover", target, transfer);
@@ -502,6 +504,70 @@ describe("Files 1: dropping files on the Import page", () => {
     await expect.poll(() => __mutationCalls("ingestion:finishImportBatch").at(-1)).toEqual({ batchId: "batch-1", failed: 0 });
     const staged = __mutationCalls("ingestion:stageImportFiles").at(-1) as { files: Array<{ path: string }> };
     expect(staged.files.map((entry) => entry.path)).toEqual(["broken.pdf"]);
+  });
+
+  it("keeps an earlier drop's failed files for Try again when another drop follows, and sends each into its own batch", async () => {
+    answerSends(new Set(["broken.pdf"]));
+    await mountFiles1(1440);
+    __setQueryData("ingestion:importFilesHere", []);
+    const target = one("[data-import-page]")!;
+    drag("drop", target, transferOf([pdf("good.pdf"), pdf("broken.pdf")]));
+    await expect.poll(() => __mutationCalls("ingestion:finishImportBatch")).toEqual([{ batchId: "batch-1", failed: 1 }]);
+    // A second drop, all of it sent, before anyone presses Try again.
+    drag("drop", target, transferOf([pdf("later.pdf")]));
+    await expect.poll(() => __mutationCalls("ingestion:finishImportBatch").at(-1)).toEqual({ batchId: "batch-2", failed: 0 });
+    const at = Date.now();
+    __setQueryData("ingestion:importActivity", [
+      { _id: "batch-2", source: "page", mine: true, addedByName: "Jordan Ellis", startedAt: at, lastFileAt: at, toSend: 1, sendingDone: true, added: 1, alreadyHere: 0, failed: 0, read: 0, couldNotRead: 0 },
+      { _id: "batch-1", source: "page", mine: true, addedByName: "Jordan Ellis", startedAt: at - 1000, lastFileAt: at - 1000, toSend: 2, sendingDone: true, added: 1, alreadyHere: 0, failed: 1, read: 0, couldNotRead: 0 },
+    ]);
+    // The earlier file is still counted, with Try again.
+    await expect.poll(() => text(one("[data-import-status-text]"))).toBe("1 file added. 0 read so far. 1 could not be sent.");
+    vi.restoreAllMocks();
+    answerSends();
+    await userEvent.click(page.getByRole("button", { name: "Try again" }));
+    // Back into its own batch, not the later one.
+    await expect.poll(() => __mutationCalls("ingestion:reopenImportBatch")).toEqual([{ batchId: "batch-1" }]);
+    await expect.poll(() => __mutationCalls("ingestion:finishImportBatch").at(-1)).toEqual({ batchId: "batch-1", failed: 0 });
+    const staged = __mutationCalls("ingestion:stageImportFiles").at(-1) as { batchId: string; files: Array<{ path: string }> };
+    expect(staged).toMatchObject({ batchId: "batch-1", files: [{ path: "broken.pdf" }] });
+    await expect.poll(() => one("[data-import-status-retry]")).toBeNull();
+    expect(importUploads.failed).toHaveLength(0);
+  });
+
+  it("warns before the tab closes while files are sent, after the page is left, and stops once they are", async () => {
+    const realFetch = globalThis.fetch.bind(globalThis);
+    answerSends();
+    // Hold the upload until the test lets it go.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://upload.test/")) return realFetch(input, init);
+      await held;
+      return Response.json({ storageId: "storage-1" });
+    });
+    const closing = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(closing()).toBe(false);
+    seedFiles1();
+    await page.viewport(1440, 900);
+    const view = await render(ImportPage);
+    await expect.poll(() => one("[data-import-page]")).not.toBeNull();
+    __setQueryData("ingestion:importFilesHere", []);
+    drag("drop", one("[data-import-page]")!, transferOf([pdf("slow.pdf")]));
+    await expect.poll(() => importUploads.phase).toBe("sending");
+    expect(closing()).toBe(true);
+    // Away from Import: the send carries on, and so does the warning.
+    view.unmount();
+    expect(one("[data-import-page]")).toBeNull();
+    expect(closing()).toBe(true);
+    release();
+    await expect.poll(() => __mutationCalls("ingestion:finishImportBatch")).toEqual([{ batchId: "batch-1", failed: 0 }]);
+    expect(closing()).toBe(false);
   });
 
   it("sends two different files with one name, dropped together, as two files", async () => {
@@ -689,15 +755,16 @@ describe("History", () => {
     await page.viewport(1440, 900);
     seedFiles1();
     const day = Date.UTC(2026, 10, 12, 14, 0);
-    __setQueryDataForArgs("ingestion:importHistory", { limit: 25 }, {
-      rows: [
+    __setPaginatedRows(
+      "ingestion:importHistory",
+      [
         { key: "b3", startedAt: day, source: "page", who: "Jordan Ellis", added: 52, alreadyHere: 12, couldNotRead: 1, notSent: 0 },
         { key: "b2", startedAt: day - 3_600_000, source: "uploader", who: null, added: 412, alreadyHere: 30, couldNotRead: 4, notSent: 0 },
         { key: "b1", startedAt: day - 7_200_000, source: "page", who: "Priya Nair", added: 9, alreadyHere: 0, couldNotRead: 0, notSent: 2 },
         { key: "r1", startedAt: day - 86_400_000, source: "onedrive", who: "Dana Whitlock", added: 1204, alreadyHere: null, couldNotRead: null, notSent: 0 },
       ],
-      more: true,
-    });
+      { more: true }
+    );
     await render(ImportPage);
     await userEvent.click(page.getByRole("tab", { name: "History" }));
     await expect.poll(() => all("[data-import-history-row]").length).toBe(4);
@@ -714,8 +781,12 @@ describe("History", () => {
     // The sheet's header row: 36px on the gray-50 fill.
     expect(box(one("[data-import-history-header]")!).height).toBeCloseTo(board(36), 0);
     await page.screenshot({ path: `${CAPTURES}/history-1440.png` });
+    // The next page from the server's cursor, not the newest rows again (Greptile fix, 2026-11-17).
     await userEvent.click(page.getByRole("button", { name: "Show 25 more" }));
-    await expect.poll(() => __activeQueryArgs("ingestion:importHistory")).toEqual([{ limit: 50 }]);
+    expect(__loadMoreCalls("ingestion:importHistory")).toEqual([{ args: {}, numItems: 25 }]);
+    // Once every row is listed, no more to show.
+    __setPaginatedRows("ingestion:importHistory", [], { more: false });
+    await expect.poll(() => one("[data-import-history-more]")).toBeNull();
   });
 });
 
