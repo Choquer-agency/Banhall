@@ -10,10 +10,19 @@ import {
   type MutationCtx,
 } from "./_generated/server";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
 import { eraseBrainEntry } from "./ai/brain/erase";
+import {
+  countKeys,
+  deleteBrainSource,
+  insertBrainSource,
+  patchBrainSource,
+  syncBrainSourceCard,
+  type CountKey,
+} from "./ai/brain/rag";
 import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
@@ -115,13 +124,77 @@ type ImportSourceArgs = {
   scienceCode?: string;
   sourceProjectId?: import("./_generated/dataModel").Id<"projects">;
   approve?: boolean;
+  /**
+   * The import file this source is made from (2026-11-17). Its
+   * `ingestionItems.contentHash` is matched before the text hash, so the
+   * same file approved again finds its source even if its text was read
+   * differently.
+   */
+  importItem?: { itemId: Id<"ingestionItems">; contentHash: string };
 };
+
+/** What the refusal calls the thing being imported, from its doc type. */
+function docNoun(docType: string): string {
+  if (docType === "pd") return "PD";
+  if (docType === "transcript") return "transcript";
+  if (docType === "cra_letter") return "CRA letter";
+  return "file";
+}
+
+/**
+ * Shown when an import matches a revoked source. It says why when the row
+ * tells: rejected from the queue, or removed after it was approved. There is
+ * no way to approve it again here yet (that comes later, as a new row).
+ */
+export function revokedMatchMessage(
+  docType: string,
+  revokedFromStatus: Doc<"brainSources">["revokedFromStatus"]
+): string {
+  const noun = docNoun(docType);
+  if (revokedFromStatus === "pending") {
+    return `This ${noun} matches a Brain source an Admin rejected, so it cannot be approved here.`;
+  }
+  if (revokedFromStatus === "approved") {
+    return `This ${noun} matches a Brain source an Admin removed from the Brain, so it cannot be approved here.`;
+  }
+  return `This ${noun} matches a Brain source that was rejected or removed, so it cannot be approved here.`;
+}
+
+/**
+ * What `importSource` did (2026-11-17). `added`: a new row. `matched`: an
+ * existing pending or approved row is reused (and approved now when the
+ * caller asked to approve a pending one). `revoked`: the match was removed
+ * from the Brain, so nothing is reused, approved or written; the caller
+ * shows `message` or handles the revoked source itself.
+ */
+export type ImportSourceResult =
+  | { outcome: "added" | "matched"; sourceId: Id<"brainSources">; status: "pending" | "approved" }
+  | { outcome: "revoked"; sourceId: Id<"brainSources">; message: string };
+
+/** The existing source an import matches: by import file bytes first, then by text. */
+async function findImportMatch(
+  ctx: MutationCtx,
+  textHash: string,
+  importContentHash: string | undefined
+): Promise<Doc<"brainSources"> | null> {
+  if (importContentHash) {
+    const byFile = await ctx.db
+      .query("brainSources")
+      .withIndex("by_importContentHash", (q) => q.eq("importContentHash", importContentHash))
+      .first();
+    if (byFile) return byFile;
+  }
+  return await ctx.db
+    .query("brainSources")
+    .withIndex("by_hash", (q) => q.eq("sourceHash", textHash))
+    .first();
+}
 
 export async function importSource(
   ctx: MutationCtx,
   args: ImportSourceArgs,
   actor: string
-) {
+): Promise<ImportSourceResult> {
   const explicitScienceCode = normalizeCraScienceCode(args.scienceCode);
   if (args.scienceCode?.trim() && !explicitScienceCode) {
     throw new Error("Invalid CRA field of science or technology code");
@@ -133,23 +206,58 @@ export async function importSource(
   const scienceCode = projectScienceCode ?? explicitScienceCode;
   const hash = contentHash(args.content);
 
-  // Dedup by content (BNH-17). A later project-linked import may enrich an
-  // existing legacy row with structured science routing metadata.
-  const existing = await ctx.db
-    .query("brainSources")
-    .withIndex("by_hash", (q) => q.eq("sourceHash", hash))
-    .first();
+  // Dedup that respects status (2026-11-17; BNH-17 dedup by content). A
+  // revoked match is never reused: nothing re-approves or re-ingests it here.
+  const existing = await findImportMatch(ctx, hash, args.importItem?.contentHash);
+  if (existing?.status === "revoked") {
+    return {
+      outcome: "revoked",
+      sourceId: existing._id,
+      message: revokedMatchMessage(args.docType, existing.revokedFromStatus),
+    };
+  }
   if (existing) {
-    if (scienceCode && existing.scienceCode !== scienceCode) {
-      await ctx.db.patch(existing._id, { scienceCode });
-      if (existing.status === "approved") await scheduleEmbed(ctx, existing._id);
+    // A later project-linked import may enrich an existing legacy row with
+    // structured science routing metadata; a file import links its bytes.
+    const patch: Partial<Doc<"brainSources">> = {};
+    if (scienceCode && existing.scienceCode !== scienceCode) patch.scienceCode = scienceCode;
+    if (args.importItem && !existing.importContentHash) {
+      patch.importContentHash = args.importItem.contentHash;
+      if (!existing.importItemId) patch.importItemId = args.importItem.itemId;
     }
-    return existing._id;
+    const approveNow = args.approve === true && existing.status === "pending";
+    if (approveNow) {
+      // The approver's metadata wins over the nomination's defaults, in the
+      // same patch, so the counts and the embed's filters follow it.
+      patch.status = "approved";
+      patch.industry = args.industry;
+      patch.writerTier = args.writerTier;
+      if (args.writerName !== undefined) patch.writerName = args.writerName;
+      if (args.title.trim()) patch.title = args.title;
+    }
+    if (Object.keys(patch).length > 0) await patchBrainSource(ctx, existing, patch);
+    if (approveNow) {
+      await ctx.db.insert("brainAuditLog", {
+        action: "approve",
+        sourceId: existing._id,
+        actorId: actor,
+        reason: "Imported again and approved (it matched a pending source)",
+        at: Date.now(),
+      });
+    }
+    if (approveNow || (existing.status === "approved" && patch.scienceCode)) {
+      await scheduleEmbed(ctx, existing._id);
+    }
+    return {
+      outcome: "matched",
+      sourceId: existing._id,
+      status: approveNow ? "approved" : existing.status,
+    };
   }
 
   const kind = args.kind ?? "pd_pair";
   const status = args.approve ? "approved" : "pending";
-  const sourceId = await ctx.db.insert("brainSources", {
+  const sourceId = await insertBrainSource(ctx, {
     kind,
     status,
     title: args.title,
@@ -166,6 +274,8 @@ export async function importSource(
     sourceProjectId: args.sourceProjectId,
     createdBy: actor,
     createdAt: Date.now(),
+    importItemId: args.importItem?.itemId,
+    importContentHash: args.importItem?.contentHash,
   });
 
   await ctx.db.insert("brainAuditLog", {
@@ -179,7 +289,18 @@ export async function importSource(
   if (args.approve) {
     await scheduleEmbed(ctx, sourceId);
   }
-  return sourceId;
+  return { outcome: "added", sourceId, status };
+}
+
+/**
+ * The source id for callers that show a refusal: a revoked match throws
+ * `BRAIN_SOURCE_REVOKED` with the plain message, so nothing is written.
+ */
+export function sourceIdOrRefuse(result: ImportSourceResult): Id<"brainSources"> {
+  if (result.outcome === "revoked") {
+    domainError("BRAIN_SOURCE_REVOKED", result.message, { sourceId: result.sourceId });
+  }
+  return result.sourceId;
 }
 
 /**
@@ -191,7 +312,7 @@ export const importPdPair = mutation({
   args: importArgs,
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
-    return await importSource(ctx, args, admin);
+    return sourceIdOrRefuse(await importSource(ctx, args, admin));
   },
 });
 
@@ -203,7 +324,7 @@ export const importPdPair = mutation({
 export const seedPdPair = internalMutation({
   args: importArgs,
   handler: async (ctx, args) => {
-    return await importSource(ctx, args, "cli:seed");
+    return sourceIdOrRefuse(await importSource(ctx, args, "cli:seed"));
   },
 });
 
@@ -236,6 +357,7 @@ export const nominateFromReport = internalMutation({
     // and its title reach drafting prompts (the title as the exemplar label).
     // Scrub client identifiers out of both before they leave the project.
     const content = deidentify(rawContent, project);
+    // A match an Admin revoked is left alone (no new nomination).
     await importSource(
       ctx,
       {
@@ -290,31 +412,185 @@ export const removeSourcePermanently = internalMutation({
         ragEntryId: s.ragEntryId,
       });
     }
-    await ctx.db.delete(args.sourceId);
+    await deleteBrainSource(ctx, args.sourceId);
   },
 });
+
+/** Approved sources re-queued per page of `requeueAllApprovedEmbeds`. */
+export const REQUEUE_PAGE_SIZE = 50;
 
 /**
  * Re-embed every approved source through the throttled pool, unlearning each
  * row's previous RAG entry first. For index-shape migrations (namespace or
  * embedding-model changes) — content and governance rows are untouched.
+ *
+ * 2026-11-17: one page of approved list cards per run (no source text is
+ * read), then it schedules the next page, so it works for thousands of
+ * sources. Start it with no arguments; needs `backfillBrainSourceCards`
+ * finished first, since it walks the cards.
  */
 export const requeueAllApprovedEmbeds = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const approved = await ctx.db
-      .query("brainSources")
-      .withIndex("by_status", (q) => q.eq("status", "approved"))
-      .collect();
-    for (const s of approved) {
-      if (s.ragEntryId) {
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ requeued: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    if (!(await cardsReady(ctx))) {
+      throw new Error(
+        "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
+      );
+    }
+    const page = await ctx.db
+      .query("brainSourceCards")
+      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
+      .paginate({ cursor: args.cursor ?? null, numItems: REQUEUE_PAGE_SIZE });
+    for (const card of page.page) {
+      if (card.ragEntryId) {
         await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
-          ragEntryId: s.ragEntryId,
+          ragEntryId: card.ragEntryId,
         });
       }
-      await scheduleEmbed(ctx, s._id);
+      await scheduleEmbed(ctx, card.sourceId);
     }
-    return { requeued: approved.length };
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.brain.requeueAllApprovedEmbeds, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { requeued: page.page.length, done: page.isDone };
+  },
+});
+
+/**
+ * Sources read per page of `backfillBrainSourceCards`. Small, because each
+ * row still carries its full text (up to 1 MiB) until the text moves off
+ * the row.
+ */
+export const CARD_BACKFILL_PAGE_SIZE = 10;
+
+const CARDS_READY = { scope: "meta" as const, key: "cards_ready" };
+
+/** Whether the card backfill has run to its last page (the re-embed needs it). */
+async function cardsReady(ctx: QueryCtx | MutationCtx): Promise<boolean> {
+  const marker = await ctx.db
+    .query("brainSourceCounts")
+    .withIndex("by_scope_and_key", (q) => q.eq("scope", CARDS_READY.scope).eq("key", CARDS_READY.key))
+    .unique();
+  return marker !== null;
+}
+
+/** The count rows of one scope, as a map (bounded: 3 statuses, industries in the hundreds). */
+async function countRows(ctx: QueryCtx | MutationCtx, scope: "status" | "industry") {
+  return await ctx.db
+    .query("brainSourceCounts")
+    .withIndex("by_scope_and_key", (q) => q.eq("scope", scope))
+    .take(1000);
+}
+
+/**
+ * One-time, owner-run right after the backend deploy (2026-11-17): builds the
+ * list card and the stored counts for every source written before them. One
+ * page per run; it schedules the next. Idempotent: rows already in step
+ * change nothing, so running it again, or while Admins work, never double
+ * counts. The last page writes the "cards ready" marker and logs the totals.
+ */
+export const backfillBrainSourceCards = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    synced: v.optional(v.number()),
+  },
+  returns: v.object({
+    synced: v.number(),
+    total: v.number(),
+    done: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("brainSources")
+      .paginate({ cursor: args.cursor ?? null, numItems: CARD_BACKFILL_PAGE_SIZE });
+    for (const source of page.page) await syncBrainSourceCard(ctx, source._id, source);
+    const total = (args.synced ?? 0) + page.page.length;
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.brain.backfillBrainSourceCards, {
+        cursor: page.continueCursor,
+        synced: total,
+      });
+    } else {
+      const marker = await ctx.db
+        .query("brainSourceCounts")
+        .withIndex("by_scope_and_key", (q) => q.eq("scope", CARDS_READY.scope).eq("key", CARDS_READY.key))
+        .unique();
+      if (marker) await ctx.db.patch(marker._id, { count: total });
+      else await ctx.db.insert("brainSourceCounts", { ...CARDS_READY, count: total });
+      const byStatus = Object.fromEntries((await countRows(ctx, "status")).map((r) => [r.key, r.count]));
+      console.log(`backfillBrainSourceCards done: ${total} sources synced; counts ${JSON.stringify(byStatus)}`);
+    }
+    return { synced: page.page.length, total, done: page.isDone, continueCursor: page.continueCursor };
+  },
+});
+
+/** Cards read per page of `recountBrainSourceCounts` (small rows, no text). */
+export const RECOUNT_PAGE_SIZE = 500;
+
+const countEntry = v.object({
+  scope: v.union(v.literal("status"), v.literal("industry")),
+  key: v.string(),
+  count: v.number(),
+});
+
+/**
+ * Repair (2026-11-17): counts every card again, a page at a time, and on the
+ * last page rewrites the status and industry count rows to match. Run it
+ * when `bumpCount` logs a missing row. Start it with no arguments; best run
+ * while nobody is approving or revoking, since a write between its pages can
+ * be counted before or after its change.
+ */
+export const recountBrainSourceCounts = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    totals: v.optional(v.array(countEntry)),
+  },
+  returns: v.object({ done: v.boolean(), changed: v.number() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("brainSourceCards")
+      .paginate({ cursor: args.cursor ?? null, numItems: RECOUNT_PAGE_SIZE });
+    const id = (k: CountKey) => `${k.scope}:${k.key}`;
+    const totals = new Map((args.totals ?? []).map((t) => [id(t), { ...t }]));
+    for (const card of page.page) {
+      for (const k of countKeys(card)) {
+        const entry = totals.get(id(k)) ?? { ...k, count: 0 };
+        entry.count += 1;
+        totals.set(id(k), entry);
+      }
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.brain.recountBrainSourceCounts, {
+        cursor: page.continueCursor,
+        totals: [...totals.values()],
+      });
+      return { done: false, changed: 0 };
+    }
+    let changed = 0;
+    for (const scope of ["status", "industry"] as const) {
+      for (const row of await countRows(ctx, scope)) {
+        const key = id({ scope, key: row.key });
+        const want = totals.get(key);
+        totals.delete(key);
+        if (!want) {
+          await ctx.db.delete(row._id);
+          changed += 1;
+        } else if (want.count !== row.count) {
+          await ctx.db.patch(row._id, { count: want.count });
+          changed += 1;
+        }
+      }
+    }
+    for (const missing of totals.values()) {
+      await ctx.db.insert("brainSourceCounts", missing);
+      changed += 1;
+    }
+    console.log(`recountBrainSourceCounts done: ${changed} count rows fixed`);
+    return { done: true, changed };
   },
 });
 
@@ -348,7 +624,7 @@ export const approveSource = mutation({
     const admin = await assertAdmin(ctx);
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
-    await ctx.db.patch(args.sourceId, { status: "approved" });
+    await patchBrainSource(ctx, s, { status: "approved" });
     await ctx.db.insert("brainAuditLog", {
       action: "approve",
       sourceId: args.sourceId,
@@ -391,7 +667,7 @@ export const revokeSource = mutation({
       }
       return;
     }
-    await ctx.db.patch(args.sourceId, { status: "revoked" });
+    await patchBrainSource(ctx, s, { status: "revoked", revokedFromStatus: s.status });
     await ctx.db.insert("brainAuditLog", {
       action: "revoke",
       sourceId: args.sourceId,
@@ -497,7 +773,7 @@ export const recordUnlearnConfirmed = internalMutation({
     const s = await ctx.db.get(args.sourceId);
     if (!s || s.status === "approved") return;
     if (s.ragEntryId === args.ragEntryId) {
-      await ctx.db.patch(args.sourceId, { ragEntryId: undefined });
+      await patchBrainSource(ctx, s, { ragEntryId: undefined });
     }
     if (await hasUnlearnConfirmation(ctx, args.sourceId, args.ragEntryId)) return;
     await ctx.db.insert("brainAuditLog", {
@@ -530,7 +806,7 @@ export const recordUnlearnFailure = internalMutation({
       const s = await ctx.db.get(args.sourceId);
       if (s && s.status !== "approved") {
         if (!s.ragEntryId) {
-          await ctx.db.patch(args.sourceId, { ragEntryId: args.ragEntryId });
+          await patchBrainSource(ctx, s, { ragEntryId: args.ragEntryId });
         }
         await ctx.db.insert("brainAuditLog", {
           action: "unlearn_failed",
@@ -584,7 +860,7 @@ export const reweightSource = mutation({
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
     const tier = Math.max(0, Math.min(1, args.writerTier));
-    await ctx.db.patch(args.sourceId, { writerTier: tier });
+    await patchBrainSource(ctx, s, { writerTier: tier });
     await ctx.db.insert("brainAuditLog", {
       action: "reweight",
       sourceId: args.sourceId,
@@ -723,7 +999,8 @@ export const reviewFeedback = mutation({
       const project = fb.projectId ? await ctx.db.get(fb.projectId) : null;
       // Phase E (E3): feedback on an evaluation project is never nominated.
       if (promotable && !isEvaluationProject(project)) {
-        sourceId = await importSource(
+        // A revoked match is linked, not reused: the item is withdrawn below.
+        const nominated = await importSource(
           ctx,
           {
             kind: "writer_feedback",
@@ -739,6 +1016,7 @@ export const reviewFeedback = mutation({
           },
           admin
         );
+        sourceId = nominated.sourceId;
         // Phase E (E2a): the source this item's lessons come from, so
         // removing it withdraws them (a duplicate links the existing one).
         await ctx.db.patch(args.feedbackId, { brainSourceId: sourceId });
@@ -818,36 +1096,49 @@ export const linkBrainFeedbackSources = internalMutation({
 
 // ─── Admin dashboard reads (reactive) ───────────────────────────────────────
 
+/** One row of the admin list, read from `brainSourceCards` (never a source's text). */
+function listRow(card: Doc<"brainSourceCards">) {
+  return {
+    _id: card.sourceId,
+    title: card.title,
+    status: card.status,
+    kind: card.kind,
+    industry: card.industry,
+    writerName: card.writerName ?? null,
+    writerTier: card.writerTier,
+    docType: card.docType,
+    craOutcome: card.craOutcome ?? null,
+    scienceCode: normalizeCraScienceCode(card.scienceCode) ?? null,
+    hasEntry: !!card.ragEntryId,
+    createdAt: card.createdAt,
+  };
+}
+
+/**
+ * The admin list, newest first, a page at a time (2026-11-17). It reads only
+ * the small list cards, so it never reads a source's text. A signed-out or
+ * non-admin caller gets an empty last page.
+ */
 export const listBrainSources = query({
   args: {
     status: v.optional(
       v.union(v.literal("pending"), v.literal("approved"), v.literal("revoked"))
     ),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
-    if (!(await adminOrNull(ctx))) return null;
-    const rows = args.status
-      ? await ctx.db
-          .query("brainSources")
-          .withIndex("by_status", (q) => q.eq("status", args.status!))
-          .order("desc")
-          .collect()
-      : await ctx.db.query("brainSources").order("desc").take(200);
-    // Don't ship full content to the list view.
-    return rows.map((r) => ({
-      _id: r._id,
-      title: r.title,
-      status: r.status,
-      kind: r.kind,
-      industry: r.industry,
-      writerName: r.writerName ?? null,
-      writerTier: r.writerTier,
-      docType: r.docType,
-      craOutcome: r.craOutcome ?? null,
-      scienceCode: normalizeCraScienceCode(r.scienceCode) ?? null,
-      hasEntry: !!r.ragEntryId,
-      createdAt: r.createdAt,
-    }));
+    if (!(await adminOrNull(ctx))) {
+      const none: ReturnType<typeof listRow>[] = [];
+      return { page: none, isDone: true, continueCursor: "" };
+    }
+    const status = args.status;
+    const cards = status
+      ? ctx.db
+          .query("brainSourceCards")
+          .withIndex("by_status_and_createdAt", (q) => q.eq("status", status))
+      : ctx.db.query("brainSourceCards").withIndex("by_createdAt");
+    const result = await cards.order("desc").paginate(args.paginationOpts);
+    return { ...result, page: result.page.map(listRow) };
   },
 });
 
@@ -884,20 +1175,34 @@ export const listBrainAudit = query({
   },
 });
 
+/**
+ * Counts for the admin page, from the stored counts (2026-11-17): a few
+ * small rows, never a scan of the sources. `byIndustry` counts approved
+ * sources only.
+ */
 export const brainStats = query({
   args: {},
   handler: async (ctx) => {
     if (!(await adminOrNull(ctx))) return null;
-    const approved = await ctx.db
-      .query("brainSources")
-      .withIndex("by_status", (q) => q.eq("status", "approved"))
-      .collect();
-    const pending = await ctx.db
-      .query("brainSources")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
+    const byStatus: Record<string, number> = {};
+    for (const row of await ctx.db
+      .query("brainSourceCounts")
+      .withIndex("by_scope_and_key", (q) => q.eq("scope", "status"))
+      .take(10)) {
+      byStatus[row.key] = row.count;
+    }
     const byIndustry: Record<string, number> = {};
-    for (const s of approved) byIndustry[s.industry] = (byIndustry[s.industry] ?? 0) + 1;
-    return { approved: approved.length, pending: pending.length, byIndustry };
+    for (const row of await ctx.db
+      .query("brainSourceCounts")
+      .withIndex("by_scope_and_key", (q) => q.eq("scope", "industry"))
+      .take(500)) {
+      byIndustry[row.key] = row.count;
+    }
+    return {
+      approved: byStatus.approved ?? 0,
+      pending: byStatus.pending ?? 0,
+      revoked: byStatus.revoked ?? 0,
+      byIndustry,
+    };
   },
 });

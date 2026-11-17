@@ -26,6 +26,7 @@
   import { api } from "../../../../convex/_generated/api";
   import type { Doc, Id } from "../../../../convex/_generated/dataModel";
   import { useStableQuery } from "$lib/stableQuery.svelte";
+  import { userErrorMessage } from "$lib/errors";
   import IndustrySelect from "$lib/components/ui/IndustrySelect.svelte";
 
   type Tab = "review" | "gaps" | "approved" | "rejected" | "failed" | "deleted" | "sync";
@@ -174,7 +175,8 @@
       selectedIds = selectedIds.filter((id) => id !== item._id);
       closeReview(true);
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
+      // A revoked Brain match comes back as a refusal with plain words.
+      errorMsg = userErrorMessage(err, err instanceof Error ? err.message : String(err));
     } finally {
       busyId = null;
     }

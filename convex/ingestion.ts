@@ -13,7 +13,7 @@ import { v, type Infer } from "convex/values";
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { importSource } from "./brain";
+import { importSource, sourceIdOrRefuse } from "./brain";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { graphConfiguration } from "./lib/providerConfig";
@@ -1000,21 +1000,27 @@ export const finalizeApproval = internalMutation({
     const title = [item.clientName, item.fiscalYearLabel, item.name]
       .filter(Boolean)
       .join(" — ");
-    const sourceId = await importSource(
-      ctx,
-      {
-        kind: "pd_pair",
-        title,
-        industry: args.industry.trim(),
-        writerName: args.writerName?.trim() || undefined,
-        writerTier: args.writerTier,
-        docType,
-        fiscalYear: item.fiscalYear,
-        content: args.content,
-        scienceCode: args.scienceCode?.trim() || undefined,
-        approve: true,
-      },
-      admin
+    // 2026-11-17: a match an Admin revoked is refused in plain words and
+    // nothing is approved (the item stays in review); a pending match is
+    // approved, an approved one reused. The file's bytes are matched first.
+    const sourceId = sourceIdOrRefuse(
+      await importSource(
+        ctx,
+        {
+          kind: "pd_pair",
+          title,
+          industry: args.industry.trim(),
+          writerName: args.writerName?.trim() || undefined,
+          writerTier: args.writerTier,
+          docType,
+          fiscalYear: item.fiscalYear,
+          content: args.content,
+          scienceCode: args.scienceCode?.trim() || undefined,
+          approve: true,
+          importItem: { itemId: item._id, contentHash: item.contentHash },
+        },
+        admin
+      )
     );
     const { after } = await patchItem(ctx, item, {
       status: "approved",

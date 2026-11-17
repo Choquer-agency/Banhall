@@ -169,11 +169,11 @@ Status dot on approved rows: ● = embedded & retrievable, ◌ = still embedding
 Still open in P2: Citations API in the drafters (deep output-shape change,
 deferred to its own pass — bump `@anthropic-ai/sdk` first).
 
-**⚠ Voyage billing:** the Voyage org has NO payment method on file → hard
-limit of 3 requests/min + 10K tokens/min. That caused the seed-day 429s and
-throttles rerank today. Add a payment method before any bulk import (BNH-17)
-or the 4-retrievals-per-generation flow will regularly fall back to
-vector-order.
+**Voyage billing:** until 2026-11-17 the Voyage org had no payment method on
+file, so it was held to 3 requests/min and 10K tokens/min. That caused the
+seed-day 429s and throttled rerank (the 4-retrievals-per-generation flow often
+fell back to vector order). As of 2026-11-17 a card is on file (owner
+confirmed), which lifts that free-tier limit before the bulk import (BNH-17).
 
 ## Generation fan-out (fixed 2026-07-02, found during Brain e2e)
 
@@ -194,5 +194,27 @@ imports of any size are safe, just slow-and-steady. See `embedPool` in
 `convex/brain.ts`.
 
 Utility: `npx convex run brain:requeueAllApprovedEmbeds` re-embeds everything
-through the pool (unlearning old entries first) — for index-shape migrations
-like namespace or embedding-model changes.
+through the pool (unlearning old entries first), for index-shape migrations
+like namespace or embedding-model changes. Since 2026-11-17 it runs as a chain
+of pages of 50 and needs `brain:backfillBrainSourceCards` finished first.
+
+## Reads at volume (2026-11-17)
+
+The admin list and the stats never read a source's text. Each source has a
+small list row in `brainSourceCards`, and `brainSourceCounts` holds the counts
+by status and approved counts by industry. Both change only through
+`insertBrainSource`, `patchBrainSource` and `deleteBrainSource` in
+`convex/ai/brain/rag.ts` (a guard test catches table-name writes elsewhere;
+id-only patches and deletes name no table, so review must catch those).
+`brain:listBrainSources` is paginated. An import that matches a revoked source
+is refused in plain words that say whether it was rejected or removed.
+
+Deploy: run `brain:backfillBrainSourceCards` right after the backend deploy,
+before anyone opens `/admin/brain` (the list and counts miss older rows until
+it finishes). Repair: `brain:recountBrainSourceCounts` rebuilds the counts from
+the cards. See the 2026-11-17 amendment in `docs/product-domain.md`.
+
+Follow-ups (left as they are, bounded by the hits they look up):
+`brain:approvedBrainSourceIds` and learning health's source lookup
+(`convex/learningHealth.ts:133`) still `db.get` the full source row, text
+included. Move them to the cards (or to the text table of the next PR).
