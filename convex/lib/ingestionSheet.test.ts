@@ -252,6 +252,16 @@ describe("pathFieldsFor", () => {
   });
 });
 
+describe("pathFieldsFor with a category a person set", () => {
+  it("reads the file name for that category", () => {
+    const path = `${FY}/Background/${PD_NAME}`;
+    expect(pathFieldsFor(path, PD_NAME).pdNumber).toBeUndefined();
+    expect(
+      pathFieldsFor(path, PD_NAME, { editedLabels: ["category"], category: "final_pd" })
+    ).toMatchObject({ category: "final_pd", pdNumber: "4", versionCode: "T", writerInitials: "DW" });
+  });
+});
+
 describe("derivedFields and settleItem", () => {
   it("keeps the invariants for rows from many paths", () => {
     for (const path of [

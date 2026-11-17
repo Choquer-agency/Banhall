@@ -1575,6 +1575,58 @@ describe("pairing by company key and fiscal year", () => {
 
 // ─── Science code from the document text ────────────────────────────────────
 
+describe("Greptile review of the labels layer (2026-11-17)", () => {
+  it("reads the file name of a scheme-named PD once a person makes it a final PD", async () => {
+    const { t, admin } = await setup();
+    const id = await stage(t, `${CEDARLINE_FY}/Background/${PD_NAME}`, { driveItemId: "kept-aside" });
+    await markRead(t, id);
+    const before = await getItem(t, id);
+    expect(before).toMatchObject({ category: "supporting" });
+    expect(before.pdNumber).toBeUndefined();
+    expect(before.writerInitials).toBeUndefined();
+
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [id], patch: { category: "final_pd" } });
+    const after = await getItem(t, id);
+    expect(after).toMatchObject({
+      category: "final_pd",
+      pdNumber: "4",
+      versionCode: "T",
+      versionNumber: 2,
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      pdTitle: "Cold Chain Sensor Drift",
+    });
+    expectInvariants(after);
+
+    // A later sync of the same file keeps the person's category and the labels it gives.
+    await t.mutation(
+      internal.ingestion.upsertDiscoveredItem,
+      discoveredArgs(`${CEDARLINE_FY}/Background/${PD_NAME}`, { driveItemId: "kept-aside" })
+    );
+    expect(await getItem(t, id)).toMatchObject({ category: "final_pd", pdNumber: "4", writerInitials: "DW" });
+  });
+
+  it("reads the science code from the preview when a move makes a read draft a final PD", async () => {
+    const t = convexTest(schema, modules);
+    const id = await stage(t, `${CEDARLINE_FY}/Drafts/${PD_NAME}`, { driveItemId: "moving" });
+    await markRead(t, id, "Field of science or technology: 2.02.09");
+    expect((await getItem(t, id)).scienceCode).toBeUndefined();
+
+    await t.mutation(
+      internal.ingestion.upsertDiscoveredItem,
+      discoveredArgs(`${CEDARLINE_FY}/To be submitted/${PD_NAME}`, { driveItemId: "moving" })
+    );
+    const moved = await getItem(t, id);
+    expect(moved).toMatchObject({
+      category: "final_pd",
+      status: "pending_review",
+      scienceCode: "2.02.09",
+      scienceCodeSource: "document",
+    });
+    expectInvariants(moved);
+  });
+});
+
 describe("the science code read from a final PD's text", () => {
   async function processWith(t: T, id: Id<"ingestionItems">, documentScienceCode?: string) {
     const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));

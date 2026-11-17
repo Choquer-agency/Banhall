@@ -916,6 +916,19 @@ export const setSheetLabels = mutation({
         ...fields,
         editedLabels: mergeEditedLabels(item.editedLabels, labels),
       };
+      if (fields.category !== undefined && fields.category !== item.category) {
+        // The file name is read for the category the person chose: a
+        // scheme-named PD kept in a supporting folder gives its number,
+        // version and initials once it is made a final PD (labels a person
+        // set stay).
+        const read = pathFieldsFor(item.path, item.name, { ...item, ...patch });
+        patch.pdNumber = read.pdNumber;
+        patch.versionCode = read.versionCode;
+        patch.versionNumber = read.versionNumber;
+        patch.writerInitials = read.writerInitials;
+        patch.reviewerInitials = read.reviewerInitials;
+        patch.pdTitle = read.pdTitle;
+      }
       if (fields.category === "final_pd" && item.category !== "final_pd") {
         // Extraction reads the code only for a file that was a final PD then.
         const { _id, _creationTime, ...stored } = item;
@@ -1134,13 +1147,21 @@ async function upsertDiscovered(
     // docKind and pairing key follow the new path like the labels do, so
     // approval and pairing see the company the sheet shows; both pair groups
     // are recomputed.
-    const { after } = await patchItem(ctx, existing, {
+    const movePatch: Partial<IngestionItemFields> = {
       path: args.path,
       name: args.name,
       ...fromPath,
       lastModifiedAt: args.lastModifiedAt,
       updatedAt: Date.now(),
-    });
+    };
+    if (movePatch.category === "final_pd" && existing.category !== "final_pd") {
+      // Extraction kept a science code only for a file that was a final PD
+      // then, and unchanged bytes are not read again: read it from the
+      // stored preview, as a person's change of category does.
+      const { _id, _creationTime, ...stored } = existing;
+      Object.assign(movePatch, previewScienceCode(settleItem({ ...stored, ...movePatch })));
+    }
+    const { after } = await patchItem(ctx, existing, movePatch);
     noteGroups(after);
     return null;
   }

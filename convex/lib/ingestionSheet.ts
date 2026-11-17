@@ -162,7 +162,9 @@ type KeptLabels = Pick<
  * from fiscalYearEnd, not from the label.
  */
 export function pathFieldsFor(path: string, name: string, kept?: KeptLabels | null): PathFields {
-  const c = classifyItemPath(path, name);
+  const personCategory =
+    kept?.editedLabels?.includes("category") && kept.category !== undefined ? kept.category : undefined;
+  const c = classifyItemPath(path, name, personCategory);
   const fields: PathFields = {
     clientName: c.clientName,
     fiscalYearLabel: c.fiscalYearLabel,
@@ -171,7 +173,6 @@ export function pathFieldsFor(path: string, name: string, kept?: KeptLabels | nu
   const edited = new Set(kept?.editedLabels ?? []);
   if (!kept || edited.size === 0) return fields;
   if (edited.has("company")) fields.clientName = kept.clientName;
-  if (edited.has("category") && kept.category !== undefined) fields.category = kept.category;
   if (edited.has("fiscalYearEnd")) {
     fields.fiscalYearEnd = kept.fiscalYearEnd;
     fields.fiscalYearEndAssumed = kept.fiscalYearEndAssumed;

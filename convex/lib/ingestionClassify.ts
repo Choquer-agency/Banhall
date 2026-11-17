@@ -177,7 +177,11 @@ function nameFiscalYearEnd(
  * "To be submitted", …); transcripts live under an Audio folder inside
  * WIP/Technical.
  */
-export function classify(relPath: string, fileName: string): Classified {
+export function classify(
+  relPath: string,
+  fileName: string,
+  categoryOverride?: Classified["category"]
+): Classified {
   const segments = relPath.split("/").filter(Boolean);
   const clientName = segments[0];
   const fiscalYearLabel = segments[1];
@@ -202,8 +206,11 @@ export function classify(relPath: string, fileName: string): Classified {
     docKind,
     nearestStage: nearestStage(segments),
   };
+  // A category a person set wins, and the file name is read for it: a PD
+  // named by the scheme but kept in a supporting folder still gives its
+  // number, version and initials once a person makes it a final PD.
   const category =
-    CATEGORY_RULES.find((rule) => rule.when(facts))?.category ?? "supporting";
+    categoryOverride ?? CATEGORY_RULES.find((rule) => rule.when(facts))?.category ?? "supporting";
 
   const companyKey = clientName === undefined ? undefined : dashboardCompanyKey(clientName);
   const classified: Classified = {
@@ -282,9 +289,13 @@ export function pairGroupKeyFor(companyKey?: string, fiscalYear?: number): strin
 }
 
 /** classify for a stored item: its `path` holds the folders and the file. */
-export function classifyItemPath(path: string, name: string): Classified {
+export function classifyItemPath(
+  path: string,
+  name: string,
+  categoryOverride?: Classified["category"]
+): Classified {
   const folders = path.split("/").filter(Boolean).slice(0, -1).join("/");
-  return classify(folders, name);
+  return classify(folders, name, categoryOverride);
 }
 
 /**
