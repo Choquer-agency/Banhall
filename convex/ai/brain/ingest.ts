@@ -17,6 +17,7 @@ import {
   BRAIN_ENTRY_IMPORTANCE,
   BRAIN_INDEX_FIELDS,
   BRAIN_RAGS,
+  CHUNK_NOTES_MAX_BYTES,
   entryIdIn,
   entryIsCurrent,
   vBrainIndexId,
@@ -64,6 +65,12 @@ export function contextualizeMessages(fullDoc: string, chunk: string): Generatio
   ];
 }
 
+/** A raw chunk with its note in front, or the raw chunk when it has none. */
+export function withNote(note: string, chunk: string): string {
+  return note ? `${note}\n\n${chunk}` : chunk;
+}
+
+/** One note per chunk ("" when the model gave none or failed). */
 async function contextualizeChunks(
   client: GenerationClient,
   model: string,
@@ -84,13 +91,13 @@ async function contextualizeChunks(
         .map((b) => b.text)
         .join(" ")
         .trim();
-      out.push(ctx ? `${ctx}\n\n${chunk}` : chunk);
+      out.push(ctx);
     } catch (err) {
       // Never fail ingestion on a contextualization hiccup — but log it: a
       // silent run of raw chunks would quietly lose the contextual-retrieval
       // quality gain with nothing in the dashboard to show why.
       console.warn("brain chunk contextualization failed; using raw chunk", err);
-      out.push(chunk);
+      out.push("");
     }
   }
   return out;
@@ -230,6 +237,7 @@ export const embedSource = internalAction({
     };
 
     let chunks: string[] | undefined;
+    let keptNotes = false;
     if (notesOn) {
       const rawChunks = defaultChunker(src.content);
       // Notes this prompt version already made for another index.
@@ -240,21 +248,50 @@ export const embedSource = internalAction({
         chunks = (await reusableNoteChunks(ctx, other, entryId, rawChunks)) ?? undefined;
       }
       if (!chunks) {
-        // Model catalog: the brain_context role's model.
-        const { client, model } = await clientForRole(ctx, "brain_context", {
-          callSite: "brain:contextualize",
-          brainSourceId: args.sourceId,
+        // Review 51 (P3-2): notes an earlier attempt of this embed made and
+        // kept, so a pool retry after a failed add never pays Haiku again.
+        let notes = await ctx.runQuery(internal.ai.brain.rag.keptChunkNotes, {
+          sourceId: args.sourceId,
+          notesVersion: BRAIN_CHUNK_NOTES_VERSION,
+          chunkCount: rawChunks.length,
         });
-        chunks = await contextualizeChunks(client, model, src.content, rawChunks);
+        if (!notes) {
+          // Model catalog: the brain_context role's model.
+          const { client, model } = await clientForRole(ctx, "brain_context", {
+            callSite: "brain:contextualize",
+            brainSourceId: args.sourceId,
+          });
+          notes = await contextualizeChunks(client, model, src.content, rawChunks);
+          if (new TextEncoder().encode(JSON.stringify(notes)).length <= CHUNK_NOTES_MAX_BYTES) {
+            await ctx.runMutation(internal.ai.brain.rag.keepChunkNotes, {
+              sourceId: args.sourceId,
+              notesVersion: BRAIN_CHUNK_NOTES_VERSION,
+              notes,
+            });
+            keptNotes = true;
+          }
+        } else {
+          keptNotes = true;
+        }
+        chunks = rawChunks.map((raw, i) => withNote(notes![i] ?? "", raw));
       }
     }
 
     for (const index of targets) {
       const namespace = BRAIN_SEARCH_INDEXES[index].namespace;
       const rag = BRAIN_RAGS[index];
-      const addResult = chunks
-        ? await rag.add(ctx, { ...common, namespace, chunks })
-        : await rag.add(ctx, { ...common, namespace, text: src.content });
+      // Review 51 (P3-4): a lease while the add runs; refused once the
+      // index's drop has started, so a late add never makes its namespace again.
+      const leaseId = await ctx.runMutation(internal.ai.brain.rag.beginIndexWrite, { sourceId: args.sourceId, index });
+      if (!leaseId) continue;
+      let addResult;
+      try {
+        addResult = chunks
+          ? await rag.add(ctx, { ...common, namespace, chunks })
+          : await rag.add(ctx, { ...common, namespace, text: src.content });
+      } finally {
+        await ctx.runMutation(internal.ai.brain.rag.endIndexWrite, { leaseId });
+      }
       if (addResult.usage.tokens > 0) {
         await scheduleUsage(ctx, {
           brainSourceId: args.sourceId,
@@ -274,6 +311,13 @@ export const embedSource = internalAction({
           ...(notesVersion ? { notesVersion } : {}),
         });
       }
+    }
+    // Every add finished: the kept notes are no longer needed.
+    if (keptNotes) {
+      await ctx.runMutation(internal.ai.brain.rag.dropChunkNotes, {
+        sourceId: args.sourceId,
+        notesVersion: BRAIN_CHUNK_NOTES_VERSION,
+      });
     }
   },
 });

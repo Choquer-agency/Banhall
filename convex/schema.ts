@@ -4082,11 +4082,55 @@ export default defineSchema({
         present: v.number(),
         queued: v.number(),
         missing: v.number(),
+        // The index the pass filled; absent: every written index.
+        index: v.optional(v.union(v.literal("voyage3"), v.literal("voyage4"))),
+      })
+    ),
+    // Review 51 widen: a build pass is running (its first step's time is
+    // the run's id; a step of another run stops). Cleared by its last step.
+    buildRunning: v.optional(
+      v.object({
+        startedAt: v.number(),
+        index: v.optional(v.union(v.literal("voyage3"), v.literal("voyage4"))),
+      })
+    ),
+    // Review 51 widen: a pointer move whose live check of every approved
+    // card did not fit in one call; the next call goes on from `cursor`.
+    moveCheck: v.optional(
+      v.object({
+        index: v.union(v.literal("voyage3"), v.literal("voyage4")),
+        cursor: v.string(),
+        checked: v.number(),
+        startedAt: v.number(),
       })
     ),
     changedBy: v.string(),
     changedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  // Review 51 (2026-11-18 (fourth)): the chunk notes one embed made, kept
+  // until every index it adds to has its entry, so a pool retry after a
+  // failed add never pays Haiku for them again. One row per source and
+  // note version; `notes[i]` is the note of raw chunk i ("" for none).
+  // Deleted by the embed once its adds finish, and with the source.
+  brainChunkNotes: defineTable({
+    sourceId: v.id("brainSources"),
+    notesVersion: v.number(),
+    chunkCount: v.number(),
+    notes: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_sourceId_and_notesVersion", ["sourceId", "notesVersion"]),
+
+  // Review 51 (2026-11-18 (fourth)): an embed's add to one index while it
+  // runs, so brain:deleteOldSearchNamespace can wait for adds to voyage3
+  // that started before its drop (an add would make the namespace again).
+  // Written before the add, deleted after it; a row older than an action
+  // can run is stale and ignored.
+  brainIndexWrites: defineTable({
+    index: v.union(v.literal("voyage3"), v.literal("voyage4")),
+    sourceId: v.id("brainSources"),
+    startedAt: v.number(),
+  }).index("by_index_and_startedAt", ["index", "startedAt"]),
 
   // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
   // One row per review run. The uploaded PD lives in projectDocuments

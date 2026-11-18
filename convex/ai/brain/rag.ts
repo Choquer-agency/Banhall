@@ -2,7 +2,7 @@ import { RAG } from "@convex-dev/rag";
 import { v } from "convex/values";
 import { components, internal } from "../../_generated/api";
 import type { DataModel, Doc, Id } from "../../_generated/dataModel";
-import { internalMutation, type MutationCtx, type QueryCtx } from "../../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../../_generated/server";
 import {
   BRAIN_DEFAULT_SERVING_INDEX,
   BRAIN_EMBEDDING_DIMENSION,
@@ -262,9 +262,13 @@ async function bookReadyEntry(
 export const ingestOnComplete = brain.defineOnComplete<DataModel>(
   async (ctx, { namespace, entry, replacedEntry, error }) => {
     if (!entry.key) return; // we always add with a key; narrows string|undefined
-    const known = brainIndexForNamespace(namespace.namespace);
-    if (!known) console.warn(`ingestOnComplete: namespace ${namespace.namespace} is not a Brain index; booked as voyage3`);
-    const index: BrainIndexId = known ?? "voyage3";
+    const index = brainIndexForNamespace(namespace.namespace);
+    if (!index) {
+      // Review 51 (P3-7): a namespace this handler does not know (a future
+      // one reusing it, say) is never booked into a Brain index's field.
+      console.warn(`ingestOnComplete: namespace ${namespace.namespace} is not a Brain search index; nothing recorded`);
+      return;
+    }
     const source = await ctx.db
       .query("brainSources")
       .withIndex("by_ragKey", (q) => q.eq("ragKey", entry.key!))
@@ -495,6 +499,13 @@ export async function deleteSourceImportLinksPage(
 
 export async function deleteBrainSource(ctx: MutationCtx, sourceId: Id<"brainSources">) {
   const more = await deleteSourceImportLinksPage(ctx, sourceId);
+  // Chunk notes an unfinished embed kept (one row per note version, so few).
+  for (const row of await ctx.db
+    .query("brainChunkNotes")
+    .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", sourceId))
+    .take(20)) {
+    await ctx.db.delete(row._id);
+  }
   await ctx.db.delete(sourceId);
   await syncBrainSourceCard(ctx, sourceId, null);
   // Links left over point at a source that no longer exists; lookups skip
@@ -569,3 +580,90 @@ export async function sourcesForImportFile(
   }
   return sources;
 }
+
+// ─── Chunk notes kept across retries, and index add leases (review 51) ─────
+
+/**
+ * The most a kept row's notes may weigh, well under Convex's 1 MiB document
+ * limit; a source with more is not kept (its retry makes the notes again).
+ */
+export const CHUNK_NOTES_MAX_BYTES = 800_000;
+
+/** The notes an earlier attempt of this embed made, if they match the chunk count. */
+export const keptChunkNotes = internalQuery({
+  args: { sourceId: v.id("brainSources"), notesVersion: v.number(), chunkCount: v.number() },
+  returns: v.union(v.array(v.string()), v.null()),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("brainChunkNotes")
+      .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", args.sourceId).eq("notesVersion", args.notesVersion))
+      .unique();
+    if (!row || row.chunkCount !== args.chunkCount || row.notes.length !== args.chunkCount) return null;
+    return row.notes;
+  },
+});
+
+/** Keep one embed's notes until its adds finish (replacing an older row). */
+export const keepChunkNotes = internalMutation({
+  args: { sourceId: v.id("brainSources"), notesVersion: v.number(), notes: v.array(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const old = await ctx.db
+      .query("brainChunkNotes")
+      .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", args.sourceId).eq("notesVersion", args.notesVersion))
+      .unique();
+    if (old) await ctx.db.delete(old._id);
+    const source = await ctx.db.get(args.sourceId);
+    if (!source || source.status !== "approved") return null;
+    await ctx.db.insert("brainChunkNotes", {
+      sourceId: args.sourceId,
+      notesVersion: args.notesVersion,
+      chunkCount: args.notes.length,
+      notes: args.notes,
+      createdAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+/** Drop the kept notes once every add of the embed has finished. */
+export const dropChunkNotes = internalMutation({
+  args: { sourceId: v.id("brainSources"), notesVersion: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("brainChunkNotes")
+      .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", args.sourceId).eq("notesVersion", args.notesVersion))
+      .unique();
+    if (row) await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+/** A lease row older than this is from an action that can no longer be running. */
+export const INDEX_WRITE_LEASE_MS = 15 * 60_000;
+
+/**
+ * Start one add to one index. Refused (null) when the index is no longer
+ * written (its drop started after the embed read the state), so the add
+ * never runs and never makes the namespace again; otherwise a lease row the
+ * add deletes when done.
+ */
+export const beginIndexWrite = internalMutation({
+  args: { sourceId: v.id("brainSources"), index: vBrainIndexId },
+  returns: v.union(v.id("brainIndexWrites"), v.null()),
+  handler: async (ctx, args) => {
+    const state = await readBrainIndexState(ctx);
+    if (!state.written.includes(args.index)) return null;
+    return await ctx.db.insert("brainIndexWrites", { index: args.index, sourceId: args.sourceId, startedAt: Date.now() });
+  },
+});
+
+export const endIndexWrite = internalMutation({
+  args: { leaseId: v.id("brainIndexWrites") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (await ctx.db.get(args.leaseId)) await ctx.db.delete(args.leaseId);
+    return null;
+  },
+});

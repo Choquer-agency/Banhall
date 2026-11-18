@@ -5,6 +5,7 @@
 // own test in convex/ai/brain/voyageBoundary.test.ts). Every company and
 // passage here is made up.
 import { convexTest } from "convex-test";
+import { APICallError } from "@ai-sdk/provider";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
@@ -15,6 +16,7 @@ import {
   brainV4,
   BRAIN_CHUNK_NOTES_VERSION,
   BRAIN_ENTRY_IMPORTANCE,
+  INDEX_WRITE_LEASE_MS,
   insertBrainSource,
 } from "./ai/brain/rag";
 import {
@@ -25,9 +27,9 @@ import {
   brainRerankModel,
   brainRerankModelV4,
 } from "./ai/brain/embeddings";
-import { embedTargets } from "./ai/brain/ingest";
+import { embedTargets, reusableNoteChunks } from "./ai/brain/ingest";
 import { searchBrainExemplars } from "./ai/brain/retrieve";
-import { BUILD_PAGE_SIZE, BUILD_WAIT_MS } from "./brain";
+import { BUILD_PAGE_SIZE, BUILD_WAIT_MS, MOVE_CHECK_BUDGET } from "./brain";
 import { MODEL_PRICING } from "../shared/modelPricing";
 import ragSchema from "../node_modules/@convex-dev/rag/src/component/schema.js";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
@@ -219,7 +221,7 @@ describe("two indexes, one pointer", () => {
         changedAt: 1,
       });
     });
-    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4", actor: "owner" })).toEqual({ serving: "voyage4", changed: true });
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4", actor: "owner" })).toEqual({ serving: "voyage4", changed: true, checked: 1 });
     const moved = await search();
     expect(moved.exemplars.map((e) => e.entryId)).toEqual([after.ragEntryIdV4]);
     expect(moved.exemplars[0].text).toContain("brain-v4 passage");
@@ -260,25 +262,92 @@ describe("two indexes, one pointer", () => {
     ]);
   });
 
-  test("the pointer refuses voyage4 before a build and while sources are missing, unless forced", async () => {
+  test("the live guard: refused at the first approved source not current in the target, and while a build runs; force skips it", async () => {
     const t = setup();
-    await expect(t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).rejects.toThrow(/buildSearchIndex to the end/);
-    await t.run((ctx) =>
-      ctx.db.insert("brainSearchIndexState", {
-        key: "search",
-        serving: "voyage3",
-        lastBuild: { finishedAt: 1, approved: 3, present: 2, queued: 1, missing: 1 },
-        changedBy: "test",
-        changedAt: 1,
-      })
+    const a = await source(t, { ragEntryId: "e3-a", ragImportance: 1, ragEntryIdV4: "e4-a" });
+    const b = await source(t, { ragEntryId: "e3-b", ragImportance: 1 });
+    await source(t, { status: "pending" });
+    await backfillCards(t);
+    const move = (index: "voyage3" | "voyage4", extra: Record<string, unknown> = {}) =>
+      t.mutation(internal.brain.setServingSearchIndex, { index, actor: "owner", ...extra });
+
+    // voyage4 is refused while one approved source has no voyage4 entry, though no build ever ran.
+    expect(await move("voyage4")).toEqual({
+      serving: "voyage3",
+      changed: false,
+      checked: 2,
+      message: `Not moved: approved source ${b} has no current voyage4 entry (no entry). Run brain:buildSearchIndex to the end, then move the pointer again.`,
+    });
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./ai/brain/rag");
+      await patchBrainSource(ctx, (await ctx.db.get(b))!, { ragEntryIdV4: "e4-b" });
+    });
+    expect(await move("voyage4")).toMatchObject({ serving: "voyage4", changed: true, checked: 2 });
+
+    // The rollback index must be as good: an old weight's importance, then old notes, refuse it.
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./ai/brain/rag");
+      await patchBrainSource(ctx, (await ctx.db.get(a))!, { ragImportance: 0.4 });
+    });
+    expect((await move("voyage3")).message).toBe(
+      `Not moved: approved source ${a} has no current voyage3 entry (an old weight's importance). Run brain:buildSearchIndex with {"index":"voyage3"} to the end, then move the pointer again.`
     );
-    await expect(t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).rejects.toThrow(
-      "The last build left 1 approved sources without a voyage4 entry. Run brain:buildSearchIndex again."
-    );
-    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4", force: true })).toEqual({ serving: "voyage4", changed: true });
-    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toEqual({ serving: "voyage4", changed: false });
-    const reasons = (await t.run((ctx) => ctx.db.query("brainAuditLog").collect())).map((a) => a.reason);
-    expect(reasons).toEqual(["Search moved from voyage3 (voyage-3-large) to voyage4 (voyage-4-large), forced"]);
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./ai/brain/rag");
+      await patchBrainSource(ctx, (await ctx.db.get(a))!, { ragImportance: 1 });
+    });
+    vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+    expect((await move("voyage3")).message).toMatch(/no current voyage3 entry \(notes from an older prompt\)/);
+    vi.stubEnv("BRAIN_CONTEXTUAL", "");
+
+    // Not while a build pass runs, unless forced.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("brainSearchIndexState").unique();
+      await ctx.db.patch(row!._id, { buildRunning: { startedAt: 1 } });
+    });
+    await expect(move("voyage3")).rejects.toThrow("A build pass is running.");
+    expect(await move("voyage3", { force: true, reason: "emergency" })).toMatchObject({ serving: "voyage3", changed: true });
+    expect(await move("voyage3")).toEqual({ serving: "voyage3", changed: false, checked: 0 });
+    const reasons = (await t.run((ctx) => ctx.db.query("brainAuditLog").collect()))
+      .filter((r) => r.action === "switch_index")
+      .map((r) => r.reason);
+    expect(reasons).toEqual([
+      "Search moved from voyage3 (voyage-3-large) to voyage4 (voyage-4-large)",
+      "Search moved from voyage4 (voyage-4-large) to voyage3 (voyage-3-large), forced: emergency",
+    ]);
+  });
+
+  test("a check longer than one call keeps its place, and the next call goes on from there", async () => {
+    const t = setup();
+    // Cards alone: the check reads only cards. One more than a call checks.
+    const total = MOVE_CHECK_BUDGET + 1;
+    for (let start = 0; start < total; start += 1000) {
+      await t.run(async (ctx) => {
+        for (let i = start; i < Math.min(total, start + 1000); i++) {
+          const sourceId = await ctx.db.insert("brainSources", {
+            kind: "pd_pair", status: "approved", title: "x", industry: "manufacturing", writerTier: 1, docType: "pd",
+            content: "x", ragKey: `k-${i}`, sourceHash: `h-${i}`, createdBy: "test", createdAt: i,
+          });
+          await ctx.db.insert("brainSourceCards", {
+            sourceId, kind: "pd_pair", status: "approved", title: "x", industry: "manufacturing", writerTier: 1,
+            docType: "pd", createdAt: i, ragEntryId: `e3-${i}`, ragImportance: 1, ragEntryIdV4: `e4-${i}`,
+          });
+        }
+      });
+    }
+    const first = await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" });
+    expect(first).toEqual({
+      serving: "voyage3",
+      changed: false,
+      checked: MOVE_CHECK_BUDGET,
+      message: `Not moved yet: checked ${MOVE_CHECK_BUDGET} approved sources so far and every one has a current voyage4 entry. Run this again to check the rest.`,
+    });
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({
+      serving: "voyage4",
+      changed: true,
+      checked: total,
+    });
+    expect((await t.run((ctx) => ctx.db.query("brainSearchIndexState").unique()))?.moveCheck).toBeUndefined();
   });
 });
 
@@ -472,25 +541,24 @@ describe("buildSearchIndex", () => {
     await expect(t.mutation(internal.brain.buildSearchIndex, {})).rejects.toThrow(/backfillBrainSourceCards/);
   });
 
-  test("queues only sources missing from voyage4, deletes nothing, waits for its page, then counts and records", async () => {
+  test("with no index it queues one embed per source not current in either, deletes nothing, waits for its page, then counts and records", async () => {
     const t = setup();
     const { Workpool } = await import("@convex-dev/workpool");
     const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
-    const present = await source(t, { ragEntryId: "e3-a", ragEntryIdV4: "e4-a" });
-    const missing = await source(t, { ragEntryId: "e3-b" });
-    const failing = await source(t, { ragEntryId: "e3-c" });
+    await source(t, { ragEntryId: "e3-a", ragImportance: 1, ragEntryIdV4: "e4-a" });
+    const missing = await source(t, { ragEntryId: "e3-b", ragImportance: 1 });
+    // voyage4 is there, but voyage3 still carries an old weight as importance.
+    const oldTier = await source(t, { ragEntryId: "e3-c", ragEntryIdV4: "e4-c", writerTier: 0.7 });
     await source(t, { status: "pending" });
     await backfillCards(t);
 
     expect(await t.mutation(internal.brain.buildSearchIndex, {})).toEqual({
       approved: 3, present: 1, queued: 2, missing: 0, waiting: false, done: false,
     });
-    expect(enqueue.mock.calls.map((call) => call[2])).toEqual([
-      { sourceId: missing, indexes: ["voyage4"] },
-      { sourceId: failing, indexes: ["voyage4"] },
-    ]);
+    // One embed each, for every index it needs: the notes would be made once.
+    expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: missing }, { sourceId: oldTier }]);
     expect(await scheduled(t, "unlearnSource")).toEqual([]);
-    void present;
+    expect((await t.run((ctx) => ctx.db.query("brainSearchIndexState").unique()))?.buildRunning).toBeTruthy();
 
     // The next step waits while its page's embeds are still in the pool.
     const [next] = await scheduled(t, "buildSearchIndex");
@@ -501,8 +569,11 @@ describe("buildSearchIndex", () => {
       { state: "finished" },
     ] as never);
     expect(await t.mutation(internal.brain.buildSearchIndex, args as never)).toMatchObject({ waiting: true, done: false });
+    // A second start is refused while the pass runs, and so is the pointer.
+    await expect(t.mutation(internal.brain.buildSearchIndex, {})).rejects.toThrow(/already running/);
+    await expect(t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).rejects.toThrow(/build pass is running/);
 
-    // Both finished: one got its entry, one failed every retry.
+    // Both finished: the missing one got its voyage4 entry; the old-tier one failed every retry.
     status.mockResolvedValue([{ state: "finished" }, { state: "finished" }] as never);
     await t.run(async (ctx) => {
       const { patchBrainSource } = await import("./ai/brain/rag");
@@ -513,15 +584,18 @@ describe("buildSearchIndex", () => {
     });
     const state = await t.run((ctx) => ctx.db.query("brainSearchIndexState").unique());
     expect(state).toMatchObject({ serving: "voyage3", lastBuild: { approved: 3, present: 1, queued: 2, missing: 1 } });
-    await expect(t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).rejects.toThrow(/left 1 approved/);
+    expect(state?.buildRunning).toBeUndefined();
+    // voyage4 is whole, so the cutover goes; the rollback index is not, so moving back is refused.
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({ changed: true });
+    expect((await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).message).toContain(`${oldTier} has no current voyage3 entry (an old weight's importance)`);
 
-    // Run again: only the failed one is queued; once it lands, nothing is missing.
+    // Run again: only the failed one is queued; once it lands, nothing is missing and the rollback goes.
     enqueue.mockClear();
     await t.mutation(internal.brain.buildSearchIndex, {});
-    expect(enqueue.mock.calls.map((call) => (call[2] as { sourceId: string }).sourceId)).toEqual([failing]);
+    expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: oldTier }]);
     await t.run(async (ctx) => {
       const { patchBrainSource } = await import("./ai/brain/rag");
-      await patchBrainSource(ctx, (await ctx.db.get(failing))!, { ragEntryIdV4: "e4-c" });
+      await patchBrainSource(ctx, (await ctx.db.get(oldTier))!, { ragImportance: 1 });
     });
     const [again] = await scheduled(t, "buildSearchIndex");
     expect(await t.mutation(internal.brain.buildSearchIndex, again.args[0] as never)).toMatchObject({ missing: 0, done: true });
@@ -530,12 +604,44 @@ describe("buildSearchIndex", () => {
       approved: 3, present: 3, queued: 0, missing: 0, waiting: false, done: true,
     });
     expect(enqueue).not.toHaveBeenCalled();
-    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({ changed: true });
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).toMatchObject({ changed: true });
+  });
+
+  test("with an index it fills only that one: after the cutover a voyage3 gap is filled without deleting anything", async () => {
+    const t = setup();
+    const { Workpool } = await import("@convex-dev/workpool");
+    const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
+    await source(t, { ragEntryId: "e3-a", ragImportance: 1, ragEntryIdV4: "e4-a" });
+    // Its voyage3 add failed every retry after the cutover.
+    const gap = await source(t, { ragEntryIdV4: "e4-b" });
+    await backfillCards(t);
+    await t.run((ctx) => ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 }));
+    expect((await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).message).toContain(`${gap} has no current voyage3 entry (no entry)`);
+    expect(await t.mutation(internal.brain.buildSearchIndex, { index: "voyage3" })).toMatchObject({ approved: 2, present: 1, queued: 1 });
+    expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: gap, indexes: ["voyage3"] }]);
+    expect(await scheduled(t, "unlearnSource")).toEqual([]);
+    await expect(t.mutation(internal.brain.buildSearchIndex, { index: "voyage4" })).rejects.toThrow(/already running/);
+  });
+
+  test("restart takes over a pass that stopped; the old pass's next step stops", async () => {
+    const t = setup();
+    await source(t, { ragEntryId: "e3-b", ragImportance: 1 });
+    await backfillCards(t);
+    await t.mutation(internal.brain.buildSearchIndex, {});
+    const [stale] = await scheduled(t, "buildSearchIndex");
+    await t.run((ctx) => ctx.scheduler.cancel(stale._id));
+    vi.setSystemTime(Date.now() + 60_000);
+    expect(await t.mutation(internal.brain.buildSearchIndex, { restart: true })).toMatchObject({ queued: 1, done: false });
+    const { Workpool } = await import("@convex-dev/workpool");
+    vi.spyOn(Workpool.prototype, "statusBatch").mockResolvedValue([{ state: "finished" }] as never);
+    // The old pass's step finds another pass running and stops without writing.
+    expect(await t.mutation(internal.brain.buildSearchIndex, stale.args[0] as never)).toMatchObject({ done: false, waiting: false });
+    expect((await t.run((ctx) => ctx.db.query("brainSearchIndexState").unique()))?.lastBuild).toBeUndefined();
   });
 
   test("pages past one page of approved cards", async () => {
     const t = setup();
-    for (let i = 0; i < BUILD_PAGE_SIZE + 3; i++) await source(t, { ragEntryIdV4: `e4-${i}` });
+    for (let i = 0; i < BUILD_PAGE_SIZE + 3; i++) await source(t, { ragEntryId: `e3-${i}`, ragImportance: 1, ragEntryIdV4: `e4-${i}` });
     await backfillCards(t);
     expect(await t.mutation(internal.brain.buildSearchIndex, {})).toMatchObject({ approved: BUILD_PAGE_SIZE, done: false });
     const [next] = await scheduled(t, "buildSearchIndex");
@@ -693,5 +799,174 @@ describe("calibrateSearchIndexes", () => {
     await source(t, { ragEntryId: "e3" });
     await backfillCards(t);
     await expect(t.action(internal.brain.calibrateSearchIndexes, {})).rejects.toThrow(/buildSearchIndex first/);
+  });
+});
+
+describe("review 51 fixes", () => {
+  test("a pool retry uses the notes the failed attempt kept, and they are dropped once every add lands", async () => {
+    vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+    const t = setup();
+    const id = await source(t, { content: "Section one about the kiln.\n\nSection two about cold-cycle drift." });
+    // voyage4 serves, so it is added first and fails before voyage3 has an entry to reuse.
+    await t.run((ctx) => ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 }));
+    vi.mocked(brainEmbeddingModelV4.doEmbed).mockRejectedValueOnce(new Error("voyage 429"));
+    await expect(t.action(internal.ai.brain.ingest.embedSource, { sourceId: id })).rejects.toThrow();
+    const paid = notesCreate.mock.calls.length;
+    expect(paid).toBeGreaterThan(0);
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toHaveLength(1);
+    expect((await row(t, id))?.ragEntryIdV4).toBeUndefined();
+
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+    expect(notesCreate.mock.calls.length).toBe(paid);
+    const after = (await row(t, id))!;
+    expect(after.ragEntryIdV4).toBeTruthy();
+    expect(after.ragEntryId).toBeTruthy();
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toEqual([]);
+  });
+
+  test("reusableNoteChunks returns null when the other index's chunks do not match, and the notes are made again", async () => {
+    vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+    const t = setup();
+    const id = await source(t, { content: "Section one about the kiln.\n\nSection two about cold-cycle drift." });
+    // A voyage3 entry whose chunk text is not this source's text, recorded with current notes.
+    const entryId = (await addTo(t, brain, "brain", id, 0.6, 2)).entryId;
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./ai/brain/rag");
+      await patchBrainSource(ctx, (await ctx.db.get(id))!, { chunkNotesVersion: BRAIN_CHUNK_NOTES_VERSION });
+    });
+    const { defaultChunker } = await import("@convex-dev/rag");
+    const raw = defaultChunker((await row(t, id))!.content);
+    expect(await t.action((ctx: ActionCtx) => reusableNoteChunks(ctx, "voyage3", entryId, raw))).toBeNull();
+    expect(await t.action((ctx: ActionCtx) => reusableNoteChunks(ctx, "voyage3", entryId, [...raw, "one more"]))).toBeNull();
+    expect(await t.action((ctx: ActionCtx) => reusableNoteChunks(ctx, "voyage3", "not-there" as never, raw).catch(() => null))).toBeNull();
+
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id, indexes: ["voyage4"] });
+    expect(notesCreate).toHaveBeenCalledTimes(raw.length);
+    expect((await row(t, id))?.ragEntryIdV4).toBeTruthy();
+  });
+
+  test("a large document goes through the component's batched path in both indexes", async () => {
+    const t = setup();
+    const content = Array.from({ length: 130 }, (_, i) => `Paragraph ${i}: ${"kiln drift under cold cycles ".repeat(25)}`).join("\n\n");
+    const id = await source(t, { content });
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+    const after = (await row(t, id))!;
+    expect(after.ragEntryId).toBeTruthy();
+    expect(after.ragEntryIdV4).toBeTruthy();
+    await t.action(async (ctx) => {
+      for (const [rag, entryId] of [[brain, after.ragEntryId], [brainV4, after.ragEntryIdV4]] as const) {
+        expect((await rag.getEntry(ctx, { entryId: entryId as never }))?.status).toBe("ready");
+        const chunks = await rag.listChunks(ctx, { entryId: entryId as never, paginationOpts: { cursor: null, numItems: 500 } });
+        expect(chunks.page.length).toBeGreaterThanOrEqual(100);
+        expect(chunks.page.every((chunk) => chunk.state === "ready")).toBe(true);
+      }
+    });
+  });
+
+  test("an embed in flight across the drop never makes the voyage3 namespace again, and the delete waits for live adds", async () => {
+    const t = setup();
+    const id = await source(t);
+    await t.run((ctx) => ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 }));
+    // The drop starts while this embed is adding to voyage4 (it read the state before).
+    const realAdd = brainV4.add.bind(brainV4);
+    vi.spyOn(brainV4, "add").mockImplementation(async (ctx, args) => {
+      await t.run(async (inner) => {
+        const row = await inner.db.query("brainSearchIndexState").unique();
+        await inner.db.patch(row!._id, { oldIndexDropped: true });
+      });
+      return await realAdd(ctx, args as never);
+    });
+    const add3 = vi.spyOn(brain, "add");
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+    expect(add3).not.toHaveBeenCalled();
+    await t.action(async (ctx) => {
+      expect(await brain.getNamespace(ctx, { namespace: "brain" })).toBeNull();
+    });
+    expect(await t.mutation(internal.ai.brain.rag.beginIndexWrite, { sourceId: id, index: "voyage3" })).toBeNull();
+
+    // An add to voyage3 that began before the drop holds a lease: the delete waits for it.
+    const lease = await t.run((ctx) => ctx.db.insert("brainIndexWrites", { index: "voyage3", sourceId: id, startedAt: Date.now() }));
+    await expect(t.action(internal.brain.deleteOldSearchNamespace, {})).rejects.toThrow(/still adding to the voyage3 index/);
+    // A lease older than an action can run is stale.
+    await t.run((ctx) => ctx.db.patch(lease, { startedAt: Date.now() - INDEX_WRITE_LEASE_MS - 1 }));
+    expect(await t.action(internal.brain.deleteOldSearchNamespace, {})).toEqual({ deleted: false });
+  });
+
+  test("a drop erasure that gives up is logged, and the namespace delete clears the id it left", async () => {
+    const t = setup();
+    const id = await source(t);
+    await addTo(t, brain, "brain", id, 0.6, 2);
+    await addTo(t, brainV4, "brain-v4", id, 0.6, 3);
+    const entryId = (await row(t, id))!.ragEntryId!;
+    await backfillCards(t);
+    await t.run((ctx) =>
+      ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", oldIndexDropped: true, changedBy: "test", changedAt: 1 })
+    );
+    const errors = vi.mocked(console.error);
+    await t.mutation(internal.brain.recordUnlearnFailure, {
+      ragEntryId: entryId, sourceId: id, index: "voyage3", droppedIndex: true, attempt: 5, error: "still failing",
+    });
+    expect(errors.mock.calls.map((call) => String(call[0])).join("\n")).toContain(`erasing voyage3 entry ${entryId} of source ${id} failed 5 times`);
+    expect(await scheduled(t, "unlearnSource")).toEqual([]);
+    expect((await row(t, id))?.ragEntryId).toBe(entryId);
+
+    expect(await t.action(internal.brain.deleteOldSearchNamespace, {})).toEqual({ deleted: true });
+    expect((await scheduled(t, "unlearnSource")).map((job) => job.args[0])).toEqual([
+      { ragEntryId: entryId, sourceId: id, index: "voyage3", droppedIndex: true },
+    ]);
+    await runUnlearns(t);
+    const after = (await row(t, id))!;
+    expect(after.ragEntryId).toBeUndefined();
+    expect(after.ragEntryIdV4).toBeTruthy();
+    expect(after.status).toBe("approved");
+  });
+
+  test("ingestOnComplete records nothing for a namespace that is not a Brain index", async () => {
+    const t = setup();
+    const id = await source(t);
+    const src = (await row(t, id))!;
+    await t.mutation(internal.ai.brain.rag.ingestOnComplete, {
+      namespace: {
+        namespaceId: "ns_other" as never, createdAt: 1, namespace: "cra-letters", status: "ready",
+        filterNames: [], dimension: 1024, modelId: "voyage-4-large", version: 0,
+      },
+      entry: {
+        key: src.ragKey, title: src.title, metadata: { sourceId: id }, entryId: "entry_other" as never, importance: 1,
+        filterValues: [], contentHash: "h", status: "ready",
+      },
+    });
+    const after = (await row(t, id))!;
+    expect(after.ragEntryId).toBeUndefined();
+    expect(after.ragEntryIdV4).toBeUndefined();
+    expect(await scheduled(t, "unlearnSource")).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("brainAuditLog").collect())).toEqual([]);
+  });
+
+  test("calibration rides out a rerank 429", async () => {
+    const t = setup();
+    for (const [i, id] of [await source(t), await source(t)].entries()) {
+      await addTo(t, brain, "brain", id, 0.5 + i * 0.1, 2 + i);
+      await addTo(t, brainV4, "brain-v4", id, 0.6 + i * 0.1, 10 + i);
+    }
+    await backfillCards(t);
+    const ok = async ({ documents }: { documents: { values: unknown[] } }) =>
+      ({ ranking: documents.values.map((_, index) => ({ index, relevanceScore: 0.5 })), response: { body: {} } }) as never;
+    vi.spyOn(brainRerankModel, "doRerank").mockImplementation(ok as never);
+    const tooMany = () =>
+      new APICallError({
+        message: "rate limited",
+        url: "https://api.voyageai.com/v1/rerank",
+        requestBodyValues: {},
+        statusCode: 429,
+        responseHeaders: { "retry-after-ms": "1" },
+      });
+    const next = vi.spyOn(brainRerankModelV4, "doRerank")
+      .mockRejectedValueOnce(tooMany())
+      .mockRejectedValueOnce(tooMany())
+      .mockImplementation(ok as never);
+    vi.useRealTimers();
+    const report = await t.action(internal.brain.calibrateSearchIndexes, { probes: 2 });
+    expect(report.probes).toBe(2);
+    expect(next.mock.calls.length).toBeGreaterThan(2);
   });
 });
