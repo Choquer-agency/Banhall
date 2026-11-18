@@ -207,7 +207,7 @@ index's model, namespace, reranker and floors is `BRAIN_SEARCH_INDEXES`
   this source's chunks with current notes, they are reused, so Haiku is paid
   once. Each index's entry id is on the source: `ragEntryId` (voyage3) and
   `ragEntryIdV4`. Revoke erases both, each confirmed on its own.
-- **Owner steps** (all internal, deploy order steps 13 to 15 and 17):
+- **Owner steps** (all internal, deploy order steps 13 to 15, 17 and 18):
   `brain:buildSearchIndex` fills both indexes (paged, waits for each page's
   embeds, one pass at a time, deletes nothing, safe to run again; `index`
   fills just one); `brain:calibrateSearchIndexes` reports both indexes' and
