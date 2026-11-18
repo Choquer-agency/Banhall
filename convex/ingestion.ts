@@ -313,22 +313,37 @@ async function settleInitialsWriter(
 
 /** Insert an ingestion item: the one place rows are created. */
 /**
+ * The first of the last three fiscal years by the server's clock (this
+ * year in UTC, minus 2): a PD of that year or later is "recent" in the
+ * Brain check (owner, 2026-11-18).
+ */
+export function brainCheckRecentFromYear(now: number = Date.now()): number {
+  return new Date(now).getUTCFullYear() - 2;
+}
+
+/**
  * A settled row with its Brain check order (2026-11-18 (second)): while it
- * waits for its Brain check, its year rank (minus the fiscal year) and its
- * writer rank (minus the writer's weight times 1000, read from the writer
- * row it has now); otherwise neither. One write path, like the counts, so
- * every way a file starts or stops waiting, or changes writer, year or
- * weight while it waits, keeps its place right.
+ * waits for its Brain check, its year rank (minus the fiscal year; 0 for no
+ * fiscal year, so it comes last within its writer) and, only when it is not
+ * of the last three fiscal years, its writer rank (minus the writer's
+ * weight times 1000, read from the writer row it has now). A recent PD has
+ * no writer rank: that is what puts it in the Brain check's first part
+ * (review 48, P3-3, P3-4). Otherwise neither. One write path, like the
+ * counts, so every way a file starts or stops waiting, or changes writer,
+ * year or weight while it waits, keeps its place right; the New Year cron
+ * (rerankBrainCheck) moves PDs whose year stopped being recent.
  */
 async function withBrainCheckOrder(ctx: MutationCtx, fields: IngestionItemFields): Promise<IngestionItemFields> {
   if (fields.brainCheck !== "waiting") {
     return { ...fields, brainCheckYearRank: undefined, brainCheckWriterRank: undefined };
   }
-  const writer = fields.writerId ? await ctx.db.get(fields.writerId) : null;
+  const year = fields.fiscalYear;
+  const recent = year !== undefined && year >= brainCheckRecentFromYear();
+  const writer = !recent && fields.writerId ? await ctx.db.get(fields.writerId) : null;
   return {
     ...fields,
-    brainCheckYearRank: fields.fiscalYear !== undefined ? -fields.fiscalYear : undefined,
-    brainCheckWriterRank: brainCheckWriterRank(writer?.tier),
+    brainCheckYearRank: year !== undefined ? -year : 0,
+    brainCheckWriterRank: recent ? undefined : brainCheckWriterRank(writer?.tier),
   };
 }
 
@@ -1961,39 +1976,21 @@ const brainCheckRowValidator = v.object({
   scienceCode: v.optional(v.string()),
 });
 
-/**
- * Rows one "rest" page of the Brain check reads (2026-11-18 (second)): more
- * than it returns, since rows of the recent years are in that index too and
- * are dropped from it. Each row holds a text preview of up to 8,000
- * characters, so this stays near 1 MB.
- */
-const BRAIN_CHECK_REST_READ = 75;
-
-/** The fiscal years a "recent" range may name (a year rank is minus the year). */
-const BRAIN_CHECK_YEAR_MIN = 1900;
-const BRAIN_CHECK_YEAR_MAX = 9999;
-
-/**
- * The first of the last three fiscal years (the year now in UTC, minus 2),
- * as the page sends it; a value out of range or not whole falls back to the
- * server's own clock. The page sends it, because a query that reads the
- * clock does not run again when the year turns.
- */
-function recentFromYearOf(value: number | undefined): number {
-  return value !== undefined && Number.isInteger(value) && value >= BRAIN_CHECK_YEAR_MIN && value <= BRAIN_CHECK_YEAR_MAX
-    ? value
-    : new Date().getUTCFullYear() - 2;
-}
+/** The lowest writer rank (a weight of 1); every older PD's rank is from this to 0. */
+const BRAIN_CHECK_TOP_WRITER_RANK = -1000;
 
 /**
  * The approved final PDs waiting for a Brain check. Since 2026-11-18
- * (second, owner) in two parts: "recent", the last three fiscal years
- * (`recentFromYear` and later), newest year first, then company; then
- * "rest", the other years, highest writer weight first, then newest year,
- * then company. Each part is one indexed range; "rest" drops the recent
- * years' rows from its page in code, so a page may hold fewer rows than
- * asked (or none) while more remain. With no `part`, company by company,
- * then by year, as before, so a page from before this change still works.
+ * (second, owner) in two parts, each one indexed range of the same index,
+ * so neither reads the other's rows (review 48, P3-3): "recent", the PDs of
+ * the last three fiscal years (no writer rank, see withBrainCheckOrder),
+ * newest year first, then company; then "rest", the other PDs, highest
+ * writer weight first, then newest year, then company, with a PD of no
+ * fiscal year last within its writer. Every page reads at most 25 rows and
+ * returns every row it reads. Which part a PD is in is stored when it is
+ * written, by the server's year; the New Year cron writes them again.
+ * `recentFromYear` is still accepted from older pages and not needed. With
+ * no `part`, company by company, then by year, as before.
  */
 export const brainCheckFiles = query({
   args: {
@@ -2004,24 +2001,21 @@ export const brainCheckFiles = query({
   returns: paginationResultValidator(brainCheckRowValidator),
   handler: async (ctx, args) => {
     if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
-    const fromYear = recentFromYearOf(args.recentFromYear);
     let result: { page: Doc<"ingestionItems">[]; isDone: boolean; continueCursor: string };
     if (args.part === "recent") {
       result = await ctx.db
         .query("ingestionItems")
-        .withIndex("by_brainCheck_and_brainCheckYearRank_and_companyKey", (q) =>
-          q.eq("brainCheck", "waiting").gte("brainCheckYearRank", -BRAIN_CHECK_YEAR_MAX).lte("brainCheckYearRank", -fromYear)
+        .withIndex("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", (q) =>
+          q.eq("brainCheck", "waiting").eq("brainCheckWriterRank", undefined)
         )
         .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
     } else if (args.part === "rest") {
-      const read = await ctx.db
+      result = await ctx.db
         .query("ingestionItems")
-        .withIndex("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", (q) => q.eq("brainCheck", "waiting"))
-        .paginate({ ...args.paginationOpts, numItems: BRAIN_CHECK_REST_READ });
-      result = {
-        ...read,
-        page: read.page.filter((item) => item.brainCheckYearRank === undefined || item.brainCheckYearRank > -fromYear),
-      };
+        .withIndex("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", (q) =>
+          q.eq("brainCheck", "waiting").gte("brainCheckWriterRank", BRAIN_CHECK_TOP_WRITER_RANK)
+        )
+        .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
     } else {
       result = await ctx.db
         .query("ingestionItems")
@@ -2056,9 +2050,10 @@ const BRAIN_CHECK_RERANK_PAGE = 100;
 /**
  * Writes every PD waiting for a Brain check again through patchItem, so it
  * has its place in the Brain check order (2026-11-18 (second)). Internal,
- * paged, safe to run again. Needed only when PDs were already waiting
- * before this change was deployed; a deploy of the whole Import stack at
- * once has none.
+ * paged, safe to run again. The New Year cron runs it, so the PDs of the
+ * year that stopped being one of the last three move to the second part;
+ * run it by hand when PDs were already waiting before this change was
+ * deployed (a deploy of the whole Import stack at once has none).
  */
 export const rerankBrainCheck = internalMutation({
   args: { cursor: v.optional(v.union(v.string(), v.null())) },

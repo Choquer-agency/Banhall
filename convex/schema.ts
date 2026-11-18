@@ -4820,10 +4820,12 @@ export default defineSchema({
     brainCheckedAt: v.optional(v.number()),
     // 2026-11-18 (second) widen (Brain check order): set only while
     // brainCheck is "waiting", by patchItem, cleared otherwise.
-    // brainCheckYearRank is minus the fiscal year (newest first);
-    // brainCheckWriterRank is minus the writer's weight times 1000, rounded
-    // (highest weight first; shared/writerWeight.ts). The Brain check lists
-    // the last three fiscal years first, then the rest by writer weight.
+    // brainCheckYearRank is minus the fiscal year (newest first), 0 for a
+    // PD with no fiscal year (last). brainCheckWriterRank is minus the
+    // writer's weight times 1000, rounded (highest weight first;
+    // shared/writerWeight.ts), and is absent on a PD of the last three
+    // fiscal years: the Brain check lists those first, then the rest by
+    // writer weight. The New Year cron writes them again.
     brainCheckYearRank: v.optional(v.number()),
     brainCheckWriterRank: v.optional(v.number()),
     // 2026-11-17 widen: true when the extraction cut the file's text at the
@@ -4846,11 +4848,11 @@ export default defineSchema({
     .index("by_brainSourceId_and_status", ["brainSourceId", "status"])
     // 2026-11-17: the final PDs waiting for a Brain check, company by company.
     .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
-    // 2026-11-18 (second): the Brain check order. First the last three
-    // fiscal years, newest first (a range on the year rank); then the rest,
-    // highest writer weight first, then newest year, then company. Named
-    // without "_and_" to stay within the backend's 64 characters.
-    .index("by_brainCheck_and_brainCheckYearRank_and_companyKey", ["brainCheck", "brainCheckYearRank", "companyKey"])
+    // 2026-11-18 (second): the Brain check order, both parts from one index.
+    // First the last three fiscal years (no writer rank), newest first;
+    // then the rest, highest writer weight first, then newest year (a PD of
+    // no year last), then company. Named without "_and_" to stay within the
+    // backend's 64 characters.
     .index("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", [
       "brainCheck",
       "brainCheckWriterRank",

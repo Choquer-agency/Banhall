@@ -216,4 +216,15 @@ crons.interval(
   {}
 );
 
+// 2026-11-18 (second): the Brain check lists the last three fiscal years
+// first; which part a waiting PD is in is stored when it is written. Just
+// after New Year (UTC) every waiting PD is written again, so last year's
+// oldest recent year moves to the second part, ordered by writer weight.
+crons.cron(
+  "move the Brain check's recent years at New Year",
+  "10 0 1 1 *",
+  internal.ingestion.rerankBrainCheck,
+  {}
+);
+
 export default crons;

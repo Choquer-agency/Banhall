@@ -50,8 +50,9 @@
   type Row = FunctionReturnType<typeof api.ingestion.brainCheckFiles>["page"][number];
   type Preview = FunctionReturnType<typeof api.ingestion.previewBrainCopy>;
 
-  // The last three fiscal years: this year in UTC and the two before. Sent
-  // by the page, since a query that reads the clock does not run again.
+  // The last three fiscal years: this year in UTC and the two before. The
+  // server stores which part each PD is in; the year is still sent, as
+  // pages before review 48 did, and the server does not need it.
   const recentFromYear = new Date().getUTCFullYear() - 2;
   const recentQ = usePaginatedQuery(
     api.ingestion.brainCheckFiles,
@@ -88,9 +89,7 @@
   const waiting = $derived(Math.max(total ?? 0, rows.length));
 
   // Past the loaded rows (Next at the end, or nothing loaded yet) while more
-  // wait: read the next page. A page of the rest may hold none of the PDs
-  // shown here (the recent years are dropped from it), so this goes on
-  // until a PD comes or none is left.
+  // wait: read the next page, until a PD comes or none is left.
   $effect(() => {
     if (!loadingFirst && index >= rows.length && canLoadMore) untrack(loadMore);
   });
