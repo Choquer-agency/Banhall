@@ -12,8 +12,9 @@
   import BuildStamp from "$lib/components/BuildStamp.svelte";
   import SourceRow from "$lib/components/admin/SourceRow.svelte";
   import FeedbackRow from "$lib/components/admin/FeedbackRow.svelte";
+  import OldPageCopyRow from "$lib/components/admin/OldPageCopyRow.svelte";
 
-  type Tab = "pending" | "approved" | "revoked" | "feedback" | "audit";
+  type Tab = "pending" | "approved" | "revoked" | "old_page" | "feedback" | "audit";
 
   /** Sources per page of the list (2026-11-17: the list loads in pages). */
   const PAGE = 50;
@@ -29,6 +30,7 @@
     revert: "Reverted",
     relabel: "Details changed on Import",
     switch_index: "Search index changed",
+    keep_old_page_copy: "Kept after the old page check",
   };
 
   const auth = useAuth();
@@ -53,6 +55,9 @@
         : "skip",
     { initialNumItems: PAGE, keepPreviousData: true }
   );
+  const oldPageQ = useQuery(api.brain.listOldPageCopies, () =>
+    auth.isAuthenticated && tab === "old_page" ? {} : "skip"
+  );
   const feedbackQ = useQuery(api.brain.listFeedbackQueue, () =>
     auth.isAuthenticated && tab === "feedback" ? {} : "skip"
   );
@@ -75,12 +80,14 @@
     sourcesQ.status === "CanLoadMore" || sourcesQ.status === "LoadingMore"
   );
   const feedback = $derived(feedbackQ.data);
+  const oldPage = $derived(oldPageQ.data);
   const audit = $derived(auditQ.data);
 
   const tabs: { key: Tab; label: string; count?: number }[] = $derived([
     { key: "pending", label: "Queue", count: stats?.pending },
     { key: "approved", label: "In the Brain", count: stats?.approved },
     { key: "revoked", label: "Revoked" },
+    { key: "old_page", label: "Old page copies" },
     { key: "feedback", label: "Writer feedback" },
     { key: "audit", label: "Audit log" },
   ]);
@@ -172,6 +179,26 @@
                     {sourcesQ.status === "LoadingMore" ? "Loading..." : "Show more"}
                   </button>
                 </div>
+              {/if}
+            {/if}
+          {:else if tab === "old_page"}
+            {#if oldPage === undefined}
+              {@render spinner()}
+            {:else if !oldPage || oldPage.copies.length === 0}
+              <p class="px-4 py-8 text-center text-sm text-gray-400">
+                No copies wait for a decision.
+              </p>
+            {:else}
+              <p class="border-b border-gray-50 px-4 py-3 text-sm text-gray-600" data-old-page-intro>
+                The old Import page made these Brain copies, and the send back could not remove them for sure. Keep each one you want in the Brain, or remove it. The Brain build waits until every copy of unknown origin is decided.
+              </p>
+              {#each oldPage.copies as copy (copy._id)}
+                <OldPageCopyRow {copy} />
+              {/each}
+              {#if oldPage.more}
+                <p class="px-4 py-3 text-center text-sm text-gray-400">
+                  Showing the first 100. Decide these to see the rest.
+                </p>
               {/if}
             {/if}
           {:else if tab === "feedback"}

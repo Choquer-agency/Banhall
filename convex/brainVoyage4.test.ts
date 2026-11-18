@@ -8,7 +8,7 @@ import { convexTest } from "convex-test";
 import { APICallError } from "@ai-sdk/provider";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import schema from "./schema";
-import { api, internal } from "./_generated/api";
+import { api, components, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import {
@@ -662,7 +662,7 @@ describe("the older re-embed jobs and the drop", () => {
     await backfillCards(t);
     await t.mutation(internal.brain.requeueAllApprovedEmbeds, {});
     expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: id, indexes: ["voyage3"], force: true }]);
-    expect((await scheduled(t, "unlearnSource")).map((job) => job.args[0])).toEqual([{ ragEntryId: "e3", index: "voyage3" }]);
+    expect((await scheduled(t, "unlearnSource")).map((job) => job.args[0])).toEqual([{ ragEntryId: "e3", sourceId: id, index: "voyage3", requeued: true }]);
     enqueue.mockClear();
     await t.mutation(internal.brain.reembedBelowFullImportance, {});
     expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: id, indexes: ["voyage3"] }]);
@@ -683,7 +683,10 @@ describe("the older re-embed jobs and the drop", () => {
     await backfillCards(t);
     await expect(t.mutation(internal.brain.dropOldSearchIndex, { confirm: "drop voyage3" })).rejects.toThrow(/Move it to voyage4 first/);
     await t.run((ctx) =>
-      ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 })
+      ctx.db.insert("brainSearchIndexState", {
+        key: "search", serving: "voyage4", servingSince: 1, changedBy: "test", changedAt: 1,
+        lastCalibration: { at: 2, probes: 20, serving: "voyage4" },
+      })
     );
     expect(await t.mutation(internal.brain.dropOldSearchIndex, { confirm: "drop voyage3", actor: "owner" })).toEqual({ queued: 2, done: true });
     const before = (await row(t, id))!;
@@ -781,8 +784,12 @@ describe("calibrateSearchIndexes", () => {
       }));
     const before = await snapshot();
     const report = await t.action(internal.brain.calibrateSearchIndexes, { probes: 3 });
-    expect(await snapshot()).toEqual(before);
+    // Its one write is the record that it ran (final review P2-2): the state row, nothing else.
+    expect(await snapshot()).toEqual({ ...before, state: 1 });
+    expect((await t.run((ctx) => ctx.db.query("brainSearchIndexState").unique()))?.lastCalibration).toMatchObject({ probes: 3, serving: "voyage3" });
     expect(report.probes).toBe(3);
+    expect(report.thin).toBe(true);
+    expect(report.note).toBe("Only 3 probes: not a basis for a floor. Keep the provisional floors and run this again after the first few hundred Brain checks.");
     expect(report.search.voyage3.ownEntry.count).toBe(3);
     expect(report.search.voyage4.ownEntry.count).toBe(3);
     expect(report.search.voyage4.embeddingModelId).toBe("voyage-4-large");
@@ -1052,4 +1059,184 @@ describe("PR #51 Greptile fixes", () => {
       await expectRefreshedAtOne(t, id, entryId);
     });
   }
+});
+
+describe("final review of #48 to #51", () => {
+  test("P2-1: the build waits for every unknown-origin old-page copy to be decided; Keep and revoke decide it", async () => {
+    const t = setup();
+    const admin = await withAdmin(t);
+    const unknown = await source(t, { ragEntryId: "e3-u", ragImportance: 1, ragEntryIdV4: "e4-u" });
+    const unlink = await source(t, { ragEntryId: "e3-l", ragImportance: 1, ragEntryIdV4: "e4-l" });
+    const gone = await source(t, { status: "revoked" });
+    await backfillCards(t);
+    const itemId = await t.run((ctx) =>
+      ctx.db.insert("ingestionItems", {
+        driveItemId: "drive-old", path: "old/old.docx", name: "old.docx", docKind: "pd", size: 1, lastModifiedAt: 1,
+        contentHash: "h-old", status: "pending_review", pairGroupKey: "old", updatedAt: 1,
+      })
+    );
+    const { recordOldPageCopy } = await import("./brain");
+    await t.run(async (ctx) => {
+      await recordOldPageCopy(ctx, { sourceId: unknown, itemId, outcome: "unknown_origin", detail: "no_approval_time" });
+      await recordOldPageCopy(ctx, { sourceId: unknown, itemId, outcome: "unknown_origin", detail: "no_approval_time" });
+      await recordOldPageCopy(ctx, { sourceId: unlink, itemId, outcome: "unlink_only", detail: "made_before_this_approval" });
+      // A copy no longer approved needs no decision.
+      await recordOldPageCopy(ctx, { sourceId: gone, itemId, outcome: "unknown_origin", detail: "creator_or_time_differs" });
+    });
+    const listed = await admin.query(api.brain.listOldPageCopies, {});
+    expect(listed?.copies.map((c) => [c.sourceId, c.outcome])).toEqual([[unknown, "unknown_origin"], [unlink, "unlink_only"]]);
+    expect(await t.query(api.brain.listOldPageCopies, {})).toBeNull();
+
+    await expect(t.mutation(internal.brain.buildSearchIndex, {})).rejects.toThrow(/still undecided/);
+    // The owner may start anyway, on purpose.
+    expect(await t.mutation(internal.brain.buildSearchIndex, { allowUnknownOrigin: true })).toMatchObject({ approved: 2 });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("brainSearchIndexState").unique();
+      await ctx.db.patch(row!._id, { buildRunning: undefined });
+    });
+
+    // Keep decides it, once, with an audit row; an unlink-only copy never held the build.
+    await admin.mutation(api.brain.keepOldPageCopy, { sourceId: unknown });
+    await expect(admin.mutation(api.brain.keepOldPageCopy, { sourceId: unknown })).rejects.toThrow("This copy is already decided.");
+    expect(await t.mutation(internal.brain.buildSearchIndex, {})).toMatchObject({ approved: 2 });
+    const audit = (await t.run((ctx) => ctx.db.query("brainAuditLog").collect())).filter((a) => a.action === "keep_old_page_copy");
+    expect(audit).toHaveLength(1);
+
+    // A revoke on /admin/brain decides it as removed.
+    await admin.mutation(api.brain.revokeSource, { sourceId: unlink, reason: "Old page copy removed after review" });
+    const rows = await t.run((ctx) => ctx.db.query("brainOldPageCopies").collect());
+    expect(rows.map((r) => [r.sourceId, r.status]).sort()).toEqual([[unknown, "kept"], [unlink, "removed"]].sort());
+    expect((await admin.query(api.brain.listOldPageCopies, {}))?.copies).toEqual([]);
+  });
+
+  test("P2-2: calibration records its run, says when the Brain is empty, and the drop waits for a report after the cutover", async () => {
+    const t = setup();
+    await backfillCards(t);
+    await expect(t.action(internal.brain.calibrateSearchIndexes, {})).rejects.toThrow(
+      "The Brain has no approved source yet, so there is nothing to calibrate. Keep the provisional floors, move the pointer, and run this again after the first few hundred Brain checks."
+    );
+    const id = await source(t, { ragEntryId: "e3", ragImportance: 1, ragEntryIdV4: "e4" });
+    await backfillCards(t);
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({ changed: true });
+    const state = await t.run((ctx) => ctx.db.query("brainSearchIndexState").unique());
+    expect(state?.servingSince).toBeGreaterThan(0);
+    const drop = () => t.mutation(internal.brain.dropOldSearchIndex, { confirm: "drop voyage3" });
+    await expect(drop()).rejects.toThrow(/Run brain:calibrateSearchIndexes again first/);
+    const setCalibration = (c: { at: number; probes: number; serving: "voyage3" | "voyage4" }) =>
+      t.run(async (ctx) => ctx.db.patch(state!._id, { lastCalibration: c }));
+    // Before the cutover, too few probes, or with voyage3 serving: not enough.
+    await setCalibration({ at: state!.servingSince! - 1, probes: 30, serving: "voyage4" });
+    await expect(drop()).rejects.toThrow(/again first/);
+    await setCalibration({ at: state!.servingSince! + 1, probes: 19, serving: "voyage4" });
+    await expect(drop()).rejects.toThrow(/at least 20 probes/);
+    await setCalibration({ at: state!.servingSince! + 1, probes: 20, serving: "voyage3" });
+    await expect(drop()).rejects.toThrow(/again first/);
+    // P3-4: not while a build pass runs.
+    await setCalibration({ at: state!.servingSince! + 1, probes: 20, serving: "voyage4" });
+    await t.run((ctx) => ctx.db.patch(state!._id, { buildRunning: { startedAt: 5 } }));
+    await expect(drop()).rejects.toThrow(/A build pass is running/);
+    await t.run((ctx) => ctx.db.patch(state!._id, { buildRunning: undefined }));
+    expect(await drop()).toMatchObject({ done: true });
+    void id;
+  });
+
+  test("P2-2 / P3-7: the drop pauses between its steps", async () => {
+    const t = setup();
+    for (let i = 0; i < 101; i++) await source(t, { ragEntryId: `e3-${i}`, ragImportance: 1, ragEntryIdV4: `e4-${i}` });
+    await backfillCards(t);
+    await t.run((ctx) =>
+      ctx.db.insert("brainSearchIndexState", {
+        key: "search", serving: "voyage4", servingSince: 1, changedBy: "test", changedAt: 1,
+        lastCalibration: { at: 2, probes: 25, serving: "voyage4" },
+      })
+    );
+    expect(await t.mutation(internal.brain.dropOldSearchIndex, { confirm: "drop voyage3" })).toMatchObject({ done: false });
+    const { DROP_STEP_DELAY_MS } = await import("./brain");
+    const [next] = await scheduled(t, "dropOldSearchIndex");
+    expect(next.scheduledTime - Date.now()).toBeGreaterThanOrEqual(DROP_STEP_DELAY_MS - 1000);
+  });
+
+  test("P3-1: with voyage3 serving, a retry that reuses voyage3's notes still drops the kept notes; a revoke deletes them", async () => {
+    vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+    const t = setup();
+    const admin = await withAdmin(t);
+    const id = await source(t, { content: "Section one about the kiln.\n\nSection two about cold-cycle drift." });
+    vi.mocked(brainEmbeddingModelV4.doEmbed).mockRejectedValueOnce(new Error("voyage 429"));
+    await expect(t.action(internal.ai.brain.ingest.embedSource, { sourceId: id })).rejects.toThrow();
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toHaveLength(1);
+    const paid = notesCreate.mock.calls.length;
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+    expect(notesCreate.mock.calls.length).toBe(paid);
+    expect((await row(t, id))?.ragEntryIdV4).toBeTruthy();
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toEqual([]);
+
+    // An embed that failed and was then revoked leaves no kept notes either.
+    const other = await source(t, { content: "Another section about the kiln.\n\nAnd its drift." });
+    vi.mocked(brainEmbeddingModelV4.doEmbed).mockRejectedValueOnce(new Error("voyage 429"));
+    await expect(t.action(internal.ai.brain.ingest.embedSource, { sourceId: other })).rejects.toThrow();
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toHaveLength(1);
+    await admin.mutation(api.brain.revokeSource, { sourceId: other });
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toEqual([]);
+  });
+
+  test("P3-7: notes that are all empty are never kept or reused, and kept notes are capped by count too", async () => {
+    vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+    const t = setup();
+    const id = await source(t, { content: "Section one about the kiln.\n\nSection two about cold-cycle drift." });
+    await t.run((ctx) => ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 }));
+    // The notes model is down on the first attempt; voyage4 fails too.
+    notesCreate.mockRejectedValue(new Error("haiku down"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(brainEmbeddingModelV4.doEmbed).mockRejectedValueOnce(new Error("voyage 429"));
+    await expect(t.action(internal.ai.brain.ingest.embedSource, { sourceId: id })).rejects.toThrow();
+    expect(await t.run((ctx) => ctx.db.query("brainChunkNotes").collect())).toEqual([]);
+    // A row of empty notes left by an earlier version is not reused either.
+    await t.mutation(internal.ai.brain.rag.keepChunkNotes, { sourceId: id, notesVersion: BRAIN_CHUNK_NOTES_VERSION, notes: ["", ""] });
+    expect(
+      await t.query(internal.ai.brain.rag.keptChunkNotes, { sourceId: id, notesVersion: BRAIN_CHUNK_NOTES_VERSION, chunkCount: 2 })
+    ).toBeNull();
+    notesCreate.mockReset().mockResolvedValue({ content: [{ type: "text", text: "In the method section." }] });
+    await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+    expect(notesCreate).toHaveBeenCalled();
+
+    const { keepableNotes, CHUNK_NOTES_MAX_COUNT } = await import("./ai/brain/rag");
+    expect(keepableNotes(["a", ""])).toBe(true);
+    expect(keepableNotes(["", ""])).toBe(false);
+    expect(keepableNotes(new Array(CHUNK_NOTES_MAX_COUNT + 1).fill("a"))).toBe(false);
+    expect(keepableNotes(new Array(CHUNK_NOTES_MAX_COUNT).fill("a"))).toBe(true);
+  });
+
+  test("P3-3: the full requeue's confirmed erasure clears the voyage3 id, so a failed refill cannot let a rollback through", async () => {
+    const t = setup();
+    const id = await source(t);
+    await addTo(t, brain, "brain", id, 0.6, 2);
+    await addTo(t, brainV4, "brain-v4", id, 0.6, 3);
+    await backfillCards(t);
+    await t.run((ctx) => ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 }));
+    await t.mutation(internal.brain.requeueAllApprovedEmbeds, {});
+    // The forced embed fails every attempt (it never runs here); the erasure is confirmed.
+    await runUnlearns(t);
+    expect((await row(t, id))?.ragEntryId).toBeUndefined();
+    expect((await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).message).toContain("(no entry)");
+  });
+
+  test("P3-5: the namespace delete removes every version of the old name and the expired leases", async () => {
+    const t = setup();
+    const id = await source(t);
+    await addTo(t, brain, "brain", id, 0.6, 2);
+    // An older shape change: a second version of "brain" (another model) marks the first replaced.
+    await addTo(t, brainV4, "brain", id, 0.6, 3);
+    const versions = async () =>
+      t.run((ctx) => ctx.runQuery(components.rag.namespaces.listNamespaceVersions, { namespace: "brain", paginationOpts: { cursor: null, numItems: 10 } }));
+    expect((await versions()).page).toHaveLength(2);
+    await t.run((ctx) =>
+      ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", oldIndexDropped: true, changedBy: "test", changedAt: 1 })
+    );
+    await t.run((ctx) => ctx.db.insert("brainIndexWrites", { index: "voyage4", sourceId: id, startedAt: Date.now() - INDEX_WRITE_LEASE_MS - 1 }));
+    const live = await t.run((ctx) => ctx.db.insert("brainIndexWrites", { index: "voyage4", sourceId: id, startedAt: Date.now() }));
+    await backfillCards(t);
+    expect(await t.action(internal.brain.deleteOldSearchNamespace, {})).toEqual({ deleted: true });
+    expect((await versions()).page).toEqual([]);
+    expect((await t.run((ctx) => ctx.db.query("brainIndexWrites").collect())).map((r) => r._id)).toEqual([live]);
+  });
 });

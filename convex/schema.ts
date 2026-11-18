@@ -4105,9 +4105,43 @@ export default defineSchema({
         startedAt: v.number(),
       })
     ),
+    // Final review widen: when search last moved to the index it reads now
+    // (absent before any move: voyage3 since the start).
+    servingSince: v.optional(v.number()),
+    // Final review widen: the last calibration run (brain:calibrateSearchIndexes
+    // writes only this): when, with how many probes, and which index served.
+    // The old index's drop waits for one after the cutover with enough probes.
+    lastCalibration: v.optional(
+      v.object({
+        at: v.number(),
+        probes: v.number(),
+        serving: v.union(v.literal("voyage3"), v.literal("voyage4")),
+      })
+    ),
     changedBy: v.string(),
     changedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  // Final review of #48 to #51 (P2-1): a Brain copy the old-page send back
+  // job left approved because it could not tie it to the file's own old
+  // approval ("unknown_origin") or because it came from another route or is
+  // shared ("unlink_only"). One row per copy, written by a real run. An Admin
+  // decides each on /admin/brain: "removed" (through the audited revoke,
+  // which closes the row) or "kept". brain:buildSearchIndex does not start
+  // while an unknown-origin row is still open, unless told to.
+  brainOldPageCopies: defineTable({
+    sourceId: v.id("brainSources"),
+    itemId: v.id("ingestionItems"),
+    outcome: v.union(v.literal("unknown_origin"), v.literal("unlink_only")),
+    detail: v.string(),
+    status: v.union(v.literal("open"), v.literal("kept"), v.literal("removed")),
+    recordedAt: v.number(),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+  })
+    .index("by_sourceId", ["sourceId"])
+    .index("by_status_and_outcome", ["status", "outcome"])
+    .index("by_status_and_recordedAt", ["status", "recordedAt"]),
 
   // Review 51 (2026-11-18 (fourth)): the chunk notes one embed made, kept
   // until every index it adds to has its entry, so a pool retry after a
@@ -4237,7 +4271,10 @@ export default defineSchema({
       v.literal("relabel"),
       // 2026-11-18 (fourth) widen: the serving search index moved (cutover
       // or rollback), or the old index's drop started. No `sourceId`.
-      v.literal("switch_index")
+      v.literal("switch_index"),
+      // Final review widen: an Admin kept a copy the old-page send back left
+      // approved (removing one is a `revoke`).
+      v.literal("keep_old_page_copy")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),

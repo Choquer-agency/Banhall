@@ -502,9 +502,11 @@ export async function deleteSourceImportLinksPage(
 export async function deleteBrainSource(ctx: MutationCtx, sourceId: Id<"brainSources">) {
   const more = await deleteSourceImportLinksPage(ctx, sourceId);
   // Chunk notes an unfinished embed kept (one row per note version, so few).
+  await deleteKeptChunkNotes(ctx, sourceId);
+  // The old-page job's rows for this copy (a copy is recorded once, so few).
   for (const row of await ctx.db
-    .query("brainChunkNotes")
-    .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", sourceId))
+    .query("brainOldPageCopies")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
     .take(20)) {
     await ctx.db.delete(row._id);
   }
@@ -590,6 +592,29 @@ export async function sourcesForImportFile(
  * limit; a source with more is not kept (its retry makes the notes again).
  */
 export const CHUNK_NOTES_MAX_BYTES = 800_000;
+/** The most notes a kept row holds: Convex caps an array at 8,192 values. */
+export const CHUNK_NOTES_MAX_COUNT = 8192;
+
+/**
+ * Whether one embed's notes may be kept for its retry: within both caps,
+ * and not every note empty (the notes model was down: a retry makes them
+ * again rather than stamping an entry with this version and no notes).
+ */
+export function keepableNotes(notes: string[]): boolean {
+  if (notes.length === 0 || notes.length > CHUNK_NOTES_MAX_COUNT) return false;
+  if (notes.every((note) => note === "")) return false;
+  return new TextEncoder().encode(JSON.stringify(notes)).length <= CHUNK_NOTES_MAX_BYTES;
+}
+
+/** Delete every kept notes row of a source (one per note version, so few). */
+export async function deleteKeptChunkNotes(ctx: MutationCtx, sourceId: Id<"brainSources">): Promise<void> {
+  for (const row of await ctx.db
+    .query("brainChunkNotes")
+    .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", sourceId))
+    .take(20)) {
+    await ctx.db.delete(row._id);
+  }
+}
 
 /** The notes an earlier attempt of this embed made, if they match the chunk count. */
 export const keptChunkNotes = internalQuery({
@@ -601,6 +626,8 @@ export const keptChunkNotes = internalQuery({
       .withIndex("by_sourceId_and_notesVersion", (q) => q.eq("sourceId", args.sourceId).eq("notesVersion", args.notesVersion))
       .unique();
     if (!row || row.chunkCount !== args.chunkCount || row.notes.length !== args.chunkCount) return null;
+    // Notes that are all empty are never reused: a retry makes them again.
+    if (row.notes.every((note) => note === "")) return null;
     return row.notes;
   },
 });

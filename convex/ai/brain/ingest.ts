@@ -17,7 +17,7 @@ import {
   BRAIN_ENTRY_IMPORTANCE,
   BRAIN_INDEX_FIELDS,
   BRAIN_RAGS,
-  CHUNK_NOTES_MAX_BYTES,
+  keepableNotes,
   entryIdIn,
   entryIsCurrent,
   vBrainIndexId,
@@ -197,7 +197,16 @@ export const embedSource = internalAction({
 
     const notesOn = useContextual();
     const targets = embedTargets(src, src.indexState, notesOn, { indexes: args.indexes, force: args.force });
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      // Nothing left to add (another embed landed them): drop any kept notes.
+      if (notesOn) {
+        await ctx.runMutation(internal.ai.brain.rag.dropChunkNotes, {
+          sourceId: args.sourceId,
+          notesVersion: BRAIN_CHUNK_NOTES_VERSION,
+        });
+      }
+      return;
+    }
 
     // 2026-11-17: the same importance for every entry, so the search's
     // relevance floor reads raw similarity; the writer tier ranks results
@@ -237,7 +246,6 @@ export const embedSource = internalAction({
     };
 
     let chunks: string[] | undefined;
-    let keptNotes = false;
     if (notesOn) {
       const rawChunks = defaultChunker(src.content);
       // Notes this prompt version already made for another index.
@@ -262,16 +270,13 @@ export const embedSource = internalAction({
             brainSourceId: args.sourceId,
           });
           notes = await contextualizeChunks(client, model, src.content, rawChunks);
-          if (new TextEncoder().encode(JSON.stringify(notes)).length <= CHUNK_NOTES_MAX_BYTES) {
+          if (keepableNotes(notes)) {
             await ctx.runMutation(internal.ai.brain.rag.keepChunkNotes, {
               sourceId: args.sourceId,
               notesVersion: BRAIN_CHUNK_NOTES_VERSION,
               notes,
             });
-            keptNotes = true;
           }
-        } else {
-          keptNotes = true;
         }
         chunks = rawChunks.map((raw, i) => withNote(notes![i] ?? "", raw));
       }
@@ -312,8 +317,10 @@ export const embedSource = internalAction({
         });
       }
     }
-    // Every add finished: the kept notes are no longer needed.
-    if (keptNotes) {
+    // Every add finished: notes an earlier attempt kept are no longer
+    // needed, whichever way this attempt got its chunks (final review P3-1:
+    // a retry that reused the other index's chunks left the row before).
+    if (notesOn) {
       await ctx.runMutation(internal.ai.brain.rag.dropChunkNotes, {
         sourceId: args.sourceId,
         notesVersion: BRAIN_CHUNK_NOTES_VERSION,
