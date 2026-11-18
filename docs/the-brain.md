@@ -241,13 +241,18 @@ without regard to accents. The title is "Past PD, FY2024", and a separate
 leak check with its own forms refuses the copy if the company's name
 survives (ordinary first words still capitalized come back as warnings).
 Approve must show the scrubbed text to a person, with an "Also remove" box
-for product names and other words and a note of what the check does not
-cover, before the copy is made.
+for product names and other words (each hidden and checked as a whole
+word whatever its length, so "Li" counts; an entry of only punctuation is
+refused) and a note of what the check does not cover, before the copy is
+made.
 Industry comes from the company (or the one picked for a new company) and
 is required; the tier comes from `pdWriters.tier`, default 0.4.
 
 Retrieval leaves a company's own imported PDs out of its own exemplars
-(fetching 90 hits only when the company has any, keeping a slate of 30).
+(fetching 90 hits only when the company has any, keeping a slate of 30). A
+source counts as the company's when any import file linked to it is (two
+companies' PDs can scrub to one shared source), checked over at most 20
+links per source; more than that leaves the source out.
 Chunk notes never name the company.
 
 Deploy: `brain:backfillBrainSourceCards`, then

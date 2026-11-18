@@ -47,6 +47,8 @@ export const IMPORT_BRAIN_REFUSALS = {
   no_text: "This file has no text to copy into the Brain.",
   no_industry: "Pick an industry for this company.",
   names_unreadable: "Could not read every name this company has, so no Brain copy was made.",
+  also_remove_no_word:
+    "Each entry in Also remove needs a letter or a number. Take out the ones that are only spaces or punctuation.",
 } as const;
 
 export type ImportBrainCopyRefusalCode = keyof typeof IMPORT_BRAIN_REFUSALS | "names_left";
@@ -682,6 +684,44 @@ function initialismPattern(initialism: string): string {
   return `${[...initialism].map(escapeRegExp).join("(?:\\.|[ \\t]*&[ \\t]*)?")}\\.?`;
 }
 
+/** The words of an Also remove entry as the leak check reads them ("A.B." is "AB"); none for spaces or punctuation. */
+function alsoRemoveWords(entry: string): string[] {
+  return leakReading(entry).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+/**
+ * An Also remove entry that starts or ends with a symbol ("C++", "C#",
+ * ".NET"), as the leak check reads it, or null for an entry of words. Such an
+ * entry is matched as typed, so "C++" never hides every "C". A trailing
+ * period or comma does not count ("Corp." is words).
+ */
+function alsoRemoveLiteral(entry: string): string | null {
+  const plain = leakReading(entry).trim().replace(/[.,;:]+$/u, "");
+  if (/^[\p{L}\p{N}]/u.test(plain) && /[\p{L}\p{N}]$/u.test(plain)) return null;
+  return plain.replace(/\s+/g, " ");
+}
+
+/**
+ * The scrub's pattern for one Also remove entry (2026-11-17, Greptile P2): its
+ * words in order, any length, never inside a longer word ("Li" never hides
+ * "LiDAR"); a one-word entry of letters also as dotted letters ("A.B" for
+ * "AB"); an entry with a symbol at an edge as typed. Matched on folded text,
+ * so case and accents do not matter. Null when the entry has no letter or
+ * digit.
+ */
+function alsoRemovePattern(entry: string): string | null {
+  const words = alsoRemoveWords(entry);
+  if (words.length === 0) return null;
+  const literal = alsoRemoveLiteral(entry);
+  if (literal !== null) return surfacePattern(literal);
+  const sequence = words.map(escapeRegExp).join(PHRASE_GAP);
+  const [only] = words;
+  if (words.length === 1 && /^\p{L}{2,6}$/u.test(only)) {
+    return `(?:${sequence}|${[...only].map(escapeRegExp).join("\\.")})`;
+  }
+  return sequence;
+}
+
 /**
  * Hides the names and every form in `variants`, ignoring accents, invisible
  * characters, trademark signs and words broken at a line end, never inside
@@ -703,14 +743,16 @@ export function scrubImportText(
   // Business Numbers and addresses.
   let out = scrubNumbersAndAddresses(deidentifyNames(text.normalize("NFC"), []));
 
-  const asNames = [...names.organizations, ...names.people, ...names.hosts, ...(names.alsoRemove ?? [])]
+  const asNames = [...names.organizations, ...names.people, ...names.hosts]
     .map((name) => fold(name.normalize("NFC")).trim().replace(/\s+/g, " "))
     .filter((name) => name.length >= 3);
   const companyForms = [
-    ...[...names.organizations, ...(names.alsoRemove ?? [])]
+    ...names.organizations
       .map((name) => fold(name.normalize("NFC")).trim().replace(/\s+/g, " "))
       .filter((name) => name.length >= 3)
       .map(surfacePattern),
+    // What the person typed in Also remove: each entry, any length, as a whole word.
+    ...(names.alsoRemove ?? []).flatMap((entry) => alsoRemovePattern(entry) ?? []),
     ...variants.phrases.map((parts) => parts.map(escapeRegExp).join(PHRASE_GAP)),
     ...variants.joined.map(escapeRegExp),
     ...variants.words.map(escapeRegExp),
@@ -867,6 +909,37 @@ export function findIdentityLeak(text: string, names: readonly string[], domainS
 }
 
 /**
+ * The first Also remove entry still in `text`, as typed, or null (2026-11-17,
+ * Greptile P2). Unlike the company's names, every entry is checked whatever
+ * its length, word for word over whole words only (never a part of a longer
+ * word, so "Li" is not found in "LiDAR"), in the leak check's own reading; an
+ * entry with a symbol at an edge ("C++") is looked for as typed.
+ * The copy's own markers ("[redacted]") are not read as words.
+ */
+export function findAlsoRemoveLeak(text: string, alsoRemove: readonly string[]): string | null {
+  const unmarked = text.replace(/\[redacted(?: number| address)?\]/g, " ");
+  const tokens = leakReading(unmarked)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((token) => token.toLowerCase());
+  const reading = leakReading(unmarked).toLowerCase();
+  for (const entry of alsoRemove) {
+    const literal = alsoRemoveLiteral(entry);
+    if (literal !== null) {
+      const typed = escapeRegExp(literal.toLowerCase()).replace(/ /g, "\\s+");
+      if (new RegExp(`(?<![\\p{L}\\p{N}])${typed}(?![\\p{L}\\p{N}])`, "u").test(reading)) return entry.trim();
+      continue;
+    }
+    const sequence = alsoRemoveWords(entry).map((word) => word.toLowerCase());
+    if (sequence.length === 0) continue;
+    for (let i = 0; i + sequence.length <= tokens.length; i++) {
+      if (sequence.every((word, k) => tokens[i + k] === word)) return entry.trim();
+    }
+  }
+  return null;
+}
+
+/**
  * What the Approve screen shows with every copy: what the scrub and the
  * leak check cover, and what a person must look for themselves.
  */
@@ -962,7 +1035,15 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
 
   const text = fullText.normalize("NFC");
   const organizations = organizationNames(input);
+  // An entry with no letter or digit could hide nothing, so it is refused
+  // rather than ignored. A blank entry ("") is no entry.
+  if ((input.alsoRemove ?? []).some((word) => word !== "" && alsoRemoveWords(word).length === 0)) {
+    return refuse("also_remove_no_word", IMPORT_BRAIN_REFUSALS.also_remove_no_word);
+  }
   const alsoRemove = (input.alsoRemove ?? []).map((word) => word.trim()).filter(Boolean);
+  // Entries of words also get the company name rules; one with a symbol at an
+  // edge ("C++", ".NET") is only matched as typed, so its bare word stays.
+  const alsoRemoveNames = alsoRemove.filter((word) => alsoRemoveLiteral(word) === null);
   const host = websiteHost(input.company?.website);
   const stem = host ? domainStem(host) : null;
   const people = [
@@ -972,16 +1053,24 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
       ...peopleNamedByCues(text),
     ]),
   ];
-  const variants = companyNameVariants([...organizations, ...alsoRemove], stem ? [stem] : []);
+  const variants = companyNameVariants([...organizations, ...alsoRemoveNames], stem ? [stem] : []);
   const content = scrubImportText(text, { organizations, people, hosts: host ? [host] : [], alsoRemove }, variants);
   const fiscalYear = itemFiscalYear(item);
 
   // The title is fixed words and a year, so only the text is checked.
-  const leak = findIdentityLeak(content, [...organizations, ...alsoRemove], stem ? [stem] : []);
+  const leak = findIdentityLeak(content, [...organizations, ...alsoRemoveNames], stem ? [stem] : []);
   if (leak !== null) {
     return refuse(
       "names_left",
       `The Brain copy would still name the company ("${leak}"), so it was not made. The final PD still goes on the company's page.`,
+      IMPORT_BRAIN_LEAK_LOG_REASON
+    );
+  }
+  const typedLeak = findAlsoRemoveLeak(content, alsoRemove);
+  if (typedLeak !== null) {
+    return refuse(
+      "names_left",
+      `The Brain copy would still show "${typedLeak}" from Also remove, so it was not made. The final PD still goes on the company's page.`,
       IMPORT_BRAIN_LEAK_LOG_REASON
     );
   }
@@ -991,7 +1080,7 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
   const scienceCode = normalizeCraScienceCode(item.scienceCode);
   return {
     ok: true,
-    warnings: identityWarnings(content, [...organizations, ...alsoRemove]),
+    warnings: identityWarnings(content, [...organizations, ...alsoRemoveNames]),
     notCovered: IMPORT_BRAIN_NOT_COVERED,
     fields: {
       kind: "pd_pair",

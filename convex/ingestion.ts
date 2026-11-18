@@ -800,6 +800,7 @@ const importBrainCopyResultValidator = v.union(
       v.literal("no_text"),
       v.literal("no_industry"),
       v.literal("names_unreadable"),
+      v.literal("also_remove_no_word"),
       v.literal("names_left"),
       v.literal("not_found")
     ),

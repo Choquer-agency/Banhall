@@ -975,6 +975,58 @@ export const ownCompanyImports = internalQuery({
 });
 
 /**
+ * The most import file links `servableBrainSources` reads for one source. A
+ * source with more is left out of the search of any company that has
+ * imported PDs in the Brain, since its files cannot all be checked.
+ */
+export const SERVABLE_SOURCE_LINK_CAP = 20;
+
+/**
+ * Whether a source is linked to an import file of a company with these keys
+ * (2026-11-17): its first file, every file in `brainSourceImportFiles` (up to
+ * SERVABLE_SOURCE_LINK_CAP; more counts as yes), and any of the company's
+ * files approved with it (`ingestionItems.brainSourceId`, which also covers a
+ * file whose bytes match another company's file, so it has no link row of its
+ * own). `itemKeys` caches each file's company key across sources.
+ */
+async function ownCompanyImport(
+  ctx: QueryCtx,
+  sourceId: Id<"brainSources">,
+  firstItemId: Id<"ingestionItems"> | undefined,
+  ownKeys: ReadonlySet<string>,
+  itemKeys: Map<Id<"ingestionItems">, string | undefined>
+): Promise<boolean> {
+  const links = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+    .take(SERVABLE_SOURCE_LINK_CAP + 1);
+  if (links.length > SERVABLE_SOURCE_LINK_CAP) return true;
+  const itemIds = new Set(links.map((link) => link.importItemId));
+  if (firstItemId) itemIds.add(firstItemId);
+  for (const itemId of itemIds) {
+    if (!itemKeys.has(itemId)) {
+      const item = await ctx.db.get(itemId);
+      itemKeys.set(
+        itemId,
+        item?.companyKey ?? (item?.clientName ? dashboardCompanyKey(item.clientName) : undefined)
+      );
+    }
+    const key = itemKeys.get(itemId);
+    if (key !== undefined && ownKeys.has(key)) return true;
+  }
+  for (const key of ownKeys) {
+    const approved = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_companyKey_and_brainSourceId", (q) =>
+        q.eq("companyKey", key).eq("brainSourceId", sourceId)
+      )
+      .first();
+    if (approved) return true;
+  }
+  return false;
+}
+
+/**
  * Served-result status join (CAP-10 g), since 2026-11-17 by card. A revoked
  * source's RAG entry still carries `approved: true` in its own filter value
  * until deletion succeeds, so retrieval joins each hit's `metadata.sourceId`
@@ -983,10 +1035,15 @@ export const ownCompanyImports = internalQuery({
  *
  * The hits retrieval may serve (2026-11-17): the approved sources among
  * `sourceIds`, with each one's current writer tier, leaving out a source
- * made from an import file of the searching project's company (its
+ * linked to any import file of the searching project's company (its
  * `ownCompanyKeys`, from `ownCompanyImports`; those PDs
  * already reach the company's drafts as company files, and the Brain must
  * not hand a company its own PD as a "never copy facts" exemplar).
+ *
+ * One source can hold several companies' files: two PDs that differ only by
+ * the company's name scrub to the same text, so the second import reuses the
+ * first one's source. So every file linked to the source counts, not only its
+ * first (`ownCompanyImport`).
  *
  * Reads each source's list card, never its text; a source with no card yet
  * (before brain:backfillBrainSourceCards) is read whole, as before.
@@ -1010,17 +1067,7 @@ export const servableBrainSources = internalQuery({
         .unique();
       const row = card ?? (await ctx.db.get(id));
       if (row?.status !== "approved") continue;
-      if (ownKeys.size > 0 && row.importItemId) {
-        if (!itemKeys.has(row.importItemId)) {
-          const item = await ctx.db.get(row.importItemId);
-          itemKeys.set(
-            row.importItemId,
-            item?.companyKey ?? (item?.clientName ? dashboardCompanyKey(item.clientName) : undefined)
-          );
-        }
-        const key = itemKeys.get(row.importItemId);
-        if (key !== undefined && ownKeys.has(key)) continue;
-      }
+      if (ownKeys.size > 0 && (await ownCompanyImport(ctx, id, row.importItemId, ownKeys, itemKeys))) continue;
       servable.push({ sourceId: raw, writerTier: row.writerTier });
     }
     return servable;

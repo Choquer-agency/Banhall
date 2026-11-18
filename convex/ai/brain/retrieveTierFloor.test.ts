@@ -10,7 +10,8 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
-import { brain, BRAIN_CHUNK_NOTES_VERSION, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE, insertBrainSource } from "./rag";
+import { brain, BRAIN_CHUNK_NOTES_VERSION, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE, insertBrainSource, linkBrainSourceImportFile } from "./rag";
+import { importSource, SERVABLE_SOURCE_LINK_CAP } from "../../brain";
 import { brainEmbeddingModel, brainRerankModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
 import {
   BRAIN_MIN_VECTOR_SIMILARITY,
@@ -326,6 +327,150 @@ describe("a company's own imported PDs are left out of its own exemplars", () =>
     expect(documents.every((text) => text.includes("other-"))).toBe(true);
     expect(result.exemplars).toHaveLength(4);
     expect(result.exemplars.every((e) => others.includes(e.sourceId as Id<"brainSources">))).toBe(true);
+  });
+});
+
+describe("a source shared by two companies' PDs is left out for both (Greptile P1)", () => {
+  async function companies(t: T) {
+    return await t.run(async (ctx) => {
+      const userId = await ctx.db.insert("users", { authId: "shared-writer", role: "writer" });
+      const project = (clientName: string, key: string) =>
+        ctx.db.insert("projects", {
+          title: "Kiln controller",
+          clientName,
+          dashboardCompanyKey: key,
+          status: "review",
+          createdBy: userId,
+          shareToken: `token-${key}`,
+          createdAt: 1,
+          updatedAt: 1,
+        });
+      return {
+        quillmere: await project("Quillmere Analytics", "quillmere analytics"),
+        harrowfield: await project("Harrowfield Farms", "harrowfield farms"),
+        thirdParty: await project("Ostrava Mills", "ostrava mills"),
+      };
+    });
+  }
+
+  function importItem(t: T, companyKey: string, contentHash: string, extra: { companyKey?: string | null } = {}) {
+    return t.run((ctx) =>
+      ctx.db.insert("ingestionItems", {
+        driveItemId: `drive-${companyKey}-${contentHash}`,
+        path: `${companyKey}/2024`,
+        name: "PD.docx",
+        clientName: companyKey,
+        ...(extra.companyKey === null ? {} : { companyKey: extra.companyKey ?? companyKey }),
+        docKind: "pd",
+        size: 1,
+        lastModifiedAt: 1,
+        contentHash,
+        status: "pending_review",
+        pairGroupKey: `${companyKey}::2024`,
+        updatedAt: 1,
+      })
+    );
+  }
+
+  /** What Approve does for one import file: importSource with its bytes, then the file's link. */
+  async function approve(t: T, itemId: Id<"ingestionItems">, contentHash: string, content: string) {
+    return await t.run(async (ctx) => {
+      const result = await importSource(
+        ctx,
+        {
+          kind: "pd_pair",
+          title: "Past PD, FY2024",
+          industry: "manufacturing",
+          writerTier: 1,
+          docType: "pd",
+          content,
+          approve: true,
+          importItem: { itemId, contentHash },
+        },
+        "test-admin"
+      );
+      if (result.outcome === "revoked") throw new Error("unexpected revoked match");
+      await ctx.db.patch(itemId, { status: "approved", brainSourceId: result.sourceId });
+      return result;
+    });
+  }
+
+  async function addEntry(t: T, sourceId: Id<"brainSources">, cos: number, label: string) {
+    const vector = vectorAt(cos, axis++);
+    await t.action(async (ctx) => {
+      await brain.add(ctx, {
+        namespace: BRAIN_NAMESPACE,
+        key: `pd_pair:${label}`,
+        title: "Past PD, FY2024",
+        importance: BRAIN_ENTRY_IMPORTANCE,
+        metadata: { sourceId, industry: "manufacturing", writerTier: 1, docType: "pd" },
+        filterValues: [
+          { name: "industryApproved", value: { industry: "manufacturing", approved: true } },
+          { name: "docType", value: "pd" },
+        ],
+        chunks: [{ text: `Passage ${label} about kiln temperature control.`, embedding: vector }],
+      });
+    });
+  }
+
+  test("two PDs that scrub to the same text share one source, and each company's search leaves it out", async () => {
+    const t = setup();
+    const { quillmere, harrowfield, thirdParty } = await companies(t);
+    // The same PD for two clients, each name scrubbed: identical Brain copies.
+    const scrubbed = "[redacted] built a kiln controller and measured drift.";
+    const first = await approve(t, await importItem(t, "quillmere analytics", "bytes-q"), "bytes-q", scrubbed);
+    const second = await approve(t, await importItem(t, "harrowfield farms", "bytes-h"), "bytes-h", scrubbed);
+    expect(first.outcome).toBe("added");
+    expect(second).toMatchObject({ outcome: "matched", sourceId: first.sourceId });
+    const sharedRow = await t.run((ctx) => ctx.db.get(first.sourceId));
+    expect(sharedRow?.status).toBe("approved");
+    await addEntry(t, first.sourceId, 0.9, "shared");
+    const curated = await addSource(t, { cos: 0.6, tier: 0.7, label: "curated" });
+
+    for (const projectId of [quillmere, harrowfield]) {
+      const result = await search(t, { k: 4, projectId });
+      expect(result.exemplars.map((e) => e.sourceId)).toEqual([curated]);
+    }
+    const forOther = await search(t, { k: 4, projectId: thirdParty });
+    expect(forOther.exemplars.map((e) => e.sourceId).sort()).toEqual([first.sourceId, curated].sort());
+  });
+
+  test("every linked file counts, not only the first, even with no Brain source on the file", async () => {
+    const t = setup();
+    const sourceId = await addSource(t, { cos: 0.5, tier: 0.7, importItemId: await importItem(t, "quillmere analytics", "bytes-q"), label: "first" });
+    // A second company's file linked to the source, with no brainSourceId and only a client name.
+    const later = await importItem(t, "Harrowfield Farms", "bytes-h", { companyKey: null });
+    await t.run((ctx) => linkBrainSourceImportFile(ctx, sourceId, { itemId: later, contentHash: "bytes-h" }));
+    const servable = (ownCompanyKeys: string[]) =>
+      t.query(internal.brain.servableBrainSources, { sourceIds: [sourceId], ownCompanyKeys });
+    expect(await servable(["quillmere analytics"])).toEqual([]);
+    expect(await servable(["harrowfield farms"])).toEqual([]);
+    expect(await servable(["ostrava mills"])).toEqual([{ sourceId, writerTier: 0.7 }]);
+  });
+
+  test("a file with the same bytes as another company's (no link row of its own) counts through its Brain source", async () => {
+    const t = setup();
+    const sourceId = await addSource(t, { cos: 0.5, tier: 0.7, importItemId: await importItem(t, "quillmere analytics", "bytes-q"), label: "first" });
+    const same = await importItem(t, "harrowfield farms", "bytes-same");
+    await t.run((ctx) => ctx.db.patch(same, { status: "approved", brainSourceId: sourceId }));
+    expect(
+      await t.query(internal.brain.servableBrainSources, { sourceIds: [sourceId], ownCompanyKeys: ["harrowfield farms"] })
+    ).toEqual([]);
+  });
+
+  test(`a source with more than ${SERVABLE_SOURCE_LINK_CAP} linked files is left out for any company with imports, kept for a search without one`, async () => {
+    const t = setup();
+    const sourceId = await addSource(t, { cos: 0.5, tier: 0.7, label: "many" });
+    for (let n = 0; n <= SERVABLE_SOURCE_LINK_CAP; n++) {
+      const itemId = await importItem(t, `company ${n}`, `bytes-${n}`);
+      await t.run((ctx) => linkBrainSourceImportFile(ctx, sourceId, { itemId, contentHash: `bytes-${n}` }));
+    }
+    expect(
+      await t.query(internal.brain.servableBrainSources, { sourceIds: [sourceId], ownCompanyKeys: ["ostrava mills"] })
+    ).toEqual([]);
+    expect(await t.query(internal.brain.servableBrainSources, { sourceIds: [sourceId] })).toEqual([
+      { sourceId, writerTier: 0.7 },
+    ]);
   });
 });
 

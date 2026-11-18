@@ -10,6 +10,7 @@ import {
   camelParts,
   companyNameVariants,
   domainStem,
+  findAlsoRemoveLeak,
   findIdentityLeak,
   importBrainTitle,
   scrubImportText,
@@ -233,6 +234,51 @@ describe("review fixes: every distinctive word, numbers, addresses, people, acce
     expect(copyFor("Quillmere Analytics", text).ok && (copyFor("Quillmere Analytics", text) as { fields: { content: string } }).fields.content).toBe(text);
     const removed = copyFor("Quillmere Analytics", text, { alsoRemove: ["Kilnwise"] });
     expect(removed.ok && removed.fields.content).toBe("The [redacted] controller and [redacted] app shipped.");
+  });
+
+  test("a short Also remove entry is hidden as a whole word in any case and accent, and checked (Greptile P2)", () => {
+    const text = "Dr. Li ran the kiln. LI and li signed; L\u00ed too. LiDAR, Lithium and Lin stay.";
+    const li = copyFor("Quillmere Analytics", text, { alsoRemove: ["Li"] });
+    expect(li).toMatchObject({ ok: true });
+    expect(li.ok && li.fields.content).toBe(
+      "Dr. [redacted] ran the kiln. [redacted] and [redacted] signed; [redacted] too. LiDAR, Lithium and Lin stay."
+    );
+
+    const ab = copyFor("Quillmere Analytics", "AB built it; ab, A.B. and Ab too. ABC and Lab stay.", { alsoRemove: ["AB"] });
+    expect(ab.ok && ab.fields.content).toBe("[redacted] built it; [redacted], [redacted]. and [redacted] too. ABC and Lab stay.");
+
+    // A phrase is hidden as a phrase: "Li" on its own is not what was typed.
+    const drLi = copyFor("Quillmere Analytics", "Dr Li and dr. li met; Li stayed.", { alsoRemove: ["  Dr Li "] });
+    expect(drLi.ok && drLi.fields.content).toBe("[redacted] and [redacted] met; Li stayed.");
+  });
+
+  test("an Also remove entry with a symbol at an edge is matched as typed, never as its bare word", () => {
+    const text = "Written in C++ and C# on .NET; section C and net savings stay.";
+    const typed = copyFor("Quillmere Analytics", text, { alsoRemove: ["C++", "C#", ".NET"] });
+    expect(typed.ok && typed.fields.content).toBe("Written in [redacted] and [redacted] on [redacted]; section C and net savings stay.");
+    expect(findAlsoRemoveLeak("Built on C++ here.", ["C++"])).toBe("C++");
+    expect(findAlsoRemoveLeak("Section C here.", ["C++"])).toBeNull();
+  });
+
+  test("the Also remove check finds a typed entry the scrub left, whole words only", () => {
+    expect(findAlsoRemoveLeak("Dr. Li ran it.", ["Li"])).toBe("Li");
+    expect(findAlsoRemoveLeak("A.B. ran it.", ["AB"])).toBe("AB");
+    expect(findAlsoRemoveLeak("Dr Li ran it.", ["Dr Li"])).toBe("Dr Li");
+    expect(findAlsoRemoveLeak("LiDAR and Lithium.", ["Li"])).toBeNull();
+    expect(findAlsoRemoveLeak("Dr. Lin and Li-ion.", ["Dr Li"])).toBeNull();
+    // The copy's own markers are not words.
+    expect(findAlsoRemoveLeak("[redacted] and [redacted number].", ["redacted", "number"])).toBeNull();
+  });
+
+  test("an Also remove entry of only spaces or punctuation is refused in plain words; a blank one is no entry", () => {
+    for (const entry of ["   ", "--", "(.)"]) {
+      expect(copyFor("Quillmere Analytics", "Kiln work.", { alsoRemove: ["Kilnwise", entry] })).toMatchObject({
+        ok: false,
+        code: "also_remove_no_word",
+        reason: IMPORT_BRAIN_REFUSALS.also_remove_no_word,
+      });
+    }
+    expect(copyFor("Quillmere Analytics", "Kiln work.", { alsoRemove: [""] })).toMatchObject({ ok: true });
   });
 
   test("accents and composed or decomposed text are matched both ways and replaced as written", () => {

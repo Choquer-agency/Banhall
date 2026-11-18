@@ -126,6 +126,18 @@ describe("importBrainCopyPreview", () => {
     });
   });
 
+  test("Also remove: a short entry is hidden, one of only punctuation is refused (Greptile P2)", async () => {
+    const t = convexTest(schema, modules);
+    const { itemId } = await seed(t);
+    const text = `${TEXT}\nLi checked the AB rig.`;
+    const hidden = await t.query(internal.ingestion.importBrainCopyPreview, { itemId, text, alsoRemove: ["Li", "AB"] });
+    expect(hidden.ok && hidden.fields.content.split("\n").at(-1)).toBe("[redacted] checked the [redacted] rig.");
+    expect(await t.query(internal.ingestion.importBrainCopyPreview, { itemId, text, alsoRemove: ["..."] })).toMatchObject({
+      ok: false,
+      code: "also_remove_no_word",
+    });
+  });
+
   test("a company with no industry is refused", async () => {
     const t = convexTest(schema, modules);
     const { itemId } = await seed(t, { client: { industry: undefined } });
