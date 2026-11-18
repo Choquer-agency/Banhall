@@ -3125,8 +3125,9 @@ export const RETIER_BRAIN_REASON = "Writer weight changed on Team";
  * writer's approved files through `by_writerId_and_sheetTab`. For a file
  * with a Brain copy it reads the copy's small card first and passes it over
  * when the card is gone or revoked, already at the weight, or the copy
- * names another file as its own (a copy two files share follows the file it
- * names); only then does it read the source, which holds the whole text.
+ * does not name this file as its own (a copy two files share follows the
+ * file it names; a copy naming no file, from the old page or another
+ * route, is never re-tiered); only then does it read the source, which holds the whole text.
  * A step stops once it has read SEND_BACK_READ_BUDGET and runs again from
  * the same page, where the copies it finished are now passed over by their
  * cards, so every step moves on. A file still waiting in Brain check is
@@ -3165,7 +3166,11 @@ export const retierWriterBrainCopies = internalMutation({
         .withIndex("by_sourceId", (q) => q.eq("sourceId", item.brainSourceId!))
         .first();
       spent += storedSize(card);
-      if (!card || card.status === "revoked" || card.writerTier === weight || (card.importItemId && card.importItemId !== item._id)) {
+      // Only a copy that names this file as its own: a Brain check made it
+      // for this file. A copy naming another file follows that file; one
+      // naming no file (made on the old page, or by another route and only
+      // matched) is never a writer's to re-tier (owner answer 2).
+      if (!card || card.status === "revoked" || card.writerTier === weight || card.importItemId !== item._id) {
         passedOver += 1;
         continue;
       }
@@ -3175,7 +3180,7 @@ export const retierWriterBrainCopies = internalMutation({
       }
       const source = await ctx.db.get(item.brainSourceId);
       spent += storedSize(source);
-      if (!source || source.status === "revoked" || (source.importItemId && source.importItemId !== item._id)) {
+      if (!source || source.status === "revoked" || source.importItemId !== item._id) {
         passedOver += 1;
         continue;
       }

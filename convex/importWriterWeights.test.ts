@@ -14,6 +14,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { classify } from "./lib/ingestionClassify";
 import { patchBrainSource } from "./ai/brain/rag";
+import { importSource } from "./brain";
 import { RETIER_BRAIN_REASON, SEND_BACK_READ_BUDGET } from "./ingestion";
 import { DEFAULT_WRITER_WEIGHT, WRITER_WEIGHT_RULE } from "../shared/writerWeight";
 import schema from "./schema";
@@ -369,6 +370,35 @@ describe("re-tiering a writer's Brain copies", () => {
     expect((await source(t, sharedId))!.writerTier).toBe(0.7);
     expect(await relabels(t, revokedId)).toEqual([]);
     expect(await relabels(t, sharedId)).toEqual([]);
+  });
+
+  it("never re-tiers a copy that names no file: one made on the old page, or a nomination the file only matched (review P3-1)", async () => {
+    const { t, admin, adminId, tracyId } = await setup();
+    // As the old page left it: an approved file pointing at a copy with no importItemId.
+    const oldPage = await stagePd(t, 1, "TL");
+    const nominated = await stagePd(t, 2, "TL");
+    const [oldCopy, nomination] = await t.run(async (ctx) => {
+      const make = async (label: string, kind: "pd_pair" | "writer_feedback") =>
+        (await importSource(
+          ctx,
+          { kind, title: `Copy ${label}`, industry: "manufacturing", writerTier: 0.4, docType: "pd", content: `text of ${label}`, approve: true },
+          adminId
+        )) as { outcome: string; sourceId: Id<"brainSources"> };
+      return [(await make("old page", "pd_pair")).sourceId, (await make("nomination", "writer_feedback")).sourceId];
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(oldPage, { status: "approved", sheetTab: "approved", brainSourceId: oldCopy, reviewedBy: adminId, reviewedAt: 1 });
+      await ctx.db.patch(nominated, { status: "approved", sheetTab: "approved", brainSourceId: nomination, reviewedBy: adminId, reviewedAt: 1 });
+    });
+    for (const id of [oldCopy, nomination]) expect((await card(t, id))!.importItemId).toBeUndefined();
+    const embedsBefore = embedsQueued();
+    await admin.mutation(api.users.setWriterWeight, { userId: tracyId, weight: 1 });
+    await settle(t);
+    for (const id of [oldCopy, nomination]) {
+      expect((await source(t, id))!.writerTier).toBe(0.4);
+      expect(await relabels(t, id)).toEqual([]);
+    }
+    expect(embedsQueued()).toBe(embedsBefore);
   });
 
   it("stops a step once its read budget is spent and goes on in the next, reaching every copy once", async () => {
