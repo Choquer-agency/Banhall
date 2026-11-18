@@ -13,6 +13,7 @@ import {
   __setPaginatedRowsForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
 import { board } from "$lib/test/boardScale";
+import { WIDER_TEXT, cellRoom, wordsRoom, wordsWidth } from "$lib/test/textRoom";
 
 /**
  * The Import sheet (2026-11-11 phase 3a, boards ao3 and ao5): company
@@ -908,6 +909,13 @@ describe("ImportSheet on laptop windows", () => {
           if (next) expect(box(cell).right, `${id} cell ${index}`).toBeLessThanOrEqual(box(next).left + 0.5);
         }
       }
+      // The required "Choose writer" is whole, with room for words drawn 8%
+      // wider (Linux and Windows draw text a little wider than macOS).
+      const writerCell = one('[data-import-file="lactose"] [data-import-cell="writer"]')!;
+      const chooseWriter = one("[data-import-writer-pick] span", writerCell)!;
+      expect(text(chooseWriter)).toBe("Choose writer");
+      expect(chooseWriter.scrollWidth).toBeLessThanOrEqual(chooseWriter.clientWidth);
+      expect(wordsWidth(chooseWriter) * WIDER_TEXT, "Choose writer 8% wider").toBeLessThanOrEqual(wordsRoom(chooseWriter, cellRoom(writerCell)));
       // The note gives way first, and still shows a few letters.
       const note = one('[data-import-file="scan"] [data-import-file-state]')!;
       expect(box(note).width).toBeGreaterThan(board(40));

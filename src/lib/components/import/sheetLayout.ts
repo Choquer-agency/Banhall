@@ -11,23 +11,29 @@
  * 344px, so a common code title still fits at the boards' width), and on
  * a narrow window File keeps at least 224px while the other five give up
  * room first, down to their own minimums: Fiscal year 80px, Version 60px,
- * Writer 132px (so the required "Choose writer" and a full name such as
- * "Dana Whitlock" stay whole), Reviewer 108px (a short name whole; the
+ * Writer 138px (so the required "Choose writer" and a full name such as
+ * "Dana Whitlock" stay whole), Reviewer 102px (a short name whole; the
  * quiet "Choose reviewer" is cut, and whole on hover) and Science code
  * 108px, which is the code alone: its title shows once there is room. A
  * grid grows every fixed column to its widest before the File column gets
  * any of the rest. Every column at its minimum is 712px, which still fits
  * the sheet's 714px at a 1100px window; below that (SHEET_MIN_WIDTH) the
  * sheet scrolls sideways in its own area, header and all.
+ *
+ * Words have room to spare at those minimums (2026-11-17): Linux and
+ * Windows draw text about 5% wider than macOS, and CI's Linux browser cut
+ * "Choose writer" in a 132px Writer. So Writer took 6px from Reviewer, and
+ * "Choose writer", "Dana Whitlock" and "Priya Nair" would still be whole
+ * drawn 8% wider than wherever the tests run.
  */
 // Written out whole in each grid: Tailwind finds a class only as literal text.
-export const SHEET_GRID = "grid grid-cols-[minmax(14rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
+export const SHEET_GRID = "grid grid-cols-[minmax(14rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.625rem,9.5rem)_minmax(6.375rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
 /**
  * The same grid with Select on (board ao4): a 36px checkbox column first.
  * The File column gives up the room (its minimum too), so no other column moves.
  */
-export const SHEET_GRID_SELECT = "grid grid-cols-[2.25rem_minmax(11.75rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
+export const SHEET_GRID_SELECT = "grid grid-cols-[2.25rem_minmax(11.75rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.625rem,9.5rem)_minmax(6.375rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
 /**
  * The grids of a file row inside a company, which starts 24px in (the
@@ -36,8 +42,8 @@ export const SHEET_GRID_SELECT = "grid grid-cols-[2.25rem_minmax(11.75rem,1fr)_m
  * with it at every width, while they are still growing as much as when
  * they are at their widest.
  */
-export const SHEET_GRID_INDENTED = "grid grid-cols-[minmax(12.5rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
-export const SHEET_GRID_INDENTED_SELECT = "grid grid-cols-[2.25rem_minmax(10.25rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.25rem,9.5rem)_minmax(6.75rem,9.5rem)_minmax(6.75rem,21.5rem)]";
+export const SHEET_GRID_INDENTED = "grid grid-cols-[minmax(12.5rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.625rem,9.5rem)_minmax(6.375rem,9.5rem)_minmax(6.75rem,21.5rem)]";
+export const SHEET_GRID_INDENTED_SELECT = "grid grid-cols-[2.25rem_minmax(10.25rem,1fr)_minmax(5rem,6.5rem)_minmax(3.75rem,4.75rem)_minmax(8.625rem,9.5rem)_minmax(6.375rem,9.5rem)_minmax(6.75rem,21.5rem)]";
 
 /** The grid for a row: with Select on or off, and 24px in (a file inside a company) or not. */
 export function sheetGrid(selecting: boolean, indented = false): string {
@@ -59,7 +65,7 @@ export const SELECT_CELL = "relative z-[1] flex min-w-0 items-center pl-[0.5625r
 export const SELECT_CELL_NESTED = `${SELECT_CELL} -ml-6 w-[3.75rem] shrink-0`;
 
 /**
- * Every column at its minimum (14 + 5 + 3.75 + 8.25 + 6.75 + 6.75 rem): below this
+ * Every column at its minimum (14 + 5 + 3.75 + 8.625 + 6.375 + 6.75 rem): below this
  * the sheet scrolls sideways instead of squeezing a column.
  */
 export const SHEET_MIN_WIDTH = "min-w-[44.5rem]";
@@ -122,12 +128,14 @@ export const CELL_CARET =
 /**
  * The amber control for a label a person must pick ("Choose writer",
  * "Pick a code", "Pick an industry"; Paper Files 1): 26px, radius 8, the
- * warning surface inside a 1px amber line, 12/16 amber words, an 11px caret.
+ * warning surface inside a 1px amber line, 12/16 amber words, an 11px caret
+ * 4px after them and 6px in from the end (the caret's glyph is narrower
+ * than its box, so it looks as far in as the words, 8px from the start).
  * On a narrow window it gives way before running out of its cell: its words
  * are cut (put them in a truncating span), the caret stays.
  */
 export const PICK_CONTROL =
-  "inline-flex h-[1.625rem] max-w-full min-w-0 items-center gap-1.5 rounded-lg bg-warning-surface px-2 text-xs leading-[calc(4/3)] text-gap-text shadow-[inset_0_0_0_1px_var(--color-import-pick-line)] outline-none transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-warning-soft motion-reduce:transition-none pointer-coarse:h-11";
+  "inline-flex h-[1.625rem] max-w-full min-w-0 items-center gap-1 rounded-lg bg-warning-surface pr-1.5 pl-2 text-xs leading-[calc(4/3)] text-gap-text shadow-[inset_0_0_0_1px_var(--color-import-pick-line)] outline-none transition-colors hover:bg-warning-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir data-[state=open]:bg-warning-soft motion-reduce:transition-none pointer-coarse:h-11";
 
 /** The 11px caret in a pick control. */
 export const PICK_CARET_SIZE = "0.6875rem";

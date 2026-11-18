@@ -15,6 +15,7 @@ import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
 import { viewAs } from "$lib/shell/viewAs.svelte";
+import { WIDER_TEXT, cellRoom, wordsRoom, wordsWidth } from "$lib/test/textRoom";
 
 /**
  * Reviewers on the Import page and "Reviewed by CRA" (2026-11-17): the
@@ -392,26 +393,36 @@ describe("reviewers on the Import page", () => {
             expect(box(node).right, `${id} cell ${index} ${text(node)}`).toBeLessThanOrEqual(box(cell).right + 0.5);
           }
         }
-        // The reviewer cell has real room: at least 108px.
-        expect(box(inRow(id, '[data-import-cell="reviewer"]')).width).toBeGreaterThanOrEqual(107);
+        // The reviewer cell has real room: at least 102px.
+        expect(box(inRow(id, '[data-import-cell="reviewer"]')).width).toBeGreaterThanOrEqual(101);
       }
       // The required amber "Choose writer" is whole, and so are a full name and "Choose reviewer".
+      await document.fonts.ready;
       const whole = (node: HTMLElement) => node.scrollWidth <= node.clientWidth;
+      const writerCell = inRow("pd4", '[data-import-cell="writer"]');
       const chooseWriter = one("span", inRow("pd4", "[data-import-writer-pick]"))!;
       expect(text(chooseWriter)).toBe("Choose writer");
       expect(whole(chooseWriter), "Choose writer").toBe(true);
-      expect(box(inRow("pd4", "[data-import-writer-pick]")).right).toBeLessThanOrEqual(box(inRow("pd4", '[data-import-cell="writer"]')).right);
+      expect(box(inRow("pd4", "[data-import-writer-pick]")).right).toBeLessThanOrEqual(box(writerCell).right);
+      // With room to spare: the pick control can take the cell's whole width,
+      // and its words would still be whole drawn 8% wider (Linux, Windows).
+      expect(wordsWidth(chooseWriter) * WIDER_TEXT, "Choose writer 8% wider").toBeLessThanOrEqual(wordsRoom(chooseWriter, cellRoom(writerCell)));
       const dana = one("[data-import-writer-tone]", fileRow("pd1"))!;
       expect(text(dana)).toBe("Dana Whitlock");
       expect(whole(dana), "Dana Whitlock").toBe(true);
+      const danaButton = inRow("pd1", "[data-import-writer-edit]");
+      expect(wordsWidth(dana) * WIDER_TEXT, "Dana Whitlock 8% wider").toBeLessThanOrEqual(wordsRoom(dana, box(danaButton).width));
       // The quiet "Choose reviewer" is whole at 1280, and cut at 1100 with its words on hover.
       const chooseReviewer = inRow("pd2", "[data-import-reviewer-choose]");
       if (width >= 1280) expect(whole(chooseReviewer), "Choose reviewer").toBe(true);
       expect(chooseReviewer.getAttribute("title")).toBe("Choose reviewer");
-      expect(whole(one("[data-import-reviewer-tone]", fileRow("pd1"))!), "Priya Nair").toBe(true);
+      const priya = one("[data-import-reviewer-tone]", fileRow("pd1"))!;
+      expect(text(priya)).toBe("Priya Nair");
+      expect(whole(priya), "Priya Nair").toBe(true);
+      const priyaButton = inRow("pd1", "[data-import-reviewer-edit]");
+      expect(wordsWidth(priya) * WIDER_TEXT, "Priya Nair 8% wider").toBeLessThanOrEqual(wordsRoom(priya, box(priyaButton).width));
       // The science code shows whole, at least.
       expect(whole(inRow("pd1", "[data-import-code]")), "code").toBe(true);
-      await document.fonts.ready;
       await page.screenshot({ path: `${CAPTURES}/import-reviewer-${width}.png` });
       // The picker open on a file with no reviewer, inside the window.
       await userEvent.click(inRow("pd2", "[data-import-reviewer-edit]"));
