@@ -329,6 +329,70 @@ describe("Send back to review", () => {
     expect(await source(t, sourceId)).toMatchObject({ status: "revoked", sentBackItemId: copy });
   });
 
+  it("finds a file sharing the copy past the first twenty, so a copy still in use is never revoked", async () => {
+    const { t, admin } = await setup();
+    await pickIndustry(admin);
+    const pd = await readyPd(t);
+    const sourceId = await inBrain(t, admin, pd);
+    const bytes = (await item(t, pd)).contentHash;
+    const copies: Id<"ingestionItems">[] = [];
+    for (let n = 1; n <= 21; n++) {
+      copies.push(await readyPd(t, `${FY}/Submitted/04 CedarlineSystems 2025-03-31 T2.DW.PN ColdChainSensorDrift copy ${n}.docx`, PD_TEXT, bytes));
+    }
+    await approve(t, admin, copies);
+    for (const copy of copies) expect(await inBrain(t, admin, copy)).toBe(sourceId);
+
+    // The first file and the next nineteen go back together; the twenty-first copy still uses it.
+    const first20 = [pd, ...copies.slice(0, 19)];
+    const result = await sendBack(admin, first20);
+    expect(result.sentBack).toEqual(first20);
+    expect(result.brainRevoked).toEqual([]);
+    expect(result.brainKept).toEqual(first20);
+    expect(await source(t, sourceId)).toMatchObject({ status: "approved" });
+    expect([copies[19], copies[20]]).toContain((await source(t, sourceId))?.importItemId);
+    // The last two go one after the other: only the very last revokes it.
+    expect(await sendBack(admin, [copies[19]])).toMatchObject({ brainKept: [copies[19]], brainRevoked: [] });
+    expect(await sendBack(admin, [copies[20]])).toMatchObject({ brainKept: [], brainRevoked: [copies[20]] });
+    expect(await source(t, sourceId)).toMatchObject({ status: "revoked", sentBackItemId: copies[20] });
+  });
+
+  it("refuses, changing nothing, when a copy is linked to more files than one check can read", async () => {
+    const { t, admin } = await setup();
+    await pickIndustry(admin);
+    const pd = await readyPd(t);
+    const sourceId = await inBrain(t, admin, pd);
+    const approved = await item(t, pd);
+    // Over 300 other files with the same bytes (none approved, as after many Send backs).
+    await t.run(async (ctx) => {
+      for (let n = 0; n < 305; n++) {
+        await ctx.db.insert("ingestionItems", {
+          driveItemId: `drive-many-${n}`,
+          path: `${FY}/Submitted/copy ${n}.docx`,
+          name: `copy ${n}.docx`,
+          clientName: CEDARLINE,
+          companyKey: "cedarline systems",
+          docKind: "pd",
+          size: 1,
+          lastModifiedAt: 1,
+          contentHash: approved.contentHash,
+          status: "pending_review",
+          pairGroupKey: "cedarline systems::2025",
+          updatedAt: 1,
+        });
+      }
+    });
+    expect(await sendBack(admin, [pd])).toEqual({
+      sentBack: [],
+      refused: [{ id: pd, reason: "shared_widely" }],
+      companyFileGone: [],
+      brainKept: [],
+      brainRevoked: [],
+    });
+    expect(await item(t, pd)).toMatchObject({ status: "approved", companyFileId: approved.companyFileId, brainSourceId: sourceId });
+    expect(await source(t, sourceId)).toMatchObject({ status: "approved" });
+    expect(await events(t, pd)).toEqual([]);
+  });
+
   it("finds a file with other bytes that shares the copy through the Brain's link rows", async () => {
     const { t, admin } = await setup();
     await pickIndustry(admin);
@@ -704,7 +768,9 @@ describe("editing an approved file", () => {
     // Cleared again.
     await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { reviewer: null, craReviewed: false } });
     const cleared = await item(t, pd);
-    for (const gone of ["reviewerId", "reviewerSource", "craReviewed", "craReviewedBy", "craReviewedAt"] as const) expect(cleared[gone], gone).toBeUndefined();
+    for (const gone of ["reviewerId", "craReviewed", "craReviewedBy", "craReviewedAt"] as const) expect(cleared[gone], gone).toBeUndefined();
+    // "No reviewer" is a person's choice, kept so its initials never fill it again.
+    expect(cleared.reviewerSource).toBe("person");
     const [file] = await companyFiles(t);
     expect(file.reviewerId).toBeUndefined();
     expect(file.importLabels?.craReviewed).toBeUndefined();
@@ -794,6 +860,58 @@ describe("editing an approved file", () => {
       changed: ["writer"],
       brainUpdated: true,
     });
+  });
+
+  it("keeps a reviewer cleared by a person cleared through Send back and the next approval", async () => {
+    const { t, admin } = await setup();
+    const { pd } = await approvedPdInBrain(t, admin);
+    // T2.DW.PN: the initials gave PN as its reviewer.
+    expect((await item(t, pd)).reviewerId).toBeDefined();
+    await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { reviewer: null } });
+    expect(await item(t, pd)).toMatchObject({ reviewerSource: "person" });
+    await sendBack(admin, [pd]);
+    const back = await item(t, pd);
+    expect(back).toMatchObject({ status: "pending_review", reviewerInitials: "PN", reviewerSource: "person" });
+    expect(back.reviewerId).toBeUndefined();
+    // The sheet shows no reviewer, and the backfill for approved files leaves it too.
+    expect((await admin.query(api.ingestion.sheetFile, { id: pd }))?.reviewerId).toBeUndefined();
+    await approve(t, admin, [pd]);
+    const again = await item(t, pd);
+    expect(again).toMatchObject({ status: "approved", reviewerSource: "person" });
+    expect(again.reviewerId).toBeUndefined();
+    expect((await t.run((ctx) => ctx.db.get(again.companyFileId!)))?.reviewerId).toBeUndefined();
+    await t.mutation(internal.ingestion.backfillImportWriters, { tab: "approved", cursor: null });
+    expect((await item(t, pd)).reviewerId).toBeUndefined();
+    await expectWriterCountsMatch(t);
+  });
+
+  it("logs a person confirming the AI's science code as an edit, with where the code came from", async () => {
+    const { t, admin, adminId } = await setup();
+    const { pd, sourceId } = await approvedPdInBrain(t, admin);
+    expect(await item(t, pd)).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "document" });
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { scienceCode: "2.02.09" } })).toEqual({
+      changed: ["scienceCode"],
+      brainUpdated: false,
+    });
+    expect(await item(t, pd)).toMatchObject({ scienceCode: "2.02.09", scienceCodeSource: "person" });
+    expect((await item(t, pd)).editedLabels).toContain("scienceCode");
+    expect(await events(t, pd)).toMatchObject([
+      {
+        action: "edit",
+        userId: adminId,
+        changes: [{ field: "scienceCode", before: "2.02.09", after: "2.02.09", beforeLabel: "document", afterLabel: "person" }],
+        brain: "none",
+      },
+    ]);
+    // The Brain copy and the company file keep the same code: nothing is lost there.
+    expect(await source(t, sourceId)).toMatchObject({ scienceCode: "2.02.09" });
+    expect((await companyFiles(t))[0].importLabels).toMatchObject({ scienceCode: "2.02.09" });
+    // Confirmed once is enough: again changes nothing and logs nothing.
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { scienceCode: "2.02.09" } })).toEqual({
+      changed: [],
+      brainUpdated: false,
+    });
+    expect(await events(t, pd)).toHaveLength(1);
   });
 
   it("refuses what does not go on the file, a file no longer approved, and bad values, in plain words", async () => {

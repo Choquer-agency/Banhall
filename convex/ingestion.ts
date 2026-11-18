@@ -58,6 +58,7 @@ import {
   followsRememberedReviewer,
   pickReviewerFields,
   reviewerBeforePickFields,
+  reviewerSetByPerson,
   takesInitialsReviewer,
   mergeEditedLabels,
   pairGroupsTouched,
@@ -2152,17 +2153,26 @@ export const SEND_BACK_MAX_FILES = 50;
 export const SEND_BACK_BRAIN_REASON = "Sent back to review on Import";
 
 /**
- * Rows one check reads to find another approved Import file that still
- * links a Brain source: its link rows, and the files with each linked
- * file's bytes (copies of one PD: a handful at most).
+ * The most rows one check reads to prove whether another approved Import
+ * file still links a Brain source: its link rows, and the files with each
+ * linked file's bytes (copies of one PD: a handful at most). Past it, the
+ * check cannot prove none is left, so Send back refuses that file rather
+ * than revoke a copy another file may still use.
  */
-const SHARED_SOURCE_READ = 20;
+const SHARED_SOURCE_READ_MAX = 300;
 
 // missing: no longer in Import; not_approved: not on Approved (already sent
 // back, say); approval_running: an approval that holds it is still moving
 // (its company's, or one of picked files where it is still waiting), and
-// would take the file straight back once it is ready on To review.
-const sendBackRefusalValidator = v.union(v.literal("missing"), v.literal("not_approved"), v.literal("approval_running"));
+// would take the file straight back once it is ready on To review;
+// shared_widely: its Brain copy is linked to more files than one check can
+// read, so whether another approved file still uses it is not known.
+const sendBackRefusalValidator = v.union(
+  v.literal("missing"),
+  v.literal("not_approved"),
+  v.literal("approval_running"),
+  v.literal("shared_widely")
+);
 
 /** Running approvals one Send back call reads to find picked-file approvals that still hold a file. */
 const RUNNING_APPROVALS_READ = 50;
@@ -2218,33 +2228,40 @@ type SendBackResult = Infer<typeof sendBackResultValidator>;
 
 /**
  * Another approved Import file (not `itemId`) that links this Brain source,
- * or null. Read through the Brain's own link rows (brainSourceImportFiles,
- * convex/ai/brain/rag.ts): each names a file's bytes and the file that
- * first linked them; a later file with the same bytes is linked by those
- * same bytes (linkBrainSourceImportFile adds no second row), so the files
- * with each linked hash are read too. A file counts when it is approved
- * and its own brainSourceId is still this source.
+ * null when none does, or "unknown" when proving that would read more than
+ * SHARED_SOURCE_READ_MAX rows. Read through the Brain's own link rows
+ * (brainSourceImportFiles, convex/ai/brain/rag.ts): each names a file's
+ * bytes and the file that first linked them; a later file with the same
+ * bytes is linked by those same bytes (linkBrainSourceImportFile adds no
+ * second row), so every file with each linked hash is read too, page past
+ * page, not just the first few. A file counts when it is approved and its
+ * own brainSourceId is still this source.
  */
 async function otherApprovedLink(
   ctx: MutationCtx,
   sourceId: Id<"brainSources">,
   itemId: Id<"ingestionItems">
-): Promise<Doc<"ingestionItems"> | null> {
+): Promise<Doc<"ingestionItems"> | null | "unknown"> {
   const shares = (row: Doc<"ingestionItems"> | null): row is Doc<"ingestionItems"> =>
     row !== null && row._id !== itemId && row.status === "approved" && row.brainSourceId === sourceId;
-  const links = await ctx.db
-    .query("brainSourceImportFiles")
-    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
-    .take(SHARED_SOURCE_READ);
-  for (const link of links) {
-    const first = await ctx.db.get(link.importItemId);
-    if (shares(first)) return first;
-    const copies = await ctx.db
-      .query("ingestionItems")
-      .withIndex("by_contentHash", (q) => q.eq("contentHash", link.contentHash))
-      .take(SHARED_SOURCE_READ);
-    const copy = copies.find(shares);
-    if (copy) return copy;
+  let read = 0;
+  const seen = new Set<Id<"ingestionItems">>();
+  const links = ctx.db.query("brainSourceImportFiles").withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId));
+  for await (const link of links) {
+    if (++read > SHARED_SOURCE_READ_MAX) return "unknown";
+    if (!seen.has(link.importItemId)) {
+      seen.add(link.importItemId);
+      if (++read > SHARED_SOURCE_READ_MAX) return "unknown";
+      const first = await ctx.db.get(link.importItemId);
+      if (shares(first)) return first;
+    }
+    const copies = ctx.db.query("ingestionItems").withIndex("by_contentHash", (q) => q.eq("contentHash", link.contentHash));
+    for await (const copy of copies) {
+      if (seen.has(copy._id)) continue;
+      seen.add(copy._id);
+      if (++read > SHARED_SOURCE_READ_MAX) return "unknown";
+      if (shares(copy)) return copy;
+    }
   }
   return null;
 }
@@ -2258,7 +2275,16 @@ async function sendBackOne(
   ctx: MutationCtx,
   item: Doc<"ingestionItems">,
   adminId: Id<"users">
-): Promise<{ companyFile: "removed" | "gone"; brain: "revoked" | "shared" | "already_removed" | "none"; groups: string[] }> {
+): Promise<
+  | { refused: "shared_widely" }
+  | { companyFile: "removed" | "gone"; brain: "revoked" | "shared" | "already_removed" | "none"; groups: string[] }
+> {
+  // What becomes of the Brain copy is settled first: a copy whose other
+  // files cannot all be read refuses the file before anything changes.
+  const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
+  const other = source && source.status !== "revoked" ? await otherApprovedLink(ctx, source._id, item._id) : null;
+  if (other === "unknown") return { refused: "shared_widely" };
+
   const companyFileId =
     item.companyFileId ??
     (await ctx.db
@@ -2269,13 +2295,11 @@ async function sendBackOne(
     companyFileId && (await removeImportedCompanyFile(ctx, companyFileId, item._id, adminId)) ? "removed" : "gone";
 
   let brain: "revoked" | "shared" | "already_removed" | "none" = "none";
-  const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
   if (source?.status === "revoked") {
     // Removed from the Brain already (on the Brain page, or by another
     // file's Send back): nothing more to unlearn, and nothing stays.
     brain = "already_removed";
   } else if (source) {
-    const other = await otherApprovedLink(ctx, source._id, item._id);
     if (other) {
       // Only this file lets go: the copy stays for the other file, which
       // retrieval now reads its company from.
@@ -2349,6 +2373,10 @@ export const sendBackToReview = mutation({
         continue;
       }
       const done = await sendBackOne(ctx, item, adminId);
+      if ("refused" in done) {
+        result.refused.push({ id, reason: done.refused });
+        continue;
+      }
       result.sentBack.push(id);
       if (done.companyFile === "gone") result.companyFileGone.push(id);
       if (done.brain === "shared") result.brainKept.push(id);
@@ -2543,7 +2571,10 @@ export const editApprovedFile = mutation({
           patch,
           chosen
             ? { reviewerId: chosen._id, reviewerSource: "person" as const, reviewerBeforePick: undefined }
-            : { reviewerId: undefined, reviewerSource: undefined, reviewerBeforePick: undefined }
+            : // "No reviewer" chosen by a person: no reviewerId, reviewerSource
+              // "person", so its reviewer initials never fill it again (after a
+              // Send back too) and the next approval files none.
+              { reviewerId: undefined, reviewerSource: "person" as const, reviewerBeforePick: undefined }
         );
         changes.push(
           definedFields({
@@ -2561,9 +2592,19 @@ export const editApprovedFile = mutation({
       labelsAdded.push("scienceCode");
       changes.push(definedFields({ field: "scienceCode" as const, before: item.scienceCode, after: sheet.fields.scienceCode }));
     } else if (sheet?.fields.scienceCode !== undefined && item.scienceCodeSource !== "person") {
-      // The AI's code confirmed by a person becomes theirs; nothing else changes.
+      // The AI's code confirmed by a person becomes theirs: the code stays,
+      // and the edit is logged with where it came from before and after.
       Object.assign(patch, { scienceCodeSource: "person" as const });
       labelsAdded.push("scienceCode");
+      changes.push(
+        definedFields({
+          field: "scienceCode" as const,
+          before: item.scienceCode,
+          after: item.scienceCode,
+          beforeLabel: item.scienceCodeSource,
+          afterLabel: "person",
+        })
+      );
     }
     if (args.patch.pdTitle !== undefined) {
       const title = cleanPdTitle(args.patch.pdTitle);
@@ -2589,6 +2630,8 @@ export const editApprovedFile = mutation({
     if (changes.length === 0) return { changed: [], brainUpdated: false };
 
     const changed = new Set(changes.map((change) => change.field));
+    // The science code as the file holds it now: a confirmed AI code keeps its code.
+    const scienceCodeNow = "scienceCode" in patch ? patch.scienceCode : item.scienceCode;
     // The company file's own fields follow.
     let companyFile: "updated" | "gone" = "gone";
     if (item.companyFileId) {
@@ -2596,7 +2639,7 @@ export const editApprovedFile = mutation({
         ...(changed.has("writer") ? { writerId: patch.writerId ?? null } : {}),
         ...(changed.has("reviewer") ? { reviewerId: patch.reviewerId ?? null } : {}),
         ...(changed.has("pdTitle") ? { pdTitle: patch.pdTitle ?? null } : {}),
-        ...(changed.has("scienceCode") ? { scienceCode: patch.scienceCode ?? null } : {}),
+        ...(changed.has("scienceCode") ? { scienceCode: scienceCodeNow ?? null } : {}),
         ...(changed.has("craReviewed") ? { craReviewed: patch.craReviewed === true } : {}),
       });
       if (found) companyFile = "updated";
@@ -2618,7 +2661,7 @@ export const editApprovedFile = mutation({
                   typeof tier === "number" && Number.isFinite(tier) ? Math.max(0, Math.min(1, tier)) : IMPORT_BRAIN_DEFAULT_WRITER_TIER,
               }
             : {}),
-          ...(changed.has("scienceCode") ? { scienceCode: patch.scienceCode ?? null } : {}),
+          ...(changed.has("scienceCode") ? { scienceCode: scienceCodeNow ?? null } : {}),
         },
         adminId
       );
@@ -3710,7 +3753,7 @@ export const backfillImportWriters = internalMutation({
         const writer = (await pickedWriter(ctx, initials)) ?? (await writerForInitials(ctx, initials));
         if (writer) patch = { writerId: writer.id };
       }
-      if (item.reviewerId === undefined && item.status === "approved" && takesInitialsReviewer(item)) {
+      if (item.reviewerId === undefined && item.status === "approved" && takesInitialsReviewer(item) && !reviewerSetByPerson(item)) {
         // 2026-11-17: an approved file gains only a reviewer reference too,
         // the pick or the check for its reviewer initials. Files on To
         // review and Deleted get theirs when they are settled below.

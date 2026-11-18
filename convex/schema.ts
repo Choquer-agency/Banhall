@@ -4755,7 +4755,9 @@ export default defineSchema({
     // is never a check reason.
     reviewerId: v.optional(v.id("pdWriters")),
     // Where reviewerId came from, as writerNameSource: "person", "initials"
-    // or "pick". Absent with no reviewer.
+    // or "pick". Absent with no reviewer, but "person" with no reviewerId
+    // when a person chose "No reviewer" (2026-11-17 fifth, edit after
+    // approval): its reviewer initials never fill it again.
     reviewerSource: v.optional(writerNameSourceValidator),
     // On a file whose reviewer follows a pick (reviewerSource "pick"), the
     // reviewer it had before it (both absent: none), so the pick's Undo puts

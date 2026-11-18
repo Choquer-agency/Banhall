@@ -42,6 +42,11 @@ function refusedWords(reason: Refused["reason"]): readonly [string, string] {
         "is in a company that is still being approved. Send it back once that is done",
         "are in a company that is still being approved. Send them back once that is done",
       ];
+    case "shared_widely":
+      return [
+        "shares its Brain copy with too many files to check at once, so it stays approved",
+        "share their Brain copies with too many files to check at once, so they stay approved",
+      ];
   }
 }
 

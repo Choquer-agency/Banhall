@@ -560,9 +560,11 @@ export function derivedFields(row: IngestionItemFields & { category: IngestionCa
       row.writerNameSource === "pick" && row.writerName !== undefined && row.status !== "approved"
         ? row.writerBeforePick
         : undefined,
-    // The reviewer (2026-11-17): its source only with a reviewer, and what
-    // it had before a pick only while it follows one (not once approved).
-    reviewerSource: row.reviewerId === undefined ? undefined : row.reviewerSource,
+    // The reviewer (2026-11-17): its source only with a reviewer, but for
+    // "person" with none (a person chose "No reviewer" on an approved file,
+    // 2026-11-17 fifth: its initials never fill it again), and what it had
+    // before a pick only while it follows one (not once approved).
+    reviewerSource: row.reviewerId === undefined && row.reviewerSource !== "person" ? undefined : row.reviewerSource,
     reviewerBeforePick:
       row.reviewerSource === "pick" && row.reviewerId !== undefined && row.status !== "approved"
         ? row.reviewerBeforePick

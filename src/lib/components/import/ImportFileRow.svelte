@@ -222,7 +222,13 @@
   /** Send back to review from the row's menu; the file leaves the tab, and the selection. */
   async function sendBack(): Promise<boolean> {
     const { result } = await sendBackFiles([row._id], sendBackToReview);
-    selection?.remove([...result.sentBack, ...result.refused.filter((entry) => entry.reason !== "approval_running").map((entry) => entry.id)]);
+    // A file refused because it is gone or no longer approved leaves the
+    // selection; one that stays approved (an approval running, a widely
+    // shared Brain copy) stays in it.
+    selection?.remove([
+      ...result.sentBack,
+      ...result.refused.filter((entry) => entry.reason === "missing" || entry.reason === "not_approved").map((entry) => entry.id),
+    ]);
     return result.sentBack.includes(row._id);
   }
 
