@@ -788,3 +788,70 @@ describe("one write path", () => {
     expect(writers).toEqual(["./ai/brain/rag.ts"]);
   });
 });
+
+// 2026-11-17 (third): the deploy re-embed at importance 1 deletes nothing,
+// skips sources already at 1, and reweight re-embeds only those not there yet.
+describe("re-embedding at importance 1", () => {
+  async function seedTiers(t: T) {
+    const ids = await t.run(async (ctx) => {
+      const out: Id<"brainSources">[] = [];
+      const rows: Array<Partial<Doc<"brainSources">>> = [
+        { writerTier: 0.4, ragEntryId: "entry-low" }, // legacy, importance was 0.4
+        { writerTier: 1, ragEntryId: "entry-gold" }, // legacy, importance was already 1
+        { writerTier: 0.7, ragEntryId: "entry-new", ragImportance: 1 }, // embedded since
+        { writerTier: 0.7, status: "pending" }, // never embedded
+      ];
+      for (const [i, extra] of rows.entries()) {
+        out.push(await insertBrainSource(ctx, sourceFields(i, extra.status ?? "approved", "software", { content: "short text", ...extra })));
+      }
+      return out;
+    });
+    await backfillToEnd(t);
+    return ids;
+  }
+
+  test("only sources still below importance 1 are queued, nothing is unlearned, in pages", async () => {
+    const { t } = await setup();
+    const { Workpool } = await import("@convex-dev/workpool");
+    const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
+    const [low] = await seedTiers(t);
+    expect(await t.mutation(internal.brain.reembedBelowFullImportance, {})).toEqual({ queued: 1, skipped: 2, done: true });
+    expect(enqueue.mock.calls.map((call) => (call[2] as { sourceId: string }).sourceId)).toEqual([low]);
+    expect(await scheduledCount(t, "unlearnSource")).toBe(0);
+    enqueue.mockRestore();
+  });
+
+  test("refuses before the card backfill, like the full requeue", async () => {
+    const { t } = await setup();
+    await seedSources(t, [{ status: "approved", industry: "software" }], { content: "short text" });
+    await expect(t.mutation(internal.brain.reembedBelowFullImportance, {})).rejects.toThrow(/backfillBrainSourceCards/);
+  });
+
+  test("a finished embed records its importance on the source and its card", async () => {
+    const { t } = await setup();
+    const [low] = await seedTiers(t);
+    await t.run(async (ctx) => {
+      const row = (await ctx.db.get(low))!;
+      await patchBrainSource(ctx, row, { ragImportance: 1 });
+      const card = await ctx.db.query("brainSourceCards").withIndex("by_sourceId", (q) => q.eq("sourceId", low)).unique();
+      expect(card?.ragImportance).toBe(1);
+    });
+    expect(await t.mutation(internal.brain.reembedBelowFullImportance, {})).toMatchObject({ queued: 0 });
+  });
+
+  test("reweight re-embeds a source not yet at importance 1, not one already there, and refuses a weight that is not a number", async () => {
+    const { t, admin } = await setup();
+    const { Workpool } = await import("@convex-dev/workpool");
+    const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
+    const [low, gold, fresh] = await seedTiers(t);
+    await admin.mutation(api.brain.reweightSource, { sourceId: low, writerTier: 0.9 });
+    await admin.mutation(api.brain.reweightSource, { sourceId: gold, writerTier: 0.5 });
+    await admin.mutation(api.brain.reweightSource, { sourceId: fresh, writerTier: 0.2 });
+    expect(enqueue.mock.calls.map((call) => (call[2] as { sourceId: string }).sourceId)).toEqual([low]);
+    await expect(admin.mutation(api.brain.reweightSource, { sourceId: fresh, writerTier: Number.NaN })).rejects.toThrow(
+      "Weight must be a number from 0 to 1."
+    );
+    expect(await t.run(async (ctx) => (await ctx.db.get(fresh))?.writerTier)).toBe(0.2);
+    enqueue.mockRestore();
+  });
+});

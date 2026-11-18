@@ -11,7 +11,7 @@ import { defaultChunker } from "@convex-dev/rag";
 import { internalAction } from "../../_generated/server";
 import { internal } from "../../_generated/api";
 import { v } from "convex/values";
-import { brain, BRAIN_NAMESPACE } from "./rag";
+import { brain, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE } from "./rag";
 import { brainEmbeddingModel } from "./embeddings";
 
 /** Off by default so a first bring-up ingest costs nothing; flip on for prod. */
@@ -23,10 +23,14 @@ const USE_CONTEXTUAL = process.env.BRAIN_CONTEXTUAL === "1";
  * is sent as a cached prefix, so the repeated cost is ~nil. Measured to cut
  * retrieval failures ~35–49% (more with a reranker).
  */
-/** The request, shared with the brain_context evaluation. */
+/**
+ * The request, shared with the brain_context evaluation. Since 2026-11-17 a
+ * note never names the company (Brain copies are read by every company):
+ * the prompt no longer asks for it and says not to.
+ */
 export const CONTEXTUALIZE_MAX_TOKENS = 100;
 export const CONTEXTUALIZE_SYSTEM_PROMPT =
-  "You situate a chunk within its source document for retrieval. Reply with 1-2 sentences of context only, no preamble.";
+  "You situate a chunk within its source document for retrieval. Reply with 1-2 sentences of context only, no preamble. Never name a company, a person, a product or a place: say \"the company\" instead.";
 
 export function contextualizeMessages(fullDoc: string, chunk: string): GenerationMessageParams["messages"] {
   return [
@@ -40,7 +44,7 @@ export function contextualizeMessages(fullDoc: string, chunk: string): Generatio
         },
         {
           type: "text",
-          text: `<chunk>\n${chunk}\n</chunk>\nGive a short context situating this chunk within the document (company, which SR&ED section, what it covers). Context only.`,
+          text: `<chunk>\n${chunk}\n</chunk>\nGive a short context situating this chunk within the document: which SR&ED section it is in and what it covers. Do not name the company or anyone in it. Context only.`,
         },
       ],
     },
@@ -97,7 +101,10 @@ export const embedSource = internalAction({
     // retry an embed against a source that must never be embedded.
     if (!src) return;
 
-    const importance = Math.max(0, Math.min(1, src.writerTier));
+    // 2026-11-17: the same importance for every entry, so the search's
+    // relevance floor reads raw similarity; the writer tier ranks results
+    // after the floor (retrieve.ts) and stays in metadata.
+    const importance = BRAIN_ENTRY_IMPORTANCE;
 
     // Every declared filterName gets a value on every add. Science code stays
     // in metadata so adding it does not strand legacy entries in a new RAG

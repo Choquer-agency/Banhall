@@ -3886,7 +3886,7 @@ export default defineSchema({
     industry: v.string(), // → RAG namespace
     scienceCode: v.optional(v.string()),
     writerName: v.optional(v.string()),
-    writerTier: v.number(), // 0..1 → RAG `importance` (Tracy 1.0 / next tier ~0.7 / other ~0.4)
+    writerTier: v.number(), // 0..1 ranking weight, blended after the relevance floor (Tracy 1.0 / next tier ~0.7 / other ~0.4); RAG `importance` is 1 since 2026-11-17
     docType: v.string(), // "pd" | "transcript" | "cra_letter"
     fiscalYear: v.optional(v.number()),
     craOutcome: v.optional(
@@ -3908,6 +3908,12 @@ export default defineSchema({
     // The status a revoke moved it from: "pending" is a rejection, "approved"
     // a removal. Absent on rows revoked before 2026-11-17.
     revokedFromStatus: v.optional(v.union(v.literal("pending"), v.literal("approved"))),
+    // 2026-11-17 widen: the RAG importance of the source's last finished
+    // embed (set by ingestOnComplete). Every embed since is 1; absent on
+    // older rows, whose importance was their writer tier, so
+    // brain:reembedBelowFullImportance and reweightSource know which ones
+    // still need the one re-embed at importance 1.
+    ragImportance: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
@@ -3961,6 +3967,12 @@ export default defineSchema({
     ),
     ragEntryId: v.optional(v.string()),
     createdAt: v.number(),
+    // 2026-11-17 widen: the source's import file, so retrieval can leave a
+    // company's own imported PDs out of its own exemplars without reading
+    // the source's text. Filled for older cards by brain:backfillBrainSourceCards.
+    importItemId: v.optional(v.id("ingestionItems")),
+    // 2026-11-17 widen: brainSources.ragImportance, for the re-embed pass.
+    ragImportance: v.optional(v.number()),
   })
     .index("by_sourceId", ["sourceId"])
     .index("by_createdAt", ["createdAt"])
@@ -4715,6 +4727,9 @@ export default defineSchema({
     // 2026-11-17: the files whose name gave these reviewer initials, for a
     // pick's walk.
     .index("by_sheetTab_and_reviewerInitials", ["sheetTab", "reviewerInitials"])
+    // 2026-11-17: whether a company has import files with a Brain source,
+    // so retrieval fetches extra hits only for those companies.
+    .index("by_companyKey_and_brainSourceId", ["companyKey", "brainSourceId"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
 
   // 2026-11-12 (Import sheet): "these initials are this writer", said once
@@ -4789,6 +4804,11 @@ export default defineSchema({
     // and cannot be deleted. heldCount above also counts the files that
     // remember it as their reviewer before a pick. Absent: 0.
     reviewCount: v.optional(v.number()),
+    // 2026-11-17 widen (Brain copies of imported PDs): the writer's tier,
+    // 0..1, which ranks their PDs' Brain copies (Tracy 1.0; Larry, Emily,
+    // Orel 0.7). Absent: 0.4 (lib/importBrainCopy.ts). Set by an Admin on
+    // Team in a later change; nothing writes it yet.
+    tier: v.optional(v.number()),
   })
     .index("by_initials", ["initials"])
     .index("by_userId", ["userId"])

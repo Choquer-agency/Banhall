@@ -14,7 +14,9 @@ import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
  * tables. Killer requirements map to native features:
  *   - industry routing    → optional `industryApproved` filter (see BRAIN_NAMESPACE)
  *   - science routing     → metadata grouping with cross-code fallback
- *   - writer weighting    → `importance` (0..1, scales the vector score)
+ *   - writer weighting    → our own blend after the relevance floor
+ *                           (retrieve.ts); every entry's `importance` is
+ *                           BRAIN_ENTRY_IMPORTANCE (2026-11-17)
  *   - provenance          → `entryId` (foreign-keyed back to brainSources)
  *   - unlearn             → confirmed `delete` + `getEntry` re-read (./erase.ts)
  *
@@ -30,6 +32,16 @@ import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
  */
 export const BRAIN_NAMESPACE = "brain";
 export const BRAIN_FILTER_NAMES = ["industryApproved", "docType"] as const;
+
+/**
+ * Every entry's RAG `importance` (2026-11-17). The component multiplies a
+ * vector score by importance before the relevance floor
+ * (`vectorScoreThreshold`), so a tier-0.4 entry needed a cosine of 0.75 to
+ * pass a 0.3 floor and imported PDs by most writers were near invisible.
+ * With importance 1 the floor reads raw similarity; the writer tier is a
+ * ranking weight applied after it (`blendWriterTier`, retrieve.ts).
+ */
+export const BRAIN_ENTRY_IMPORTANCE = 1;
 // NOTE: rag requires a value for EVERY declared filterName on every add, so we
 // only declare filters we set on 100% of entries. `craOutcome` is intentionally
 // NOT a filter (CRA rejections live in their own namespace); it's kept in
@@ -120,7 +132,7 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       return;
     }
 
-    await patchBrainSource(ctx, source, { ragEntryId: entry.entryId });
+    await patchBrainSource(ctx, source, { ragEntryId: entry.entryId, ragImportance: entry.importance });
     await ctx.db.insert("brainAuditLog", {
       action: "ingest",
       sourceId: source._id,
@@ -161,6 +173,8 @@ function cardFields(source: Doc<"brainSources">): CardFields {
     craOutcome: source.craOutcome,
     ragEntryId: source.ragEntryId,
     createdAt: source.createdAt,
+    importItemId: source.importItemId,
+    ragImportance: source.ragImportance,
   };
 }
 

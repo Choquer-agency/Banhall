@@ -60,6 +60,24 @@ export function deidentify(
         .map((name) => name?.trim().replace(/\s+/g, " "))
         .filter((name): name is string => !!name && name.length >= 3)
     )
+  );
+  return deidentifyNames(text, names);
+}
+
+/**
+ * `deidentify` over a list of names rather than a project record
+ * (2026-11-17, Brain copies of imported PDs, which have no project): the
+ * email and phone patterns first, then each name of three characters or
+ * more, longest first, case-insensitive, never inside another word, each
+ * replaced with `[redacted]`. Line and paragraph structure is kept.
+ */
+export function deidentifyNames(text: string, rawNames: readonly string[]): string {
+  const names = Array.from(
+    new Set(
+      rawNames
+        .map((name) => name.trim().replace(/\s+/g, " "))
+        .filter((name) => name.length >= 3)
+    )
     // Longest first so "Acme Farms" is consumed before a bare "Acme" would
     // leave a " Farms" remnant behind.
   ).sort((a, b) => b.length - a.length);
@@ -312,6 +330,16 @@ const COMMON_CASELESS_WORDS = new Set([
  * and not a common, technical, name or ordinary company word. "Quillmere"
  * of "Quillmere Analytics"; never "Northern" of "Northern Robotics".
  */
+/**
+ * Whether a lower-case word is too ordinary to stand for a company on its
+ * own (2026-11-17, Brain copies of imported PDs): a common, technical, name
+ * or ordinary company word, a legal suffix or a descriptor. "northern",
+ * "robotics", "ltd"; never "quillmere".
+ */
+export function isOrdinaryCompanyWord(lower: string): boolean {
+  return ordinaryWord(lower) || COMMON_FIRST_WORDS.has(titleCase(lower));
+}
+
 function ordinaryWord(lower: string): boolean {
   return (
     ORDINARY_COMPANY_WORDS.has(lower) ||
