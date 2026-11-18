@@ -5464,8 +5464,12 @@ export const repairImportCompanyTab = internalMutation({
 
 /** Year rows read by the breakdown: far more fiscal years than the firm has. */
 const FINAL_PD_YEARS_READ = 200;
-/** Writer rows read by the breakdown and the rebuild: more writers than the firm has had. */
-const FINAL_PD_WRITERS_READ = 2000;
+/**
+ * Writer rows the breakdown reads (each also reads its writer and member):
+ * more writers than the firm has had. Past it, the breakdown says some
+ * writers are not shown. The rebuild reads more, so it never leaves one behind.
+ */
+const FINAL_PD_WRITERS_READ = 500;
 
 /**
  * The progress line: final PDs approved, and final PDs staged so far (To
@@ -5517,6 +5521,7 @@ export const finalPdBreakdown = query({
       ),
       noWriter: v.union(finalPdBreakdownRowValidator, v.null()),
       unsorted: v.union(finalPdBreakdownRowValidator, v.null()),
+      // false when there were more year or writer rows than were read.
       complete: v.boolean(),
     })
   ),
@@ -5576,9 +5581,12 @@ export const finalPdBreakdown = query({
       if (seen) {
         seen.approved += counts.approved;
         seen.staged += counts.staged;
-        if (own && !seen.own) Object.assign(seen, { label, own });
+        if (own && !seen.own) Object.assign(seen, { label, own, noLogin: !isLoginMember(user) });
       } else {
-        people.set(key, { key, label, noLogin: !writer?.userId, ...counts, own });
+        // As the writer picker lists them: only a team member with a login
+        // (isLoginMember) has one; a past writer, or one whose member has
+        // left the team, says "No login".
+        people.set(key, { key, label, noLogin: !(writer?.userId && isLoginMember(user)), ...counts, own });
       }
     }
     const writers = [...people.values()]
@@ -5591,6 +5599,12 @@ export const finalPdBreakdown = query({
 const FINAL_PD_REBUILD_DEFAULT_PAGE = 100;
 const FINAL_PD_REBUILD_MAX_PAGE = 200;
 const FINAL_PD_REBUILD_MAX_RESTARTS = 3;
+/** After three restarts in a row, the rebuild waits this long and tries again... */
+const FINAL_PD_REBUILD_WAIT_MS = 5 * 60 * 1000;
+/** ...up to this many times (an hour), then logs an error and stops. */
+const FINAL_PD_REBUILD_MAX_WAITS = 12;
+/** Writer rows the rebuild reads to put right: well past the breakdown's cap. */
+const FINAL_PD_REBUILD_WRITERS_READ = 4000;
 
 const finalPdTallyValidator = v.object({
   key: v.string(),
@@ -5605,12 +5619,15 @@ type FinalPdTally = Infer<typeof finalPdTallyValidator>;
  * counts (importFinalPdCounts) from the files. Reads one page of import
  * files per run in creation order (an order no edit changes) and schedules
  * the next page with the running tallies; the last page writes every year
- * and writer row and the total, and deletes the rows no file needs. If the
- * counts changed while it paged (a final PD was written meanwhile), it
- * starts again, up to three times, rather than write counts that may miss
- * that file: the first run makes sure the total row exists, and every later
- * change raises its revision. Safe to run again. Run it with the OneDrive
- * sync, the uploader and approvals paused, so it can finish.
+ * and writer row and the total, and deletes the rows no file needs, and
+ * logs once that it wrote. If the counts changed while it paged (a final PD
+ * was written meanwhile, or a file finished being read), it starts again,
+ * up to three times, rather than write counts that may miss that file: the
+ * first run makes sure the total row exists, and every later change raises
+ * its revision. After three restarts in a row it waits five minutes and
+ * starts over, up to twelve times, then logs an error and stops (written:
+ * false). Safe to run again. Run it with the OneDrive sync, the uploader
+ * and approvals paused and no file still being read, so it can finish.
  */
 export const rebuildImportFinalPdCounts = internalMutation({
   args: {
@@ -5623,6 +5640,8 @@ export const rebuildImportFinalPdCounts = internalMutation({
       })
     ),
     restarts: v.optional(v.number()),
+    // How many times it has waited five minutes after three restarts.
+    waits: v.optional(v.number()),
     pageSize: v.optional(v.number()),
   },
   returns: v.object({ scanned: v.number(), done: v.boolean(), written: v.boolean() }),
@@ -5630,11 +5649,12 @@ export const rebuildImportFinalPdCounts = internalMutation({
     const requested = Number.isFinite(args.pageSize) ? Math.floor(args.pageSize!) : FINAL_PD_REBUILD_DEFAULT_PAGE;
     const pageSize = Math.min(Math.max(1, requested), FINAL_PD_REBUILD_MAX_PAGE);
     const restarts = args.restarts ?? 0;
+    const waits = args.waits ?? 0;
     const total = await ensureFinalPdTotalRow(ctx);
     const progress = args.progress ?? {
       years: [],
       writers: [],
-      startedFrom: { id: total._id, revision: total.revision },
+      startedFrom: { id: total._id, revision: total.revision ?? 0 },
     };
 
     const years = new Map(progress.years.map((row) => [row.key, { ...row }]));
@@ -5658,19 +5678,30 @@ export const rebuildImportFinalPdCounts = internalMutation({
         cursor: page.continueCursor,
         progress: { years: [...years.values()], writers: [...writers.values()], startedFrom: progress.startedFrom },
         restarts,
+        waits,
         pageSize,
       });
       return { scanned, done: false, written: false };
     }
 
     const started = progress.startedFrom;
-    if (total._id !== started.id || total.revision !== started.revision) {
-      if (restarts >= FINAL_PD_REBUILD_MAX_RESTARTS) {
-        console.warn("rebuildImportFinalPdCounts: the counts kept changing; pause the sync and run it again");
-        return { scanned, done: true, written: false };
+    if (total._id !== started.id || (total.revision ?? 0) !== started.revision) {
+      if (restarts < FINAL_PD_REBUILD_MAX_RESTARTS) {
+        await ctx.scheduler.runAfter(0, internal.ingestion.rebuildImportFinalPdCounts, { restarts: restarts + 1, waits, pageSize });
+        return { scanned, done: false, written: false };
       }
-      await ctx.scheduler.runAfter(0, internal.ingestion.rebuildImportFinalPdCounts, { restarts: restarts + 1, pageSize });
-      return { scanned, done: false, written: false };
+      if (waits < FINAL_PD_REBUILD_MAX_WAITS) {
+        console.warn("rebuildImportFinalPdCounts: the counts kept changing; trying again in five minutes", { waits: waits + 1 });
+        await ctx.scheduler.runAfter(FINAL_PD_REBUILD_WAIT_MS, internal.ingestion.rebuildImportFinalPdCounts, {
+          waits: waits + 1,
+          pageSize,
+        });
+        return { scanned, done: false, written: false };
+      }
+      console.error(
+        "rebuildImportFinalPdCounts: the counts kept changing for an hour, so nothing was written. Pause the OneDrive sync, the uploader and approvals, wait until no file is being read, and run it again."
+      );
+      return { scanned, done: true, written: false };
     }
 
     const now = Date.now();
@@ -5694,11 +5725,11 @@ export const rebuildImportFinalPdCounts = internalMutation({
       }
       for (const want of wanted.values()) {
         if (kept.has(want.key)) continue;
-        await ctx.db.insert("importFinalPdCounts", { kind, ...want, revision: 1, updatedAt: now });
+        await ctx.db.insert("importFinalPdCounts", { kind, ...want, updatedAt: now });
       }
     };
     await writeKind("year", years, FINAL_PD_YEARS_READ * 2);
-    await writeKind("writer", writers, FINAL_PD_WRITERS_READ * 2);
+    await writeKind("writer", writers, FINAL_PD_REBUILD_WRITERS_READ);
     // One total row; remove any extra a bad write left.
     const totals = await ctx.db
       .query("importFinalPdCounts")
@@ -5711,7 +5742,15 @@ export const rebuildImportFinalPdCounts = internalMutation({
       review += row.review;
       approved += row.approved;
     }
-    await ctx.db.patch(total._id, { review, approved, revision: total.revision + 1, updatedAt: now });
+    await ctx.db.patch(total._id, { review, approved, revision: (total.revision ?? 0) + 1, updatedAt: now });
+    console.log("rebuildImportFinalPdCounts: wrote the final PD counts", {
+      review,
+      approved,
+      years: years.size,
+      writers: writers.size,
+      restarts,
+      waits,
+    });
     return { scanned, done: true, written: true };
   },
 });

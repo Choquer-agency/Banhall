@@ -8,7 +8,9 @@ import {
   __setPaginatedRows,
   __setQueryData,
   __setQueryDataForArgs,
+  __setQueryError,
 } from "$lib/test/convex-svelte-stub.svelte";
+import { WIDER_TEXT, wordsWidth } from "$lib/test/textRoom";
 import { __resetAuthState } from "$lib/test/convex-auth-stub";
 import { __resetPage, __setPageUrl } from "$lib/test/app-state-stub.svelte";
 import { __resetNavigation } from "$lib/test/app-navigation-stub";
@@ -141,7 +143,7 @@ describe("final PD progress on the Import page", () => {
     expect(__activeQueryCount("ingestion:finalPdBreakdown")).toBe(1);
     expect(text(one("[data-form-dialog-title]"))).toBe("Final PD progress");
     expect(text(one("[data-form-dialog] header"))).toBe(
-      "Final PD progress Final PDs approved, out of those added to Import so far. The totals grow as more files are added."
+      "Final PD progress Final PDs approved, out of those added to Import so far. The total grows as more files are added."
     );
 
     // Newest year first; no fiscal year last.
@@ -199,6 +201,20 @@ describe("final PD progress on the Import page", () => {
     expect(all("[data-import-progress-row]")).toHaveLength(0);
   });
 
+  it("says the breakdown could not be loaded when its read fails, not Loading for ever", async () => {
+    seedPage();
+    __setQueryData("ingestion:finalPdBreakdown", undefined);
+    __setQueryError("ingestion:finalPdBreakdown", new Error("Server error"));
+    await mount();
+    await expect.poll(() => line()).not.toBeNull();
+    await userEvent.click(line()!);
+    await expect.poll(() => text(one("[data-import-progress-error]"))).toBe(
+      "The breakdown could not be loaded. Close this and open it again."
+    );
+    expect(one("[data-import-progress-error]")!.getAttribute("role")).toBe("alert");
+    expect(document.querySelector('[data-testid="import-progress-dialog"] [role="status"]')).toBeNull();
+  });
+
   it("shows nothing while the count loads, or to anyone but an Admin", async () => {
     seedPage(undefined);
     __resetConvexStub();
@@ -216,8 +232,14 @@ describe("final PD progress on the Import page", () => {
   });
 
   for (const width of [1280, 1100]) {
-    it(`fits the line and the breakdown at ${width} wide, bars lined up (captures)`, async () => {
-      seedPage();
+    it(`fits the line and the breakdown at ${width} wide, bars lined up, four-digit figures whole (captures)`, async () => {
+      // The widest figures: four digits each side, with the check.
+      seedPage(undefined, {
+        ...BREAKDOWN,
+        years: [{ key: "2025", approved: 1040, staged: 1040 }, ...BREAKDOWN.years.slice(1)],
+        writers: [{ ...BREAKDOWN.writers[0], approved: 1040, staged: 1040 }, ...BREAKDOWN.writers.slice(1)],
+        noWriter: { key: "none", approved: 1180, staged: 4520 },
+      });
       await mount(width);
       await expect.poll(() => line()).not.toBeNull();
       await document.fonts.ready;
@@ -242,9 +264,18 @@ describe("final PD progress on the Import page", () => {
         expect(Math.abs(bar.width - bars[0].width)).toBeLessThan(0.5);
         expect(bar.width).toBeGreaterThan(60);
       }
-      // Names and figures are whole.
+      // Names and figures are whole, and a figure would still fit drawn 8% wider (Linux, Windows).
       for (const node of all("[data-import-progress-name], [data-import-progress-figure]")) {
         expect(node.scrollWidth, text(node)).toBeLessThanOrEqual(node.clientWidth + 1);
+      }
+      expect(rows("import-progress-years")[0][2]).toBe("1,040 of 1,040");
+      expect(rows("import-progress-writers")[0][2]).toBe("1,040 of 1,040");
+      for (const figure of all("[data-import-progress-figure]")) {
+        const count = one("[data-import-progress-count]", figure)!;
+        const check = one("svg", figure);
+        const gap = parseFloat(getComputedStyle(figure).columnGap) || 0;
+        const needed = wordsWidth(count) * WIDER_TEXT + (check ? box(check).width + gap : 0);
+        expect(needed, text(count)).toBeLessThanOrEqual(box(figure).width);
       }
       await page.screenshot({ path: `${CAPTURES}/import-progress-breakdown-${width}.png` });
       await userEvent.keyboard("{Escape}");

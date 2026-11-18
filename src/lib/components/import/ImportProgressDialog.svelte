@@ -24,6 +24,7 @@
   import { formPrimary } from "$lib/components/ui/formDialog";
   import {
     allApproved,
+    BREAKDOWN_NOTE,
     filledShare,
     rowFigure,
     yearLabel,
@@ -42,6 +43,8 @@
   const auth = useAuth();
   const breakdownQ = useQuery(api.ingestion.finalPdBreakdown, () => (open && auth.isAuthenticated ? {} : "skip"));
   const breakdown = $derived((breakdownQ.data ?? null) as FinalPdBreakdown | null);
+  /** The read failed: say so, rather than "Loading..." for ever. */
+  const failed = $derived(breakdown === null && breakdownQ.error !== undefined && breakdownQ.error !== null);
   const empty = $derived(breakdown !== null && breakdown.years.length === 0);
 
   type Line = { key: string; label: string; tag: string | null; row: FinalPdRow; quiet: boolean };
@@ -81,7 +84,7 @@
                 {/if}
               </span>
             </th>
-            <td class="w-[12.5rem] py-2 max-[600px]:w-[7.5rem]">
+            <td class="w-[13.75rem] py-2 max-[600px]:w-[11rem]">
               <span class="flex items-center gap-3">
                 <span aria-hidden="true" data-import-progress-bar class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-primary-line-soft">
                   <span
@@ -92,7 +95,7 @@
                 </span>
                 <span
                   data-import-progress-figure
-                  class={`flex w-[5.75rem] shrink-0 items-center justify-end gap-1 text-right text-xs leading-[calc(4/3)] tabular-nums ${done ? "text-ink" : "text-ink-secondary"}`}
+                  class={`flex w-[7rem] shrink-0 items-center justify-end gap-1 text-right text-xs leading-[calc(4/3)] tabular-nums ${done ? "text-ink" : "text-ink-secondary"}`}
                 >
                   {#if done}
                     <CheckIcon size="0.75rem" weight="bold" aria-hidden="true" class="shrink-0 text-primary-selected" />
@@ -112,12 +115,16 @@
 <FormDialog
   bind:open
   title="Final PD progress"
-  description="Final PDs approved, out of those added to Import so far. The totals grow as more files are added."
+  description={BREAKDOWN_NOTE}
   width={560}
   {returnFocus}
   testId="import-progress-dialog"
 >
-  {#if breakdown === null}
+  {#if failed}
+    <p role="alert" data-import-progress-error class="text-sm leading-[calc(10/7)] text-ink-secondary">
+      The breakdown could not be loaded. Close this and open it again.
+    </p>
+  {:else if breakdown === null}
     <p role="status" class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">Loading...</p>
   {:else if empty}
     <p data-import-progress-empty class="text-sm leading-[calc(10/7)] text-ink-secondary">
@@ -136,7 +143,7 @@
         {/if}
         <p>Deleted files are not counted.</p>
         {#if !breakdown.complete}
-          <p data-import-progress-partial>Some rows are not shown.</p>
+          <p data-import-progress-partial>Only the first 500 writers are shown.</p>
         {/if}
       </div>
     </div>

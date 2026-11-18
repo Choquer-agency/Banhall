@@ -455,7 +455,6 @@ export async function adjustImportFinalPdCounts(
         ...(move.writerId ? { writerId: move.writerId } : {}),
         review,
         approved,
-        revision: 1,
         updatedAt: now,
       });
     }
@@ -465,7 +464,7 @@ export async function adjustImportFinalPdCounts(
   await ctx.db.patch(total._id, {
     review: total.review + move.review,
     approved: total.approved + move.approved,
-    revision: total.revision + 1,
+    revision: (total.revision ?? 0) + 1,
     updatedAt: now,
   });
 }

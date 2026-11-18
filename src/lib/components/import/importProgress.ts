@@ -41,6 +41,9 @@ export function progressText(progress: FinalPdProgress): string {
 /** The note beside it: the total is only what has been added so far. */
 export const PROGRESS_NOTE = "Out of the final PDs added so far. The total grows as more files are added.";
 
+/** The breakdown's description, in the same words as the line's note. */
+export const BREAKDOWN_NOTE = "Final PDs approved, out of those added to Import so far. The total grows as more files are added.";
+
 /** "312 of 1,040": a row's figure. */
 export function rowFigure(row: FinalPdRow): string {
   return `${formatCount(row.approved)} of ${formatCount(row.staged)}`;
@@ -66,9 +69,4 @@ export function filledShare(row: FinalPdRow): number {
 /** A fiscal year row's name: "2025", or "No fiscal year". */
 export function yearLabel(key: string): string {
   return key === NO_FISCAL_YEAR ? "No fiscal year" : key;
-}
-
-/** What a row says to a screen reader: "2025: 40 of 52 approved". */
-export function rowSummary(label: string, row: FinalPdRow): string {
-  return `${label}: ${rowFigure(row)} approved`;
 }

@@ -5685,6 +5685,30 @@ describe("final PD progress counts", () => {
   });
 });
 
+describe("final PD progress breakdown limits", () => {
+  it("says No login for a writer whose member has left the team, as the picker does", async () => {
+    const { t, admin } = await setup();
+    const dana = await addMember(t, "Dana", "Whitlock", { initials: "DW" });
+    await pdBy(t, "DW", 1);
+    expect(await writerRows(admin)).toEqual([["Dana Whitlock", false, 0, 1]]);
+    // Dana leaves: her account has no role any more.
+    await t.run((ctx) => ctx.db.patch(dana, { role: undefined }));
+    expect(await writerRows(admin)).toEqual([["Dana Whitlock", true, 0, 1]]);
+  });
+
+  it("reads at most 500 writer rows and says when some are not shown", async () => {
+    const { t, admin } = await setup();
+    await t.run(async (ctx) => {
+      for (let n = 0; n < 501; n++) {
+        await ctx.db.insert("importFinalPdCounts", { kind: "writer", key: `k${String(n).padStart(3, "0")}`, review: 1, approved: 0, updatedAt: 1 });
+      }
+    });
+    const breakdown = (await admin.query(api.ingestion.finalPdBreakdown, {}))!;
+    expect(breakdown.writers).toHaveLength(500);
+    expect(breakdown.complete).toBe(false);
+  });
+});
+
 describe("rebuildImportFinalPdCounts", () => {
   async function seedFinalPds(t: T) {
     for (let n = 1; n <= 4; n++) await pdBy(t, n % 2 === 0 ? "DW" : "PN", n, n <= 2 ? CEDARLINE_FY : "Cedarline Systems/2024 - Mar 31");
@@ -5713,7 +5737,7 @@ describe("rebuildImportFinalPdCounts", () => {
     // Six files (an approval adds none), two a page: three runs.
     expect(first).toEqual({ runs: 3, written: true });
     expect(await storedFinalPdCounts(t)).toEqual(before);
-    const revision = (await t.run((ctx) => ctx.db.query("importFinalPdCounts").collect())).find((row) => row.kind === "total")!.revision;
+    const revision = (await t.run((ctx) => ctx.db.query("importFinalPdCounts").collect())).find((row) => row.kind === "total")!.revision!;
 
     const second = await driveFinalPdRebuild(t, { pageSize: 200 });
     expect(second).toEqual({ runs: 1, written: true });
@@ -5736,7 +5760,7 @@ describe("rebuildImportFinalPdCounts", () => {
     expect(await storedFinalPdCounts(t)).toEqual(before);
   });
 
-  it("starts again when a final PD changes while it pages, and gives up after three tries", async () => {
+  it("starts again when a final PD changes while it pages, waits five minutes after three tries, and gives up after an hour", async () => {
     const { t, admin } = await setup();
     await seedFinalPds(t);
     const pd = (await t.run((ctx) => ctx.db.query("ingestionItems").first()))!._id;
@@ -5754,14 +5778,40 @@ describe("rebuildImportFinalPdCounts", () => {
     expect(once.runs).toBe(6);
     await expectCountsMatchRecount(t, "rebuilt after a change");
 
-    // A file that keeps changing: three restarts, then it stops and writes nothing.
+    // A file that changes through a whole round (the first pass and three
+    // fresh ones, three runs each): the rebuild waits five minutes and tries
+    // again, and once nothing changes it writes.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     let deleted = true;
-    const never = await driveFinalPdRebuild(t, { pageSize: 2 }, async () => {
+    const toggle = async () => {
       await admin.mutation(deleted ? api.ingestion.restoreItem : api.ingestion.removeItem, { itemId: pd });
       deleted = !deleted;
+    };
+    let waitedMs = 0;
+    const later = await driveFinalPdRebuild(t, { pageSize: 2 }, async (run) => {
+      if (run < 12) return await toggle();
+      if (run === 12) {
+        const jobs = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+        // The run the last one scheduled (the driver calls each itself, so earlier ones stay pending).
+        const next = jobs.filter((job) => job.name.includes("rebuildImportFinalPdCounts")).at(-1)!;
+        expect(next.args[0]).toEqual({ waits: 1, pageSize: 2 });
+        waitedMs = next.scheduledTime - next._creationTime;
+      }
     });
-    // The first pass and three fresh ones, three runs each.
-    expect(never).toEqual({ runs: 12, written: false });
+    expect(later).toEqual({ runs: 15, written: true });
+    expect(waitedMs).toBeGreaterThanOrEqual(5 * 60 * 1000 - 1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    await expectCountsMatchRecount(t, "written after one wait");
+
+    // One that never stops changing: twelve waits (an hour), then an error and nothing written.
+    const never = await driveFinalPdRebuild(t, { pageSize: 2 }, toggle);
+    expect(never).toEqual({ runs: 13 * 12, written: false });
+    expect(warn).toHaveBeenCalledTimes(1 + 12);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toContain("nothing was written");
+    warn.mockRestore();
+    error.mockRestore();
     // The live counts were kept right all along.
     await expectCountsMatchRecount(t, "after it gave up");
   });

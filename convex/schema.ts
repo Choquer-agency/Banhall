@@ -5042,9 +5042,9 @@ export default defineSchema({
     // Final PDs on To review, and on Approved.
     review: v.number(),
     approved: v.number(),
-    // The total row's goes up on every change of any row, so the rebuild
-    // can tell nothing moved while it paged through the files.
-    revision: v.number(),
+    // On the total row only: goes up on every change of any row, so the
+    // rebuild can tell nothing moved while it paged through the files.
+    revision: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_kind_and_key", ["kind", "key"]),
 
