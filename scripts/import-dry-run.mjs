@@ -11,13 +11,15 @@
 //   node scripts/import-dry-run.mjs --help
 //
 // <folder> is the folder that holds the client folders (<Client>/<Fiscal
-// year>/...). Run it from a checkout with `npm ci` done.
+// year>/...). Run it from the Banhall folder after `npm ci`.
 //
 // Read-only and local: it sends nothing anywhere, needs no Convex deployment
 // and no API key, and writes nothing in the folder. Online-only OneDrive
-// files are not opened (that would download them) and are counted as "not
-// downloaded". The only files it writes are the --out JSON, which must be
-// outside the folder, and Vite's module cache under node_modules.
+// files are not opened (that would download them) and are counted as
+// "online only"; on Windows PowerShell says which files are on this
+// computer, and if it cannot, no text is read. The only files it writes are
+// the --out JSON, which must be new and outside the folder, and Vite's
+// module cache under node_modules. Vite opens no port and no watcher.
 //
 // Privacy: the report holds counts, initials and file name patterns with
 // every word replaced. No file text, client names or person names.
@@ -32,7 +34,10 @@ const server = await createServer({
   root,
   configFile: false,
   cacheDir: path.join(root, "node_modules/.vite-import-dry-run"),
-  server: { middlewareMode: true, watch: null },
+  // No listener: no HMR WebSocket, no file watcher, no dependency scan.
+  server: { middlewareMode: true, watch: null, ws: false, hmr: false },
+  optimizeDeps: { noDiscovery: true, include: [] },
+  resolve: { alias: { $lib: path.join(root, "src/lib") } },
   logLevel: "error",
   // As vitest.config.ts: explicit, so a checkout with no .svelte-kit folder yet still loads.
   oxc: { tsconfig: { compilerOptions: { target: "ESNext", strict: true } } },
@@ -63,31 +68,51 @@ try {
     process.exitCode = 2;
     throw null;
   }
-  if (options.out && dryRun.isInside(folder, options.out)) {
-    console.error("import-dry-run: --out must be outside the folder being read, so the folder is not changed");
+  const refusal = options.out ? dryRun.outRefusal(folder, options.out) : null;
+  if (refusal) {
+    console.error(`import-dry-run: ${refusal}`);
     process.exitCode = 2;
     throw null;
   }
 
+  // Progress goes to stderr, so the report on stdout stays clean.
   let lastShown = 0;
+  const show = (line, force = false) => {
+    if (!process.stderr.isTTY || (!force && Date.now() - lastShown < 1000)) return;
+    lastShown = Date.now();
+    process.stderr.write(`\r${line}\x1b[K`);
+  };
+  let localStarted = 0;
+  let localTimer;
   const report = await dryRun.runDryRun(folder, {
     readText: options.readText,
-    onProgress: process.stderr.isTTY
-      ? (done, total) => {
-          if (done === total || Date.now() - lastShown > 1000) {
-            lastShown = Date.now();
-            process.stderr.write(`\rReading files: ${done} of ${total}${done === total ? "\n" : ""}`);
-          }
-        }
-      : undefined,
+    onProgress: (stage, done, total) => {
+      if (stage === "local" && done === 0) {
+        localStarted = Date.now();
+        show("Asking PowerShell which files are on this computer...", true);
+        localTimer = setInterval(() => show(`Asking PowerShell which files are on this computer... ${Math.round((Date.now() - localStarted) / 1000)}s`, true), 1000);
+      } else if (stage === "local") {
+        clearInterval(localTimer);
+        show("Asking PowerShell which files are on this computer... done\n", true);
+      } else if (stage === "walk") show(`Looking through folders: ${done} files so far`);
+      else show(`Reading files: ${done} of ${total}`, done === total);
+    },
   });
+  clearInterval(localTimer);
+  if (process.stderr.isTTY) process.stderr.write("\n");
   process.stdout.write(dryRun.formatReport(report));
   if (options.out) {
-    writeFileSync(path.resolve(options.out), `${JSON.stringify(report, null, 2)}\n`);
+    // "wx": never overwrite a file, even one made since the check above.
+    writeFileSync(path.resolve(options.out), `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
     console.log(`\nJSON written to ${options.out}`);
   }
 } catch (error) {
-  if (error !== null) {
+  if (error !== null && (error?.code === "EACCES" || error?.code === "EPERM")) {
+    console.error(
+      "import-dry-run: the folder could not be opened (no permission). On a Mac, give Terminal access to ~/Library/CloudStorage (System Settings, Privacy and Security, Files and Folders, or Full Disk Access) and run it again."
+    );
+    process.exitCode = 1;
+  } else if (error !== null) {
     // The error's message could name a file; print only its kind.
     console.error(`import-dry-run: stopped (${error?.code ?? error?.name ?? "error"})`);
     process.exitCode = 1;

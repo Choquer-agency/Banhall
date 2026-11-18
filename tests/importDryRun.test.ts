@@ -6,13 +6,18 @@ import { promisify } from "node:util";
 import JSZip from "jszip";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  extensionLabel,
   formatReport,
   isInside,
   namePattern,
+  outRefusal,
   parseArgs,
   runDryRun,
   sizeStats,
+  versionInitialsGroups,
+  walkFolder,
   type DryRunReport,
+  type WalkIo,
 } from "../scripts/import-dry-run/dryRun";
 
 const run = promisify(execFile);
@@ -81,6 +86,8 @@ beforeAll(async () => {
     await docxBody(paragraph("Written by Priya Nair") + paragraph("Sensor housing trials, a longer text than the other one."))
   );
   await put(`${year}/Submitted/Cedarline Systems PD 2 final Priya Nair.docx`, await docxBody(paragraph("Author: Kim Tran")));
+  // A version token with three initials groups, which the scheme does not read.
+  await put(`${year}/Submitted/06 Cedarline Systems 2025-03-31 T0.DW.PN.SO Seals.docx`, await docxBody(paragraph("Prepared by Dana Whitlock")));
   // A draft with the same bytes as the DW final PD, with a version token.
   await put(`${year}/Drafts/04 CedarlineSystems 2025-03-31 R1.DW Project4.docx`, dwPd);
   await put(`${year}/In Review/notes for Sam Okafor.txt`, `${SECRET_SENTENCE}.`);
@@ -96,6 +103,7 @@ beforeAll(async () => {
   await put(".DS_Store", "x");
   await put(`${year}/Submitted/~$04 CedarlineSystems.docx`, "lock");
   await put(`${year}/photo of Dana Whitlock.png`, "png");
+  await put(`${year}/budget.whitlock`, "a type named after a person");
   await put(`${year}/empty.txt`, "");
   symlinkSync(path.join(folder, "loose notes.txt"), path.join(folder, "link to notes.txt"));
 });
@@ -120,52 +128,61 @@ describe("import dry run", () => {
     const before = snapshot(folder);
     report = await runDryRun(folder, {
       readText: true,
-      cloudOnly: (absolutePath) => absolutePath.endsWith("online only.pdf"),
+      platform: "darwin",
+      isLocal: (absolutePath) => !absolutePath.endsWith("online only.pdf"),
     });
     // Read-only: no file in the folder was added, removed or changed.
     expect(snapshot(folder)).toEqual(before);
   });
 
   it("counts files, categories, companies and fiscal years with the server's classifier", () => {
-    expect(report.files).toMatchObject({
-      seen: 16,
+    expect(report.files).toEqual({
+      seen: 18,
       linksSkipped: 1,
+      foldersNotOpened: 0,
+      filesNotOpened: 0,
       systemOrHidden: 2,
-      typeNotImported: 1,
-      typeNotImportedByExtension: { ".png": 1 },
+      looseTopLevel: 1,
+      typeNotImported: 2,
+      typeNotImportedByExtension: { ".png": 1, other: 1 },
       empty: 1,
       tooLarge: 0,
-      wouldImport: 12,
-      notDownloaded: 1,
+      pathRefused: 0,
+      wouldImport: 11,
+      onlineOnly: 1,
     });
     expect(report.byCategory).toEqual({
-      final_pd: 4,
+      final_pd: 5,
       draft: 1,
       review_copy: 1,
       transcript: 1,
       supporting: 3,
       company_file: 1,
-      unknown: 1,
+      unknown: 0,
     });
-    expect(report.company).toEqual({ found: 11, notFound: 1, distinctCompanies: 2, companyYearGroups: 2 });
-    expect(report.fiscalYear).toEqual({ found: 9, folderWithoutYear: 1, noFolder: 2, yearEndDayAssumed: 2 });
+    expect(report.company).toEqual({ found: 12, notFound: 0, distinctCompanies: 2, companyYearGroups: 2 });
+    expect(report.fiscalYear).toEqual({ found: 10, folderWithoutYear: 1, noFolder: 1, yearEndDayAssumed: 2 });
+    expect(report.warnings).toEqual([]);
   });
 
   it("counts final PD names that parse, and initials only", () => {
     expect(report.finalPdNames).toEqual({
-      total: 4,
+      total: 5,
       parses: 2,
-      doesNotParse: 2,
+      doesNotParse: 3,
       withVersion: 2,
       withWriterInitials: 2,
       withReviewerInitials: 1,
       withFiscalYearEnd: 2,
       withPdNumber: 2,
+      byInitialsGroups: { "0": 2, "1": 1, "2": 1, "3": 1 },
     });
+    expect(report.longVersionInitials).toEqual({ firstGroup: { DW: 1 }, laterGroups: { PN: 1, SO: 1 } });
     expect(report.draftAndReviewNames).toEqual({ total: 2, withVersion: 1 });
     expect(report.writerInitials).toEqual({ DW: 2, PN: 1 });
     expect(report.reviewerInitials).toEqual({ SO: 1 });
     expect(report.unparsedFinalPdPatterns).toEqual([
+      { pattern: "06 Word Word 2025-03-31 T0.AA.AA.AA Word.docx", count: 1 },
       { pattern: "Word Word PD 2 final Word Word.docx", count: 1 },
       { pattern: "WordWord Word Word PD.docx", count: 1 },
     ]);
@@ -185,25 +202,55 @@ describe("import dry run", () => {
       sameBytesGroups: 1,
       filesInSameBytesGroups: 2,
     });
-    expect(report.text?.finalPdTextChars).toMatchObject({ count: 4 });
+    expect(report.text?.finalPdTextChars).toMatchObject({ count: 5 });
   });
 
   it("prints counts and placeholders, never a made-up client or person name or any file text", () => {
     const output = formatReport(report);
     expect(output.split("\n")[1]).toMatch(/^Privacy: .*no client names and no person names/);
-    expect(output).toContain("Final PD: 4");
-    expect(output).toContain("not downloaded (online only in OneDrive, so not opened): 1");
+    expect(output).toContain("Final PD: 5");
+    expect(output).toContain("would be imported, online only (not opened): 1");
+    expect(output).toContain("by initials groups in the version token (such as T1.AA.BB): 0 2, 1 1, 2 1, 3 1");
     expect(output).toContain("writer: DW 2, PN 1");
     expectNoMadeUpNames(output);
     expectNoMadeUpNames(JSON.stringify(report));
   });
 
   it("skips text with --no-text", async () => {
-    const names = await runDryRun(folder, { readText: false, cloudOnly: () => false });
+    const names = await runDryRun(folder, { readText: false, platform: "darwin", isLocal: () => true });
     expect(names.text).toBeNull();
     expect(names.writerNames).toBeNull();
-    expect(names.byCategory.final_pd).toBe(4);
-    expect(formatReport(names)).toContain("Text: not read (--no-text)");
+    expect(names.byCategory.final_pd).toBe(5);
+    expect(formatReport(names)).toContain("Text: not read");
+  });
+
+  it("on Windows reads no text when PowerShell cannot say which files are local, and says so at the top", async () => {
+    const before = snapshot(folder);
+    const closed = await runDryRun(folder, { readText: true, platform: "win32", listLocalFiles: async () => null });
+    expect(closed.readText).toBe(false);
+    expect(closed.text).toBeNull();
+    expect(closed.files.onlineOnly).toBe(12);
+    expect(closed.files.wouldImport).toBe(0);
+    const lines = formatReport(closed).split("\n");
+    expect(lines[3]).toMatch(/^Warning: Text was not read: PowerShell could not tell/);
+    expect(lines.indexOf("Files")).toBeGreaterThan(3);
+    expect(snapshot(folder)).toEqual(before);
+  });
+
+  it("on Windows reads only the files PowerShell lists as on this computer", async () => {
+    const local = path.join(folder, "Cedarline Systems", "2025 - Mar 31", "Submitted", "04 CedarlineSystems 2025-03-31 T1.DW Project4.docx");
+    const one = await runDryRun(folder, { readText: true, platform: "win32", listLocalFiles: async () => new Set([local.toLowerCase()]) });
+    expect(one.files).toMatchObject({ wouldImport: 1, onlineOnly: 11 });
+    expect(one.text?.read).toBe(1);
+    expect(one.warnings).toEqual([]);
+  });
+
+  it("warns when the folder looks like the wrong level", async () => {
+    const company = await runDryRun(path.join(folder, "Cedarline Systems"), { readText: false, platform: "darwin", isLocal: () => true });
+    expect(company.warnings.join(" ")).toMatch(/looks like one company's folder/);
+    const above = await runDryRun(scratch, { readText: false, platform: "darwin", isLocal: () => true });
+    expect(above.warnings.join(" ")).toMatch(/looks like the one above the client folders/);
+    for (const warning of [...company.warnings, ...above.warnings]) expectNoMadeUpNames(warning);
   });
 });
 
@@ -212,15 +259,86 @@ describe("import dry run helpers", () => {
     expect(namePattern("Cedarline Systems PD 2 final.docx")).toBe("Word Word PD 2 final.docx");
     expect(namePattern("03 CedarlineSystems 2025-03-31 R1.DW.PN Title.docx")).toBe("03 WordWord 2025-03-31 R1.AA.AA Word.docx");
     expect(namePattern("HALDEN FOODS draft v3 (dana).pdf")).toBe("WORD WORD draft v3 (word).pdf");
+    // Words with decomposed accents stay one word.
+    expect(namePattern("Jose\u0301 Nu\u0301n\u0303ez PD.docx")).toBe("Word Word PD.docx");
+  });
+
+  it("keeps only 1 and 2 digit numbers, years and dates; other digit runs become #", () => {
+    expect(namePattern("1234567 Ontario Inc PD 2 final.docx")).toBe("####### Word Word PD 2 final.docx");
+    expect(namePattern("Call 604-555-2012 Dana.docx")).toBe("Word ###-###-#### Word.docx");
+    expect(namePattern("Account 2012.3344 PD.docx")).toBe("Word ####.#### PD.docx");
+    expect(namePattern("FY2025 2025-03-31 R12 2024.docx")).toBe("FY2025 2025-03-31 R12 2024.docx");
+    expect(namePattern("2025-13-01 123.docx")).toBe("####-13-01 ###.docx");
+  });
+
+  it("names only known file types; any other extension is other", () => {
+    expect(extensionLabel("budget.xlsx")).toBe(".xlsx");
+    expect(extensionLabel("notes.whitlock")).toBe("other");
+    expect(extensionLabel("no extension")).toBe("other");
+  });
+
+  it("reads the initials groups of a version token", () => {
+    expect(versionInitialsGroups("06 Cedarline 2025-03-31 T0.dw.PN.SO.KT Seals.docx")).toEqual(["DW", "PN", "SO", "KT"]);
+    expect(versionInitialsGroups("04 Cedarline 2025-03-31 T1.DW.docx")).toEqual(["DW"]);
+    expect(versionInitialsGroups("Cedarline PD final.docx")).toBeNull();
+  });
+
+  it("decides file or folder with lstat when readdir calls an entry a link, and never follows a real link", async () => {
+    // As Windows readdir reports OneDrive placeholders: every reparse point looks like a link.
+    const dirent = (name: string) => ({ name, isFile: () => false, isDirectory: () => false, isSymbolicLink: () => true });
+    const stat = (kind: "file" | "folder" | "link") => ({
+      isFile: () => kind === "file",
+      isDirectory: () => kind === "folder",
+      isSymbolicLink: () => kind === "link",
+    });
+    const tree: Record<string, string[]> = {
+      [path.join("/r")]: ["Placeholder folder", "real link", "broken"],
+      [path.join("/r", "Placeholder folder")]: ["placeholder.docx"],
+    };
+    const kinds: Record<string, "file" | "folder" | "link"> = {
+      [path.join("/r", "Placeholder folder")]: "folder",
+      [path.join("/r", "Placeholder folder", "placeholder.docx")]: "file",
+      [path.join("/r", "real link")]: "link",
+    };
+    const io: WalkIo = {
+      readdir: async (dir) => (tree[dir] ?? []).map(dirent),
+      lstat: async (file) => {
+        if (!(file in kinds)) throw Object.assign(new Error("gone"), { code: "ENOENT" });
+        return stat(kinds[file]);
+      },
+    };
+    const visited: string[] = [];
+    for (const platform of ["win32", "darwin"] as const) {
+      visited.length = 0;
+      const counts = await walkFolder(path.join("/r"), async (file) => void visited.push(file), { io, platform });
+      expect(visited).toEqual([path.join("/r", "Placeholder folder", "placeholder.docx")]);
+      expect(counts).toEqual({ links: 1, foldersNotOpened: 0, entriesNotOpened: 1 });
+    }
   });
 
   it("parses arguments and refuses an --out inside the folder", () => {
     expect(parseArgs(["/x", "--no-text", "--out", "r.json"])).toEqual({ folder: "/x", readText: false, out: "r.json", help: false });
     expect(parseArgs(["--help"]).help).toBe(true);
+    expect(parseArgs(["/x", "--out=r.json"]).out).toBe("r.json");
     expect(() => parseArgs(["--nope"])).toThrow(/unknown option/);
     expect(() => parseArgs(["/a", "/b"])).toThrow(/one folder/);
     expect(isInside("/a/b", "/a/b/c.json")).toBe(true);
     expect(isInside("/a/b", "/a/c.json")).toBe(false);
+  });
+
+  it("refuses an --out inside the folder through a link, and an existing file", () => {
+    const alias = path.join(scratch, "alias");
+    symlinkSync(folder, alias);
+    try {
+      expect(outRefusal(folder, path.join(alias, "r.json"))).toMatch(/outside the folder/);
+      expect(outRefusal(alias, path.join(folder, "r.json"))).toMatch(/outside the folder/);
+      writeFileSync(path.join(scratch, "taken.json"), "{}");
+      expect(outRefusal(folder, path.join(scratch, "taken.json"))).toMatch(/already exists/);
+      expect(outRefusal(folder, path.join(scratch, "new.json"))).toBeNull();
+    } finally {
+      rmSync(alias);
+      rmSync(path.join(scratch, "taken.json"), { force: true });
+    }
   });
 
   it("works out text size stats", () => {
@@ -237,10 +355,10 @@ describe("import dry run command", () => {
       const before = snapshot(folder);
       const { stdout } = await run(process.execPath, ["scripts/import-dry-run.mjs", folder, "--out", out], { cwd: repoRoot });
       expect(stdout).toContain("Import dry run");
-      expect(stdout).toContain("Final PD: 4");
+      expect(stdout).toContain("Final PD: 5");
       expectNoMadeUpNames(stdout);
       const json = JSON.parse(readFileSync(out, "utf8"));
-      expect(json.byCategory.final_pd).toBe(4);
+      expect(json.byCategory.final_pd).toBe(5);
       expectNoMadeUpNames(JSON.stringify(json));
       expect(snapshot(folder)).toEqual(before);
 
@@ -251,8 +369,14 @@ describe("import dry run command", () => {
       expect((refused as { stderr: string }).stderr).toContain("--out must be outside the folder");
       expect(snapshot(folder)).toEqual(before);
 
+      const existing = await run(process.execPath, ["scripts/import-dry-run.mjs", folder, `--out=${out}`], { cwd: repoRoot }).catch(
+        (error: { code: number; stderr: string }) => error
+      );
+      expect(existing).toMatchObject({ code: 2 });
+      expect((existing as { stderr: string }).stderr).toContain("already exists");
+
       const help = await run(process.execPath, ["scripts/import-dry-run.mjs", "--help"], { cwd: repoRoot });
-      expect(help.stdout).toContain("Usage:");
+      expect(help.stdout).toContain("Usage (from the Banhall folder, after npm ci):");
     },
     90_000
   );
