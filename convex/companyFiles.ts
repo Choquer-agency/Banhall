@@ -19,7 +19,13 @@ import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { requireAttemptKey } from "./lib/uploadAttempts";
 import { labelsCurrent } from "./lib/fileLabels";
 import { companyFileNeedsServerReading } from "./companyFileWork";
-import { companyDraftSubject, draftCompanyFiles, FROZEN_COMPANY_FILES, PINNED_FINAL_PDS } from "./lib/briefEvidence";
+import {
+  companyDraftSubject,
+  draftCompanyFiles,
+  FROZEN_COMPANY_FILES,
+  PINNED_FINAL_PDS,
+  projectHasOwnPreviousYearReport,
+} from "./lib/briefEvidence";
 import { isCompanyHistoryCategory } from "./lib/companyEvidence";
 import { getInternalProjectAccessOrNull } from "./lib/auth";
 import { hasCapability } from "../shared/capabilities";
@@ -955,7 +961,8 @@ export const removeCompanyFiles = mutation({
  * The company files a project's next draft can read (Phase C), for its start
  * dialog: those a draft freezes when none is left out (`draftCompanyFiles`:
  * the files added by hand, newest first, as before, then since 2026-11-17
- * the pinned final PDs). A draft reads them only while the
+ * the pinned final PDs; since 2026-11-18, third, `previousYear` marks the
+ * one read as the project's previous-year report). A draft reads them only while the
  * project's own frozen text leaves room in the frozen total (`frozenTotal`,
  * F5 stress run 2026-10-27), which this list cannot know without reading
  * every file: the dialog says so on each company file, and the Inputs band
@@ -972,6 +979,8 @@ export const listForProject = query({
         category: v.union(storedCategoryValidator, v.null()),
         wordCount: v.number(),
         createdAt: v.number(),
+        /** 2026-11-18 (third): last year's final PD a draft reads as the project's previous-year report. */
+        previousYear: v.boolean(),
       })
     ),
     usedAtMost: v.number(),
@@ -982,13 +991,19 @@ export const listForProject = query({
     if (!access?.user.role || !hasCapability(access.user.role, "companyFiles.read")) return empty;
     const client = access.project.clientId ? await ctx.db.get(access.project.clientId) : null;
     if (!client || client.status !== "active") return empty;
+    const subject = companyDraftSubject(access.project);
+    // 2026-11-18 (third): the project's own previous-year file decides as a
+    // draft's freeze does; nothing is pinned without a fiscal year.
+    const ownPreviousYearReport =
+      subject.fiscalYear !== null && (await projectHasOwnPreviousYearReport(ctx, access.project._id));
     return {
-      files: (await draftCompanyFiles(ctx, client._id, companyDraftSubject(access.project))).map(({ file }) => ({
+      files: (await draftCompanyFiles(ctx, client._id, subject, undefined, ownPreviousYearReport)).map(({ file, previousYear }) => ({
         _id: file._id,
         fileName: file.fileName,
         category: file.category ?? null,
         wordCount: file.wordCount,
         createdAt: file.createdAt,
+        previousYear,
       })),
       usedAtMost: FROZEN_COMPANY_FILES + PINNED_FINAL_PDS,
     };

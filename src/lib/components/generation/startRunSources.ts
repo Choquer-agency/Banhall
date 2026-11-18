@@ -73,7 +73,14 @@ export type ProjectDocumentRow = {
   createdAt: number;
 };
 
-export type CompanyFileRow = { _id: string; fileName: string; wordCount: number; category?: string | null };
+export type CompanyFileRow = {
+  _id: string;
+  fileName: string;
+  wordCount: number;
+  category?: string | null;
+  /** 2026-11-18 (third): last year's final PD a draft reads as the project's previous-year report. */
+  previousYear?: boolean;
+};
 
 /**
  * 2026-10-28 (third, owner): a draft reads company files after everything
@@ -89,6 +96,17 @@ export const COMPANY_FILE_ROOM_NOTE = "Read last, newest first, while there is r
  * by hand, by fiscal year rather than newest first.
  */
 export const PINNED_FINAL_PD_NOTE = "Past final PD, read last while there is room";
+
+/**
+ * 2026-11-18 (third, owner): last year's final PD that a draft reads as the
+ * project's previous-year report, so the Previous-year status step opens.
+ */
+export const PREVIOUS_YEAR_PD_NOTE = "Last year's final PD, read as the previous-year report while there is room";
+
+function companyFileNote(file: CompanyFileRow): string {
+  if (file.previousYear) return PREVIOUS_YEAR_PD_NOTE;
+  return file.category === "final_pd" ? PINNED_FINAL_PD_NOTE : COMPANY_FILE_ROOM_NOTE;
+}
 
 /**
  * A project's start dialog rows: its transcripts in list order, then its
@@ -129,7 +147,7 @@ export function projectStartSources(
       kind: "companyFile" as const,
       name: file.fileName,
       typeLabel: "Company file",
-      meta: `${words(file.wordCount)} · ${file.category === "final_pd" ? PINNED_FINAL_PD_NOTE : COMPANY_FILE_ROOM_NOTE}`,
+      meta: `${words(file.wordCount)} · ${companyFileNote(file)}`,
     })),
   ];
 }

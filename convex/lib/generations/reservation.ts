@@ -432,9 +432,11 @@ export async function reserveGeneration(
   // draft reads nothing from a previous year (the project's first year, or
   // no previous-year files): no previous-year report or note, project or
   // company, and no transcript copied from an earlier fiscal year.
+  // 2026-11-18 (third, owner): last year's imported final PD the draft
+  // froze as the project's previous-year report counts too.
   const previousYearMaterial =
     evidence.frozenDocuments.some((item) => isPreviousYearDocument(item.document)) ||
-    evidence.frozenCompanyFiles.some((item) => isPreviousYearDocument(item.file)) ||
+    evidence.frozenCompanyFiles.some((item) => item.previousYear === true || isPreviousYearDocument(item.file)) ||
     thisYearTranscripts.length < transcripts.length;
   if (thisYearTranscripts.length === 0) {
     // The files this draft reads (not archived, with text, not left out),

@@ -30,7 +30,7 @@ import {
 } from "./lib/auth";
 import { requireAnthropicConfigured } from "./lib/providerConfig";
 import { pruneSnapshots, writePreEditSnapshot } from "./lib/snapshots";
-import { withCurrentCompanyFiles } from "./lib/briefEvidence";
+import { hasOwnPreviousYearReport, withCurrentCompanyFiles } from "./lib/briefEvidence";
 import { hasCapability, requireReportEditAccess } from "./lib/roleCapabilities";
 import {
   RULE_OVERRIDE_CONFIRM_MESSAGE,
@@ -3664,10 +3664,17 @@ export const getChatContextV2 = internalQuery({
     // list ends with what it has (review, 2026-11-17).
     const companyFilesRead = await budget.read(
       () =>
-        chatCompanyFilesFor(ctx, report.projectId, args.userId, {
-          mayRead: () => budget.hasRoom(),
-          read: (row) => void budget.charge(row as Value | null | undefined),
-        }),
+        chatCompanyFilesFor(
+          ctx,
+          report.projectId,
+          args.userId,
+          {
+            mayRead: () => budget.hasRoom(),
+            read: (row) => void budget.charge(row as Value | null | undefined),
+          },
+          // 2026-11-18 (third): from the file rows read above, in a draft's order.
+          hasOwnPreviousYearReport(documents)
+        ),
       4 * 1024
     );
 
