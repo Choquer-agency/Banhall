@@ -267,8 +267,18 @@ describe("import dry run helpers", () => {
     expect(namePattern("1234567 Ontario Inc PD 2 final.docx")).toBe("####### Word Word PD 2 final.docx");
     expect(namePattern("Call 604-555-2012 Dana.docx")).toBe("Word ###-###-#### Word.docx");
     expect(namePattern("Account 2012.3344 PD.docx")).toBe("Word ####.#### PD.docx");
-    expect(namePattern("FY2025 2025-03-31 R12 2024.docx")).toBe("FY2025 2025-03-31 R12 2024.docx");
-    expect(namePattern("2025-13-01 123.docx")).toBe("####-13-01 ###.docx");
+    expect(namePattern("FY2025 Dana 2025-03-31 R12 final 2024.docx")).toBe("FY2025 Word 2025-03-31 R12 final 2024.docx");
+    expect(namePattern("2025-13-01 Plan 123.docx")).toBe("####-##-## Word ###.docx");
+  });
+
+  it("hides every digit of a number written in groups, Unicode digits too (Greptile on #40)", () => {
+    expect(namePattern("Client 06 12 34 56 78.docx")).toBe("Word ## ## ## ## ##.docx");
+    expect(namePattern("Dana (416) 555 0199 PD.docx")).toBe("Word (###) ### #### PD.docx");
+    // Groups next to each other are never kept, even when one looks like a year or a date.
+    expect(namePattern("PD 2 2025-03-31.docx")).toBe("PD # ####-##-##.docx");
+    // Non-ASCII digits are always hidden.
+    expect(namePattern("Halden \u0661\u0662 PD.docx")).toBe("Word ## PD.docx");
+    expect(namePattern("Halden \u0661\u0662\u0663\u0664\u0665 PD.docx")).toBe("Word ##### PD.docx");
   });
 
   it("names only known file types; any other extension is other", () => {
@@ -324,6 +334,9 @@ describe("import dry run helpers", () => {
     expect(() => parseArgs(["/a", "/b"])).toThrow(/one folder/);
     expect(isInside("/a/b", "/a/b/c.json")).toBe(true);
     expect(isInside("/a/b", "/a/c.json")).toBe(false);
+    // A name that only starts with two dots is still inside (Greptile on #40).
+    expect(isInside("/a/b", "/a/b/..report.json")).toBe(true);
+    expect(isInside("/a/b", "/a/b/..")).toBe(false);
   });
 
   it("refuses an --out inside the folder through a link, and an existing file", () => {

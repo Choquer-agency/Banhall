@@ -96,7 +96,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 /** True when `file` is `folder` itself or inside it, as given (no links resolved). */
 export function isInside(folder: string, file: string): boolean {
   const relative = path.relative(path.resolve(folder), path.resolve(file));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  const outside = relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+  return !outside;
 }
 
 /** A path with every link resolved; for a file that does not exist yet, its folder's real path. */
@@ -153,18 +154,24 @@ function wordShape(word: string): string {
   return "WordWord";
 }
 
-/** Digits next to another digit group by - . or / are a phone or account number, not a year. */
-const NOT_AFTER_DIGITS = String.raw`(?<!\d)(?<!\d[-./])`;
-const NOT_BEFORE_DIGITS = String.raw`(?!\d)(?![-./]\d)`;
+/**
+ * Digits next to another digit group (joined by a space, - . / or brackets)
+ * are part of a phone or account number, never a kept year or date.
+ */
+const NOT_AFTER_DIGITS = String.raw`(?<!\p{Nd})(?<!\p{Nd}[\s\-./()])`;
+const NOT_BEFORE_DIGITS = String.raw`(?!\p{Nd})(?![\s\-./()]\p{Nd})`;
 const NAME_TOKEN = new RegExp(
   [
-    // 1: a yyyy-mm-dd date in 19xx or 20xx, kept.
+    // 1: a yyyy-mm-dd date in 19xx or 20xx, standing alone, kept.
     `(${NOT_AFTER_DIGITS}(?:19|20)\\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])${NOT_BEFORE_DIGITS})`,
-    // 2: a 19xx or 20xx year, kept.
+    // 2: a 19xx or 20xx year, standing alone, kept.
     `(${NOT_AFTER_DIGITS}(?:19|20)\\d{2}${NOT_BEFORE_DIGITS})`,
-    // 3: any other digit run, kept only when 1 or 2 digits long.
-    String.raw`(\d+)`,
-    // 4: a word, letters with their combining marks.
+    // 3: two or more digit groups in a row ("06 12 34 56 78", "416-555-0199"),
+    //    any digits (Unicode too): every digit becomes #.
+    String.raw`(\p{Nd}+(?:[\s\-./()]+\p{Nd}+)+)`,
+    // 4: one digit run: kept only when it is 1 or 2 ASCII digits.
+    String.raw`(\p{Nd}+)`,
+    // 5: a word, letters with their combining marks.
     String.raw`([\p{L}\p{M}]+)`,
   ].join("|"),
   "gu"
@@ -183,11 +190,15 @@ export function namePattern(fileName: string): string {
   const ext = extensionOf(fileName);
   const keepExt = INGEST_EXTENSIONS.has(ext);
   const stem = keepExt ? fileName.slice(0, fileName.length - ext.length - 1) : fileName;
-  const shaped = stem.replace(NAME_TOKEN, (token, date?: string, year?: string, digits?: string) => {
-    if (date !== undefined || year !== undefined) return token;
-    if (digits !== undefined) return digits.length <= 2 ? digits : "#".repeat(digits.length);
-    return wordShape(token);
-  });
+  const shaped = stem.replace(
+    NAME_TOKEN,
+    (token, date?: string, year?: string, sequence?: string, digits?: string) => {
+      if (date !== undefined || year !== undefined) return token;
+      if (sequence !== undefined) return sequence.replace(/\p{Nd}/gu, "#");
+      if (digits !== undefined) return /^[0-9]{1,2}$/.test(digits) ? digits : digits.replace(/\p{Nd}/gu, "#");
+      return wordShape(token);
+    }
+  );
   return keepExt ? `${shaped}.${ext}` : shaped;
 }
 
