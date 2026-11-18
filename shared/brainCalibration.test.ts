@@ -26,8 +26,21 @@ describe("the calibration numbers", () => {
     expect(floorForPassRate(scores, 0.5)).toBe(0.6);
     expect(passRate(scores, floorForPassRate(scores, 0.5)!)).toBe(0.5);
     expect(floorForPassRate(scores, 1)).toBe(0);
-    expect(floorForPassRate(scores, 0)).toBe(0.901);
+    expect(floorForPassRate(scores, 0)).toBeGreaterThan(0.9);
+    expect(passRate(scores, floorForPassRate(scores, 0)!)).toBe(0);
     expect(floorForPassRate([], 0.5)).toBeNull();
+  });
+
+  test("the suggested floor keeps full precision, so it never drops a score it means to keep", () => {
+    const scores = [0.9, 0.8006, 0.7, 0.6];
+    expect(floorForPassRate(scores, 0.5)).toBe(0.8006);
+    expect(passRate(scores, floorForPassRate(scores, 0.5)!)).toBe(0.5);
+    const fine = [0.91234567, 0.80061234, 0.70009999, 0.60000001];
+    for (const rate of [0.25, 0.5, 0.75]) {
+      expect(passRate(fine, floorForPassRate(fine, rate)!)).toBe(rate);
+    }
+    // The summaries are still rounded for reading.
+    expect(summarizeScores(fine).max).toBe(0.912);
   });
 
   test("a probe query is a passage from a third of the way in, cut at spaces", () => {

@@ -59,16 +59,18 @@ export function passRate(scores: number[], floor: number): number {
 
 /**
  * The floor that lets the same share of `scores` through as `rate`: the
- * lowest score still inside the top `rate` share. Null with no scores; 0
- * when every score should pass; just above the top score when none should.
+ * lowest score still inside the top `rate` share, at full precision (a
+ * rounded floor could land above that score and drop it). Null with no
+ * scores; 0 when every score should pass; just above the top score when
+ * none should. Only the summaries are rounded, for reading.
  */
 export function floorForPassRate(scores: number[], rate: number): number | null {
   const sorted = scores.filter(Number.isFinite).sort((a, b) => b - a);
   if (sorted.length === 0) return null;
   const keep = Math.round(rate * sorted.length);
   if (keep >= sorted.length) return 0;
-  if (keep <= 0) return round(sorted[0] + 0.001);
-  return round(sorted[keep - 1]);
+  if (keep <= 0) return sorted[0] + 1e-6;
+  return sorted[keep - 1];
 }
 
 /**
