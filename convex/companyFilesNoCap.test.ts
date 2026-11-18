@@ -7,6 +7,7 @@
  * projects waits until they have all moved. Every name here is fictional.
  */
 import { convexTest } from "convex-test";
+import type { FunctionReturnType } from "convex/server";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -114,7 +115,7 @@ async function allPages(s: Setup, clientId: Id<"clients">, ask: number, archived
   const pages: { _id: Id<"companyFiles">; createdAt: number }[][] = [];
   let cursor: string | null = null;
   for (;;) {
-    const result = await s.writer.query(api.companyFiles.listCompanyFilesPage, {
+    const result: FunctionReturnType<typeof api.companyFiles.listCompanyFilesPage> = await s.writer.query(api.companyFiles.listCompanyFilesPage, {
       clientId,
       ...(archived ? { archived } : {}),
       paginationOpts: { numItems: ask, cursor },
