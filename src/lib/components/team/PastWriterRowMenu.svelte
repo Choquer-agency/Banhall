@@ -2,9 +2,10 @@
   // Admin actions on a past writer (Team, Past writers; writers from
   // initials, 2026-11-16, 2026-11-17): Invite to Banhall (not while an
   // invite for them waits), Link to a team member, Edit name, and Delete,
-  // which is offered only when no file points at the writer.
+  // which is offered only when no file points at the writer. 2026-11-18
+  // (second): Set weight.
   import { DropdownMenu } from "bits-ui";
-  import { LinkIcon, TrashIcon, UserPlusIcon } from "phosphor-svelte";
+  import { LinkIcon, ScalesIcon, TrashIcon, UserPlusIcon } from "phosphor-svelte";
   import { IconMore, IconPencil } from "$lib/components/icons";
   import { MENU_CONTENT, MENU_ITEM, ROW_MENU_TRIGGER } from "./menuStyles";
 
@@ -16,6 +17,7 @@
     onInvite,
     onEditName,
     onLink,
+    onSetWeight = null,
     onDelete,
   }: {
     label: string;
@@ -25,6 +27,8 @@
     onInvite: () => void;
     onEditName: () => void;
     onLink: () => void;
+    /** Set weight (2026-11-18); absent: the item does not show. */
+    onSetWeight?: (() => void) | null;
     onDelete: () => void;
   } = $props();
 </script>
@@ -46,6 +50,11 @@
       <DropdownMenu.Item data-menu-item="edit-name" onSelect={onEditName} class={`${MENU_ITEM} text-ink`}>
         <IconPencil size={15} strokeWidth={1.5} class="shrink-0" />Edit name
       </DropdownMenu.Item>
+      {#if onSetWeight}
+        <DropdownMenu.Item data-menu-item="weight" onSelect={onSetWeight} class={`${MENU_ITEM} text-ink`}>
+          <ScalesIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Set weight
+        </DropdownMenu.Item>
+      {/if}
       {#if canDelete}
         <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />
         <DropdownMenu.Item data-menu-item="delete" onSelect={onDelete} class={`${MENU_ITEM} text-danger`}>

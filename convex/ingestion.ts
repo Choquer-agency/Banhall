@@ -139,7 +139,6 @@ import {
   buildImportBrainCopy,
   domainStem,
   findIdentityLeak,
-  IMPORT_BRAIN_DEFAULT_WRITER_TIER,
   IMPORT_BRAIN_NOT_COVERED,
   IMPORT_BRAIN_REFUSALS,
   type ImportBrainCopyResult,
@@ -149,6 +148,7 @@ import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboard
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
+import { writerWeight } from "../shared/writerWeight";
 import {
   APPROVAL_STALE_MS,
   approvedEditApplies,
@@ -2663,7 +2663,6 @@ export const editApprovedFile = mutation({
     let brain: "relabeled" | "reembedded" | "none" = "none";
     const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
     if (source && source.status !== "revoked" && (changed.has("writer") || changed.has("scienceCode"))) {
-      const tier = newWriter?.tier;
       const result = await relabelImportedSource(
         ctx,
         source,
@@ -2672,8 +2671,7 @@ export const editApprovedFile = mutation({
             ? {
                 // As the Brain copy is made (convex/lib/importBrainCopy.ts): the writer's own name, else its label.
                 writerName: newWriter.name?.trim() || patch.writerName || null,
-                writerTier:
-                  typeof tier === "number" && Number.isFinite(tier) ? Math.max(0, Math.min(1, tier)) : IMPORT_BRAIN_DEFAULT_WRITER_TIER,
+                writerTier: writerWeight(newWriter.tier),
               }
             : {}),
           ...(changed.has("scienceCode") ? { scienceCode: scienceCodeNow ?? null } : {}),
@@ -2755,6 +2753,93 @@ export const importFileEvents = query({
       );
     }
     return out;
+  },
+});
+
+// ─── Writer weights (2026-11-18 (second), docs/product-domain.md) ───────────
+// An Admin sets a person's writer weight on Team (users.setWriterWeight).
+// Each writer row whose weight changed has its approved files' Brain copies
+// re-tiered here, in scheduled steps: the copy's card and source take the
+// new weight with one `relabel` audit row ("Writer weight changed on
+// Team"), and nothing is embedded again (retrieval reads the weight from
+// the card). A source whose vectors still carry its old weight as
+// importance is embedded once, as relabelImportedSource always does.
+
+/** Approved files of one writer read per step (each row holds a text preview of up to 8,000 characters). */
+const RETIER_PAGE = 50;
+
+/** The Brain audit log's reason for a re-tier made by a weight change on Team. */
+export const RETIER_BRAIN_REASON = "Writer weight changed on Team";
+
+/**
+ * Re-tiers one writer's imported Brain copies to the writer's weight as it
+ * is now (internal; users.setWriterWeight and Link schedule it). Pages the
+ * writer's approved files through `by_writerId_and_sheetTab`. For a file
+ * with a Brain copy it reads the copy's small card first and passes it over
+ * when the card is gone or revoked, already at the weight, or the copy
+ * names another file as its own (a copy two files share follows the file it
+ * names); only then does it read the source, which holds the whole text.
+ * A step stops once it has read SEND_BACK_READ_BUDGET and runs again from
+ * the same page, where the copies it finished are now passed over by their
+ * cards, so every step moves on. Reads the weight afresh each step, so two weight changes in a row end at
+ * the last one; safe to run again.
+ */
+export const retierWriterBrainCopies = internalMutation({
+  args: {
+    writerId: v.id("pdWriters"),
+    cursor: v.union(v.string(), v.null()),
+    // The Admin who changed the weight, named in the Brain audit log.
+    actorId: v.optional(v.id("users")),
+  },
+  returns: v.object({ retiered: v.number(), passedOver: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const writer = await ctx.db.get(args.writerId);
+    if (!writer) return { retiered: 0, passedOver: 0, done: true };
+    const weight = writerWeight(writer.tier);
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_writerId_and_sheetTab", (q) => q.eq("writerId", writer._id).eq("sheetTab", "approved"))
+      .paginate({ cursor: args.cursor, numItems: RETIER_PAGE });
+    let retiered = 0;
+    let passedOver = 0;
+    let spent = 0;
+    let finishedPage = true;
+    for (const item of page.page) {
+      spent += storedSize(item);
+      if (item.status !== "approved") continue;
+      if (!item.brainSourceId) continue;
+      const card = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_sourceId", (q) => q.eq("sourceId", item.brainSourceId!))
+        .first();
+      spent += storedSize(card);
+      if (!card || card.status === "revoked" || card.writerTier === weight || (card.importItemId && card.importItemId !== item._id)) {
+        passedOver += 1;
+        continue;
+      }
+      if (retiered > 0 && spent >= SEND_BACK_READ_BUDGET) {
+        finishedPage = false;
+        break;
+      }
+      const source = await ctx.db.get(item.brainSourceId);
+      spent += storedSize(source);
+      if (!source || source.status === "revoked" || (source.importItemId && source.importItemId !== item._id)) {
+        passedOver += 1;
+        continue;
+      }
+      const result = await relabelImportedSource(ctx, source, { writerTier: weight }, args.actorId ?? "system", RETIER_BRAIN_REASON);
+      if (result.changed) retiered += 1;
+      else passedOver += 1;
+    }
+    const done = finishedPage && page.isDone;
+    if (!done) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.retierWriterBrainCopies, {
+        writerId: writer._id,
+        cursor: finishedPage ? page.continueCursor : args.cursor,
+        ...(args.actorId ? { actorId: args.actorId } : {}),
+      });
+    }
+    return { retiered, passedOver, done };
   },
 });
 

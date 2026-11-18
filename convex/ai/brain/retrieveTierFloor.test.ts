@@ -210,6 +210,56 @@ describe("an edit after approval on Import reaches retrieval with no new embed (
   });
 });
 
+describe("a writer weight set on Team reaches retrieval with no new embed (2026-11-18 (second))", () => {
+  test("the re-tier job moves the writer's copy up the slate, and brain.add is never called", async () => {
+    const t = setup();
+    const [writerA, writerB, itemA, itemB] = await t.run(async (ctx) => {
+      const mkWriter = (initials: string) => ctx.db.insert("pdWriters", { initials, createdVia: "import", createdAt: 1, fileCount: 1 });
+      const a = await mkWriter("DW");
+      const b = await mkWriter("TL");
+      const mk = (n: number, writerId: Id<"pdWriters">) =>
+        ctx.db.insert("ingestionItems", {
+          driveItemId: `drive-weight-${n}`,
+          path: "harrowfield farms/2024",
+          name: `PD ${n}.docx`,
+          clientName: "harrowfield farms",
+          companyKey: "harrowfield farms",
+          docKind: "pd",
+          size: 1,
+          lastModifiedAt: 1,
+          contentHash: `bytes-weight-${n}`,
+          status: "approved",
+          sheetTab: "approved",
+          writerId,
+          pairGroupKey: "harrowfield farms::2024",
+          updatedAt: 1,
+        });
+      return [a, b, await mk(1, a), await mk(2, b)];
+    });
+    const a = await addSource(t, { cos: 0.6, tier: 0.7, importItemId: itemA, label: "weight-a" });
+    const b = await addSource(t, { cos: 0.5, tier: 0.7, importItemId: itemB, label: "weight-b" });
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./rag");
+      for (const id of [a, b]) await patchBrainSource(ctx, (await ctx.db.get(id))!, { ragImportance: 1 });
+    });
+    vi.spyOn(brainRerankModel, "doRerank").mockResolvedValue({
+      ranking: [0, 1].map((index) => ({ index, relevanceScore: 0.8 })),
+      response: { body: {} },
+    } as never);
+    expect((await search(t, { k: 1 })).exemplars.map((e) => e.sourceId)).toEqual([a]);
+
+    // An Admin sets TL to 1 on Team; the job re-tiers TL's copies.
+    const add = vi.spyOn(brain, "add");
+    await t.run((ctx) => ctx.db.patch(writerB, { tier: 1 }));
+    const result = await t.mutation(internal.ingestion.retierWriterBrainCopies, { writerId: writerB, cursor: null });
+    expect(result).toEqual({ retiered: 1, passedOver: 0, done: true });
+    expect(add).not.toHaveBeenCalled();
+    const top = (await search(t, { k: 1 })).exemplars;
+    expect(top.map((e) => [e.sourceId, e.writerTier])).toEqual([[b, 1]]);
+    void writerA;
+  });
+});
+
 describe("the writer tier after the floor without rerank", () => {
   const ex = (entryId: string, searchScore: number, writerTier?: number): BrainExemplar => ({
     text: entryId,

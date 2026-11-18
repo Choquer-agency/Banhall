@@ -31,9 +31,14 @@ import { deidentifyNames, isOrdinaryCompanyWord, NAME_EDGE_BEFORE, surfacePatter
 import { parsePdFilename } from "../../shared/pdFilename";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../../shared/writerNameFromText";
 import { normalizeCraScienceCode } from "../../shared/craScienceCodes";
+import { DEFAULT_WRITER_WEIGHT, writerWeight } from "../../shared/writerWeight";
 
-/** The tier a past writer's PDs get when an Admin has set none (design part D, decision 2). */
-export const IMPORT_BRAIN_DEFAULT_WRITER_TIER = 0.4;
+/**
+ * The tier a writer's PDs get when an Admin has set none: the default
+ * writer weight, 0.7 since 2026-11-18 (second) (owner: everyone but Tracy
+ * is 0.7; it was 0.4). shared/writerWeight.ts holds the rule.
+ */
+export const IMPORT_BRAIN_DEFAULT_WRITER_TIER = DEFAULT_WRITER_WEIGHT;
 
 /** What a hidden name becomes, as in report nominations. */
 export const IMPORT_BRAIN_REDACTION = "[redacted]";
@@ -1094,10 +1099,7 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
       content,
       industry,
       ...(writerName ? { writerName } : {}),
-      writerTier:
-        typeof tier === "number" && Number.isFinite(tier)
-          ? Math.max(0, Math.min(1, tier))
-          : IMPORT_BRAIN_DEFAULT_WRITER_TIER,
+      writerTier: writerWeight(tier),
       ...(scienceCode ? { scienceCode } : {}),
       ...(fiscalYear !== undefined ? { fiscalYear } : {}),
       importItemId: item._id,

@@ -3905,7 +3905,7 @@ export default defineSchema({
     industry: v.string(), // → RAG namespace
     scienceCode: v.optional(v.string()),
     writerName: v.optional(v.string()),
-    writerTier: v.number(), // 0..1 ranking weight, blended after the relevance floor (Tracy 1.0 / next tier ~0.7 / other ~0.4); RAG `importance` is 1 since 2026-11-17
+    writerTier: v.number(), // 0..1 ranking weight, blended after the relevance floor; an imported PD's follows its writer's weight on Team (default 0.7 since 2026-11-18), other routes keep what they stored (nominations and feedback 0.4); RAG `importance` is 1 since 2026-11-17
     docType: v.string(), // "pd" | "transcript" | "cra_letter"
     fiscalYear: v.optional(v.number()),
     craOutcome: v.optional(
@@ -4961,9 +4961,11 @@ export default defineSchema({
     // remember it as their reviewer before a pick. Absent: 0.
     reviewCount: v.optional(v.number()),
     // 2026-11-17 widen (Brain copies of imported PDs): the writer's tier,
-    // 0..1, which ranks their PDs' Brain copies (Tracy 1.0; Larry, Emily,
-    // Orel 0.7). Absent: 0.4 (lib/importBrainCopy.ts). Set by an Admin on
-    // Team in a later change; nothing writes it yet.
+    // 0..1, which ranks their PDs' Brain copies. Since 2026-11-18 (second)
+    // the writer weight an Admin sets on Team (users.setWriterWeight), one
+    // per person: a member's own row and the past writer linked to them
+    // carry the same value. Absent: 0.7 (shared/writerWeight.ts; owner:
+    // Tracy 1.0, everyone else 0.7).
     tier: v.optional(v.number()),
   })
     .index("by_initials", ["initials"])

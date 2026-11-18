@@ -4,8 +4,9 @@
   // preferences on /admin/users. Owner and Developer flags stay there.
   // 2026-11-16 (writers from initials): edit the initials Import matches
   // file names against, and unlink a past writer an Admin linked to them.
+  // 2026-11-18 (second): set the person's writer weight.
   import { DropdownMenu } from "bits-ui";
-  import { LinkBreakIcon } from "phosphor-svelte";
+  import { LinkBreakIcon, ScalesIcon } from "phosphor-svelte";
   import { IconLock, IconMore, IconPencil, IconTag } from "$lib/components/icons";
   import { resolve } from "$app/paths";
   import RoleSubmenu from "./RoleSubmenu.svelte";
@@ -21,6 +22,7 @@
     onChangeRole,
     onSetPassword,
     onEditInitials,
+    onSetWeight = null,
     onUnlinkWriter = null,
   }: {
     name: string;
@@ -32,6 +34,8 @@
     onChangeRole: (role: Role) => void;
     onSetPassword: () => void;
     onEditInitials: () => void;
+    /** Set weight (2026-11-18); absent: the item does not show. */
+    onSetWeight?: (() => void) | null;
     onUnlinkWriter?: (() => void) | null;
   } = $props();
 
@@ -53,6 +57,11 @@
       <DropdownMenu.Item data-menu-item="initials" onSelect={onEditInitials} class={`${MENU_ITEM} text-ink`}>
         <IconTag size={15} strokeWidth={1.5} class="shrink-0" />Edit initials
       </DropdownMenu.Item>
+      {#if onSetWeight}
+        <DropdownMenu.Item data-menu-item="weight" onSelect={onSetWeight} class={`${MENU_ITEM} text-ink`}>
+          <ScalesIcon size="0.9375rem" aria-hidden="true" class="shrink-0" />Set weight
+        </DropdownMenu.Item>
+      {/if}
       {#if linkedWriterLabel && onUnlinkWriter}
         <DropdownMenu.Item data-menu-item="unlink-writer" onSelect={onUnlinkWriter} class={`${MENU_ITEM} text-ink`}>
           <LinkBreakIcon size="0.9375rem" aria-hidden="true" class="shrink-0" /><span class="truncate">Unlink past writer {linkedWriterLabel}</span>

@@ -18,10 +18,12 @@ import {
   waitingWriterInvite,
   liveWriter,
   membersWithInitials,
+  setPersonWriterWeight,
   userDisplayLabel,
   writerLabelFor,
   writerInUse,
 } from "./lib/teamRoster";
+import { isWriterWeight, storedWriterWeight, WRITER_WEIGHT_RULE } from "../shared/writerWeight";
 import { cleanWriterName } from "./lib/ingestionSheet";
 import { hasCapability } from "./lib/roleCapabilities";
 import {
@@ -473,6 +475,9 @@ const pastWriterValidator = v.object({
   // still waiting (pending, not expired): Team says "Invite sent" and does
   // not offer a second invite.
   invitePending: v.boolean(),
+  // 2026-11-18 (second): the weight an Admin set for this writer on Team
+  // (0 to 1), or null when it uses the default (shared/writerWeight.ts).
+  weight: v.union(v.number(), v.null()),
   // The one team member whose saved initials are this writer's, if there is
   // exactly one: a hint, never a link. `canLink`: Link may name them.
   sameInitialsAs: v.union(
@@ -524,6 +529,7 @@ export const listPastWriters = query({
         // Since 2026-11-17 a file that names it as its reviewer counts too.
         canDelete: !writerInUse(writer),
         invitePending: (await waitingWriterInvite(ctx, writer._id)) !== null,
+        weight: storedWriterWeight(writer.tier),
         sameInitialsAs,
       });
     }
@@ -649,5 +655,42 @@ export const deletePastWriter = mutation({
     forgetWriterMatches(ctx);
     await recheckInitials(ctx, ...picks.map((pick) => pick.initials));
     return null;
+  },
+});
+
+/**
+ * Sets a person's writer weight (Team, "Set weight", 2026-11-18 (second)):
+ * how much their imported final PDs count when the AI looks for past
+ * examples in the Brain. Admin only. For a team member (`userId`) it goes on
+ * their own writer row (made when they have none) and on the past writer an
+ * Admin linked to them; for a past writer with no login (`writerId`), on its
+ * row. `weight` is a number from 0 to 1, or null for none (the default,
+ * 0.7); anything else is refused, never clamped. Each row whose weight
+ * changed has its imported Brain copies re-tiered in scheduled pages, with
+ * no new embedding, and its files waiting in Brain check move to their new
+ * place in the order. Returns the weight saved.
+ */
+export const setWriterWeight = mutation({
+  args: {
+    userId: v.optional(v.id("users")),
+    writerId: v.optional(v.id("pdWriters")),
+    weight: v.union(v.number(), v.null()),
+  },
+  returns: v.object({ weight: v.union(v.number(), v.null()) }),
+  handler: async (ctx, args) => {
+    const admin = await requireRole(ctx, ["admin"]);
+    if ((args.userId === undefined) === (args.writerId === undefined)) {
+      domainError("INVALID_INPUT", "Choose one person to set a weight for.");
+    }
+    if (args.weight !== null && !isWriterWeight(args.weight)) domainError("INVALID_INPUT", WRITER_WEIGHT_RULE);
+    if (args.userId !== undefined) {
+      const user = await ctx.db.get(args.userId);
+      if (!isLoginMember(user)) domainError("INVALID_INPUT", "That person is not on the team.");
+      await setPersonWriterWeight(ctx, { kind: "member", user }, args.weight, admin._id);
+    } else {
+      const writer = await pastWriterOrRefuse(ctx, args.writerId!);
+      await setPersonWriterWeight(ctx, { kind: "writer", writer }, args.weight, admin._id);
+    }
+    return { weight: args.weight };
   },
 });

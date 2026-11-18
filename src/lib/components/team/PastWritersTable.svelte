@@ -38,6 +38,8 @@
     canDelete: boolean;
     /** An invite an Admin sent for this person is waiting (2026-11-17). */
     invitePending: boolean;
+    /** The writer weight an Admin set (0 to 1), or null for the default (2026-11-18). Shown only in its dialog. */
+    weight?: number | null;
     /** The one member with the same saved initials, if exactly one: the Link dialog starts with them. */
     sameInitialsAs: { userId: string; name: string; canLink: boolean } | null;
   };
@@ -48,6 +50,7 @@
     onInvite,
     onEditName,
     onLink,
+    onSetWeight,
     onDelete,
   }: {
     writers: PastWriter[];
@@ -55,6 +58,7 @@
     onInvite: (writer: PastWriter) => void;
     onEditName: (writer: PastWriter) => void;
     onLink: (writer: PastWriter) => void;
+    onSetWeight: (writer: PastWriter) => void;
     onDelete: (writer: PastWriter) => void;
   } = $props();
 </script>
@@ -102,6 +106,7 @@
                 onInvite={() => onInvite(writer)}
                 onEditName={() => onEditName(writer)}
                 onLink={() => onLink(writer)}
+                onSetWeight={() => onSetWeight(writer)}
                 onDelete={() => onDelete(writer)}
               />
             </span>

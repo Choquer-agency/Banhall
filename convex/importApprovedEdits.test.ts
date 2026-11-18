@@ -715,7 +715,7 @@ describe("editing an approved file", () => {
     const { t, admin, adminId } = await setup();
     const { pd, sourceId } = await approvedPdInBrain(t, admin);
     const before = await item(t, pd);
-    expect(await source(t, sourceId)).toMatchObject({ writerName: "Dana Whitlock", writerTier: 0.4 });
+    expect(await source(t, sourceId)).toMatchObject({ writerName: "Dana Whitlock", writerTier: 0.7 });
 
     const result = await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Robin Sample" } } });
     expect(result).toEqual({ changed: ["writer"], brainUpdated: true });
@@ -730,7 +730,7 @@ describe("editing an approved file", () => {
     }
     const [file] = await companyFiles(t);
     expect(file.writerId).toBe(robin!._id);
-    expect(await source(t, sourceId)).toMatchObject({ writerName: "Robin Sample", writerTier: 0.4, content: (await source(t, sourceId))!.content });
+    expect(await source(t, sourceId)).toMatchObject({ writerName: "Robin Sample", writerTier: 0.7, content: (await source(t, sourceId))!.content });
     expect(await card(t, sourceId)).toMatchObject({ writerName: "Robin Sample" });
     // Retrieval reads the name from the card: nothing is embedded again (the same tier).
     expect(embedsQueued()).toEqual([]);

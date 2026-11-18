@@ -104,11 +104,11 @@ describe("importBrainCopyPreview", () => {
     );
   });
 
-  test("a writer with no tier gets 0.4", async () => {
+  test("a writer with no tier gets 0.7 (2026-11-18, owner)", async () => {
     const t = convexTest(schema, modules);
     const { itemId } = await seed(t);
     const result = await t.query(internal.ingestion.importBrainCopyPreview, { itemId, text: TEXT });
-    expect(result.ok && result.fields.writerTier).toBe(0.4);
+    expect(result.ok && result.fields.writerTier).toBe(0.7);
   });
 
   test("a new company uses the industry picked on the sheet, and refuses without one", async () => {
