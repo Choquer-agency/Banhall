@@ -976,7 +976,7 @@ export const moveMergedCompanyFiles = internalMutation({
     const target = await moveTarget(ctx, from);
     if (!target) {
       console.error(
-        `moveMergedCompanyFiles: no active company to move the files of "${from.name}" (${from._id}) to; its mark is cleared and its files stay on it`
+        `moveMergedCompanyFiles: no active company to move the files of company ${from._id} to; its mark is cleared and its files stay on it`
       );
       await clearMoveMark(ctx, from._id);
       return { moved: 0, done: true };
@@ -1033,7 +1033,7 @@ export const resumeStalledCompanyFileMoves = internalMutation({
       if (!from.companyFilesMovingTo || !left || !from.mergedBy) {
         if (left) {
           console.error(
-            `resumeStalledCompanyFileMoves: "${from.name}" (${from._id}) has files left but no merging person to log the move under; its mark is cleared`
+            `resumeStalledCompanyFileMoves: company ${from._id} has files left but no merging person to log the move under; its mark is cleared`
           );
         }
         await clearMoveMark(ctx, from._id);

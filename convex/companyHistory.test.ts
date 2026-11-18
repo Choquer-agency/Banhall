@@ -888,6 +888,32 @@ describe("the start dialog and chat agree with drafts on last year's PD (2026-11
   });
 });
 
+describe("chat during a merge's file move (final review of #48 to #51, P3-2)", () => {
+  it("counts no PD as the previous-year report while files are still moving in, then does again", async () => {
+    const s = await setup({ chat: true });
+    const fileId = await addFile(s, "Pump housing.docx", "Last year's final PD.", { category: "final_pd", fiscalYear: 2024 });
+    const merged = await s.t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("clients", {
+        name: "Quillmere Old", nameKey: "quillmere old", status: "merged", mergedIntoClientId: s.clientId,
+        companyFilesMovingTo: s.clientId, companyFilesMoveAt: now, nameHistoryComplete: true,
+        createdBy: s.userId, createdAt: now, updatedAt: now,
+      });
+    });
+    const read = () =>
+      s.t.query(internal.chatDocuments.readCompanyFileForChat, {
+        agentThreadId: "thread-history", companyFileId: fileId, userId: s.userId, start: 0, maxChars: 1_000,
+      });
+    const listed = await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.userId));
+    expect(listed.map((file) => [file.companyFileId, file.category])).toEqual([[fileId, "background"]]);
+    expect(await read()).toMatchObject({ status: "ok", category: "background" });
+    // The move ends: the PD counts again, as drafts will read it.
+    await s.t.run((ctx) => ctx.db.patch(merged, { companyFilesMovingTo: undefined, companyFilesMoveAt: undefined }));
+    expect((await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.userId))).map((file) => file.category)).toEqual(["previous_pd"]);
+    expect(await read()).toMatchObject({ status: "ok", category: "previous_pd" });
+  });
+});
+
 describe("version families in a company search", () => {
   it("groups a final PD with its drafts and review copies by fiscal year and PD number", () => {
     expect(pdNumberKey(" 04 ")).toBe("4");

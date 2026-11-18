@@ -509,7 +509,7 @@ describe("review fixes (2026-11-18)", () => {
     expect((await client(s, s.borealis.clientId))?.companyFilesMoveAt).toBeUndefined();
   });
 
-  test("P3-3: with no active company to move to, the mark is cleared and the error names the company", async () => {
+  test("P3-3: with no active company to move to, the mark is cleared and the error names the company by id only", async () => {
     const s = await setup();
     await insertFiles(s, s.borealis.clientId, 5);
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -531,7 +531,10 @@ describe("review fixes (2026-11-18)", () => {
     expect((await client(s, s.borealis.clientId))?.companyFilesMovingTo).toBeUndefined();
     expect((await client(s, s.borealis.clientId))?.companyFilesMoveAt).toBeUndefined();
     expect(await filesOn(s, s.borealis.clientId)).toBe(5);
-    expect(errors.mock.calls.some((call) => String(call[0]).includes('"Borealis"'))).toBe(true);
+    // Final review of #48 to #51 (P3-6): the id, never the company's name.
+    const logged = errors.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logged).toContain(`company ${s.borealis.clientId}`);
+    expect(logged).not.toContain("Borealis");
     expect(await s.t.run((ctx) => companyFilesMovingInto(ctx, s.acme.clientId))).toBe(false);
     errors.mockRestore();
   });

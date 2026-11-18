@@ -37,6 +37,7 @@ import { labelsCurrent } from "./lib/fileLabels";
 import { hasCapability } from "../shared/capabilities";
 import { MAX_CHAT_COMPANY_FILES, type ChatCompanyFile } from "./ai/chatEvidence";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import { companyFilesMovingInto } from "./lib/clients";
 import { quotableFileText } from "../shared/wordMarkdown";
 import { getConvexSize, v, type Value } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -308,10 +309,14 @@ async function listedCompanyFiles(
     listed.push(file);
   };
   let previousYearId: Id<"companyFiles"> | null = null;
+  // Final review P3-2: while a merge's files are still moving in, the year's
+  // final PDs are not all here, so none counts as the previous-year report
+  // (drafts wait for the move; the chat lists it as background meanwhile).
+  const moving = await companyFilesMovingInto(ctx, clientId);
   for (const year of pinnedYears(subject)) {
     const { rows, complete } = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
     const pinned = pinnedFinalPdsOfYear(rows, year, subject);
-    if (year === subject.fiscalYear! - 1) {
+    if (year === subject.fiscalYear! - 1 && !moving) {
       // A read the budget stopped early never makes a PD the year's only one.
       const candidate = previousYearPdOf(pinned, rows, subject, false, complete);
       // Null (the read of the project's rows stopped early) counts nothing.
@@ -552,6 +557,8 @@ export const readCompanyFileForChat = internalQuery({
       file.category === "final_pd" &&
       subject.fiscalYear !== null &&
       file.fiscalYear === subject.fiscalYear - 1 &&
+      // Final review P3-2: not while a merge's files are still moving in.
+      !(await companyFilesMovingInto(ctx, clientId)) &&
       (await previousYearCompanyFileId(ctx, clientId, subject, scope.projectId)) === file._id;
     const totalChars = file.textLength;
     if (args.start >= totalChars) return { status: "past_end", fileName: file.fileName, totalChars };
