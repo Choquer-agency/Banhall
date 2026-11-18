@@ -2142,6 +2142,67 @@ export const keepOutOfBrain = mutation({
   },
 });
 
+// ─── Kept out undo (2026-11-18 (second), docs/product-domain.md) ───────────
+
+/** Files one "Put back in Brain check" call takes. */
+export const REOPEN_BRAIN_CHECK_MAX_FILES = 100;
+
+// missing: no longer in Import; not_approved: not on Approved (sent back,
+// say); not_final_pd: only a final PD has a Brain check; not_kept_out: it
+// is waiting, or was added to the Brain (Send back undoes an add).
+const reopenRefusalValidator = v.union(
+  v.literal("missing"),
+  v.literal("not_approved"),
+  v.literal("not_final_pd"),
+  v.literal("not_kept_out")
+);
+
+/**
+ * "Put back in Brain check" (Admins only, owner 2026-11-18): undoes "Keep
+ * out of the Brain". Each approved final PD that was kept out waits for its
+ * Brain check again (`brainCheck` "waiting", who and when cleared), through
+ * patchItem, so the Brain check count and the company bands follow, and
+ * takes its place in the Brain check order. Nothing is added to the Brain:
+ * a person still reads the copy first. One `reopen_brain_check` row in
+ * importFileEvents per file. Any other file is refused by name and left as
+ * it is.
+ */
+export const reopenBrainCheck = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: v.object({
+    reopened: v.array(v.id("ingestionItems")),
+    refused: v.array(v.object({ id: v.id("ingestionItems"), reason: reopenRefusalValidator })),
+  }),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    if (args.ids.length === 0) domainError("INVALID_INPUT", "Select at least one file.");
+    if (args.ids.length > REOPEN_BRAIN_CHECK_MAX_FILES) {
+      domainError("INVALID_INPUT", `Put back up to ${REOPEN_BRAIN_CHECK_MAX_FILES} files at a time.`);
+    }
+    const reopened: Id<"ingestionItems">[] = [];
+    const refused: Array<{ id: Id<"ingestionItems">; reason: Infer<typeof reopenRefusalValidator> }> = [];
+    for (const id of new Set(args.ids)) {
+      const item = await ctx.db.get(id);
+      if (!item) refused.push({ id, reason: "missing" });
+      else if (item.status !== "approved") refused.push({ id, reason: "not_approved" });
+      else if (item.category !== "final_pd") refused.push({ id, reason: "not_final_pd" });
+      else if (item.brainCheck !== "kept_out") refused.push({ id, reason: "not_kept_out" });
+      else {
+        const now = Date.now();
+        await patchItem(ctx, item, {
+          brainCheck: "waiting",
+          brainCheckedBy: undefined,
+          brainCheckedAt: undefined,
+          updatedAt: now,
+        });
+        await ctx.db.insert("importFileEvents", { itemId: id, action: "reopen_brain_check", userId: adminId, at: now });
+        reopened.push(id);
+      }
+    }
+    return { reopened, refused };
+  },
+});
+
 // ─── Send back to review, and edit after approval (2026-11-17) ──────────────
 // Owner decisions of 2026-11-17 (docs/product-domain.md, the fifth entry of
 // that day). Send back to review, Admin only, undoes an approval (a file
@@ -2697,7 +2758,8 @@ export const editApprovedFile = mutation({
 
 const importFileEventValidator = v.object({
   _id: v.id("importFileEvents"),
-  action: v.union(v.literal("edit"), v.literal("send_back")),
+  // 2026-11-18 (second): "reopen_brain_check", a kept out PD put back in Brain check.
+  action: v.union(v.literal("edit"), v.literal("send_back"), v.literal("reopen_brain_check")),
   at: v.number(),
   by: v.string(),
   changes: v.array(

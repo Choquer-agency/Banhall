@@ -4535,7 +4535,9 @@ export default defineSchema({
   // Brain before, or none).
   importFileEvents: defineTable({
     itemId: v.id("ingestionItems"),
-    action: v.union(v.literal("edit"), v.literal("send_back")),
+    // 2026-11-18 (second) widen: "reopen_brain_check", a final PD kept out
+    // of the Brain that an Admin put back in Brain check.
+    action: v.union(v.literal("edit"), v.literal("send_back"), v.literal("reopen_brain_check")),
     userId: v.id("users"),
     at: v.number(),
     changes: v.optional(

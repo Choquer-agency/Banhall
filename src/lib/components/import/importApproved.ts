@@ -139,3 +139,27 @@ export function approvedEdits(row: Pick<SheetFileRow, "status" | "category">): R
     craReviewed: approvedEditApplies("craReviewed", row),
   };
 }
+
+// ─── Kept out undo (2026-11-18 (second)) ────────────────────────────────────
+
+/** The menu item and file view button that undo "Keep out of the Brain" (Admins only, like the page). */
+export const REOPEN_BRAIN_CHECK = "Put back in Brain check";
+
+/** The toast once a kept out PD waits for its Brain check again. */
+export const REOPENED_BRAIN_CHECK = "Back in Brain check. Read its copy there to add it.";
+
+export type ReopenBrainCheckResult = FunctionReturnType<typeof api.ingestion.reopenBrainCheck>;
+type ReopenRefusal = ReopenBrainCheckResult["refused"][number]["reason"];
+
+/** Why a PD could not be put back in Brain check, in plain words. */
+export const REOPEN_REFUSALS: Record<ReopenRefusal, string> = {
+  missing: "This file is no longer in Import.",
+  not_approved: "This file is no longer approved.",
+  not_final_pd: "Only a final PD has a Brain check.",
+  not_kept_out: "This PD is not kept out of the Brain any more.",
+};
+
+/** Whether an approved row offers "Put back in Brain check": a final PD kept out of the Brain. */
+export function canReopenBrainCheck(row: Pick<SheetFileRow, "status" | "category" | "brain">): boolean {
+  return row.status === "approved" && row.category === "final_pd" && row.brain === "kept_out";
+}
