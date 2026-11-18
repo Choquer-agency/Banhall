@@ -402,6 +402,23 @@ export async function ensureFinalPdTotalRow(ctx: MutationCtx): Promise<Doc<"impo
 }
 
 /**
+ * The total row for the rebuild, which must work on the broken data it
+ * repairs: it reads up to ten total rows without `.unique()`, keeps the
+ * oldest, deletes the rest and makes a zero row when there is none. Every
+ * other caller keeps `ensureFinalPdTotalRow`, which fails loudly on two.
+ */
+export async function collapseFinalPdTotalRows(ctx: MutationCtx): Promise<Doc<"importFinalPdCounts">> {
+  const rows = await ctx.db
+    .query("importFinalPdCounts")
+    .withIndex("by_kind_and_key", (q) => q.eq("kind", "total").eq("key", FINAL_PD_TOTAL_KEY))
+    .take(10);
+  const [kept, ...extras] = rows;
+  for (const extra of extras) await ctx.db.delete(extra._id);
+  if (kept) return kept;
+  return await ensureFinalPdTotalRow(ctx);
+}
+
+/**
  * Keep the final PD counts right after one write to an ingestion item, as
  * adjustImportCompanyCounts does for the bands: take the row's old share
  * out and put the new one in. Writes nothing when neither the tab, the

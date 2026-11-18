@@ -100,7 +100,7 @@ import {
   adjustImportFinalPdCounts,
   countShareOf,
   emptyImportCounts,
-  ensureFinalPdTotalRow,
+  collapseFinalPdTotalRows,
   FINAL_PD_TOTAL_KEY,
   finalPdCountRow,
   finalPdShareOf,
@@ -5650,7 +5650,9 @@ export const rebuildImportFinalPdCounts = internalMutation({
     const pageSize = Math.min(Math.max(1, requested), FINAL_PD_REBUILD_MAX_PAGE);
     const restarts = args.restarts ?? 0;
     const waits = args.waits ?? 0;
-    const total = await ensureFinalPdTotalRow(ctx);
+    // Duplicate total rows are part of what it repairs, so it collapses them
+    // first rather than read them with `.unique()`.
+    const total = await collapseFinalPdTotalRows(ctx);
     const progress = args.progress ?? {
       years: [],
       writers: [],

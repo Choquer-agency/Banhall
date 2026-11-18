@@ -5760,6 +5760,23 @@ describe("rebuildImportFinalPdCounts", () => {
     expect(await storedFinalPdCounts(t)).toEqual(before);
   });
 
+  it("repairs two total rows rather than failing on them", async () => {
+    const { t, admin } = await setup();
+    await seedFinalPds(t);
+    const before = await storedFinalPdCounts(t);
+    // A bad write left a second total row with wrong counts.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("importFinalPdCounts", { kind: "total", key: "all", review: 99, approved: 7, revision: 1, updatedAt: 1 });
+    });
+    const totalRows = async () =>
+      (await t.run((ctx) => ctx.db.query("importFinalPdCounts").collect())).filter((row) => row.kind === "total");
+    expect(await totalRows()).toHaveLength(2);
+    expect(await driveFinalPdRebuild(t, { pageSize: 2 })).toEqual({ runs: 3, written: true });
+    expect(await totalRows()).toHaveLength(1);
+    expect(await storedFinalPdCounts(t)).toEqual(before);
+    expect(await admin.query(api.ingestion.finalPdProgress, {})).toEqual({ approved: 0, staged: 5 });
+  });
+
   it("starts again when a final PD changes while it pages, waits five minutes after three tries, and gives up after an hour", async () => {
     const { t, admin } = await setup();
     await seedFinalPds(t);
