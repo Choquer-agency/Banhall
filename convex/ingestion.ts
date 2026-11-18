@@ -2439,20 +2439,27 @@ async function sendBackOne(
   ctx: MutationCtx,
   item: Doc<"ingestionItems">,
   adminId: Id<"users">,
-  // The Brain audit log's reason for a revoke (2026-11-18 (second): the old
-  // page job names itself).
-  brainReason: string = SEND_BACK_BRAIN_REASON
+  options: {
+    // The Brain audit log's reason for a revoke (2026-11-18 (second): the
+    // old page job names itself).
+    brainReason?: string;
+    // What becomes of the file's Brain copy (2026-11-18 (second), the old
+    // page job): "auto" revokes it unless another approved file still
+    // links it (Send back's rule); "revoke" revokes it; "unlink" never
+    // revokes it, only this file lets go.
+    brainPolicy?: "auto" | "revoke" | "unlink";
+  } = {}
 ): Promise<{
   companyFile: "removed" | "gone";
   brain: "revoked" | "shared" | "already_removed" | "none";
   groups: string[];
   /** What it read, near enough, for the call's read budget. */
   readBytes: number;
-  /** Who made the Brain copy it revoked, if it revoked one (2026-11-18 (second), for the old page job's report). */
-  revokedCreatedBy?: string;
 }> {
+  const brainPolicy = options.brainPolicy ?? "auto";
   const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
-  const other = source && source.status !== "revoked" ? await otherApprovedLink(ctx, source._id, item._id) : null;
+  const other =
+    source && source.status !== "revoked" && brainPolicy !== "revoke" ? await otherApprovedLink(ctx, source._id, item._id) : null;
 
   const companyFileId =
     item.companyFileId ??
@@ -2470,13 +2477,13 @@ async function sendBackOne(
     // file's Send back): nothing more to unlearn, and nothing stays.
     brain = "already_removed";
   } else if (source) {
-    if (other) {
-      // Only this file lets go: the copy stays for the other file, which
-      // retrieval now reads its company from.
+    if (brainPolicy === "unlink" || (brainPolicy === "auto" && other)) {
+      // Only this file lets go: the copy stays (for the other file, which
+      // retrieval now reads its company from, or for the route that made it).
       brain = "shared";
-      if (source.importItemId === item._id) await patchBrainSource(ctx, source, { importItemId: other._id });
+      if (other && source.importItemId === item._id) await patchBrainSource(ctx, source, { importItemId: other._id });
     } else {
-      await revokeBrainSourceRow(ctx, source, adminId, brainReason, { sentBackItemId: item._id });
+      await revokeBrainSourceRow(ctx, source, adminId, options.brainReason ?? SEND_BACK_BRAIN_REASON, { sentBackItemId: item._id });
       brain = "revoked";
     }
   }
@@ -2510,7 +2517,6 @@ async function sendBackOne(
     brain,
     groups: [after.pairGroupKey, item.pairGroupKey],
     readBytes: storedSize(source) + storedSize(other) + storedSize(companyFileDoc) + SEND_BACK_FILE_OVERHEAD,
-    ...(brain === "revoked" && source ? { revokedCreatedBy: source.createdBy } : {}),
   };
 }
 
@@ -2579,38 +2585,118 @@ export const sendBackToReview = mutation({
 
 // ─── Files approved on the old page (2026-11-18 (second), owner) ────────────
 // Before Approve on Import (2026-11-17, fourth), the old /admin/ingestion
-// page approved files straight into the Brain with an unscrubbed copy
-// titled with the client's name, and put none on a company page. The owner
-// decided (2026-11-18, answer 5) that every such file is sent back to
-// review and approved again through the Brain check before bulk Brain
-// checks start; transcripts and supporting files lose their Brain copy for
-// good, since only final PDs get one now (answer 4).
+// page approved files straight into the Brain and put none on a company
+// page. The owner decided (2026-11-18, answer 5) that every such file is
+// sent back to review and approved again through the Brain check before
+// bulk Brain checks start; transcripts and supporting files lose their
+// Brain copy for good, since only final PDs get one now (answer 4).
 //
 // An old-page approval is exactly an approved Import file with no
 // companyFileId and no brainCheck: the old finalizeApproval wrote neither,
 // the new path always writes companyFileId (and brainCheck on a final PD),
 // and nothing but Send back clears companyFileId (deleting a company file
 // by hand leaves the Import row alone).
+//
+// Which copy is revoked (root decision after review 48, P2-2): only a copy
+// the old page's own approval of this file made. The old approval
+// (finalizeApproval on origin/main) called importSource in the same
+// mutation that wrote reviewedBy and reviewedAt: a new copy is a "pd_pair"
+// made by that Admin at that moment, with no importItemId (the field did
+// not exist); a matched copy (dedup by text) was returned as it was, made
+// earlier by another route (a report nomination, writer feedback, a curated
+// import) or by another file's approval, and kept its own status. Every
+// other copy is only unlinked from the file, never revoked; one whose origin
+// cannot be told is unlinked and counted as unknown origin.
 
 /** Approved Import files one step of the old page job reads (each row holds a text preview of up to 8,000 characters). */
 const OLD_APPROVALS_PAGE = 50;
 
+/**
+ * How far apart a copy's createdAt and the file's reviewedAt may be for the
+ * copy to count as made by that approval. The old approval wrote both in one
+ * mutation, so they are the same time or a few milliseconds apart; a copy
+ * made by another route a second earlier is still told apart.
+ */
+export const OLD_PAGE_SAME_APPROVAL_MS = 1000;
+
+/** Approved files read to see whether a copy made by an old-page approval is shared with an Import file approved on the new path. */
+const OLD_COPY_LINKS_READ = 20;
+
 /** The Brain audit log's reason for a copy the old page job revokes. */
 export const OLD_APPROVAL_BRAIN_REASON = "Approved on the old Import page without a scrub; sent back to review";
 
+/** Why a copy is what the job takes it to be, for the owner's report. */
+export type OldCopyDetail =
+  // Made by this file's own old-page approval: revoked.
+  | "made_by_this_approval"
+  // Made by this file's approval, but an Import file approved on the new path shares it: only unlinked.
+  | "shared_with_import_file"
+  // Names another Import file as its own: only unlinked.
+  | "names_another_file"
+  // Not a PD copy (writer feedback, a CRA letter): another route, only unlinked.
+  | "not_an_import_copy"
+  // Made before this file's approval (another route, or another file's approval): only unlinked.
+  | "made_before_this_approval"
+  // The file has no approval time, or the copy's creator or time does not match it: unknown origin, only unlinked.
+  | "no_approval_time"
+  | "creator_or_time_differs"
+  // Nothing to change in the Brain.
+  | "no_copy"
+  | "already_removed"
+  // Held by an approval still moving: not sent back.
+  | "approval_running";
+
+/**
+ * Where an old-page file's Brain copy came from (pure; see above): "own"
+ * when this file's old-page approval made it, "other_route" when the data
+ * shows it came from elsewhere, "unknown" when it cannot be told.
+ */
+export function oldPageCopyOrigin(
+  item: Pick<Doc<"ingestionItems">, "_id" | "reviewedAt" | "reviewedBy">,
+  source: Pick<Doc<"brainSources">, "kind" | "createdAt" | "createdBy" | "importItemId">
+): { origin: "own" | "other_route" | "unknown"; detail: OldCopyDetail } {
+  if (source.importItemId !== undefined && source.importItemId !== item._id) {
+    return { origin: "other_route", detail: "names_another_file" };
+  }
+  if (source.kind !== "pd_pair") return { origin: "other_route", detail: "not_an_import_copy" };
+  if (item.reviewedAt === undefined) return { origin: "unknown", detail: "no_approval_time" };
+  if (source.createdAt < item.reviewedAt - OLD_PAGE_SAME_APPROVAL_MS) {
+    return { origin: "other_route", detail: "made_before_this_approval" };
+  }
+  if (
+    source.createdAt <= item.reviewedAt + OLD_PAGE_SAME_APPROVAL_MS &&
+    item.reviewedBy !== undefined &&
+    source.createdBy === item.reviewedBy
+  ) {
+    return { origin: "own", detail: "made_by_this_approval" };
+  }
+  return { origin: "unknown", detail: "creator_or_time_differs" };
+}
+
+const oldApprovalOutcomeValidator = v.union(
+  v.literal("revoke"),
+  v.literal("unlink_only"),
+  v.literal("unknown_origin"),
+  v.literal("held"),
+  v.literal("skipped")
+);
+type OldApprovalOutcome = Infer<typeof oldApprovalOutcomeValidator>;
+
 const oldApprovalTotalsValidator = v.object({
-  // Old-page approvals found (sent back, or that would be in a dry run, plus skipped).
+  // Old-page approvals found, each counted once (held ones included).
   found: v.number(),
+  // Sent back to To review (0 in a dry run).
   sentBack: v.number(),
-  // Its Brain copy was revoked, with a confirmed erasure (dry run: would be).
-  brainRevoked: v.number(),
-  // Its Brain copy stays because another approved file shares it; only this file let go (dry run: shares it now).
-  brainUnlinked: v.number(),
-  // Its Brain copy was already removed from the Brain.
-  brainAlreadyRemoved: v.number(),
-  // It had no Brain copy, or the copy was removed for good.
-  brainNone: v.number(),
-  // Held by an approval still moving; the next run takes it.
+  // By outcome (a dry run counts what a real run would do):
+  // its copy revoked with a confirmed erasure (made by this file's approval);
+  revoke: v.number(),
+  // its copy only unlinked (another route made it, or an Import file approved on the new path shares it);
+  unlinkOnly: v.number(),
+  // its copy only unlinked because where it came from cannot be told;
+  unknownOrigin: v.number(),
+  // held by an approval still moving, so not sent back (run again later);
+  held: v.number(),
+  // sent back with no copy to change (none, or already removed from the Brain).
   skipped: v.number(),
 });
 type OldApprovalTotals = Infer<typeof oldApprovalTotalsValidator>;
@@ -2618,10 +2704,10 @@ type OldApprovalTotals = Infer<typeof oldApprovalTotalsValidator>;
 const NO_OLD_APPROVALS: OldApprovalTotals = {
   found: 0,
   sentBack: 0,
-  brainRevoked: 0,
-  brainUnlinked: 0,
-  brainAlreadyRemoved: 0,
-  brainNone: 0,
+  revoke: 0,
+  unlinkOnly: 0,
+  unknownOrigin: 0,
+  held: 0,
   skipped: 0,
 };
 
@@ -2631,33 +2717,107 @@ function addOldApprovalTotals(a: OldApprovalTotals, b: OldApprovalTotals): OldAp
   return out;
 }
 
+const OUTCOME_TOTAL: Record<OldApprovalOutcome, keyof OldApprovalTotals> = {
+  revoke: "revoke",
+  unlink_only: "unlinkOnly",
+  unknown_origin: "unknownOrigin",
+  held: "held",
+  skipped: "skipped",
+};
+
+// One file's line in a step's report (at most OLD_APPROVALS_PAGE a step).
+const oldApprovalCopyValidator = v.object({
+  itemId: v.id("ingestionItems"),
+  outcome: oldApprovalOutcomeValidator,
+  detail: v.string(),
+  sourceId: v.optional(v.id("brainSources")),
+  kind: v.optional(v.string()),
+  docType: v.optional(v.string()),
+  // When the copy was made, and when the old page approved the file.
+  createdAt: v.optional(v.number()),
+  approvedAt: v.optional(v.number()),
+});
+type OldApprovalCopy = Infer<typeof oldApprovalCopyValidator>;
+
 /** Whether this approved Import file was approved on the old page (see above). */
 export function approvedOnOldPage(item: Pick<Doc<"ingestionItems">, "status" | "companyFileId" | "brainCheck">): boolean {
   return item.status === "approved" && item.companyFileId === undefined && item.brainCheck === undefined;
 }
 
 /**
+ * Whether an Import file approved on the new path (or more files than are
+ * read) links this copy besides `itemId`: then a copy this file's approval
+ * made is only unlinked. Other old-page files that share it do not keep it:
+ * they are sent back by this job too, and find it already removed.
+ */
+async function sharedWithImportFile(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">,
+  itemId: Id<"ingestionItems">
+): Promise<{ shared: boolean; readBytes: number }> {
+  const rows = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_brainSourceId_and_status", (q) => q.eq("brainSourceId", sourceId).eq("status", "approved"))
+    .take(OLD_COPY_LINKS_READ + 1);
+  const others = rows.filter((row) => row._id !== itemId);
+  return {
+    shared: others.length >= OLD_COPY_LINKS_READ || others.some((row) => !approvedOnOldPage(row)),
+    readBytes: rows.reduce((sum, row) => sum + storedSize(row), 0),
+  };
+}
+
+/**
+ * What the job does with one old-page file (a real run and a dry run alike):
+ * reads its copy and decides by oldPageCopyOrigin and sharedWithImportFile.
+ */
+async function planOldApproval(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems">
+): Promise<{ line: OldApprovalCopy; policy: "revoke" | "unlink"; readBytes: number }> {
+  const base = { itemId: item._id, ...(item.reviewedAt !== undefined ? { approvedAt: item.reviewedAt } : {}) };
+  const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
+  let readBytes = storedSize(source);
+  if (!source) {
+    return { line: { ...base, outcome: "skipped", detail: "no_copy" }, policy: "unlink", readBytes };
+  }
+  const about = { ...base, sourceId: source._id, kind: source.kind, docType: source.docType, createdAt: source.createdAt };
+  if (source.status === "revoked") {
+    return { line: { ...about, outcome: "skipped", detail: "already_removed" }, policy: "unlink", readBytes };
+  }
+  const { origin, detail } = oldPageCopyOrigin(item, source);
+  if (origin === "unknown") return { line: { ...about, outcome: "unknown_origin", detail }, policy: "unlink", readBytes };
+  if (origin === "other_route") return { line: { ...about, outcome: "unlink_only", detail }, policy: "unlink", readBytes };
+  const links = await sharedWithImportFile(ctx, source._id, item._id);
+  readBytes += links.readBytes;
+  if (links.shared) {
+    return { line: { ...about, outcome: "unlink_only", detail: "shared_with_import_file" }, policy: "unlink", readBytes };
+  }
+  return { line: { ...about, outcome: "revoke", detail }, policy: "revoke", readBytes };
+}
+
+/**
  * Sends back to review every file approved on the old /admin/ingestion page
  * (internal, owner-run once after the label and writer backfills; the
- * 2026-11-18 (second) deploy order). Each goes through Send back's own
- * sendBackOne: its Brain copy is revoked as an audited unlearn with a
- * confirmed erasure (reason OLD_APPROVAL_BRAIN_REASON), or only unlinked
- * while another approved file still shares it, and the file goes back to To
- * review with its labels and a send_back event. A later Brain check of a
- * final PD makes a new copy with its own RAG key.
+ * 2026-11-18 (second) deploy order). Each goes back to To review with its
+ * labels and a send_back event, through Send back's own sendBackOne. Its
+ * Brain copy is revoked as an audited unlearn with a confirmed erasure
+ * (reason OLD_APPROVAL_BRAIN_REASON) only when this file's own old-page
+ * approval made it and no Import file approved on the new path shares it;
+ * every other copy is only unlinked from the file (see above). A later
+ * Brain check of a final PD makes a new, scrubbed copy.
  *
  * `actorUserId` names the Admin in the events and the Brain audit log; it is
  * never an authorization input (the function is internal), and the job
  * checks at every step that it is still an Admin, stopping and writing
- * nothing more once it is not. `dryRun: true` writes nothing and counts
- * what a real run would do (a copy two old-page files share counts as
- * unlinked for both, since each sees the other). Pages `by_status`
- * "approved", 50 rows a step; a real step stops at SEND_BACK_READ_BUDGET and
- * runs again from the same page, where the files it sent back are gone.
- * Skips, and counts, a file held by an approval still moving. Logs each
- * step and the totals at the end, with the creator of each revoked copy so
- * the owner sees one made by another route (a nomination or a curated
- * import the old page linked). Safe to run again.
+ * nothing more once it is not. `dryRun: true` writes nothing and reports
+ * what a real run would do. Each step reports, per file, its outcome, why,
+ * and its copy's kind, doc type, creation time and the file's approval time
+ * (at most 50 lines a step, logged), and the counts by outcome; the last step
+ * logs the totals. Pages `by_status` "approved", 50 rows a step; a step stops
+ * at SEND_BACK_READ_BUDGET and runs again from the same page, passing over
+ * the files it already counted there (`passedOnPage`), so no file is counted
+ * twice. A file held by an approval still moving is not sent back; run the
+ * job again later. Safe to run again.
  */
 export const sendBackOldApprovals = internalMutation({
   args: {
@@ -2665,11 +2825,13 @@ export const sendBackOldApprovals = internalMutation({
     dryRun: v.boolean(),
     cursor: v.optional(v.union(v.string(), v.null())),
     totals: v.optional(oldApprovalTotalsValidator),
+    // Files of this page already counted by an earlier step that stopped at the read budget.
+    passedOnPage: v.optional(v.array(v.id("ingestionItems"))),
   },
   returns: v.object({
     step: oldApprovalTotalsValidator,
     totals: oldApprovalTotalsValidator,
-    revokedCreatedBy: v.array(v.object({ sourceId: v.id("brainSources"), createdBy: v.string() })),
+    copies: v.array(oldApprovalCopyValidator),
     stopped: v.optional(v.literal("actor_not_admin")),
     done: v.boolean(),
   }),
@@ -2678,64 +2840,55 @@ export const sendBackOldApprovals = internalMutation({
     const actor = await ctx.db.get(args.actorUserId);
     if (!isLoginMember(actor) || actor.role !== "admin") {
       console.warn("[sendBackOldApprovals] stopped: the actor is not an Admin, so nothing more was sent back", { totals: before });
-      return { step: NO_OLD_APPROVALS, totals: before, revokedCreatedBy: [], stopped: "actor_not_admin" as const, done: true };
+      return { step: NO_OLD_APPROVALS, totals: before, copies: [], stopped: "actor_not_admin" as const, done: true };
     }
     const cursor = args.cursor ?? null;
     const page = await ctx.db
       .query("ingestionItems")
       .withIndex("by_status", (q) => q.eq("status", "approved"))
       .paginate({ cursor, numItems: OLD_APPROVALS_PAGE });
+    const passed = new Set(args.passedOnPage ?? []);
     const step = { ...NO_OLD_APPROVALS };
-    const revokedCreatedBy: Array<{ sourceId: Id<"brainSources">; createdBy: string }> = [];
+    const copies: OldApprovalCopy[] = [];
     const groups = new Set<string>();
     const fileApprovals = await movingFileApprovals(ctx);
     let spent = 0;
+    let handled = 0;
     let finishedPage = true;
     for (const item of page.page) {
+      if (passed.has(item._id)) continue;
       spent += storedSize(item);
       if (!approvedOnOldPage(item)) continue;
-      if (!args.dryRun && step.sentBack > 0 && spent >= SEND_BACK_READ_BUDGET) {
+      if (handled > 0 && spent >= SEND_BACK_READ_BUDGET) {
         finishedPage = false;
         break;
       }
+      handled += 1;
       step.found += 1;
       if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, fileApprovals, item._id))) {
-        step.skipped += 1;
+        step.held += 1;
+        copies.push({ itemId: item._id, outcome: "held", detail: "approval_running" });
+        // It stays on this page: never counted again if the page is read again.
+        passed.add(item._id);
         continue;
       }
+      const plan = await planOldApproval(ctx, item);
+      spent += plan.readBytes;
+      step[OUTCOME_TOTAL[plan.line.outcome]] += 1;
+      copies.push(plan.line);
       if (args.dryRun) {
-        // What Send back would do, from the copy's small card (its source only when it has no card).
-        let status: string | null = null;
-        if (item.brainSourceId) {
-          const card = await ctx.db
-            .query("brainSourceCards")
-            .withIndex("by_sourceId", (q) => q.eq("sourceId", item.brainSourceId!))
-            .first();
-          spent += storedSize(card);
-          status = card?.status ?? (await ctx.db.get(item.brainSourceId))?.status ?? null;
-        }
-        if (status === null) step.brainNone += 1;
-        else if (status === "revoked") step.brainAlreadyRemoved += 1;
-        else if (await otherApprovedLink(ctx, item.brainSourceId!, item._id)) step.brainUnlinked += 1;
-        else step.brainRevoked += 1;
+        passed.add(item._id);
         continue;
       }
-      const done = await sendBackOne(ctx, item, actor._id, OLD_APPROVAL_BRAIN_REASON);
+      const done = await sendBackOne(ctx, item, actor._id, { brainReason: OLD_APPROVAL_BRAIN_REASON, brainPolicy: plan.policy });
       spent += done.readBytes;
       step.sentBack += 1;
-      if (done.brain === "revoked") step.brainRevoked += 1;
-      else if (done.brain === "shared") step.brainUnlinked += 1;
-      else if (done.brain === "already_removed") step.brainAlreadyRemoved += 1;
-      else step.brainNone += 1;
-      if (done.revokedCreatedBy !== undefined && item.brainSourceId) {
-        revokedCreatedBy.push({ sourceId: item.brainSourceId, createdBy: done.revokedCreatedBy });
-      }
       for (const key of done.groups) groups.add(key);
     }
     if (!args.dryRun) await recomputeGroups(ctx, groups, MANY_ROWS);
     const totals = addOldApprovalTotals(before, step);
     const done = finishedPage && page.isDone;
-    console.log(`[sendBackOldApprovals] ${args.dryRun ? "dry run " : ""}step`, { step, revokedCreatedBy });
+    console.log(`[sendBackOldApprovals] ${args.dryRun ? "dry run " : ""}step`, { step, copies });
     if (done) {
       console.log(`[sendBackOldApprovals] ${args.dryRun ? "dry run " : ""}done`, { totals });
     } else {
@@ -2744,9 +2897,11 @@ export const sendBackOldApprovals = internalMutation({
         dryRun: args.dryRun,
         cursor: finishedPage ? page.continueCursor : cursor,
         totals,
+        // Sent back files leave the page; the ones counted that stay are passed over next time.
+        passedOnPage: finishedPage ? [] : [...passed],
       });
     }
-    return { step, totals, revokedCreatedBy, done };
+    return { step, totals, copies, done };
   },
 });
 
