@@ -334,15 +334,22 @@
   const searchQ = useQuery(api.companyFiles.searchCompanyFiles, () =>
     clientId && serverQuery && query && (moreFiles || moreArchived) ? { clientId, search: serverQuery } : "skip"
   );
-  const found = $derived(query && (moreFiles || moreArchived) ? (searchQ.data?.files ?? []) : []);
+  const askingServer = $derived(Boolean(query) && (moreFiles || moreArchived));
+  // Review P3-1: only an answer to the query on screen counts, and only the
+  // rows the tab's own filter would show, so the two never disagree.
+  const found = $derived(
+    askingServer && serverQuery === query && !searchQ.error ? (searchQ.data?.files ?? []).filter(matches) : []
+  );
   /** Loaded files that match, then the server's matches not loaded. */
   function withFound(loaded: readonly ListedCompanyFile[], archivedOnes: boolean): ListedCompanyFile[] {
     const shown = loaded.filter(matches);
     const ids = new Set(loaded.map((file) => file._id));
     return [...shown, ...found.filter((file) => file.archived === archivedOnes && !ids.has(file._id))];
   }
+  /** The server's search failed for the query on screen (review P3-2). */
+  const searchFailed = $derived(askingServer && serverQuery === query && Boolean(searchQ.error));
   /** The server's search over files not loaded has not answered this query yet. */
-  const searchingAll = $derived(Boolean(query) && (moreFiles || moreArchived) && (serverQuery !== query || searchQ.data === undefined));
+  const searchingAll = $derived(askingServer && !searchFailed && (serverQuery !== query || searchQ.data === undefined));
   const listedFiles = $derived(withFound(files, false).filter((file) => !justAddedIds.has(file._id)));
   const groups = $derived(groupFiles(listedFiles));
   const shownArchived = $derived(withFound(archived, true));
@@ -682,7 +689,7 @@
     "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pr-3 pl-2.5 text-[0.8125rem] leading-[calc(18/13)] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
-{#snippet countBadge(count: number, muted = false)}
+{#snippet countBadge(count: number | string, muted = false)}
   <span class={`flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] leading-[1.2] ${muted ? "bg-gray-50 text-ink-faint" : "bg-chrome text-primary-selected"}`}>{count}</span>
 {/snippet}
 
@@ -942,6 +949,9 @@
       {companyName} has no files yet.{canAdd ? " Add past reports, scoping notes or background the writers should know, or drop them here." : ""}
     </p>
   {:else}
+    {#if searchFailed}
+      <p role="alert" class="pt-6 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-company-files-search-failed>Older files could not be searched. The list shows only the files loaded so far.</p>
+    {/if}
     {#if query && groups.length === 0 && shownArchived.length === 0 && !searchingAll}
       <p class="py-8 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-company-files-no-match>No file matches "{search.trim()}".</p>
     {/if}
@@ -981,7 +991,7 @@
     {:else if shownArchived.length > 0}
       <section class="flex flex-col gap-2 pt-7" aria-label="Archived, not used by the AI" data-company-files-archived>
         <h3 class="flex items-center gap-2 text-xs leading-[calc(4/3)] tracking-[0.04em] text-ink-muted uppercase">
-          Archived, not used by the AI {@render countBadge(shownArchived.length, true)}
+          Archived, not used by the AI {@render countBadge(moreArchived && !query ? `${shownArchived.length.toLocaleString("en-CA")}+` : shownArchived.length, true)}
         </h3>
         <ul class="flex flex-col border-y border-line-soft">
           {#each shownArchived as file (file._id)}

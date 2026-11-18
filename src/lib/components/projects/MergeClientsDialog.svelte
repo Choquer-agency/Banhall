@@ -30,6 +30,7 @@
   import FormDialog from "$lib/components/ui/FormDialog.svelte";
   import { formCancel, formError, formField, formLabel, formPrimary } from "$lib/components/ui/formDialog";
   import { userErrorMessage } from "$lib/errors";
+  import { MERGE_COMPANY_FILES_PER_STEP } from "../../../../shared/companyFileMoves";
   import {
     defaultKeepKey,
     mergeCollisionText,
@@ -110,8 +111,8 @@
       !preview.tooManyCompanyContacts
   );
 
-  /** Files past this many move after the merge, in steps (convex/clients.ts MERGE_COMPANY_FILES_PER_STEP). */
-  const FILES_MOVED_AT_ONCE = 100;
+  /** Files past this many move after the merge, in steps (the server's own step size). */
+  const FILES_MOVED_AT_ONCE = MERGE_COMPANY_FILES_PER_STEP;
   function mergeCompanyFilesText(count: number, more: boolean, keptName: string): string {
     const moves = more ? `More than ${count} company files move` : count === 1 ? "1 company file moves" : `${count} company files move`;
     if (!more && count <= FILES_MOVED_AT_ONCE) return `${moves} to ${keptName} too.`;

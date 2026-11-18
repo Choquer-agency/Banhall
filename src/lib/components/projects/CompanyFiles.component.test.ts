@@ -883,6 +883,49 @@ describe("a company holds all its files (2026-11-18): the list in pages", () => 
     expect(__activeQueryArgs(SEARCH_QUERY)).toEqual([]);
   });
 
+  it("never shows the last query's server rows under a new query, and only rows the filter would show (review P3-1)", async () => {
+    seedPaged();
+    __setQueryDataForArgs(SEARCH_QUERY, { clientId: "c3", search: "claim" }, {
+      files: [
+        listed("old1", "claim 2016.pdf", { fileType: "pdf", fiscalYear: 2016, createdAt: at("2017-03-01T12:00:00Z") }),
+        // A server row whose name does not hold the text typed: never shown.
+        listed("odd1", "valve plan.pdf", { fileType: "pdf", fiscalYear: 2016, createdAt: at("2017-02-01T12:00:00Z") }),
+      ],
+    });
+    await mount("writer");
+    await expect.poll(() => rowOf("n1")).not.toBeNull();
+    const box = page.getByRole("searchbox", { name: "Find a file" });
+    await box.fill("claim");
+    await expect.poll(() => rowOf("old1")).not.toBeNull();
+    expect(rowOf("odd1")).toBeNull();
+    await box.fill("zzz");
+    // At once, before the server is asked again: the old answer is gone.
+    expect(rowOf("old1")).toBeNull();
+    expect(document.querySelector("[data-company-files-no-match]")).toBeNull();
+    __setQueryDataForArgs(SEARCH_QUERY, { clientId: "c3", search: "zzz" }, { files: [] });
+    await expect.element(page.getByText('No file matches "zzz".')).toBeVisible();
+  });
+
+  it("says so when the search of older files fails, instead of waiting for good (review P3-2)", async () => {
+    seedPaged();
+    __setQueryError(SEARCH_QUERY, new Error("search failed"));
+    await mount("writer");
+    await expect.poll(() => rowOf("n1")).not.toBeNull();
+    await page.getByRole("searchbox", { name: "Find a file" }).fill("gasket");
+    await expect.poll(() => text(document.querySelector("[data-company-files-search-failed]"))).toBe(
+      "Older files could not be searched. The list shows only the files loaded so far."
+    );
+    await expect.element(page.getByText('No file matches "gasket".')).toBeVisible();
+  });
+
+  it("the archived count ends in + while more archived files are left (review P3-5)", async () => {
+    seedPaged(loaded(), false, [listed("a1", "old plan.docx", { archived: true, fileType: "docx" })], true);
+    await mount("manager");
+    await expect.poll(() => text(document.querySelector("[data-company-files-archived] h3"))).toBe("Archived, not used by the AI 1+");
+    __setPaginatedRowsForArgs(PAGE_QUERY, { clientId: "c3", archived: true }, [listed("a1", "old plan.docx", { archived: true, fileType: "docx" })], { more: false });
+    await expect.poll(() => text(document.querySelector("[data-company-files-archived] h3"))).toBe("Archived, not used by the AI 1");
+  });
+
   it("keeps a ticked file ticked when it is no longer loaded, and drops one that is gone", async () => {
     seedPaged();
     await mount("manager");
