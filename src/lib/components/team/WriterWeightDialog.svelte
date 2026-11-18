@@ -90,7 +90,7 @@
       class="w-32"
     />
     <p id="writer-weight-help" class="text-xs leading-[calc(4/3)] text-ink-muted">
-      A number from 0 to 1. Leave it empty to use {defaultText}, the weight for writers with none.
+      A number from 0 to 1, with up to 3 decimal places. Leave it empty to use {defaultText}, the weight for writers with none.
     </p>
     <p data-writer-weight-note class="mt-1 text-xs leading-[calc(4/3)] text-ink-muted">
       Their PDs already in the Brain take the new weight within a few minutes.

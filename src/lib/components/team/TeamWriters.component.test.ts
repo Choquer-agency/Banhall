@@ -411,11 +411,18 @@ describe("Team: writers from initials", () => {
     expect(one("#writer-weight")!.classList.contains("field-control")).toBe(true);
     expect((one("#writer-weight") as HTMLInputElement).value).toBe("0.85");
     await expect.element(page.getByRole("dialog", { name: "Weight for Kim Tran" })).toBeVisible();
-    expect(text(one("#writer-weight-help"))).toBe("A number from 0 to 1. Leave it empty to use 0.7, the weight for writers with none.");
+    expect(text(one("#writer-weight-help"))).toBe(
+      "A number from 0 to 1, with up to 3 decimal places. Leave it empty to use 0.7, the weight for writers with none."
+    );
 
     await userEvent.fill(input, "1.5");
     await userEvent.click(one("[data-writer-weight-save]")!);
-    await expect.element(page.getByText("Weight must be a number from 0 to 1.")).toBeVisible();
+    await expect.element(page.getByText("Weight must be a number from 0 to 1, with at most 3 decimal places.")).toBeVisible();
+    expect(__mutationCalls("users:setWriterWeight")).toEqual([]);
+    // More than 3 decimal places is refused too, so a saved weight always reopens exactly as saved.
+    await userEvent.fill(input, "0.1234");
+    await userEvent.click(one("[data-writer-weight-save]")!);
+    await expect.element(page.getByText("Weight must be a number from 0 to 1, with at most 3 decimal places.")).toBeVisible();
     expect(__mutationCalls("users:setWriterWeight")).toEqual([]);
     await userEvent.fill(input, "1");
     await userEvent.click(one("[data-writer-weight-save]")!);

@@ -15,8 +15,15 @@
 /** The weight of a writer an Admin has given none (owner, 2026-11-18: everyone but Tracy is 0.7). */
 export const DEFAULT_WRITER_WEIGHT = 0.7;
 
-/** The refusal for a weight that is not a number from 0 to 1 (the words `brain.reweightSource` uses). */
-export const WRITER_WEIGHT_RULE = "Weight must be a number from 0 to 1.";
+/**
+ * A weight holds at most this many decimal places: the Brain check order
+ * ranks weights in thousandths, and Team shows a weight exactly as saved, so
+ * opening the dialog and saving again never changes it.
+ */
+export const WRITER_WEIGHT_DECIMALS = 3;
+
+/** The refusal for a weight that is not a number from 0 to 1 with at most 3 decimal places. */
+export const WRITER_WEIGHT_RULE = "Weight must be a number from 0 to 1, with at most 3 decimal places.";
 
 /** A stored weight as it is used: finite and within 0 to 1, else the default. */
 export function writerWeight(tier: number | null | undefined): number {
@@ -28,9 +35,14 @@ export function storedWriterWeight(tier: number | null | undefined): number | nu
   return typeof tier === "number" && Number.isFinite(tier) ? Math.max(0, Math.min(1, tier)) : null;
 }
 
-/** Whether a weight a person typed may be saved as it is: a number from 0 to 1, never clamped. */
+/**
+ * Whether a weight a person typed may be saved as it is: a number from 0 to
+ * 1 with at most 3 decimal places, never clamped or rounded.
+ */
 export function isWriterWeight(value: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value <= 1;
+  if (!Number.isFinite(value) || value < 0 || value > 1) return false;
+  const scale = 10 ** WRITER_WEIGHT_DECIMALS;
+  return Math.abs(Math.round(value * scale) / scale - value) < 1e-12;
 }
 
 /**
@@ -41,14 +53,18 @@ export function isWriterWeight(value: number): boolean {
 export function parseWriterWeight(text: string): number | null | "invalid" {
   const typed = text.trim().replace(",", ".");
   if (typed === "") return null;
-  if (!/^(\d+(\.\d*)?|\.\d+)$/.test(typed)) return "invalid";
+  if (!/^(\d+(\.\d{0,3})?|\.\d{1,3})$/.test(typed)) return "invalid";
   const value = Number(typed);
   return isWriterWeight(value) ? value : "invalid";
 }
 
-/** A weight as Team shows it: "1", "0.7", "0.85". */
+/**
+ * A weight as Team shows it: "1", "0.7", "0.85". Exact for every weight
+ * isWriterWeight accepts (at most 3 decimal places).
+ */
 export function writerWeightText(weight: number): string {
-  return String(Math.round(weight * 1000) / 1000);
+  const scale = 10 ** WRITER_WEIGHT_DECIMALS;
+  return String(Math.round(weight * scale) / scale);
 }
 
 

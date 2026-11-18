@@ -172,7 +172,7 @@ describe("users.setWriterWeight", () => {
     expect(await errorOf(manager.mutation(api.users.setWriterWeight, { userId: tracyId, weight: 1 }))).toBe(
       "This action requires an active elevated role"
     );
-    for (const weight of [Number.NaN, 1.5, -0.1, Number.POSITIVE_INFINITY]) {
+    for (const weight of [Number.NaN, 1.5, -0.1, Number.POSITIVE_INFINITY, 0.123456, 0.0005]) {
       expect(await errorOf(admin.mutation(api.users.setWriterWeight, { userId: tracyId, weight }))).toBe(WRITER_WEIGHT_RULE);
     }
     expect(await errorOf(admin.mutation(api.users.setWriterWeight, { weight: 1 }))).toBe("Choose one person to set a weight for.");
