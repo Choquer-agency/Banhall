@@ -686,8 +686,11 @@ export async function runSearchDocuments(
       agentThreadId: ctx.threadId,
       query: input.query,
       maxChars: granted,
-      // Phase C: company files only for a turn that lists them.
-      ...(turn.userId && turn.companyFiles.length > 0 ? { userId: turn.userId } : {}),
+      // Phase C: the sender, whom the search checks again for company files
+      // (permission and the project's company). Sent whatever the turn
+      // lists (review, 2026-11-17): a company whose newest hand-added rows
+      // have no text lists none, yet search reaches its older files.
+      ...(turn.userId ? { userId: turn.userId } : {}),
     });
     switch (result.status) {
       case "off":

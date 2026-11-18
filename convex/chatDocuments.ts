@@ -217,6 +217,12 @@ export async function chatCompanyFilesFor(
 
 /** At most this many final PDs head the chat's company file list (2026-11-17). */
 export const CHAT_LISTED_FINAL_PDS = 10;
+/**
+ * Rows the walk for the company's other final PDs reads at most, whatever
+ * their text (review, 2026-11-17): many final PDs without text never make
+ * a chat turn read the whole range.
+ */
+export const CHAT_FINAL_PD_ROWS_READ = CHAT_LISTED_FINAL_PDS * 2;
 
 /** How Import filed a file, as the chat's list says it (2026-11-17). */
 const IMPORT_CATEGORY_WORDS: Readonly<Record<string, string>> = {
@@ -253,7 +259,8 @@ function listedFile(file: Doc<"companyFiles">): ChatCompanyFile {
  *
  * 1. the final PDs a draft of this project pins (the two fiscal years
  *    before its own), then the company's other final PDs, newest fiscal
- *    year first, at most CHAT_LISTED_FINAL_PDS in all;
+ *    year first, at most CHAT_LISTED_FINAL_PDS in all, from at most
+ *    CHAT_FINAL_PD_ROWS_READ rows of the other final PDs;
  * 2. the files added by hand: the newest 30 with text, listed oldest first,
  *    so a file added later joins the end and the handles before it keep
  *    naming the same files (review 2, 2026-10-26). A company with no Import
@@ -261,7 +268,9 @@ function listedFile(file: Doc<"companyFiles">): ChatCompanyFile {
  * 3. while there is room, the newest of the company's other Import files.
  *
  * Search reaches every file of the company, listed or not (`searchForChat`).
- * Every read is bounded and indexed.
+ * Every read is bounded and indexed, and `meter.mayRead` is asked before
+ * each row: once the chat's read budget has no room for one more row, the
+ * list ends with what it has (review, 2026-11-17).
  */
 async function listedCompanyFiles(
   ctx: QueryCtx,
@@ -280,7 +289,9 @@ async function listedCompanyFiles(
     const rows = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
     for (const file of pinnedFinalPdsOfYear(rows, year, subject)) add(file);
   }
-  // The other final PDs, newest fiscal year first (no year: never listed here).
+  // The other final PDs, newest fiscal year first (no year: never listed
+  // here), from at most CHAT_FINAL_PD_ROWS_READ rows read.
+  let finalRowsRead = 0;
   for await (const file of countedRows(
     ctx.db
       .query("companyFiles")
@@ -290,8 +301,9 @@ async function listedCompanyFiles(
       .order("desc"),
     meter
   )) {
-    if (listed.length >= CHAT_LISTED_FINAL_PDS) break;
+    finalRowsRead += 1;
     add(file);
+    if (listed.length >= CHAT_LISTED_FINAL_PDS || finalRowsRead >= CHAT_FINAL_PD_ROWS_READ) break;
   }
   // As before: 60 rows read for the newest 30 with text.
   const hand = (await handCompanyFilesNewestFirst(ctx, clientId, MAX_CHAT_COMPANY_FILES * 2, meter))

@@ -41,7 +41,7 @@ import {
   versionFamily,
 } from "./lib/companyEvidence";
 import { isPreviousYearDocument, PREVIOUS_YEAR_ONLY_REASON } from "../shared/previousYear";
-import { CHAT_LISTED_FINAL_PDS, chatCompanyFilesFor } from "./chatDocuments";
+import { CHAT_FINAL_PD_ROWS_READ, CHAT_LISTED_FINAL_PDS, chatCompanyFilesFor } from "./chatDocuments";
 import { MAX_CHAT_COMPANY_FILES } from "./ai/chatEvidence";
 import { newDocumentReadTurn, runReadDocument, runSearchDocuments } from "./ai/chatDocumentTools";
 
@@ -469,7 +469,7 @@ describe("version families in a company search", () => {
     expect(versionFamily({ _id: "x", category: "final_pd", fiscalYear: 2024 })).toBe("file:x");
   });
 
-  it("keeps two hits a family, the final PD's first, and a file of its own up to its own cap", () => {
+  it("keeps two hits a family, the final PD's first in the family's best place, and a file of its own up to its own cap", () => {
     const hits = [
       { id: "draft-1", family: "pd:2024:4", final: false },
       { id: "review-1", family: "pd:2024:4", final: false },
@@ -478,7 +478,18 @@ describe("version families in a company search", () => {
       { id: "solo-2", family: "file:a", final: false },
       { id: "solo-3", family: "file:a", final: false },
     ];
-    expect(collapseVersionFamilies(hits, 3).map((hit) => hit.id)).toEqual(["draft-1", "solo-1", "final-1", "solo-2", "solo-3"]);
+    // The family keeps the places its best-ranked hits held (0 and 1), its final first.
+    expect(collapseVersionFamilies(hits, 3).map((hit) => hit.id)).toEqual(["final-1", "draft-1", "solo-1", "solo-2", "solo-3"]);
+  });
+
+  it("with one place left, a family's final PD survives the cut, not a better-ranked draft (review, 2026-11-17)", () => {
+    const hits = [
+      { id: "solo-1", family: "file:a", final: false },
+      { id: "draft-1", family: "pd:2024:4", final: false },
+      { id: "final-1", family: "pd:2024:4", final: true },
+    ];
+    expect(collapseVersionFamilies(hits, 2).slice(0, 2).map((hit) => hit.id)).toEqual(["solo-1", "final-1"]);
+    expect(collapseVersionFamilies(hits.slice(1), 2).slice(0, 1).map((hit) => hit.id)).toEqual(["final-1"]);
   });
 
   it("chat search returns at most two excerpts of one PD's versions, its final first", async () => {
@@ -710,5 +721,90 @@ describe("review fixes (2026-11-17)", () => {
     const all = await s.t.run(async (ctx) => searchCompanyPieces(ctx, { clientId: s.clientId, query: "cobalt seat", limit: 50, perFile: 1 }));
     expect(all.hits).toHaveLength(2);
     expect(all.complete).toBe(true);
+  });
+});
+
+describe("review fixes, round 2 (2026-11-17)", () => {
+  it("a company search with one place left returns the final PD, not the draft found before it", async () => {
+    const s = await setup();
+    // Search returns matches in the order they were cut: the draft first.
+    await addFile(s, "draft.docx", "The tungsten gland held.", { category: "draft", fiscalYear: 2024, pdNumber: "4", pieces: true });
+    const finalId = await addFile(s, "final.docx", "The tungsten gland held.", { category: "final_pd", fiscalYear: 2024, pdNumber: "04", pieces: true });
+    const found = await s.t.run(async (ctx) => searchCompanyPieces(ctx, { clientId: s.clientId, query: "tungsten gland", limit: 1, perFile: 2 }));
+    expect(found.hits.map((hit) => hit.companyFileId)).toEqual([finalId]);
+  });
+
+  it("many final PDs without text never make the chat list read the whole range", async () => {
+    const s = await setup({ chat: true });
+    const readable = await addFile(s, "old-final.docx", "Final PD of 2015.", { category: "final_pd", fiscalYear: 2015 });
+    // 200 newer final PDs without text, none in the pinned years (2024, 2023).
+    for (let index = 0; index < 200; index += 1) {
+      await addFile(s, `empty-${index}.docx`, "", { category: "final_pd", fiscalYear: 2016 + (index % 7) });
+    }
+    let finalRows = 0;
+    let rows = 0;
+    const listed = await s.t.run(async (ctx) =>
+      chatCompanyFilesFor(ctx, s.projectId, s.userId, {
+        read: (row) => {
+          rows += 1;
+          if ((row as Doc<"companyFiles">).category === "final_pd") finalRows += 1;
+        },
+      })
+    );
+    expect(listed.map((file) => file.companyFileId)).not.toContain(readable);
+    // The final PD walk stops after CHAT_FINAL_PD_ROWS_READ rows; the Import
+    // walk after it reads its own bound (its room, 30, plus 10), as before.
+    expect(finalRows).toBe(CHAT_FINAL_PD_ROWS_READ + MAX_CHAT_COMPANY_FILES + CHAT_LISTED_FINAL_PDS);
+    expect(rows).toBe(finalRows);
+  });
+
+  it("the chat list asks the read budget before each row and ends with what it has once there is no room", async () => {
+    const s = await setup({ chat: true });
+    for (let index = 0; index < 12; index += 1) {
+      await addFile(s, `final-${index}.docx`, `Final PD ${index}.`, { category: "final_pd", fiscalYear: 2015 + (index % 5) });
+    }
+    for (let index = 0; index < 10; index += 1) await addFile(s, `hand-${index}.txt`, `Hand note ${index}.`);
+    let rows = 0;
+    let asked = 0;
+    const listed = await s.t.run(async (ctx) =>
+      chatCompanyFilesFor(ctx, s.projectId, s.userId, {
+        mayRead: () => {
+          asked += 1;
+          return rows < 5;
+        },
+        read: () => {
+          rows += 1;
+        },
+      })
+    );
+    expect(rows).toBe(5);
+    expect(asked).toBeGreaterThan(rows);
+    expect(listed.length).toBeLessThanOrEqual(5);
+  });
+
+  it("search reaches an older readable file when the newest 60 hand-added files have no text and the turn lists none", async () => {
+    const s = await setup({ chat: true });
+    const old = await addFile(s, "old-notes.txt", "The hafnium spring relaxed overnight.", { pieces: true });
+    for (let index = 0; index < 60; index += 1) await addFile(s, `scan-${index}.txt`, "");
+    const listed = await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.userId));
+    expect(listed).toEqual([]);
+    const turn = newDocumentReadTurn({ documents: [], transcripts: [], companyFiles: listed }, s.userId);
+    const sent: Array<Record<string, unknown>> = [];
+    const ctx = {
+      threadId: "thread-history",
+      runQuery: (async (ref: unknown, args: Record<string, unknown>) => {
+        void ref;
+        sent.push(args);
+        return "companyFileId" in args
+          ? await s.t.query(internal.chatDocuments.readCompanyFileForChat, args as never)
+          : await s.t.query(internal.chatDocuments.searchForChat, args as never);
+      }) as never,
+    };
+    const receipt = await runSearchDocuments(ctx, { query: "hafnium spring" }, { toolCallId: "call-1" }, turn);
+    expect(sent[0]?.userId).toBe(s.userId);
+    expect(receipt).toContain("C1 part 1");
+    expect(turn.companyFiles.map((file) => file.companyFileId)).toEqual([old]);
+    const opened = await runReadDocument(ctx, { file: "C1" }, { toolCallId: "call-2" }, turn);
+    expect(opened).toContain("Opened company file");
   });
 });

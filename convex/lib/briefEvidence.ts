@@ -393,6 +393,7 @@ async function newestFirstMerged(
 ): Promise<Doc<"companyFiles">[]> {
   const iterators = ranges.map((range) => range[Symbol.asyncIterator]());
   const pull = async (iterator: AsyncIterator<Doc<"companyFiles">>) => {
+    if (meter?.mayRead && !meter.mayRead()) return null;
     await meter?.beforeRead?.();
     const next = await iterator.next();
     if (next.done) return null;

@@ -84,7 +84,10 @@ export function versionFamily(file: {
  * Search hits with version families collapsed (2026-11-17, the research's
  * draft evidence rule): a PD family keeps at most VERSION_FAMILY_EXCERPTS
  * hits, its final PD's first, then the best ranked; a file of its own keeps
- * up to `perFile`. The hits kept stay in the order given (best first).
+ * up to `perFile`. Families stay in relevance order: a family's kept hits
+ * take the places its best-ranked hits held, final PD first, so a caller
+ * that cuts the list to its remaining places keeps the final PD before a
+ * sibling draft or review copy (review, 2026-11-17).
  */
 export function collapseVersionFamilies<T extends { family: string; final: boolean }>(hits: readonly T[], perFile: number): T[] {
   const families = new Map<string, number[]>();
@@ -93,11 +96,12 @@ export function collapseVersionFamilies<T extends { family: string; final: boole
     if (indices) indices.push(index);
     else families.set(hit.family, [index]);
   });
-  const kept = new Set<number>();
+  const places = new Map<number, T>();
   for (const [family, indices] of families) {
     const cap = family.startsWith("pd:") ? VERSION_FAMILY_EXCERPTS : perFile;
-    const ordered = [...indices].sort((a, b) => Number(hits[b]!.final) - Number(hits[a]!.final) || a - b);
-    for (const index of ordered.slice(0, cap)) kept.add(index);
+    const ordered = [...indices].sort((a, b) => Number(hits[b]!.final) - Number(hits[a]!.final) || a - b).slice(0, cap);
+    // `indices` is ascending: the family's best-ranked places, in order.
+    ordered.forEach((index, rank) => places.set(indices[rank]!, hits[index]!));
   }
-  return hits.filter((_, index) => kept.has(index));
+  return [...places.entries()].sort(([a], [b]) => a - b).map(([, hit]) => hit);
 }
