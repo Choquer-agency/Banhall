@@ -928,6 +928,7 @@ describe("a company holds all its files (2026-11-18): the list in pages", () => 
       expect(button.height).toBeGreaterThan(0);
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
       expect(text(document.querySelector("[data-company-files-shown]"))).toBe("Showing the newest 12 files.");
+      document.querySelector("[data-company-files-more]")!.scrollIntoView({ block: "center" });
       await shot(`list-${width}`);
       await page.getByRole("button", { name: "Select" }).click();
       await page.getByRole("checkbox", { name: "Select Cedarline gasket trial report 2026 part 0.pdf" }).click();
