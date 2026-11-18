@@ -4,10 +4,14 @@ import { render } from "vitest-browser-svelte";
 import CompanyFiles from "./CompanyFiles.svelte";
 import ToastHarness from "$lib/test/ToastHarness.svelte";
 import {
+  __activeQueryArgs,
+  __loadMoreCalls,
+  __paginatedInitialSizes,
   __mutationCalls,
   __resetConvexStub,
   __setMutationError,
   __setMutationResult,
+  __setPaginatedRowsForArgs,
   __setQueryData,
   __setQueryDataForArgs,
   __setQueryError,
@@ -62,8 +66,8 @@ function defaultFiles() {
 
 function seed(files = defaultFiles(), archived = [listed("f9", "old plan.docx", { archived: true, fileType: "docx" })]) {
   __setQueryData("companyFiles:companyForKey", { clientId: "c3", name: "Cedarline Systems" });
-  __setQueryDataForArgs("companyFiles:listCompanyFiles", { clientId: "c3" }, { files, truncated: false });
-  __setQueryDataForArgs("companyFiles:listCompanyFiles", { clientId: "c3", archived: true }, { files: archived, truncated: false });
+  __setPaginatedRowsForArgs("companyFiles:listCompanyFilesPage", { clientId: "c3" }, files);
+  __setPaginatedRowsForArgs("companyFiles:listCompanyFilesPage", { clientId: "c3", archived: true }, archived);
 }
 
 type Role = "writer" | "manager" | "viewer";
@@ -761,4 +765,176 @@ describe("review fixes", () => {
     const before = document.querySelector('[data-preview-slide="f1"]')!.getBoundingClientRect();
     expect(before.right).toBeGreaterThan(viewport.left);
   });
+});
+
+describe("a company holds all its files (2026-11-18): the list in pages", () => {
+  const PAGE_QUERY = "companyFiles:listCompanyFilesPage";
+  const SEARCH_QUERY = "companyFiles:searchCompanyFiles";
+  // Written to the ignored .vitest-attachments/company-no-cap/ for review.
+  const shot = (name: string) => page.screenshot({ path: `../../../../.vitest-attachments/company-no-cap/${name}.png` });
+  const at = (iso: string) => Date.parse(iso);
+
+  /** Loaded files across two fiscal years, newest first, with more to load. */
+  function loaded() {
+    return [
+      listed("n1", "scoping 2026.docx", { fileType: "docx", fiscalYear: 2026, createdAt: at("2026-11-10T12:00:00Z") }),
+      listed("n2", "claim 2025.pdf", { fileType: "pdf", fiscalYear: 2025, createdAt: at("2026-11-09T12:00:00Z") }),
+      listed("n3", "time logs 2025.xlsx", { fileType: "xlsx", fiscalYear: 2025, createdAt: at("2026-11-08T12:00:00Z") }),
+    ];
+  }
+
+  function seedPaged(rows = loaded(), more = true, archived: Record<string, unknown>[] = [], archivedMore = false) {
+    __setQueryData("companyFiles:companyForKey", { clientId: "c3", name: "Cedarline Systems" });
+    __setPaginatedRowsForArgs(PAGE_QUERY, { clientId: "c3" }, rows, { more });
+    __setPaginatedRowsForArgs(PAGE_QUERY, { clientId: "c3", archived: true }, archived, { more: archivedMore });
+  }
+
+  it("asks for 100 files at a time, says how many show, and Show more loads the next 100", async () => {
+    seedPaged();
+    const onCount = vi.fn();
+    await mount("writer", { onCount });
+    await expect.poll(() => rowOf("n3")).not.toBeNull();
+    expect(__paginatedInitialSizes(PAGE_QUERY)).toEqual([
+      { args: { clientId: "c3" }, initialNumItems: 100 },
+      { args: { clientId: "c3", archived: true }, initialNumItems: 100 },
+    ]);
+    expect(text(document.querySelector("[data-company-files-shown]"))).toBe("Showing the newest 3 files.");
+    await page.getByRole("button", { name: "Show more" }).click();
+    expect(__loadMoreCalls(PAGE_QUERY)).toEqual([{ args: { clientId: "c3" }, numItems: 100 }]);
+    // The tab's count: the loaded number, and more to come.
+    await expect.poll(() => onCount.mock.calls.at(-1)).toEqual([3, true]);
+  });
+
+  it("builds the fiscal year groups from the files loaded so far", async () => {
+    seedPaged();
+    await mount("writer");
+    await expect.poll(() => document.querySelectorAll("[data-company-files-group]").length).toBe(2);
+    expect(text(document.querySelector('[data-company-files-group="fy-2025"]'))).toContain("claim 2025.pdf");
+    expect(text(document.querySelector('[data-company-files-group="fy-2025"]'))).toContain("time logs 2025.xlsx");
+    // The next page adds its files to the groups they belong to.
+    __setPaginatedRowsForArgs(PAGE_QUERY, { clientId: "c3" }, [
+      ...loaded(),
+      listed("n4", "claim 2024.pdf", { fileType: "pdf", fiscalYear: 2024, createdAt: at("2026-11-07T12:00:00Z") }),
+      listed("n5", "review 2025.pdf", { fileType: "pdf", fiscalYear: 2025, createdAt: at("2026-11-06T12:00:00Z") }),
+    ], { more: false });
+    await expect.poll(() => document.querySelectorAll("[data-company-files-group]").length).toBe(3);
+    expect(text(document.querySelector('[data-company-files-group="fy-2025"]'))).toContain("review 2025.pdf");
+    // Every file loaded: no Show more.
+    expect(document.querySelector("[data-company-files-show-more]")).toBeNull();
+  });
+
+  it("shows no Show more and a plain count once every file is loaded", async () => {
+    seedPaged(loaded(), false);
+    const onCount = vi.fn();
+    await mount("writer", { onCount });
+    await expect.poll(() => rowOf("n3")).not.toBeNull();
+    expect(document.querySelector("[data-company-files-more]")).toBeNull();
+    await expect.poll(() => onCount.mock.calls.at(-1)).toEqual([3, false]);
+  });
+
+  it("the archived list has its own Show more", async () => {
+    seedPaged(loaded(), false, [listed("a1", "old plan.docx", { archived: true, fileType: "docx" })], true);
+    await mount("manager");
+    await expect.poll(() => document.querySelector("[data-company-files-archived-show-more]")).not.toBeNull();
+    (document.querySelector("[data-company-files-archived-show-more]") as HTMLButtonElement).click();
+    expect(__loadMoreCalls(PAGE_QUERY)).toEqual([{ args: { clientId: "c3", archived: true }, numItems: 100 }]);
+  });
+
+  it("Find a file also asks the server while files are not loaded, and shows an old file it finds", async () => {
+    seedPaged();
+    __setQueryDataForArgs(SEARCH_QUERY, { clientId: "c3", search: "claim" }, {
+      files: [
+        listed("n2", "claim 2025.pdf", { fileType: "pdf", fiscalYear: 2025, createdAt: at("2026-11-09T12:00:00Z") }),
+        listed("old1", "claim 2016.pdf", { fileType: "pdf", fiscalYear: 2016, createdAt: at("2017-03-01T12:00:00Z") }),
+        listed("old2", "claim 2015 draft.pdf", { fileType: "pdf", archived: true, createdAt: at("2016-03-01T12:00:00Z") }),
+      ],
+    });
+    await mount("manager");
+    await expect.poll(() => rowOf("n1")).not.toBeNull();
+    await page.getByRole("searchbox", { name: "Find a file" }).fill("claim");
+    await expect.poll(() => rowOf("old1")).not.toBeNull();
+    expect(__activeQueryArgs(SEARCH_QUERY)).toEqual([{ clientId: "c3", search: "claim" }]);
+    // The loaded match shows once; the old archived one shows under Archived.
+    expect(document.querySelectorAll('[data-company-file="n2"]')).toHaveLength(1);
+    expect(text(document.querySelector('[data-company-files-group="fy-2016"]'))).toContain("claim 2016.pdf");
+    expect(text(document.querySelector("[data-company-files-archived]"))).toContain("claim 2015 draft.pdf");
+    expect(rowOf("n1")).toBeNull();
+    // Show more is about the whole list, so it waits while a search shows.
+    expect(document.querySelector("[data-company-files-more]")).toBeNull();
+  });
+
+  it("says no file matches only once the server has answered", async () => {
+    seedPaged();
+    await mount("writer");
+    await expect.poll(() => rowOf("n1")).not.toBeNull();
+    await page.getByRole("searchbox", { name: "Find a file" }).fill("gasket");
+    expect(document.querySelector("[data-company-files-no-match]")).toBeNull();
+    __setQueryDataForArgs(SEARCH_QUERY, { clientId: "c3", search: "gasket" }, { files: [] });
+    await expect.element(page.getByText('No file matches "gasket".')).toBeVisible();
+  });
+
+  it("does not ask the server when every file is loaded", async () => {
+    seedPaged(loaded(), false);
+    await mount("writer");
+    await expect.poll(() => rowOf("n1")).not.toBeNull();
+    await page.getByRole("searchbox", { name: "Find a file" }).fill("claim");
+    await expect.poll(() => rowOf("n1")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(__activeQueryArgs(SEARCH_QUERY)).toEqual([]);
+  });
+
+  it("keeps a ticked file ticked when it is no longer loaded, and drops one that is gone", async () => {
+    seedPaged();
+    await mount("manager");
+    await page.getByRole("button", { name: "Select" }).click();
+    await page.getByRole("checkbox", { name: "Select scoping 2026.docx" }).click();
+    await page.getByRole("checkbox", { name: "Select time logs 2025.xlsx" }).click();
+    await expect.poll(() => text(document.querySelector("[data-company-files-selection-bar]"))).toContain("2 files selected");
+    // The loaded range moves (a page reloads with fewer rows): the older
+    // ticked file is outside it now, so it stays ticked.
+    __setPaginatedRowsForArgs(PAGE_QUERY, { clientId: "c3" }, loaded().slice(0, 2), { more: true });
+    await expect.poll(() => rowOf("n3")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(text(document.querySelector("[data-company-files-selection-bar]"))).toContain("2 files selected");
+    // A ticked file missing from inside the loaded range was removed: it leaves.
+    __setPaginatedRowsForArgs(PAGE_QUERY, { clientId: "c3" }, [loaded()[1]!, loaded()[2]!], { more: true });
+    await expect.poll(() => text(document.querySelector("[data-company-files-selection-bar]"))).toContain("1 file selected");
+    (document.querySelector("[data-company-files-archive]") as HTMLButtonElement).click();
+    await expect.poll(() => __mutationCalls("companyFiles:setCompanyFilesArchived")).toEqual([
+      { clientId: "c3", companyFileIds: ["n3"], archived: true },
+    ]);
+  });
+
+  for (const width of [1280, 1100]) {
+    it(`fits the list foot, Show more and the selection bar at ${width} wide`, async () => {
+      seedPaged(
+        Array.from({ length: 12 }, (_, i) =>
+          listed(`w${i}`, `Cedarline gasket trial report ${2026 - (i % 4)} part ${i}.pdf`, {
+            fileType: "pdf",
+            fiscalYear: 2026 - (i % 4),
+            wordCount: 1040 + i,
+            createdAt: at("2026-11-10T12:00:00Z") - i * 60_000,
+          })
+        )
+      );
+      await page.viewport(width, 900);
+      await render(CompanyFiles, { companyKey: "cedarline systems", companyName: "Cedarline Systems", active: true, canAdd: true, canManage: true });
+      await expect.poll(() => document.querySelector("[data-company-files-show-more]")).not.toBeNull();
+      const root = document.querySelector("[data-company-files]")!.getBoundingClientRect();
+      const foot = document.querySelector("[data-company-files-more]")!.getBoundingClientRect();
+      const button = document.querySelector("[data-company-files-show-more]")!.getBoundingClientRect();
+      expect(foot.right).toBeLessThanOrEqual(root.right + 0.5);
+      expect(button.right).toBeLessThanOrEqual(root.right + 0.5);
+      expect(button.height).toBeGreaterThan(0);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+      expect(text(document.querySelector("[data-company-files-shown]"))).toBe("Showing the newest 12 files.");
+      await shot(`list-${width}`);
+      await page.getByRole("button", { name: "Select" }).click();
+      await page.getByRole("checkbox", { name: "Select Cedarline gasket trial report 2026 part 0.pdf" }).click();
+      await expect.poll(() => document.querySelector("[data-company-files-selection-bar]")).not.toBeNull();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+      await shot(`selection-${width}`);
+      expect(text(document.querySelector("[data-company-files]"))).not.toMatch(/[\u2010-\u2015]/);
+    });
+  }
 });

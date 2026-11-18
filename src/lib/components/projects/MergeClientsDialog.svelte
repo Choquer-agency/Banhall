@@ -6,8 +6,10 @@
   200 project cap (tooMany), and lists project numbers the merge makes appear
   twice in one fiscal year. When that check hit its read bound
   (collisionCheckIncomplete) the dialog says so. Since Phase C (2026-10-26)
-  it also says how many company files move, and a merge over the company
-  file cap (tooManyCompanyFiles) is refused. Since 2026-11-04 it says how
+  it also says how many company files move. Since 2026-11-18 no file count
+  refuses a merge: past 500 it says "More than 500", and that the files
+  past the first 100 move over the next few minutes, while drafts for the
+  kept company wait (the server's tooManyCompanyFiles is always false). Since 2026-11-04 it says how
   many company contacts move, and a merge that would leave the kept company
   with more than 500 contacts (tooManyCompanyContacts) is refused. Any
   refusal disables Merge clients.
@@ -105,9 +107,16 @@
       !previewError &&
       preview.nameConflict === null &&
       !preview.tooMany &&
-      !preview.tooManyCompanyFiles &&
       !preview.tooManyCompanyContacts
   );
+
+  /** Files past this many move after the merge, in steps (convex/clients.ts MERGE_COMPANY_FILES_PER_STEP). */
+  const FILES_MOVED_AT_ONCE = 100;
+  function mergeCompanyFilesText(count: number, more: boolean, keptName: string): string {
+    const moves = more ? `More than ${count} company files move` : count === 1 ? "1 company file moves" : `${count} company files move`;
+    if (!more && count <= FILES_MOVED_AT_ONCE) return `${moves} to ${keptName} too.`;
+    return `${moves} to ${keptName} too. The first ${FILES_MOVED_AT_ONCE} move now and the rest over the next few minutes. Drafts for ${keptName} wait until they are all there.`;
+  }
 
   const projectsLabel = (count: number) => (count === 1 ? "1 project" : `${count} projects`);
 
@@ -217,9 +226,9 @@
       <p data-merge-summary class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
         {mergeSummaryText(preview.projectCount, preview.keptName, clients.length - 1)}
       </p>
-      {#if preview.companyFileCount > 0 && !preview.tooManyCompanyFiles}
+      {#if preview.companyFileCount > 0}
         <p data-merge-company-files class="text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">
-          {preview.companyFileCount === 1 ? "1 company file moves" : `${preview.companyFileCount} company files move`} to {preview.keptName} too.
+          {mergeCompanyFilesText(preview.companyFileCount, preview.moreCompanyFiles === true, preview.keptName)}
         </p>
       {/if}
       {#if preview.companyContactCount > 0 && !preview.tooManyCompanyContacts}
@@ -248,11 +257,6 @@
     {#if preview?.tooMany}
       <p role="alert" data-merge-error="too-many" class={errorBox}>
         This merge would move more than 200 projects. Merge fewer companies at a time.
-      </p>
-    {/if}
-    {#if preview?.tooManyCompanyFiles}
-      <p role="alert" data-merge-error="too-many-files" class={errorBox}>
-        This merge would move more than 500 company files. Merge fewer companies at a time.
       </p>
     {/if}
     {#if preview?.tooManyCompanyContacts}
