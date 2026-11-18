@@ -168,13 +168,15 @@ describe("import dry run", () => {
   it("counts final PD names that parse, and initials only", () => {
     expect(report.finalPdNames).toEqual({
       total: 5,
-      parses: 2,
-      doesNotParse: 3,
-      withVersion: 2,
+      // The wider name reader (this layer) also reads a name with three or
+      // more initials groups: it parses, with no writer or reviewer set.
+      parses: 3,
+      doesNotParse: 2,
+      withVersion: 3,
       withWriterInitials: 2,
       withReviewerInitials: 1,
-      withFiscalYearEnd: 2,
-      withPdNumber: 2,
+      withFiscalYearEnd: 3,
+      withPdNumber: 3,
       byInitialsGroups: { "0": 2, "1": 1, "2": 1, "3": 1 },
     });
     expect(report.longVersionInitials).toEqual({ firstGroup: { DW: 1 }, laterGroups: { PN: 1, SO: 1 } });
@@ -182,7 +184,6 @@ describe("import dry run", () => {
     expect(report.writerInitials).toEqual({ DW: 2, PN: 1 });
     expect(report.reviewerInitials).toEqual({ SO: 1 });
     expect(report.unparsedFinalPdPatterns).toEqual([
-      { pattern: "06 Word Word 2025-03-31 T0.AA.AA.AA Word.docx", count: 1 },
       { pattern: "Word Word PD 2 final Word Word.docx", count: 1 },
       { pattern: "WordWord Word Word PD.docx", count: 1 },
     ]);
