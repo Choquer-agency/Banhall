@@ -222,8 +222,13 @@ export async function chatCompanyFilesFor(
 ): Promise<ChatCompanyFile[]> {
   const clientId = await chatCompanyScope(ctx, projectId, userId);
   return clientId
-    ? await listedCompanyFiles(ctx, clientId, companyDraftSubject(await ctx.db.get(projectId)), projectId, meter, ownPreviousYearReport)
+    ? await listedCompanyFiles(ctx, clientId, await chatCompanySubject(ctx, projectId, clientId), projectId, meter, ownPreviousYearReport)
     : [];
+}
+
+/** What the chat chooses company files for: as a draft does, with the company's names (2026-11-18, third). */
+async function chatCompanySubject(ctx: QueryCtx, projectId: Id<"projects">, clientId: Id<"clients">): Promise<CompanyDraftSubject> {
+  return companyDraftSubject(await ctx.db.get(projectId), await ctx.db.get(clientId));
 }
 
 /** At most this many final PDs head the chat's company file list (2026-11-17). */
@@ -304,11 +309,13 @@ async function listedCompanyFiles(
   };
   let previousYearId: Id<"companyFiles"> | null = null;
   for (const year of pinnedYears(subject)) {
-    const rows = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
+    const { rows, complete } = await companyFinalPdsOfYear(ctx, clientId, year, undefined, meter);
     const pinned = pinnedFinalPdsOfYear(rows, year, subject);
     if (year === subject.fiscalYear! - 1) {
-      const candidate = previousYearPdOf(pinned, rows, subject, false);
-      if (candidate && !(ownPreviousYearReport ?? (await projectHasOwnPreviousYearReport(ctx, projectId, meter)))) {
+      // A read the budget stopped early never makes a PD the year's only one.
+      const candidate = previousYearPdOf(pinned, rows, subject, false, complete);
+      // Null (the read of the project's rows stopped early) counts nothing.
+      if (candidate && (ownPreviousYearReport ?? (await projectHasOwnPreviousYearReport(ctx, projectId, meter))) === false) {
         previousYearId = candidate._id;
       }
     }
@@ -540,7 +547,7 @@ export const readCompanyFileForChat = internalQuery({
     if (!file.hasText) return { status: "no_text", fileName: file.fileName };
     // 2026-11-18 (third): last year's final PD reads as the project's
     // previous-year report here too when the list and drafts read it so.
-    const subject = companyDraftSubject(await ctx.db.get(scope.projectId));
+    const subject = await chatCompanySubject(ctx, scope.projectId, clientId);
     const previousYear =
       file.category === "final_pd" &&
       subject.fiscalYear !== null &&

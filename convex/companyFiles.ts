@@ -991,11 +991,13 @@ export const listForProject = query({
     if (!access?.user.role || !hasCapability(access.user.role, "companyFiles.read")) return empty;
     const client = access.project.clientId ? await ctx.db.get(access.project.clientId) : null;
     if (!client || client.status !== "active") return empty;
-    const subject = companyDraftSubject(access.project);
+    const subject = companyDraftSubject(access.project, client);
     // 2026-11-18 (third): the project's own previous-year file decides as a
-    // draft's freeze does; nothing is pinned without a fiscal year.
-    const ownPreviousYearReport =
-      subject.fiscalYear !== null && (await projectHasOwnPreviousYearReport(ctx, access.project._id));
+    // draft's freeze does. Its file rows are read only when a pinned PD
+    // would count, stopping at the first previous-year file and within a
+    // byte budget (an older row holds its text); a read that stopped early
+    // counts no PD.
+    const ownPreviousYearReport = () => projectHasOwnPreviousYearReport(ctx, access.project._id);
     return {
       files: (await draftCompanyFiles(ctx, client._id, subject, undefined, ownPreviousYearReport)).map(({ file, previousYear }) => ({
         _id: file._id,

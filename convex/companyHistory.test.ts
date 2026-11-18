@@ -38,10 +38,15 @@ import {
   hasOwnPreviousYearReport,
   pinnedFinalPdsOfYear,
   planDraftCompanyFiles,
+  PREVIOUS_YEAR_LINK_WORDS,
+  OWN_REPORT_READ_BYTES,
   previousYearPdLink,
   previousYearPdOf,
+  previousYearTitleWords,
+  projectHasOwnPreviousYearReport,
   selectCompanyFilesOf,
   selectFrozenEvidence,
+  type CompanyDraftSubject,
 } from "./lib/briefEvidence";
 import {
   COMPANY_HISTORY_CATEGORIES,
@@ -53,6 +58,7 @@ import {
 import { isPreviousYearDocument, PREVIOUS_YEAR_ONLY_MESSAGE, PREVIOUS_YEAR_ONLY_REASON } from "../shared/previousYear";
 import { buildTrustedContext } from "./ai/trustedContext";
 import { BRIEF_DERIVATION_VERSION } from "./lib/briefDerivationPolicy";
+import { briefInputsHash } from "./lib/briefInputsHash";
 import { CHAT_FINAL_PD_ROWS_READ, CHAT_LISTED_FINAL_PDS, chatCompanyFilesFor } from "./chatDocuments";
 import { MAX_CHAT_COMPANY_FILES } from "./ai/chatEvidence";
 import { newDocumentReadTurn, runReadDocument, runSearchDocuments } from "./ai/chatDocumentTools";
@@ -461,7 +467,7 @@ describe("last year's imported final PD as the project's previous-year report: t
 
   const housing = row("Pump housing.docx");
   const valve = row("Valve body.docx");
-  const cases: Array<[string, Row, Row[], typeof subject | { fiscalYear: null; titles: string[] }, ReturnType<typeof previousYearPdLink>]> = [
+  const cases: Array<[string, Row, Row[], CompanyDraftSubject, ReturnType<typeof previousYearPdLink>]> = [
     ["the year's only final PD", housing, [housing], subject, "only_final_pd"],
     ["the only final PD, beside other years and other categories", housing, [housing, row("a.docx", { fiscalYear: 2023 }), row("b.docx", { category: "draft" })], subject, "only_final_pd"],
     ["the only final PD once an archived one is set aside", housing, [housing, row("old.docx", { archived: true })], subject, "only_final_pd"],
@@ -470,8 +476,14 @@ describe("last year's imported final PD as the project's previous-year report: t
     ["its PD number matches, leading zeros aside", row("x.docx", { pdNumber: "004" }), [housing, valve], subject, "pd_number"],
     ["its PD number matches, case aside", row("x.docx", { pdNumber: "4a" }), [housing, valve], { ...subject, projectNumber: "4A" }, "pd_number"],
     ["another PD number and no shared word", row("x.docx", { pdNumber: "07" }), [housing, valve], subject, null],
-    ["its name shares a title word", row("Seal trials.docx"), [housing, valve], subject, "title_words"],
-    ["its label title shares a title word", row("x.docx", { labels: { title: "Cryogenic testing" } as Row["labels"] }), [housing, valve], subject, "title_words"],
+    ["its name shares two meaningful title words", row("Cryogenic seal trials.docx"), [housing, valve], subject, "title_words"],
+    ["its label title shares two meaningful title words", row("x.docx", { labels: { title: "Cryogenic seal testing" } as Row["labels"] }), [housing, valve], subject, "title_words"],
+    ["one shared title word is not a link", row("Seal trials.docx"), [housing, valve], subject, null],
+    ["generic SR&ED words are not a link (review)", row("Development of a scheduling engine.docx"), [housing], { ...subject, titles: ["Development of a cryogenic seal"] }, null],
+    ["generic words never make up the two", row("Improved process design seal.docx"), [housing], { ...subject, titles: ["Improved process design for a seal"] }, null],
+    ["the company's own name is not a link", row("Quillmere seal.docx"), [housing], { ...subject, titles: ["Quillmere seal"], companyNames: ["Quillmere Pumps"] }, null],
+    ["years, PD numbers, initials and the extension are not a link", row("04 Quillmere 2024 T1.OV.PN Seal.docx"), [housing], { ...subject, projectNumber: "9", titles: ["Seal 2024 T1.OV.PN docx"] }, null],
+    ["two meaningful words beside the Import name parts link", row("04 Quillmere 2024 T1.OV.PN Seal housing.docx"), [housing], { ...subject, projectNumber: "9", titles: ["Seal housing 2024"], companyNames: ["Quillmere Pumps"] }, "title_words"],
     ["the project's own fiscal year", row("x.docx", { fiscalYear: 2025 }), [], subject, null],
     ["two years back", row("x.docx", { fiscalYear: 2023 }), [], subject, null],
     ["a final PD with no fiscal year", row("x.docx", { fiscalYear: undefined }), [], subject, null],
@@ -483,9 +495,31 @@ describe("last year's imported final PD as the project's previous-year report: t
     expect(previousYearPdLink(file, yearRows.includes(file) ? yearRows : [file, ...yearRows], forSubject)).toBe(expected);
   });
 
+  it("names the meaningful words a title link shares, and keeps the pin rule's looser count for pinning", () => {
+    expect(
+      previousYearTitleWords(row("04 Quillmere 2024 T1.OV.PN Cryogenic seal housing v2.docx"), {
+        ...subject,
+        titles: ["Development of a cryogenic seal housing"],
+        companyNames: ["Quillmere Pumps"],
+      })
+    ).toEqual(["cryogenic", "housing", "seal"]);
+    // Pinning is unchanged: one shared word still ranks a PD above the newest.
+    const oneWord = row("Seal trials.docx");
+    const newest = row("Valve body.docx");
+    expect(pinnedFinalPdsOfYear([oneWord, newest], 2024, subject)[0]).toBe(oneWord);
+    expect(PREVIOUS_YEAR_LINK_WORDS).toBe(2);
+  });
+
+  it("a read stopped early never makes a PD the year's only one; a number or title link still holds", () => {
+    expect(previousYearPdLink(housing, [housing], subject, false)).toBeNull();
+    expect(previousYearPdLink(row("x.docx", { pdNumber: "4" }), [], subject, false)).toBe("pd_number");
+    expect(previousYearPdLink(row("Cryogenic seal.docx"), [], subject, false)).toBe("title_words");
+    expect(previousYearPdOf([housing], [housing], subject, false, false)).toBeNull();
+  });
+
   it("picks the first linked PD in pin order, none with the project's own report, and none when none is linked", () => {
     const numbered = row("x.docx", { pdNumber: "4" });
-    const titled = row("Seal trials.docx");
+    const titled = row("Cryogenic seal trials.docx");
     expect(previousYearPdOf([numbered, titled], [numbered, titled, housing], subject, false)).toBe(numbered);
     expect(previousYearPdOf([valve, titled], [valve, titled, housing], subject, false)).toBe(titled);
     expect(previousYearPdOf([numbered, titled], [numbered, titled], subject, true)).toBeNull();
@@ -511,7 +545,7 @@ describe("last year's imported final PD as the project's previous-year report: t
   });
 
   it("a counting PD takes its share first, up to 16,000 characters, and the other pinned PDs share the rest of 32,000", () => {
-    const counting = row("Seal trials.docx", { textLength: 20_000 });
+    const counting = row("Cryogenic seal trials.docx", { textLength: 20_000 });
     const other2024 = row("Valve body.docx", { textLength: 20_000 });
     const pinned2023 = [row("a-2023.docx", { fiscalYear: 2023, textLength: 20_000 }), row("b-2023.docx", { fiscalYear: 2023, textLength: 20_000 })];
     const plan = (ownPreviousYearReport: boolean, rows2024 = [counting, other2024], hand: Row[] = []) =>
@@ -526,18 +560,18 @@ describe("last year's imported final PD as the project's previous-year report: t
       }).map((item) => [item.file.fileName, item.limit, item.previousYear]);
     const shared = plan(false);
     expect(shared).toEqual([
-      ["Seal trials.docx", PREVIOUS_YEAR_PD_CHARS, true],
+      ["Cryogenic seal trials.docx", PREVIOUS_YEAR_PD_CHARS, true],
       ["Valve body.docx", 5_333, false],
       ["b-2023.docx", 5_333, false],
       ["a-2023.docx", 5_334, false],
     ]);
     expect(shared.reduce((sum, item) => sum + (item[1] as number), 0)).toBe(PINNED_FINAL_PD_CHARS);
     // A shorter counting PD leaves the rest to the others.
-    const short = row("Seal trials.docx", { textLength: 5_000 });
+    const short = row("Cryogenic seal trials.docx", { textLength: 5_000 });
     expect(plan(false, [short, other2024]).map((item) => item[1])).toEqual([5_000, 9_000, 9_000, 9_000]);
     // With the project's own report, nothing is marked and all share fairly.
     expect(plan(true)).toEqual([
-      ["Seal trials.docx", 8_000, false],
+      ["Cryogenic seal trials.docx", 8_000, false],
       ["Valve body.docx", 8_000, false],
       ["b-2023.docx", 8_000, false],
       ["a-2023.docx", 8_000, false],
@@ -545,7 +579,7 @@ describe("last year's imported final PD as the project's previous-year report: t
     // Only 10,000 left by the hand-added files: the counting PD takes it all.
     const big = (name: string, textLength: number) => row(name, { category: "background", fiscalYear: undefined, textLength });
     expect(plan(false, [counting, other2024], [big("h1", 200_000), big("h2", 200_000), big("h3", 190_000)]).slice(3)).toEqual([
-      ["Seal trials.docx", 10_000, true],
+      ["Cryogenic seal trials.docx", 10_000, true],
     ]);
     // No link: fair shares as before.
     expect(plan(false, [housing, valve]).map((item) => [item[1], item[2]])).toEqual([
@@ -1208,3 +1242,169 @@ describe("review fixes, round 2 (2026-11-17)", () => {
     expect(opened).toContain("Opened company file");
   });
 });
+
+describe("review fixes for last year's PD (2026-11-18, third)", () => {
+  const generationOf = (s: Setup, generationId: Id<"generations">) => s.t.run(async (ctx) => ctx.db.get(generationId));
+  const openInChat = (s: Setup, companyFileId: Id<"companyFiles">) =>
+    s.t.query(internal.chatDocuments.readCompanyFileForChat, {
+      agentThreadId: "thread-history", companyFileId, userId: s.userId, start: 0, maxChars: 1_000,
+    });
+
+  it("two linked PDs last year: only the first in pin order reads as the report, in the draft, the dialog and chat", async () => {
+    const s = await setup({ chat: true, projectNumber: "4" });
+    const numbered = await addFile(s, "Gasket.docx", "Final PD with the project's number.", { category: "final_pd", fiscalYear: 2024, pdNumber: "04" });
+    const titled = await addFile(s, "Cryogenic seal trials.docx", "Final PD sharing two title words.", { category: "final_pd", fiscalYear: 2024 });
+    const generationId = await start(s, { confirmRegeneration: true });
+    expect((await companyRows(s, generationId)).map((row) => [row.companyFileId, row.label])).toEqual([
+      [numbered, "previous_pd:Gasket.docx (FY 2024)"],
+      [titled, "background:Cryogenic seal trials.docx (FY 2024)"],
+    ]);
+    const listed = await s.authed.query(api.companyFiles.listForProject, { projectId: s.projectId });
+    expect(listed.files.map((file) => [file._id, file.previousYear])).toEqual([
+      [numbered, true],
+      [titled, false],
+    ]);
+    const chat = await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.userId));
+    expect(chat.map((file) => [file.companyFileId, file.category])).toEqual([
+      [numbered, "previous_pd"],
+      [titled, "background"],
+    ]);
+    // Opening the PD that does not count reads it as background.
+    expect(await openInChat(s, titled)).toMatchObject({ status: "ok", category: "background" });
+    expect(await openInChat(s, numbered)).toMatchObject({ status: "ok", category: "previous_pd" });
+  });
+
+  it("the review's case: a generic shared word links neither PD, so neither counts anywhere", async () => {
+    const s = await setup({ chat: true });
+    await s.t.run(async (ctx) => ctx.db.patch(s.projectId, { title: "Development of a cryogenic seal" }));
+    const scheduling = await addFile(s, "Development of a scheduling engine.docx", "Another project's PD.", { category: "final_pd", fiscalYear: 2024 });
+    await addFile(s, "Pump housing.docx", "A third project's PD.", { category: "final_pd", fiscalYear: 2024 });
+    const generationId = await start(s, { confirmRegeneration: true });
+    expect((await companyRows(s, generationId)).every((row) => row.label.startsWith("background:"))).toBe(true);
+    expect((await generationOf(s, generationId))?.previousYearMaterial).toBe(false);
+    expect(await openInChat(s, scheduling)).toMatchObject({ category: "background" });
+  });
+
+  it("a chat list whose budget stops last year's read early never counts a PD as the year's only one", async () => {
+    const s = await setup({ chat: true });
+    await addFile(s, "Pump housing.docx", "Final PD A.", { category: "final_pd", fiscalYear: 2024 });
+    await addFile(s, "Valve body.docx", "Final PD B.", { category: "final_pd", fiscalYear: 2024 });
+    // Read first: the year's rows are read newest first.
+    const first = await addFile(s, "Gasket.docx", "Final PD C.", { category: "final_pd", fiscalYear: 2024 });
+    let reads = 0;
+    const listed = await s.t.run(async (ctx) =>
+      chatCompanyFilesFor(ctx, s.projectId, s.userId, { mayRead: () => reads < 1, read: () => void (reads += 1) }, false)
+    );
+    // One row of three read: it is listed, as background, as drafts and chat open read it.
+    expect(listed.map((file) => [file.companyFileId, file.category])).toEqual([[first, "background"]]);
+    expect(await openInChat(s, first)).toMatchObject({ category: "background" });
+    expect((await companyRows(s, await start(s, { confirmRegeneration: true }))).every((row) => row.label.startsWith("background:"))).toBe(true);
+    // With the whole year read, three PDs and no link: still none counts.
+    const whole = await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.userId, undefined, false));
+    expect(whole.filter((file) => file.category === "previous_pd")).toEqual([]);
+  });
+
+  it("the project's own file rows are read within a byte budget, stop at the first report, and a stopped read counts no PD", async () => {
+    const s = await setup();
+    await addFile(s, "Pump housing.docx", "Last year's final PD.", { category: "final_pd", fiscalYear: 2024 });
+    const insertDocument = (fileName: string, content: string, category?: "previous_pd") =>
+      s.t.run(async (ctx) =>
+        ctx.db.insert("projectDocuments", {
+          projectId: s.projectId, fileName, fileType: "txt", content, ...(category ? { category } : {}),
+          source: "upload", uploadedBy: s.userId, uploaderRole: "writer", createdAt: Date.now(),
+        })
+      );
+    // Six older rows holding 900,000 characters inline each, then last year's report.
+    for (let index = 0; index < 6; index += 1) await insertDocument(`big-${index}.txt`, "b".repeat(900_000));
+    await insertDocument("fy2024-report.pdf", "Last year's report.", "previous_pd");
+    expect(await s.t.run(async (ctx) => projectHasOwnPreviousYearReport(ctx, s.projectId))).toBeNull();
+    expect(OWN_REPORT_READ_BYTES).toBe(4 * 1024 * 1024);
+    // The dialog then marks no PD.
+    const listed = await s.authed.query(api.companyFiles.listForProject, { projectId: s.projectId });
+    expect(listed.files.map((file) => file.previousYear)).toEqual([false]);
+    // With the report first, one row is read.
+    const t2 = await setup();
+    await insertDocumentFor(t2, "fy2024-report.pdf", "Last year's report.", "previous_pd");
+    for (let index = 0; index < 3; index += 1) await insertDocumentFor(t2, `notes-${index}.txt`, "Notes.");
+    let reads = 0;
+    expect(await t2.t.run(async (ctx) => projectHasOwnPreviousYearReport(ctx, t2.projectId, { read: () => void (reads += 1) }))).toBe(true);
+    expect(reads).toBe(1);
+    // A project with no previous-year file of its own reads false.
+    const t3 = await setup();
+    await insertDocumentFor(t3, "notes.txt", "Notes.");
+    expect(await t3.t.run(async (ctx) => projectHasOwnPreviousYearReport(ctx, t3.projectId))).toBe(false);
+  });
+
+  it("the writer leaving the counting PD out: the other pinned PDs keep their shares, and nothing opens", async () => {
+    const s = await setup();
+    const counting = await addFile(s, "Cryogenic seal trials.docx", "c".repeat(20_000), { category: "final_pd", fiscalYear: 2024 });
+    await addFile(s, "Valve body.docx", "v".repeat(20_000), { category: "final_pd", fiscalYear: 2024 });
+    await addFile(s, "a-2023.docx", "a".repeat(20_000), { category: "final_pd", fiscalYear: 2023 });
+    await addFile(s, "b-2023.docx", "b".repeat(20_000), { category: "final_pd", fiscalYear: 2023 });
+    const generationId = await start(s, { excludeCompanyFileIds: [counting] });
+    const rows = await companyRows(s, generationId);
+    // Decided before the leave-out: the 16,000 it would have read is not given to the others.
+    expect(rows.map((row) => [row.label, row.content.length])).toEqual([
+      ["background:Valve body.docx (FY 2024)", 5_333],
+      ["background:b-2023.docx (FY 2023)", 5_333],
+      ["background:a-2023.docx (FY 2023)", 5_334],
+    ]);
+    expect((await generationOf(s, generationId))?.previousYearMaterial).toBe(false);
+  });
+
+  it("a retry of a draft made before this change freezes the PD again as last year's report", async () => {
+    const s = await setup();
+    await addFile(s, "Pump housing.docx", "Last year's final PD.", { category: "final_pd", fiscalYear: 2024 });
+    const older = await start(s);
+    // As a draft made before this change stored it, then failed.
+    await s.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", older)).collect()) {
+        if (row.kind === "company_file") await ctx.db.patch(row._id, { label: row.label.replace(/^previous_pd:/, "background:") });
+      }
+      await ctx.db.patch(older, { status: "failed", previousYearMaterial: false });
+      await ctx.db.patch(s.projectId, { activeGenerationId: undefined });
+    });
+    const retryId = await s.authed.mutation(api.generations.retryGeneration, { generationId: older });
+    expect(retryId).not.toBe(older);
+    expect((await companyRows(s, retryId)).map((row) => row.label)).toEqual(["previous_pd:Pump housing.docx (FY 2024)"]);
+    expect((await generationOf(s, retryId))?.previousYearMaterial).toBe(true);
+    // The older draft keeps its own rows.
+    expect((await companyRows(s, older)).map((row) => row.label)).toEqual(["background:Pump housing.docx (FY 2024)"]);
+  });
+
+  it("a Brief made while the PD read as background is not reused once it reads as last year's report", async () => {
+    const s = await setup();
+    await addFile(s, "Pump housing.docx", "Last year's final PD.", { category: "final_pd", fiscalYear: 2024 });
+    const generationId = await start(s);
+    const rows = await s.t.run(async (ctx) =>
+      withSourceTexts(ctx, await ctx.db.query("generationSources").withIndex("by_generationId", (q) => q.eq("generationId", generationId)).collect())
+    );
+    const nowHash = await briefInputsHash(rows);
+    const asBackground = rows.map((row) =>
+      row.kind === "company_file" ? { ...row, label: row.label.replace(/^previous_pd:/, "background:") } : row
+    );
+    const beforeHash = await briefInputsHash(asBackground);
+    expect(nowHash).not.toBe(beforeHash);
+    // Without a counting row the hash is exactly what it was: labels never count.
+    const relabelled = asBackground.map((row) => (row.kind === "company_file" ? { ...row, label: "other:renamed.docx" } : row));
+    expect(await briefInputsHash(relabelled)).toBe(beforeHash);
+    // A current Brief stored under the older inputs is found for them, and not for the new ones.
+    await s.t.run(async (ctx) =>
+      ctx.db.insert("generationBriefs", {
+        generationId, projectId: s.projectId, inputsHash: beforeHash, version: 1, origin: "derived",
+        storylineText: "The seal held.", derivationVersion: BRIEF_DERIVATION_VERSION, createdAt: 1,
+      })
+    );
+    expect(await s.t.query(internal.generations.findReusableBrief, { generationId, inputsHash: beforeHash })).not.toBeNull();
+    expect(await s.t.query(internal.generations.findReusableBrief, { generationId, inputsHash: nowHash })).toBeNull();
+  });
+});
+
+async function insertDocumentFor(s: Setup, fileName: string, content: string, category?: "previous_pd") {
+  return await s.t.run(async (ctx) =>
+    ctx.db.insert("projectDocuments", {
+      projectId: s.projectId, fileName, fileType: "txt", content, ...(category ? { category } : {}),
+      source: "upload", uploadedBy: s.userId, uploaderRole: "writer", createdAt: Date.now(),
+    })
+  );
+}
