@@ -270,6 +270,16 @@ describe("review fixes: every distinctive word, numbers, addresses, people, acce
     expect(findAlsoRemoveLeak("[redacted] and [redacted number].", ["redacted", "number"])).toBeNull();
   });
 
+  test("an Also remove phrase wrapped across lines or columns is still hidden (Greptile on #44)", () => {
+    const text = "Interview with Dr\n        Li of the plant, and Dr.\n\tLi again.";
+    const copy = copyFor("Quillmere Analytics", text, { alsoRemove: ["Dr Li"] });
+    expect(copy.ok).toBe(true);
+    expect(copy.ok && copy.fields.content).not.toMatch(/Li/);
+    // The leak check reads words, not gaps, so it still flags the words
+    // however they are spaced: the safe direction.
+    expect(findAlsoRemoveLeak("Dr ------- Li", ["Dr Li"])).toBe("Dr Li");
+  });
+
   test("an Also remove entry of only spaces or punctuation is refused in plain words; a blank one is no entry", () => {
     for (const entry of ["   ", "--", "(.)"]) {
       expect(copyFor("Quillmere Analytics", "Kiln work.", { alsoRemove: ["Kilnwise", entry] })).toMatchObject({

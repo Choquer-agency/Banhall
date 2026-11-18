@@ -420,8 +420,13 @@ function escapeRegExp(value: string): string {
 }
 
 const WORD_AFTER = "(?![\\p{L}\\p{N}])";
-/** Up to six characters that are not letters or digits between two words of a name ("Acme-Farms", "Acme  Farms"). */
-const PHRASE_GAP = "[^\\p{L}\\p{N}]{1,6}";
+/**
+ * The gap between two words of a name: any amount of white space (a name
+ * wrapped across lines or columns, "Dr\n        Li") plus up to six other
+ * characters that are not letters or digits ("Acme-Farms", "Acme & Farms").
+ * At least one character.
+ */
+const PHRASE_GAP = "(?=[^\\p{L}\\p{N}])\\s*(?:[^\\p{L}\\p{N}\\s]\\s*){0,6}";
 
 /** One regular expression for many alternatives, longest first, never inside a longer word. */
 function wordsRegex(alternatives: string[], flags: string): RegExp | null {
