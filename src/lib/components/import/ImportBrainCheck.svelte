@@ -12,6 +12,9 @@
   names or places to hide too; "Check again" reads the copy with them), the
   note of what the check does not cover, and "Add to the Brain" (the copy
   the person read, `seen`, offered once the whole copy has been shown) or "Keep out of the Brain", which is remembered.
+  When Add is refused because the copy changed since it was read, "Check
+  again" is offered to read the copy as it is now, and Add waits until it
+  is read again from the top.
   A copy that cannot be made says why, and only Keep out is offered. Either
   way the PD stays on its company's page.
 -->
@@ -65,6 +68,8 @@
   let reading = $state(false);
   let busy = $state(false);
   let shownChars = $state(BRAIN_COPY_VIEW_CHARS);
+  /** Add was refused because the copy changed since it was read: read it again first. */
+  let copyChanged = $state(false);
 
   async function read(itemId: Row["_id"], remove: string[]) {
     reading = true;
@@ -72,8 +77,11 @@
     try {
       const result = await preview({ itemId, alsoRemove: remove });
       if (current?._id !== itemId) return;
+      // A copy that changed is read again from the top, so all of it is shown before Add.
+      if (copyChanged) shownChars = BRAIN_COPY_VIEW_CHARS;
       copy = result;
       checkedWords = remove;
+      copyChanged = false;
     } catch (error) {
       if (current?._id === itemId) copyError = userErrorMessage(error, "The Brain copy could not be read.");
     } finally {
@@ -90,12 +98,15 @@
       checkedWords = [];
       copy = null;
       copyError = null;
+      copyChanged = false;
       shownChars = BRAIN_COPY_VIEW_CHARS;
       if (id) void read(id, []);
     });
   });
 
   const wordsChanged = $derived(words.join("\n") !== checkedWords.join("\n"));
+  /** The copy on screen is not the one Add would make: Check again first. */
+  const needsCheckAgain = $derived(wordsChanged || copyChanged);
   /** The whole copy has been on screen (every "Show more"), so it can be added. */
   const readWhole = $derived(Boolean(copy?.ok && shownChars >= copy.content.length));
   const parts = $derived(copy?.ok ? redactionParts(copy.content.slice(0, shownChars)) : []);
@@ -117,13 +128,15 @@
   }
 
   async function addToBrain() {
-    if (!current || !copy?.ok || busy || wordsChanged || !readWhole) return;
+    if (!current || !copy?.ok || busy || needsCheckAgain || !readWhole) return;
     busy = true;
+    const itemId = current._id;
     try {
-      const result = await add({ itemId: current._id, alsoRemove: checkedWords, seen: copy.seen });
+      const result = await add({ itemId, alsoRemove: checkedWords, seen: copy.seen });
       if (result.ok) {
         toast(result.outcome === "matched" ? "Added: it matched a Brain source that was already there" : "Added to the Brain", IMPORT_TOAST);
       } else {
+        if (result.changed && current?._id === itemId) copyChanged = true;
         toast.error(result.reason, IMPORT_TOAST);
       }
     } catch (error) {
@@ -263,7 +276,7 @@
               {/each}
             </ul>
           {/if}
-          {#if wordsChanged}
+          {#if needsCheckAgain}
             <Button variant="primary-outline" size="xs" class="self-start" disabled={reading} data-import-brain-check-again onclick={() => current && void read(current._id, words)}>
               {reading ? "Reading..." : "Check again"}
             </Button>
@@ -276,11 +289,13 @@
 
         <div class="flex flex-wrap gap-2 border-t border-line-soft pt-4">
           {#if copy?.ok}
-            <Button size="sm" disabled={busy || reading || wordsChanged || !readWhole} data-import-brain-add onclick={() => void addToBrain()}>Add to the Brain</Button>
+            <Button size="sm" disabled={busy || reading || needsCheckAgain || !readWhole} data-import-brain-add onclick={() => void addToBrain()}>Add to the Brain</Button>
           {/if}
           <Button variant="secondary" size="sm" disabled={busy || !copy} data-import-brain-keep-out onclick={() => void keep()}>Keep out of the Brain</Button>
         </div>
-        {#if copy?.ok && wordsChanged}
+        {#if copy?.ok && copyChanged}
+          <p data-import-brain-changed class={`${SHEET_SMALL} text-ink-muted`}>The Brain copy changed since you read it. Check again to read it as it is now.</p>
+        {:else if copy?.ok && wordsChanged}
           <p class={`${SHEET_SMALL} text-ink-muted`}>Check again before you add it, so you read the copy with these words hidden.</p>
         {:else if copy?.ok && !readWhole}
           <p data-import-brain-read-whole class={`${SHEET_SMALL} text-ink-muted`}>{READ_WHOLE_COPY}</p>

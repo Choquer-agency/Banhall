@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import ImportPage from "./ImportPage.svelte";
+import ImportApprovalRun from "./ImportApprovalRun.svelte";
 import ToastHarness from "$lib/test/ToastHarness.svelte";
 import {
   __mutationCalls,
@@ -250,7 +251,7 @@ describe("the approval line", () => {
     scope: "company",
     companyName: "Cedarline Systems",
     status: "running",
-    stalled: false,
+    lastProgressAt: Date.now(),
     total: 176,
     done: 40,
     approved: 40,
@@ -321,9 +322,32 @@ describe("the approval line", () => {
 
   it("says when an approval stopped", async () => {
     seedPage();
-    __setQueryData("ingestion:approvalProgress", [progress({ stalled: true })]);
+    __setQueryData("ingestion:approvalProgress", [progress({ lastProgressAt: Date.now() - 5 * 60_000 })]);
     await mount();
     await expect.poll(() => text(one("[data-import-approval-text]"))).toBe("This approval stopped after 40 of 176 files. Approve again to go on.");
+    expect(all('[role="progressbar"]')).toHaveLength(0);
+  });
+
+  it("says a running approval stopped once its chain has not moved for five minutes, on an open page", async () => {
+    const T = Date.UTC(2026, 10, 17, 15);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    vi.setSystemTime(T);
+    try {
+      // The query gives the same answer all along: nothing moves the line but the page's clock.
+      await render(ImportApprovalRun, { progress: progress({ lastProgressAt: T - 60_000 }) as never });
+      await expect.poll(() => text(one("[data-import-approval-text]"))).toBe("Approving files of Cedarline Systems: 40 of 176 done.");
+      vi.advanceTimersByTime(4 * 60_000 - 1);
+      await Promise.resolve();
+      expect(text(one("[data-import-approval-text]"))).toBe("Approving files of Cedarline Systems: 40 of 176 done.");
+      expect(all('[role="progressbar"]')).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      await expect.poll(() => text(one("[data-import-approval-text]"))).toBe("This approval stopped after 40 of 176 files. Approve again to go on.");
+      expect(all('[role="progressbar"]')).toHaveLength(0);
+      // Stopped, its starter may close the line.
+      expect(one("[data-import-approval-dismiss]")).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -387,6 +411,39 @@ describe("the Brain check", () => {
     expect(__mutationCalls("ingestion:previewBrainCopy").at(-1)).toEqual({ itemId: "b1", alsoRemove: ["KelpTrack"] });
     await userEvent.click(page.getByRole("button", { name: "Add to the Brain" }));
     expect(__mutationCalls("ingestion:addToBrain")).toEqual([{ itemId: "b1", alsoRemove: ["KelpTrack"], seen: "seen-2" }]);
+    await expect.element(page.getByText("Added to the Brain")).toBeVisible();
+  });
+
+  it("offers Check again when Add is refused because the copy changed, and adds the copy read again", async () => {
+    let reads = 0;
+    __setMutationHandler("ingestion:previewBrainCopy", () => {
+      reads += 1;
+      return reads === 1 ? COPY : { ...COPY, writerName: "Dana Whitlock-Reyes", seen: "seen-3" };
+    });
+    __setMutationHandler("ingestion:addToBrain", (args) =>
+      (args as { seen: string }).seen === "seen-3"
+        ? { ok: true, outcome: "added", sourceId: "s1" }
+        : { ok: false, changed: true, reason: "The Brain copy changed since you read it. Read it again, then add it." }
+    );
+    await openBrainCheck();
+    await expect.poll(() => one("[data-import-brain-copy]")).not.toBeNull();
+    expect(one("[data-import-brain-check-again]")).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Add to the Brain" }));
+    await expect.element(page.getByText("The Brain copy changed since you read it. Read it again, then add it.")).toBeVisible();
+    // No Also remove change, yet Check again is offered, and Add waits for it.
+    await expect.element(page.getByRole("button", { name: "Check again" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Add to the Brain" })).toBeDisabled();
+    expect(text(one("[data-import-brain-changed]"))).toBe("The Brain copy changed since you read it. Check again to read it as it is now.");
+    await userEvent.click(page.getByRole("button", { name: "Check again" }));
+    await expect.poll(() => one("[data-import-brain-check-again]")).toBeNull();
+    expect(__mutationCalls("ingestion:previewBrainCopy")).toEqual([
+      { itemId: "b1", alsoRemove: [] },
+      { itemId: "b1", alsoRemove: [] },
+    ]);
+    expect(one("[data-import-brain-changed]")).toBeNull();
+    await expect.element(page.getByRole("button", { name: "Add to the Brain" })).toBeEnabled();
+    await userEvent.click(page.getByRole("button", { name: "Add to the Brain" }));
+    expect(__mutationCalls("ingestion:addToBrain").map((call) => (call as { seen: string }).seen)).toEqual(["seen-1", "seen-3"]);
     await expect.element(page.getByText("Added to the Brain")).toBeVisible();
   });
 
@@ -557,7 +614,7 @@ describe("captures (2026-11-17, Approve on Import)", () => {
           scope: "company",
           companyName: "Cedarline Systems",
           status: "running",
-          stalled: false,
+          lastProgressAt: Date.now(),
           total: 176,
           done: 40,
           approved: 40,

@@ -76,6 +76,8 @@ export type BatchSkipReason =
  * - left_company: in a company's "Approve N ready", the file was moved to
  *   another company before its turn came.
  * - not_saved: something went wrong while it was approved.
+ * - text_not_read: its text could not be read from storage for its
+ *   approval (a failed read); approving it again tries again.
  * A file that is already approved is not a refusal: Approve counts it and
  * makes nothing again.
  */
@@ -88,7 +90,8 @@ export type ApproveRefusal =
   | "company_merged"
   | "company_unclear"
   | "left_company"
-  | "not_saved";
+  | "not_saved"
+  | "text_not_read";
 
 /**
  * The refusals Approve can tell from the row alone (the page's selection
@@ -105,6 +108,18 @@ export function approveRefusalFor(row: {
   if (isBeingRead(row.status)) return "being_read";
   if (row.needsCheck === true || (row.checkReasons ?? []).length > 0 || row.status !== "pending_review") return "needs_check";
   return null;
+}
+
+/**
+ * A running approval whose chain has not moved for this long has stopped
+ * (2026-11-17): the page says so on its own timer, and approving the
+ * company again starts a new one.
+ */
+export const APPROVAL_STALE_MS = 5 * 60 * 1000;
+
+/** Whether a running approval has stopped by `now`: its chain has not moved for APPROVAL_STALE_MS. */
+export function approvalStopped(run: { status: string; lastProgressAt: number }, now: number): boolean {
+  return run.status === "stopped" || (run.status === "running" && now - run.lastProgressAt >= APPROVAL_STALE_MS);
 }
 
 /** A refusal in plain words, for one file and for many ("is" and "are"). */
@@ -128,6 +143,8 @@ export function approveRefusalWords(reason: ApproveRefusal): readonly [string, s
       return ["is no longer in this company", "are no longer in this company"];
     case "not_saved":
       return ["could not be approved because something went wrong", "could not be approved because something went wrong"];
+    case "text_not_read":
+      return ["could not be approved because its text could not be read", "could not be approved because their text could not be read"];
   }
 }
 

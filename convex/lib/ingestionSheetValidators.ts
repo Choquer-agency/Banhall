@@ -85,7 +85,9 @@ export const approveRefusalValidator = v.union(
   v.literal("company_merged"),
   v.literal("company_unclear"),
   v.literal("left_company"),
-  v.literal("not_saved")
+  v.literal("not_saved"),
+  // 2026-11-17: the file's text could not be read from storage for its approval.
+  v.literal("text_not_read")
 );
 export type ApproveRefusalCode = Infer<typeof approveRefusalValidator>;
 

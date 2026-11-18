@@ -9,6 +9,7 @@
 import type { FunctionReturnType } from "convex/server";
 import type { api } from "../../../../convex/_generated/api";
 import {
+  approvalStopped,
   approveRefusalFor,
   approveRefusalWords,
   type ApproveRefusal,
@@ -111,11 +112,12 @@ function ofCompany(progress: Pick<ApprovalProgress, "companyName">): string {
  * The progress line: while it runs "Approving files of Halden Foods: 40 of
  * 300 done."; once done "Approved 296 files of Halden Foods. 4 were left on
  * To review."; stopped "This approval stopped after 40 of 300 files.
- * Approve again to go on."
+ * Approve again to go on." A running one whose chain has not moved for five
+ * minutes by `now` (the page's clock) has stopped too.
  */
-export function progressText(progress: ApprovalProgress): string {
+export function progressText(progress: ApprovalProgress, now: number): string {
   const { done, total, approved, refused } = progress;
-  if (progress.status === "stopped" || progress.stalled) {
+  if (approvalStopped(progress, now)) {
     return `This approval stopped after ${formatCount(done)} of ${plural(total, "file")}. Approve again to go on.`;
   }
   if (progress.status === "running") {

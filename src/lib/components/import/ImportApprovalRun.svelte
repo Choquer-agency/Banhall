@@ -5,18 +5,36 @@
   thin bar; once done, "Approved 296 files of Halden Foods. 4 were left on
   To review." with "Show why", which lists each file left and its reason
   (approvalRefusals), and a close button that puts the line away. An
-  approval whose chain stopped says so, and that approving again goes on.
+  approval whose chain stopped says so, and that approving again goes on:
+  a running one whose chain has not moved for five minutes is told on this
+  page's own timer, from when the chain last moved (lastProgressAt), since
+  the query does not run again as time passes.
 -->
 <script lang="ts">
   import { Popover } from "bits-ui";
   import { useMutation, useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
   import { IconClose } from "$lib/components/icons";
+  import { APPROVAL_STALE_MS, approvalStopped } from "../../../../shared/importSheetRules";
   import { progressText, refusalSummary, refusalText, type ApprovalProgress } from "./importApprove";
   import { POPOVER_CARD, SHEET_SMALL } from "./sheetLayout";
 
   let { progress }: { progress: ApprovalProgress } = $props();
-  const running = $derived(progress?.status === "running" && !progress.stalled);
+
+  /** The page's clock, moved on when a running approval would turn stopped. */
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!progress || progress.status !== "running") return;
+    const due = progress.lastProgressAt + APPROVAL_STALE_MS - Date.now();
+    if (due <= 0) {
+      now = Date.now();
+      return;
+    }
+    const timer = setTimeout(() => (now = Date.now()), due);
+    return () => clearTimeout(timer);
+  });
+  const stopped = $derived(Boolean(progress) && approvalStopped(progress, now));
+  const running = $derived(progress?.status === "running" && !stopped);
   const percent = $derived(progress && progress.total > 0 ? Math.min(100, Math.round((progress.done / progress.total) * 100)) : 0);
 
   let whyOpen = $state(false);
@@ -30,7 +48,7 @@
 
 {#if progress}
   <div data-import-approval={progress.approvalId} class="flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1">
-    <p role="status" data-import-approval-text class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{progressText(progress)}</p>
+    <p role="status" data-import-approval-text class="text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary">{progressText(progress, now)}</p>
     {#if running}
       <span
         role="progressbar"

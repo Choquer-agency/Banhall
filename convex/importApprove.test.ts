@@ -240,7 +240,7 @@ describe("approving a file", () => {
       done: 1,
       approved: 1,
       refused: 0,
-      stalled: false,
+      lastProgressAt: (await t.run((ctx) => ctx.db.get(approvalId)))!.updatedAt,
       companyName: CEDARLINE,
     });
     // The band moved tabs, with its Brain check counted.
@@ -251,6 +251,49 @@ describe("approving a file", () => {
     expect(await t.run((ctx) => ctx.db.query("projects").collect())).toEqual([]);
     expect(file.category).not.toBe("previous_pd");
     expect(await t.run((ctx) => ctx.db.query("brainSources").collect())).toEqual([]);
+  });
+
+  it("files the reviewer the file has: one an Admin chose, or one it kept after its initials changed", async () => {
+    const { t, admin } = await setup();
+    await pickIndustry(admin);
+    // Read while no member had the initials PN: its reviewer is a past writer made from them.
+    const kept = await readyPd(t);
+    const pastPn = (await item(t, kept)).reviewerId!;
+    expect(pastPn).toBeDefined();
+    const chosen = await readyPd(t, `${FY}/Submitted/05 CedarlineSystems 2025-03-31 T1.DW.PN SensorHousing.docx`);
+    const draft = await stageRead(t, `${FY}/Drafts/03 CedarlineSystems 2025-03-31 R2.DW.PN SensorDraft.docx`, "Draft text");
+    // A member gets the initials PN since: the initials alone would now give her.
+    const priya = await t.run((ctx) =>
+      ctx.db.insert("users", { authId: "approve-pn", role: "writer", firstName: "Priya", lastName: "Nadeau", initials: "PN" })
+    );
+    // An Admin chooses another reviewer for a PD and a draft.
+    await admin.mutation(api.ingestion.setFileReviewers, { ids: [chosen, draft], reviewer: { kind: "name", name: "Sam Okafor" } });
+    const sam = (await item(t, chosen)).reviewerId!;
+    expect(await item(t, chosen)).toMatchObject({ reviewerSource: "person" });
+    expect((await item(t, kept)).reviewerId).toBe(pastPn);
+
+    await approve(t, admin, [kept, chosen, draft]);
+    const byItem = new Map((await companyFiles(t)).map((file) => [file.importItemId, file]));
+    expect(byItem.get(kept)!.reviewerId).toBe(pastPn);
+    expect(byItem.get(chosen)!.reviewerId).toBe(sam);
+    expect(byItem.get(draft)!.reviewerId).toBe(sam);
+    const priyaWriter = await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_userId", (q) => q.eq("userId", priya)).first());
+    for (const id of [kept, chosen, draft]) expect(byItem.get(id)!.reviewerId).not.toBe(priyaWriter?._id);
+  });
+
+  it("files a final PD with no saved reviewer under the one its reviewer initials give", async () => {
+    const { t, admin } = await setup();
+    await pickIndustry(admin);
+    const reviewerUser = await t.run((ctx) =>
+      ctx.db.insert("users", { authId: "approve-pn", role: "writer", firstName: "Priya", lastName: "Nadeau", initials: "PN" })
+    );
+    const pd = await readyPd(t);
+    // A row read before files kept a reviewer.
+    await t.run((ctx) => ctx.db.patch(pd, { reviewerId: undefined, reviewerSource: undefined }));
+    await approve(t, admin, [pd]);
+    const reviewerWriter = await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_userId", (q) => q.eq("userId", reviewerUser)).first());
+    const [file] = await companyFiles(t);
+    expect(file.reviewerId).toBe(reviewerWriter!._id);
   });
 
   it("files every category under its company file category, with no Brain check for anything but a final PD", async () => {
@@ -360,6 +403,40 @@ describe("approving a file", () => {
     expect((await item(t, tooLong)).status).toBe("pending_review");
     expect((await item(t, fine)).status).toBe("approved");
     await expectCountsMatchRecount(t);
+  });
+
+  it("refuses a file whose text could not be read in plain words, goes on with the next, and approves it when tried again", async () => {
+    const { t, admin } = await setup();
+    const unreadable = await stageRead(t, `${FY}/Drafts/Unreadable.docx`, "Unreadable text");
+    const fine = await stageRead(t, `${FY}/Drafts/Fine.docx`, "Fine text");
+    // What staging scheduled runs first, so the only text read below is the approval's.
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const { approvalId } = await admin.mutation(api.ingestion.approveFiles, { ids: [unreadable, fine] });
+    // Storage fails for the first file's text only.
+    const failedRead = vi.spyOn(Blob.prototype, "text").mockRejectedValueOnce(new Error("storage is down"));
+    try {
+      await t.action(internal.ingestion.runApproval, { approvalId });
+      expect(failedRead).toHaveBeenCalledTimes(2);
+    } finally {
+      failedRead.mockRestore();
+    }
+    const rows = await fileRows(t, approvalId);
+    expect(rows.find((row) => row.itemId === unreadable)).toMatchObject({ state: "refused", reason: "text_not_read", detail: "Try again." });
+    expect(rows.find((row) => row.itemId === fine)).toMatchObject({ state: "approved" });
+    expect((await item(t, unreadable)).status).toBe("pending_review");
+    expect((await item(t, unreadable)).companyFileId).toBeUndefined();
+    expect((await item(t, fine)).status).toBe("approved");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect((await admin.query(api.ingestion.approvalProgress, {}))[0]).toMatchObject({ status: "done", done: 2, approved: 1, refused: 1 });
+    expect((await admin.query(api.ingestion.approvalRefusals, { approvalId })).files).toEqual([
+      { itemId: unreadable, name: "Unreadable.docx", reason: "text_not_read", detail: "Try again." },
+    ]);
+    await expectCountsMatchRecount(t);
+    // Approving it again reads its text again.
+    await approve(t, admin, [unreadable]);
+    expect((await item(t, unreadable)).status).toBe("approved");
+    const file = (await companyFiles(t)).find((row) => row.importItemId === unreadable)!;
+    expect(file).toMatchObject({ hasText: true, textLength: "Unreadable text".length });
   });
 
   it("reads the original again on the server when Import does not hold the whole text, and says so", async () => {
@@ -594,6 +671,25 @@ describe("approving in batches", () => {
     expect(await other.query(api.ingestion.approvalProgress, {})).toEqual([]);
   });
 
+  it("gives when its chain last moved, so the page tells a stopped one on its own clock, and starts again after five quiet minutes", async () => {
+    const { t, admin } = await setup();
+    await stageRead(t, `${FY}/Drafts/Notes.docx`, "Draft text");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const { approvalId } = await admin.mutation(api.ingestion.approveCompanyReady, { companyKey: "cedarline systems" });
+    const run = (await t.run((ctx) => ctx.db.get(approvalId)))!;
+    const [line] = await admin.query(api.ingestion.approvalProgress, {});
+    expect(line).toMatchObject({ approvalId, status: "running", lastProgressAt: run.updatedAt });
+    expect(line).not.toHaveProperty("stalled");
+    // Its chain has not moved for five minutes: the query still says running, with the old time,
+    // and pressing it again starts a new one (the server's own check).
+    const quiet = Date.now() - 5 * 60_000;
+    await t.run((ctx) => ctx.db.patch(approvalId, { updatedAt: quiet }));
+    expect((await admin.query(api.ingestion.approvalProgress, {}))[0]).toMatchObject({ approvalId, status: "running", lastProgressAt: quiet });
+    const again = await admin.mutation(api.ingestion.approveCompanyReady, { companyKey: "cedarline systems" });
+    expect(again.approvalId).not.toBe(approvalId);
+    expect((await t.run((ctx) => ctx.db.get(approvalId)))!.status).toBe("stopped");
+  });
+
   it("stops when its starter is no longer an Admin, and a closed line stays closed", async () => {
     const { t, admin, adminId } = await setup();
     const id = await stageRead(t, `${FY}/Drafts/Notes.docx`, "Draft text");
@@ -640,6 +736,7 @@ describe("the Brain check", () => {
     expect(await admin.action(api.ingestion.addToBrain, { itemId: pd, alsoRemove: [], seen: preview.seen })).toEqual({
       ok: false,
       reason: BRAIN_COPY_CHANGED,
+      changed: true,
     });
     const added = await admin.action(api.ingestion.addToBrain, { itemId: pd, alsoRemove: ["cold chain sensor"], seen: preview.seen });
     expect(added).toMatchObject({ ok: true, outcome: "added" });
@@ -675,7 +772,11 @@ describe("the Brain check", () => {
     if (!preview.ok) throw new Error("no preview");
     const client = (await clients(t))[0];
     await t.run((ctx) => ctx.db.patch(client._id, { industry: "agriculture" }));
-    expect(await admin.action(api.ingestion.addToBrain, { itemId: pd, alsoRemove: [], seen: preview.seen })).toEqual({ ok: false, reason: BRAIN_COPY_CHANGED });
+    expect(await admin.action(api.ingestion.addToBrain, { itemId: pd, alsoRemove: [], seen: preview.seen })).toEqual({
+      ok: false,
+      reason: BRAIN_COPY_CHANGED,
+      changed: true,
+    });
     const again = await admin.action(api.ingestion.previewBrainCopy, { itemId: pd, alsoRemove: [] });
     if (!again.ok) throw new Error("no preview");
     expect(again.industry).toBe("agriculture");
@@ -863,6 +964,13 @@ describe("the Brain check", () => {
     await admin.mutation(api.brain.revokeSource, { sourceId: (await item(t, added)).brainSourceId! });
     expect((await list("final_pd")).find((row) => row._id === added)!.brain).toBe("removed");
     expect(await admin.query(api.ingestion.sheetFile, { id: added })).toMatchObject({ companyPage: page, brain: "removed" });
+    // Removed for good since (the source and its card are gone, the file keeps its brainSourceId): still removed.
+    const sourceId = (await item(t, added)).brainSourceId!;
+    await t.mutation(internal.brain.removeSourcePermanently, { sourceId });
+    expect(await t.run((ctx) => ctx.db.get(sourceId))).toBeNull();
+    expect((await item(t, added)).brainSourceId).toBe(sourceId);
+    expect((await list("final_pd")).find((row) => row._id === added)!.brain).toBe("removed");
+    expect(await admin.query(api.ingestion.sheetFile, { id: added })).toMatchObject({ brain: "removed" });
   });
 });
 

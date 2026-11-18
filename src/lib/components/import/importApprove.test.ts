@@ -15,14 +15,17 @@ import {
   splitForApprove,
   type ApprovalProgress,
 } from "./importApprove";
-import { approveRefusalFor } from "../../../../shared/importSheetRules";
+import { APPROVAL_STALE_MS, approveRefusalFor } from "../../../../shared/importSheetRules";
+
+/** The page's clock in these tests; the chain last moved at NOW unless a test says otherwise. */
+const NOW = 1_800_000_000_000;
 
 const progress = (extra: Partial<ApprovalProgress>): ApprovalProgress => ({
   approvalId: "ap1" as ApprovalProgress["approvalId"],
   scope: "company",
   companyName: "Halden Foods",
   status: "running",
-  stalled: false,
+  lastProgressAt: NOW,
   total: 300,
   done: 40,
   approved: 40,
@@ -71,20 +74,26 @@ describe("Approve's words (2026-11-17)", () => {
   });
 
   it("says how far an approval is, what it did, and when it stopped", () => {
-    expect(progressText(progress({}))).toBe("Approving files of Halden Foods: 40 of 300 done.");
-    expect(progressText(progress({ mine: false, startedByName: "Robin Sample" }))).toBe(
+    expect(progressText(progress({}), NOW)).toBe("Approving files of Halden Foods: 40 of 300 done.");
+    expect(progressText(progress({ mine: false, startedByName: "Robin Sample" }), NOW)).toBe(
       "Robin Sample is approving files of Halden Foods: 40 of 300 done."
     );
-    expect(progressText(progress({ companyName: undefined, scope: "files" }))).toBe("Approving files: 40 of 300 done.");
-    expect(progressText(progress({ status: "done", done: 300, approved: 296, refused: 4 }))).toBe(
+    expect(progressText(progress({ companyName: undefined, scope: "files" }), NOW)).toBe("Approving files: 40 of 300 done.");
+    expect(progressText(progress({ status: "done", done: 300, approved: 296, refused: 4 }), NOW)).toBe(
       "Approved 296 files of Halden Foods. 4 were left on To review."
     );
-    expect(progressText(progress({ status: "done", done: 1, approved: 1, refused: 0, total: 1 }))).toBe("Approved 1 file of Halden Foods.");
-    expect(progressText(progress({ status: "done", done: 1, approved: 0, refused: 1, total: 1 }))).toBe(
+    expect(progressText(progress({ status: "done", done: 1, approved: 1, refused: 0, total: 1 }), NOW)).toBe("Approved 1 file of Halden Foods.");
+    expect(progressText(progress({ status: "done", done: 1, approved: 0, refused: 1, total: 1 }), NOW)).toBe(
       "No files were approved. 1 was left on To review."
     );
-    expect(progressText(progress({ stalled: true }))).toBe("This approval stopped after 40 of 300 files. Approve again to go on.");
-    expect(progressText(progress({ status: "stopped" }))).toBe("This approval stopped after 40 of 300 files. Approve again to go on.");
+    // A running approval whose chain has not moved for five minutes by the page's clock has stopped.
+    expect(progressText(progress({ lastProgressAt: NOW - APPROVAL_STALE_MS + 1 }), NOW)).toBe("Approving files of Halden Foods: 40 of 300 done.");
+    expect(progressText(progress({ lastProgressAt: NOW - APPROVAL_STALE_MS }), NOW)).toBe(
+      "This approval stopped after 40 of 300 files. Approve again to go on."
+    );
+    // A finished one never reads as stopped, however old.
+    expect(progressText(progress({ status: "done", done: 300, approved: 300, lastProgressAt: 0 }), NOW)).toBe("Approved 300 files of Halden Foods.");
+    expect(progressText(progress({ status: "stopped" }), NOW)).toBe("This approval stopped after 40 of 300 files. Approve again to go on.");
   });
 
   it("says why files were left, together and one by one", () => {
@@ -98,6 +107,12 @@ describe("Approve's words (2026-11-17)", () => {
       "It is a final PD whose company has no industry yet. Pick an industry for this company."
     );
     expect(refusalText({ reason: "missing" })).toBe("It is no longer in Import.");
+    expect(refusalText({ reason: "text_not_read", detail: "Try again." })).toBe(
+      "It could not be approved because its text could not be read. Try again."
+    );
+    expect(refusalSummary([{ reason: "text_not_read" }, { reason: "text_not_read" }])).toBe(
+      "2 files could not be approved because their text could not be read."
+    );
   });
 });
 

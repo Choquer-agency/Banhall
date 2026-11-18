@@ -125,6 +125,7 @@ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
 import {
+  APPROVAL_STALE_MS,
   approveRefusalFor,
   canDelete,
   canPutBack,
@@ -644,7 +645,9 @@ async function withApprovedLinks<R extends SheetRow>(
         .query("brainSourceCards")
         .withIndex("by_sourceId", (q) => q.eq("sourceId", item.brainSourceId!))
         .first();
-      brain = card?.status === "revoked" ? "removed" : "in_brain";
+      // No card: the source was removed for good on /admin/brain
+      // (removeSourcePermanently leaves the file's brainSourceId).
+      brain = !card || card.status === "revoked" ? "removed" : "in_brain";
     } else if (item.brainCheck === "waiting") brain = "brain_check";
     else if (item.brainCheck === "kept_out") brain = "kept_out";
     out.push(definedFields({ ...row, companyPage, brain }));
@@ -1195,8 +1198,6 @@ export const adminCheck = internalQuery({
 const APPROVAL_STEP_FILES = 10;
 /** Import files one step of a company's approval reads to find its ready files. */
 const APPROVAL_LIST_PAGE = 40;
-/** A running approval whose chain has not moved for this long has stopped (the page says so). */
-export const APPROVAL_STALE_MS = 5 * 60 * 1000;
 /** Refused files one approval's result lists. */
 const APPROVAL_REFUSALS_LISTED = 100;
 
@@ -1360,7 +1361,12 @@ async function approveOneFile(
   const wholeText = text !== undefined && hasServerReadText(text) ? text : undefined;
   // A file with no original and only its preview keeps the preview: nothing else can be read.
   const companyText = wholeText ?? (item.storageId === undefined && item.text?.trim() ? item.text : null);
-  const reviewerId = item.category === "final_pd" ? await reviewerForInitials(ctx, item.reviewerInitials) : null;
+  // The file's own reviewer (one an Admin chose, setFileReviewers, or one it
+  // kept after its initials changed) is copied as it is; only a final PD
+  // with none takes one from its reviewer initials.
+  const savedReviewer = await liveWriter(ctx, item.reviewerId);
+  const reviewerId =
+    savedReviewer?._id ?? (item.category === "final_pd" ? await reviewerForInitials(ctx, item.reviewerInitials) : null);
   const importLabels = definedFields({
     pdTitle: item.pdTitle,
     versionCode: item.versionCode,
@@ -1661,14 +1667,24 @@ export const approveImportFile = internalMutation({
   },
 });
 
-/** A file whose approval threw (a text too long to keep, say): left on To review, and named. */
+/**
+ * A file whose approval threw (a text too long to keep, say): left on To
+ * review, and named. `text_not_read`: its text could not be read from
+ * storage, so it was not tried; approving it again tries again.
+ */
 export const recordApprovalFailure = internalMutation({
-  args: { fileRowId: v.id("importApprovalFiles") },
+  args: { fileRowId: v.id("importApprovalFiles"), reason: v.optional(v.literal("text_not_read")) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const fileRow = await ctx.db.get(args.fileRowId);
     if (!fileRow || fileRow.state !== "waiting") return null;
-    await recordApprovalFile(ctx, fileRow, { state: "refused", reason: "not_saved" });
+    await recordApprovalFile(
+      ctx,
+      fileRow,
+      args.reason === "text_not_read"
+        ? { state: "refused", reason: "text_not_read", detail: "Try again." }
+        : { state: "refused", reason: "not_saved" }
+    );
     return null;
   },
 });
@@ -1693,9 +1709,17 @@ export const runApproval = internalAction({
       if (next.kind === "listed") continue;
       files += 1;
       let text: string | undefined;
-      if (next.textStorageId) {
-        const blob = await ctx.storage.get(next.textStorageId);
-        text = blob ? await blob.text() : undefined;
+      // A failed read of one file's text refuses that file in plain words;
+      // the chain goes on with the next.
+      try {
+        if (next.textStorageId) {
+          const blob = await ctx.storage.get(next.textStorageId);
+          text = blob ? await blob.text() : undefined;
+        }
+      } catch (error) {
+        console.error("runApproval: a file's text could not be read", { itemId: next.itemId, error: String(error) });
+        await ctx.runMutation(internal.ingestion.recordApprovalFailure, { fileRowId: next.fileRowId, reason: "text_not_read" });
+        continue;
       }
       try {
         await ctx.runMutation(internal.ingestion.approveImportFile, {
@@ -1717,8 +1741,10 @@ const approvalProgressValidator = v.object({
   scope: v.union(v.literal("company"), v.literal("files")),
   companyName: v.optional(v.string()),
   status: v.union(v.literal("running"), v.literal("done"), v.literal("stopped")),
-  // Running, but its chain has not moved for APPROVAL_STALE_MS: it stopped.
-  stalled: v.boolean(),
+  // When its chain last moved (2026-11-17): the page says a running
+  // approval stopped once this is APPROVAL_STALE_MS old, on its own timer,
+  // since this query does not run again as time passes.
+  lastProgressAt: v.number(),
   total: v.number(),
   done: v.number(),
   approved: v.number(),
@@ -1771,7 +1797,7 @@ export const approvalProgress = query({
           scope: run.scope,
           companyName: run.companyName || undefined,
           status: run.status,
-          stalled: run.status === "running" && Date.now() - run.updatedAt >= APPROVAL_STALE_MS,
+          lastProgressAt: run.updatedAt,
           total: Math.max(run.total, run.done),
           done: run.done,
           approved: run.approved,
@@ -1990,7 +2016,9 @@ export const previewBrainCopy = action({
 
 const brainAddResultValidator = v.union(
   v.object({ ok: v.literal(true), outcome: v.union(v.literal("added"), v.literal("matched")), sourceId: v.id("brainSources") }),
-  v.object({ ok: v.literal(false), reason: v.string() })
+  // `changed` (2026-11-17): the copy is no longer the one the person read,
+  // so the page offers Check again to read it as it is now.
+  v.object({ ok: v.literal(false), reason: v.string(), changed: v.optional(v.literal(true)) })
 );
 
 /**
@@ -2015,7 +2043,7 @@ export const finishBrainCheck = internalMutation({
       }
       return { ok: false, reason: copy.reason };
     }
-    if (brainCopySeen(copy.fields) !== args.seen) return { ok: false, reason: BRAIN_COPY_CHANGED };
+    if (brainCopySeen(copy.fields) !== args.seen) return { ok: false, reason: BRAIN_COPY_CHANGED, changed: true };
     const { importItemId, importContentHash, ...fields } = copy.fields;
     // A Brain source this file already matches (by its bytes, then by text)
     // is reused only when it holds exactly this scrubbed copy: one approved
