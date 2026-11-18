@@ -1913,7 +1913,7 @@ function cleanAlsoRemove(words: readonly string[]): string[] {
 export const BRAIN_CHECK_GONE = "This PD is no longer waiting for a Brain check.";
 export const BRAIN_COPY_CHANGED = "The Brain copy changed since you read it. Read it again, then add it.";
 export const BRAIN_COPY_DIFFERS =
-  "This PD is already in the Brain as a different copy. Remove that copy on the Brain page first, or keep this one out.";
+  "This PD is already in the Brain as a different copy. Send back to review the approved file that copy came from, then check this one again, or keep this one out.";
 
 /**
  * The fingerprint of a Brain copy as the person read it: its text and what
