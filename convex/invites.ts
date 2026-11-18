@@ -218,6 +218,10 @@ export const listTeamInvites = query({
       expiresAt: v.number(),
       expired: v.boolean(),
       canManage: v.boolean(),
+      // Resend apart from canManage: an invite for a past writer is resent
+      // by an Admin only (requirePastWriterResend), so a Manager who may
+      // copy, change or revoke it sees no Resend.
+      canResend: v.boolean(),
       token: v.optional(v.string()),
     }),
   ),
@@ -245,6 +249,8 @@ export const listTeamInvites = query({
     return pending
       .map((invite) => {
         const canManage = canManageInvite(viewer.role, invite.role);
+        const canResend =
+          canManage && (!invite.pdWriterId || hasCapability(viewer.role, "roles.manage"));
         return {
           _id: invite._id,
           email: invite.email,
@@ -254,6 +260,7 @@ export const listTeamInvites = query({
           expiresAt: invite.expiresAt,
           expired: invite.expiresAt <= now,
           canManage,
+          canResend,
           // The link is only handed to someone who may copy or resend it.
           ...(canManage ? { token: invite.token } : {}),
         };

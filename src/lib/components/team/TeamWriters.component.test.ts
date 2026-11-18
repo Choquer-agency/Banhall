@@ -70,7 +70,7 @@ const PAST_WRITERS = [
 ];
 
 const INVITES = [
-  { _id: "i-1", email: "jordan.ellis@example.com", role: "writer", invitedByName: "Dana Whitlock", sentAt: Date.now(), expiresAt: Date.now() + 86_400_000, expired: false, canManage: true, token: "tok" },
+  { _id: "i-1", email: "jordan.ellis@example.com", role: "writer", invitedByName: "Dana Whitlock", sentAt: Date.now(), expiresAt: Date.now() + 86_400_000, expired: false, canManage: true, canResend: true, token: "tok" },
 ];
 
 function seed(user: unknown, pastWriters: unknown[] = PAST_WRITERS) {

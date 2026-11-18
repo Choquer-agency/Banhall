@@ -35,9 +35,9 @@ const MEMBERS = [
 ];
 
 const INVITES = [
-  { _id: "i-ana", email: "ana.ruiz@banhall.com", role: "writer", invitedByName: "Bryce Choquer", sentAt: NOW - 2 * DAY, expiresAt: NOW + 5 * DAY, expired: false, canManage: true, token: "tok-ana" },
-  { _id: "i-mt", email: "m.tremblay@banhall.com", role: "manager", invitedByName: "Sam Chen", sentAt: Date.parse("2026-09-10T18:00:00Z"), expiresAt: Date.parse("2026-09-17T18:00:00Z"), expired: true, canManage: true, token: "tok-mt" },
-  { _id: "i-boss", email: "boss@banhall.com", role: "admin", invitedByName: "Bryce Choquer", sentAt: NOW - DAY, expiresAt: NOW + 6 * DAY, expired: false, canManage: false },
+  { _id: "i-ana", email: "ana.ruiz@banhall.com", role: "writer", invitedByName: "Bryce Choquer", sentAt: NOW - 2 * DAY, expiresAt: NOW + 5 * DAY, expired: false, canManage: true, canResend: true, token: "tok-ana" },
+  { _id: "i-mt", email: "m.tremblay@banhall.com", role: "manager", invitedByName: "Sam Chen", sentAt: Date.parse("2026-09-10T18:00:00Z"), expiresAt: Date.parse("2026-09-17T18:00:00Z"), expired: true, canManage: true, canResend: true, token: "tok-mt" },
+  { _id: "i-boss", email: "boss@banhall.com", role: "admin", invitedByName: "Bryce Choquer", sentAt: NOW - DAY, expiresAt: NOW + 6 * DAY, expired: false, canManage: false, canResend: false },
 ];
 
 function seed(user: unknown, invites: unknown[] = INVITES) {
@@ -117,6 +117,24 @@ describe("TeamPage", () => {
     expect(document.querySelectorAll("[data-member-menu]")).toHaveLength(0);
     expect(row("boss@banhall.com")?.querySelector("[data-invite-menu]")).toBeNull();
     expect(row("ana.ruiz@banhall.com")?.querySelector("[data-invite-menu]")).not.toBeNull();
+  });
+
+  it("shows a Manager no Resend on an invite for a past writer, in the row or its menu", async () => {
+    const pastWriter = {
+      _id: "i-dw", email: "dana.whitlock@example.com", role: "writer", invitedByName: "Bryce Choquer",
+      sentAt: NOW - 9 * DAY, expiresAt: NOW - 2 * DAY, expired: true, canManage: true, canResend: false, token: "tok-dw",
+    };
+    seed(MANAGER, [...INVITES, pastWriter]);
+    await render(TeamPage, { origin: "https://banhall.app" });
+
+    await expect.poll(() => row("dana.whitlock@example.com")?.querySelector("[data-invite-menu]")).not.toBeNull();
+    expect(row("dana.whitlock@example.com")?.querySelector("[data-resend]")).toBeNull();
+    // A plain expired invite still offers it.
+    expect(row("m.tremblay@banhall.com")?.querySelector("[data-resend]")).not.toBeNull();
+    await userEvent.click(row("dana.whitlock@example.com")!.querySelector<HTMLElement>("[data-invite-menu]")!);
+    await expect.poll(() => document.querySelector('[data-menu-item="copy"]')).not.toBeNull();
+    expect(document.querySelector('[data-menu-item="resend"]')).toBeNull();
+    expect(document.querySelector('[data-menu-item="revoke"]')).not.toBeNull();
   });
 
   it("lists pending invites with sent and expired states and a count", async () => {

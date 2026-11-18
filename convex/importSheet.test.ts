@@ -4472,6 +4472,32 @@ describe("inviting a past writer (2026-11-17)", () => {
     await expectCountsMatchRecount(t, "after a bare writer an invite waits for lost its last file");
   });
 
+  it("finds an old invite resent after ten newer ones expired: Invite sent shows and a new invite is refused", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const adminId = (await t.run((ctx) => ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "sheet-admin")).unique()))!._id;
+    // Eleven expired invites; the first made is the oldest.
+    const ids = await t.run(async (ctx) => {
+      const made: Id<"invites">[] = [];
+      for (let n = 0; n < 11; n += 1) {
+        made.push(
+          await ctx.db.insert("invites", {
+            email: `old${n}@example.com`, role: "writer", token: `old-${n}`, invitedBy: adminId,
+            createdAt: 1 + n, expiresAt: 2 + n, status: "pending", pdWriterId: dw._id,
+          })
+        );
+      }
+      return made;
+    });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: false });
+    // The oldest is resent: its expiry moves past now, its creation order stays.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: ids[0] })).resolves.toMatchObject({ token: expect.any(String) });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: true });
+    await expect(inviteFor(admin, dw._id, "dana.w@example.com")).rejects.toThrow("This person has an invite waiting already");
+    // Another of the expired ones cannot be resent beside it.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: ids[10] })).rejects.toThrow("This person has a newer invite waiting");
+  });
+
   it("skips the link quietly when the writer was deleted or linked meanwhile, and accepts the invite as usual", async () => {
     const { t, admin } = await setup();
     // Deleted: a past writer no file points at.

@@ -234,7 +234,9 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_email_and_status", ["email", "status"])
     .index("by_status", ["status"])
-    .index("by_pdWriterId_and_status", ["pdWriterId", "status"]),
+    // Expiry last, so the live invites for one past writer are read by
+    // range, not by creation order: a resend moves an old invite's expiry.
+    .index("by_pdWriterId_and_status_and_expiresAt", ["pdWriterId", "status", "expiresAt"]),
 
   // ─── Round 2 (decision 54): Team's "Last active" ──────────────────────────
   // One row per user, written by team.markActive at most once per 5 minutes.

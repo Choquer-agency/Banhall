@@ -501,26 +501,34 @@ export async function linkWriterToUser(
   }
 }
 
-/** Invites read for one past writer, newest first: enough to find the one that waits. */
-const WRITER_INVITES_READ = 10;
+/**
+ * Live invites read for one past writer. At most one waits at a time
+ * (invites.ts refuses a second), so two always cover `except`; a few more
+ * allow for older data.
+ */
+const WRITER_INVITES_READ = 5;
 
 /**
  * The invite an Admin sent for this past writer that still waits (pending
- * and not expired), newest first, other than `except`; null when none
- * (2026-11-17). Expired invites stay "pending", so the newest are read.
+ * and not expired), other than `except`; null when none (2026-11-17).
+ * Expired invites stay "pending", and a resend renews an old invite's
+ * expiry, so the index range on expiry finds the live ones however many
+ * expired invites were made after them.
  */
 export async function waitingWriterInvite(
   ctx: Ctx,
   writerId: Id<"pdWriters">,
   except?: Id<"invites">
 ): Promise<Doc<"invites"> | null> {
+  const now = Date.now();
   const rows = await ctx.db
     .query("invites")
-    .withIndex("by_pdWriterId_and_status", (q) => q.eq("pdWriterId", writerId).eq("status", "pending"))
+    .withIndex("by_pdWriterId_and_status_and_expiresAt", (q) =>
+      q.eq("pdWriterId", writerId).eq("status", "pending").gt("expiresAt", now)
+    )
     .order("desc")
     .take(WRITER_INVITES_READ);
-  const now = Date.now();
-  return rows.find((invite) => invite._id !== except && invite.expiresAt > now) ?? null;
+  return rows.find((invite) => invite._id !== except) ?? null;
 }
 
 /**
