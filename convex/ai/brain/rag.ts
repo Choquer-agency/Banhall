@@ -254,17 +254,34 @@ export async function patchBrainSource(
 }
 
 /** Delete a source with its card and its import file links, taking it out of the counts. */
+/** Import file links one cleanup step deletes. */
+const IMPORT_LINK_PAGE = 200;
+
+/**
+ * Delete one page of a removed source's import file links. Returns true when
+ * more may remain, so the caller schedules the next page
+ * (brain:deleteBrainSourceImportLinks) instead of draining them all in one
+ * mutation.
+ */
+export async function deleteSourceImportLinksPage(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">
+): Promise<boolean> {
+  const links = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+    .take(IMPORT_LINK_PAGE);
+  for (const link of links) await ctx.db.delete("brainSourceImportFiles", link._id);
+  return links.length === IMPORT_LINK_PAGE;
+}
+
 export async function deleteBrainSource(ctx: MutationCtx, sourceId: Id<"brainSources">) {
-  for (;;) {
-    const links = await ctx.db
-      .query("brainSourceImportFiles")
-      .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
-      .take(200);
-    for (const link of links) await ctx.db.delete("brainSourceImportFiles", link._id);
-    if (links.length < 200) break;
-  }
+  const more = await deleteSourceImportLinksPage(ctx, sourceId);
   await ctx.db.delete(sourceId);
   await syncBrainSourceCard(ctx, sourceId, null);
+  // Links left over point at a source that no longer exists; lookups skip
+  // them (sourceIdForImportFile) until the scheduled pages remove them.
+  if (more) await ctx.scheduler.runAfter(0, internal.brain.deleteBrainSourceImportLinks, { sourceId });
 }
 
 /**
@@ -282,7 +299,7 @@ export async function linkBrainSourceImportFile(
     .withIndex("by_contentHash_and_sourceId", (q) =>
       q.eq("contentHash", importItem.contentHash).eq("sourceId", sourceId)
     )
-    .first();
+    .unique();
   if (known) return;
   await ctx.db.insert("brainSourceImportFiles", {
     contentHash: importItem.contentHash,
@@ -296,9 +313,20 @@ export async function sourceIdForImportFile(
   ctx: MutationCtx,
   contentHash: string
 ): Promise<Id<"brainSources"> | null> {
-  const link = await ctx.db
+  // A hash belongs to one live source. Links of a source removed for good may
+  // still be waiting for their scheduled cleanup, so they are skipped; two
+  // live sources for one hash is broken data and fails loudly.
+  const links = await ctx.db
     .query("brainSourceImportFiles")
     .withIndex("by_contentHash_and_sourceId", (q) => q.eq("contentHash", contentHash))
-    .first();
-  return link?.sourceId ?? null;
+    .take(10);
+  const live = new Set<Id<"brainSources">>();
+  for (const link of links) {
+    if (await ctx.db.get(link.sourceId)) live.add(link.sourceId);
+  }
+  if (live.size > 1) {
+    throw new Error(`Import file hash ${contentHash} is linked to ${live.size} Brain sources.`);
+  }
+  const [only] = live;
+  return only ?? null;
 }

@@ -18,6 +18,7 @@ import { eraseBrainEntry } from "./ai/brain/erase";
 import {
   countKeys,
   deleteBrainSource,
+  deleteSourceImportLinksPage,
   insertBrainSource,
   linkBrainSourceImportFile,
   patchBrainSource,
@@ -336,6 +337,22 @@ export const importPdPair = mutation({
  * identity, so assertAdmin would reject it. Internal = only callable with the
  * deployment's admin key, so the auth ceremony is the deploy key itself.
  */
+/**
+ * The next page of a removed Brain source's import file links
+ * (deleteBrainSource deletes the first page and schedules this for the rest).
+ */
+export const deleteBrainSourceImportLinks = internalMutation({
+  args: { sourceId: v.id("brainSources") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const more = await deleteSourceImportLinksPage(ctx, args.sourceId);
+    if (more) {
+      await ctx.scheduler.runAfter(0, internal.brain.deleteBrainSourceImportLinks, { sourceId: args.sourceId });
+    }
+    return null;
+  },
+});
+
 export const seedPdPair = internalMutation({
   args: importArgs,
   handler: async (ctx, args) => {

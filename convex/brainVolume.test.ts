@@ -18,7 +18,7 @@ import {
   requeueAllApprovedEmbeds,
   revokedMatchMessage,
 } from "./brain";
-import { insertBrainSource, patchBrainSource } from "./ai/brain/rag";
+import { insertBrainSource, linkBrainSourceImportFile, patchBrainSource, sourceIdForImportFile } from "./ai/brain/rag";
 import { classify } from "./lib/ingestionClassify";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -749,6 +749,27 @@ describe("every import file linked to a source is remembered", () => {
     expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toMatchObject([
       { contentHash: "bytes-a", sourceId: fresh, importItemId: again },
     ]);
+  });
+});
+
+describe("removing a source with many file links (Greptile on #42)", () => {
+  test("deletes its links a page at a time in scheduled runs, and lookups skip the ones still waiting", async () => {
+    const { t, admin } = await setup();
+    const a = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpA.docx", "bytes-a");
+    const sourceId = await approveItem(admin, a, "Kelp text");
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 450; i++) {
+        await linkBrainSourceImportFile(ctx as unknown as MutationCtx, sourceId, { itemId: a, contentHash: `extra-${i}` });
+      }
+    });
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    await t.mutation(internal.brain.removeSourcePermanently, { sourceId });
+    const left = await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect());
+    // One page went with the source; the rest wait for the scheduled cleanup.
+    expect(left.length).toBe(451 - 200);
+    expect(await t.run((ctx) => sourceIdForImportFile(ctx as unknown as MutationCtx, "extra-300"))).toBeNull();
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toEqual([]);
   });
 });
 
