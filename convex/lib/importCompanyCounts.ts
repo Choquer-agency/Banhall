@@ -378,7 +378,9 @@ export async function finalPdCountRow(
   return await ctx.db
     .query("importFinalPdCounts")
     .withIndex("by_kind_and_key", (q) => q.eq("kind", kind).eq("key", key))
-    .first();
+    // One counter per kind and key: two is broken data and fails loudly. The
+    // rebuild reads every row on its own and deletes strays.
+    .unique();
 }
 
 /**
