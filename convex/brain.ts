@@ -188,11 +188,13 @@ async function findImportMatch(
     const linkedId = await sourceIdForImportFile(ctx, importContentHash);
     const linked = linkedId ? await ctx.db.get("brainSources", linkedId) : null;
     if (linked) return linked;
-    // A source whose first file has no link row yet.
+    // A source whose first file has no link row yet. A source's first file is
+    // unique to it (a second file with those bytes always matches it here),
+    // so two rows is broken data and fails loudly.
     const byFile = await ctx.db
       .query("brainSources")
       .withIndex("by_importContentHash", (q) => q.eq("importContentHash", importContentHash))
-      .first();
+      .unique();
     if (byFile) return byFile;
   }
   return await ctx.db
