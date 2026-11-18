@@ -253,8 +253,52 @@ export async function patchBrainSource(
   return after;
 }
 
-/** Delete a source with its card, taking it out of the counts. */
+/** Delete a source with its card and its import file links, taking it out of the counts. */
 export async function deleteBrainSource(ctx: MutationCtx, sourceId: Id<"brainSources">) {
+  for (;;) {
+    const links = await ctx.db
+      .query("brainSourceImportFiles")
+      .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+      .take(200);
+    for (const link of links) await ctx.db.delete("brainSourceImportFiles", link._id);
+    if (links.length < 200) break;
+  }
   await ctx.db.delete(sourceId);
   await syncBrainSourceCard(ctx, sourceId, null);
+}
+
+/**
+ * Remember that an import file (by its `ingestionItems.contentHash`) is
+ * linked to a source, so dedup finds the source by those bytes later. A
+ * file whose bytes are already linked to this source adds nothing.
+ */
+export async function linkBrainSourceImportFile(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">,
+  importItem: { itemId: Id<"ingestionItems">; contentHash: string }
+): Promise<void> {
+  const known = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_contentHash_and_sourceId", (q) =>
+      q.eq("contentHash", importItem.contentHash).eq("sourceId", sourceId)
+    )
+    .first();
+  if (known) return;
+  await ctx.db.insert("brainSourceImportFiles", {
+    contentHash: importItem.contentHash,
+    sourceId,
+    importItemId: importItem.itemId,
+  });
+}
+
+/** The source an import file's bytes are already linked to, if any. */
+export async function sourceIdForImportFile(
+  ctx: MutationCtx,
+  contentHash: string
+): Promise<Id<"brainSources"> | null> {
+  const link = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_contentHash_and_sourceId", (q) => q.eq("contentHash", contentHash))
+    .first();
+  return link?.sourceId ?? null;
 }

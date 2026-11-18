@@ -3883,6 +3883,21 @@ export default defineSchema({
     .index("by_importItemId", ["importItemId"])
     .index("by_importContentHash", ["importContentHash"]),
 
+  // 2026-11-17 (Brain reads at volume): every import file linked to a
+  // source, by its `ingestionItems.contentHash`, whether it matched by bytes
+  // or by text. Dedup looks a file's bytes up here first, so a later copy of
+  // any linked file finds its source even when its text is read differently.
+  // Written and deleted only through `convex/ai/brain/rag.ts`
+  // (`linkBrainSourceImportFile`, `deleteBrainSource`). Kept on revoke, so a
+  // revoked source still refuses every file linked to it.
+  brainSourceImportFiles: defineTable({
+    contentHash: v.string(),
+    sourceId: v.id("brainSources"),
+    importItemId: v.id("ingestionItems"),
+  })
+    .index("by_contentHash_and_sourceId", ["contentHash", "sourceId"])
+    .index("by_sourceId", ["sourceId"]),
+
   // 2026-11-17 (Brain reads at volume): one small row per `brainSources` row
   // with what /admin/brain lists, so the list pages without reading any
   // source's text. Kept in step with its source in one place

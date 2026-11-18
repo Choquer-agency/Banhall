@@ -19,7 +19,9 @@ import {
   countKeys,
   deleteBrainSource,
   insertBrainSource,
+  linkBrainSourceImportFile,
   patchBrainSource,
+  sourceIdForImportFile,
   syncBrainSourceCard,
   type CountKey,
 } from "./ai/brain/rag";
@@ -126,8 +128,9 @@ type ImportSourceArgs = {
   approve?: boolean;
   /**
    * The import file this source is made from (2026-11-17). Its
-   * `ingestionItems.contentHash` is matched before the text hash, so the
-   * same file approved again finds its source even if its text was read
+   * `ingestionItems.contentHash` is matched before the text hash, and every
+   * file linked to a source is remembered (`brainSourceImportFiles`), so a
+   * copy of any linked file finds its source even if its text was read
    * differently.
    */
   importItem?: { itemId: Id<"ingestionItems">; contentHash: string };
@@ -171,13 +174,20 @@ export type ImportSourceResult =
   | { outcome: "added" | "matched"; sourceId: Id<"brainSources">; status: "pending" | "approved" }
   | { outcome: "revoked"; sourceId: Id<"brainSources">; message: string };
 
-/** The existing source an import matches: by import file bytes first, then by text. */
+/**
+ * The existing source an import matches: by the bytes of any import file
+ * linked to a source first, then by text.
+ */
 async function findImportMatch(
   ctx: MutationCtx,
   textHash: string,
   importContentHash: string | undefined
 ): Promise<Doc<"brainSources"> | null> {
   if (importContentHash) {
+    const linkedId = await sourceIdForImportFile(ctx, importContentHash);
+    const linked = linkedId ? await ctx.db.get("brainSources", linkedId) : null;
+    if (linked) return linked;
+    // A source whose first file has no link row yet.
     const byFile = await ctx.db
       .query("brainSources")
       .withIndex("by_importContentHash", (q) => q.eq("importContentHash", importContentHash))
@@ -218,7 +228,8 @@ export async function importSource(
   }
   if (existing) {
     // A later project-linked import may enrich an existing legacy row with
-    // structured science routing metadata; a file import links its bytes.
+    // structured science routing metadata; a file import links its bytes
+    // (the source keeps its first file; every file is remembered below).
     const patch: Partial<Doc<"brainSources">> = {};
     if (scienceCode && existing.scienceCode !== scienceCode) patch.scienceCode = scienceCode;
     if (args.importItem && !existing.importContentHash) {
@@ -232,10 +243,13 @@ export async function importSource(
       patch.status = "approved";
       patch.industry = args.industry;
       patch.writerTier = args.writerTier;
-      if (args.writerName !== undefined) patch.writerName = args.writerName;
+      // A blank writer clears the nomination's, so the source and its card
+      // show what the approver chose.
+      patch.writerName = args.writerName;
       if (args.title.trim()) patch.title = args.title;
     }
     if (Object.keys(patch).length > 0) await patchBrainSource(ctx, existing, patch);
+    if (args.importItem) await linkBrainSourceImportFile(ctx, existing._id, args.importItem);
     if (approveNow) {
       await ctx.db.insert("brainAuditLog", {
         action: "approve",
@@ -277,6 +291,7 @@ export async function importSource(
     importItemId: args.importItem?.itemId,
     importContentHash: args.importItem?.contentHash,
   });
+  if (args.importItem) await linkBrainSourceImportFile(ctx, sourceId, args.importItem);
 
   await ctx.db.insert("brainAuditLog", {
     action: args.approve ? "approve" : "ingest",

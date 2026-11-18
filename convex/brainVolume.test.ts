@@ -658,19 +658,111 @@ describe("dedup that respects status", () => {
     expect(stats?.byIndustry).toEqual({ manufacturing: 1 });
     await expectCardsInStep(t);
   });
+
+  test("approving a pending match with a blank writer clears the nomination's writer", async () => {
+    const { t, admin } = await setup();
+    const pending = await admin.mutation(api.brain.importPdPair, {
+      ...base,
+      writerName: "Pat Example",
+      title: "Nominated draft",
+      content: "Dryer line text",
+    });
+    const item = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN DryerLine.docx", "bytes-d");
+    expect(
+      await admin.mutation(internal.ingestion.finalizeApproval, {
+        itemId: item,
+        content: "Dryer line text",
+        industry: "manufacturing",
+        writerName: "  ",
+        writerTier: 0.9,
+      })
+    ).toBe(pending);
+    const row = await t.run((ctx) => ctx.db.get(pending));
+    expect(row).toMatchObject({ status: "approved", industry: "manufacturing", writerTier: 0.9 });
+    expect(row?.writerName).toBeUndefined();
+    const card = await t.run((ctx) =>
+      ctx.db.query("brainSourceCards").withIndex("by_sourceId", (q) => q.eq("sourceId", pending)).unique()
+    );
+    expect(card?.writerName).toBeUndefined();
+    await expectCardsInStep(t);
+  });
+});
+
+describe("every import file linked to a source is remembered", () => {
+  test("a file matched by text is remembered, so a later copy read differently finds the same source", async () => {
+    const { t, admin } = await setup();
+    const a = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpA.docx", "bytes-a");
+    const sourceId = await approveItem(admin, a, "Shared kelp text");
+    // B: other bytes, the same text. It reuses A's source by text.
+    const b = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpB.docx", "bytes-b");
+    expect(await approveItem(admin, b, "Shared kelp text")).toBe(sourceId);
+    // B': B's bytes, read as other text. Only B's remembered hash finds it.
+    const bAgain = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpB copy.docx", "bytes-b");
+    expect(await approveItem(admin, bAgain, "Shared kelp text, read another way")).toBe(sourceId);
+    expect(await t.run((ctx) => ctx.db.query("brainSources").collect())).toHaveLength(1);
+    // The source keeps the first file as where it came from.
+    expect(await t.run((ctx) => ctx.db.get(sourceId))).toMatchObject({ importItemId: a, importContentHash: "bytes-a" });
+    const links = await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect());
+    expect(links.map((l) => [l.contentHash, l.sourceId, l.importItemId])).toEqual([
+      ["bytes-a", sourceId, a],
+      ["bytes-b", sourceId, b],
+    ]);
+    expect(await admin.query(api.brain.brainStats, {})).toEqual(await recount(t));
+  });
+
+  test("a pending match approved from a file remembers that file, and a revoke then refuses its bytes", async () => {
+    const { t, admin } = await setup();
+    const pending = await admin.mutation(api.brain.importPdPair, {
+      title: "Kelp PD",
+      industry: "software",
+      writerTier: 0.4,
+      docType: "pd",
+      content: "Nominated kelp text",
+    });
+    const b = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpB.docx", "bytes-b");
+    expect(await approveItem(admin, b, "Nominated kelp text")).toBe(pending);
+    const bAgain = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpB copy.docx", "bytes-b");
+    expect(await approveItem(admin, bAgain, "Nominated kelp text, read again")).toBe(pending);
+    expect(await t.run((ctx) => ctx.db.query("brainSources").collect())).toHaveLength(1);
+
+    await admin.mutation(api.brain.revokeSource, { sourceId: pending });
+    const linksBefore = await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect());
+    const third = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpB final.docx", "bytes-b");
+    const err = await approveItem(admin, third, "Text read a third way").catch((e: unknown) => e);
+    expect(refusal(err)?.code).toBe("BRAIN_SOURCE_REVOKED");
+    expect((await t.run((ctx) => ctx.db.get(third)))?.status).toBe("pending_review");
+    // Refused: nothing is written, not even a link.
+    expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toEqual(linksBefore);
+    expect(await t.run((ctx) => ctx.db.query("brainSources").collect())).toHaveLength(1);
+  });
+
+  test("a source removed for good takes its file links with it", async () => {
+    const { t, admin } = await setup();
+    const a = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpA.docx", "bytes-a");
+    const sourceId = await approveItem(admin, a, "Kelp text");
+    await admin.mutation(api.brain.revokeSource, { sourceId });
+    await t.mutation(internal.brain.removeSourcePermanently, { sourceId });
+    expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toEqual([]);
+    const again = await stageItem(t, "04 NorthwindKelp 2024-12-31 T2.DW.PN KelpA copy.docx", "bytes-a");
+    const fresh = await approveItem(admin, again, "Kelp text, read again");
+    expect(fresh).not.toBe(sourceId);
+    expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toMatchObject([
+      { contentHash: "bytes-a", sourceId: fresh, importItemId: again },
+    ]);
+  });
 });
 
 describe("one write path", () => {
   // Only the table-name forms can be caught: an id-only `ctx.db.patch(id, ...)`
   // or `ctx.db.delete(id)` names no table, so review must catch those.
-  test("no module outside convex/ai/brain/rag.ts writes a brainSources row by table name", async () => {
+  test("no module outside convex/ai/brain/rag.ts writes a brainSources or brainSourceImportFiles row by table name", async () => {
     const sources = import.meta.glob(["./**/*.ts", "!./**/*.test.ts", "!./_generated/**"], {
       query: "?raw",
       import: "default",
       eager: true,
     }) as Record<string, string>;
     const writers = Object.entries(sources)
-      .filter(([, text]) => /db\.(insert|patch|replace|delete)\(\s*"brainSources"/.test(text))
+      .filter(([, text]) => /db\.(insert|patch|replace|delete)\(\s*"brainSource(s|ImportFiles)"/.test(text))
       .map(([path]) => path);
     expect(writers).toEqual(["./ai/brain/rag.ts"]);
   });

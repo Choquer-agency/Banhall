@@ -206,8 +206,12 @@ by status and approved counts by industry. Both change only through
 `insertBrainSource`, `patchBrainSource` and `deleteBrainSource` in
 `convex/ai/brain/rag.ts` (a guard test catches table-name writes elsewhere;
 id-only patches and deletes name no table, so review must catch those).
-`brain:listBrainSources` is paginated. An import that matches a revoked source
-is refused in plain words that say whether it was rejected or removed.
+`brain:listBrainSources` is paginated. Dedup checks an import file's content
+hash against every file already linked to a source (`brainSourceImportFiles`,
+written by `linkBrainSourceImportFile`), then the text hash, so a copy of any
+linked file finds its source even when its text is read differently. An import
+that matches a revoked source is refused in plain words that say whether it was
+rejected or removed.
 
 Deploy: run `brain:backfillBrainSourceCards` right after the backend deploy,
 before anyone opens `/admin/brain` (the list and counts miss older rows until
