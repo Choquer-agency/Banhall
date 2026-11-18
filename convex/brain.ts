@@ -630,7 +630,8 @@ export { needsFullImportanceEmbed };
 
 /**
  * Whether a reweight or relabel of an approved source should embed it
- * again: its voyage3 vectors still carry its old tier as importance, and the
+ * again: its voyage3 vectors may not be at importance 1 (below 1, or none
+ * recorded, read from the row before the tier changes), and the
  * voyage3 index is still written (2026-11-18 (fourth): it keeps the
  * rollback index as good as it was; once its drop starts, never).
  */
@@ -757,7 +758,9 @@ function chunkNotesOn(): boolean {
 /** Why a card's entry in one index is not current, in a few plain words. */
 function staleReason(card: Doc<"brainSourceCards">, index: BrainIndexId, notesOn: boolean): string {
   if (!entryIdIn(card, index)) return "no entry";
-  if (index === "voyage3" && needsFullImportanceEmbed(card)) return "an old weight's importance";
+  if (index === "voyage3" && needsFullImportanceEmbed(card)) {
+    return card.ragImportance === undefined ? "importance not recorded" : "an old weight's importance";
+  }
   if (notesOn && card[BRAIN_INDEX_FIELDS[index].notesVersion] !== BRAIN_CHUNK_NOTES_VERSION) return "notes from an older prompt";
   return "current";
 }
@@ -932,6 +935,13 @@ export const setServingSearchIndex = internalMutation({
       throw new Error(`The ${args.index} index is being dropped, so search cannot move back to it.`);
     }
     const force = args.force === true;
+    // PR #51 review (Greptile): the check reads the cards, so before the card
+    // backfill has run to its end an empty or partial table would pass.
+    if (!force && !(await cardsReady(ctx))) {
+      throw new Error(
+        "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
+      );
+    }
     if (state.row?.buildRunning && !force) {
       throw new Error('A build pass is running. Wait until it logs "buildSearchIndex done", then move the pointer.');
     }
@@ -1691,8 +1701,9 @@ export type ImportedSourceRelabel = { writerName?: string | null; writerTier?: n
  * tier from the card (servableBrainSources), so none of them needs a new
  * embed: the component would keep the old entry anyway, since the text,
  * importance and filters are the same. Only a tier change on a source
- * whose vectors still carry its old tier as importance
- * (needsFullImportanceEmbed) is embedded once, as reweightSource does.
+ * whose voyage3 vectors may not be at importance 1 (below 1, or none
+ * recorded: needsFullImportanceEmbed) is embedded once, as reweightSource
+ * does.
  * Returns whether anything changed and whether it is embedded again.
  */
 export async function relabelImportedSource(

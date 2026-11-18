@@ -136,15 +136,17 @@ export function heldEntries(source: IndexFieldsRow): { index: BrainIndexId; entr
 }
 
 /**
- * Whether a source's vectors in the voyage3 index still carry its writer
- * tier as importance (2026-11-17). Embeds since then record `ragImportance`
- * (always 1); an older row's importance was its tier, clamped, as of its
- * last embed. It describes the voyage3 index only: every voyage4 entry is
- * made at importance 1.
+ * Whether a source's voyage3 vectors may not be at importance 1 (2026-11-17).
+ * Every embed since then records the importance its entry was made with
+ * (`ragImportance`, from the entry itself on completion). A row with none
+ * recorded was embedded before that, at its tier as it stood then, which the
+ * current tier does not tell: a reweight changes the tier before an embed
+ * reads it. So no recorded importance is unknown, and needs the refresh
+ * (PR #51 review, Greptile). It describes the voyage3 index only: every
+ * voyage4 entry is made by this code at importance 1.
  */
-export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragImportance" | "writerTier">): boolean {
-  const stored = source.ragImportance ?? Math.max(0, Math.min(1, source.writerTier));
-  return stored < 1;
+export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragImportance">): boolean {
+  return source.ragImportance === undefined || source.ragImportance < 1;
 }
 
 /**

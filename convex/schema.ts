@@ -3960,9 +3960,10 @@ export default defineSchema({
     sentBackItemId: v.optional(v.id("ingestionItems")),
     // 2026-11-17 widen: the RAG importance of the source's last finished
     // embed (set by ingestOnComplete). Every embed since is 1; absent on
-    // older rows, whose importance was their writer tier, so
-    // brain:reembedBelowFullImportance and reweightSource know which ones
-    // still need the one re-embed at importance 1.
+    // older rows, embedded at their tier as it stood then. Since the PR #51
+    // review an absent value is unknown (the current tier does not tell it),
+    // so brain:reembedBelowFullImportance, reweightSource and the build
+    // refresh those rows at importance 1.
     ragImportance: v.optional(v.number()),
     // 2026-11-17 widen (review round 2): the chunk note prompt version of
     // the source's last finished embed when it had chunk notes (set by

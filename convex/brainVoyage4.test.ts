@@ -207,6 +207,7 @@ describe("two indexes, one pointer", () => {
     expect(after.ragEntryIdV4).not.toBe(after.ragEntryId);
     expect((await card(t, id))?.ragEntryIdV4).toBe(after.ragEntryIdV4);
 
+    await backfillCards(t);
     const search = () => t.action((ctx: ActionCtx) => searchBrainExemplars(ctx, { query: "kiln", k: 4 }));
     const first = await search();
     expect(first.exemplars.map((e) => e.entryId)).toEqual([after.ragEntryId]);
@@ -335,6 +336,7 @@ describe("two indexes, one pointer", () => {
         }
       });
     }
+    await t.run((ctx) => ctx.db.insert("brainSourceCounts", { scope: "meta", key: "cards_ready", count: total }));
     const first = await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" });
     expect(first).toEqual({
       serving: "voyage3",
@@ -587,7 +589,7 @@ describe("buildSearchIndex", () => {
     expect(state?.buildRunning).toBeUndefined();
     // voyage4 is whole, so the cutover goes; the rollback index is not, so moving back is refused.
     expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({ changed: true });
-    expect((await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).message).toContain(`${oldTier} has no current voyage3 entry (an old weight's importance)`);
+    expect((await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).message).toContain(`${oldTier} has no current voyage3 entry (importance not recorded)`);
 
     // Run again: only the failed one is queued; once it lands, nothing is missing and the rollback goes.
     enqueue.mockClear();
@@ -969,4 +971,85 @@ describe("review 51 fixes", () => {
     expect(report.probes).toBe(2);
     expect(next.mock.calls.length).toBeGreaterThan(2);
   });
+});
+
+describe("PR #51 Greptile fixes", () => {
+  test("the pointer refuses to move, either way, before the card backfill has run to its end", async () => {
+    const t = setup();
+    await source(t, { ragEntryId: "e3", ragImportance: 1, ragEntryIdV4: "e4" });
+    // No cards yet: an empty table must not read as every source current.
+    await expect(t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).rejects.toThrow(/backfillBrainSourceCards/);
+    await t.run((ctx) => ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 }));
+    await expect(t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" })).rejects.toThrow(/backfillBrainSourceCards/);
+    // A deliberate forced move skips it; after the backfill the live check runs.
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3", force: true })).toMatchObject({ changed: true });
+    await backfillCards(t);
+    expect(await t.mutation(internal.brain.setServingSearchIndex, { index: "voyage4" })).toMatchObject({ changed: true, checked: 1 });
+  });
+
+  /** A legacy voyage3 entry made at importance 0.7, before importances were recorded. */
+  async function legacySource(t: T, extra: Partial<Doc<"brainSources">> = {}) {
+    const id = await source(t, { writerTier: 0.7, ...extra });
+    const src = (await row(t, id))!;
+    const { entryId } = await t.action(async (ctx) =>
+      brain.add(ctx, {
+        namespace: "brain",
+        key: src.ragKey,
+        title: src.title,
+        importance: 0.7,
+        metadata: { sourceId: id, industry: src.industry, writerTier: 0.7, docType: src.docType },
+        filterValues: [
+          { name: "industryApproved", value: { industry: src.industry, approved: true } },
+          { name: "docType", value: src.docType },
+        ],
+        chunks: [{ text: src.content, embedding: vectorAt(0.6, 2) }],
+      })
+    );
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./ai/brain/rag");
+      await patchBrainSource(ctx, (await ctx.db.get(id))!, { ragEntryId: entryId, ragEntryIdV4: "e4-legacy" });
+    });
+    return { id, entryId };
+  }
+
+  async function expectRefreshedAtOne(t: T, id: Id<"brainSources">, oldEntryId: string) {
+    const after = (await row(t, id))!;
+    expect(after.ragImportance).toBe(1);
+    expect(after.ragEntryId).not.toBe(oldEntryId);
+    await t.action(async (ctx) => {
+      expect((await brain.getEntry(ctx, { entryId: after.ragEntryId as never }))?.importance).toBe(1);
+    });
+    // A later build finds it current and queues nothing.
+    await backfillCards(t);
+    expect(await t.mutation(internal.brain.buildSearchIndex, { index: "voyage3" })).toMatchObject({ queued: 0, done: true });
+  }
+
+  for (const notes of [false, true]) {
+    test(`a reweight to 1 of a legacy entry refreshes its voyage3 vectors at importance 1 (notes ${notes ? "on" : "off"})`, async () => {
+      if (notes) vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+      const t = setup();
+      const admin = await withAdmin(t);
+      const { id, entryId } = await legacySource(t, notes ? { chunkNotesVersion: BRAIN_CHUNK_NOTES_VERSION } : {});
+      const { Workpool } = await import("@convex-dev/workpool");
+      const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
+      // The tier is 1 by the time the embed reads the row.
+      await admin.mutation(api.brain.reweightSource, { sourceId: id, writerTier: 1 });
+      expect(enqueue.mock.calls.map((call) => call[2])).toEqual([{ sourceId: id }]);
+      const add3 = vi.spyOn(brain, "add");
+      await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+      expect(add3).toHaveBeenCalledTimes(1);
+      await expectRefreshedAtOne(t, id, entryId);
+    });
+
+    test(`an edit after approval (and the re-tier job) that raises the tier refreshes a legacy entry too (notes ${notes ? "on" : "off"})`, async () => {
+      if (notes) vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+      const t = setup();
+      const { id, entryId } = await legacySource(t, notes ? { chunkNotesVersion: BRAIN_CHUNK_NOTES_VERSION } : {});
+      const { relabelImportedSource } = await import("./brain");
+      const result = await t.run(async (ctx) => relabelImportedSource(ctx, (await ctx.db.get(id))!, { writerTier: 1 }, "admin"));
+      expect(result).toEqual({ changed: true, reembed: true });
+      await t.action(internal.ai.brain.ingest.embedSource, { sourceId: id });
+      await expectRefreshedAtOne(t, id, entryId);
+    });
+  }
 });

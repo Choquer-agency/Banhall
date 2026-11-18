@@ -20,7 +20,8 @@ were near invisible). The tier is blended in after the floors
 (`score × (0.6 + 0.4·tier)`, after rerank and on the exit without rerank),
 read from the source's card, so stronger writers rank higher at equal
 relevance and a weight change takes effect at once (a source is re-embedded
-once, at importance 1, if its vectors still carry its old tier).
+once, at importance 1, if its vectors may still carry an old tier: below 1,
+or no importance recorded, which is unknown and refreshed).
 
 **A good PD is a good PD.** Everything lives in ONE namespace (`brain`), so the
 Brain helps every generation — no industry required. Setting an industry on a
@@ -58,7 +59,8 @@ Source: `~/Downloads/Sample PD's/<Writer>/<Abundant|Sparse> Info/Submitted PD/`.
   standard) · Larry / Emily / Orel **0.7** · other writers (incl. Eniko) **0.4**.
   Change any entry's weight in `/admin/brain` → expand row → Weight → Save
   (takes effect at once; since 2026-11-17 a source is re-embedded only once,
-  if its vectors still carry its old tier).
+  if its vectors may still carry an old tier, including when no importance
+  was recorded).
 - **Industry values** (exact strings — the project-page Industry dropdown and
   Brain filters share them): `software` · `manufacturing` · `life-sciences`.
   Set per project on the project header (Industry dropdown). Optional —
