@@ -29,17 +29,17 @@
 </script>
 
 {#if progress}
-  <!-- Row one: the bar, the count and "By year and writer"; row two: the note, under the count. -->
+  <!-- Row one: the bar, the count and "By year and writer"; row two: the note, under the count. On a phone the bar takes its own row first, so the count keeps room. -->
   <button
     bind:this={trigger}
     type="button"
     data-import-progress
     aria-haspopup="dialog"
     onclick={() => (open = true)}
-    class="group -mx-2 grid w-[calc(100%+1rem)] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
+    class="group -mx-2 grid w-[calc(100%+1rem)] grid-cols-[minmax(0,1fr)_auto] items-center sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-primary-wash focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:min-h-11"
   >
     {#if progress.staged > 0}
-      <span aria-hidden="true" data-import-progress-bar class="h-1.5 w-40 shrink-0 overflow-hidden rounded-full bg-primary-line-soft">
+      <span aria-hidden="true" data-import-progress-bar class="col-span-2 h-1.5 w-full shrink-0 sm:col-span-1 sm:w-40 overflow-hidden rounded-full bg-primary-line-soft">
         <span
           data-import-progress-fill
           class="block h-full rounded-full bg-primary-selected"
@@ -49,7 +49,7 @@
     {/if}
     <span
       data-import-progress-text
-      class={`${progress.staged > 0 ? "" : "col-span-2"} min-w-0 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink tabular-nums`}
+      class={`${progress.staged > 0 ? "" : "sm:col-span-2"} min-w-0 text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink tabular-nums`}
     >{progressText(progress)}</span>
     <span
       data-import-progress-open
@@ -59,7 +59,7 @@
       <IconChevronRight size={13} strokeWidth={1.8} />
     </span>
     {#if progress.staged > 0}
-      <span data-import-progress-note class="col-start-2 col-end-4 text-xs leading-[calc(4/3)] text-ink-muted">{PROGRESS_NOTE}</span>
+      <span data-import-progress-note class="col-span-2 text-xs sm:col-span-1 sm:col-start-2 sm:col-end-4 leading-[calc(4/3)] text-ink-muted">{PROGRESS_NOTE}</span>
     {/if}
   </button>
   <ImportProgressDialog bind:open returnFocus={() => trigger} />

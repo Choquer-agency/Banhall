@@ -231,6 +231,27 @@ describe("final PD progress on the Import page", () => {
     expect(line()).toBeNull();
   });
 
+  it("keeps the line readable on a phone: the bar on its own row, the words whole (Greptile on #47)", async () => {
+    seedPage(undefined, BREAKDOWN);
+    await mount(375);
+    await expect.poll(() => line()).not.toBeNull();
+    await document.fonts.ready;
+    const lineBox = box(line()!);
+    expect(lineBox.right).toBeLessThanOrEqual(375);
+    const bar = box(one("[data-import-progress-bar]")!);
+    const count = box(one("[data-import-progress-text]")!);
+    // The bar sits above the count, not beside it.
+    expect(bar.bottom).toBeLessThanOrEqual(count.top + 0.5);
+    for (const selector of ["[data-import-progress-text]", "[data-import-progress-note]", "[data-import-progress-open]"]) {
+      const node = one(selector)!;
+      expect(box(node).right, selector).toBeLessThanOrEqual(lineBox.right + 0.5);
+      expect(node.scrollWidth, selector).toBeLessThanOrEqual(node.clientWidth + 1);
+    }
+    // Nothing overlaps: the count ends before "By year and writer" starts.
+    expect(count.right).toBeLessThanOrEqual(box(one("[data-import-progress-open]")!).left + 0.5);
+    await page.screenshot({ path: `${CAPTURES}/import-progress-line-375.png` });
+  });
+
   for (const width of [1280, 1100]) {
     it(`fits the line and the breakdown at ${width} wide, bars lined up, four-digit figures whole (captures)`, async () => {
       // The widest figures: four digits each side, with the check.
