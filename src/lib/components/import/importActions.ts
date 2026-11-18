@@ -238,13 +238,21 @@ export async function sendBackFiles(
 ): Promise<{ result: SendBackResult; error: unknown }> {
   let result = emptySendBack();
   let error: unknown = null;
-  for (let at = 0; at < ids.length; at += SEND_BACK_BATCH) {
+  // Up to 50 a call; a call that spent its read budget hands back the files
+  // it did not reach, and they go first in the next one, until none is left.
+  let queue = [...ids];
+  while (queue.length > 0) {
+    const batch = queue.slice(0, SEND_BACK_BATCH);
     try {
-      result = addSendBack(result, await call({ ids: ids.slice(at, at + SEND_BACK_BATCH) }));
+      result = addSendBack(result, await call({ ids: batch }));
     } catch (failure) {
       error = failure;
       break;
     }
+    const notReached = result.notReached;
+    // Every call looks at its first file, so a call that reached nothing would loop: stop.
+    if (notReached.length >= batch.length) break;
+    queue = [...notReached, ...queue.slice(batch.length)];
   }
   const description = sentBackDetails(result) || undefined;
   if (error) {

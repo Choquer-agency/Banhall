@@ -4830,6 +4830,10 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
+    // 2026-11-18 (Send back to review): the approved files that still point
+    // at a Brain source, so Send back revokes a copy only when no other
+    // approved file uses it, reading at most two files.
+    .index("by_brainSourceId_and_status", ["brainSourceId", "status"])
     // 2026-11-17: the final PDs waiting for a Brain check, company by company.
     .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
     .index("by_textStorageId", ["textStorageId"])

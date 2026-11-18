@@ -2153,26 +2153,28 @@ export const SEND_BACK_MAX_FILES = 50;
 export const SEND_BACK_BRAIN_REASON = "Sent back to review on Import";
 
 /**
- * The most rows one check reads to prove whether another approved Import
- * file still links a Brain source: its link rows, and the files with each
- * linked file's bytes (copies of one PD: a handful at most). Past it, the
- * check cannot prove none is left, so Send back refuses that file rather
- * than revoke a copy another file may still use.
+ * What one Send back call may read, in bytes as stored (2026-11-18): Convex
+ * allows a transaction 16 MiB, and a file's own row, its Brain copy (whole
+ * text) and its company file may each be large. The call counts what each
+ * file read, and once this much is spent it stops before the next file and
+ * returns the rest as not reached; the page sends those in its next call.
+ * The first file of a call always goes, so every call moves on.
  */
-const SHARED_SOURCE_READ_MAX = 300;
+export const SEND_BACK_READ_BUDGET = 6 * 1024 * 1024;
+
+/** What one file's other reads may come to (counts, audit rows, the storage check, the revoke's lessons). */
+const SEND_BACK_FILE_OVERHEAD = 128 * 1024;
+
+/** A stored document's size, near enough for the read budget. */
+function storedSize(doc: unknown): number {
+  return doc ? JSON.stringify(doc).length : 0;
+}
 
 // missing: no longer in Import; not_approved: not on Approved (already sent
 // back, say); approval_running: an approval that holds it is still moving
 // (its company's, or one of picked files where it is still waiting), and
-// would take the file straight back once it is ready on To review;
-// shared_widely: its Brain copy is linked to more files than one check can
-// read, so whether another approved file still uses it is not known.
-const sendBackRefusalValidator = v.union(
-  v.literal("missing"),
-  v.literal("not_approved"),
-  v.literal("approval_running"),
-  v.literal("shared_widely")
-);
+// would take the file straight back once it is ready on To review.
+const sendBackRefusalValidator = v.union(v.literal("missing"), v.literal("not_approved"), v.literal("approval_running"));
 
 /** Running approvals one Send back call reads to find picked-file approvals that still hold a file. */
 const RUNNING_APPROVALS_READ = 50;
@@ -2223,47 +2225,30 @@ const sendBackResultValidator = v.object({
   brainKept: v.array(v.id("ingestionItems")),
   // Sent back with its Brain copy revoked.
   brainRevoked: v.array(v.id("ingestionItems")),
+  // 2026-11-18: not looked at in this call, because its read budget was
+  // spent (SEND_BACK_READ_BUDGET); the page sends them again, unchanged.
+  notReached: v.array(v.id("ingestionItems")),
 });
 type SendBackResult = Infer<typeof sendBackResultValidator>;
 
 /**
- * Another approved Import file (not `itemId`) that links this Brain source,
- * null when none does, or "unknown" when proving that would read more than
- * SHARED_SOURCE_READ_MAX rows. Read through the Brain's own link rows
- * (brainSourceImportFiles, convex/ai/brain/rag.ts): each names a file's
- * bytes and the file that first linked them; a later file with the same
- * bytes is linked by those same bytes (linkBrainSourceImportFile adds no
- * second row), so every file with each linked hash is read too, page past
- * page, not just the first few. A file counts when it is approved and its
- * own brainSourceId is still this source.
+ * Another approved Import file (not `itemId`) that still points at this
+ * Brain source, or null when none does. Every approved file with a Brain
+ * copy names it in its own brainSourceId (finishBrainCheck sets it, through
+ * the Brain's link rows), so the index on brainSourceId and status answers
+ * exactly that, completely, and reads at most two files: never the copies
+ * that are not approved, nor any file's text preview past those two.
  */
 async function otherApprovedLink(
   ctx: MutationCtx,
   sourceId: Id<"brainSources">,
   itemId: Id<"ingestionItems">
-): Promise<Doc<"ingestionItems"> | null | "unknown"> {
-  const shares = (row: Doc<"ingestionItems"> | null): row is Doc<"ingestionItems"> =>
-    row !== null && row._id !== itemId && row.status === "approved" && row.brainSourceId === sourceId;
-  let read = 0;
-  const seen = new Set<Id<"ingestionItems">>();
-  const links = ctx.db.query("brainSourceImportFiles").withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId));
-  for await (const link of links) {
-    if (++read > SHARED_SOURCE_READ_MAX) return "unknown";
-    if (!seen.has(link.importItemId)) {
-      seen.add(link.importItemId);
-      if (++read > SHARED_SOURCE_READ_MAX) return "unknown";
-      const first = await ctx.db.get(link.importItemId);
-      if (shares(first)) return first;
-    }
-    const copies = ctx.db.query("ingestionItems").withIndex("by_contentHash", (q) => q.eq("contentHash", link.contentHash));
-    for await (const copy of copies) {
-      if (seen.has(copy._id)) continue;
-      seen.add(copy._id);
-      if (++read > SHARED_SOURCE_READ_MAX) return "unknown";
-      if (shares(copy)) return copy;
-    }
-  }
-  return null;
+): Promise<Doc<"ingestionItems"> | null> {
+  const approved = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_brainSourceId_and_status", (q) => q.eq("brainSourceId", sourceId).eq("status", "approved"))
+    .take(2);
+  return approved.find((row) => row._id !== itemId) ?? null;
 }
 
 /**
@@ -2275,15 +2260,15 @@ async function sendBackOne(
   ctx: MutationCtx,
   item: Doc<"ingestionItems">,
   adminId: Id<"users">
-): Promise<
-  | { refused: "shared_widely" }
-  | { companyFile: "removed" | "gone"; brain: "revoked" | "shared" | "already_removed" | "none"; groups: string[] }
-> {
-  // What becomes of the Brain copy is settled first: a copy whose other
-  // files cannot all be read refuses the file before anything changes.
+): Promise<{
+  companyFile: "removed" | "gone";
+  brain: "revoked" | "shared" | "already_removed" | "none";
+  groups: string[];
+  /** What it read, near enough, for the call's read budget. */
+  readBytes: number;
+}> {
   const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
   const other = source && source.status !== "revoked" ? await otherApprovedLink(ctx, source._id, item._id) : null;
-  if (other === "unknown") return { refused: "shared_widely" };
 
   const companyFileId =
     item.companyFileId ??
@@ -2291,6 +2276,7 @@ async function sendBackOne(
       .query("companyFiles")
       .withIndex("by_importItemId", (q) => q.eq("importItemId", item._id))
       .first())?._id;
+  const companyFileDoc = companyFileId ? await ctx.db.get(companyFileId) : null;
   const companyFile =
     companyFileId && (await removeImportedCompanyFile(ctx, companyFileId, item._id, adminId)) ? "removed" : "gone";
 
@@ -2335,7 +2321,12 @@ async function sendBackOne(
     ...(source ? { brainSourceId: source._id } : {}),
     brain: brain === "shared" ? "unlinked" : brain,
   });
-  return { companyFile, brain, groups: [after.pairGroupKey, item.pairGroupKey] };
+  return {
+    companyFile,
+    brain,
+    groups: [after.pairGroupKey, item.pairGroupKey],
+    readBytes: storedSize(source) + storedSize(other) + storedSize(companyFileDoc) + SEND_BACK_FILE_OVERHEAD,
+  };
 }
 
 /**
@@ -2344,7 +2335,9 @@ async function sendBackOne(
  * copy revoked (or only unlinked when another approved file still links
  * it). A file no longer in Import or not approved is refused by name and
  * left as it is; the rest go. Counts, pairing and writers' file counts move
- * through patchItem; pairing for the groups is scheduled.
+ * through patchItem; pairing for the groups is scheduled. Once the call has
+ * read SEND_BACK_READ_BUDGET, the files it has not looked at yet come back
+ * in notReached, untouched, for the page's next call.
  */
 export const sendBackToReview = mutation({
   args: { ids: v.array(v.id("ingestionItems")) },
@@ -2355,11 +2348,25 @@ export const sendBackToReview = mutation({
     if (args.ids.length > SEND_BACK_MAX_FILES) {
       domainError("INVALID_INPUT", `Send back up to ${SEND_BACK_MAX_FILES} files at a time.`);
     }
-    const result: SendBackResult = { sentBack: [], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [] };
+    const result: SendBackResult = {
+      sentBack: [],
+      refused: [],
+      companyFileGone: [],
+      brainKept: [],
+      brainRevoked: [],
+      notReached: [],
+    };
     const groups = new Set<string>();
     const fileApprovals = await movingFileApprovals(ctx);
-    for (const id of new Set(args.ids)) {
+    const ids = [...new Set(args.ids)];
+    let spent = 0;
+    for (const [index, id] of ids.entries()) {
+      if (index > 0 && spent >= SEND_BACK_READ_BUDGET) {
+        result.notReached = ids.slice(index);
+        break;
+      }
       const item = await ctx.db.get(id);
+      spent += storedSize(item);
       if (!item) {
         result.refused.push({ id, reason: "missing" });
         continue;
@@ -2373,10 +2380,7 @@ export const sendBackToReview = mutation({
         continue;
       }
       const done = await sendBackOne(ctx, item, adminId);
-      if ("refused" in done) {
-        result.refused.push({ id, reason: done.refused });
-        continue;
-      }
+      spent += done.readBytes;
       result.sentBack.push(id);
       if (done.companyFile === "gone") result.companyFileGone.push(id);
       if (done.brain === "shared") result.brainKept.push(id);

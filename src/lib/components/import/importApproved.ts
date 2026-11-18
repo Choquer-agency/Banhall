@@ -42,17 +42,12 @@ function refusedWords(reason: Refused["reason"]): readonly [string, string] {
         "is in a company that is still being approved. Send it back once that is done",
         "are in a company that is still being approved. Send them back once that is done",
       ];
-    case "shared_widely":
-      return [
-        "shares its Brain copy with too many files to check at once, so it stays approved",
-        "share their Brain copies with too many files to check at once, so they stay approved",
-      ];
   }
 }
 
 /** All the calls of one Send back, added up. */
 export function emptySendBack(): SendBackResult {
-  return { sentBack: [], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [] };
+  return { sentBack: [], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [], notReached: [] };
 }
 
 export function addSendBack(total: SendBackResult, part: SendBackResult): SendBackResult {
@@ -62,6 +57,8 @@ export function addSendBack(total: SendBackResult, part: SendBackResult): SendBa
     companyFileGone: [...total.companyFileGone, ...part.companyFileGone],
     brainKept: [...total.brainKept, ...part.brainKept],
     brainRevoked: [...total.brainRevoked, ...part.brainRevoked],
+    // Only the last call's: the page sends them again until none is left.
+    notReached: part.notReached ?? [],
   };
 }
 

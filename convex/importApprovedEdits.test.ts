@@ -14,7 +14,7 @@ import { addShare, countShareOf, countsOf, emptyImportCounts } from "./lib/impor
 import type { ImportCounts } from "./lib/ingestionSheetValidators";
 import { pathFieldsFor } from "./lib/ingestionSheet";
 import { patchBrainSource } from "./ai/brain/rag";
-import { NOT_APPROVED_ANY_MORE, SEND_BACK_BRAIN_REASON } from "./ingestion";
+import { NOT_APPROVED_ANY_MORE, SEND_BACK_BRAIN_REASON, SEND_BACK_READ_BUDGET } from "./ingestion";
 import schema from "./schema";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -204,7 +204,7 @@ describe("Send back to review", () => {
     expect(approved).toMatchObject({ status: "approved", companyFileId: file._id, brainSourceId: sourceId, brainCheck: "added" });
 
     const result = await sendBack(admin, [pd]);
-    expect(result).toEqual({ sentBack: [pd], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [pd] });
+    expect(result).toEqual({ sentBack: [pd], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [pd], notReached: [] });
 
     const back = await item(t, pd);
     expect(back).toMatchObject({ status: "pending_review", sheetTab: "review", needsCheck: false, sentBackBy: adminId });
@@ -356,41 +356,70 @@ describe("Send back to review", () => {
     expect(await source(t, sourceId)).toMatchObject({ status: "revoked", sentBackItemId: copies[20] });
   });
 
-  it("refuses, changing nothing, when a copy is linked to more files than one check can read", async () => {
+  it("sends a large selection back across several calls, each within its read budget, never reading the copies", async () => {
     const { t, admin } = await setup();
     await pickIndustry(admin);
-    const pd = await readyPd(t);
-    const sourceId = await inBrain(t, admin, pd);
-    const approved = await item(t, pd);
-    // Over 300 other files with the same bytes (none approved, as after many Send backs).
+    const pds: Id<"ingestionItems">[] = [];
+    for (let n = 0; n < 50; n++) {
+      const number = String(n + 10).padStart(2, "0");
+      pds.push(
+        await readyPd(t, `${FY}/Submitted/${number} CedarlineSystems 2025-03-31 T2.DW.PN SensorCase${number}.docx`, `${PD_TEXT}\nCase ${number}.`)
+      );
+    }
+    await approve(t, admin, pds);
+    const sources: Id<"brainSources">[] = [];
+    for (const pd of pds) sources.push(await inBrain(t, admin, pd));
+    expect(new Set(sources).size).toBe(50);
+    // Each Brain copy holds a long text, and each file has many copies with
+    // its bytes still on To review: none of them shares the copy.
+    const big = "Long passage about sensor drift. ".repeat(20_000);
     await t.run(async (ctx) => {
-      for (let n = 0; n < 305; n++) {
-        await ctx.db.insert("ingestionItems", {
-          driveItemId: `drive-many-${n}`,
-          path: `${FY}/Submitted/copy ${n}.docx`,
-          name: `copy ${n}.docx`,
-          clientName: CEDARLINE,
-          companyKey: "cedarline systems",
-          docKind: "pd",
-          size: 1,
-          lastModifiedAt: 1,
-          contentHash: approved.contentHash,
-          status: "pending_review",
-          pairGroupKey: "cedarline systems::2025",
-          updatedAt: 1,
-        });
+      for (const sourceId of sources) await patchBrainSource(ctx, (await ctx.db.get(sourceId))!, { content: big });
+      for (const pd of pds) {
+        const row = (await ctx.db.get(pd))!;
+        for (let n = 0; n < 20; n++) {
+          await ctx.db.insert("ingestionItems", {
+            driveItemId: `drive-${pd}-copy-${n}`,
+            path: `${FY}/Submitted/copy ${n} of ${row.name}`,
+            name: `copy ${n} of ${row.name}`,
+            clientName: CEDARLINE,
+            companyKey: "cedarline systems",
+            docKind: "pd",
+            size: 1,
+            lastModifiedAt: 1,
+            contentHash: row.contentHash,
+            status: "pending_review",
+            text: "x".repeat(8000),
+            pairGroupKey: "cedarline systems::2025",
+            updatedAt: 1,
+          });
+        }
       }
     });
-    expect(await sendBack(admin, [pd])).toEqual({
-      sentBack: [],
-      refused: [{ id: pd, reason: "shared_widely" }],
-      companyFileGone: [],
-      brainKept: [],
-      brainRevoked: [],
-    });
-    expect(await item(t, pd)).toMatchObject({ status: "approved", companyFileId: approved.companyFileId, brainSourceId: sourceId });
-    expect(await source(t, sourceId)).toMatchObject({ status: "approved" });
-    expect(await events(t, pd)).toEqual([]);
+    const sourceSize = await t.run(async (ctx) => JSON.stringify(await ctx.db.get(sources[0]))!.length);
+    const itemSize = await t.run(async (ctx) => JSON.stringify(await ctx.db.get(pds[0]))!.length);
+
+    // As the page does: the files a call did not reach go first in the next one.
+    let queue = [...pds];
+    const calls: Array<Awaited<ReturnType<typeof sendBack>>> = [];
+    while (queue.length > 0) {
+      const result = await sendBack(admin, queue.slice(0, 50));
+      calls.push(result);
+      expect(result.notReached.length).toBeLessThan(Math.min(queue.length, 50));
+      queue = [...result.notReached, ...queue.slice(50)];
+    }
+    expect(calls.length).toBeGreaterThan(1);
+    for (const call of calls) {
+      // What a call read stays within its budget, but for the one file that crossed it.
+      const read = call.sentBack.length * (sourceSize + itemSize);
+      expect(read).toBeLessThanOrEqual(SEND_BACK_READ_BUDGET + sourceSize + itemSize + 1024 * 1024);
+      expect(call.refused).toEqual([]);
+    }
+    const all = calls.flatMap((call) => call.sentBack);
+    expect(all.sort()).toEqual([...pds].sort());
+    expect(calls.flatMap((call) => call.brainRevoked).sort()).toEqual([...pds].sort());
+    for (const sourceId of sources) expect(await source(t, sourceId)).toMatchObject({ status: "revoked" });
+    for (const pd of pds) expect(await item(t, pd)).toMatchObject({ status: "pending_review" });
   });
 
   it("finds a file with other bytes that shares the copy through the Brain's link rows", async () => {
@@ -558,6 +587,7 @@ describe("Send back to review", () => {
       companyFileGone: [],
       brainKept: [],
       brainRevoked: [],
+      notReached: [],
     });
     expect(await item(t, draft)).toMatchObject({ status: "approved" });
     expect(await companyFiles(t)).toHaveLength(1);
