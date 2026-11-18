@@ -9,6 +9,13 @@
   200,000, and a note when only part of it shows. A bits-ui dialog keeps
   focus inside; Esc or the close button closes it and focus goes back to
   where it opened from.
+
+  Edit after approval and Send back (2026-11-17): an approved file shows
+  its details an Admin can change (ImportApprovedDetails: writer, reviewer,
+  science code, PD title, "Reviewed by CRA") above its text, in place of
+  its writer and science code in the labels, and "Send back to review"
+  with its confirm; once the file is sent back the view closes. A final PD
+  marked reviewed by CRA says so in its labels on every tab.
 -->
 <script lang="ts">
   import { Dialog } from "bits-ui";
@@ -20,6 +27,8 @@
   import { companiesPath } from "$lib/companies/companies";
   import { userErrorMessage } from "$lib/errors";
   import { BRAIN_STATE_TEXT, NOT_ON_COMPANY_PAGE } from "./importApprove";
+  import { CRA_REVIEWED } from "./importApproved";
+  import ImportApprovedDetails from "./ImportApprovedDetails.svelte";
   import { CATEGORY_NAMES, checkLines, fileStateText, FILE_VIEW_MAX_CHARS, textNote } from "./importFileView";
   import { fileCells, fiscalYearTooltip, yearEndDate, type SheetFileRow } from "./importFormat";
   import { AMBER, SHEET_SMALL, SHOW_MORE } from "./sheetLayout";
@@ -91,11 +100,15 @@
     }
     if (file.pdNumber) rows.push({ label: "PD number", value: file.pdNumber });
     if (cells.version) rows.push({ label: "Version", value: cells.version });
-    if (cells.writer) rows.push({ label: "Writer", value: cells.writer.tone === "amber" ? "No writer yet" : cells.writer.text });
+    // An approved file's writer and science code are in its Details, where they can be changed.
+    const approved = file.status === "approved";
+    if (cells.writer && !approved) rows.push({ label: "Writer", value: cells.writer.tone === "amber" ? "No writer yet" : cells.writer.text });
+    if (file.reviewerName && !approved) rows.push({ label: "Reviewer", value: file.reviewerName });
     if (file.reviewerInitials) rows.push({ label: "Reviewer initials", value: file.reviewerInitials });
-    if (cells.scienceCode?.kind === "code") {
+    if (cells.scienceCode?.kind === "code" && !approved) {
       rows.push({ label: "Science code", value: [cells.scienceCode.code, cells.scienceCode.title].filter(Boolean).join(" ") });
     }
+    if (file.craReviewed && file.category === "final_pd" && !approved) rows.push({ label: "CRA", value: CRA_REVIEWED });
     if (file.status === "approved") {
       rows.push(
         file.companyPage
@@ -165,6 +178,10 @@
               </dd>
             {/each}
           </dl>
+
+          {#if file.status === "approved"}
+            <ImportApprovedDetails {file} onSentBack={onClose} />
+          {/if}
 
           <section class="mt-6" aria-labelledby="import-file-panel-text">
             <h3 id="import-file-panel-text" class={`${SHEET_SMALL} tracking-[0.04em] text-ink-muted uppercase`}>Text</h3>

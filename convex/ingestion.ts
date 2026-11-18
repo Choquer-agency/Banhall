@@ -13,8 +13,20 @@ import { v, type Infer } from "convex/values";
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { contentHash as brainContentHash, findImportMatch, importSource } from "./brain";
-import { addImportedCompanyFile, linkKeyProjectsPage } from "./companyFiles";
+import {
+  contentHash as brainContentHash,
+  findImportMatch,
+  importSource,
+  relabelImportedSource,
+  revokeBrainSourceRow,
+} from "./brain";
+import { patchBrainSource } from "./ai/brain/rag";
+import {
+  addImportedCompanyFile,
+  linkKeyProjectsPage,
+  removeImportedCompanyFile,
+  updateImportedCompanyFileLabels,
+} from "./companyFiles";
 import { hasReadText as hasServerReadText } from "./lib/serverReading";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { domainError } from "./lib/contracts";
@@ -72,7 +84,6 @@ import {
   membersWithInitials,
   nameWriterFromDocument,
   pickedWriter,
-  reviewerForInitials,
   userDisplayLabel,
   writerForChoice,
   writerForInitials,
@@ -116,6 +127,7 @@ import {
 import { projectIndustry } from "./clients";
 import {
   buildImportBrainCopy,
+  IMPORT_BRAIN_DEFAULT_WRITER_TIER,
   IMPORT_BRAIN_NOT_COVERED,
   IMPORT_BRAIN_REFUSALS,
   type ImportBrainCopyResult,
@@ -126,6 +138,7 @@ import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerN
 import { industrySlug } from "../shared/industries";
 import {
   APPROVAL_STALE_MS,
+  approvedEditApplies,
   approveRefusalFor,
   canDelete,
   canPutBack,
@@ -1361,12 +1374,13 @@ async function approveOneFile(
   const wholeText = text !== undefined && hasServerReadText(text) ? text : undefined;
   // A file with no original and only its preview keeps the preview: nothing else can be read.
   const companyText = wholeText ?? (item.storageId === undefined && item.text?.trim() ? item.text : null);
-  // The file's own reviewer (one an Admin chose, setFileReviewers, or one it
-  // kept after its initials changed) is copied as it is; only a final PD
-  // with none takes one from its reviewer initials.
+  // The file's own reviewer as the Reviewer column shows it (from its
+  // reviewer initials, a pick for them, or a person; an edit after approval
+  // is kept through Send back), counted in its writer's reviewCount, so the
+  // company file never names a writer that could be removed. A reviewer
+  // that no longer exists is left out.
   const savedReviewer = await liveWriter(ctx, item.reviewerId);
-  const reviewerId =
-    savedReviewer?._id ?? (item.category === "final_pd" ? await reviewerForInitials(ctx, item.reviewerInitials) : null);
+  const reviewerId = savedReviewer?._id ?? null;
   const importLabels = definedFields({
     pdTitle: item.pdTitle,
     versionCode: item.versionCode,
@@ -1375,6 +1389,7 @@ async function approveOneFile(
     fiscalYearEnd: item.fiscalYearEnd,
     writerInitials: item.writerInitials,
     reviewerInitials: item.reviewerInitials,
+    craReviewed: item.category === "final_pd" && item.craReviewed === true ? true : undefined,
   });
   const added = await addImportedCompanyFile(ctx, {
     clientId: client._id,
@@ -2049,13 +2064,20 @@ export const finishBrainCheck = internalMutation({
     // is reused only when it holds exactly this scrubbed copy: one approved
     // on the old page unscrubbed, or a copy made with other Also remove
     // words, is never linked as this one.
-    const match = await findImportMatch(ctx, brainContentHash(fields.content), importContentHash);
+    // A source revoked by Send back to review (2026-11-17) is passed over:
+    // it undid an approval, so this copy, read by a person just now, is new.
+    const match = await findImportMatch(ctx, brainContentHash(fields.content), importContentHash, { skipSentBack: true });
     if (match && match.status !== "revoked" && match.sourceHash !== brainContentHash(fields.content)) {
       return { ok: false, reason: BRAIN_COPY_DIFFERS };
     }
     const result = await importSource(
       ctx,
-      { ...fields, approve: true, importItem: { itemId: importItemId, contentHash: importContentHash } },
+      {
+        ...fields,
+        approve: true,
+        importItem: { itemId: importItemId, contentHash: importContentHash },
+        supersedeSentBack: true,
+      },
       adminId
     );
     if (result.outcome === "revoked") return { ok: false, reason: result.message };
@@ -2101,6 +2123,474 @@ export const keepOutOfBrain = mutation({
       updatedAt: Date.now(),
     });
     return null;
+  },
+});
+
+// ─── Send back to review, and edit after approval (2026-11-17) ──────────────
+// Owner decisions of 2026-11-17 (docs/product-domain.md, the fifth entry of
+// that day). Send back to review, Admin only, undoes an approval (a file
+// approved to the wrong company, say): the company file the approval made is
+// removed by the company file delete path (its original is the Import
+// file's own and stays; drafts keep the text versions they read), the
+// file's Brain copy is revoked as an audited unlearn unless another approved
+// Import file still links it (then only this file lets go of it), and the
+// file goes back to To review with its labels. A company the approval made
+// stays. Edit after approval, Admin only, changes an approved file's
+// metadata (writer, reviewer, science code, PD title, "Reviewed by CRA"),
+// never the file itself, and never its company, category or fiscal year:
+// the company file and the Brain copy follow. Every Send back and every
+// edit is a row in importFileEvents.
+
+/** Files one Send back call takes (each removes a company file and may revoke a Brain copy). */
+export const SEND_BACK_MAX_FILES = 50;
+
+/** The Brain audit log's reason for a revoke made by Send back. */
+export const SEND_BACK_BRAIN_REASON = "Sent back to review on Import";
+
+/**
+ * Rows one check reads to find another approved Import file that still
+ * links a Brain source: its link rows, and the files with each linked
+ * file's bytes (copies of one PD: a handful at most).
+ */
+const SHARED_SOURCE_READ = 20;
+
+// missing: no longer in Import; not_approved: not on Approved (already sent
+// back, say); approval_running: an approval of its company is still moving,
+// and would take the file straight back once it is ready on To review.
+const sendBackRefusalValidator = v.union(v.literal("missing"), v.literal("not_approved"), v.literal("approval_running"));
+
+/** Whether an approval of this company is still moving (not stalled), so a file sent back now would be approved again. */
+async function companyApprovalMoving(ctx: MutationCtx, companyKey: string | undefined): Promise<boolean> {
+  if (!companyKey) return false;
+  const running = await ctx.db
+    .query("importApprovals")
+    .withIndex("by_scope_and_companyKey_and_status", (q) => q.eq("scope", "company").eq("companyKey", companyKey).eq("status", "running"))
+    .take(5);
+  return running.some((run) => Date.now() - run.updatedAt < APPROVAL_STALE_MS);
+}
+
+const sendBackResultValidator = v.object({
+  sentBack: v.array(v.id("ingestionItems")),
+  refused: v.array(v.object({ id: v.id("ingestionItems"), reason: sendBackRefusalValidator })),
+  // Sent back with no company file to remove (removed by hand since, or
+  // approved on the old page, which made none).
+  companyFileGone: v.array(v.id("ingestionItems")),
+  // Sent back with its Brain copy left in the Brain, because another
+  // approved Import file still links it.
+  brainKept: v.array(v.id("ingestionItems")),
+  // Sent back with its Brain copy revoked.
+  brainRevoked: v.array(v.id("ingestionItems")),
+});
+type SendBackResult = Infer<typeof sendBackResultValidator>;
+
+/**
+ * Another approved Import file (not `itemId`) that links this Brain source,
+ * or null. Read through the Brain's own link rows (brainSourceImportFiles,
+ * convex/ai/brain/rag.ts): each names a file's bytes and the file that
+ * first linked them; a later file with the same bytes is linked by those
+ * same bytes (linkBrainSourceImportFile adds no second row), so the files
+ * with each linked hash are read too. A file counts when it is approved
+ * and its own brainSourceId is still this source.
+ */
+async function otherApprovedLink(
+  ctx: MutationCtx,
+  sourceId: Id<"brainSources">,
+  itemId: Id<"ingestionItems">
+): Promise<Doc<"ingestionItems"> | null> {
+  const shares = (row: Doc<"ingestionItems"> | null): row is Doc<"ingestionItems"> =>
+    row !== null && row._id !== itemId && row.status === "approved" && row.brainSourceId === sourceId;
+  const links = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+    .take(SHARED_SOURCE_READ);
+  for (const link of links) {
+    const first = await ctx.db.get(link.importItemId);
+    if (shares(first)) return first;
+    const copies = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_contentHash", (q) => q.eq("contentHash", link.contentHash))
+      .take(SHARED_SOURCE_READ);
+    const copy = copies.find(shares);
+    if (copy) return copy;
+  }
+  return null;
+}
+
+/**
+ * Sends one approved Import file back to To review in the caller's mutation
+ * (the steps above). The company file is the one the approval recorded, or
+ * one made from this file (by_importItemId) when the link is missing.
+ */
+async function sendBackOne(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems">,
+  adminId: Id<"users">
+): Promise<{ companyFile: "removed" | "gone"; brain: "revoked" | "shared" | "already_removed" | "none"; groups: string[] }> {
+  const companyFileId =
+    item.companyFileId ??
+    (await ctx.db
+      .query("companyFiles")
+      .withIndex("by_importItemId", (q) => q.eq("importItemId", item._id))
+      .first())?._id;
+  const companyFile =
+    companyFileId && (await removeImportedCompanyFile(ctx, companyFileId, item._id, adminId)) ? "removed" : "gone";
+
+  let brain: "revoked" | "shared" | "already_removed" | "none" = "none";
+  const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
+  if (source) {
+    const other = await otherApprovedLink(ctx, source._id, item._id);
+    if (other) {
+      // Only this file lets go: the copy stays for the other file, which
+      // retrieval now reads its company from.
+      brain = "shared";
+      if (source.importItemId === item._id) await patchBrainSource(ctx, source, { importItemId: other._id });
+    } else if (source.status !== "revoked") {
+      await revokeBrainSourceRow(ctx, source, adminId, SEND_BACK_BRAIN_REASON, { sentBackItemId: item._id });
+      brain = "revoked";
+    } else {
+      // Removed on the Brain page already: nothing more to unlearn.
+      brain = "already_removed";
+    }
+  }
+
+  const now = Date.now();
+  const { after } = await patchItem(ctx, item, {
+    status: "pending_review",
+    companyFileId: undefined,
+    brainSourceId: undefined,
+    brainCheck: undefined,
+    brainCheckedBy: undefined,
+    brainCheckedAt: undefined,
+    reviewedBy: undefined,
+    reviewedAt: undefined,
+    sentBackBy: adminId,
+    sentBackAt: now,
+    updatedAt: now,
+  });
+  await ctx.db.insert("importFileEvents", {
+    itemId: item._id,
+    action: "send_back",
+    userId: adminId,
+    at: now,
+    ...(companyFileId ? { companyFileId } : {}),
+    companyFile,
+    ...(source ? { brainSourceId: source._id } : {}),
+    brain: brain === "shared" || brain === "already_removed" ? "unlinked" : brain,
+  });
+  return { companyFile, brain, groups: [after.pairGroupKey, item.pairGroupKey] };
+}
+
+/**
+ * Send back to review (Admins only): up to 50 approved Import files, each
+ * back on To review with its labels, its company file removed and its Brain
+ * copy revoked (or only unlinked when another approved file still links
+ * it). A file no longer in Import or not approved is refused by name and
+ * left as it is; the rest go. Counts, pairing and writers' file counts move
+ * through patchItem; pairing for the groups is scheduled.
+ */
+export const sendBackToReview = mutation({
+  args: { ids: v.array(v.id("ingestionItems")) },
+  returns: sendBackResultValidator,
+  handler: async (ctx, args): Promise<SendBackResult> => {
+    const adminId = await assertAdmin(ctx);
+    if (args.ids.length === 0) domainError("INVALID_INPUT", "Select at least one file.");
+    if (args.ids.length > SEND_BACK_MAX_FILES) {
+      domainError("INVALID_INPUT", `Send back up to ${SEND_BACK_MAX_FILES} files at a time.`);
+    }
+    const result: SendBackResult = { sentBack: [], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [] };
+    const groups = new Set<string>();
+    for (const id of new Set(args.ids)) {
+      const item = await ctx.db.get(id);
+      if (!item) {
+        result.refused.push({ id, reason: "missing" });
+        continue;
+      }
+      if (item.status !== "approved") {
+        result.refused.push({ id, reason: "not_approved" });
+        continue;
+      }
+      if (await companyApprovalMoving(ctx, item.companyKey)) {
+        result.refused.push({ id, reason: "approval_running" });
+        continue;
+      }
+      const done = await sendBackOne(ctx, item, adminId);
+      result.sentBack.push(id);
+      if (done.companyFile === "gone") result.companyFileGone.push(id);
+      if (done.brain === "shared") result.brainKept.push(id);
+      if (done.brain === "revoked") result.brainRevoked.push(id);
+      for (const key of done.groups) groups.add(key);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return result;
+  },
+});
+
+const approvedEditFieldValidator = v.union(
+  v.literal("writer"),
+  v.literal("reviewer"),
+  v.literal("scienceCode"),
+  v.literal("pdTitle"),
+  v.literal("craReviewed")
+);
+type ApprovedEditField = Infer<typeof approvedEditFieldValidator>;
+
+/** The longest PD title an Admin may give a file. */
+export const MAX_PD_TITLE = 200;
+
+/** Why an edit after approval cannot go on this file, in plain words. */
+const APPROVED_EDIT_REFUSALS: Record<ApprovedEditField, string> = {
+  writer: "A writer only goes on a final PD, draft or review copy.",
+  reviewer: "A reviewer only goes on a final PD, draft or review copy.",
+  pdTitle: "A PD title only goes on a final PD, draft or review copy.",
+  scienceCode: "A science code only goes on a final PD.",
+  craReviewed: "Only a final PD can be marked as reviewed by CRA.",
+};
+
+export const NOT_APPROVED_ANY_MORE = "This file is no longer approved. Change it on To review.";
+
+const approvedEditPatchValidator = v.object({
+  writer: v.optional(writerChoiceValidator),
+  // null: no reviewer.
+  reviewer: v.optional(v.union(writerChoiceValidator, v.null())),
+  scienceCode: v.optional(v.string()),
+  // "" clears the title (the sheet then shows the file name).
+  pdTitle: v.optional(v.string()),
+  craReviewed: v.optional(v.boolean()),
+});
+
+type AuditChange = NonNullable<Doc<"importFileEvents">["changes"]>[number];
+
+/** A PD title as it is stored: trimmed, inner spaces collapsed; undefined for none. */
+function cleanPdTitle(value: string): string | undefined {
+  const title = value.trim().replace(/\s+/g, " ");
+  if (title.length > MAX_PD_TITLE) domainError("INVALID_INPUT", `A PD title can be up to ${MAX_PD_TITLE} characters.`);
+  return title || undefined;
+}
+
+/** A writer's label as it is now, for the audit row; undefined for none or a writer gone since. */
+async function writerAuditLabel(ctx: MutationCtx, id: Id<"pdWriters"> | undefined): Promise<string | undefined> {
+  const writer = await liveWriter(ctx, id);
+  return writer ? await writerLabel(ctx, writer) : undefined;
+}
+
+/**
+ * Edit after approval (Admins only): an approved file's writer, reviewer,
+ * science code, PD title or "Reviewed by CRA" mark. Metadata only: the
+ * file, its text, company, category and fiscal year never change here (Send
+ * back to review moves a file). A writer chosen here is set on this file
+ * alone, never a firm-wide pick for its initials (approved files keep
+ * skipping picks, the freeze rule). The company file's own fields follow
+ * (writerId, reviewerId and the labels it stores), and so does the Brain
+ * copy when the file has one (writer's name and tier, science code; it is
+ * embedded again only when the writer's name or the science code it stores
+ * changed). One importFileEvents row lists every field that changed, before
+ * and after. Returns the fields that changed and whether the Brain copy is
+ * embedded again.
+ */
+export const editApprovedFile = mutation({
+  args: { id: v.id("ingestionItems"), patch: approvedEditPatchValidator },
+  returns: v.object({ changed: v.array(approvedEditFieldValidator), reembed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    const item = await ctx.db.get(args.id);
+    if (!item) domainError("NOT_FOUND", ITEM_NOT_FOUND);
+    if (item.status !== "approved") domainError("INVALID_STATE", NOT_APPROVED_ANY_MORE);
+    const asked = (Object.keys(args.patch) as ApprovedEditField[]).filter((key) => args.patch[key] !== undefined);
+    if (asked.length === 0) domainError("INVALID_INPUT", "Choose a detail to change.");
+    const category = item.category ?? "unknown";
+    for (const field of asked) {
+      if (!approvedEditApplies(field, { status: item.status, category })) domainError("INVALID_INPUT", APPROVED_EDIT_REFUSALS[field]);
+    }
+
+    const patch: Partial<IngestionItemFields> = {};
+    const labelsAdded: Array<"writerName" | "scienceCode" | "pdTitle"> = [];
+    const changes: AuditChange[] = [];
+    let newWriter: Doc<"pdWriters"> | null = null;
+
+    // The writer and the science code are checked and cleaned as on To review.
+    const sheet =
+      args.patch.writer !== undefined || args.patch.scienceCode !== undefined
+        ? labelPatchFields({
+            ...(args.patch.writer !== undefined ? { writer: args.patch.writer } : {}),
+            ...(args.patch.scienceCode !== undefined ? { scienceCode: args.patch.scienceCode } : {}),
+          })
+        : null;
+    if (sheet?.writer) {
+      const chosen = await writerForChoice(ctx, sheet.writer, { by: adminId });
+      if (chosen._id !== item.writerId) {
+        const label = await writerLabel(ctx, chosen);
+        Object.assign(patch, { writerId: chosen._id, writerName: label, writerNameSource: "person" as const, writerBeforePick: undefined });
+        labelsAdded.push("writerName");
+        changes.push(
+          definedFields({
+            field: "writer" as const,
+            before: item.writerId,
+            after: chosen._id,
+            beforeLabel: (await writerAuditLabel(ctx, item.writerId)) ?? item.writerName,
+            afterLabel: label,
+          })
+        );
+        newWriter = chosen;
+      }
+    }
+    if (args.patch.reviewer !== undefined) {
+      const chosen = args.patch.reviewer === null ? null : await writerForChoice(ctx, args.patch.reviewer, { by: adminId });
+      if ((chosen?._id ?? undefined) !== item.reviewerId) {
+        // As setFileReviewers: the file alone, and it forgets any reviewer it
+        // remembered from before a pick, so every count moves in patchItem.
+        Object.assign(
+          patch,
+          chosen
+            ? { reviewerId: chosen._id, reviewerSource: "person" as const, reviewerBeforePick: undefined }
+            : { reviewerId: undefined, reviewerSource: undefined, reviewerBeforePick: undefined }
+        );
+        changes.push(
+          definedFields({
+            field: "reviewer" as const,
+            before: item.reviewerId,
+            after: chosen?._id,
+            beforeLabel: await writerAuditLabel(ctx, item.reviewerId),
+            afterLabel: chosen ? await writerLabel(ctx, chosen) : undefined,
+          })
+        );
+      }
+    }
+    if (sheet?.fields.scienceCode !== undefined && sheet.fields.scienceCode !== item.scienceCode) {
+      Object.assign(patch, { scienceCode: sheet.fields.scienceCode, scienceCodeSource: "person" as const });
+      labelsAdded.push("scienceCode");
+      changes.push(definedFields({ field: "scienceCode" as const, before: item.scienceCode, after: sheet.fields.scienceCode }));
+    } else if (sheet?.fields.scienceCode !== undefined && item.scienceCodeSource !== "person") {
+      // The AI's code confirmed by a person becomes theirs; nothing else changes.
+      Object.assign(patch, { scienceCodeSource: "person" as const });
+      labelsAdded.push("scienceCode");
+    }
+    if (args.patch.pdTitle !== undefined) {
+      const title = cleanPdTitle(args.patch.pdTitle);
+      if (title !== item.pdTitle) {
+        patch.pdTitle = title;
+        labelsAdded.push("pdTitle");
+        changes.push(definedFields({ field: "pdTitle" as const, before: item.pdTitle, after: title }));
+      }
+    }
+    if (args.patch.craReviewed !== undefined && args.patch.craReviewed !== (item.craReviewed === true)) {
+      const now = Date.now();
+      Object.assign(
+        patch,
+        args.patch.craReviewed
+          ? { craReviewed: true, craReviewedBy: adminId, craReviewedAt: now }
+          : { craReviewed: undefined, craReviewedBy: undefined, craReviewedAt: undefined }
+      );
+      changes.push({ field: "craReviewed", before: item.craReviewed ? "yes" : "no", after: args.patch.craReviewed ? "yes" : "no" });
+    }
+    if (Object.keys(patch).length === 0) return { changed: [], reembed: false };
+    if (labelsAdded.length > 0) patch.editedLabels = mergeEditedLabels(item.editedLabels, labelsAdded);
+    await patchItem(ctx, item, patch, { touch: true });
+    if (changes.length === 0) return { changed: [], reembed: false };
+
+    const changed = new Set(changes.map((change) => change.field));
+    // The company file's own fields follow.
+    let companyFile: "updated" | "gone" = "gone";
+    if (item.companyFileId) {
+      const found = await updateImportedCompanyFileLabels(ctx, item.companyFileId, item._id, {
+        ...(changed.has("writer") ? { writerId: patch.writerId ?? null } : {}),
+        ...(changed.has("reviewer") ? { reviewerId: patch.reviewerId ?? null } : {}),
+        ...(changed.has("pdTitle") ? { pdTitle: patch.pdTitle ?? null } : {}),
+        ...(changed.has("scienceCode") ? { scienceCode: patch.scienceCode ?? null } : {}),
+        ...(changed.has("craReviewed") ? { craReviewed: patch.craReviewed === true } : {}),
+      });
+      if (found) companyFile = "updated";
+    }
+    // The Brain copy follows its writer and science code (its title is fixed words and a year).
+    let brain: "relabeled" | "reembedded" | "none" = "none";
+    let reembed = false;
+    const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
+    if (source && source.status !== "revoked" && (changed.has("writer") || changed.has("scienceCode"))) {
+      const tier = newWriter?.tier;
+      const result = await relabelImportedSource(
+        ctx,
+        source,
+        {
+          ...(newWriter
+            ? {
+                // As the Brain copy is made (convex/lib/importBrainCopy.ts): the writer's own name, else its label.
+                writerName: newWriter.name?.trim() || patch.writerName || null,
+                writerTier:
+                  typeof tier === "number" && Number.isFinite(tier) ? Math.max(0, Math.min(1, tier)) : IMPORT_BRAIN_DEFAULT_WRITER_TIER,
+              }
+            : {}),
+          ...(changed.has("scienceCode") ? { scienceCode: patch.scienceCode ?? null } : {}),
+        },
+        adminId
+      );
+      reembed = result.reembed;
+      if (result.changed) brain = reembed ? "reembedded" : "relabeled";
+    }
+    await ctx.db.insert("importFileEvents", {
+      itemId: item._id,
+      action: "edit",
+      userId: adminId,
+      at: Date.now(),
+      changes,
+      ...(item.companyFileId ? { companyFileId: item.companyFileId } : {}),
+      companyFile,
+      ...(source ? { brainSourceId: source._id } : {}),
+      brain,
+    });
+    return { changed: [...changed], reembed };
+  },
+});
+
+const importFileEventValidator = v.object({
+  _id: v.id("importFileEvents"),
+  action: v.union(v.literal("edit"), v.literal("send_back")),
+  at: v.number(),
+  by: v.string(),
+  changes: v.array(
+    v.object({
+      field: approvedEditFieldValidator,
+      before: v.optional(v.string()),
+      after: v.optional(v.string()),
+      beforeLabel: v.optional(v.string()),
+      afterLabel: v.optional(v.string()),
+    })
+  ),
+  companyFile: v.optional(v.union(v.literal("removed"), v.literal("gone"), v.literal("updated"))),
+  brain: v.optional(
+    v.union(v.literal("revoked"), v.literal("unlinked"), v.literal("relabeled"), v.literal("reembedded"), v.literal("none"))
+  ),
+});
+
+/** A file's Send backs and edits after approval, newest first, up to 20 (Admins only). */
+export const importFileEvents = query({
+  args: { id: v.id("ingestionItems") },
+  returns: v.array(importFileEventValidator),
+  handler: async (ctx, args) => {
+    if ((await adminOrNull(ctx)) === null) return [];
+    const rows = await ctx.db
+      .query("importFileEvents")
+      .withIndex("by_itemId_and_at", (q) => q.eq("itemId", args.id))
+      .order("desc")
+      .take(20);
+    const names = new Map<Id<"users">, string>();
+    const out: Infer<typeof importFileEventValidator>[] = [];
+    for (const row of rows) {
+      if (!names.has(row.userId)) {
+        const user = await ctx.db.get(row.userId);
+        names.set(row.userId, user ? userDisplayLabel(user) : "Someone no longer in Banhall");
+      }
+      out.push(
+        definedFields({
+          _id: row._id,
+          action: row.action,
+          at: row.at,
+          by: names.get(row.userId)!,
+          changes: row.changes ?? [],
+          companyFile: row.companyFile,
+          brain: row.brain,
+        })
+      );
+    }
+    return out;
   },
 });
 

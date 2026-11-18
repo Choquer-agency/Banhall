@@ -338,25 +338,59 @@ export async function linkBrainSourceImportFile(
   });
 }
 
-/** The source an import file's bytes are already linked to, if any. */
+/**
+ * Whether a revoked source was revoked by Send back to review on Import
+ * (2026-11-17): it undid an approval, not a judgment of the PD, so the
+ * Import's Brain check may make a new copy of that PD after its next
+ * approval (brain.ts `importSource` with `supersedeSentBack`).
+ */
+export function revokedBySendBack(source: Pick<Doc<"brainSources">, "status" | "sentBackItemId">): boolean {
+  return source.status === "revoked" && source.sentBackItemId !== undefined;
+}
+
+/** The most link rows read for one import file hash (a few sources at most). */
+const IMPORT_HASH_LINKS = 50;
+
+/**
+ * The live sources an import file's bytes are linked to, oldest first. A
+ * hash belongs to one live source, besides the sources Send back to review
+ * revoked (2026-11-17), each of which a later Brain check may follow with a
+ * new copy of the same PD. Links of a source removed for good may still be
+ * waiting for their scheduled cleanup, so they are skipped; two live
+ * sources for one hash that Send back did not revoke is broken data and
+ * fails loudly.
+ */
+export async function sourcesForImportFile(
+  ctx: MutationCtx,
+  contentHash: string
+): Promise<Doc<"brainSources">[]> {
+  const links = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_contentHash_and_sourceId", (q) => q.eq("contentHash", contentHash))
+    .take(IMPORT_HASH_LINKS);
+  const live = new Map<Id<"brainSources">, Doc<"brainSources">>();
+  for (const link of links) {
+    if (live.has(link.sourceId)) continue;
+    const source = await ctx.db.get(link.sourceId);
+    if (source) live.set(source._id, source);
+  }
+  const sources = [...live.values()].sort((a, b) => a._creationTime - b._creationTime);
+  const current = sources.filter((source) => !revokedBySendBack(source));
+  if (current.length > 1) {
+    throw new Error(`Import file hash ${contentHash} is linked to ${current.length} Brain sources.`);
+  }
+  return sources;
+}
+
+/**
+ * The source an import file's bytes are already linked to, if any: the one
+ * Send back did not revoke, else (only sources Send back revoked) the
+ * oldest of those.
+ */
 export async function sourceIdForImportFile(
   ctx: MutationCtx,
   contentHash: string
 ): Promise<Id<"brainSources"> | null> {
-  // A hash belongs to one live source. Links of a source removed for good may
-  // still be waiting for their scheduled cleanup, so they are skipped; two
-  // live sources for one hash is broken data and fails loudly.
-  const links = await ctx.db
-    .query("brainSourceImportFiles")
-    .withIndex("by_contentHash_and_sourceId", (q) => q.eq("contentHash", contentHash))
-    .take(10);
-  const live = new Set<Id<"brainSources">>();
-  for (const link of links) {
-    if (await ctx.db.get(link.sourceId)) live.add(link.sourceId);
-  }
-  if (live.size > 1) {
-    throw new Error(`Import file hash ${contentHash} is linked to ${live.size} Brain sources.`);
-  }
-  const [only] = live;
-  return only ?? null;
+  const sources = await sourcesForImportFile(ctx, contentHash);
+  return (sources.find((source) => !revokedBySendBack(source)) ?? sources[0])?._id ?? null;
 }

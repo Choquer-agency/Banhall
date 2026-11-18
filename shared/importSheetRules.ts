@@ -35,7 +35,10 @@ export type ImportLabel =
   | "pdNumber"
   | "version"
   | "writerName"
-  | "scienceCode";
+  | "scienceCode"
+  // 2026-11-17: set only on an approved file (edit after approval), and kept
+  // through a later move on the drive. setSheetLabels does not take it.
+  | "pdTitle";
 
 /** Why a file is on the Deleted tab. */
 export type DeletedReason = "deleted" | "removed_in_onedrive" | "rejected";
@@ -194,7 +197,7 @@ const NUMBERED: ReadonlySet<ImportCategory> = new Set(["final_pd", "draft", "rev
  */
 export function categoryTakes(label: ImportLabel, category: ImportCategory): boolean {
   if (label === "scienceCode") return category === "final_pd";
-  if (label === "pdNumber" || label === "version" || label === "writerName") return NUMBERED.has(category);
+  if (label === "pdNumber" || label === "version" || label === "writerName" || label === "pdTitle") return NUMBERED.has(category);
   return true;
 }
 
@@ -244,9 +247,10 @@ export function canPutBack(row: { status: ImportItemStatus; deletedReason?: Dele
 
 /**
  * Whether a file's reviewer can be set (2026-11-17): a read final PD, draft
- * or review copy on To review, or one of those on Deleted. Approved files
- * are read only. The page's Reviewer cell and bar, and the server's
- * setFileReviewers, follow this.
+ * or review copy on To review, or one of those on Deleted. The page's
+ * Reviewer cell and bar, and the server's setFileReviewers, follow this. An
+ * approved file's reviewer is changed only one file at a time, through
+ * editApprovedFile (approvedEditApplies below).
  */
 export function reviewerApplies(row: { status: ImportItemStatus; category: ImportCategory }): boolean {
   if (!categoryTakes("writerName", row.category)) return false;
@@ -270,9 +274,9 @@ export type RowAbilities = {
   pdNumber: boolean;
   version: boolean;
   writer: boolean;
-  /** The Reviewer cell opens its picker (2026-11-17: To review and Deleted). */
+  /** The Reviewer cell opens its picker (2026-11-17: To review and Deleted; on Approved, approvedEditApplies). */
   reviewer: boolean;
-  /** "Reviewed by CRA" can be set or cleared (2026-11-17: final PDs, To review and Deleted). */
+  /** "Reviewed by CRA" can be set or cleared (2026-11-17: final PDs, To review and Deleted; on Approved, approvedEditApplies). */
   craReviewed: boolean;
   scienceCode: boolean;
   /** The "..." menu: move to another category or company, delete. */
@@ -283,31 +287,65 @@ export type RowAbilities = {
   putBack: boolean;
   /** A checkbox when Select is on. */
   select: boolean;
+  /**
+   * 2026-11-17 (Approved tab): the approved file's own "..." menu (Open,
+   * "Reviewed by CRA" on a final PD, Send back to review).
+   */
+  approvedMenu: boolean;
 };
+
+/**
+ * What an Admin can change on an approved file (2026-11-17, edit after
+ * approval): its metadata only, never its company, category or fiscal year
+ * (those need Send back to review). The writer, reviewer and PD title go on
+ * a final PD, draft or review copy; the science code and "Reviewed by CRA"
+ * on a final PD. The page offers by this rule and editApprovedFile refuses
+ * by it.
+ */
+export type ApprovedEditField = "writer" | "reviewer" | "scienceCode" | "pdTitle" | "craReviewed";
+
+export function approvedEditApplies(
+  field: ApprovedEditField,
+  row: { status: ImportItemStatus; category: ImportCategory }
+): boolean {
+  if (row.status !== "approved") return false;
+  if (field === "scienceCode" || field === "craReviewed") return row.category === "final_pd";
+  return NUMBERED.has(row.category);
+}
 
 /**
  * What a file row may do on a tab: its label cells follow labelApplies, its
  * menu (a move) is on every file on To review, delete follows canDelete and
- * "Put back" follows canPutBack. Approved is read only.
+ * "Put back" follows canPutBack. On Approved (2026-11-17) the writer,
+ * reviewer and science code cells and "Reviewed by CRA" follow
+ * approvedEditApplies, each for that file alone, its own menu holds Open,
+ * "Reviewed by CRA" and Send back to review, and its files can be selected
+ * for Send back; nothing there moves a file.
  */
 export function rowAbilities(
   row: { status: ImportItemStatus; category: ImportCategory; deletedReason?: DeletedReason },
   tab: ImportTab
 ): RowAbilities {
   const review = tab === "review" && tabForStatus(row.status) === "review";
+  const approved = tab === "approved" && row.status === "approved";
   const putBack = tab === "deleted" && canPutBack(row);
   return {
     edit: review && labelApplies("fiscalYearEnd", row),
     pdNumber: review && labelApplies("pdNumber", row),
     version: review && labelApplies("version", row),
-    writer: review && labelApplies("writerName", row),
-    reviewer: tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row),
-    craReviewed: tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row),
-    scienceCode: review && labelApplies("scienceCode", row),
+    writer: (review && labelApplies("writerName", row)) || (approved && approvedEditApplies("writer", row)),
+    reviewer:
+      (tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row)) ||
+      (approved && approvedEditApplies("reviewer", row)),
+    craReviewed:
+      (tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row)) ||
+      (approved && approvedEditApplies("craReviewed", row)),
+    scienceCode: (review && labelApplies("scienceCode", row)) || (approved && approvedEditApplies("scienceCode", row)),
     menu: review,
     remove: review && canDelete(row.status),
     putBack,
-    select: review || putBack,
+    select: review || putBack || approved,
+    approvedMenu: approved,
   };
 }
 

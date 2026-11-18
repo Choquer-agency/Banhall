@@ -33,6 +33,17 @@ import {
   type MovePatch,
   type WriterChoice,
 } from "./importEdit";
+import {
+  addSendBack,
+  BRAIN_COPY_UPDATED,
+  editedText,
+  emptySendBack,
+  SEND_BACK_BATCH,
+  sentBackDetails,
+  sentBackText,
+  type ApprovedEditField,
+  type SendBackResult,
+} from "./importApproved";
 
 export type BatchCall = (args: { ids: FileId[] }) => Promise<BatchResult>;
 export type MoveCall = (args: { ids: FileId[]; patch: MovePatch }) => Promise<BatchResult>;
@@ -209,4 +220,76 @@ export async function deleteFiles(
     toast(NOTHING_CHANGED, { ...IMPORT_TOAST, description });
   }
   return run;
+}
+
+// ─── The Approved tab (2026-11-17) ──────────────────────────────────────────
+
+export type SendBackCall = (args: { ids: FileId[] }) => Promise<SendBackResult>;
+
+/**
+ * Send back to review: the files in calls of up to 50, one after another,
+ * stopping at the first call that fails, then one toast that says how many
+ * went back, what became of their Brain copies, and what was left as it
+ * was. Returns what the calls that went through did.
+ */
+export async function sendBackFiles(
+  ids: readonly FileId[],
+  call: SendBackCall
+): Promise<{ result: SendBackResult; error: unknown }> {
+  let result = emptySendBack();
+  let error: unknown = null;
+  for (let at = 0; at < ids.length; at += SEND_BACK_BATCH) {
+    try {
+      result = addSendBack(result, await call({ ids: ids.slice(at, at + SEND_BACK_BATCH) }));
+    } catch (failure) {
+      error = failure;
+      break;
+    }
+  }
+  const description = sentBackDetails(result) || undefined;
+  if (error) {
+    const reason = userErrorMessage(error, TRY_AGAIN);
+    const done = result.sentBack.length;
+    toast.error(done > 0 ? `${sentBackText(done)}. ${reason}` : reason, { ...IMPORT_TOAST, description });
+  } else {
+    toast(sentBackText(result.sentBack.length), { ...IMPORT_TOAST, description });
+  }
+  return { result, error };
+}
+
+export type ApprovedEditCall = (args: {
+  id: FileId;
+  patch: ApprovedEditPatch;
+}) => Promise<{ changed: ApprovedEditField[]; reembed: boolean }>;
+export type ApprovedEditPatch = {
+  writer?: WriterChoice;
+  reviewer?: WriterChoice | null;
+  scienceCode?: string;
+  pdTitle?: string;
+  craReviewed?: boolean;
+};
+
+/**
+ * One edit to an approved file (2026-11-17): saved, then a toast that names
+ * what changed ("Writer changed"), and says when its Brain copy followed. A
+ * refusal shows the server's words. True when the file changed.
+ */
+export async function editApproved(
+  id: FileId,
+  field: ApprovedEditField,
+  patch: ApprovedEditPatch,
+  call: ApprovedEditCall
+): Promise<boolean> {
+  try {
+    const result = await call({ id, patch });
+    if (result.changed.length === 0) return false;
+    toast(editedText(field, patch.craReviewed), {
+      ...IMPORT_TOAST,
+      ...(result.reembed ? { description: BRAIN_COPY_UPDATED } : {}),
+    });
+    return true;
+  } catch (error) {
+    toast.error(userErrorMessage(error, "The change could not be saved."), IMPORT_TOAST);
+    return false;
+  }
 }

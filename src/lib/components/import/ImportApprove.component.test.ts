@@ -599,8 +599,10 @@ describe("the Approved tab", () => {
       const cell = node.closest('[data-import-cell="science-code"]')!;
       expect(node.getBoundingClientRect().right).toBeLessThanOrEqual(cell.getBoundingClientRect().right + 0.5);
     }
-    // Read only: no menu, no pickers.
-    expect(all('[data-import-file] [data-import-row-menu], [data-import-file] [data-import-year-edit]')).toHaveLength(0);
+    // Since 2026-11-17 (edit after approval) each row has its own menu, but
+    // never the year end, version, move or delete of To review.
+    expect(all("[data-import-file] [data-import-approved-menu]")).toHaveLength(4);
+    expect(all('[data-import-file] [data-import-year-edit], [data-import-file] [data-import-version-edit], [data-import-row-action="delete"]')).toHaveLength(0);
   });
 });
 

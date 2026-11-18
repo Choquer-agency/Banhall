@@ -52,6 +52,7 @@ describe("rowAbilities", () => {
       remove: true,
       putBack: false,
       select: true,
+      approvedMenu: false,
     });
     expect(rowAbilities(row("pending_review", "draft"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, reviewer: true, craReviewed: false, scienceCode: false });
     expect(rowAbilities(row("pending_review", "review_copy"), "review")).toMatchObject({ pdNumber: true, version: true, writer: true, scienceCode: false });
@@ -83,7 +84,7 @@ describe("rowAbilities", () => {
     expect(rowAbilities(row("failed", "final_pd"), "review")).toMatchObject({ edit: false, menu: true, remove: true, select: true });
   });
 
-  it("puts back what a person deleted or rejected, never a file removed in OneDrive, and leaves Approved read only", () => {
+  it("puts back what a person deleted or rejected, never a file removed in OneDrive, and on Approved edits metadata only", () => {
     expect(rowAbilities(row("deleted", "draft", "deleted"), "deleted")).toMatchObject({ edit: false, menu: false, putBack: true, select: true });
     expect(rowAbilities(row("rejected", "draft", "rejected"), "deleted")).toMatchObject({ edit: false, menu: false, putBack: true, select: true });
     for (const status of ["rejected", "deleted"]) {
@@ -95,17 +96,46 @@ describe("rowAbilities", () => {
     expect(rowAbilities(row("deleted", "transcript", "deleted"), "deleted")).toMatchObject({ reviewer: false, craReviewed: false });
     // Being read: neither.
     expect(rowAbilities(row("fetched", "final_pd"), "review")).toMatchObject({ reviewer: false, craReviewed: false });
+    // 2026-11-17 (edit after approval, Send back): writer, reviewer, science
+    // code and the CRA mark by the shared rule, the approved menu and
+    // Select; never a year, version, PD number, move or delete.
     expect(rowAbilities(row("approved", "final_pd"), "approved")).toEqual({
       edit: false,
       pdNumber: false,
       version: false,
-      writer: false,
-      reviewer: false,
-      craReviewed: false,
-      scienceCode: false,
+      writer: true,
+      reviewer: true,
+      craReviewed: true,
+      scienceCode: true,
       menu: false,
       remove: false,
       putBack: false,
+      select: true,
+      approvedMenu: true,
+    });
+    expect(rowAbilities(row("approved", "draft"), "approved")).toMatchObject({
+      writer: true,
+      reviewer: true,
+      craReviewed: false,
+      scienceCode: false,
+      approvedMenu: true,
+    });
+    for (const category of ["transcript", "supporting", "company_file"]) {
+      expect(rowAbilities(row("approved", category), "approved"), category).toMatchObject({
+        writer: false,
+        reviewer: false,
+        craReviewed: false,
+        scienceCode: false,
+        select: true,
+        approvedMenu: true,
+      });
+    }
+    // An approved file listed on another tab (search) takes nothing there.
+    expect(rowAbilities(row("approved", "final_pd"), "review")).toMatchObject({
+      writer: false,
+      reviewer: false,
+      craReviewed: false,
+      approvedMenu: false,
       select: false,
     });
   });

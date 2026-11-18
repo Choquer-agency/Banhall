@@ -48,6 +48,7 @@ export const EDITABLE_LABELS: readonly EditableLabel[] = [
   "version",
   "writerName",
   "scienceCode",
+  "pdTitle",
 ];
 
 /** The tab a status shows on (shared/importSheetRules.ts, which the page reads too). */
@@ -422,6 +423,7 @@ type KeptLabels = Pick<
   | "pdNumber"
   | "versionCode"
   | "versionNumber"
+  | "pdTitle"
 >;
 
 /**
@@ -454,6 +456,8 @@ export function pathFieldsFor(path: string, name: string, kept?: KeptLabels | nu
     fields.versionCode = kept.versionCode;
     fields.versionNumber = kept.versionNumber;
   }
+  // 2026-11-17: a title an Admin set after approval (kept after a Send back).
+  if (edited.has("pdTitle")) fields.pdTitle = kept.pdTitle;
   return fields;
 }
 
@@ -762,6 +766,7 @@ const LABEL_FIELDS: Record<EditableLabel, ReadonlyArray<keyof IngestionItemField
   version: ["versionCode", "versionNumber"],
   writerName: ["writerId", "writerName", "writerNameSource"],
   scienceCode: ["scienceCode", "scienceCodeSource"],
+  pdTitle: ["pdTitle"],
 };
 
 /** Only the fields of `labels` from what labelPatchFields gave (2026-11-11, phase 3b fixes). */
