@@ -121,16 +121,20 @@ import {
   activeClientAfterMerges,
   activeClientForKey,
   companyIdentityNames,
+  companyOtherNames,
   dashboardCompanyForKey,
   mergedClientForKey,
 } from "./lib/clients";
 import { projectIndustry } from "./clients";
 import {
   buildImportBrainCopy,
+  domainStem,
+  findIdentityLeak,
   IMPORT_BRAIN_DEFAULT_WRITER_TIER,
   IMPORT_BRAIN_NOT_COVERED,
   IMPORT_BRAIN_REFUSALS,
   type ImportBrainCopyResult,
+  websiteHost,
 } from "./lib/importBrainCopy";
 import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
@@ -2155,9 +2159,13 @@ export const SEND_BACK_BRAIN_REASON = "Sent back to review on Import";
 const SHARED_SOURCE_READ = 20;
 
 // missing: no longer in Import; not_approved: not on Approved (already sent
-// back, say); approval_running: an approval of its company is still moving,
-// and would take the file straight back once it is ready on To review.
+// back, say); approval_running: an approval that holds it is still moving
+// (its company's, or one of picked files where it is still waiting), and
+// would take the file straight back once it is ready on To review.
 const sendBackRefusalValidator = v.union(v.literal("missing"), v.literal("not_approved"), v.literal("approval_running"));
+
+/** Running approvals one Send back call reads to find picked-file approvals that still hold a file. */
+const RUNNING_APPROVALS_READ = 50;
 
 /** Whether an approval of this company is still moving (not stalled), so a file sent back now would be approved again. */
 async function companyApprovalMoving(ctx: MutationCtx, companyKey: string | undefined): Promise<boolean> {
@@ -2167,6 +2175,31 @@ async function companyApprovalMoving(ctx: MutationCtx, companyKey: string | unde
     .withIndex("by_scope_and_companyKey_and_status", (q) => q.eq("scope", "company").eq("companyKey", companyKey).eq("status", "running"))
     .take(5);
   return running.some((run) => Date.now() - run.updatedAt < APPROVAL_STALE_MS);
+}
+
+/** The picked-file approvals still moving (not stalled), read once per Send back call. */
+async function movingFileApprovals(ctx: MutationCtx): Promise<Id<"importApprovals">[]> {
+  const running = await ctx.db
+    .query("importApprovals")
+    .withIndex("by_status_and_startedAt", (q) => q.eq("status", "running"))
+    .take(RUNNING_APPROVALS_READ);
+  return running.filter((run) => run.scope === "files" && Date.now() - run.updatedAt < APPROVAL_STALE_MS).map((run) => run._id);
+}
+
+/** Whether one of those approvals still has this file waiting, so it would approve it again once it is back on To review. */
+async function waitingInFileApproval(
+  ctx: MutationCtx,
+  approvals: readonly Id<"importApprovals">[],
+  itemId: Id<"ingestionItems">
+): Promise<boolean> {
+  for (const approvalId of approvals) {
+    const rows = await ctx.db
+      .query("importApprovalFiles")
+      .withIndex("by_approvalId_and_itemId", (q) => q.eq("approvalId", approvalId).eq("itemId", itemId))
+      .take(5);
+    if (rows.some((row) => row.state === "waiting")) return true;
+  }
+  return false;
 }
 
 const sendBackResultValidator = v.object({
@@ -2237,19 +2270,20 @@ async function sendBackOne(
 
   let brain: "revoked" | "shared" | "already_removed" | "none" = "none";
   const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
-  if (source) {
+  if (source?.status === "revoked") {
+    // Removed from the Brain already (on the Brain page, or by another
+    // file's Send back): nothing more to unlearn, and nothing stays.
+    brain = "already_removed";
+  } else if (source) {
     const other = await otherApprovedLink(ctx, source._id, item._id);
     if (other) {
       // Only this file lets go: the copy stays for the other file, which
       // retrieval now reads its company from.
       brain = "shared";
       if (source.importItemId === item._id) await patchBrainSource(ctx, source, { importItemId: other._id });
-    } else if (source.status !== "revoked") {
+    } else {
       await revokeBrainSourceRow(ctx, source, adminId, SEND_BACK_BRAIN_REASON, { sentBackItemId: item._id });
       brain = "revoked";
-    } else {
-      // Removed on the Brain page already: nothing more to unlearn.
-      brain = "already_removed";
     }
   }
 
@@ -2275,7 +2309,7 @@ async function sendBackOne(
     ...(companyFileId ? { companyFileId } : {}),
     companyFile,
     ...(source ? { brainSourceId: source._id } : {}),
-    brain: brain === "shared" || brain === "already_removed" ? "unlinked" : brain,
+    brain: brain === "shared" ? "unlinked" : brain,
   });
   return { companyFile, brain, groups: [after.pairGroupKey, item.pairGroupKey] };
 }
@@ -2299,6 +2333,7 @@ export const sendBackToReview = mutation({
     }
     const result: SendBackResult = { sentBack: [], refused: [], companyFileGone: [], brainKept: [], brainRevoked: [] };
     const groups = new Set<string>();
+    const fileApprovals = await movingFileApprovals(ctx);
     for (const id of new Set(args.ids)) {
       const item = await ctx.db.get(id);
       if (!item) {
@@ -2309,7 +2344,7 @@ export const sendBackToReview = mutation({
         result.refused.push({ id, reason: "not_approved" });
         continue;
       }
-      if (await companyApprovalMoving(ctx, item.companyKey)) {
+      if ((await companyApprovalMoving(ctx, item.companyKey)) || (await waitingInFileApproval(ctx, fileApprovals, id))) {
         result.refused.push({ id, reason: "approval_running" });
         continue;
       }
@@ -2373,6 +2408,50 @@ async function writerAuditLabel(ctx: MutationCtx, id: Id<"pdWriters"> | undefine
   return writer ? await writerLabel(ctx, writer) : undefined;
 }
 
+/** Projects read for the people a company's projects name (its interviewees), as companyIdentityNames reads them. */
+const WRITER_CHECK_PROJECTS = 50;
+
+/** A name as compared with a person's: case, accents and spacing set aside. */
+function personKey(name: string): string {
+  return name.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/**
+ * What a writer's name on an approved final PD's Brain copy would give
+ * away about its company (2026-11-17, edit after approval), or null: a form
+ * of the company's names, by the Brain check's own test (findIdentityLeak
+ * over the company's name, its other names, the file's client name and its
+ * website's stem), or the whole name of a person its projects interviewed.
+ * The Brain check scrubs both out of the text, so a writer label must not
+ * bring them back.
+ */
+async function writerNameGivesAwayCompany(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems">,
+  name: string
+): Promise<{ kind: "company"; form: string } | { kind: "person" } | null> {
+  const company = item.companyKey ? await importClientForKey(ctx, item.companyKey) : null;
+  const organizations = [item.clientName, company?.name, ...(company ? await companyOtherNames(ctx, company) : [])].filter(
+    (value): value is string => Boolean(value?.trim())
+  );
+  const host = websiteHost(company?.website);
+  const stem = host ? domainStem(host) : null;
+  const form = findIdentityLeak(name, organizations, stem ? [stem] : []);
+  if (form !== null) return { kind: "company", form };
+  if (!company) return null;
+  const wanted = personKey(name);
+  const projects = await ctx.db
+    .query("projects")
+    .withIndex("by_clientId", (q) => q.eq("clientId", company._id))
+    .order("desc")
+    .take(WRITER_CHECK_PROJECTS);
+  for (const project of projects) {
+    if (project.deletionStartedAt !== undefined) continue;
+    if ((project.interviewees ?? []).some((person) => personKey(person) === wanted)) return { kind: "person" };
+  }
+  return null;
+}
+
 /**
  * Edit after approval (Admins only): an approved file's writer, reviewer,
  * science code, PD title or "Reviewed by CRA" mark. Metadata only: the
@@ -2381,15 +2460,18 @@ async function writerAuditLabel(ctx: MutationCtx, id: Id<"pdWriters"> | undefine
  * alone, never a firm-wide pick for its initials (approved files keep
  * skipping picks, the freeze rule). The company file's own fields follow
  * (writerId, reviewerId and the labels it stores), and so does the Brain
- * copy when the file has one (writer's name and tier, science code; it is
- * embedded again only when the writer's name or the science code it stores
- * changed). One importFileEvents row lists every field that changed, before
- * and after. Returns the fields that changed and whether the Brain copy is
- * embedded again.
+ * copy when the file has one (writer's name and tier, science code, on the
+ * source and its card, which retrieval reads them from: no new embed, but
+ * for a tier change on a copy still embedded with its old tier). A final
+ * PD's new writer must not name its company or a person its projects
+ * interviewed (writerNameGivesAwayCompany). One importFileEvents row lists
+ * every field that changed, before and after. Returns the fields that
+ * changed and whether the Brain copy changed too.
  */
 export const editApprovedFile = mutation({
   args: { id: v.id("ingestionItems"), patch: approvedEditPatchValidator },
-  returns: v.object({ changed: v.array(approvedEditFieldValidator), reembed: v.boolean() }),
+  // brainUpdated: its Brain copy's labels changed too (retrieval reads them from the copy's card).
+  returns: v.object({ changed: v.array(approvedEditFieldValidator), brainUpdated: v.boolean() }),
   handler: async (ctx, args) => {
     const adminId = await assertAdmin(ctx);
     const item = await ctx.db.get(args.id);
@@ -2419,6 +2501,25 @@ export const editApprovedFile = mutation({
       const chosen = await writerForChoice(ctx, sheet.writer, { by: adminId });
       if (chosen._id !== item.writerId) {
         const label = await writerLabel(ctx, chosen);
+        // A final PD's writer is its Brain copy's label (the writer's own
+        // name, else its label, as the copy is made): never a name the
+        // Brain check scrubbed out. The whole edit is refused, so nothing
+        // (not even a writer made for a typed name) is kept.
+        if (category === "final_pd") {
+          const given = await writerNameGivesAwayCompany(ctx, item, chosen.name?.trim() || label);
+          if (given?.kind === "company") {
+            domainError(
+              "INVALID_INPUT",
+              `That writer's name holds the company's name ("${given.form}"), so it cannot go on this PD's Brain copy. Choose the writer by their own name.`
+            );
+          }
+          if (given?.kind === "person") {
+            domainError(
+              "INVALID_INPUT",
+              "That writer's name is a person the company's projects interviewed, so it cannot go on this PD's Brain copy. Choose the writer by their own name."
+            );
+          }
+        }
         Object.assign(patch, { writerId: chosen._id, writerName: label, writerNameSource: "person" as const, writerBeforePick: undefined });
         labelsAdded.push("writerName");
         changes.push(
@@ -2482,10 +2583,10 @@ export const editApprovedFile = mutation({
       );
       changes.push({ field: "craReviewed", before: item.craReviewed ? "yes" : "no", after: args.patch.craReviewed ? "yes" : "no" });
     }
-    if (Object.keys(patch).length === 0) return { changed: [], reembed: false };
+    if (Object.keys(patch).length === 0) return { changed: [], brainUpdated: false };
     if (labelsAdded.length > 0) patch.editedLabels = mergeEditedLabels(item.editedLabels, labelsAdded);
     await patchItem(ctx, item, patch, { touch: true });
-    if (changes.length === 0) return { changed: [], reembed: false };
+    if (changes.length === 0) return { changed: [], brainUpdated: false };
 
     const changed = new Set(changes.map((change) => change.field));
     // The company file's own fields follow.
@@ -2502,7 +2603,6 @@ export const editApprovedFile = mutation({
     }
     // The Brain copy follows its writer and science code (its title is fixed words and a year).
     let brain: "relabeled" | "reembedded" | "none" = "none";
-    let reembed = false;
     const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
     if (source && source.status !== "revoked" && (changed.has("writer") || changed.has("scienceCode"))) {
       const tier = newWriter?.tier;
@@ -2522,8 +2622,7 @@ export const editApprovedFile = mutation({
         },
         adminId
       );
-      reembed = result.reembed;
-      if (result.changed) brain = reembed ? "reembedded" : "relabeled";
+      if (result.changed) brain = result.reembed ? "reembedded" : "relabeled";
     }
     await ctx.db.insert("importFileEvents", {
       itemId: item._id,
@@ -2536,7 +2635,7 @@ export const editApprovedFile = mutation({
       ...(source ? { brainSourceId: source._id } : {}),
       brain,
     });
-    return { changed: [...changed], reembed };
+    return { changed: [...changed], brainUpdated: brain !== "none" };
   },
 });
 
@@ -2556,7 +2655,14 @@ const importFileEventValidator = v.object({
   ),
   companyFile: v.optional(v.union(v.literal("removed"), v.literal("gone"), v.literal("updated"))),
   brain: v.optional(
-    v.union(v.literal("revoked"), v.literal("unlinked"), v.literal("relabeled"), v.literal("reembedded"), v.literal("none"))
+    v.union(
+      v.literal("revoked"),
+      v.literal("unlinked"),
+      v.literal("already_removed"),
+      v.literal("relabeled"),
+      v.literal("reembedded"),
+      v.literal("none")
+    )
   ),
 });
 

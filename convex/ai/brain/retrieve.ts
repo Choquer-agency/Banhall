@@ -114,6 +114,10 @@ export const BRAIN_SEARCH_PROGRAM = {
     appliesAfterFloor: ["rerank", "no-rerank"],
     noRerankPositions: "recounted-over-the-kept-slate",
     tierSource: "source-card-then-entry-metadata",
+    // 2026-11-17 (edit after approval on Import): the writer's name and the
+    // science code an exemplar is labelled and routed by come from its
+    // source's card too, so an Admin's edit shows without a re-embed.
+    labelSource: "source-card-then-entry-metadata",
   },
   ownCompanyExclusion: {
     leavesOut: "sources-from-import-files-of-the-searching-project-company",
@@ -248,7 +252,10 @@ type BrainSearchArgs = {
  * imported PDs (when that company has any, the search fetched
  * BRAIN_OWN_COMPANY_SEARCH_LIMIT hits for that), takes each kept hit's
  * writer tier from its source (the current weight), and cuts the slate back
- * to BRAIN_SEARCH_LIMIT.
+ * to BRAIN_SEARCH_LIMIT. Each kept hit's writer name and science code come
+ * from its source too (an edit after approval on Import changes them there,
+ * never in the entry's metadata, which the component keeps when the text is
+ * the same).
  */
 async function dropNonServableCandidates(
   ctx: ActionCtx,
@@ -269,11 +276,20 @@ async function dropNonServableCandidates(
         sourceIds,
         ...(ownCompanyKeys ? { ownCompanyKeys } : {}),
       })
-    ).map((row) => [row.sourceId, row.writerTier])
+    ).map((row) => [row.sourceId, row])
   );
   return candidates
     .filter((c) => !c.sourceId || servable.has(c.sourceId))
-    .map((c) => (c.sourceId ? { ...c, writerTier: servable.get(c.sourceId) } : c))
+    .map((c) => {
+      const row = c.sourceId ? servable.get(c.sourceId) : undefined;
+      if (!row) return c;
+      return {
+        ...c,
+        writerTier: row.writerTier,
+        writerName: row.writerName,
+        scienceCode: isCraScienceCode(row.scienceCode) ? row.scienceCode : undefined,
+      };
+    })
     .slice(0, BRAIN_SEARCH_LIMIT);
 }
 

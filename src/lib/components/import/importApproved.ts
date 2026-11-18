@@ -117,7 +117,7 @@ export function editedText(field: ApprovedEditField, craReviewed?: boolean): str
   }
 }
 
-/** Said under that toast when the Brain copy is embedded again with the new details. */
+/** Said under that toast when the Brain copy took the new details too. */
 export const BRAIN_COPY_UPDATED = "Its Brain copy was updated too.";
 
 /** The menu's words for the quiet "Reviewed by CRA" tag (the reviewer change's, shared/importSheetRules.ts). */

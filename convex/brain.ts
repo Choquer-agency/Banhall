@@ -190,6 +190,13 @@ export type ImportSourceResult =
 const IMPORT_FILE_SOURCES = 50;
 
 /**
+ * The most sources read for one text hash, and the most RAG keys tried for
+ * one: one source per text, besides the ones Send back revoked before a new
+ * copy. Past it, something is wrong, so it fails loudly.
+ */
+const TEXT_HASH_SOURCES = 50;
+
+/**
  * The existing source an import matches: by the bytes of any import file
  * linked to a source first, then by the source's own first file, then by
  * text (the oldest match, as before). A source revoked by Send back to
@@ -231,10 +238,16 @@ export async function findImportMatch(
       if (found) return found;
     }
   }
-  const byText = ctx.db.query("brainSources").withIndex("by_hash", (q) => q.eq("sourceHash", textHash));
-  for await (const row of byText) {
+  const byText = await ctx.db
+    .query("brainSources")
+    .withIndex("by_hash", (q) => q.eq("sourceHash", textHash))
+    .take(TEXT_HASH_SOURCES + 1);
+  for (const row of byText.slice(0, TEXT_HASH_SOURCES)) {
     const found = consider(row);
     if (found) return found;
+  }
+  if (byText.length > TEXT_HASH_SOURCES) {
+    throw new Error(`Text hash ${textHash} has more than ${TEXT_HASH_SOURCES} Brain sources, all revoked by Send back.`);
   }
   return options.skipSentBack ? null : sentBack;
 }
@@ -252,7 +265,7 @@ async function newRagKey(ctx: MutationCtx, kind: string, hash: string): Promise<
     .withIndex("by_ragKey", (q) => q.eq("ragKey", base))
     .first();
   if (!taken) return base;
-  for (let n = 2; ; n += 1) {
+  for (let n = 2; n <= TEXT_HASH_SOURCES + 1; n += 1) {
     const key = `${base}:${n}`;
     const used = await ctx.db
       .query("brainSources")
@@ -260,6 +273,7 @@ async function newRagKey(ctx: MutationCtx, kind: string, hash: string): Promise<
       .first();
     if (!used) return key;
   }
+  throw new Error(`RAG key ${base} already has ${TEXT_HASH_SOURCES} newer copies.`);
 }
 
 export async function importSource(
@@ -323,9 +337,10 @@ export async function importSource(
         at: Date.now(),
       });
     }
-    if (approveNow || (existing.status === "approved" && patch.scienceCode)) {
-      await scheduleEmbed(ctx, existing._id);
-    }
+    // A science code added to an approved source needs no embed: retrieval
+    // reads it from the source's card (servableBrainSources), and the
+    // component would keep the entry anyway (same text, importance and filters).
+    if (approveNow) await scheduleEmbed(ctx, existing._id);
     return {
       outcome: "matched",
       sourceId: existing._id,
@@ -775,6 +790,17 @@ export const approveSource = mutation({
     const admin = await assertAdmin(ctx);
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
+    // Only a pending source is approved here (2026-11-17). A revoked one
+    // never comes back (a source Send back revoked may already have a newer
+    // copy of the same PD beside it), and an approved one stays as it is.
+    if (s.status !== "pending") {
+      domainError(
+        "INVALID_STATE",
+        s.status === "approved"
+          ? "This source is already in the Brain."
+          : "This source was removed from the Brain, so it cannot be approved again."
+      );
+    }
     await patchBrainSource(ctx, s, { status: "approved" });
     await ctx.db.insert("brainAuditLog", {
       action: "approve",
@@ -875,12 +901,13 @@ export type ImportedSourceRelabel = { writerName?: string | null; writerTier?: n
  * approval (2026-11-17, edit after approval): the writer's name and tier and
  * the science code it stores, its card with them, and one `relabel` audit
  * row naming what changed. The text, title, industry and fiscal year never
- * change here. The writer's name and the science code are in the RAG
- * entry's metadata (retrieval reads both), so an approved source is
- * embedded again when either changes; the tier is read from the card, so a
- * tier change alone re-embeds only a source whose vectors still carry its
- * old tier (needsFullImportanceEmbed), as reweightSource does. Returns
- * whether anything changed and whether it is embedded again.
+ * change here. Retrieval reads the writer's name, the science code and the
+ * tier from the card (servableBrainSources), so none of them needs a new
+ * embed: the component would keep the old entry anyway, since the text,
+ * importance and filters are the same. Only a tier change on a source
+ * whose vectors still carry its old tier as importance
+ * (needsFullImportanceEmbed) is embedded once, as reweightSource does.
+ * Returns whether anything changed and whether it is embedded again.
  */
 export async function relabelImportedSource(
   ctx: MutationCtx,
@@ -912,8 +939,7 @@ export async function relabelImportedSource(
     }
   }
   if (said.length === 0) return { changed: false, reembed: false };
-  const metadataChanged = "writerName" in patch || "scienceCode" in patch;
-  const reembed = s.status === "approved" && (metadataChanged || ("writerTier" in patch && needsFullImportanceEmbed(s)));
+  const reembed = s.status === "approved" && "writerTier" in patch && needsFullImportanceEmbed(s);
   await patchBrainSource(ctx, s, patch);
   await ctx.db.insert("brainAuditLog", {
     action: "relabel",
@@ -1189,11 +1215,20 @@ export const servableBrainSources = internalQuery({
     sourceIds: v.array(v.string()),
     ownCompanyKeys: v.optional(v.array(v.string())),
   },
-  returns: v.array(v.object({ sourceId: v.string(), writerTier: v.number() })),
+  returns: v.array(
+    v.object({
+      sourceId: v.string(),
+      writerTier: v.number(),
+      // 2026-11-17 (edit after approval): the labels retrieval shows, as the
+      // source stores them now, so an edit on Import needs no re-embed.
+      writerName: v.optional(v.string()),
+      scienceCode: v.optional(v.string()),
+    })
+  ),
   handler: async (ctx, args) => {
     const ownKeys = new Set(args.ownCompanyKeys ?? []);
     const itemKeys = new Map<Id<"ingestionItems">, string | undefined>();
-    const servable: { sourceId: string; writerTier: number }[] = [];
+    const servable: { sourceId: string; writerTier: number; writerName?: string; scienceCode?: string }[] = [];
     for (const raw of args.sourceIds) {
       const id = ctx.db.normalizeId("brainSources", raw);
       if (!id) continue;
@@ -1204,7 +1239,12 @@ export const servableBrainSources = internalQuery({
       const row = card ?? (await ctx.db.get(id));
       if (row?.status !== "approved") continue;
       if (ownKeys.size > 0 && (await ownCompanyImport(ctx, id, row.importItemId, ownKeys, itemKeys))) continue;
-      servable.push({ sourceId: raw, writerTier: row.writerTier });
+      servable.push({
+        sourceId: raw,
+        writerTier: row.writerTier,
+        ...(row.writerName ? { writerName: row.writerName } : {}),
+        ...(row.scienceCode ? { scienceCode: row.scienceCode } : {}),
+      });
     }
     return servable;
   },

@@ -310,7 +310,7 @@ export async function deleteBrainSource(ctx: MutationCtx, sourceId: Id<"brainSou
   await ctx.db.delete(sourceId);
   await syncBrainSourceCard(ctx, sourceId, null);
   // Links left over point at a source that no longer exists; lookups skip
-  // them (sourceIdForImportFile) until the scheduled pages remove them.
+  // them (sourcesForImportFile) until the scheduled pages remove them.
   if (more) await ctx.scheduler.runAfter(0, internal.brain.deleteBrainSourceImportLinks, { sourceId });
 }
 
@@ -380,17 +380,4 @@ export async function sourcesForImportFile(
     throw new Error(`Import file hash ${contentHash} is linked to ${current.length} Brain sources.`);
   }
   return sources;
-}
-
-/**
- * The source an import file's bytes are already linked to, if any: the one
- * Send back did not revoke, else (only sources Send back revoked) the
- * oldest of those.
- */
-export async function sourceIdForImportFile(
-  ctx: MutationCtx,
-  contentHash: string
-): Promise<Id<"brainSources"> | null> {
-  const sources = await sourcesForImportFile(ctx, contentHash);
-  return (sources.find((source) => !revokedBySendBack(source)) ?? sources[0])?._id ?? null;
 }

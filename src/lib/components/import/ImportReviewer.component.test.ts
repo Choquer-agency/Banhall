@@ -373,7 +373,7 @@ describe("reviewers on the Import page", () => {
     expect(text(inRow("a1", '[data-import-cell="reviewer"]'))).toBe("Priya Nair");
     expect(text(inRow("a2", '[data-import-cell="reviewer"]'))).toBe("Choose reviewer");
     expect(inRow("a1", "[data-import-file-cra]").getAttribute("title")).toBe("Reviewed by CRA");
-    __setMutationHandler("ingestion:editApprovedFile", () => ({ changed: ["reviewer"], reembed: false }));
+    __setMutationHandler("ingestion:editApprovedFile", () => ({ changed: ["reviewer"], brainUpdated: false }));
     await userEvent.click(inRow("a2", "[data-import-reviewer-edit]"));
     await userEvent.click(one('[data-import-name-option="user:u1"]')!);
     await expect.poll(() => __mutationCalls("ingestion:editApprovedFile")).toEqual([

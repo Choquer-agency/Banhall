@@ -4531,7 +4531,8 @@ export default defineSchema({
   // field it changed with the value before and after (a writer or reviewer
   // by its pdWriters id, with its label as it was then). A Send back says
   // what became of the company file (removed, or already gone) and of the
-  // Brain copy (revoked, only this file unlinked, or none).
+  // Brain copy (revoked, only this file unlinked, already removed from the
+  // Brain before, or none).
   importFileEvents: defineTable({
     itemId: v.id("ingestionItems"),
     action: v.union(v.literal("edit"), v.literal("send_back")),
@@ -4558,7 +4559,14 @@ export default defineSchema({
     companyFile: v.optional(v.union(v.literal("removed"), v.literal("gone"), v.literal("updated"))),
     brainSourceId: v.optional(v.id("brainSources")),
     brain: v.optional(
-      v.union(v.literal("revoked"), v.literal("unlinked"), v.literal("relabeled"), v.literal("reembedded"), v.literal("none"))
+      v.union(
+        v.literal("revoked"),
+        v.literal("unlinked"),
+        v.literal("already_removed"),
+        v.literal("relabeled"),
+        v.literal("reembedded"),
+        v.literal("none")
+      )
     ),
   }).index("by_itemId_and_at", ["itemId", "at"]),
 

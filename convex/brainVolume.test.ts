@@ -25,7 +25,7 @@ import {
   insertBrainSource,
   linkBrainSourceImportFile,
   patchBrainSource,
-  sourceIdForImportFile,
+  sourcesForImportFile,
 } from "./ai/brain/rag";
 import { classify } from "./lib/ingestionClassify";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
@@ -753,7 +753,7 @@ describe("removing a source with many file links (Greptile on #42)", () => {
     const left = await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect());
     // One page went with the source; the rest wait for the scheduled cleanup.
     expect(left.length).toBe(451 - 200);
-    expect(await t.run((ctx) => sourceIdForImportFile(ctx as unknown as MutationCtx, "extra-300"))).toBeNull();
+    expect(await t.run((ctx) => sourcesForImportFile(ctx as unknown as MutationCtx, "extra-300"))).toEqual([]);
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await t.run((ctx) => ctx.db.query("brainSourceImportFiles").collect())).toEqual([]);
   });

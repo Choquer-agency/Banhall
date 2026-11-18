@@ -260,7 +260,7 @@ export async function sendBackFiles(
 export type ApprovedEditCall = (args: {
   id: FileId;
   patch: ApprovedEditPatch;
-}) => Promise<{ changed: ApprovedEditField[]; reembed: boolean }>;
+}) => Promise<{ changed: ApprovedEditField[]; brainUpdated: boolean }>;
 export type ApprovedEditPatch = {
   writer?: WriterChoice;
   reviewer?: WriterChoice | null;
@@ -285,7 +285,7 @@ export async function editApproved(
     if (result.changed.length === 0) return false;
     toast(editedText(field, patch.craReviewed), {
       ...IMPORT_TOAST,
-      ...(result.reembed ? { description: BRAIN_COPY_UPDATED } : {}),
+      ...(result.brainUpdated ? { description: BRAIN_COPY_UPDATED } : {}),
     });
     return true;
   } catch (error) {

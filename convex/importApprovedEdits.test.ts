@@ -365,6 +365,37 @@ describe("Send back to review", () => {
     expect(removed?.sentBackItemId).toBeUndefined();
     const revokes = await t.run((ctx) => ctx.db.query("brainAuditLog").withIndex("by_source", (q) => q.eq("sourceId", sourceId)).collect());
     expect(revokes.filter((row) => row.action === "revoke")).toHaveLength(1);
+    expect(await events(t, pd)).toMatchObject([{ action: "send_back", brainSourceId: sourceId, brain: "already_removed" }]);
+  });
+
+  it("never says a shared copy stays when it was removed on the Brain page", async () => {
+    const { t, admin } = await setup();
+    await pickIndustry(admin);
+    const pd = await readyPd(t);
+    const sourceId = await inBrain(t, admin, pd);
+    const copy = await readyPd(t, `${FY}/Submitted/04 CedarlineSystems 2025-03-31 T2.DW.PN ColdChainSensorDrift copy.docx`, PD_TEXT, (await item(t, pd)).contentHash);
+    expect(await inBrain(t, admin, copy)).toBe(sourceId);
+    await admin.mutation(api.brain.revokeSource, { sourceId, reason: "Not a good example" });
+    expect(await sendBack(admin, [pd])).toMatchObject({ sentBack: [pd], brainKept: [], brainRevoked: [] });
+    expect(await events(t, pd)).toMatchObject([{ action: "send_back", brain: "already_removed" }]);
+    // Nothing re-pointed or revoked again.
+    expect(await source(t, sourceId)).toMatchObject({ status: "revoked", importItemId: pd });
+    expect((await source(t, sourceId))?.sentBackItemId).toBeUndefined();
+  });
+
+  it("never approves a source Send back revoked on the Brain page, beside its newer copy", async () => {
+    const { t, admin } = await setup();
+    await pickIndustry(admin);
+    const pd = await readyPd(t);
+    const first = await inBrain(t, admin, pd);
+    await sendBack(admin, [pd]);
+    const second = await inBrain(t, admin, pd);
+    expect(second).not.toBe(first);
+    expect(await errorOf(admin.mutation(api.brain.approveSource, { sourceId: first }))).toBe(
+      "This source was removed from the Brain, so it cannot be approved again."
+    );
+    expect(await errorOf(admin.mutation(api.brain.approveSource, { sourceId: second }))).toBe("This source is already in the Brain.");
+    expect(await source(t, first)).toMatchObject({ status: "revoked" });
   });
 
   it("keeps the frozen text versions drafts read from the company file, and never deletes the Import file's original", async () => {
@@ -473,6 +504,34 @@ describe("Send back to review", () => {
     expect((await sendBack(admin, [draft])).refused).toEqual([{ id: draft, reason: "not_approved" }]);
     expect(await events(t, draft)).toHaveLength(1);
 
+    // A file still waiting in an approval of picked files would be approved again too.
+    await approve(t, admin, [draft]);
+    const picked = await t.run(async (ctx) => {
+      const approvalId = await ctx.db.insert("importApprovals", {
+        startedBy: adminId,
+        startedAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: "files",
+        status: "running",
+        total: 1,
+        done: 0,
+        approved: 0,
+        refused: 0,
+      });
+      await ctx.db.insert("importApprovalFiles", { approvalId, itemId: draft, position: 0, state: "waiting", name: "Sensor notes.docx" });
+      return approvalId;
+    });
+    expect((await sendBack(admin, [draft])).refused).toEqual([{ id: draft, reason: "approval_running" }]);
+    // Once it is past that file (or stalled), it no longer blocks.
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("importApprovalFiles")
+        .withIndex("by_approvalId_and_itemId", (q) => q.eq("approvalId", picked).eq("itemId", draft))
+        .unique();
+      await ctx.db.patch(row!._id, { state: "already" });
+    });
+    expect((await sendBack(admin, [draft])).sentBack).toEqual([draft]);
+
     expect(await errorOf(sendBack(admin, []))).toBe("Select at least one file.");
     const many = Array.from({ length: 51 }, () => draft);
     expect(await errorOf(sendBack(admin, many))).toBe("Send back up to 50 files at a time.");
@@ -558,14 +617,14 @@ describe("editing an approved file", () => {
     return { pd, sourceId };
   }
 
-  it("changes the writer on the file alone, its company file and its Brain copy, and embeds the copy again", async () => {
+  it("changes the writer on the file alone, its company file and its Brain copy, with no new embed", async () => {
     const { t, admin, adminId } = await setup();
     const { pd, sourceId } = await approvedPdInBrain(t, admin);
     const before = await item(t, pd);
     expect(await source(t, sourceId)).toMatchObject({ writerName: "Dana Whitlock", writerTier: 0.4 });
 
     const result = await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Robin Sample" } } });
-    expect(result).toEqual({ changed: ["writer"], reembed: true });
+    expect(result).toEqual({ changed: ["writer"], brainUpdated: true });
     const after = await item(t, pd);
     const robin = await t.run((ctx) => ctx.db.get(after.writerId!));
     expect(robin).toMatchObject({ name: "Robin Sample", createdVia: "person", createdBy: adminId });
@@ -579,7 +638,8 @@ describe("editing an approved file", () => {
     expect(file.writerId).toBe(robin!._id);
     expect(await source(t, sourceId)).toMatchObject({ writerName: "Robin Sample", writerTier: 0.4, content: (await source(t, sourceId))!.content });
     expect(await card(t, sourceId)).toMatchObject({ writerName: "Robin Sample" });
-    expect(embedsQueued()).toEqual([sourceId]);
+    // Retrieval reads the name from the card: nothing is embedded again (the same tier).
+    expect(embedsQueued()).toEqual([]);
     const relabels = await t.run((ctx) => ctx.db.query("brainAuditLog").withIndex("by_source", (q) => q.eq("sourceId", sourceId)).collect());
     expect(relabels.find((row) => row.action === "relabel")).toMatchObject({ actorId: adminId, reason: "Changed on Import after approval: writer Dana Whitlock → Robin Sample" });
     expect(await events(t, pd)).toMatchObject([
@@ -589,7 +649,7 @@ describe("editing an approved file", () => {
         changes: [{ field: "writer", before: before.writerId, after: robin!._id, beforeLabel: "Dana Whitlock", afterLabel: "Robin Sample" }],
         companyFile: "updated",
         brainSourceId: sourceId,
-        brain: "reembedded",
+        brain: "relabeled",
       },
     ]);
     await expectWriterCountsMatch(t);
@@ -599,19 +659,19 @@ describe("editing an approved file", () => {
     expect(row).toMatchObject({ writerName: "Robin Sample" });
   });
 
-  it("changes the science code on the file, its company file's labels and its Brain copy, embedding it again", async () => {
+  it("changes the science code on the file, its company file's labels and its Brain copy, with no new embed", async () => {
     const { t, admin } = await setup();
     const { pd, sourceId } = await approvedPdInBrain(t, admin);
-    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { scienceCode: "1.02.02" } })).toEqual({ changed: ["scienceCode"], reembed: true });
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { scienceCode: "1.02.02" } })).toEqual({ changed: ["scienceCode"], brainUpdated: true });
     expect(await item(t, pd)).toMatchObject({ scienceCode: "1.02.02", scienceCodeSource: "person" });
     expect((await companyFiles(t))[0].importLabels).toMatchObject({ scienceCode: "1.02.02", pdTitle: (await item(t, pd)).pdTitle });
     expect(await source(t, sourceId)).toMatchObject({ scienceCode: "1.02.02" });
     expect(await card(t, sourceId)).toMatchObject({ scienceCode: "1.02.02" });
-    expect(embedsQueued()).toEqual([sourceId]);
+    expect(embedsQueued()).toEqual([]);
     // The same code again changes nothing and writes no row.
-    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { scienceCode: "1.02.02" } })).toEqual({ changed: [], reembed: false });
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { scienceCode: "1.02.02" } })).toEqual({ changed: [], brainUpdated: false });
     expect(await events(t, pd)).toHaveLength(1);
-    expect(embedsQueued()).toEqual([sourceId]);
+    expect(embedsQueued()).toEqual([]);
   });
 
   it("changes the PD title, the reviewer and the CRA mark on the file and its company file, never touching the Brain copy", async () => {
@@ -624,19 +684,19 @@ describe("editing an approved file", () => {
     const reviewerBefore = (await item(t, pd)).reviewerId ?? null;
     expect(reviewerBefore).not.toBeNull();
 
-    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { pdTitle: "  Cold   chain drift  " } })).toEqual({ changed: ["pdTitle"], reembed: false });
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { pdTitle: "  Cold   chain drift  " } })).toEqual({ changed: ["pdTitle"], brainUpdated: false });
     expect(await item(t, pd)).toMatchObject({ pdTitle: "Cold chain drift" });
     expect((await item(t, pd)).editedLabels).toContain("pdTitle");
     expect((await companyFiles(t))[0].importLabels).toMatchObject({ pdTitle: "Cold chain drift" });
 
     const reviewer = await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { reviewer: { kind: "name", name: "Priya Nadeau" } } });
-    expect(reviewer).toEqual({ changed: ["reviewer"], reembed: false });
+    expect(reviewer).toEqual({ changed: ["reviewer"], brainUpdated: false });
     const withReviewer = await item(t, pd);
     expect(withReviewer).toMatchObject({ reviewerSource: "person" });
     expect((await companyFiles(t))[0].reviewerId).toBe(withReviewer.reviewerId);
     expect(await admin.query(api.ingestion.sheetFile, { id: pd })).toMatchObject({ reviewerId: withReviewer.reviewerId, reviewerName: "Priya Nadeau" });
 
-    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { craReviewed: true } })).toEqual({ changed: ["craReviewed"], reembed: false });
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { craReviewed: true } })).toEqual({ changed: ["craReviewed"], brainUpdated: false });
     expect(await item(t, pd)).toMatchObject({ craReviewed: true, craReviewedBy: adminId });
     expect((await companyFiles(t))[0].importLabels).toMatchObject({ craReviewed: true });
     expect(await admin.query(api.ingestion.sheetFile, { id: pd })).toMatchObject({ craReviewed: true });
@@ -693,6 +753,47 @@ describe("editing an approved file", () => {
     expect(again.status).toBe("approved");
     expect((await t.run((ctx) => ctx.db.get(again.companyFileId!)))?.reviewerId).toBe(dana);
     await expectWriterCountsMatch(t);
+  });
+
+  it("refuses a final PD's writer whose name gives its company away on the Brain copy", async () => {
+    const { t, admin, adminId } = await setup();
+    const { pd, sourceId } = await approvedPdInBrain(t, admin);
+    const before = await item(t, pd);
+    const writersBefore = await t.run((ctx) => ctx.db.query("pdWriters").collect());
+    for (const name of ["Cedarline Systems", "CedarlineSystems team"]) {
+      expect(await errorOf(admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name } } })), name).toMatch(
+        /^That writer's name holds the company's name \("cedarline/
+      );
+    }
+    // A person the company's projects interviewed, whatever the case.
+    const clientId = (await t.run((ctx) => ctx.db.query("clients").collect())).find((client) => client.name === CEDARLINE)!._id;
+    await t.run((ctx) =>
+      ctx.db.insert("projects", {
+        title: "Freezer sensors",
+        clientName: CEDARLINE,
+        clientId,
+        dashboardCompanyKey: "cedarline systems",
+        status: "review",
+        createdBy: adminId,
+        shareToken: "cedarline-token",
+        interviewees: ["Morgan Vale"],
+        createdAt: 1,
+        updatedAt: 1,
+      })
+    );
+    expect(await errorOf(admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "morgan  vale" } } }))).toBe(
+      "That writer's name is a person the company's projects interviewed, so it cannot go on this PD's Brain copy. Choose the writer by their own name."
+    );
+    // Nothing changed, and no writer was made for the typed names.
+    expect(await item(t, pd)).toMatchObject({ writerId: before.writerId, writerName: before.writerName });
+    expect(await source(t, sourceId)).toMatchObject({ writerName: "Dana Whitlock" });
+    expect(await t.run((ctx) => ctx.db.query("pdWriters").collect())).toHaveLength(writersBefore.length);
+    expect(await events(t, pd)).toEqual([]);
+    // Another name is fine.
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Morgan Hale" } } })).toEqual({
+      changed: ["writer"],
+      brainUpdated: true,
+    });
   });
 
   it("refuses what does not go on the file, a file no longer approved, and bad values, in plain words", async () => {

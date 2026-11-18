@@ -127,7 +127,7 @@ function seed() {
   __setMutationHandler("ingestion:editApprovedFile", (args) => {
     const patch = (args as { patch: Record<string, unknown> }).patch;
     const changed = Object.keys(patch);
-    return { changed, reembed: changed.includes("writer") || changed.includes("scienceCode") };
+    return { changed, brainUpdated: changed.includes("writer") || changed.includes("scienceCode") };
   });
   __setMutationHandler("ingestion:sendBackToReview", (args) => {
     const ids = (args as { ids: string[] }).ids;

@@ -13,8 +13,10 @@ import type { ActionCtx } from "../../_generated/server";
 import { brain, BRAIN_CHUNK_NOTES_VERSION, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE, insertBrainSource, linkBrainSourceImportFile } from "./rag";
 import { importSource, SERVABLE_SOURCE_LINK_CAP } from "../../brain";
 import { brainEmbeddingModel, brainRerankModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
+import { relabelImportedSource } from "../../brain";
 import {
   BRAIN_MIN_VECTOR_SIMILARITY,
+  formatBrainExemplars,
   BRAIN_OWN_COMPANY_SEARCH_LIMIT,
   BRAIN_SEARCH_LIMIT,
   blendWriterTier,
@@ -55,7 +57,15 @@ let axis = 2;
 /** An approved source with one chunk at `cos` to the query, ingested as embedSource does. */
 async function addSource(
   t: T,
-  opts: { cos: number; tier: number; importance?: number; importItemId?: Id<"ingestionItems">; label: string }
+  opts: {
+    cos: number;
+    tier: number;
+    importance?: number;
+    importItemId?: Id<"ingestionItems">;
+    label: string;
+    writerName?: string;
+    scienceCode?: string;
+  }
 ): Promise<Id<"brainSources">> {
   const sourceId = await t.run((ctx) =>
     insertBrainSource(ctx, {
@@ -65,6 +75,8 @@ async function addSource(
       industry: "manufacturing",
       writerTier: opts.tier,
       docType: "pd",
+      ...(opts.writerName ? { writerName: opts.writerName } : {}),
+      ...(opts.scienceCode ? { scienceCode: opts.scienceCode } : {}),
       content: `private text ${opts.label}`,
       ragKey: `pd_pair:${opts.label}`,
       sourceHash: `hash-${opts.label}`,
@@ -84,7 +96,14 @@ async function addSource(
       key: `pd_pair:${opts.label}`,
       title: "Past PD, FY2024",
       importance: opts.importance ?? BRAIN_ENTRY_IMPORTANCE,
-      metadata: { sourceId, industry: "manufacturing", writerTier: opts.tier, docType: "pd" },
+      metadata: {
+        sourceId,
+        industry: "manufacturing",
+        writerTier: opts.tier,
+        docType: "pd",
+        ...(opts.writerName ? { writerName: opts.writerName } : {}),
+        ...(opts.scienceCode ? { scienceCode: opts.scienceCode } : {}),
+      },
       filterValues: [
         { name: "industryApproved", value: { industry: "manufacturing", approved: true } },
         { name: "docType", value: "pd" },
@@ -160,6 +179,34 @@ describe("the relevance floor reads raw similarity", () => {
       await patchBrainSource(ctx, (await ctx.db.get(b))!, { writerTier: 1 });
     });
     expect((await search(t, { k: 1 })).exemplars.map((e) => e.sourceId)).toEqual([b]);
+  });
+});
+
+describe("an edit after approval on Import reaches retrieval with no new embed (2026-11-17)", () => {
+  test("the exemplar's writer and science code come from its source's card, not the entry's old metadata", async () => {
+    const t = setup();
+    const sourceId = await addSource(t, { cos: 0.6, tier: 0.4, label: "edited", writerName: "Dana Whitlock", scienceCode: "2.02.09" });
+    const before = (await search(t, { k: 1 })).exemplars;
+    expect(before.map((e) => [e.writerName, e.scienceCode])).toEqual([["Dana Whitlock", "2.02.09"]]);
+
+    // What editApprovedFile does to the Brain copy: the source and its card, never the entry.
+    const add = vi.spyOn(brain, "add");
+    const result = await t.run(async (ctx) =>
+      relabelImportedSource(ctx, (await ctx.db.get(sourceId))!, { writerName: "Robin Sample", scienceCode: "1.02.02" }, "admin")
+    );
+    expect(result).toEqual({ changed: true, reembed: false });
+    expect(add).not.toHaveBeenCalled();
+
+    const after = (await search(t, { k: 1 })).exemplars;
+    expect(after.map((e) => [e.sourceId, e.writerName, e.scienceCode])).toEqual([[sourceId, "Robin Sample", "1.02.02"]]);
+    const block = formatBrainExemplars(after);
+    expect(block).toContain("Robin Sample");
+    expect(block).not.toContain("Dana Whitlock");
+    expect(block).not.toContain("2.02.09");
+
+    // A writer cleared on the copy is cleared in the label too.
+    await t.run(async (ctx) => relabelImportedSource(ctx, (await ctx.db.get(sourceId))!, { writerName: null }, "admin"));
+    expect((await search(t, { k: 1 })).exemplars[0].writerName).toBeUndefined();
   });
 });
 
