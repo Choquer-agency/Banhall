@@ -16,8 +16,13 @@
  *   1-hour TTL. Cache reads cost 0.1x, except Opus 5.5 (0.05x, $0.20) and
  *   Fable 5.1 (0.025x, $0.25). Opus 5.5 ($4/$20) and Fable 5.1 ($10/$50)
  *   match OpenRouter's listing for them, re-read 2026-09-25.
- * - Voyage (voyage-3-large $0.18, rerank-2.5 $0.05, input only): kept from
- *   the earlier table, not re-read on this date.
+ * - Voyage (input only), read 2026-11-18 from
+ *   https://docs.voyageai.com/docs/pricing: voyage-4-large $0.12 and
+ *   rerank-3 $0.05 (the Brain's models since 2026-11-18), voyage-3-large
+ *   $0.18 and rerank-2.5 $0.05 (kept for the old index and older rows).
+ *   The first 200 million tokens of voyage-4-large and of rerank-3 are free
+ *   per account; usage rows price list price, so they overstate the bill
+ *   until that allowance is used.
  * - OpenRouter models: FALLBACKS ONLY. OpenRouter returns the exact charge in
  *   `usage.cost`, which is recorded as a native cost and always wins. These
  *   rows price only a response that carried no cost, and are kept from the
@@ -90,6 +95,8 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
   "claude-sonnet-4-6": anthropic(3, 15),
   "claude-haiku-4-5": anthropic(1, 5),
   // Voyage embeddings and reranking bill processed tokens as input.
+  "voyage-4-large": inputOnly(0.12),
+  "rerank-3": inputOnly(0.05),
   "voyage-3-large": inputOnly(0.18),
   "rerank-2.5": inputOnly(0.05),
   // OpenRouter fallbacks (native usage.cost wins).

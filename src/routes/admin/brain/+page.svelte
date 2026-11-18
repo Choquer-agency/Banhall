@@ -28,6 +28,7 @@
     reweight: "Reweighted",
     revert: "Reverted",
     relabel: "Details changed on Import",
+    switch_index: "Search index changed",
   };
 
   const auth = useAuth();

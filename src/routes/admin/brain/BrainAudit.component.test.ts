@@ -45,6 +45,7 @@ const labels: Record<Audit[number]["action"], string> = {
   revoke: "Revoked (unlearn requested)",
   unlearn_failed: "Erasure attempt failed", unlearn_confirmed: "Erasure confirmed",
   relabel: "Details changed on Import",
+  switch_index: "Search index changed",
 };
 const rows = () => [...document.querySelectorAll("tbody tr")];
 const cells = (row: Element) => [...row.querySelectorAll("td")].map(cell => cell.textContent?.trim());

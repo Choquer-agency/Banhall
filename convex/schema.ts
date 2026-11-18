@@ -3969,6 +3969,14 @@ export default defineSchema({
     // ingestOnComplete); absent with no notes, or on older rows, whose notes
     // came from the prompt that asked for the company.
     chunkNotesVersion: v.optional(v.number()),
+    // 2026-11-18 (fourth) widen (the Brain moves to Voyage 4): the source's
+    // entry in the voyage4 index (voyage-4-large, namespace "brain-v4") and
+    // that entry's chunk note version. `ragEntryId`, `ragImportance` and
+    // `chunkNotesVersion` describe the voyage3 index. Revoke and unlearn
+    // erase both entries; each field is cleared only by its own confirmed
+    // erasure.
+    ragEntryIdV4: v.optional(v.string()),
+    chunkNotesVersionV4: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
@@ -4029,6 +4037,10 @@ export default defineSchema({
     // 2026-11-17 widen: brainSources.ragImportance and chunkNotesVersion, for the re-embed pass.
     ragImportance: v.optional(v.number()),
     chunkNotesVersion: v.optional(v.number()),
+    // 2026-11-18 (fourth) widen: brainSources.ragEntryIdV4 and
+    // chunkNotesVersionV4, for the voyage4 build chain and the admin list.
+    ragEntryIdV4: v.optional(v.string()),
+    chunkNotesVersionV4: v.optional(v.number()),
   })
     .index("by_sourceId", ["sourceId"])
     .index("by_createdAt", ["createdAt"])
@@ -4046,6 +4058,35 @@ export default defineSchema({
     key: v.string(),
     count: v.number(),
   }).index("by_scope_and_key", ["scope", "key"]),
+
+  // 2026-11-18 (fourth) (the Brain moves to Voyage 4): which search index
+  // serves. At most one row, key "search"; no row means "voyage3" serves.
+  // Written only by brain:setServingSearchIndex, brain:buildSearchIndex
+  // (`lastBuild`) and brain:dropOldSearchIndex (`oldIndexDropped`). Moving
+  // `serving` is the cutover; moving it back is the rollback, as long as the
+  // old index is still written (`oldIndexDropped` unset).
+  brainSearchIndexState: defineTable({
+    key: v.literal("search"),
+    serving: v.union(v.literal("voyage3"), v.literal("voyage4")),
+    // Set when the drop of the voyage3 index starts: from then no embed
+    // writes to it and the pointer can no longer move back.
+    oldIndexDropped: v.optional(v.boolean()),
+    // The last finished build pass of the voyage4 index: approved sources it
+    // read, those that had an entry, those it queued, and those still
+    // missing once their embeds finished. The pointer moves to voyage4 only
+    // after a pass with none missing.
+    lastBuild: v.optional(
+      v.object({
+        finishedAt: v.number(),
+        approved: v.number(),
+        present: v.number(),
+        queued: v.number(),
+        missing: v.number(),
+      })
+    ),
+    changedBy: v.string(),
+    changedAt: v.number(),
+  }).index("by_key", ["key"]),
 
   // ─── BNH-39: PD review mode — AI review of an existing written PD ──────────
   // One row per review run. The uploaded PD lives in projectDocuments
@@ -4148,7 +4189,10 @@ export default defineSchema({
       v.literal("unlearn_failed"),
       // 2026-11-17 widen (edit after approval): an Admin changed an imported
       // PD's writer or science code on Import, and its Brain copy followed.
-      v.literal("relabel")
+      v.literal("relabel"),
+      // 2026-11-18 (fourth) widen: the serving search index moved (cutover
+      // or rollback), or the old index's drop started. No `sourceId`.
+      v.literal("switch_index")
     ),
     sourceId: v.optional(v.id("brainSources")),
     feedbackId: v.optional(v.id("brainFeedbackQueue")),

@@ -1247,8 +1247,12 @@ describe("prompt versions", () => {
     // Brain search records that exemplar labels (writer, science code) come
     // from the source's card, on purpose; before it they were
     // sha256:d5692a9b... and sha256:45eabb14....
-    expect(await hashPromptProgram()).toBe("sha256:ef6f2e10838416ab57a09a834be64155af8dd0a66669848c24410a4816e5cd3b");
-    expect(await legacyPromptVersion()).toBe("sha256:6a67eb849bd71bcc8f17660e94a4117b61eea10bfa072cb8bc84845e9c2d75db");
+    // Re-read after 2026-11-18 (fourth, the Brain moves to Voyage 4): the
+    // Brain lists both search indexes (models, namespaces, rerankers,
+    // floors) and that a stored pointer chooses the one search reads, on
+    // purpose; before it they were sha256:ef6f2e10... and sha256:6a67eb84....
+    expect(await hashPromptProgram()).toBe("sha256:f413fe0b6b7e3253fe9ed7eda4f02ed3ca581defb19e4f21c4563492a741e0ba");
+    expect(await legacyPromptVersion()).toBe("sha256:114d601567c92eb48db76d000b523dd4347a948edf8a4a4327f6f603227f5c10");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

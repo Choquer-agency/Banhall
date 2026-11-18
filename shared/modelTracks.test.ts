@@ -85,6 +85,8 @@ describe("parseTrackId", () => {
     "perplexity/sonar-deep-research",
     "xiaomi/mimo-v2.6-pro",
     "voyage-3-large",
+    "voyage-4-large",
+    "rerank-3",
   ])("%s is on no track", (id) => {
     expect(parseTrackId(id)).toBeNull();
     expect(trackOf(id)).toBeNull();
@@ -189,6 +191,8 @@ describe("every model id the app has used maps to its track", () => {
     "anthropic/claude-fable-5.1",
     "voyage-3-large",
     "rerank-2.5",
+    "voyage-4-large",
+    "rerank-3",
     "perplexity/sonar-deep-research",
   ]);
   test.each([...used].filter((id) => !untracked.has(id)))("%s has a track", (id) => {

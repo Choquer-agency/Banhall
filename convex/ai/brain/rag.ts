@@ -1,8 +1,17 @@
 import { RAG } from "@convex-dev/rag";
+import { v } from "convex/values";
 import { components, internal } from "../../_generated/api";
 import type { DataModel, Doc, Id } from "../../_generated/dataModel";
-import type { MutationCtx } from "../../_generated/server";
-import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
+import { internalMutation, type MutationCtx, type QueryCtx } from "../../_generated/server";
+import {
+  BRAIN_DEFAULT_SERVING_INDEX,
+  BRAIN_EMBEDDING_DIMENSION,
+  BRAIN_EMBEDDING_MODELS,
+  BRAIN_INDEX_IDS,
+  BRAIN_SEARCH_INDEXES,
+  brainIndexForNamespace,
+  type BrainIndexId,
+} from "./embeddings";
 
 /**
  * The Brain's retrieval engine (BNH-10).
@@ -30,7 +39,7 @@ import { brainEmbeddingModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
  * (CRA rejection letters will still get their own separate namespace — they're
  * negative signal, never mixed into exemplar retrieval.)
  */
-export const BRAIN_NAMESPACE = "brain";
+export const BRAIN_NAMESPACE = BRAIN_SEARCH_INDEXES.voyage3.namespace;
 export const BRAIN_FILTER_NAMES = ["industryApproved", "docType"] as const;
 
 /**
@@ -72,24 +81,190 @@ export type BrainEntryMetadata = {
   chunkNotesVersion?: number;
 };
 
+/** The voyage3 index (voyage-3-large, namespace "brain"), the one from before 2026-11-18. */
 export const brain = new RAG<BrainFilters, BrainEntryMetadata>(components.rag, {
-  textEmbeddingModel: brainEmbeddingModel,
+  textEmbeddingModel: BRAIN_EMBEDDING_MODELS.voyage3,
   embeddingDimension: BRAIN_EMBEDDING_DIMENSION,
   // Max 16 filter fields per vector index — we use 2 (both set on every entry).
   filterNames: [...BRAIN_FILTER_NAMES],
 });
 
 /**
+ * The voyage4 index (2026-11-18 (fourth)): voyage-4-large at 1024, its own
+ * namespace name ("brain-v4"), the same filters. Same component, so an entry
+ * of either index is read and deleted by its id alone (erase.ts).
+ */
+export const brainV4 = new RAG<BrainFilters, BrainEntryMetadata>(components.rag, {
+  textEmbeddingModel: BRAIN_EMBEDDING_MODELS.voyage4,
+  embeddingDimension: BRAIN_EMBEDDING_DIMENSION,
+  filterNames: [...BRAIN_FILTER_NAMES],
+});
+
+/** Each index's RAG instance. */
+export const BRAIN_RAGS: Record<BrainIndexId, RAG<BrainFilters, BrainEntryMetadata>> = {
+  voyage3: brain,
+  voyage4: brainV4,
+};
+
+export const vBrainIndexId = v.union(v.literal("voyage3"), v.literal("voyage4"));
+
+/**
+ * The source fields that hold each index's entry (2026-11-18 (fourth)). A
+ * source may have an entry in each index, so each has its own id: revoke and
+ * unlearn erase every id the row holds. voyage3 keeps the original fields.
+ */
+export const BRAIN_INDEX_FIELDS = {
+  voyage3: { entryId: "ragEntryId", notesVersion: "chunkNotesVersion" },
+  voyage4: { entryId: "ragEntryIdV4", notesVersion: "chunkNotesVersionV4" },
+} as const satisfies Record<BrainIndexId, { entryId: keyof Doc<"brainSources">; notesVersion: keyof Doc<"brainSources"> }>;
+
+type IndexFieldsRow = Pick<Doc<"brainSources">, "ragEntryId" | "ragEntryIdV4" | "chunkNotesVersion" | "chunkNotesVersionV4">;
+
+/** The entry id a source holds in one index. */
+export function entryIdIn(source: IndexFieldsRow, index: BrainIndexId): string | undefined {
+  return source[BRAIN_INDEX_FIELDS[index].entryId];
+}
+
+/** Every (index, entry id) pair the row holds, voyage3 first. */
+export function heldEntries(source: IndexFieldsRow): { index: BrainIndexId; entryId: string }[] {
+  const out: { index: BrainIndexId; entryId: string }[] = [];
+  for (const index of BRAIN_INDEX_IDS) {
+    const entryId = entryIdIn(source, index);
+    if (entryId) out.push({ index, entryId });
+  }
+  return out;
+}
+
+/**
+ * Whether a source's vectors in the voyage3 index still carry its writer
+ * tier as importance (2026-11-17). Embeds since then record `ragImportance`
+ * (always 1); an older row's importance was its tier, clamped, as of its
+ * last embed. It describes the voyage3 index only: every voyage4 entry is
+ * made at importance 1.
+ */
+export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragImportance" | "writerTier">): boolean {
+  const stored = source.ragImportance ?? Math.max(0, Math.min(1, source.writerTier));
+  return stored < 1;
+}
+
+/**
+ * Whether the source's entry in an index is current, so an embed may pass
+ * that index over without paying Voyage again (`add` embeds before the
+ * component can tell the entry is unchanged). Current: it has an entry, at
+ * importance 1 (voyage3 only can be older), with notes from this prompt
+ * version when chunk notes are on.
+ */
+export function entryIsCurrent(
+  source: IndexFieldsRow & Pick<Doc<"brainSources">, "ragImportance" | "writerTier">,
+  index: BrainIndexId,
+  notesOn: boolean
+): boolean {
+  if (!entryIdIn(source, index)) return false;
+  if (index === "voyage3" && needsFullImportanceEmbed(source)) return false;
+  return !notesOn || source[BRAIN_INDEX_FIELDS[index].notesVersion] === BRAIN_CHUNK_NOTES_VERSION;
+}
+
+/**
+ * Which index search reads, and which indexes embeds write (2026-11-18
+ * (fourth)). One row, key "search", in `brainSearchIndexState`; none means
+ * voyage3 serves. voyage4 is always written; voyage3 is written until
+ * `brain:dropOldSearchIndex` starts.
+ */
+export type BrainIndexState = {
+  serving: BrainIndexId;
+  written: BrainIndexId[];
+  row: Doc<"brainSearchIndexState"> | null;
+};
+
+export async function readBrainIndexState(ctx: QueryCtx | MutationCtx): Promise<BrainIndexState> {
+  const row = await ctx.db
+    .query("brainSearchIndexState")
+    .withIndex("by_key", (q) => q.eq("key", "search"))
+    .unique();
+  const serving = row?.serving ?? BRAIN_DEFAULT_SERVING_INDEX;
+  const written: BrainIndexId[] = row?.oldIndexDropped ? ["voyage4"] : ["voyage3", "voyage4"];
+  return { serving, written, row };
+}
+
+/** What a finished embed records on its source for one index. */
+function entryPatch(
+  index: BrainIndexId,
+  entryId: string,
+  importance: number,
+  notesVersion: number | undefined
+): Partial<Doc<"brainSources">> {
+  return index === "voyage3"
+    ? { ragEntryId: entryId, ragImportance: importance, chunkNotesVersion: notesVersion }
+    : { ragEntryIdV4: entryId, chunkNotesVersionV4: notesVersion };
+}
+
+/**
+ * Where a ready entry goes once its add finished (the completion below, and
+ * `recordReadyEntry` for an add the component found unchanged). The source
+ * must still be approved and the index still written; otherwise the entry
+ * is erased through the confirmed-erasure path and nothing is recorded.
+ * Returns whether the entry was recorded.
+ */
+async function bookReadyEntry(
+  ctx: MutationCtx,
+  source: Doc<"brainSources">,
+  index: BrainIndexId,
+  entry: { entryId: string; importance: number; notesVersion: number | undefined }
+): Promise<boolean> {
+  // Close the revoke-during-embed race. The completion callback and the
+  // governance mutation serialize through Convex transactions: if revoke
+  // committed first, this removes the late vector instead of restoring it;
+  // if completion committed first, revoke observes the entry id and removes it.
+  if (source.status !== "approved") {
+    // Compensation is the SAME confirmed-erasure path as revoke-time unlearn
+    // (this is a mutation, so it cannot confirm anything inline). Never patch
+    // an entry id here: a non-approved source must not gain one except as
+    // failure evidence, which the action writes if erasure fails.
+    await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+      ragEntryId: entry.entryId,
+      sourceId: source._id,
+      index,
+    });
+    await ctx.db.insert("brainAuditLog", {
+      action: "ingest",
+      sourceId: source._id,
+      actorId: "system",
+      reason:
+        "Discarded completed embedding because the source is no longer approved",
+      at: Date.now(),
+    });
+    return false;
+  }
+  const state = await readBrainIndexState(ctx);
+  if (!state.written.includes(index)) {
+    // An embed that started before the old index's drop: its entry goes too.
+    await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
+      ragEntryId: entry.entryId,
+      sourceId: source._id,
+      index,
+      droppedIndex: true,
+    });
+    return false;
+  }
+  await patchBrainSource(ctx, source, entryPatch(index, entry.entryId, entry.importance, entry.notesVersion));
+  return true;
+}
+
+/**
  * Commits in the same transaction that marks a new entry "ready". Records the
- * component's entryId back on the brainSources row (provenance) and logs
- * ingestion outcome. Never auto-applies anything — the source was already
- * admin-approved before ingest was scheduled.
+ * component's entryId back on the brainSources row (provenance), in the
+ * field of the index whose namespace the entry is in, and logs the ingestion
+ * outcome. Never auto-applies anything: the source was already
+ * admin-approved before ingest was scheduled. Both RAG instances use it.
  *
  * (Replaced-entry garbage collection on re-ingest is a Phase-3 cron, not P0.)
  */
 export const ingestOnComplete = brain.defineOnComplete<DataModel>(
-  async (ctx, { entry, replacedEntry, error }) => {
+  async (ctx, { namespace, entry, replacedEntry, error }) => {
     if (!entry.key) return; // we always add with a key; narrows string|undefined
+    const known = brainIndexForNamespace(namespace.namespace);
+    if (!known) console.warn(`ingestOnComplete: namespace ${namespace.namespace} is not a Brain index; booked as voyage3`);
+    const index: BrainIndexId = known ?? "voyage3";
     const source = await ctx.db
       .query("brainSources")
       .withIndex("by_ragKey", (q) => q.eq("ragKey", entry.key!))
@@ -102,63 +277,74 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       if (!error) {
         await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
           ragEntryId: entry.entryId,
+          index,
         });
       }
       return;
     }
 
+    const where = index === "voyage3" ? "" : ` (${BRAIN_SEARCH_INDEXES[index].embeddingModelId} index)`;
     if (error) {
       await ctx.db.insert("brainAuditLog", {
         action: "ingest",
         sourceId: source._id,
         actorId: "system",
-        reason: `Ingestion failed: ${error}`,
-        at: Date.now(),
-      });
-      return;
-    }
-
-    // Close the revoke-during-embed race. The completion callback and the
-    // governance mutation serialize through Convex transactions: if revoke
-    // committed first, this removes the late vector instead of restoring it;
-    // if completion committed first, revoke observes ragEntryId and removes it.
-    if (source.status !== "approved") {
-      // Compensation is the SAME confirmed-erasure path as revoke-time unlearn
-      // (this is a mutation, so it cannot confirm anything inline). Never patch
-      // `ragEntryId` here: a non-approved source must not gain an entry id
-      // except as failure evidence, which the action writes if erasure fails.
-      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, {
-        ragEntryId: entry.entryId,
-        sourceId: source._id,
-      });
-      await ctx.db.insert("brainAuditLog", {
-        action: "ingest",
-        sourceId: source._id,
-        actorId: "system",
-        reason:
-          "Discarded completed embedding because the source is no longer approved",
+        reason: `Ingestion failed${where}: ${error}`,
         at: Date.now(),
       });
       return;
     }
 
     const notesVersion = (entry.metadata as BrainEntryMetadata | undefined)?.chunkNotesVersion;
-    await patchBrainSource(ctx, source, {
-      ragEntryId: entry.entryId,
-      ragImportance: entry.importance,
-      chunkNotesVersion: typeof notesVersion === "number" ? notesVersion : undefined,
+    const recorded = await bookReadyEntry(ctx, source, index, {
+      entryId: entry.entryId,
+      importance: entry.importance,
+      notesVersion: typeof notesVersion === "number" ? notesVersion : undefined,
     });
+    if (!recorded) return;
     await ctx.db.insert("brainAuditLog", {
       action: "ingest",
       sourceId: source._id,
       actorId: "system",
       reason: replacedEntry
-        ? "Re-ingested (replaced prior version)"
-        : "Ingested",
+        ? `Re-ingested (replaced prior version)${where}`
+        : `Ingested${where}`,
       at: Date.now(),
     });
   },
 );
+
+/**
+ * An add the component found unchanged (same key, content hash, importance
+ * and filters) returns the existing ready entry and calls no completion
+ * (`entries.add`, @convex-dev/rag 0.7.5). The embed action reports it here so
+ * the source still records that entry; without it the build chain would
+ * queue the source again on every run. Same rules as a completion.
+ */
+export const recordReadyEntry = internalMutation({
+  args: {
+    sourceId: v.id("brainSources"),
+    index: vBrainIndexId,
+    entryId: v.string(),
+    importance: v.number(),
+    notesVersion: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.sourceId);
+    if (!source) {
+      await ctx.scheduler.runAfter(0, internal.brain.unlearnSource, { ragEntryId: args.entryId, index: args.index });
+      return null;
+    }
+    if (entryIdIn(source, args.index) === args.entryId && source.status === "approved") return null;
+    await bookReadyEntry(ctx, source, args.index, {
+      entryId: args.entryId,
+      importance: args.importance,
+      notesVersion: args.notesVersion,
+    });
+    return null;
+  },
+});
 
 // ─── Writing brainSources (2026-11-17, Brain reads at volume) ───────────────
 // Every insert, patch and delete of a `brainSources` row goes through these
@@ -191,6 +377,8 @@ function cardFields(source: Doc<"brainSources">): CardFields {
     importItemId: source.importItemId,
     ragImportance: source.ragImportance,
     chunkNotesVersion: source.chunkNotesVersion,
+    ragEntryIdV4: source.ragEntryIdV4,
+    chunkNotesVersionV4: source.chunkNotesVersionV4,
   };
 }
 
