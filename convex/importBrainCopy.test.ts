@@ -119,7 +119,7 @@ describe("importBrainCopyPreview", () => {
 
     const t2 = convexTest(schema, modules);
     const second = await seed(t2, { client: null });
-    expect(await t2.query(internal.ingestion.importBrainCopyPreview, { itemId: second.itemId, text: TEXT })).toEqual({
+    expect(await t2.query(internal.ingestion.importBrainCopyPreview, { itemId: second.itemId, text: TEXT })).toMatchObject({
       ok: false,
       code: "no_industry",
       reason: "Pick an industry for this company.",

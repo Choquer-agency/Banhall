@@ -66,9 +66,18 @@ export type ImportBrainCopyFields = {
   importContentHash: string;
 };
 
+/**
+ * `warnings`: words a person should look at before approving (never a
+ * refusal). `notCovered`: what the check does not find, for the Approve
+ * screen. `logReason`: the refusal without the company's word, for the
+ * audit log (never write `reason` to brainAuditLog: it quotes the name).
+ */
 export type ImportBrainCopyResult =
-  | { ok: true; fields: ImportBrainCopyFields }
-  | { ok: false; code: ImportBrainCopyRefusalCode; reason: string };
+  | { ok: true; fields: ImportBrainCopyFields; warnings: string[]; notCovered: string }
+  | { ok: false; code: ImportBrainCopyRefusalCode; reason: string; logReason: string; notCovered: string };
+
+/** The leak refusal for the audit log, without the word that leaked. */
+export const IMPORT_BRAIN_LEAK_LOG_REASON = "The Brain copy would still name the company, so it was not made.";
 
 /** What a query reads for one import file (see `importBrainCopyFor` in convex/ingestion.ts). */
 export type ImportBrainCopyInput = {
@@ -233,11 +242,14 @@ export function domainStem(host: string): string | null {
  *  - `words`: one word that stands for the company alone: every word of a
  *    name that is not ordinary (four letters or more: "quillmere" in "The
  *    Quillmere Group", "Advanced Quillmere Technologies" or "Les Industries
- *    Quillmere"), a one-word name, a word with inner capitals, a number
- *    ("2525483 Ontario"), a domain stem.
+ *    Quillmere"), three letters capitalized ("Zyx"), a one-word name, a
+ *    word with inner capitals, a number of five digits or more ("2525483
+ *    Ontario"), a domain stem.
  *  - `initialisms`: an all-capitals word of the name ("JRT") and the
- *    initials of a name of two words or more ("QM"), two letters or more,
- *    never a common acronym ("AI", "QA", "PD").
+ *    initials of a name of two words or more ("QM", "FM" of "Fenwick &
+ *    Marlow"), two letters or more, never a common acronym ("AI", "QA",
+ *    "PD"); when they are one and the name has a third word with its legal
+ *    suffix, those three initials ("VAI" of "Verdant AI Inc.").
  */
 export type CompanyNameVariants = {
   phrases: string[][];
@@ -245,6 +257,29 @@ export type CompanyNameVariants = {
   words: string[];
   initialisms: string[];
 };
+
+/**
+ * A word of a multi-word name that stands for the company alone: four
+ * letters or more and not ordinary, three letters capitalized and not
+ * ordinary ("Zyx" of "Zyx Robotics", never "Ion" written "ion"), or a
+ * number of five digits or more ("1234567 Ontario"; never "123" or "360").
+ */
+function distinctiveNameWord(word: string): boolean {
+  const plain = fold(word);
+  if (/^\p{N}+$/u.test(plain)) return plain.length >= 5;
+  if (isOrdinaryNameWord(plain) || isCommonAcronym(plain)) return false;
+  if (plain.length >= 4) return true;
+  // "Zyx", never "JRT" (an all-capitals word is an initialism, matched as written).
+  return plain.length === 3 && /^\p{Lu}\p{Ll}{2}$/u.test(plain);
+}
+
+/** The initials of a name's words other than articles, two to six letters, or null. */
+function initialsOf(words: readonly string[]): string | null {
+  const significant = words.filter((word) => !ARTICLE_WORDS.has(fold(word).toLowerCase()));
+  if (significant.length < 2) return null;
+  const letters = significant.map((word) => fold(word)[0]?.toUpperCase() ?? "").join("");
+  return /^\p{Lu}{2,6}$/u.test(letters) ? letters : null;
+}
 
 export function companyNameVariants(
   names: readonly string[],
@@ -279,13 +314,15 @@ export function companyNameVariants(
       addPhrase(core.slice(0, brand));
       if (core.length >= 3) addPhrase(core.slice(0, 2));
       if (core.length === 1 && core[0].length >= 3 && !isOrdinaryNameWord(core[0])) words.add(core[0]);
-      for (const word of lower) {
-        if (/^\p{N}+$/u.test(word) ? word.length >= 3 : word.length >= 4 && !isOrdinaryNameWord(word)) words.add(word);
+      for (const [k, word] of lower.entries()) {
+        if (distinctiveNameWord(original[k])) words.add(word);
       }
-      const significant = original.filter((word) => !ARTICLE_WORDS.has(fold(word).toLowerCase()));
-      if (significant.length >= 2) {
-        const letters = significant.map((word) => fold(word)[0]?.toUpperCase() ?? "").join("");
-        if (/^\p{Lu}{2,6}$/u.test(letters) && !isCommonAcronym(letters)) initialisms.add(letters);
+      const letters = initialsOf(original);
+      if (letters && !isCommonAcronym(letters)) initialisms.add(letters);
+      // "Verdant AI Inc.": "VA" is a common acronym, so its three words' "VAI" counts instead.
+      const withSuffix = initialsOf(joinDottedInitials(raw.normalize("NFC")).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+      if ((!letters || isCommonAcronym(letters)) && withSuffix && withSuffix.length >= 3 && !isCommonAcronym(withSuffix)) {
+        initialisms.add(withSuffix);
       }
     }
     for (const word of original) {
@@ -313,22 +350,47 @@ export function companyNameVariants(
 // ─── Matching that ignores accents ──────────────────────────────────────────
 
 /**
- * The text folded (no accents, NFKD) with, for each folded code unit, the
- * span of the original text it came from, so a match on the folded text
- * replaces exactly the characters as written ("Vérdane" for "verdane").
+ * Characters the scrub reads past (2026-11-17, review round 2): invisible
+ * ones (soft hyphen, zero-width spaces and joiners, U+2060, U+FEFF and the
+ * rest of Default_Ignorable_Code_Point) and the trademark signs, so
+ * "Quill\u00ADmere" and "Quillmere\u2122" match "Quillmere".
+ */
+const SCRUB_SKIPPED = /^[\p{Default_Ignorable_Code_Point}\u2122\u2120\u00AE]$/u;
+/** A word broken at a line end ("Quill-\nmere"): the hyphen and the break are read past. */
+const SCRUB_LINE_WRAP = /^-[ \t]*\r?\n[ \t]*(?=\p{Ll})/u;
+
+/**
+ * The text folded (no accents, NFKD), with skipped characters and line-end
+ * wraps left out, and, for each folded code unit, the span of the original
+ * text it came from, so a match on the folded text replaces exactly the
+ * characters as written ("V\u00E9rdane" for "verdane").
  */
 function foldWithMap(text: string): { folded: string; from: number[]; to: number[] } {
   let folded = "";
   const from: number[] = [];
   const to: number[] = [];
   let index = 0;
-  for (const char of text) {
+  let afterLetter = false;
+  while (index < text.length) {
+    const char = String.fromCodePoint(text.codePointAt(index)!);
+    if (char === "-" && afterLetter) {
+      const wrap = SCRUB_LINE_WRAP.exec(text.slice(index, index + 40));
+      if (wrap) {
+        index += wrap[0].length;
+        continue;
+      }
+    }
+    if (SCRUB_SKIPPED.test(char)) {
+      index += char.length;
+      continue;
+    }
     const plain = fold(char);
     for (let k = 0; k < plain.length; k++) {
       from.push(index);
       to.push(index + char.length);
     }
     folded += plain;
+    afterLetter = /\p{L}/u.test(char);
     index += char.length;
   }
   return { folded, from, to };
@@ -368,13 +430,29 @@ function wordsRegex(alternatives: string[], flags: string): RegExp | null {
 
 // ─── Numbers and addresses ──────────────────────────────────────────────────
 
+/** A Business Number's program account after it ("RC0001", "RT 0001", "-RC-0001"). */
+const PROGRAM_ACCOUNT = "(?:[ \\t-]?(?:RC|RP|RT|RR|RZ|RM)[ \\t-]?\\d{4})";
+/** The words that name a Business Number or a Quebec enterprise number (NEQ). */
+const BUSINESS_NUMBER_LABEL =
+  "(?:BN|B\\.N\\.|Business[ \\t]+(?:Number|No\\.?)|Num[e\\u00E9]ro[ \\t]+d['\\u2019]entreprise(?:[ \\t]+du[ \\t]+Qu[e\\u00E9]bec)?|NEQ|Quebec[ \\t]+Enterprise[ \\t]+Number)";
 /**
- * A Business Number: nine digits written together ("123456789"), or with
- * its program account ("123456789 RC0001", "123 456 789 RT 0001"). Never
- * inside a longer number or a decimal.
+ * A number after its label: "BN 123 456 789", "Business Number: 123-456-789",
+ * "Num\u00E9ro d'entreprise 123 456 789", "NEQ 1171234567". The label stays.
  */
-const BUSINESS_NUMBER =
-  /(?<![\p{L}\p{N}.,])(?:\d{9}(?:[ \t]?(?:RC|RP|RT|RR|RZ|RM)[ \t]?\d{4})?|\d{3}[ \t]\d{3}[ \t]\d{3}[ \t]?(?:RC|RP|RT|RR|RZ|RM)[ \t]?\d{4})(?![\p{L}\p{N}]|[.,]\d)/giu;
+const LABELLED_BUSINESS_NUMBER = new RegExp(
+  `(?<![\\p{L}\\p{N}])(${BUSINESS_NUMBER_LABEL}[ \\t]*[:#]?[ \\t]*)(?:\\d{10}|\\d{3}[ \\t-]?\\d{3}[ \\t-]?\\d{3}${PROGRAM_ACCOUNT}?)(?![\\p{L}\\p{N}])`,
+  "giu"
+);
+/**
+ * A Business Number with no label: nine digits written together, with or
+ * without its program account ("123456789", "123456789-RC-0001"), or nine
+ * spaced digits with one ("123 456 789 RT 0001"). Never inside a longer
+ * number or a decimal.
+ */
+const BUSINESS_NUMBER = new RegExp(
+  `(?<![\\p{L}\\p{N}.,])(?:\\d{9}${PROGRAM_ACCOUNT}?|\\d{3}[ \\t]\\d{3}[ \\t]\\d{3}${PROGRAM_ACCOUNT})(?![\\p{L}\\p{N}]|[.,]\\d)`,
+  "giu"
+);
 /** A Canadian postal code ("K1A 0B1"). */
 const POSTAL_CODE = /(?<![\p{L}\p{N}])[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ \t-]?\d[ABCEGHJ-NPRSTV-Z]\d(?![\p{L}\p{N}])/giu;
 /** A street number and the word after it ("12 Main", "1200-B Rue"). */
@@ -389,14 +467,18 @@ function hasPostalCode(line: string): boolean {
 }
 
 /**
- * Business Numbers become `[redacted number]`. A postal code becomes
+ * Business Numbers and Quebec enterprise numbers become `[redacted number]`.
+ * A postal code becomes
  * `[redacted address]` with the address around it: its whole line when the
  * line is short (and the line before, when it is a short line that starts
  * with a street number), else from the street number before it on the same
  * line.
  */
 export function scrubNumbersAndAddresses(text: string): string {
-  const lines = text.replace(BUSINESS_NUMBER, IMPORT_BRAIN_NUMBER_REDACTION).split("\n");
+  const lines = text
+    .replace(LABELLED_BUSINESS_NUMBER, `$1${IMPORT_BRAIN_NUMBER_REDACTION}`)
+    .replace(BUSINESS_NUMBER, IMPORT_BRAIN_NUMBER_REDACTION)
+    .split("\n");
   const indentOf = (line: string) => /^\s*/.exec(line)?.[0] ?? "";
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -431,23 +513,60 @@ const NAME_WORD = "\\p{Lu}\\p{L}*(?:['’-]\\p{L}+)*";
 /** Two capitalized words, with a middle initial allowed: "Anjali Verma", "Raj K. Patel". */
 const PERSON = `${NAME_WORD}(?:[ \\t]+\\p{Lu}\\.)?[ \\t]+${NAME_WORD}`;
 const HONORIFIC = "(?:Dr|Mr|Mrs|Ms|Mx|Prof)\\.?";
-const ROLE =
-  "(?:CEO|CTO|COO|CFO|CIO|CSO|VP|SVP|EVP|Vice[ \\t]+President|President|Founder|Co-founder|Cofounder|Owner|Director|Manager|Engineer|Scientist|Technician|Supervisor|Lead|Head|Chief|Principal|Partner|Chair|Chairman|Chairwoman|Foreman|Developer|Analyst|Researcher|Coordinator|Specialist)";
-const ROLE_WORDS = new Set(
-  ["ceo", "cto", "coo", "cfo", "cio", "cso", "vp", "svp", "evp", "vice", "president", "founder", "cofounder", "owner",
-   "director", "manager", "engineer", "scientist", "technician", "supervisor", "lead", "head", "chief", "principal",
-   "partner", "chair", "chairman", "chairwoman", "foreman", "developer", "analyst", "researcher", "coordinator",
-   "specialist", "senior", "junior", "staff", "project", "team", "dr", "mr", "mrs", "ms", "prof"]
-);
+/** Roles, matched capitalized or not ("Director", "lead engineer"); acronyms as written. */
+const ROLE_NAMES = [
+  "CEO", "CTO", "COO", "CFO", "CIO", "CSO", "VP", "SVP", "EVP", "vice president", "president", "founder",
+  "co-founder", "cofounder", "owner", "director", "manager", "engineer", "scientist", "technician",
+  "supervisor", "lead", "head", "chief", "principal", "partner", "chair", "chairman", "chairwoman",
+  "foreman", "developer", "analyst", "researcher", "investigator", "coordinator", "specialist",
+  "programmer", "designer", "architect", "consultant", "officer", "superintendent", "operator",
+];
+function roleAlternative(role: string): string {
+  if (/^[A-Z]+$/.test(role)) return role;
+  return role
+    .split(" ")
+    .map((word) => `[${word[0].toUpperCase()}${word[0]}]${word.slice(1)}`)
+    .join("[ \\t]+");
+}
+const ROLE = `(?:${ROLE_NAMES.map(roleAlternative).join("|")})`;
+/** One role or a few ("Lead Engineer", "Vice President, Engineering" reads as Vice President). */
+const ROLE_PHRASE = `${ROLE}(?:[ \\t]+${ROLE}){0,2}`;
+/** Up to three words before a role: "Project Manager", "our lead engineer", "the plant manager". */
+const ROLE_QUALIFIERS = "(?:[\\p{L}&][\\p{L}&-]*[ \\t]+){0,3}";
+const ROLE_WORDS = new Set([
+  ...ROLE_NAMES.flatMap((role) => role.toLowerCase().split(/[ -]/)),
+  "senior", "junior", "staff", "project", "team", "plant", "dr", "mr", "mrs", "ms", "prof",
+]);
+/** Cues after which a name is taken only when a comma, a role or the end of the clause follows. */
+const STRICT_PERSON_CUE = /(?<![\p{L}\p{N}])(?:led by|contact(?:ed)?|according to)(?:[ \t]*:)?[ \t]+/giu;
 const PERSON_CUE =
-  /(?<![\p{L}\p{N}])(?:led by|prepared by|written by|reviewed by|authored by|managed by|supervised by|directed by|coordinated by|contact(?:ed)?|spoke with|spoken with|speaking with|interview(?:ed)? with|interviewed|met with|according to|attention|attn\.?)(?:[ \t]*:)?[ \t]+/giu;
+  /(?<![\p{L}\p{N}])(?:prepared by|written by|reviewed by|authored by|managed by|supervised by|directed by|coordinated by|spoke with|spoken with|speaking with|interviews? with|interviewed|met with|attention|attn\.?)(?:[ \t]*:)?[ \t]+/giu;
+/** After a name taken from a strict cue: a comma, a role, or the end of the clause. */
+const AFTER_STRICT_PERSON = new RegExp(`(?:[ \\t]*(?:[,;:.!?)]|\\r?\\n|$)|[ \\t]+(?:the[ \\t]+)?${ROLE_PHRASE}(?![\\p{L}\\p{N}]))`, "uy");
+/** A letter's closing, then a name on its own line ("Sincerely,\n\nGwendolyn Ashcombe"). */
+const CLOSING_PERSON = new RegExp(
+  `^[ \\t]*(?:Sincerely|Yours[ \\t]+(?:truly|sincerely)|(?:Best|Kind|Warm|With[ \\t]+kind)?[ \\t]*[Rr]egards|Thank[ \\t]+you|Thanks|Cheers|Respectfully|Cordialement)[ \\t]*,?[ \\t]*\\r?\\n(?:[ \\t]*\\r?\\n)*[ \\t]*(${PERSON})[ \\t]*(?=,|\\r?\\n|$)`,
+  "gmu"
+);
 
 const HONORIFIC_PERSON = new RegExp(`(?<![\\p{L}\\p{N}])${HONORIFIC}[ \\t]+(${NAME_WORD}(?:[ \\t]+\\p{Lu}\\.)?(?:[ \\t]+${NAME_WORD})?)`, "gu");
-const PERSON_THEN_ROLE = new RegExp(`(?<![\\p{L}\\p{N}])(${PERSON}),?[ \\t]+(?:\\(|the[ \\t]+|our[ \\t]+|its[ \\t]+)?${ROLE}(?![\\p{L}\\p{N}])`, "gu");
-const ROLE_THEN_PERSON = new RegExp(
-  `(?<![\\p{L}\\p{N}])${ROLE}(?:[ \\t]+of[ \\t]+${NAME_WORD}(?:[ \\t]+${NAME_WORD}){0,3})?,?[ \\t]+(${PERSON})`,
+/**
+ * A name, then its role after a comma, a bracket or a line break ("Anjali
+ * Verma, CTO", "Mei Tanaka (Director)", "Hélène Côté-Tremblay, Project
+ * Manager", a signature's role on the next line), or a capitalized role
+ * right after it.
+ */
+const PERSON_THEN_ROLE = new RegExp(
+  `(?<![\\p{L}\\p{N}])(${PERSON})(?:(?:,[ \\t]*|[ \\t]*\\([ \\t]*|[ \\t]*\\r?\\n[ \\t]*)(?:(?:the|our|its|a|an)[ \\t]+)?${ROLE_QUALIFIERS}${ROLE_PHRASE}|[ \\t]+(?:${ROLE_NAMES.filter((role) => /^[A-Z]+$/.test(role)).join("|")}))(?![\\p{L}\\p{N}])`,
   "gu"
 );
+/** A role, then a name: "CTO Raj Patel", "our engineer Tomasz Wiśniewski", "Director of Engineering, Raj Patel". */
+const ROLE_THEN_PERSON = new RegExp(
+  `(?<![\\p{L}\\p{N}])${ROLE_PHRASE}(?:[ \\t]+of[ \\t]+${NAME_WORD}(?:[ \\t]+${NAME_WORD}){0,3})?(?:,[ \\t]*|[ \\t]+)(${PERSON})`,
+  "gu"
+);
+/** A first name, a middle initial and a surname on their own: "Raj K. Patel". */
+const INITIAL_PERSON = new RegExp(`(?<![\\p{L}\\p{N}])(\\p{Lu}\\p{Ll}+[ \\t]+\\p{Lu}\\.[ \\t]+${NAME_WORD})`, "gu");
 const PERSON_AT = new RegExp(`(?:(?:${HONORIFIC})[ \\t]+)?(${PERSON})`, "uy");
 
 /** A person's name is kept only when none of its words is ordinary or a role ("Quality Control" is not a person). */
@@ -462,31 +581,113 @@ function plausiblePerson(name: string): boolean {
   );
 }
 
-/** People the PD names next to a title (Dr.), a role (", CTO") or a cue ("led by"). */
+/**
+ * People the PD names next to a title (Dr.), a role (", CTO", "our lead
+ * engineer"), a cue ("prepared by", "interviews with"; "led by", "contact"
+ * and "according to" only when a comma, a role or the clause end follows,
+ * so "led by Monte Carlo simulation" is not a person), a letter's closing,
+ * or with a middle initial ("Raj K. Patel"). Not found: a name with none of
+ * these ("Bob Marlowe wrote the firmware").
+ */
 export function peopleNamedByCues(text: string): string[] {
   const found = new Set<string>();
   const keep = (name: string | undefined) => {
     const clean = name?.trim().replace(/[ \t]+/g, " ");
     if (clean && plausiblePerson(clean)) found.add(clean);
   };
-  for (const match of text.matchAll(HONORIFIC_PERSON)) keep(match[1]);
-  for (const match of text.matchAll(PERSON_THEN_ROLE)) keep(match[1]);
-  for (const match of text.matchAll(ROLE_THEN_PERSON)) keep(match[1]);
-  for (const cue of text.matchAll(PERSON_CUE)) {
-    PERSON_AT.lastIndex = (cue.index ?? 0) + cue[0].length;
-    const person = PERSON_AT.exec(text);
-    if (person) keep(person[1]);
+  for (const regex of [HONORIFIC_PERSON, PERSON_THEN_ROLE, ROLE_THEN_PERSON, INITIAL_PERSON, CLOSING_PERSON]) {
+    for (const match of text.matchAll(regex)) keep(match[1]);
+  }
+  for (const [cues, strict] of [[PERSON_CUE, false], [STRICT_PERSON_CUE, true]] as const) {
+    for (const cue of text.matchAll(cues)) {
+      PERSON_AT.lastIndex = (cue.index ?? 0) + cue[0].length;
+      const person = PERSON_AT.exec(text);
+      if (!person) continue;
+      if (strict) {
+        AFTER_STRICT_PERSON.lastIndex = PERSON_AT.lastIndex;
+        if (!AFTER_STRICT_PERSON.test(text)) continue;
+      }
+      keep(person[1]);
+    }
   }
   return [...found];
 }
 
 // ─── The scrub ──────────────────────────────────────────────────────────────
 
+/** Words that only describe the company, so "(the Company)" or "(the Client)" is not a short form. */
+const DESCRIBING_WORDS = new Set([
+  "client", "applicant", "claimant", "taxpayer", "corporation", "company", "firm", "business",
+  "organization", "organisation", "partnership", "societe", "entreprise", "compagnie",
+]);
+
 /**
- * Hides the names and every form in `variants`, ignoring accents, never
- * inside a longer word except at a CamelCase part edge ("[redacted]Cloud"
- * from "QuillmereCloud"). People's surnames are hidden on their own too, as
- * written.
+ * A short form the PD defines is the company even when it is an ordinary
+ * word ("Apex"); it is not one when it only describes ("the Company") or is
+ * a common acronym ("QA").
+ */
+function usableShortForm(alias: string): boolean {
+  const words = alias.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (words.length === 0 || alias.length < 2) return false;
+  if (words.length === 1 && isCommonAcronym(words[0])) return false;
+  return !words.every((word) => {
+    const lower = fold(word).toLowerCase();
+    return ARTICLE_WORDS.has(lower) || LEGAL_SUFFIX_WORDS.has(lower) || DESCRIBING_WORDS.has(lower);
+  });
+}
+
+/**
+ * Short forms the PD defines for the company: a name, then a bracketed word
+ * or two, quoted or not ("Apex Robotics Ltd. (Apex)", "(“Zyx”)", "(the
+ * “QM”)", "(hereafter Apex)"), as written. Descriptions such as "(the
+ * Company)" and common acronyms ("(QA)") are not short forms.
+ */
+export function definedShortForms(text: string, nameForms: readonly string[]): string[] {
+  if (nameForms.length === 0) return [];
+  const unique = [...new Set(nameForms)].sort((a, b) => b.length - a.length);
+  const quote = "[\"'\\u201C\\u201D\\u2018\\u2019]";
+  const pattern = new RegExp(
+    `${NAME_EDGE_BEFORE}(?:${unique.join("|")})${WORD_AFTER}[.,]?[ \\t]*\\([ \\t]*(?:(?:the|hereafter|hereinafter|or|also|aka|called|referred[ \\t]+to[ \\t]+as)[ \\t]+)*${quote}?([\\p{L}\\p{N}][\\p{L}\\p{N}&.'\\u2019 -]{0,30}?)${quote}?[ \\t]*\\)`,
+    "giud"
+  );
+  const { folded, from, to } = foldWithMap(text);
+  const forms = new Set<string>();
+  for (const match of folded.matchAll(pattern)) {
+    const span = match.indices?.[1];
+    if (!span) continue;
+    const alias = text.slice(from[span[0]], to[span[1] - 1]).trim().replace(/\.$/, "");
+    if (usableShortForm(alias)) forms.add(alias);
+  }
+  return [...forms];
+}
+
+/** The first name and surname of a known person, hidden on their own as written and in capitals. */
+function namePartsOnTheirOwn(people: readonly string[]): string[] {
+  const parts = new Set<string>();
+  for (const person of people) {
+    const words = fold(person).trim().split(/\s+/).filter((word) => !/^\p{Lu}\.$/u.test(word));
+    if (words.length < 2) continue;
+    for (const word of [words[0], words[words.length - 1]]) {
+      if (word.length >= 3 && /^\p{Lu}/u.test(word) && !isOrdinaryNameWord(word) && !ROLE_WORDS.has(word.toLowerCase())) {
+        parts.add(word);
+        parts.add(word.toUpperCase());
+      }
+    }
+  }
+  return [...parts];
+}
+
+/** An initialism as written, dotted, or with "&" between its letters ("QM", "Q.M.", "F&M", "F & M"). */
+function initialismPattern(initialism: string): string {
+  return `${[...initialism].map(escapeRegExp).join("(?:\\.|[ \\t]*&[ \\t]*)?")}\\.?`;
+}
+
+/**
+ * Hides the names and every form in `variants`, ignoring accents, invisible
+ * characters, trademark signs and words broken at a line end, never inside
+ * a longer word except at a CamelCase part edge ("[redacted]Cloud" from
+ * "QuillmereCloud"). Short forms the PD defines, people's first names and
+ * surnames are hidden on their own too, as written and in capitals.
  */
 export function scrubImportText(
   text: string,
@@ -505,26 +706,25 @@ export function scrubImportText(
   const asNames = [...names.organizations, ...names.people, ...names.hosts, ...(names.alsoRemove ?? [])]
     .map((name) => fold(name.normalize("NFC")).trim().replace(/\s+/g, " "))
     .filter((name) => name.length >= 3);
-  const caseless = wordsRegex(
-    [
-      ...asNames.map(surfacePattern),
-      ...variants.phrases.map((parts) => parts.map(escapeRegExp).join(PHRASE_GAP)),
-      ...variants.joined.map(escapeRegExp),
-      ...variants.words.map(escapeRegExp),
-    ],
-    "giu"
-  );
+  const companyForms = [
+    ...[...names.organizations, ...(names.alsoRemove ?? [])]
+      .map((name) => fold(name.normalize("NFC")).trim().replace(/\s+/g, " "))
+      .filter((name) => name.length >= 3)
+      .map(surfacePattern),
+    ...variants.phrases.map((parts) => parts.map(escapeRegExp).join(PHRASE_GAP)),
+    ...variants.joined.map(escapeRegExp),
+    ...variants.words.map(escapeRegExp),
+  ];
+  // Read before the names are hidden: "Apex Robotics Ltd. (Apex)".
+  const shortForms = definedShortForms(out, companyForms);
+  const caseless = wordsRegex([...asNames.map(surfacePattern), ...companyForms], "giu");
   if (caseless) out = replaceFolded(out, caseless, IMPORT_BRAIN_REDACTION);
 
-  const surnames = names.people
-    .map((person) => fold(person).trim().split(/\s+/))
-    .filter((parts) => parts.length >= 2)
-    .map((parts) => parts[parts.length - 1])
-    .filter((last) => last.length >= 3 && /^\p{Lu}/u.test(last) && !isOrdinaryNameWord(last));
   const asWritten = wordsRegex(
     [
-      ...variants.initialisms.map((initialism) => `${[...initialism].map(escapeRegExp).join("\\.")}\\.?|${escapeRegExp(initialism)}`),
-      ...surnames.map(escapeRegExp),
+      ...variants.initialisms.map(initialismPattern),
+      ...namePartsOnTheirOwn(names.people).map(escapeRegExp),
+      ...shortForms.flatMap((form) => [fold(form), fold(form).toUpperCase()]).map((form) => form.split(/\s+/).map(escapeRegExp).join(PHRASE_GAP)),
     ],
     "gu"
   );
@@ -576,28 +776,45 @@ function scrubCamelParts(text: string, variants: CompanyNameVariants): string {
 /** What the leak check looks for, built from the names without `companyNameVariants`. */
 type LeakForms = { words: Set<string>; sequences: string[][]; joined: Set<string> };
 
+/**
+ * The leak check's own reading of a text, written apart from the scrub's:
+ * invisible characters and trademark signs dropped, a word broken at a line
+ * end joined again, accents off, dotted initials joined.
+ */
+function leakReading(text: string): string {
+  const plain = text
+    .normalize("NFC")
+    .replace(/[\p{Default_Ignorable_Code_Point}™℠®]/gu, "")
+    .replace(/(\p{L})-[ \t]*\r?\n[ \t]*(\p{Ll})/gu, "$1$2");
+  return joinDottedInitials(plain.normalize("NFKD").replace(/\p{M}+/gu, ""));
+}
+
 function leakForms(names: readonly string[], domainStems: readonly string[]): LeakForms {
   const words = new Set<string>();
   const sequences: string[][] = [];
   const joined = new Set<string>();
-  const split = (value: string) =>
-    fold(joinDottedInitials(value)).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const split = (value: string) => leakReading(value).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   for (const name of names) {
-    const parts = split(name);
-    while (parts.length > 1 && LEGAL_SUFFIX_WORDS.has(parts[parts.length - 1])) parts.pop();
-    if (parts.length === 0) continue;
+    const asWritten = split(name);
+    while (asWritten.length > 1 && LEGAL_SUFFIX_WORDS.has(asWritten[asWritten.length - 1].toLowerCase())) asWritten.pop();
+    if (asWritten.length === 0) continue;
+    const parts = asWritten.map((word) => word.toLowerCase());
     if (parts.length === 1) {
       if (parts[0].length >= 3 && !isCommonAcronym(parts[0])) words.add(parts[0]);
       continue;
     }
     sequences.push(parts);
     joined.add(parts.join(""));
-    for (const part of parts) {
-      if (part.length >= 4 && !isOrdinaryNameWord(part)) words.add(part);
+    for (const [k, part] of parts.entries()) {
+      const capitalized = /^\p{Lu}\p{Ll}+$/u.test(asWritten[k]);
+      const digits = /^\p{N}+$/u.test(part);
+      if (digits ? part.length >= 5 : (part.length >= 4 || (part.length === 3 && capitalized)) && !isOrdinaryNameWord(part) && !isCommonAcronym(part)) {
+        words.add(part);
+      }
     }
   }
   for (const stem of domainStems) {
-    const parts = split(stem);
+    const parts = split(stem).map((word) => word.toLowerCase());
     if (parts.length === 1) words.add(parts[0]);
     else if (parts.length > 1) {
       sequences.push(parts);
@@ -610,16 +827,16 @@ function leakForms(names: readonly string[], domainStems: readonly string[]): Le
 /**
  * The first form of the company's names still in `text`, or null. It builds
  * its own forms (every word of a name that is not ordinary, four letters or
- * more; each whole name as a word sequence and joined; the domain stem) and
- * matches without the scrub's patterns: the text is cut into words at
- * anything that is not a letter or a digit and into parts at inner capitals,
- * folded to lower case without accents, and compared word by word.
- * "Ionization" never matches "Ion"; "AcmeFarms", "acme-farms" and
- * "ACME FARMS" all match "Acme Farms".
+ * more or three capitalized; a number of five digits or more; each whole
+ * name as a word sequence and joined; the domain stem) and reads the text
+ * its own way (`leakReading`): cut into words at anything that is not a
+ * letter or a digit and into parts at inner capitals, lower case, compared
+ * word by word. "Ionization" never matches "Ion"; "AcmeFarms",
+ * "acme-farms", "Acme­Farms" and "ACME FARMS" all match "Acme Farms".
  */
 export function findIdentityLeak(text: string, names: readonly string[], domainStems: readonly string[] = []): string | null {
   const forms = leakForms(names, domainStems);
-  const tokens = joinDottedInitials(fold(text.normalize("NFC"))).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const tokens = leakReading(text).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const rawLower = new Set(tokens.map((token) => token.toLowerCase()));
   const parts: string[] = [];
   for (const token of tokens) for (const part of camelParts(token)) parts.push(part.text.toLowerCase());
@@ -647,6 +864,45 @@ export function findIdentityLeak(text: string, names: readonly string[], domainS
     }
   }
   return null;
+}
+
+/**
+ * What the Approve screen shows with every copy: what the scrub and the
+ * leak check cover, and what a person must look for themselves.
+ */
+export const IMPORT_BRAIN_NOT_COVERED =
+  "The check looks for the company's names and their distinctive words, initials, short forms the PD defines, the website, Business Numbers, addresses with a postal code, and people named next to a title, a role or a cue. It does not find product names, nicknames, places, or people named without a title or role. Read the copy and add any of them to Also remove.";
+
+/**
+ * Words a person should look at before approving (2026-11-17, review round
+ * 2), never a refusal: the first word of a company name that is too
+ * ordinary to hide ("Apex" of "Apex Robotics", "Summit" of "Summit
+ * Precision Machining") where the copy still writes it capitalized in the
+ * middle of a sentence or with "'s", and a bracketed capitalized word right
+ * after a hidden name ("[redacted] (Apex)").
+ */
+export function identityWarnings(content: string, names: readonly string[]): string[] {
+  const warnings = new Set<string>();
+  const plain = leakReading(content);
+  for (const name of names) {
+    const first = leakReading(name).split(/[^\p{L}\p{N}]+/u).filter(Boolean)[0];
+    if (!first || first.length < 3 || !/^\p{Lu}/u.test(first) || !isOrdinaryNameWord(first)) continue;
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(first)}(?![\\p{L}\\p{N}])(['\\u2019][sS])?`, "gu");
+    for (const match of plain.matchAll(pattern)) {
+      const before = plain.slice(0, match.index ?? 0).trimEnd();
+      const sentenceStart = before === "" || /[.!?:\n]$/u.test(before) || /\n\s*$/u.test(plain.slice(0, match.index ?? 0));
+      if (match[1] || !sentenceStart) {
+        warnings.add(`"${first}" still appears capitalized. If it means the company, add it to Also remove.`);
+        break;
+      }
+    }
+  }
+  for (const match of plain.matchAll(/\[redacted\][ \t]*\([ \t]*["'“‘]?(\p{Lu}[\p{L}\p{N}&]*)/gu)) {
+    if (!isCommonAcronym(match[1])) {
+      warnings.add(`"${match[1]}" in brackets after a hidden name may be the company's short form. If so, add it to Also remove.`);
+    }
+  }
+  return [...warnings];
 }
 
 // ─── The copy ───────────────────────────────────────────────────────────────
@@ -690,7 +946,13 @@ function organizationNames(input: ImportBrainCopyInput): string[] {
  * copy is made.
  */
 export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: string): ImportBrainCopyResult {
-  const refuse = (code: ImportBrainCopyRefusalCode, reason: string): ImportBrainCopyResult => ({ ok: false, code, reason });
+  const refuse = (code: ImportBrainCopyRefusalCode, reason: string, logReason = reason): ImportBrainCopyResult => ({
+    ok: false,
+    code,
+    reason,
+    logReason,
+    notCovered: IMPORT_BRAIN_NOT_COVERED,
+  });
   const { item } = input;
   if (item.category !== "final_pd") return refuse("not_final_pd", IMPORT_BRAIN_REFUSALS.not_final_pd);
   if (!item.companyKey || !item.clientName?.trim()) return refuse("no_company", IMPORT_BRAIN_REFUSALS.no_company);
@@ -719,7 +981,8 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
   if (leak !== null) {
     return refuse(
       "names_left",
-      `The Brain copy would still name the company ("${leak}"), so it was not made. The final PD still goes on the company's page.`
+      `The Brain copy would still name the company ("${leak}"), so it was not made. The final PD still goes on the company's page.`,
+      IMPORT_BRAIN_LEAK_LOG_REASON
     );
   }
 
@@ -728,6 +991,8 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
   const scienceCode = normalizeCraScienceCode(item.scienceCode);
   return {
     ok: true,
+    warnings: identityWarnings(content, [...organizations, ...alsoRemove]),
+    notCovered: IMPORT_BRAIN_NOT_COVERED,
     fields: {
       kind: "pd_pair",
       docType: "pd",

@@ -110,6 +110,7 @@ import {
 } from "./lib/clients";
 import {
   buildImportBrainCopy,
+  IMPORT_BRAIN_NOT_COVERED,
   IMPORT_BRAIN_REFUSALS,
   type ImportBrainCopyResult,
 } from "./lib/importBrainCopy";
@@ -748,7 +749,13 @@ export async function importBrainCopyFor(
     try {
       identity = await companyIdentityNames(ctx, company);
     } catch {
-      return { ok: false, code: "names_unreadable", reason: IMPORT_BRAIN_REFUSALS.names_unreadable };
+      return {
+        ok: false,
+        code: "names_unreadable",
+        reason: IMPORT_BRAIN_REFUSALS.names_unreadable,
+        logReason: IMPORT_BRAIN_REFUSALS.names_unreadable,
+        notCovered: IMPORT_BRAIN_NOT_COVERED,
+      };
     }
   }
   const picks = !company && companyKey ? await newCompanyPicks(ctx, companyKey) : null;
@@ -769,6 +776,8 @@ export async function importBrainCopyFor(
 const importBrainCopyResultValidator = v.union(
   v.object({
     ok: v.literal(true),
+    warnings: v.array(v.string()),
+    notCovered: v.string(),
     fields: v.object({
       kind: v.literal("pd_pair"),
       docType: v.literal("pd"),
@@ -795,6 +804,8 @@ const importBrainCopyResultValidator = v.union(
       v.literal("not_found")
     ),
     reason: v.string(),
+    logReason: v.string(),
+    notCovered: v.string(),
   })
 );
 
@@ -808,9 +819,12 @@ const importBrainCopyResultValidator = v.union(
 export const importBrainCopyPreview = internalQuery({
   args: { itemId: v.id("ingestionItems"), text: v.string(), alsoRemove: v.optional(v.array(v.string())) },
   returns: importBrainCopyResultValidator,
-  handler: async (ctx, args): Promise<ImportBrainCopyResult | { ok: false; code: "not_found"; reason: string }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<ImportBrainCopyResult | { ok: false; code: "not_found"; reason: string; logReason: string; notCovered: string }> => {
     const item = await ctx.db.get(args.itemId);
-    if (!item) return { ok: false, code: "not_found", reason: ITEM_NOT_FOUND };
+    if (!item) return { ok: false, code: "not_found", reason: ITEM_NOT_FOUND, logReason: ITEM_NOT_FOUND, notCovered: IMPORT_BRAIN_NOT_COVERED };
     return await importBrainCopyFor(ctx, item, args.text, args.alsoRemove ?? []);
   },
 });

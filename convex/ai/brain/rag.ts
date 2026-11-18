@@ -42,6 +42,14 @@ export const BRAIN_FILTER_NAMES = ["industryApproved", "docType"] as const;
  * ranking weight applied after it (`blendWriterTier`, retrieve.ts).
  */
 export const BRAIN_ENTRY_IMPORTANCE = 1;
+
+/**
+ * The chunk note prompt's version (`contextualizeMessages`, ingest.ts).
+ * 1: the prompt asked for the company. 2 (2026-11-17): it never names it.
+ * Recorded on each source whose embed had notes; the deploy re-embed
+ * renews older notes when chunk notes are on.
+ */
+export const BRAIN_CHUNK_NOTES_VERSION = 2;
 // NOTE: rag requires a value for EVERY declared filterName on every add, so we
 // only declare filters we set on 100% of entries. `craOutcome` is intentionally
 // NOT a filter (CRA rejections live in their own namespace); it's kept in
@@ -60,6 +68,8 @@ export type BrainEntryMetadata = {
   fiscalYear?: number;
   craOutcome?: string;
   scienceCode?: string;
+  /** BRAIN_CHUNK_NOTES_VERSION when the chunks carry notes (2026-11-17). */
+  chunkNotesVersion?: number;
 };
 
 export const brain = new RAG<BrainFilters, BrainEntryMetadata>(components.rag, {
@@ -132,7 +142,12 @@ export const ingestOnComplete = brain.defineOnComplete<DataModel>(
       return;
     }
 
-    await patchBrainSource(ctx, source, { ragEntryId: entry.entryId, ragImportance: entry.importance });
+    const notesVersion = (entry.metadata as BrainEntryMetadata | undefined)?.chunkNotesVersion;
+    await patchBrainSource(ctx, source, {
+      ragEntryId: entry.entryId,
+      ragImportance: entry.importance,
+      chunkNotesVersion: typeof notesVersion === "number" ? notesVersion : undefined,
+    });
     await ctx.db.insert("brainAuditLog", {
       action: "ingest",
       sourceId: source._id,
@@ -175,6 +190,7 @@ function cardFields(source: Doc<"brainSources">): CardFields {
     createdAt: source.createdAt,
     importItemId: source.importItemId,
     ragImportance: source.ragImportance,
+    chunkNotesVersion: source.chunkNotesVersion,
   };
 }
 

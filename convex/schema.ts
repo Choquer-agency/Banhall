@@ -3914,6 +3914,11 @@ export default defineSchema({
     // brain:reembedBelowFullImportance and reweightSource know which ones
     // still need the one re-embed at importance 1.
     ragImportance: v.optional(v.number()),
+    // 2026-11-17 widen (review round 2): the chunk note prompt version of
+    // the source's last finished embed when it had chunk notes (set by
+    // ingestOnComplete); absent with no notes, or on older rows, whose notes
+    // came from the prompt that asked for the company.
+    chunkNotesVersion: v.optional(v.number()),
   })
     .index("by_storageId", ["storageId"])
     .index("by_status", ["status"])
@@ -3971,8 +3976,9 @@ export default defineSchema({
     // company's own imported PDs out of its own exemplars without reading
     // the source's text. Filled for older cards by brain:backfillBrainSourceCards.
     importItemId: v.optional(v.id("ingestionItems")),
-    // 2026-11-17 widen: brainSources.ragImportance, for the re-embed pass.
+    // 2026-11-17 widen: brainSources.ragImportance and chunkNotesVersion, for the re-embed pass.
     ragImportance: v.optional(v.number()),
+    chunkNotesVersion: v.optional(v.number()),
   })
     .index("by_sourceId", ["sourceId"])
     .index("by_createdAt", ["createdAt"])

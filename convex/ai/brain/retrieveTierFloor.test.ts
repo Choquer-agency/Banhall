@@ -10,7 +10,7 @@ import schema from "../../schema";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
-import { brain, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE, insertBrainSource } from "./rag";
+import { brain, BRAIN_CHUNK_NOTES_VERSION, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE, insertBrainSource } from "./rag";
 import { brainEmbeddingModel, brainRerankModel, BRAIN_EMBEDDING_DIMENSION } from "./embeddings";
 import {
   BRAIN_MIN_VECTOR_SIMILARITY,
@@ -330,7 +330,7 @@ describe("a company's own imported PDs are left out of its own exemplars", () =>
 });
 
 describe("a finished embed records its importance", () => {
-  test("ingestOnComplete writes the entry's importance (1) and entry id on the source and its card", async () => {
+  test("ingestOnComplete writes the entry's importance (1), entry id and notes version on the source and its card", async () => {
     vi.useFakeTimers();
     try {
       const t = setup();
@@ -355,7 +355,7 @@ describe("a finished embed records its importance", () => {
           key: "pd_pair:recorded",
           title: "Past PD, FY2024",
           importance: BRAIN_ENTRY_IMPORTANCE,
-          metadata: { sourceId, industry: "manufacturing", writerTier: 0.4, docType: "pd" },
+          metadata: { sourceId, industry: "manufacturing", writerTier: 0.4, docType: "pd", chunkNotesVersion: BRAIN_CHUNK_NOTES_VERSION },
           filterValues: [
             { name: "industryApproved", value: { industry: "manufacturing", approved: true } },
             { name: "docType", value: "pd" },
@@ -372,6 +372,8 @@ describe("a finished embed records its importance", () => {
       expect(row?.ragImportance).toBe(1);
       expect(row?.ragEntryId).toBeTruthy();
       expect(card?.ragImportance).toBe(1);
+      expect(row?.chunkNotesVersion).toBe(BRAIN_CHUNK_NOTES_VERSION);
+      expect(card?.chunkNotesVersion).toBe(BRAIN_CHUNK_NOTES_VERSION);
     } finally {
       vi.useRealTimers();
     }

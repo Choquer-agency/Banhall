@@ -239,8 +239,10 @@ code, and people (on the company's projects, after a writer cue, or next to
 a title, a role or a cue such as "led by") become `[redacted]`, matched
 without regard to accents. The title is "Past PD, FY2024", and a separate
 leak check with its own forms refuses the copy if the company's name
-survives. Approve must show the scrubbed text to a person, with an "Also
-remove" box for product names and other words, before the copy is made.
+survives (ordinary first words still capitalized come back as warnings).
+Approve must show the scrubbed text to a person, with an "Also remove" box
+for product names and other words and a note of what the check does not
+cover, before the copy is made.
 Industry comes from the company (or the one picked for a new company) and
 is required; the tier comes from `pdWriters.tier`, default 0.4.
 
@@ -250,5 +252,6 @@ Chunk notes never name the company.
 
 Deploy: `brain:backfillBrainSourceCards`, then
 `brain:reembedBelowFullImportance` (re-embeds only sources below importance
-1, deleting nothing first; not `requeueAllApprovedEmbeds`). See the
+1, and with chunk notes on those whose notes came from the old prompt that
+asked for the company; deletes nothing first; not `requeueAllApprovedEmbeds`). See the
 2026-11-17 (third) amendment in `docs/product-domain.md`.

@@ -16,6 +16,7 @@ import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
 import { eraseBrainEntry } from "./ai/brain/erase";
 import {
+  BRAIN_CHUNK_NOTES_VERSION,
   countKeys,
   deleteBrainSource,
   deleteSourceImportLinksPage,
@@ -508,11 +509,14 @@ export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragI
 /**
  * The deploy step of 2026-11-17 (relevance floor on raw similarity):
  * re-embeds, at importance 1, every approved source whose vectors still
- * carry its tier, one page of 50 approved cards per run, scheduling the next.
+ * carry its tier and, when chunk notes are on (`BRAIN_CONTEXTUAL=1`), every
+ * one whose notes predate BRAIN_CHUNK_NOTES_VERSION (older notes may name
+ * the company), one page of 50 approved cards per run, scheduling the next.
  * Unlike `requeueAllApprovedEmbeds` it deletes nothing first: the embed adds
  * under the same key, and the RAG component replaces an entry whose
- * importance differs, so the Brain never shrinks during the run. Sources
- * already at importance 1 (tier 1.0, or embedded since) are skipped. Each
+ * importance or content hash differs, so the Brain never shrinks during the
+ * run. Sources already at importance 1 (tier 1.0, or embedded since) with
+ * current notes, or with notes off, are skipped. Each
  * re-embed pays Voyage and, when chunk notes are on, Haiku again. Needs
  * `backfillBrainSourceCards` finished first.
  */
@@ -529,9 +533,13 @@ export const reembedBelowFullImportance = internalMutation({
       .query("brainSourceCards")
       .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
       .paginate({ cursor: args.cursor ?? null, numItems: REQUEUE_PAGE_SIZE });
+    // Chunk notes are on in this deployment: notes from an older prompt
+    // (which asked for the company) are renewed too, tier 1.0 included.
+    const notesOn = process.env.BRAIN_CONTEXTUAL === "1";
     let queued = 0;
     for (const card of page.page) {
-      if (!needsFullImportanceEmbed(card)) continue;
+      const oldNotes = notesOn && card.chunkNotesVersion !== BRAIN_CHUNK_NOTES_VERSION;
+      if (!needsFullImportanceEmbed(card) && !oldNotes) continue;
       await scheduleEmbed(ctx, card.sourceId);
       queued += 1;
     }

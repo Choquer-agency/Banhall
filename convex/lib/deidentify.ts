@@ -325,12 +325,6 @@ const COMMON_CASELESS_WORDS = new Set([
 ]);
 
 /**
- * The first word of a company name of two words or more when it is coined
- * rather than ordinary: capitalized, letters only, at least four of them,
- * and not a common, technical, name or ordinary company word. "Quillmere"
- * of "Quillmere Analytics"; never "Northern" of "Northern Robotics".
- */
-/**
  * Whether a lower-case word is too ordinary to stand for a company on its
  * own (2026-11-17, Brain copies of imported PDs): a common, technical, name
  * or ordinary company word, a legal suffix or a descriptor. "northern",
@@ -340,6 +334,7 @@ export function isOrdinaryCompanyWord(lower: string): boolean {
   return ordinaryWord(lower) || COMMON_FIRST_WORDS.has(titleCase(lower));
 }
 
+/** A common, technical, name or ordinary company word, a legal suffix or a descriptor. */
 function ordinaryWord(lower: string): boolean {
   return (
     ORDINARY_COMPANY_WORDS.has(lower) ||
@@ -352,6 +347,11 @@ function ordinaryWord(lower: string): boolean {
 }
 
 /**
+ * The first word of a company name of two words or more when it is coined
+ * rather than ordinary: capitalized, letters only, at least four of them,
+ * and not a common, technical, name or ordinary company word. "Quillmere"
+ * of "Quillmere Analytics"; never "Northern" of "Northern Robotics".
+ *
  * Review P3-4: a coined word may carry inner capitals ("QuillMere") or a
  * hyphen between letters ("Quill-Mere"); it needs a lower-case letter, so an
  * acronym ("ACME") is left to the CAPS form, and four letters or more. It is

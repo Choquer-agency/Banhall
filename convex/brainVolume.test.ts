@@ -18,7 +18,13 @@ import {
   requeueAllApprovedEmbeds,
   revokedMatchMessage,
 } from "./brain";
-import { insertBrainSource, linkBrainSourceImportFile, patchBrainSource, sourceIdForImportFile } from "./ai/brain/rag";
+import {
+  BRAIN_CHUNK_NOTES_VERSION,
+  insertBrainSource,
+  linkBrainSourceImportFile,
+  patchBrainSource,
+  sourceIdForImportFile,
+} from "./ai/brain/rag";
 import { classify } from "./lib/ingestionClassify";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -818,6 +824,24 @@ describe("re-embedding at importance 1", () => {
     expect(await t.mutation(internal.brain.reembedBelowFullImportance, {})).toEqual({ queued: 1, skipped: 2, done: true });
     expect(enqueue.mock.calls.map((call) => (call[2] as { sourceId: string }).sourceId)).toEqual([low]);
     expect(await scheduledCount(t, "unlearnSource")).toBe(0);
+    enqueue.mockRestore();
+  });
+
+  test("with chunk notes on, notes from the old prompt are renewed too, tier 1.0 included", async () => {
+    vi.stubEnv("BRAIN_CONTEXTUAL", "1");
+    const { t } = await setup();
+    const { Workpool } = await import("@convex-dev/workpool");
+    const enqueue = vi.spyOn(Workpool.prototype, "enqueueAction");
+    const [low, gold, fresh] = await seedTiers(t);
+    const current = await t.run(async (ctx) => {
+      const row = (await ctx.db.get(fresh))!;
+      await patchBrainSource(ctx, row, { chunkNotesVersion: BRAIN_CHUNK_NOTES_VERSION });
+      return fresh;
+    });
+    expect(await t.mutation(internal.brain.reembedBelowFullImportance, {})).toEqual({ queued: 2, skipped: 1, done: true });
+    const queued = enqueue.mock.calls.map((call) => (call[2] as { sourceId: string }).sourceId);
+    expect(queued.sort()).toEqual([low, gold].sort());
+    expect(queued).not.toContain(current);
     enqueue.mockRestore();
   });
 

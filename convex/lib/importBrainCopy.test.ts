@@ -158,7 +158,7 @@ describe("scrub and leak check", () => {
       ),
       "The Northern ------- Equity ------- Partners team (seven hyphens apart) built a kiln."
     );
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: false,
       code: "names_left",
       reason: 'The Brain copy would still name the company ("northern equity partners"), so it was not made. The final PD still goes on the company\'s page.',
@@ -287,7 +287,7 @@ describe("the copy's fields", () => {
     const picked = buildImportBrainCopy(input({ company: null, identity: { organizations: [], people: [] }, newCompanyIndustry: "manufacturing" }), PD);
     expect(picked.ok && picked.fields.industry).toBe("manufacturing");
     const none = buildImportBrainCopy(input({ company: { name: "Quillmere Analytics Ltd." } }), PD);
-    expect(none).toEqual({ ok: false, code: "no_industry", reason: "Pick an industry for this company." });
+    expect(none).toMatchObject({ ok: false, code: "no_industry", reason: "Pick an industry for this company." });
     const newWithout = buildImportBrainCopy(input({ company: null, identity: { organizations: [], people: [] } }), PD);
     expect(newWithout.ok).toBe(false);
     if (!newWithout.ok) expect(newWithout.reason).toBe(IMPORT_BRAIN_REFUSALS.no_industry);

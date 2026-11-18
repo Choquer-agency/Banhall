@@ -11,7 +11,7 @@ import { defaultChunker } from "@convex-dev/rag";
 import { internalAction } from "../../_generated/server";
 import { internal } from "../../_generated/api";
 import { v } from "convex/values";
-import { brain, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE } from "./rag";
+import { brain, BRAIN_CHUNK_NOTES_VERSION, BRAIN_ENTRY_IMPORTANCE, BRAIN_NAMESPACE } from "./rag";
 import { brainEmbeddingModel } from "./embeddings";
 
 /** Off by default so a first bring-up ingest costs nothing; flip on for prod. */
@@ -114,13 +114,18 @@ export const embedSource = internalAction({
       { name: "docType", value: src.docType },
     ];
 
+    // With chunk notes, the notes' prompt version is part of the entry: it
+    // is recorded on the source, and a new version changes the content hash
+    // so the RAG component replaces the entry instead of keeping old notes.
+    const notesVersion = USE_CONTEXTUAL ? BRAIN_CHUNK_NOTES_VERSION : undefined;
     const common = {
       namespace: BRAIN_NAMESPACE,
       key: src.ragKey,
       title: src.title,
       importance,
-      contentHash: src.sourceHash,
+      contentHash: notesVersion ? `${src.sourceHash}:notes${notesVersion}` : src.sourceHash,
       metadata: {
+        ...(notesVersion ? { chunkNotesVersion: notesVersion } : {}),
         sourceId: args.sourceId,
         industry: src.industry,
         writerName: src.writerName,
