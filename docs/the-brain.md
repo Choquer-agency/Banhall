@@ -206,12 +206,24 @@ index's model, namespace, reranker and floors is `BRAIN_SEARCH_INDEXES`
   once. Each index's entry id is on the source: `ragEntryId` (voyage3) and
   `ragEntryIdV4`. Revoke erases both, each confirmed on its own.
 - **Owner steps** (all internal, deploy order steps 13 to 15 and 17):
-  `brain:buildSearchIndex` fills `voyage4` (paged, waits for each page's
-  embeds, deletes nothing, safe to run again); `brain:calibrateSearchIndexes`
-  reports both indexes' and both rerankers' scores and suggests floors (read
-  only); `brain:setServingSearchIndex` moves the pointer (refused until a
-  build pass ends with nothing missing); later `brain:dropOldSearchIndex`
-  then `brain:deleteOldSearchNamespace` drop `voyage3`.
+  `brain:buildSearchIndex` fills both indexes (paged, waits for each page's
+  embeds, one pass at a time, deletes nothing, safe to run again; `index`
+  fills just one); `brain:calibrateSearchIndexes` reports both indexes' and
+  both rerankers' scores and suggests floors (read only);
+  `brain:setServingSearchIndex` moves the pointer; later
+  `brain:dropOldSearchIndex` then `brain:deleteOldSearchNamespace` drop
+  `voyage3`.
+- **The rollback index stays as good as the serving one.** The build renews
+  `voyage3` entries with old notes or an old weight's importance, reusing the
+  notes it makes for `voyage4`, so Haiku is paid once (voyage-3-large is paid
+  once more). The pointer checks every approved card live before it moves,
+  in either direction: each must have a current entry in the target index
+  (entry, current notes, and for `voyage3` importance 1). A check of more
+  than 4,000 cards takes more than one call; it says "run this again".
+- **Retries.** Notes an embed made are kept (`brainChunkNotes`) until all
+  its adds land, so a pool retry never pays Haiku twice. Each add takes a
+  short lease (`brainIndexWrites`), refused once the old index's drop
+  starts, so a late add never makes the "brain" namespace again.
 - **Floors.** The `voyage4` floors start equal to `voyage3`'s (cosine 0.3,
   rerank 0.35) and are provisional until the calibration report confirms or
   changes them, which is a code change and a deploy.
