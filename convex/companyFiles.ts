@@ -10,11 +10,12 @@
  */
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { domainError } from "./lib/contracts";
 import { requireCapability } from "./lib/roleCapabilities";
-import { activeClientForKey, dashboardCompanyForKey, MERGE_CHAIN_HOPS } from "./lib/clients";
+import { activeClientForKey, companyFilesMovingInto, dashboardCompanyForKey, MERGE_CHAIN_HOPS } from "./lib/clients";
 import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { requireAttemptKey } from "./lib/uploadAttempts";
 import { labelsCurrent } from "./lib/fileLabels";
@@ -45,9 +46,10 @@ import {
   uploadClaimFor,
 } from "./lib/storage";
 import { hasReadText, needsServerReading } from "./lib/serverReading";
+import { COMPANY_FILE_PAGE_SIZE, COMPANY_FILE_SEARCH_LIMIT } from "../shared/companyFileMoves";
 
 const MAX_FILE_NAME_CHARS = 300;
-/** Files one company page lists; more are counted, not listed. */
+/** Files the old company page list (`listCompanyFiles`) lists; kept until the paged list has shipped. */
 export const COMPANY_FILE_LIST_LIMIT = 500;
 /** Projects one step links to a company row made from a company's name. */
 const LINK_PROJECT_PAGE = 200;
@@ -485,7 +487,55 @@ async function movedImportCategory(
   return isCompanyHistoryCategory(category) ? { importCategory: category } : {};
 }
 
-/** A company's files, newest first: active ones, or the archived ones. */
+/** What the Files tab shows of one file, read once per uploader name. */
+async function listedFile(
+  ctx: QueryCtx,
+  row: Doc<"companyFiles">,
+  websiteFileId: Id<"companyFiles"> | null,
+  names: Map<string, string | null>
+) {
+  let addedBy = names.get(row.uploadedBy);
+  if (addedBy === undefined) {
+    const uploader = await ctx.db.get(row.uploadedBy);
+    addedBy = uploader?.name ?? uploader?.email ?? null;
+    names.set(row.uploadedBy, addedBy);
+  }
+  return {
+    _id: row._id,
+    fileName: row.fileName,
+    fileType: row.fileType,
+    category: row.category ?? null,
+    sizeChars: row.textLength,
+    wordCount: row.wordCount,
+    archived: row.archived === true,
+    processingStatus: row.processingStatus,
+    textFormat: row.textFormat ?? null,
+    hasFile: row.storageId !== undefined,
+    url: row.storageId ? await ctx.storage.getUrl(row.storageId) : null,
+    mimeType: row.mimeType ?? null,
+    createdAt: row.createdAt,
+    addedBy,
+    fromWebsite: row._id === websiteFileId,
+    bytes: row.storageId ? ((await ctx.db.system.get(row.storageId))?.size ?? null) : null,
+    ...(row.fiscalYear !== undefined ? { fiscalYear: row.fiscalYear } : {}),
+    ...(await movedImportCategory(ctx, row)),
+    labels: row.labels
+      ? {
+          documentType: row.labels.documentType,
+          fiscalYear: row.labels.fiscalYear,
+          title: row.labels.title,
+          summary: row.labels.summary,
+        }
+      : null,
+  };
+}
+
+/**
+ * A company's files, newest first: active ones, or the archived ones, up
+ * to COMPANY_FILE_LIST_LIMIT. Kept as it was for the frontend that is live
+ * while the backend deploys first (2026-11-18); the Files tab now pages
+ * with `listCompanyFilesPage`. Remove this in a later narrow step.
+ */
 export const listCompanyFiles = query({
   args: { clientId: v.id("clients"), archived: v.optional(v.boolean()) },
   returns: v.object({ files: v.array(listedFileValidator), truncated: v.boolean() }),
@@ -501,43 +551,63 @@ export const listCompanyFiles = query({
     const websiteFileId = (await ctx.db.get(args.clientId))?.websiteFileId ?? null;
     const names = new Map<string, string | null>();
     const files = [];
-    for (const row of rows.slice(0, COMPANY_FILE_LIST_LIMIT)) {
-      let addedBy = names.get(row.uploadedBy);
-      if (addedBy === undefined) {
-        const uploader = await ctx.db.get(row.uploadedBy);
-        addedBy = uploader?.name ?? uploader?.email ?? null;
-        names.set(row.uploadedBy, addedBy);
-      }
-      files.push({
-        _id: row._id,
-        fileName: row.fileName,
-        fileType: row.fileType,
-        category: row.category ?? null,
-        sizeChars: row.textLength,
-        wordCount: row.wordCount,
-        archived: row.archived === true,
-        processingStatus: row.processingStatus,
-        textFormat: row.textFormat ?? null,
-        hasFile: row.storageId !== undefined,
-        url: row.storageId ? await ctx.storage.getUrl(row.storageId) : null,
-        mimeType: row.mimeType ?? null,
-        createdAt: row.createdAt,
-        addedBy,
-        fromWebsite: row._id === websiteFileId,
-        bytes: row.storageId ? ((await ctx.db.system.get(row.storageId))?.size ?? null) : null,
-        ...(row.fiscalYear !== undefined ? { fiscalYear: row.fiscalYear } : {}),
-        ...(await movedImportCategory(ctx, row)),
-        labels: row.labels
-          ? {
-              documentType: row.labels.documentType,
-              fiscalYear: row.labels.fiscalYear,
-              title: row.labels.title,
-              summary: row.labels.summary,
-            }
-          : null,
-      });
-    }
+    for (const row of rows.slice(0, COMPANY_FILE_LIST_LIMIT)) files.push(await listedFile(ctx, row, websiteFileId, names));
     return { files, truncated: rows.length > COMPANY_FILE_LIST_LIMIT };
+  },
+});
+
+/**
+ * 2026-11-18 (owner answer 3, "a company holds all its files"): a
+ * company's files, newest first, one page at a time, active ones or the
+ * archived ones, with no cap on how many the company holds. A page holds
+ * at most COMPANY_FILE_PAGE_SIZE files whatever the caller asks, so each
+ * read stays bounded. Same rows as `listCompanyFiles`.
+ */
+export const listCompanyFilesPage = query({
+  args: { clientId: v.id("clients"), archived: v.optional(v.boolean()), paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(listedFileValidator),
+  handler: async (ctx, args) => {
+    await requireCapability(ctx, "companyFiles.read");
+    const result = await ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_archived", (q) =>
+        q.eq("clientId", args.clientId).eq("archived", args.archived ? true : undefined)
+      )
+      .order("desc")
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.max(1, Math.min(args.paginationOpts.numItems, COMPANY_FILE_PAGE_SIZE)),
+      });
+    const websiteFileId = (await ctx.db.get(args.clientId))?.websiteFileId ?? null;
+    const names = new Map<string, string | null>();
+    const page = [];
+    for (const row of result.page) page.push(await listedFile(ctx, row, websiteFileId, names));
+    return { ...result, page };
+  },
+});
+
+/**
+ * 2026-11-18: files of a company whose names match a search, active and
+ * archived, at most COMPANY_FILE_SEARCH_LIMIT, best match first (the
+ * `search_fileName` index). The Files tab asks only while some of the
+ * company's files are not loaded, so Find a file also finds an old one.
+ */
+export const searchCompanyFiles = query({
+  args: { clientId: v.id("clients"), search: v.string() },
+  returns: v.object({ files: v.array(listedFileValidator) }),
+  handler: async (ctx, args) => {
+    await requireCapability(ctx, "companyFiles.read");
+    const search = args.search.trim().slice(0, MAX_FILE_NAME_CHARS);
+    if (!search) return { files: [] };
+    const rows = await ctx.db
+      .query("companyFiles")
+      .withSearchIndex("search_fileName", (q) => q.search("fileName", search).eq("clientId", args.clientId))
+      .take(COMPANY_FILE_SEARCH_LIMIT);
+    const websiteFileId = (await ctx.db.get(args.clientId))?.websiteFileId ?? null;
+    const names = new Map<string, string | null>();
+    const files = [];
+    for (const row of rows) files.push(await listedFile(ctx, row, websiteFileId, names));
+    return { files };
   },
 });
 
@@ -984,9 +1054,14 @@ export const listForProject = query({
       })
     ),
     usedAtMost: v.number(),
+    /**
+     * 2026-11-18: files of a company merged into this one are still moving
+     * here, so a draft is refused until they all have (the dialog says so).
+     */
+    filesMoving: v.optional(v.boolean()),
   }),
   handler: async (ctx, args) => {
-    const empty = { files: [], usedAtMost: FROZEN_COMPANY_FILES + PINNED_FINAL_PDS };
+    const empty: { files: never[]; usedAtMost: number; filesMoving?: boolean } = { files: [], usedAtMost: FROZEN_COMPANY_FILES + PINNED_FINAL_PDS };
     const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
     if (!access?.user.role || !hasCapability(access.user.role, "companyFiles.read")) return empty;
     const client = access.project.clientId ? await ctx.db.get(access.project.clientId) : null;
@@ -1008,6 +1083,7 @@ export const listForProject = query({
         previousYear,
       })),
       usedAtMost: FROZEN_COMPANY_FILES + PINNED_FINAL_PDS,
+      ...((await companyFilesMovingInto(ctx, client._id)) ? { filesMoving: true } : {}),
     };
   },
 });

@@ -83,6 +83,7 @@ import {
 } from "./lib/briefPreparationTrigger";
 import { validatedExcludedSources } from "./lib/generations/reservation";
 import { projectCopyInProgress } from "./lib/projectCopy";
+import { companyFilesMovingInto } from "./lib/clients";
 
 /** How long one attempt may run: the action limit plus room to write. */
 export const PREPARATION_LEASE_MS = 11 * 60 * 1000;
@@ -468,6 +469,11 @@ async function readProjectEvidence(
   // F2 (2026-10-27): files still being copied into the project are files
   // still arriving; their text is not there yet.
   if (await projectCopyInProgress(ctx, project._id)) {
+    await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
+    return null;
+  }
+  // 2026-11-18: so are a company's files still moving into it from a merge.
+  if (await companyFilesMovingInto(ctx, project.clientId)) {
     await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
     return null;
   }

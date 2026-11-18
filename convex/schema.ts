@@ -512,6 +512,13 @@ export default defineSchema({
     // True when formerNames holds the whole history (set by mergeClients and
     // on rows made since); older rows also walk their merge tombstones.
     nameHistoryComplete: v.optional(v.boolean()),
+    // 2026-11-18 widen (a company holds all its files): on a merge tombstone
+    // whose files are still moving, the active company they move to. A
+    // merge moves the first 100 files at once and the rest in scheduled
+    // steps (`clients.moveMergedCompanyFiles`); a draft of a project of that
+    // company waits until none is left. Cleared once every file has moved.
+    // A later merge of that company points it at the new kept company.
+    companyFilesMovingTo: v.optional(v.id("clients")),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -520,7 +527,9 @@ export default defineSchema({
     .index("by_nameKey", ["nameKey"])
     // 2026-10-26 (Phase C): the companies merged into one, whose names its
     // files may still carry (company file labels hide them).
-    .index("by_mergedIntoClientId", ["mergedIntoClientId"]),
+    .index("by_mergedIntoClientId", ["mergedIntoClientId"])
+    // 2026-11-18: the merged companies whose files still move into one.
+    .index("by_companyFilesMovingTo", ["companyFilesMovingTo"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
@@ -2805,7 +2814,10 @@ export default defineSchema({
     .index("by_clientId_and_searchPiecesDue", ["clientId", "searchPiecesDue"])
     .index("by_storageId", ["storageId"])
     .index("by_searchPiecesDue_and_searchPiecesNextAt", ["searchPiecesDue", "searchPiecesNextAt"])
-    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"]),
+    .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"])
+    // 2026-11-18 (a company holds all its files): find a file by name among
+    // all of a company's files, not only the pages the Files tab loaded.
+    .searchIndex("search_fileName", { searchField: "fileName", filterFields: ["clientId"] }),
 
   // A company file's text, in pieces (as projectDocumentTexts), keyed by the
   // file only, so moving a file to another company moves no text.

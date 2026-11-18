@@ -544,6 +544,8 @@ describe("previewClientMerge and mergeClients", () => {
       ],
       collisionCheckIncomplete: false,
       companyFileCount: 0,
+      // 2026-11-18: the count stops at 500; never a refusal now.
+      moreCompanyFiles: false,
       tooManyCompanyFiles: false,
       // 2026-11-04: company contacts that move with the merge.
       companyContactCount: 0,
