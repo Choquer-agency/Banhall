@@ -287,7 +287,7 @@ describe("re-tiering a writer's Brain copies", () => {
 
     const writerId = (await writerOf(t, pd))._id;
     const again = await t.mutation(internal.ingestion.retierWriterBrainCopies, { writerId, cursor: null });
-    expect(again).toEqual({ retiered: 0, passedOver: 1, done: true });
+    expect(again).toEqual({ retiered: 0, passedOver: 1, waitingMoved: 0, done: true });
     expect(await relabels(t, sourceId)).toHaveLength(1);
   });
 
@@ -363,6 +363,7 @@ describe("re-tiering a writer's Brain copies", () => {
     expect(await t.mutation(internal.ingestion.retierWriterBrainCopies, { writerId, cursor: null })).toEqual({
       retiered: 0,
       passedOver: 0,
+      waitingMoved: 0,
       done: true,
     });
   });

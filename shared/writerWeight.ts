@@ -51,3 +51,12 @@ export function writerWeightText(weight: number): string {
   return String(Math.round(weight * 1000) / 1000);
 }
 
+
+/**
+ * The Brain check's writer rank for a weight (2026-11-18 (second)): minus
+ * the weight times 1000, rounded, so the index lists the highest weight
+ * first. A whole number, so two weights a hair apart never split a tie.
+ */
+export function brainCheckWriterRank(tier: number | null | undefined): number {
+  return -Math.round(writerWeight(tier) * 1000);
+}

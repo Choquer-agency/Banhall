@@ -273,3 +273,137 @@ describe("Put back in Brain check", () => {
     });
   });
 });
+
+async function stageYear(t: T, n: number, initials: string, year: number): Promise<Id<"ingestionItems">> {
+  const path = `Cedarline Systems/${year} - Mar 31/Submitted/${String(n).padStart(2, "0")} CedarlineSystems ${year}-03-31 T2.${initials}.PN ColdChainSensorDrift${n}.docx`;
+  const segments = path.split("/");
+  const name = segments.pop()!;
+  const meta = classify(segments.join("/"), name);
+  const driveItemId = `drive-${path}`;
+  await t.mutation(internal.ingestion.upsertDiscoveredItem, {
+    driveItemId,
+    path,
+    name,
+    clientName: meta.clientName,
+    fiscalYearLabel: meta.fiscalYearLabel,
+    fiscalYear: meta.fiscalYear,
+    docKind: meta.docKind,
+    size: 2048,
+    lastModifiedAt: 1_700_000_000_000,
+    contentHash: `bytes-${path}`,
+    pairGroupKey: meta.pairGroupKey,
+  });
+  const row = (await t.run((ctx) =>
+    ctx.db.query("ingestionItems").withIndex("by_driveItemId", (q) => q.eq("driveItemId", driveItemId)).unique()
+  ))!;
+  const text = pdText(n);
+  const { storageId, textStorageId } = await t.run(async (ctx) => ({
+    storageId: await ctx.storage.store(new Blob(["original bytes"])),
+    textStorageId: await ctx.storage.store(new Blob([text], { type: "text/plain" })),
+  }));
+  await t.mutation(internal.ingestion.markItemProcessed, { itemId: row._id, storageId, text, textStorageId, documentScienceCode: "2.02.09" });
+  return row._id;
+}
+
+/** Every page of one part of the Brain check, read `numItems` at a time. */
+async function readPart(admin: Admin, part: "recent" | "rest" | undefined, recentFromYear: number, numItems = 25) {
+  const ids: Id<"ingestionItems">[] = [];
+  let cursor: string | null = null;
+  for (let pages = 0; pages < 50; pages += 1) {
+    const result: { page: Array<{ _id: Id<"ingestionItems"> }>; isDone: boolean; continueCursor: string } = await admin.query(
+      api.ingestion.brainCheckFiles,
+      { paginationOpts: { cursor, numItems }, ...(part ? { part } : {}), recentFromYear }
+    );
+    ids.push(...result.page.map((row) => row._id));
+    if (result.isDone) break;
+    cursor = result.continueCursor;
+  }
+  return ids;
+}
+
+describe("the Brain check order (owner, 2026-11-18)", () => {
+  // Recent: 2024 and later, as the page sends it in 2026.
+  const FROM = 2024;
+
+  async function seedOrder() {
+    const s = await setup();
+    const { t, admin, tracyId } = s;
+    const files = {
+      r1: await stageYear(t, 1, "DW", 2025),
+      r2: await stageYear(t, 2, "KT", 2026),
+      r3: await stageYear(t, 3, "TL", 2024),
+      o1: await stageYear(t, 4, "DW", 2022),
+      o2: await stageYear(t, 5, "TL", 2019),
+      o3: await stageYear(t, 6, "KT", 2022),
+      o4: await stageYear(t, 7, "DW", 2019),
+    };
+    // Tracy 1, KT 0.4, DW none (0.7).
+    await admin.mutation(api.users.setWriterWeight, { userId: tracyId, weight: 1 });
+    await admin.mutation(api.users.setWriterWeight, { writerId: (await item(t, files.o3)).writerId!, weight: 0.4 });
+    await settle(t);
+    await approve(t, admin, Object.values(files));
+    return { ...s, files };
+  }
+
+  it("lists the last three fiscal years first, newest first, then the rest by highest writer weight, then newest year", async () => {
+    const { admin, files } = await seedOrder();
+    expect(await readPart(admin, "recent", FROM)).toEqual([files.r2, files.r1, files.r3]);
+    expect(await readPart(admin, "rest", FROM)).toEqual([files.o2, files.o1, files.o4, files.o3]);
+    // A page at a time: nothing twice, nothing missed.
+    const paged = [...(await readPart(admin, "recent", FROM, 1)), ...(await readPart(admin, "rest", FROM, 1))];
+    expect(new Set(paged).size).toBe(7);
+    expect(paged).toEqual([files.r2, files.r1, files.r3, files.o2, files.o1, files.o4, files.o3]);
+    // Without a part: company by company, then year, as before.
+    expect(await readPart(admin, undefined, FROM)).toEqual([files.o2, files.o4, files.o1, files.o3, files.r3, files.r1, files.r2]);
+  });
+
+  it("moves a waiting PD when its writer's weight changes, and puts a kept out PD back at its place", async () => {
+    const { t, admin, files } = await seedOrder();
+    const kt = (await item(t, files.o3)).writerId!;
+    await admin.mutation(api.users.setWriterWeight, { writerId: kt, weight: 1 });
+    await settle(t);
+    // KT and Tracy at 1: the newer year first.
+    expect(await readPart(admin, "rest", FROM)).toEqual([files.o3, files.o2, files.o1, files.o4]);
+
+    await admin.mutation(api.ingestion.keepOutOfBrain, { itemId: files.o1 });
+    expect((await item(t, files.o1)).brainCheckWriterRank).toBeUndefined();
+    expect(await readPart(admin, "rest", FROM)).toEqual([files.o3, files.o2, files.o4]);
+    await admin.mutation(api.ingestion.reopenBrainCheck, { ids: [files.o1] });
+    expect(await readPart(admin, "rest", FROM)).toEqual([files.o3, files.o2, files.o1, files.o4]);
+  });
+
+  it("keeps the order on the file only while it waits, and the rerank run puts back a PD that has none", async () => {
+    const { t, admin, files } = await seedOrder();
+    expect(await item(t, files.o2)).toMatchObject({ brainCheckYearRank: -2019, brainCheckWriterRank: -1000 });
+    expect(await item(t, files.o1)).toMatchObject({ brainCheckYearRank: -2022, brainCheckWriterRank: -700 });
+    // A PD waiting from before the order existed: in the rest, first, and never in the recent part.
+    await t.run((ctx) => ctx.db.patch(files.r1, { brainCheckYearRank: undefined, brainCheckWriterRank: undefined }));
+    expect(await readPart(admin, "recent", FROM)).toEqual([files.r2, files.r3]);
+    expect((await readPart(admin, "rest", FROM))[0]).toBe(files.r1);
+    expect(await t.mutation(internal.ingestion.rerankBrainCheck, {})).toEqual({ moved: 1, done: true });
+    expect(await readPart(admin, "recent", FROM)).toEqual([files.r2, files.r1, files.r3]);
+    // Added to the Brain: no place in the order any more.
+    await inBrain(t, admin, files.r2);
+    const added = await item(t, files.r2);
+    expect([added.brainCheckYearRank, added.brainCheckWriterRank]).toEqual([undefined, undefined]);
+    // Run again: nothing to move.
+    expect(await t.mutation(internal.ingestion.rerankBrainCheck, {})).toEqual({ moved: 0, done: true });
+  });
+
+  it("falls back to the server's year for a recent year that is not a whole year in range, and stays Admin only", async () => {
+    const { t, admin, manager, files } = await seedOrder();
+    const fallback = new Date().getUTCFullYear() - 2;
+    const years: Array<[Id<"ingestionItems">, number]> = [[files.r2, 2026], [files.r1, 2025], [files.r3, 2024]];
+    const expected = years.filter(([, year]) => year >= fallback).map(([id]) => id);
+    for (const recentFromYear of [1.5, 10_000, -3]) {
+      const page = await admin.query(api.ingestion.brainCheckFiles, { paginationOpts: { cursor: null, numItems: 25 }, part: "recent", recentFromYear });
+      expect(page.page.map((row) => row._id), `${recentFromYear}`).toEqual(expected);
+    }
+    void t;
+    expect(await manager.query(api.ingestion.brainCheckFiles, { paginationOpts: { cursor: null, numItems: 25 }, part: "rest" })).toEqual({
+      page: [],
+      isDone: true,
+      continueCursor: "",
+    });
+  });
+});

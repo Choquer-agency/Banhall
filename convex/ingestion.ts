@@ -148,7 +148,7 @@ import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboard
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
-import { writerWeight } from "../shared/writerWeight";
+import { brainCheckWriterRank, writerWeight } from "../shared/writerWeight";
 import {
   APPROVAL_STALE_MS,
   approvedEditApplies,
@@ -312,8 +312,28 @@ async function settleInitialsWriter(
 }
 
 /** Insert an ingestion item: the one place rows are created. */
+/**
+ * A settled row with its Brain check order (2026-11-18 (second)): while it
+ * waits for its Brain check, its year rank (minus the fiscal year) and its
+ * writer rank (minus the writer's weight times 1000, read from the writer
+ * row it has now); otherwise neither. One write path, like the counts, so
+ * every way a file starts or stops waiting, or changes writer, year or
+ * weight while it waits, keeps its place right.
+ */
+async function withBrainCheckOrder(ctx: MutationCtx, fields: IngestionItemFields): Promise<IngestionItemFields> {
+  if (fields.brainCheck !== "waiting") {
+    return { ...fields, brainCheckYearRank: undefined, brainCheckWriterRank: undefined };
+  }
+  const writer = fields.writerId ? await ctx.db.get(fields.writerId) : null;
+  return {
+    ...fields,
+    brainCheckYearRank: fields.fiscalYear !== undefined ? -fields.fiscalYear : undefined,
+    brainCheckWriterRank: brainCheckWriterRank(writer?.tier),
+  };
+}
+
 async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promise<Id<"ingestionItems">> {
-  const row = definedFields(await settleWithWriter(ctx, fields));
+  const row = definedFields(await withBrainCheckOrder(ctx, await settleWithWriter(ctx, fields)));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
   await adjustImportFinalPdCounts(ctx, null, row);
@@ -334,7 +354,10 @@ async function patchItem(
   options: { touch?: boolean } = {}
 ): Promise<{ after: Doc<"ingestionItems">; changed: boolean }> {
   const { _id, _creationTime, ...fields } = before;
-  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null);
+  let settled = await withBrainCheckOrder(
+    ctx,
+    await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null, before.reviewerInitials ?? null)
+  );
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
   if (changed && options.touch) {
@@ -1938,16 +1961,73 @@ const brainCheckRowValidator = v.object({
   scienceCode: v.optional(v.string()),
 });
 
-/** The approved final PDs waiting for a Brain check, company by company, then by year. */
+/**
+ * Rows one "rest" page of the Brain check reads (2026-11-18 (second)): more
+ * than it returns, since rows of the recent years are in that index too and
+ * are dropped from it. Each row holds a text preview of up to 8,000
+ * characters, so this stays near 1 MB.
+ */
+const BRAIN_CHECK_REST_READ = 75;
+
+/** The fiscal years a "recent" range may name (a year rank is minus the year). */
+const BRAIN_CHECK_YEAR_MIN = 1900;
+const BRAIN_CHECK_YEAR_MAX = 9999;
+
+/**
+ * The first of the last three fiscal years (the year now in UTC, minus 2),
+ * as the page sends it; a value out of range or not whole falls back to the
+ * server's own clock. The page sends it, because a query that reads the
+ * clock does not run again when the year turns.
+ */
+function recentFromYearOf(value: number | undefined): number {
+  return value !== undefined && Number.isInteger(value) && value >= BRAIN_CHECK_YEAR_MIN && value <= BRAIN_CHECK_YEAR_MAX
+    ? value
+    : new Date().getUTCFullYear() - 2;
+}
+
+/**
+ * The approved final PDs waiting for a Brain check. Since 2026-11-18
+ * (second, owner) in two parts: "recent", the last three fiscal years
+ * (`recentFromYear` and later), newest year first, then company; then
+ * "rest", the other years, highest writer weight first, then newest year,
+ * then company. Each part is one indexed range; "rest" drops the recent
+ * years' rows from its page in code, so a page may hold fewer rows than
+ * asked (or none) while more remain. With no `part`, company by company,
+ * then by year, as before, so a page from before this change still works.
+ */
 export const brainCheckFiles = query({
-  args: { paginationOpts: paginationOptsValidator },
+  args: {
+    paginationOpts: paginationOptsValidator,
+    part: v.optional(v.union(v.literal("recent"), v.literal("rest"))),
+    recentFromYear: v.optional(v.number()),
+  },
   returns: paginationResultValidator(brainCheckRowValidator),
   handler: async (ctx, args) => {
     if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
-    const result = await ctx.db
-      .query("ingestionItems")
-      .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
-      .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    const fromYear = recentFromYearOf(args.recentFromYear);
+    let result: { page: Doc<"ingestionItems">[]; isDone: boolean; continueCursor: string };
+    if (args.part === "recent") {
+      result = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_brainCheck_and_brainCheckYearRank_and_companyKey", (q) =>
+          q.eq("brainCheck", "waiting").gte("brainCheckYearRank", -BRAIN_CHECK_YEAR_MAX).lte("brainCheckYearRank", -fromYear)
+        )
+        .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    } else if (args.part === "rest") {
+      const read = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", (q) => q.eq("brainCheck", "waiting"))
+        .paginate({ ...args.paginationOpts, numItems: BRAIN_CHECK_REST_READ });
+      result = {
+        ...read,
+        page: read.page.filter((item) => item.brainCheckYearRank === undefined || item.brainCheckYearRank > -fromYear),
+      };
+    } else {
+      result = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
+        .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    }
     const labelled = await withWriterLabels(ctx, result.page.map(sheetRow));
     return {
       ...result,
@@ -1967,6 +2047,33 @@ export const brainCheckFiles = query({
         })
       ),
     };
+  },
+});
+
+/** Waiting PDs one run of rerankBrainCheck writes again. */
+const BRAIN_CHECK_RERANK_PAGE = 100;
+
+/**
+ * Writes every PD waiting for a Brain check again through patchItem, so it
+ * has its place in the Brain check order (2026-11-18 (second)). Internal,
+ * paged, safe to run again. Needed only when PDs were already waiting
+ * before this change was deployed; a deploy of the whole Import stack at
+ * once has none.
+ */
+export const rerankBrainCheck = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ moved: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
+      .paginate({ cursor: args.cursor ?? null, numItems: BRAIN_CHECK_RERANK_PAGE });
+    let moved = 0;
+    for (const item of page.page) {
+      if ((await patchItem(ctx, item, {})).changed) moved += 1;
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.ingestion.rerankBrainCheck, { cursor: page.continueCursor });
+    return { moved, done: page.isDone };
   },
 });
 
@@ -2843,7 +2950,9 @@ export const RETIER_BRAIN_REASON = "Writer weight changed on Team";
  * names); only then does it read the source, which holds the whole text.
  * A step stops once it has read SEND_BACK_READ_BUDGET and runs again from
  * the same page, where the copies it finished are now passed over by their
- * cards, so every step moves on. Reads the weight afresh each step, so two weight changes in a row end at
+ * cards, so every step moves on. A file still waiting in Brain check is
+ * written again through patchItem, so it takes its new place in the Brain
+ * check order (it has no Brain copy yet). Reads the weight afresh each step, so two weight changes in a row end at
  * the last one; safe to run again.
  */
 export const retierWriterBrainCopies = internalMutation({
@@ -2853,10 +2962,10 @@ export const retierWriterBrainCopies = internalMutation({
     // The Admin who changed the weight, named in the Brain audit log.
     actorId: v.optional(v.id("users")),
   },
-  returns: v.object({ retiered: v.number(), passedOver: v.number(), done: v.boolean() }),
+  returns: v.object({ retiered: v.number(), passedOver: v.number(), waitingMoved: v.number(), done: v.boolean() }),
   handler: async (ctx, args) => {
     const writer = await ctx.db.get(args.writerId);
-    if (!writer) return { retiered: 0, passedOver: 0, done: true };
+    if (!writer) return { retiered: 0, passedOver: 0, waitingMoved: 0, done: true };
     const weight = writerWeight(writer.tier);
     const page = await ctx.db
       .query("ingestionItems")
@@ -2864,11 +2973,13 @@ export const retierWriterBrainCopies = internalMutation({
       .paginate({ cursor: args.cursor, numItems: RETIER_PAGE });
     let retiered = 0;
     let passedOver = 0;
+    let waitingMoved = 0;
     let spent = 0;
     let finishedPage = true;
     for (const item of page.page) {
       spent += storedSize(item);
       if (item.status !== "approved") continue;
+      if (item.brainCheck === "waiting" && (await patchItem(ctx, item, {})).changed) waitingMoved += 1;
       if (!item.brainSourceId) continue;
       const card = await ctx.db
         .query("brainSourceCards")
@@ -2901,7 +3012,7 @@ export const retierWriterBrainCopies = internalMutation({
         ...(args.actorId ? { actorId: args.actorId } : {}),
       });
     }
-    return { retiered, passedOver, done };
+    return { retiered, passedOver, waitingMoved, done };
   },
 });
 

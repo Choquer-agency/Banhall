@@ -4818,6 +4818,14 @@ export default defineSchema({
     brainCheck: v.optional(v.union(v.literal("waiting"), v.literal("added"), v.literal("kept_out"))),
     brainCheckedBy: v.optional(v.id("users")),
     brainCheckedAt: v.optional(v.number()),
+    // 2026-11-18 (second) widen (Brain check order): set only while
+    // brainCheck is "waiting", by patchItem, cleared otherwise.
+    // brainCheckYearRank is minus the fiscal year (newest first);
+    // brainCheckWriterRank is minus the writer's weight times 1000, rounded
+    // (highest weight first; shared/writerWeight.ts). The Brain check lists
+    // the last three fiscal years first, then the rest by writer weight.
+    brainCheckYearRank: v.optional(v.number()),
+    brainCheckWriterRank: v.optional(v.number()),
     // 2026-11-17 widen: true when the extraction cut the file's text at the
     // import's limit, so the import does not hold its whole text. Set by
     // every extraction; absent on rows read before, which fall back to the
@@ -4838,6 +4846,17 @@ export default defineSchema({
     .index("by_brainSourceId_and_status", ["brainSourceId", "status"])
     // 2026-11-17: the final PDs waiting for a Brain check, company by company.
     .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
+    // 2026-11-18 (second): the Brain check order. First the last three
+    // fiscal years, newest first (a range on the year rank); then the rest,
+    // highest writer weight first, then newest year, then company. Named
+    // without "_and_" to stay within the backend's 64 characters.
+    .index("by_brainCheck_and_brainCheckYearRank_and_companyKey", ["brainCheck", "brainCheckYearRank", "companyKey"])
+    .index("by_brainCheck_brainCheckWriterRank_brainCheckYearRank_companyKey", [
+      "brainCheck",
+      "brainCheckWriterRank",
+      "brainCheckYearRank",
+      "companyKey",
+    ])
     .index("by_textStorageId", ["textStorageId"])
     .index("by_driveItemId", ["driveItemId"])
     .index("by_status", ["status"])

@@ -252,7 +252,7 @@ describe("a writer weight set on Team reaches retrieval with no new embed (2026-
     const add = vi.spyOn(brain, "add");
     await t.run((ctx) => ctx.db.patch(writerB, { tier: 1 }));
     const result = await t.mutation(internal.ingestion.retierWriterBrainCopies, { writerId: writerB, cursor: null });
-    expect(result).toEqual({ retiered: 1, passedOver: 0, done: true });
+    expect(result).toEqual({ retiered: 1, passedOver: 0, waitingMoved: 0, done: true });
     expect(add).not.toHaveBeenCalled();
     const top = (await search(t, { k: 1 })).exemplars;
     expect(top.map((e) => [e.sourceId, e.writerTier])).toEqual([[b, 1]]);

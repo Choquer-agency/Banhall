@@ -8,8 +8,9 @@ import {
   __mutationCalls,
   __resetConvexStub,
   __setMutationHandler,
-  __setPaginatedRows,
   __setPaginatedRowsForArgs,
+  __loadMoreCalls,
+  __paginatedInitialSizes,
   __setQueryData,
   __setQueryDataForArgs,
 } from "$lib/test/convex-svelte-stub.svelte";
@@ -25,6 +26,15 @@ import { viewAs } from "$lib/shell/viewAs.svelte";
  * file became on the Approved tab. Made-up companies and people.
  */
 const CAPTURES = "../../../../.vitest-attachments/import-approve";
+
+/** The Brain check's first year of "the last three" (2026-11-18 (second)), as the page sends it. */
+const RECENT_FROM = new Date().getUTCFullYear() - 2;
+
+/** The Brain check's two parts: the last three fiscal years, then the rest. */
+function seedBrainCheck(recent: unknown[], rest: unknown[] = [], more: { recent?: boolean; rest?: boolean } = {}) {
+  __setPaginatedRowsForArgs("ingestion:brainCheckFiles", { part: "recent", recentFromYear: RECENT_FROM }, recent, { more: more.recent });
+  __setPaginatedRowsForArgs("ingestion:brainCheckFiles", { part: "rest", recentFromYear: RECENT_FROM }, rest, { more: more.rest });
+}
 const text = (node: Element | null | undefined) => (node?.textContent ?? "").replace(/\s+/g, " ").trim();
 const all = (selector: string, root: ParentNode = document) => [...root.querySelectorAll<HTMLElement>(selector)];
 const one = (selector: string, root: ParentNode = document) => root.querySelector<HTMLElement>(selector);
@@ -370,7 +380,7 @@ describe("the Brain check", () => {
 
   async function openBrainCheck(width = 1280) {
     seedPage();
-    __setPaginatedRows("ingestion:brainCheckFiles", WAITING);
+    seedBrainCheck(WAITING);
     await mount(width);
     const tab = page.getByRole("tab", { name: "Brain check 2" });
     await expect.element(tab).toBeVisible();
@@ -464,7 +474,7 @@ describe("the Brain check", () => {
   it("keeps a PD out of the Brain, and moves on to the next", async () => {
     __setMutationHandler("ingestion:previewBrainCopy", () => COPY);
     __setMutationHandler("ingestion:keepOutOfBrain", () => {
-      __setPaginatedRows("ingestion:brainCheckFiles", WAITING.slice(1));
+      seedBrainCheck(WAITING.slice(1));
       return null;
     });
     await openBrainCheck();
@@ -486,9 +496,82 @@ describe("the Brain check", () => {
     await expect.poll(() => text(one("[data-import-brain-refusal]"))).toContain("would still name the company");
     expect(one("[data-import-brain-add]")).toBeNull();
     await expect.element(page.getByRole("button", { name: "Keep out of the Brain" })).toBeEnabled();
-    __setPaginatedRows("ingestion:brainCheckFiles", []);
+    seedBrainCheck([]);
     await expect.poll(() => text(one("[data-import-brain-empty]"))).toBe("No final PDs are waiting for a Brain check.");
   });
+
+  // 2026-11-18 (second, owner): the last three fiscal years first, then writers by highest weight.
+  const OLDER = [
+    { _id: "o1", name: "07 Halden 2019-12-31 S1.TL Ovens.docx", companyKey: "halden foods", companyName: "Halden Foods", fiscalYear: 2019, pdNumber: "7", pdTitle: "Ovens", writerName: "Tracy Lindqvist" },
+    { _id: "o2", name: "03 Cedarline 2020-03-31 S1.PN Racks.docx", companyKey: "cedarline systems", companyName: "Cedarline Systems", fiscalYear: 2020, pdNumber: "3", pdTitle: "Racks", writerName: "Priya Nair" },
+  ];
+
+  it("lists the recent years first and reads the rest only once they are all loaded; Next runs over both", async () => {
+    __setMutationHandler("ingestion:previewBrainCopy", () => COPY);
+    seedPage();
+    seedBrainCheck(WAITING, OLDER);
+    await mount();
+    await userEvent.click(page.getByRole("tab", { name: /^Brain check/ }));
+    await expect.poll(() => text(one("[data-import-brain-title]"))).toBe("PD 4 Route planning engine");
+    // The page asks for the recent part from the year two before this one.
+    expect(__paginatedInitialSizes("ingestion:brainCheckFiles").map((entry) => entry.args)).toContainEqual({ part: "recent", recentFromYear: RECENT_FROM });
+    const titles: string[] = [];
+    for (let step = 0; step < 4; step += 1) {
+      await expect.poll(() => text(one("[data-import-brain-position]"))).toBe(`${step + 1} of 4`);
+      titles.push(text(one("[data-import-brain-title]")));
+      if (step < 3) await userEvent.click(one("[data-import-brain-next]")!);
+    }
+    expect(titles).toEqual(["PD 4 Route planning engine", "PD 2 Proofing", "PD 7 Ovens", "PD 3 Racks"]);
+    expect((one("[data-import-brain-next]") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("waits for the recent part before reading the rest, and loads the next page past the end", async () => {
+    __setMutationHandler("ingestion:previewBrainCopy", () => COPY);
+    seedPage();
+    seedBrainCheck(WAITING.slice(0, 1), OLDER, { recent: true });
+    await mount();
+    await userEvent.click(page.getByRole("tab", { name: /^Brain check/ }));
+    await expect.poll(() => text(one("[data-import-brain-title]"))).toBe("PD 4 Route planning engine");
+    // More recent PDs wait: the rest is not read yet, and Next reads the next recent page.
+    expect(text(one("[data-import-brain-position]"))).toBe("1 of 2");
+    await userEvent.click(one("[data-import-brain-next]")!);
+    await expect.poll(() => __loadMoreCalls("ingestion:brainCheckFiles")).toEqual([
+      { args: { part: "recent", recentFromYear: RECENT_FROM }, numItems: 25 },
+    ]);
+  });
+
+  it("goes on reading the rest while a page of it holds none of the PDs shown", async () => {
+    __setMutationHandler("ingestion:previewBrainCopy", () => COPY);
+    seedPage();
+    seedBrainCheck([], [], { rest: true });
+    await mount();
+    await userEvent.click(page.getByRole("tab", { name: /^Brain check/ }));
+    await expect.poll(() => __loadMoreCalls("ingestion:brainCheckFiles")).toContainEqual({
+      args: { part: "rest", recentFromYear: RECENT_FROM },
+      numItems: 25,
+    });
+    // Still reading: no "nothing waits" yet.
+    expect(one("[data-import-brain-empty]")).toBeNull();
+  });
+
+  for (const width of [1280, 1100]) {
+    it(`captures the Brain check at ${width} wide with the recent and older PDs, inside the window`, async () => {
+      __setMutationHandler("ingestion:previewBrainCopy", () => COPY);
+      seedPage();
+      seedBrainCheck(WAITING, OLDER);
+      await mount(width);
+      await userEvent.click(page.getByRole("tab", { name: /^Brain check/ }));
+      await expect.poll(() => one("[data-import-brain-copy]")).not.toBeNull();
+      await userEvent.click(one("[data-import-brain-next]")!);
+      await userEvent.click(one("[data-import-brain-next]")!);
+      await expect.poll(() => text(one("[data-import-brain-position]"))).toBe("3 of 4");
+      expect(text(one("[data-import-brain-title]"))).toBe("PD 7 Ovens");
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+      const header = one("[data-import-brain-position]")!.getBoundingClientRect();
+      expect(header.right).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: `${CAPTURES}/brain-check-order-${width}.png` });
+    });
+  }
 });
 
 describe("the file view", () => {
@@ -672,7 +755,7 @@ describe("captures (2026-11-17, Approve on Import)", () => {
       await userEvent.keyboard("{Escape}");
       await expect.poll(() => one("[data-import-file-panel]")).toBeNull();
 
-      __setPaginatedRows("ingestion:brainCheckFiles", [
+      seedBrainCheck([
         { _id: "b1", name: "04 Cedarline 2025-03-31 S1.DW Route planning engine.docx", companyKey: "cedarline systems", companyName: "Cedarline Systems", fiscalYear: 2025, pdNumber: "4", pdTitle: "Route planning engine", versionCode: "S", versionNumber: 1, writerName: "Dana Whitlock", scienceCode: "2.02.09" },
       ]);
       __setMutationHandler("ingestion:previewBrainCopy", () => ({
