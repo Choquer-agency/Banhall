@@ -268,6 +268,55 @@ describe("Link and Unlink keep one weight per person", () => {
   });
 });
 
+describe("a member's own writer row made after Link takes the linked weight (review P2-1)", () => {
+  /** An invite's new account, made the way sign-up makes it (auth.ts onCreate). */
+  async function acceptInvite(t: T, token: string, email: string, firstName: string, lastName: string) {
+    await t.mutation(api.invites.confirmInviteNames, { token, firstName, lastName });
+    await t.mutation(internal.auth.onCreate, {
+      model: "user",
+      doc: { _id: `auth-${firstName}`, email, name: `${firstName} ${lastName}` },
+    });
+    return (await t.run((ctx) => ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", `auth-${firstName}`)).unique()))!;
+  }
+
+  it("a past writer at 1 invited and accepted: the new member's first PD and its Brain copy are at 1", async () => {
+    const { t, admin } = await setup();
+    const old = await stagePd(t, 1, "DW");
+    const pastWriter = await writerOf(t, old);
+    await admin.mutation(api.users.setWriterWeight, { writerId: pastWriter._id, weight: 1 });
+    const [invite] = await admin.mutation(api.invites.createInvites, { emails: ["dana@example.com"], role: "writer", pdWriterId: pastWriter._id });
+    if (invite.status !== "created") throw new Error(invite.status);
+    const dana = await acceptInvite(t, invite.token, "dana@example.com", "Dana", "Whitlock");
+    await settle(t);
+    // Linked on acceptance; she has no own writer row yet.
+    const rowsBefore = await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_userId", (q) => q.eq("userId", dana._id)).collect());
+    expect(rowsBefore.map((row) => [row._id === pastWriter._id, row.tier])).toEqual([[true, 1]]);
+    expect((await admin.query(api.team.listMembers, {})).find((row) => row._id === dana._id)?.weight).toBe(1);
+
+    // Her first new PD makes her own row, at her weight.
+    const fresh = await stagePd(t, 2, "DW");
+    const own = await writerOf(t, fresh);
+    expect(own.userId).toBe(dana._id);
+    expect(own._id).not.toBe(pastWriter._id);
+    expect(own.tier).toBe(1);
+    const sourceId = await inBrain(t, admin, fresh);
+    expect((await source(t, sourceId))!.writerTier).toBe(1);
+  });
+
+  it("an Admin's Link to a member with no PD yet, then that member's first PD: one weight", async () => {
+    const { t, admin, managerId } = await setup();
+    await t.run((ctx) => ctx.db.patch(managerId, { initials: "LM", firstName: "Lee", lastName: "Mbeki" }));
+    const old = await stagePd(t, 1, "KT");
+    const pastWriter = await writerOf(t, old);
+    await admin.mutation(api.users.setWriterWeight, { writerId: pastWriter._id, weight: 0.9 });
+    await admin.mutation(api.users.linkPastWriter, { writerId: pastWriter._id, userId: managerId });
+    await settle(t);
+    const fresh = await stagePd(t, 2, "LM");
+    const own = await writerOf(t, fresh);
+    expect([own.userId, own.tier]).toEqual([managerId, 0.9]);
+  });
+});
+
 describe("re-tiering a writer's Brain copies", () => {
   it("moves the source and its card to the new weight with one relabel row and no new embed; a second run changes nothing", async () => {
     const { t, admin, tracyId, adminId } = await setup();

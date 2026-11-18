@@ -176,15 +176,24 @@ export async function linkedWriterOf(ctx: Ctx, userId: Id<"users">): Promise<Wri
   return (await writersOfUser(ctx, userId)).find((row) => row.linkedAt !== undefined) ?? null;
 }
 
-/** A team member's own writer, made (no initials, no name) when they have none yet. */
+/**
+ * A team member's own writer, made (no initials, no name) when they have
+ * none yet. A new own row takes the weight of the past writer an Admin
+ * linked to them (2026-11-18 (second), one weight per person): Link or an
+ * accepted invite may come before the member has an own row, and their
+ * next PDs must rank as their past ones do.
+ */
 export async function writerForUser(ctx: MutationCtx, user: Doc<"users">): Promise<WriterDoc> {
-  const existing = await writerOfUser(ctx, user._id);
+  const rows = await writersOfUser(ctx, user._id);
+  const existing = rows.find((row) => row.linkedAt === undefined);
   if (existing) return existing;
+  const linkedWeight = storedWriterWeight(rows.find((row) => row.linkedAt !== undefined)?.tier);
   const id = await ctx.db.insert("pdWriters", {
     userId: user._id,
     createdVia: "import",
     createdAt: Date.now(),
     fileCount: 0,
+    ...(linkedWeight !== null ? { tier: linkedWeight } : {}),
   });
   return (await ctx.db.get(id))!;
 }
