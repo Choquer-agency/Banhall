@@ -47,10 +47,15 @@ import {
 } from "./lib/storage";
 import { hasReadText, needsServerReading } from "./lib/serverReading";
 import { COMPANY_FILE_PAGE_SIZE, COMPANY_FILE_SEARCH_LIMIT } from "../shared/companyFileMoves";
+import { fileNameTerms, searchQueryWords } from "../shared/fileNameTerms";
 
 const MAX_FILE_NAME_CHARS = 300;
 /** Files the old company page list (`listCompanyFiles`) lists; kept until the paged list has shipped. */
 export const COMPANY_FILE_LIST_LIMIT = 500;
+/** Rows each search index gives a name search before its names are checked (review P2-1). */
+const SEARCH_CANDIDATES = 200;
+/** Company files one run of the `fileNameTerms` backfill reads. */
+const BACKFILL_PAGE = 200;
 /** Projects one step links to a company row made from a company's name. */
 const LINK_PROJECT_PAGE = 200;
 
@@ -311,6 +316,7 @@ export const addCompanyFile = mutation({
     const companyFileId = await ctx.db.insert("companyFiles", {
       clientId: client._id,
       fileName,
+      fileNameTerms: fileNameTerms(fileName),
       fileType: args.fileType,
       ...(args.category ? { category: args.category } : {}),
       ...(args.mimeType ? { mimeType: args.mimeType } : {}),
@@ -407,6 +413,7 @@ export async function addImportedCompanyFile(
   const companyFileId = await ctx.db.insert("companyFiles", {
     clientId: file.clientId,
     fileName,
+    fileNameTerms: fileNameTerms(fileName),
     fileType: companyFileTypeForName(fileName),
     category: file.category,
     ...(mimeType ? { mimeType } : {}),
@@ -588,9 +595,20 @@ export const listCompanyFilesPage = query({
 
 /**
  * 2026-11-18: files of a company whose names match a search, active and
- * archived, at most COMPANY_FILE_SEARCH_LIMIT, best match first (the
- * `search_fileName` index). The Files tab asks only while some of the
- * company's files are not loaded, so Find a file also finds an old one.
+ * archived, at most COMPANY_FILE_SEARCH_LIMIT. The Files tab asks only
+ * while some of the company's files are not loaded, so Find a file also
+ * finds an old one.
+ *
+ * Review P2-1: the tab's own filter finds any part of a name, and Convex
+ * search matches whole words and the start of the last one. So the search
+ * asks for the query's parts (`searchQueryWords`: "fy2021" asks for fy and
+ * 2021) in the name's own words and their parts (`search_fileNameTerms`),
+ * and, for rows made before `fileNameTerms` existed and not yet filled, the
+ * search as typed in the name itself (`search_fileName`, as before). Each reads at most
+ * SEARCH_CANDIDATES rows, and a row is returned only when its name holds
+ * the search as typed, as the tab's filter would show it, so the two never
+ * disagree. What it cannot find: a piece inside a word that does not start
+ * at a word, a number or a capital letter ("cme" in "Acme").
  */
 export const searchCompanyFiles = query({
   args: { clientId: v.id("clients"), search: v.string() },
@@ -598,16 +616,62 @@ export const searchCompanyFiles = query({
   handler: async (ctx, args) => {
     await requireCapability(ctx, "companyFiles.read");
     const search = args.search.trim().slice(0, MAX_FILE_NAME_CHARS);
-    if (!search) return { files: [] };
-    const rows = await ctx.db
+    const words = searchQueryWords(search);
+    if (!search || words.length === 0) return { files: [] };
+    const wanted = search.toLowerCase();
+    const asked = words.join(" ");
+    // Convex search takes at most 16 words; keep the last 16 of the text as typed.
+    const typed = search.split(/\s+/).slice(-16).join(" ");
+    const byTerms = await ctx.db
       .query("companyFiles")
-      .withSearchIndex("search_fileName", (q) => q.search("fileName", search).eq("clientId", args.clientId))
-      .take(COMPANY_FILE_SEARCH_LIMIT);
+      .withSearchIndex("search_fileNameTerms", (q) => q.search("fileNameTerms", asked).eq("clientId", args.clientId))
+      .take(SEARCH_CANDIDATES);
+    const byName = await ctx.db
+      .query("companyFiles")
+      .withSearchIndex("search_fileName", (q) => q.search("fileName", typed).eq("clientId", args.clientId))
+      .take(SEARCH_CANDIDATES);
+    const seen = new Set<Id<"companyFiles">>();
+    const rows: Doc<"companyFiles">[] = [];
+    for (const row of [...byTerms, ...byName]) {
+      if (seen.has(row._id) || !row.fileName.toLowerCase().includes(wanted)) continue;
+      seen.add(row._id);
+      rows.push(row);
+      if (rows.length === COMPANY_FILE_SEARCH_LIMIT) break;
+    }
     const websiteFileId = (await ctx.db.get(args.clientId))?.websiteFileId ?? null;
     const names = new Map<string, string | null>();
     const files = [];
     for (const row of rows) files.push(await listedFile(ctx, row, websiteFileId, names));
     return { files };
+  },
+});
+
+/**
+ * 2026-11-18 (review P2-1): fills `fileNameTerms` on company files made
+ * before it existed, BACKFILL_PAGE rows a run in creation order, scheduling
+ * itself until every row is read. Run once after the backend deploys
+ * (`companyFiles:backfillCompanyFileNameTerms` with no arguments); safe to
+ * run again, and a row whose words are already right is not written.
+ * Until a row is filled, search still finds it by its name's whole words.
+ */
+export const backfillCompanyFileNameTerms = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())), filled: v.optional(v.number()) },
+  returns: v.object({ filled: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("companyFiles").paginate({ cursor: args.cursor ?? null, numItems: BACKFILL_PAGE });
+    let filled = args.filled ?? 0;
+    for (const row of page.page) {
+      const terms = fileNameTerms(row.fileName);
+      if (row.fileNameTerms === terms) continue;
+      await ctx.db.patch(row._id, { fileNameTerms: terms });
+      filled += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.companyFiles.backfillCompanyFileNameTerms, { cursor: page.continueCursor, filled });
+      return { filled, done: false };
+    }
+    console.log(`backfillCompanyFileNameTerms: done, ${filled} company files filled`);
+    return { filled, done: true };
   },
 });
 
@@ -702,6 +766,7 @@ export const replaceCompanyFile = mutation({
     });
     await ctx.db.patch(file._id, {
       fileName,
+      fileNameTerms: fileNameTerms(fileName),
       fileType: args.fileType,
       storageId: args.storageId,
       mimeType: args.mimeType,

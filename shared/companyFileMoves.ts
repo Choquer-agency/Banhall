@@ -13,3 +13,10 @@ export const COMPANY_FILE_PAGE_SIZE = 100;
 
 /** Files a name search on the company page returns at most. */
 export const COMPANY_FILE_SEARCH_LIMIT = 50;
+
+/**
+ * Company files one transaction moves in a merge: the merge moves this many
+ * at once and the rest in scheduled steps (`clients.moveMergedCompanyFiles`).
+ * The merge dialog says so past this many.
+ */
+export const MERGE_COMPANY_FILES_PER_STEP = 100;

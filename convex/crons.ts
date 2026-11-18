@@ -201,6 +201,8 @@ crons.cron(
 
 // F2 (2026-10-27): a project copy whose runner stopped (its lease ran out)
 // is taken up again, so no copy is left half done and no draft waits on it.
+// 2026-11-18: the same run starts again a merge's company file move that
+// stopped (clients.resumeStalledCompanyFileMoves, its own transaction).
 crons.interval(
   "resume stalled project copies",
   { minutes: 1 },

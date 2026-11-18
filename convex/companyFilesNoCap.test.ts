@@ -15,10 +15,11 @@ import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import { COMPANY_FILE_PAGE_SIZE, COMPANY_FILES_MOVING_MESSAGE } from "../shared/companyFileMoves";
-import { MERGE_COMPANY_FILE_COUNT_SHOWN, MERGE_COMPANY_FILES_PER_STEP } from "./clients";
+import { MERGE_COMPANY_FILE_COUNT_SHOWN, MERGE_COMPANY_FILES_PER_STEP, STALLED_MOVE_MS } from "./clients";
 import { COMPANY_FILE_LIST_LIMIT } from "./companyFiles";
 import { companyFilesMovingInto } from "./lib/clients";
 import { insertDocumentWithText } from "./lib/documentText";
+import { fileNameTerms } from "../shared/fileNameTerms";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -73,12 +74,18 @@ type Setup = Awaited<ReturnType<typeof setup>>;
 
 let clock = 0;
 
-/** `count` company files on a company, oldest first, in transactions of 500. */
+/**
+ * `count` company files on a company, oldest first, in transactions of 500,
+ * with their search words as every insert path now stores them. `unfilled`
+ * stands in for a row made before `fileNameTerms` existed: an empty string,
+ * because convex-test's search fake throws on a row missing the search field
+ * (real Convex leaves such a row out of the index; both match nothing).
+ */
 async function insertFiles(
   s: Setup,
   clientId: Id<"clients">,
   count: number,
-  options: { prefix?: string; archived?: boolean; hasText?: boolean } = {}
+  options: { prefix?: string; archived?: boolean; hasText?: boolean; unfilled?: boolean } = {}
 ): Promise<Id<"companyFiles">[]> {
   const ids: Id<"companyFiles">[] = [];
   for (let start = 0; start < count; start += 500) {
@@ -90,6 +97,7 @@ async function insertFiles(
             await ctx.db.insert("companyFiles", {
               clientId,
               fileName: `${options.prefix ?? "file"} ${i}.txt`,
+              fileNameTerms: options.unfilled ? "" : fileNameTerms(`${options.prefix ?? "file"} ${i}.txt`),
               fileType: "txt",
               textLength: 0,
               hasText: options.hasText ?? false,
@@ -138,6 +146,10 @@ async function eventCount(s: Setup, clientId: Id<"clients">, action: "merge_in" 
       (event) => event.action === action
     ).length
   );
+}
+
+async function merge(s: Setup, keepKey: string, mergeKeys: string[]) {
+  return await s.manager.mutation(api.clients.mergeClients, { keepKey, mergeKeys });
 }
 
 async function client(s: Setup, clientId: Id<"clients">) {
@@ -244,8 +256,6 @@ describe("finding a file by name among all of a company's files", () => {
 });
 
 describe("a merge moves every file, in steps", () => {
-  const merge = (s: Setup, keepKey: string, mergeKeys: string[]) =>
-    s.manager.mutation(api.clients.mergeClients, { keepKey, mergeKeys });
   const preview = (s: Setup, keepKey: string, mergeKeys: string[]) =>
     s.manager.query(api.clients.previewClientMerge, { keepKey, mergeKeys });
 
@@ -420,5 +430,175 @@ describe("a merge moves every file, in steps", () => {
       candidateMode: "iterative",
     });
     expect(await s.t.run((ctx) => ctx.db.get(generationId))).toMatchObject({ status: "reserved" });
+  });
+});
+
+describe("review fixes (2026-11-18)", () => {
+  const search = (s: Setup, text: string) =>
+    s.writer.query(api.companyFiles.searchCompanyFiles, { clientId: s.acme.clientId, search: text });
+  const names = async (s: Setup, text: string) => (await search(s, text)).files.map((file) => file.fileName).sort();
+
+  test("P2-1: a name with no spaces is found by its parts once its words are filled, and by its start before", async () => {
+    const s = await setup();
+    // Made before fileNameTerms existed: no words stored.
+    await insertFiles(s, s.acme.clientId, 1, { prefix: "AcmeFY2021T661", unfilled: true });
+    await insertFiles(s, s.acme.clientId, 150, { prefix: "notes", unfilled: true });
+    expect(await names(s, "2021")).toEqual([]);
+    expect(await names(s, "acmefy")).toEqual(["AcmeFY2021T661 0.txt"]);
+
+    expect(await s.t.mutation(internal.companyFiles.backfillCompanyFileNameTerms, {})).toEqual({ filled: 151, done: true });
+    for (const text of ["2021", "T661", "t661", "fy2021", "AcmeFY", "acmefy2021"]) {
+      expect(await names(s, text)).toEqual(["AcmeFY2021T661 0.txt"]);
+    }
+    // A second run writes nothing.
+    expect(await s.t.mutation(internal.companyFiles.backfillCompanyFileNameTerms, {})).toEqual({ filled: 0, done: true });
+    // What it cannot find: a piece inside a word that starts nowhere.
+    expect(await names(s, "cme")).toEqual([]);
+  });
+
+  test("P2-1: the backfill pages through every company file in scheduled runs", async () => {
+    const s = await setup();
+    await insertFiles(s, s.acme.clientId, 450, { prefix: "Report2019", unfilled: true });
+    await insertFiles(s, s.borealis.clientId, 30, { prefix: "Plan2018", unfilled: true });
+    expect(await s.t.mutation(internal.companyFiles.backfillCompanyFileNameTerms, {})).toEqual({ filled: 200, done: false });
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const empty = await s.t.run(async (ctx) =>
+      (await ctx.db.query("companyFiles").collect()).filter((row) => row.fileNameTerms !== fileNameTerms(row.fileName)).length
+    );
+    expect(empty).toBe(0);
+    expect((await search(s, "2019")).files).toHaveLength(50);
+  });
+
+  test("P2-1: a file added, imported or read from a website stores its words at once", async () => {
+    const s = await setup();
+    const added = await s.writer.mutation(api.companyFiles.addCompanyFile, {
+      clientId: s.acme.clientId,
+      fileName: "BorealisQ3Plan.txt",
+      fileType: "txt",
+      content: "Plan for the third quarter.",
+    });
+    expect((await s.t.run((ctx) => ctx.db.get(added)))?.fileNameTerms).toBe("borealisq3plan borealis q 3 plan txt");
+    expect(await names(s, "q3")).toEqual(["BorealisQ3Plan.txt"]);
+  });
+
+  test("P2-1: only names holding the search as typed come back, as the tab's own filter shows them", async () => {
+    const s = await setup();
+    await s.writer.mutation(api.companyFiles.addCompanyFile, { clientId: s.acme.clientId, fileName: "Gasket 2021.pdf", fileType: "pdf", content: "One." });
+    await s.writer.mutation(api.companyFiles.addCompanyFile, { clientId: s.acme.clientId, fileName: "Valve 2021 gasket.pdf", fileType: "pdf", content: "Two." });
+    expect(await names(s, "gasket 2021")).toEqual(["Gasket 2021.pdf"]);
+    expect(await names(s, "2021")).toEqual(["Gasket 2021.pdf", "Valve 2021 gasket.pdf"]);
+  });
+
+  test("P3-3: the step moves files to the company the mark names while it is active", async () => {
+    const s = await setup();
+    await insertFiles(s, s.borealis.clientId, 120);
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.borealis.clientId, {
+        status: "merged",
+        mergedIntoClientId: s.acme.clientId,
+        companyFilesMovingTo: s.cedar.clientId,
+        companyFilesMoveAt: Date.now(),
+      })
+    );
+    await s.t.mutation(internal.clients.moveMergedCompanyFiles, { fromClientId: s.borealis.clientId, userId: s.managerId });
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await filesOn(s, s.cedar.clientId)).toBe(120);
+    expect(await filesOn(s, s.acme.clientId)).toBe(0);
+    expect(await client(s, s.borealis.clientId)).toMatchObject({ status: "merged" });
+    expect((await client(s, s.borealis.clientId))?.companyFilesMovingTo).toBeUndefined();
+    expect((await client(s, s.borealis.clientId))?.companyFilesMoveAt).toBeUndefined();
+  });
+
+  test("P3-3: with no active company to move to, the mark is cleared and the error names the company", async () => {
+    const s = await setup();
+    await insertFiles(s, s.borealis.clientId, 5);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await s.t.run(async (ctx) => {
+      // Acme is merged away with nothing after it, so no chain ends anywhere.
+      await ctx.db.patch(s.acme.clientId, { status: "merged" });
+      await ctx.db.patch(s.borealis.clientId, {
+        status: "merged",
+        mergedIntoClientId: s.acme.clientId,
+        companyFilesMovingTo: s.acme.clientId,
+        companyFilesMoveAt: Date.now(),
+      });
+    });
+    expect(await s.t.mutation(internal.clients.moveMergedCompanyFiles, { fromClientId: s.borealis.clientId, userId: s.managerId })).toEqual({
+      moved: 0,
+      done: true,
+    });
+    expect(await client(s, s.borealis.clientId)).toMatchObject({ status: "merged" });
+    expect((await client(s, s.borealis.clientId))?.companyFilesMovingTo).toBeUndefined();
+    expect((await client(s, s.borealis.clientId))?.companyFilesMoveAt).toBeUndefined();
+    expect(await filesOn(s, s.borealis.clientId)).toBe(5);
+    expect(errors.mock.calls.some((call) => String(call[0]).includes('"Borealis"'))).toBe(true);
+    expect(await s.t.run((ctx) => companyFilesMovingInto(ctx, s.acme.clientId))).toBe(false);
+    errors.mockRestore();
+  });
+
+  test("P3-3: the sweep starts a stalled move again, clears one with nothing left, and leaves a fresh one", async () => {
+    const s = await setup();
+    await insertFiles(s, s.borealis.clientId, 150);
+    await merge(s, "acme", ["borealis"]);
+    // The scheduled step never ran (a crash): nothing moves on by itself.
+    await s.t.run(async (ctx) => {
+      for (const job of await ctx.db.system.query("_scheduled_functions").collect()) await ctx.scheduler.cancel(job._id);
+    });
+    const stale = Date.now() - STALLED_MOVE_MS - 1_000;
+    await s.t.run((ctx) => ctx.db.patch(s.borealis.clientId, { companyFilesMoveAt: stale }));
+    // A finished move whose mark was left behind, and a fresh one.
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.cedar.clientId, {
+        status: "merged", mergedIntoClientId: s.acme.clientId, mergedBy: s.managerId,
+        companyFilesMovingTo: s.acme.clientId, companyFilesMoveAt: stale,
+      });
+    });
+    const fresh = await s.t.run(async (ctx) => {
+      const now = Date.now();
+      const id = await ctx.db.insert("clients", {
+        name: "Dunmore", nameKey: "dunmore", status: "merged", mergedIntoClientId: s.acme.clientId, mergedBy: s.managerId,
+        companyFilesMovingTo: s.acme.clientId, companyFilesMoveAt: now, createdBy: s.managerId, createdAt: now, updatedAt: now,
+      });
+      return id;
+    });
+    await insertFiles(s, fresh, 3);
+
+    expect(await s.t.mutation(internal.clients.resumeStalledCompanyFileMoves, {})).toEqual({ restarted: 1, cleared: 1 });
+    expect((await client(s, s.borealis.clientId))?.companyFilesMoveAt).toBe(Date.now());
+    expect(await client(s, s.cedar.clientId)).toMatchObject({ status: "merged" });
+    expect((await client(s, s.cedar.clientId))?.companyFilesMovingTo).toBeUndefined();
+    expect((await client(s, s.cedar.clientId))?.companyFilesMoveAt).toBeUndefined();
+    expect((await client(s, fresh))?.companyFilesMovingTo).toBe(s.acme.clientId);
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await filesOn(s, s.borealis.clientId)).toBe(0);
+    expect(await filesOn(s, s.acme.clientId)).toBe(150);
+    expect((await client(s, s.borealis.clientId))?.companyFilesMovingTo).toBeUndefined();
+  });
+
+  test("P3-3: the project copy cron schedules the stalled-move sweep in its own transaction", async () => {
+    const s = await setup();
+    await s.t.mutation(internal.projectDuplication.resumeStalledProjectCopies, {});
+    const jobs = await s.t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(jobs.map((job) => job.name)).toContain("clients:resumeStalledCompanyFileMoves");
+  });
+
+  test("P3-4: a Brief preparation waits for moving files under its own reason, and stops after 30 minutes of it", async () => {
+    const s = await setup();
+    await insertFiles(s, s.borealis.clientId, 150);
+    await merge(s, "acme", ["borealis"]);
+    const preparationId = await s.t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert("briefPreparations", {
+        projectId: s.acme.projectId, status: "queued", revision: 1, runAt: now, triggeredBy: s.writerId,
+        triggerReason: "transcript_added", createdAt: now, updatedAt: now,
+      });
+    });
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId, revision: 1 });
+    const waiting = (await s.t.run((ctx) => ctx.db.get(preparationId)))!;
+    expect(waiting).toMatchObject({ status: "queued", waitingFor: "company_files", companyFilesWaits: 1, deferrals: 0, uploadWaits: 0 });
+    expect(waiting.runAt).toBe(Date.now() + 30_000);
+    await s.t.run((ctx) => ctx.db.patch(preparationId, { companyFilesWaits: 60 }));
+    await s.t.mutation(internal.briefPreparations.startBriefPreparation, { preparationId, revision: waiting.revision });
+    expect(await s.t.run((ctx) => ctx.db.get(preparationId))).toMatchObject({ status: "cancelled", endedReason: "company_files_moving" });
   });
 });

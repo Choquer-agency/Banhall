@@ -519,6 +519,10 @@ export default defineSchema({
     // company waits until none is left. Cleared once every file has moved.
     // A later merge of that company points it at the new kept company.
     companyFilesMovingTo: v.optional(v.id("clients")),
+    // 2026-11-18 (review P3-3): when that move last moved files (set with
+    // the mark and by every step). A move with no progress for 10 minutes
+    // is started again, or its mark cleared, by the stalled-move sweep.
+    companyFilesMoveAt: v.optional(v.number()),
     createdBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -529,7 +533,9 @@ export default defineSchema({
     // files may still carry (company file labels hide them).
     .index("by_mergedIntoClientId", ["mergedIntoClientId"])
     // 2026-11-18: the merged companies whose files still move into one.
-    .index("by_companyFilesMovingTo", ["companyFilesMovingTo"]),
+    .index("by_companyFilesMovingTo", ["companyFilesMovingTo"])
+    // 2026-11-18: moves by when they last made progress (the stalled-move sweep).
+    .index("by_companyFilesMoveAt", ["companyFilesMoveAt"]),
 
   dashboardBackfillRuns: defineTable({
     runKey: v.string(),
@@ -2797,6 +2803,11 @@ export default defineSchema({
         craReviewed: v.optional(v.boolean()),
       })
     ),
+    // 2026-11-18 widen (a company holds all its files, review P2-1): the
+    // name's search words (shared/fileNameTerms.ts), set wherever a name is
+    // written; rows made before are filled by
+    // `companyFiles.backfillCompanyFileNameTerms`.
+    fileNameTerms: v.optional(v.string()),
   })
     .index("by_clientId_and_archived", ["clientId", "archived"])
     // 2026-11-17: a company's files of one category, newest first within it
@@ -2817,7 +2828,10 @@ export default defineSchema({
     .index("by_labelsDue_and_labelsNextAt", ["labelsDue", "labelsNextAt"])
     // 2026-11-18 (a company holds all its files): find a file by name among
     // all of a company's files, not only the pages the Files tab loaded.
-    .searchIndex("search_fileName", { searchField: "fileName", filterFields: ["clientId"] }),
+    .searchIndex("search_fileName", { searchField: "fileName", filterFields: ["clientId"] })
+    // 2026-11-18 (review P2-1): the same, by the name's words and their parts
+    // (`fileNameTerms`), so "2021" finds "AcmeFY2021T661.pdf".
+    .searchIndex("search_fileNameTerms", { searchField: "fileNameTerms", filterFields: ["clientId"] }),
 
   // A company file's text, in pieces (as projectDocumentTexts), keyed by the
   // file only, so moving a file to another company moves no text.
@@ -5188,7 +5202,9 @@ export default defineSchema({
         v.literal("uploads"),
         v.literal("names"),
         // 2026-09-27 (second): a draft's files are still being read or saved.
-        v.literal("reads")
+        v.literal("reads"),
+        // 2026-11-18: the company's files are still moving here from a merge.
+        v.literal("company_files")
       )
     ),
     deferrals: v.optional(v.number()),
@@ -5201,6 +5217,9 @@ export default defineSchema({
     // start stops waiting 3 minutes after it).
     readsWaits: v.optional(v.number()),
     readsWaitStartedAt: v.optional(v.number()),
+    // 2026-11-18 widen: waits for a company's files still moving into it
+    // from a merge, counted apart from the other waits (at most 30 minutes).
+    companyFilesWaits: v.optional(v.number()),
     // 2026-09-27 (fourth) widen: the writer pressed Start while this row
     // was queued, so it was sent at once (no debounce, no names or reads
     // wait) and a draft's promotion carries it to the project.

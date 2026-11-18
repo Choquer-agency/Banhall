@@ -123,6 +123,15 @@ const MAX_DEFERRALS = 10;
  * not touched for UPLOAD_SETTLE_MS no longer counts as arriving.
  */
 const MAX_UPLOAD_WAITS = 36;
+/**
+ * 2026-11-18 (review P3-4): how often, and how many times, a start waits
+ * for a company's files still moving into it from a merge: every 30
+ * seconds for up to 30 minutes, counted apart from the other waits. Past
+ * that the preparation is cancelled ("company_files_moving") and the draft,
+ * started once the move ends, makes its own Brief.
+ */
+const COMPANY_FILES_RECHECK_MS = 30_000;
+const MAX_COMPANY_FILES_WAITS = 60;
 /** Times a draft's start waits for its names to settle (each wait is at most 5 seconds). */
 const MAX_NAMES_WAITS = 60;
 /** Frozen rows one preparation may hold (the generation bound, MAX_BRIEF_SOURCE_ROWS). */
@@ -236,7 +245,7 @@ export async function endPreparation(
 async function deferPreparation(
   ctx: MutationCtx,
   preparation: Preparation,
-  waitingFor: "slot" | "uploads" | "structure" | "speakers" | "names" | "reads",
+  waitingFor: "slot" | "uploads" | "structure" | "speakers" | "names" | "reads" | "company_files",
   delayMs: number,
   options: { evidenceRead: boolean; uncounted?: boolean }
 ): Promise<void> {
@@ -246,16 +255,23 @@ async function deferPreparation(
   // their own counter and a time bound (pendingReadsWait), so they never
   // use up the other waits.
   const reads = waitingFor === "reads";
+  const moving = waitingFor === "company_files";
   // A start woken because a slot freed that finds it taken again (it lost
   // the race to another waiter) is not charged a wait (review 2026-09-27,
   // P3-6): it did not choose to run then.
-  const deferrals = (preparation.deferrals ?? 0) + (uploads || names || reads || options.uncounted ? 0 : 1);
+  const deferrals = (preparation.deferrals ?? 0) + (uploads || names || reads || moving || options.uncounted ? 0 : 1);
   const uploadWaits = (preparation.uploadWaits ?? 0) + (uploads ? 1 : 0);
   // Names waits have their own counter (review 2026-09-26, P3-3): each
   // names edit restarts the 5-second settle, so several edits a few
   // seconds apart never use up the other waits.
   const namesWaits = (preparation.namesWaits ?? 0) + (names ? 1 : 0);
-  if (deferrals > MAX_DEFERRALS || uploadWaits > MAX_UPLOAD_WAITS || namesWaits > MAX_NAMES_WAITS) {
+  const companyFilesWaits = (preparation.companyFilesWaits ?? 0) + (moving ? 1 : 0);
+  if (
+    deferrals > MAX_DEFERRALS ||
+    uploadWaits > MAX_UPLOAD_WAITS ||
+    namesWaits > MAX_NAMES_WAITS ||
+    companyFilesWaits > MAX_COMPANY_FILES_WAITS
+  ) {
     if (options.evidenceRead) await obsoleteReady(ctx, scopeOf(preparation));
     await endPreparation(
       ctx,
@@ -268,6 +284,7 @@ async function deferPreparation(
         speakers: "speakers_unsettled",
         names: "names_unsettled",
         reads: "reads_unsettled",
+        company_files: "company_files_moving",
       }[waitingFor]
     );
     return;
@@ -283,6 +300,7 @@ async function deferPreparation(
     deferrals,
     uploadWaits,
     namesWaits,
+    ...(moving ? { companyFilesWaits } : {}),
     ...(reads
       ? { readsWaits: (preparation.readsWaits ?? 0) + 1, readsWaitStartedAt: preparation.readsWaitStartedAt ?? now }
       : {}),
@@ -474,7 +492,7 @@ async function readProjectEvidence(
   }
   // 2026-11-18: so are a company's files still moving into it from a merge.
   if (await companyFilesMovingInto(ctx, project.clientId)) {
-    await deferPreparation(ctx, preparation, "uploads", PREPARATION_DEBOUNCE_MS, { evidenceRead: false });
+    await deferPreparation(ctx, preparation, "company_files", COMPANY_FILES_RECHECK_MS, { evidenceRead: false });
     return null;
   }
 

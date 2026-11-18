@@ -34,6 +34,7 @@ import { clientNamesLookAlike, isValidClientYearEnd } from "../shared/clientName
 import { COMPANY_WEBSITE_INVALID, companyWebsiteProblem, normalizeCompanyWebsite } from "../shared/companyWebsite";
 import { onCompanyWebsiteChanged } from "./companyWebsite";
 import { userDisplayLabel } from "./lib/teamRoster";
+import { MERGE_COMPANY_FILES_PER_STEP } from "../shared/companyFileMoves";
 
 // ─── Saved clients (2026-10-14 amendment) ───────────────────────────────────
 // "Saved clients, client merge, and the Projects page redesign" in
@@ -62,11 +63,8 @@ const MERGE_PROJECT_LIMIT = 200;
  * merge moves every file). Past it the preview says "more than 500".
  */
 export const MERGE_COMPANY_FILE_COUNT_SHOWN = 500;
-/**
- * Company files one transaction moves (2026-11-18): the merge moves this
- * many at once and the rest in scheduled steps (`moveMergedCompanyFiles`).
- */
-export const MERGE_COMPANY_FILES_PER_STEP = 100;
+/** Company files one transaction moves (2026-11-18); shared with the merge dialog. */
+export { MERGE_COMPANY_FILES_PER_STEP };
 /**
  * Earlier merges whose files are still moving into one of the companies
  * being merged, that one merge points at the new kept company. Past it the
@@ -879,7 +877,7 @@ export const mergeClients = mutation({
         .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", sideId))
         .first();
       if (!left) continue;
-      await ctx.db.patch(sideId, { companyFilesMovingTo: keptClientId });
+      await ctx.db.patch(sideId, { companyFilesMovingTo: keptClientId, companyFilesMoveAt: now });
       await ctx.scheduler.runAfter(0, internal.clients.moveMergedCompanyFiles, { fromClientId: sideId, userId: user._id });
     }
     for (const earlier of stillMovingIn) await ctx.db.patch(earlier._id, { companyFilesMovingTo: keptClientId });
@@ -938,17 +936,36 @@ async function moveCompanyFileInMerge(
 }
 
 /**
+ * The active company a merged company's files move to now: the one its mark
+ * names when that is still active (a later merge points the mark at its
+ * kept company), else the company the mark's merges lead to, else the one
+ * its own merges lead to (review P3-3). Null when none can be found.
+ */
+async function moveTarget(ctx: MutationCtx, from: Doc<"clients">): Promise<Doc<"clients"> | null> {
+  const named = from.companyFilesMovingTo ? await ctx.db.get(from.companyFilesMovingTo) : null;
+  if (named?.status === "active") return named;
+  return (named ? await activeClientAfterMerges(ctx, named) : null) ?? (await activeClientAfterMerges(ctx, from));
+}
+
+/** Ends a move: the merged company's mark and its progress time go. */
+async function clearMoveMark(ctx: MutationCtx, fromClientId: Id<"clients">) {
+  await ctx.db.patch(fromClientId, { companyFilesMovingTo: undefined, companyFilesMoveAt: undefined });
+}
+
+/**
  * 2026-11-18 (a company holds all its files): the next
  * MERGE_COMPANY_FILES_PER_STEP files of a merged company move to the active
- * company its merges lead to now (a merge of merges moves them on), logged
- * and marked for search pieces as in the merge itself, then the step
+ * company they go to now (`moveTarget`; a merge of merges moves them on),
+ * logged and marked for search pieces as in the merge itself, then the step
  * schedules itself until none is left and clears the mark. Moved files
  * leave the index range, so it needs no cursor and running it twice moves
- * nothing twice.
+ * nothing twice. When no active company can be found, the mark is cleared
+ * so drafts are not held up for good, and the log names the company whose
+ * files stay where they are (review P3-3).
  *
- * Internal only. `userId` is the person whose merge moves the files; it
- * only names them in the file events and authorizes nothing (the merge
- * checked their role when it started the move).
+ * Internal only. `userId` is the person whose merge moves the files (the
+ * stalled-move sweep passes the merge's `mergedBy`); it only names them in
+ * the file events and authorizes nothing (the merge checked their role).
  */
 export const moveMergedCompanyFiles = internalMutation({
   args: { fromClientId: v.id("clients"), userId: v.id("users") },
@@ -956,14 +973,14 @@ export const moveMergedCompanyFiles = internalMutation({
   handler: async (ctx, args) => {
     const from = await ctx.db.get(args.fromClientId);
     if (!from || from.status !== "merged" || !from.companyFilesMovingTo) return { moved: 0, done: true };
-    const target = await activeClientAfterMerges(ctx, from);
+    const target = await moveTarget(ctx, from);
     if (!target) {
-      // A merge chain always ends in an active company; leave the mark so
-      // nothing reads the company as complete, and say so in the log.
-      console.error("moveMergedCompanyFiles: no active company at the end of the merges", { fromClientId: from._id });
-      return { moved: 0, done: false };
+      console.error(
+        `moveMergedCompanyFiles: no active company to move the files of "${from.name}" (${from._id}) to; its mark is cleared and its files stay on it`
+      );
+      await clearMoveMark(ctx, from._id);
+      return { moved: 0, done: true };
     }
-    if (from.companyFilesMovingTo !== target._id) await ctx.db.patch(from._id, { companyFilesMovingTo: target._id });
     const now = Date.now();
     const files = await ctx.db
       .query("companyFiles")
@@ -975,11 +992,61 @@ export const moveMergedCompanyFiles = internalMutation({
       .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", from._id))
       .first();
     if (left) {
+      await ctx.db.patch(from._id, { companyFilesMovingTo: target._id, companyFilesMoveAt: now });
       await ctx.scheduler.runAfter(0, internal.clients.moveMergedCompanyFiles, args);
       return { moved: files.length, done: false };
     }
-    await ctx.db.patch(from._id, { companyFilesMovingTo: undefined });
+    await clearMoveMark(ctx, from._id);
     return { moved: files.length, done: true };
+  },
+});
+
+/** A move with no progress for this long is started again (review P3-3). */
+export const STALLED_MOVE_MS = 10 * 60 * 1000;
+/** Stalled moves one sweep looks at. */
+const STALLED_MOVES_PER_SWEEP = 20;
+
+/**
+ * 2026-11-18 (review P3-3): moves of merged companies' files that made no
+ * progress for STALLED_MOVE_MS (a step that failed, or a chain that stopped)
+ * are started again with the merging person, or their mark is cleared when
+ * no files are left or nobody is named to log them under. Run by the
+ * "resume stalled project copies" cron, in its own transaction; at most
+ * STALLED_MOVES_PER_SWEEP rows a run, read by the progress index.
+ */
+export const resumeStalledCompanyFileMoves = internalMutation({
+  args: {},
+  returns: v.object({ restarted: v.number(), cleared: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const stalled = await ctx.db
+      .query("clients")
+      .withIndex("by_companyFilesMoveAt", (q) => q.gt("companyFilesMoveAt", 0).lt("companyFilesMoveAt", now - STALLED_MOVE_MS))
+      .take(STALLED_MOVES_PER_SWEEP);
+    let restarted = 0;
+    let cleared = 0;
+    for (const from of stalled) {
+      const left = await ctx.db
+        .query("companyFiles")
+        .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", from._id))
+        .first();
+      if (!from.companyFilesMovingTo || !left || !from.mergedBy) {
+        if (left) {
+          console.error(
+            `resumeStalledCompanyFileMoves: "${from.name}" (${from._id}) has files left but no merging person to log the move under; its mark is cleared`
+          );
+        }
+        await clearMoveMark(ctx, from._id);
+        cleared += 1;
+        continue;
+      }
+      // The next sweep waits another STALLED_MOVE_MS for this restart.
+      await ctx.db.patch(from._id, { companyFilesMoveAt: now });
+      await ctx.scheduler.runAfter(0, internal.clients.moveMergedCompanyFiles, { fromClientId: from._id, userId: from.mergedBy });
+      restarted += 1;
+    }
+    if (restarted + cleared > 0) console.warn(`resumeStalledCompanyFileMoves: ${restarted} restarted, ${cleared} cleared`);
+    return { restarted, cleared };
   },
 });
 
