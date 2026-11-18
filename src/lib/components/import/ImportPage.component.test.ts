@@ -68,7 +68,7 @@ describe("ImportPage", () => {
     __setQueryData("users:getCurrentUser", { _id: "a", role: "admin", firstName: "Jordan", lastName: "Ellis" });
   });
 
-  it("titles the page Import with how many files from how many companies, over three tabs with their counts", async () => {
+  it("titles the page Import with how many files from how many companies, over its tabs with their counts", async () => {
     seedPage();
     await render(ImportPage);
     const bar = one("[data-page-top-bar]")!;
@@ -79,8 +79,9 @@ describe("ImportPage", () => {
     await expect.element(tablist).toBeVisible();
     const tabs = all('[role="tab"]');
     // History (2026-11-12, Paper Files 1) comes last, with no count.
-    expect(tabs.map((tab) => text(tab))).toEqual(["To review 556", "Approved 1,204", "Deleted 41", "History"]);
-    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false"]);
+    // Brain check (2026-11-17) comes after Approved; a server that sends no count shows none.
+    expect(tabs.map((tab) => text(tab))).toEqual(["To review 556", "Approved 1,204", "Brain check", "Deleted 41", "History"]);
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
     expect(tabs[0].id).toBe("import-tab-review");
     expect(one('[role="tabpanel"]')!.getAttribute("aria-labelledby")).toBe("import-tab-review");
 

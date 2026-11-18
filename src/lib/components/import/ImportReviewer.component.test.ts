@@ -373,7 +373,8 @@ describe("reviewers on the Import page", () => {
     // Read only: the initials, muted, where there is no reviewer.
     expect(text(inRow("a2", '[data-import-cell="reviewer"]'))).toBe("KT");
     expect(inRow("a1", "[data-import-file-cra]").getAttribute("title")).toBe("Reviewed by CRA");
-    expect(all("[data-import-file] button")).toHaveLength(0);
+    // Only the names, which open the read-only file view (2026-11-17), are buttons.
+    expect(all("[data-import-file] button:not([data-import-file-open])")).toHaveLength(0);
   });
 
   for (const width of [1280, 1100]) {

@@ -17,7 +17,16 @@ export const NO_FISCAL_YEAR = "none";
 /** The fields of a row the counts read. */
 export type CountedRow = Pick<
   Doc<"ingestionItems">,
-  "sheetTab" | "companyKey" | "category" | "fiscalYearEnd" | "needsCheck" | "checkReasons" | "status" | "clientName" | "isNew"
+  | "sheetTab"
+  | "companyKey"
+  | "category"
+  | "fiscalYearEnd"
+  | "needsCheck"
+  | "checkReasons"
+  | "status"
+  | "clientName"
+  | "isNew"
+  | "brainCheck"
 >;
 
 /** What one row adds to its band. */
@@ -33,6 +42,8 @@ export type CountShare = {
   beingRead: boolean;
   /** New (2026-11-12): only a file on To review counts as New. */
   isNew: boolean;
+  /** 2026-11-17: an approved final PD waiting for its Brain check (Approved tab only). */
+  brainCheck: boolean;
 };
 
 /** The fiscal year bucket of a fiscal year end: its UTC year, or "none". */
@@ -54,6 +65,7 @@ export function countShareOf(row: CountedRow | null | undefined): CountShare | n
     checkReasons: needsCheck ? [...new Set(row.checkReasons ?? [])].sort() : [],
     beingRead: isBeingRead(row.status),
     isNew: row.sheetTab === "review" && row.isNew === true,
+    brainCheck: row.sheetTab === "approved" && row.brainCheck === "waiting",
   };
 }
 
@@ -67,7 +79,8 @@ function sameShare(a: CountShare, b: CountShare): boolean {
     a.checkReasons.length === b.checkReasons.length &&
     a.checkReasons.every((reason, index) => reason === b.checkReasons[index]) &&
     a.beingRead === b.beingRead &&
-    a.isNew === b.isNew
+    a.isNew === b.isNew &&
+    a.brainCheck === b.brainCheck
   );
 }
 
@@ -111,12 +124,14 @@ export function addShare(counts: ImportCounts, share: CountShare, sign: 1 | -1):
   if (category.total === 0) delete categories[share.category];
   else categories[share.category] = category;
   const bandNew = (counts.newFiles ?? 0) + (share.isNew ? sign : 0);
+  const bandBrainCheck = (counts.brainCheck ?? 0) + (share.brainCheck ? sign : 0);
   return {
     total: counts.total + sign,
     needsCheck: counts.needsCheck + (share.needsCheck ? sign : 0),
     ready: counts.ready + (!share.needsCheck && !share.beingRead ? sign : 0),
     beingRead: counts.beingRead + (share.beingRead ? sign : 0),
     ...(bandNew !== 0 ? { newFiles: bandNew } : {}),
+    ...(bandBrainCheck !== 0 ? { brainCheck: bandBrainCheck } : {}),
     categories,
   };
 }
@@ -129,6 +144,7 @@ export function countsOf(row: Doc<"importCompanies">): ImportCounts {
     ready: row.ready,
     beingRead: row.beingRead,
     ...(row.newFiles !== undefined && row.newFiles !== 0 ? { newFiles: row.newFiles } : {}),
+    ...(row.brainCheck !== undefined && row.brainCheck !== 0 ? { brainCheck: row.brainCheck } : {}),
     categories: row.categories,
   };
 }
@@ -136,7 +152,7 @@ export function countsOf(row: Doc<"importCompanies">): ImportCounts {
 /** True when any count went below zero, which only drift can cause. */
 function hasNegative(counts: ImportCounts): boolean {
   if (counts.total < 0 || counts.needsCheck < 0 || counts.ready < 0 || counts.beingRead < 0) return true;
-  if ((counts.newFiles ?? 0) < 0) return true;
+  if ((counts.newFiles ?? 0) < 0 || (counts.brainCheck ?? 0) < 0) return true;
   return Object.values(counts.categories).some(
     (c) =>
       c.total < 0 ||
@@ -211,8 +227,9 @@ export async function writeImportCompany(
   }
   const fields = {
     ...counts,
-    // A band that had New files and has none now loses the count.
+    // A band that had New files (or Brain checks) and has none now loses the count.
     newFiles: counts.newFiles,
+    brainCheck: counts.brainCheck,
     hasCheck: counts.needsCheck > 0,
     hasNew: (counts.newFiles ?? 0) > 0,
     displayName: await bandDisplayName(ctx, companyKey, existing?.displayName, offered, options),
@@ -221,12 +238,13 @@ export async function writeImportCompany(
   if (existing) {
     await ctx.db.patch(existing._id, { ...fields, revision: existing.revision + 1 });
   } else {
-    const { newFiles, ...rest } = fields;
+    const { newFiles, brainCheck, ...rest } = fields;
     await ctx.db.insert("importCompanies", {
       sheetTab,
       companyKey,
       ...rest,
       ...(newFiles === undefined ? {} : { newFiles }),
+      ...(brainCheck === undefined ? {} : { brainCheck }),
       revision: 1,
     });
   }

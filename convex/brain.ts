@@ -83,7 +83,7 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
 }
 
 /** Stable content fingerprint for dedup (FNV-1a, V8-safe — no node crypto). */
-function contentHash(s: string): string {
+export function contentHash(s: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -182,7 +182,7 @@ export type ImportSourceResult =
  * The existing source an import matches: by the bytes of any import file
  * linked to a source first, then by text.
  */
-async function findImportMatch(
+export async function findImportMatch(
   ctx: MutationCtx,
   textHash: string,
   importContentHash: string | undefined

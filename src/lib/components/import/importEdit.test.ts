@@ -314,7 +314,7 @@ describe("what a bar action takes", () => {
     expect(skippedText([...skipped("not_on_tab", 2), ...skipped("being_read", 1)], "review")).toBe(
       "2 files are no longer on To review. 1 file is still being read, so it cannot be deleted yet."
     );
-    expect(skippedText(skipped("approved", 1), "review")).toBe("1 file is already approved into the Brain.");
+    expect(skippedText(skipped("approved", 1), "review")).toBe("1 file is already approved.");
     expect(skippedText(skipped("not_on_tab", 1), "deleted")).toBe("1 file is no longer on Deleted.");
     expect(skippedText(skipped("removed_in_onedrive", 2), "deleted")).toBe("2 files were removed in OneDrive, so they stay on Deleted.");
     expect(skippedText(skipped("missing", 1), "review")).toBe("1 file is no longer in Import.");

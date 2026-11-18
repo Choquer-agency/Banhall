@@ -49,6 +49,16 @@
   the file name; "PD 4" then shows before the title. What a row may do is the shared rule
   (shared/importSheetRules.ts) the server follows too.
 
+  Approve on Import (2026-11-17): the file's name opens the file view (its
+  labels and text, read only; importFileView.ts), and so does Open in the
+  row's menu. On Approved a final PD's name is followed by a small icon in
+  a fixed 20px slot for what became of it in the Brain, its words ("In the
+  Brain", "Waiting for its Brain check", "Kept out of the Brain", "Removed
+  from the Brain") on hover and for screen readers, so the name keeps its
+  room; the Brain check icon has the primary wash. The row ends with a
+  small link to the company page its file is on, or a muted mark when it
+  is on none (removed there since, or approved on the old page).
+
   Narrow windows (live QA fixes, 2026-11-11): the name keeps its room and
   the words after it give way first; a name or science code title cut short
   shows in full in a tooltip on hover (and on keyboard focus of the code's
@@ -61,7 +71,7 @@
   import type { FunctionArgs } from "convex/server";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
-  import { CaretDownIcon, SealCheckIcon } from "phosphor-svelte";
+  import { BrainIcon, BuildingsIcon, CaretDownIcon, HourglassMediumIcon, ProhibitIcon, SealCheckIcon, TrashIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
@@ -74,7 +84,11 @@
   import ImportRowMenu from "./ImportRowMenu.svelte";
   import ImportVersionPicker from "./ImportVersionPicker.svelte";
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
+  import { resolve } from "$app/paths";
+  import { companiesPath } from "$lib/companies/companies";
   import { deleteFiles, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles } from "./importActions";
+  import { BRAIN_STATE_TEXT, NOT_ON_COMPANY_PAGE } from "./importApprove";
+  import { useFileView } from "./importFileView";
   import {
     CHOOSE_REVIEWER,
     CRA_REVIEWED,
@@ -136,11 +150,20 @@
   } = $props();
 
   const cells = $derived(fileCells(row));
+  const fileView = useFileView();
+  /** On Approved: what the file became (2026-11-17). */
+  const approved = $derived(tab === "approved" && row.status === "approved");
+  const brainWords = $derived(approved && row.brain ? BRAIN_STATE_TEXT[row.brain] : null);
+  const BRAIN_ICONS = { in_brain: BrainIcon, brain_check: HourglassMediumIcon, kept_out: ProhibitIcon, removed: TrashIcon } as const;
   /** The New label: on To review, once the file is read (until then it says "Being read"). */
   const showNew = $derived(tab === "review" && cells.isNew && !isBeingRead(row.status));
   /** The name gives way only to the words after it: the New label, the CRA tag and the state. */
   const titleRoom = $derived(
-    cells.craReviewed
+    brainWords
+      ? cells.craReviewed
+        ? "max-w-[calc(100%-3.75rem)]"
+        : "max-w-[calc(100%-1.75rem)]"
+      : cells.craReviewed
       ? showNew
         ? "max-w-[calc(100%-6rem)]"
         : cells.state
@@ -468,12 +491,25 @@
     <!-- Hover only: a tab stop on every row would make the sheet slow to cross by keyboard. -->
     <Tooltip text={nameTip} delayDuration={400} disabled={!titleIsNotName && !nameCut}>
       {#snippet children({ props })}
-        <span
-          {...mergeProps({ onpointerenter: measureName }, props)}
-          tabindex="-1"
-          data-import-file-title
-          class={`min-w-0 shrink-0 truncate text-ink ${titleRoom}`}
-        >{cells.title}</span>
+        {#if fileView}
+          <!-- Opens the file view. On To review the row's menu has Open, so the name is not a tab stop there. -->
+          <button
+            {...mergeProps({ onpointerenter: measureName, onclick: () => fileView.open(row._id) }, props)}
+            type="button"
+            tabindex={can.menu ? -1 : 0}
+            aria-label={`Open ${label}`}
+            data-import-file-title
+            data-import-file-open={row._id}
+            class={`relative z-[1] min-w-0 shrink-0 cursor-pointer truncate rounded-sm text-left text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir ${titleRoom}`}
+          >{cells.title}</button>
+        {:else}
+          <span
+            {...mergeProps({ onpointerenter: measureName }, props)}
+            tabindex="-1"
+            data-import-file-title
+            class={`min-w-0 shrink-0 truncate text-ink ${titleRoom}`}
+          >{cells.title}</span>
+        {/if}
       {/snippet}
     </Tooltip>
     {#if showNew}
@@ -481,6 +517,24 @@
         data-import-file-new
         class="inline-flex h-5 shrink-0 items-center rounded-full bg-success-soft px-2 text-[0.6875rem] leading-[calc(14/11)] text-success-ink"
       >New</span>
+    {/if}
+    {#if brainWords && row.brain}
+      {@const BrainStateIcon = BRAIN_ICONS[row.brain]}
+      <!-- A fixed 20px slot, its words on hover and for screen readers, so the name keeps its room. -->
+      <Tooltip text={brainWords} delayDuration={300}>
+        {#snippet children({ props })}
+          <span
+            {...props}
+            role="img"
+            tabindex="-1"
+            aria-label={brainWords}
+            data-import-file-brain={row.brain}
+            class={`flex size-5 shrink-0 items-center justify-center rounded-full ${
+              row.brain === "brain_check" ? "bg-primary-wash text-fir" : "bg-gray-100 text-ink-muted"
+            }`}
+          ><BrainStateIcon size="0.75rem" aria-hidden="true" /></span>
+        {/snippet}
+      </Tooltip>
     {/if}
     {#if cells.craReviewed}
       <!-- A quiet neutral tag (2026-11-17): a fact an Admin recorded, nothing to do. -->
@@ -726,11 +780,33 @@
           canPdNumber={can.pdNumber}
           craReviewed={can.craReviewed ? cells.craReviewed : null}
           onCra={markCra}
+          onOpen={fileView ? () => fileView.open(row._id) : undefined}
           onCategory={(category) => void leaveWith(() => move({ category }))}
           onCompany={(name) => void leaveWith(() => move({ company: name }))}
           onPdNumber={(pdNumber) => void change({ pdNumber })}
           onDelete={() => void leaveWith(remove)}
         />
+      </span>
+    {:else if approved}
+      <!-- Approved: the company page its file is on. -->
+      <span data-import-row-end class="ml-auto flex shrink-0 items-center pl-1.5">
+        {#if row.companyPage}
+          <a
+            href={companiesPath(resolve("/"), row.companyPage.key)}
+            data-import-file-company-page={row.companyPage.key}
+            aria-label={`Open ${row.companyPage.name}'s company page`}
+            title={`On ${row.companyPage.name}'s company page`}
+            class="relative z-[1] flex size-7 shrink-0 items-center justify-center rounded-md text-primary-selected transition-colors hover:bg-primary-wash hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-fir motion-reduce:transition-none pointer-coarse:size-11"
+          ><BuildingsIcon size="0.875rem" aria-hidden="true" /></a>
+        {:else}
+          <span
+            role="img"
+            aria-label={NOT_ON_COMPANY_PAGE}
+            title={NOT_ON_COMPANY_PAGE}
+            data-import-file-no-company-page
+            class="flex size-7 shrink-0 items-center justify-center text-ink-faint"
+          ><BuildingsIcon size="0.875rem" aria-hidden="true" /></span>
+        {/if}
       </span>
     {:else if reason || can.putBack}
       <!-- Deleted: why the file is here, where the empty cells leave room, then "Put back". -->

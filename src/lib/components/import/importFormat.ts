@@ -134,12 +134,18 @@ export type StatusWord = { text: string; tone: "muted" | "amber" };
 
 /**
  * The status words at a band's right ("38 being read", "77 ready", "12 to
- * check"), on the review tab only. A zero is left out; only "to check" is amber.
+ * check"), on the review tab. A zero is left out; only "to check" is amber.
+ * On Approved (2026-11-17): "3 for Brain check", the final PDs waiting for
+ * a person to read their Brain copy.
  */
 export function bandStatusWords(
-  band: Pick<SheetBand, "beingRead" | "ready" | "needsCheck">,
+  band: Pick<SheetBand, "beingRead" | "ready" | "needsCheck"> & { brainCheck?: number },
   tab: SheetTab
 ): StatusWord[] {
+  if (tab === "approved") {
+    const waiting = band.brainCheck ?? 0;
+    return waiting > 0 ? [{ text: `${formatCount(waiting)} for Brain check`, tone: "muted" }] : [];
+  }
   if (tab !== "review") return [];
   const words: StatusWord[] = [];
   if (band.beingRead > 0) words.push({ text: `${formatCount(band.beingRead)} being read`, tone: "muted" });

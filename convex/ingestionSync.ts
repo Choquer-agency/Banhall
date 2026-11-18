@@ -34,6 +34,7 @@ import {
 import { createHash } from "node:crypto";
 import { readFileOnServer } from "./ai/fileReader";
 import { scienceCodeFromText } from "./lib/scienceCodeFromText";
+import { IMPORT_TEXT_CUT_NOTE } from "./lib/ingestionSheet";
 import { writerNamesFromText } from "../shared/writerNameFromText";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -182,6 +183,7 @@ async function finishExtraction(
       itemId,
       storageId,
       extractNote: note,
+      textCut: false,
     });
     return;
   }
@@ -194,8 +196,9 @@ async function finishExtraction(
     storageId,
     text: bounded.text.slice(0, PREVIEW_CHARS),
     textStorageId,
+    textCut: bounded.truncated,
     extractNote: bounded.truncated
-      ? `${note ? `${note}; ` : ""}text truncated at ${MAX_TEXT_BYTES} bytes`
+      ? `${note ? `${note}; ` : ""}${IMPORT_TEXT_CUT_NOTE} ${MAX_TEXT_BYTES} bytes`
       : note,
     // Read from the whole text, not the preview; the mutation keeps it only
     // for a final PD with no science code a person set.

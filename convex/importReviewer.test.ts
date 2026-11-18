@@ -84,9 +84,13 @@ async function stage(t: T, path: string, driveItemId = `drive-${path}`): Promise
   return row!._id;
 }
 
+/** Reads a file the way extraction does: its original, and its whole text in storage. */
 async function markRead(t: T, id: Id<"ingestionItems">) {
-  const storageId = await t.run((ctx) => ctx.storage.store(new Blob(["bytes"])));
-  await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text: "Text", documentScienceCode: "2.02.09" });
+  const { storageId, textStorageId } = await t.run(async (ctx) => ({
+    storageId: await ctx.storage.store(new Blob(["bytes"])),
+    textStorageId: await ctx.storage.store(new Blob(["Text"], { type: "text/plain" })),
+  }));
+  await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text: "Text", textStorageId, documentScienceCode: "2.02.09" });
 }
 
 /** A read final PD by `writer`, reviewed by `reviewer`. */
@@ -176,10 +180,14 @@ async function expectWriterCountsByHand(t: T, label: string) {
   }
 }
 
+/** Approve on Import (2026-11-17): the file goes on its company's page, the chain run to its end. */
 async function approve(t: T, admin: Who, id: Id<"ingestionItems">) {
   vi.stubEnv("VOYAGE_API_KEY", "test-voyage-key");
   t.registerComponent("embedPool", workpoolSchema, workpoolModules);
-  await admin.mutation(internal.ingestion.finalizeApproval, { itemId: id, content: "Approved text", industry: "Cold chain logistics", writerTier: 0.5 });
+  await admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: "cedarline systems", industry: "manufacturing" });
+  await admin.mutation(api.ingestion.approveFiles, { ids: [id] });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect((await getItem(t, id)).status).toBe("approved");
 }
 
 describe("the reviewer check on each imported file", () => {

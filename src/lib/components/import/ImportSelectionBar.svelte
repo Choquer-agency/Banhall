@@ -22,6 +22,12 @@
   selected; otherwise the selection clears. While the bar shows, the
   toasts sit above it.
 
+  Approve (2026-11-17), on To review before Delete: a confirm that says what
+  Approve does and which selected files it leaves out (still being read, or
+  still needing a check), then the files in parts of up to 100 into one
+  approval (approveFiles), which runs on the server; the line under the
+  toolbar shows how far it is. The selection clears once they are sent.
+
   Live QA fixes (2026-11-11): the year end calendar opens on the newest
   year end among the selected files listed on screen (else last year's
   Dec 31), so its quick picks land in that year. A move to another category
@@ -56,9 +62,11 @@
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
   import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
+  import { APPROVE_NOTES, approveLeftOutText, approveLine, splitForApprove } from "./importApprove";
   import {
     changedText,
     changePatch,
+    chunks,
     confirmLine,
     DELETE_NOTE,
     deleteLine,
@@ -83,7 +91,7 @@
     type FileId,
     type MoveBackGroup,
   } from "./importEdit";
-  import { formatCount, type ImportCategory, type SheetTab } from "./importFormat";
+  import { formatCount, plural, type ImportCategory, type SheetTab } from "./importFormat";
   import type { ImportSelection, SelectedFile } from "./importSelection.svelte";
   import { CHOICE_ROW, CONFIRM_LINE, POPOVER_CARD, SHEET_SMALL } from "./sheetLayout";
 
@@ -96,6 +104,7 @@
   const restoreItems = useMutation(api.ingestion.restoreItems);
   const setReviewers = useMutation(api.ingestion.setFileReviewers);
   const setCraReviewed = useMutation(api.ingestion.setCraReviewed);
+  const approveFiles = useMutation(api.ingestion.approveFiles);
 
   let busy = $state(false);
   const count = $derived(selection.size);
@@ -105,6 +114,7 @@
   let yearOpen = $state(false);
   let moreOpen = $state(false);
   let deleteOpen = $state(false);
+  let approveOpen = $state(false);
 
   let pickedCategory = $state<ImportCategory | null>(null);
   let pickedDay = $state("");
@@ -174,12 +184,14 @@
   const forYear = $derived(splitForChange("fiscalYearEnd", selection.selected));
   const forMore = $derived(moreView === "list" ? null : splitForChange(moreView, selection.selected));
   const forDelete = $derived(splitForChange("delete", selection.selected));
+  const forApprove = $derived(splitForApprove(selection.selected));
 
   function closeMenus() {
     categoryOpen = false;
     yearOpen = false;
     moreOpen = false;
     deleteOpen = false;
+    approveOpen = false;
   }
 
   /** The bar goes once nothing is selected; focus goes to Select instead of the page. */
@@ -283,6 +295,33 @@
     busy = true;
     try {
       await deleteFiles(ids, removeItems, restoreItems, { tab, settle, leftOut: leftOutText(forDelete.leftOut) });
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Approve: the files it takes, in parts of up to 100, into one approval on the server. */
+  async function approve() {
+    if (busy) return;
+    closeMenus();
+    const ids = forApprove.taken.map((file) => file._id);
+    if (ids.length === 0) return;
+    const leftOut = approveLeftOutText(forApprove.leftOut) || undefined;
+    busy = true;
+    let approvalId: Awaited<ReturnType<typeof approveFiles>>["approvalId"] | undefined;
+    let sent = 0;
+    try {
+      for (const part of chunks(ids)) {
+        const result = await approveFiles({ ids: part, ...(approvalId ? { approvalId } : {}) });
+        approvalId = result.approvalId;
+        sent += part.length;
+      }
+      finish();
+      toast(`Approving ${plural(sent, "file")}`, { ...IMPORT_TOAST, description: leftOut });
+    } catch (error) {
+      selection.remove(ids.slice(0, sent));
+      const reason = userErrorMessage(error, TRY_AGAIN);
+      toast.error(stoppedText("Sent", sent, ids.length, reason, selection.size), { ...IMPORT_TOAST, description: leftOut });
     } finally {
       busy = false;
     }
@@ -425,7 +464,7 @@
   role="toolbar"
   aria-label="Selected files"
   data-import-selection-bar
-  data-menu-open={categoryOpen || yearOpen || moreOpen || deleteOpen ? "" : undefined}
+  data-menu-open={categoryOpen || yearOpen || moreOpen || deleteOpen || approveOpen ? "" : undefined}
   class="fixed bottom-8 left-1/2 z-[90] flex h-12 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-xl bg-ink pr-1.5 pl-4 shadow-review-bar"
 >
   <span data-import-bar-count class="flex h-6 items-center border-r border-white/20 pr-3.5 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap text-white" aria-live="polite">
@@ -486,6 +525,26 @@
     </DatePicker>
 
     {@render moreMenu()}
+
+    <Popover.Root bind:open={approveOpen}>
+      <Popover.Trigger disabled={busy || forApprove.taken.length === 0} data-import-bar-approve class={plainButton}>
+        <SealCheckIcon size="0.875rem" aria-hidden="true" class="text-on-ink-muted" />
+        Approve
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="top" align="center" sideOffset={8} collisionPadding={12} aria-label="Approve" class={`${menuContent} w-[20rem] p-3`} data-import-bar-approve-confirm>
+          <ul class="flex flex-col gap-1 text-xs leading-[1.5] text-ink-muted">
+            {#each APPROVE_NOTES as line (line)}<li>{line}</li>{/each}
+          </ul>
+          {#if forApprove.leftOut.length > 0}
+            <p data-import-approve-left-out class="mt-1.5 text-xs leading-[1.5] text-ink-muted">{approveLeftOutText(forApprove.leftOut)}</p>
+          {/if}
+          <button type="button" disabled={busy} data-import-bar-confirm onclick={() => void approve()} class={`mt-2.5 ${CONFIRM_LINE}`}>
+            {approveLine(forApprove.taken.length)}
+          </button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
 
     <Popover.Root bind:open={deleteOpen}>
       <Popover.Trigger disabled={busy || forDelete.taken.length === 0} data-import-bar-delete class={`${barButton} bg-danger/15 text-danger-border hover:bg-danger/25 data-[state=open]:bg-danger/25`}>

@@ -196,8 +196,10 @@ describe("ImportSheet", () => {
     expect(text(one("[data-import-band-name]", cedarline))).toBe("Cedarline Systems");
     expect(text(one("[data-import-band-industry]", cedarline))).toBe("Software");
     expect(text(one("[data-import-band-files]", cedarline))).toBe("223 files");
-    const words = all("[data-import-band-status] span", cedarline);
-    expect(words.map((node) => text(node))).toEqual(["8 being read", "200 ready", "15 to check"]);
+    // 2026-11-17: "Approve 200 ready" stands where "200 ready" was.
+    const words = all("[data-import-band-status] > *", cedarline);
+    expect(words.map((node) => text(node))).toEqual(["8 being read", "Approve 200 ready", "15 to check"]);
+    expect(words[1].tagName).toBe("BUTTON");
     expect(getComputedStyle(words[2]).color).toBe(AMBER);
     expect(getComputedStyle(words[1]).color).not.toBe(AMBER);
 
@@ -930,8 +932,8 @@ describe("ImportSheet on laptop windows", () => {
       }
       // The band: its status words sit in the sheet, past "N files", and never run off its end.
       const files = one("[data-import-band-files]", band("cedarline systems"))!;
-      const words = all("[data-import-band-status] span", band("cedarline systems"));
-      expect(words.map((node) => text(node))).toEqual(["8 being read", "200 ready", "15 to check"]);
+      const words = all("[data-import-band-status] > *", band("cedarline systems"));
+      expect(words.map((node) => text(node))).toEqual(["8 being read", "Approve 200 ready", "15 to check"]);
       for (const word of words) {
         expect(box(word).left, text(word)).toBeGreaterThanOrEqual(box(files).right);
         expect(box(word).right, text(word)).toBeLessThanOrEqual(box(scroller).right + 0.5);

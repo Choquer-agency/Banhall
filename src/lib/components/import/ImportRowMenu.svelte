@@ -5,9 +5,10 @@
   sheetLayout ROW_MENU_ROOM): Move to another category (the six), Move
   to another company (the companies on the sheet, or a new name, in a
   picker that opens from the same button) and Delete. A file still being
-  read cannot be deleted yet; the menu says so. "Open the file" comes with
-  the file panel. On a final PD (2026-11-17) it also marks the file as
-  reviewed by CRA, or clears that mark, by hand.
+  read cannot be deleted yet; the menu says so. Open (2026-11-17), first,
+  shows the file's labels and text in the file view. On a final PD
+  (2026-11-17) it also marks the file as reviewed by CRA, or clears that
+  mark, by hand.
 
   On a read final PD, draft or review copy (Greptile fix, 2026-11-17) the
   menu also sets the PD number, in a picker that opens from the same button
@@ -16,7 +17,17 @@
 -->
 <script lang="ts">
   import { DropdownMenu, Popover } from "bits-ui";
-  import { BuildingsIcon, CaretRightIcon, CheckIcon, DotsThreeIcon, HashIcon, SealCheckIcon, TagIcon, TrashIcon } from "phosphor-svelte";
+  import {
+    BuildingsIcon,
+    CaretRightIcon,
+    CheckIcon,
+    DotsThreeIcon,
+    FileTextIcon,
+    HashIcon,
+    SealCheckIcon,
+    TagIcon,
+    TrashIcon,
+  } from "phosphor-svelte";
   import ImportCompanyList from "./ImportCompanyList.svelte";
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import { MOVE_CATEGORIES } from "./importEdit";
@@ -31,6 +42,7 @@
     pdNumber = null,
     canPdNumber = false,
     craReviewed = null,
+    onOpen,
     onCategory,
     onCompany,
     onPdNumber,
@@ -49,6 +61,8 @@
     canPdNumber?: boolean;
     /** Whether the file is marked as reviewed by CRA; null when the mark does not go on it. */
     craReviewed?: boolean | null;
+    /** Opens the file view; absent outside the page. */
+    onOpen?: () => void;
     onCategory: (category: ImportCategory) => void;
     onCompany: (name: string) => void;
     onPdNumber?: (pdNumber: string) => void;
@@ -63,8 +77,10 @@
   let button = $state<HTMLElement | null>(null);
   // Set when "Move to another company" or "Set the PD number" is chosen: its
   // picker opens once the menu has closed, so focus goes into the picker, not
-  // back here.
-  let opening: "company" | "pdNumber" | null = null;
+  // back here. Set to "open" when Open is chosen: the file view opens once
+  // the menu has given focus back to this button, so closing the view brings
+  // focus here.
+  let opening: "company" | "pdNumber" | "open" | null = null;
   const pickerOpen = $derived(companyOpen || pdNumberOpen);
 
   const MENU_ITEM =
@@ -95,6 +111,10 @@
         if (!opening) return;
         const next = opening;
         opening = null;
+        if (next === "open") {
+          setTimeout(() => onOpen?.(), 0);
+          return;
+        }
         event.preventDefault();
         if (next === "company") companyOpen = true;
         else pdNumberOpen = true;
@@ -102,6 +122,13 @@
       class="z-[100] w-[16.5rem] rounded-lg border border-line bg-surface p-1 shadow-menu outline-none"
       data-import-row-menu-content
     >
+      {#if onOpen}
+        <DropdownMenu.Item onSelect={() => (opening = "open")} data-import-row-action="open" class={MENU_ITEM}>
+          <FileTextIcon size="0.875rem" aria-hidden="true" class="shrink-0" />
+          Open
+        </DropdownMenu.Item>
+        <DropdownMenu.Separator class="-mx-1 my-1 h-px bg-line-soft" />
+      {/if}
       <DropdownMenu.Sub>
         <DropdownMenu.SubTrigger class={`${MENU_ITEM} data-[state=open]:bg-primary-wash`} data-import-row-action="category">
           <TagIcon size="0.875rem" aria-hidden="true" class="shrink-0" />

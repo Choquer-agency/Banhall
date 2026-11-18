@@ -22,12 +22,22 @@
   shows the green "N new" pill 12px before "N files"; with New on, its
   sections count and list only their New files.
 
+  "Approve N ready" (2026-11-17): on To review, a company (not "No company
+  yet") with files ready shows "Approve 77 ready" in place of "77 ready". It
+  opens a confirm that says what Approve does (each file goes on the
+  company's page, final PDs then wait in Brain check, files to check stay)
+  and, for a new company, that it is made with the industry picked here.
+  Approving runs on the server; the line under the toolbar shows how far.
+  On Approved, the status words say how many final PDs wait for their
+  Brain check.
+
   With Select on (board ao4) a checkbox comes first. It selects every file
   its open sections list (never the ones not loaded), shows a dash when only
   some are selected, and on a closed company opens it and selects the files
   of the section that opens, once that section lists them.
 -->
 <script lang="ts">
+  import { Popover } from "bits-ui";
   import { useMutation } from "convex-svelte";
   import { toast } from "svelte-sonner";
   import { CaretDownIcon } from "phosphor-svelte";
@@ -40,6 +50,7 @@
   import ImportIndustryList from "./ImportIndustryList.svelte";
   import ImportPickerPopover from "./ImportPickerPopover.svelte";
   import { IMPORT_TOAST } from "./importActions";
+  import { alreadyRunningText, APPROVE_NOTES, approveCompanyTitle, approveLine, approveReadyText, mergedNote, newCompanyNote } from "./importApprove";
   import {
     bandName,
     bandSections,
@@ -52,7 +63,17 @@
     type SheetTab,
   } from "./importFormat";
   import type { ImportSelection } from "./importSelection.svelte";
-  import { AMBER, PICK_CARET_SIZE, PICK_CONTROL, ROW_TOGGLE, SELECT_CELL, sheetGrid } from "./sheetLayout";
+  import {
+    AMBER,
+    CONFIRM_LINE,
+    PICK_CARET_SIZE,
+    PICK_CONTROL,
+    POPOVER_CARD,
+    ROW_TOGGLE,
+    SELECT_CELL,
+    SHEET_SMALL,
+    sheetGrid,
+  } from "./sheetLayout";
 
   let {
     band,
@@ -110,6 +131,34 @@
     }
   }
 
+  // ─── Approve N ready (2026-11-17) ────────────────────────────────────────
+  const approvable = $derived(tab === "review" && band.companyKey !== NO_COMPANY_KEY && band.ready > 0);
+  const approveCompany = useMutation(api.ingestion.approveCompanyReady);
+  let approveOpen = $state(false);
+  let approving = $state(false);
+  const readyWord = $derived(`${band.ready.toLocaleString("en-US")} ready`);
+  /** A company merged into another one: Approve refuses its files, so the confirm says where to move them. */
+  const mergedInto = $derived(band.company?.via === "merge" ? band.company.name : null);
+  const newNote = $derived(
+    band.isNew
+      ? newCompanyNote(name, shownIndustry ? industryLabel(shownIndustry) : null, (band.categories.final_pd?.total ?? 0) > 0)
+      : null
+  );
+
+  async function approveReady() {
+    if (approving) return;
+    approving = true;
+    try {
+      const { ready, alreadyRunningBy } = await approveCompany({ companyKey: band.companyKey });
+      approveOpen = false;
+      toast(alreadyRunningBy ? alreadyRunningText(alreadyRunningBy) : `Approving ${plural(ready, "file")} of ${name}`, IMPORT_TOAST);
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The files could not be approved."), IMPORT_TOAST);
+    } finally {
+      approving = false;
+    }
+  }
+
   /**
    * Nothing on screen to select: each section that opens now, or is open and
    * still reading, gets its own request, used up the first time it lists.
@@ -145,7 +194,7 @@
   role="rowgroup"
   data-import-band={band.companyKey}
   data-import-band-open={open ? "" : undefined}
-  class={`[[data-import-band]+&]:mt-3.5 ${open ? "pb-3.5" : ""}`}
+  class={`@container/band [[data-import-band]+&]:mt-3.5 ${open ? "pb-3.5" : ""}`}
 >
   <div role="row" class={`relative ${sheetGrid(selecting)} h-[3.25rem] items-center border-t border-gray-300 hover:bg-gray-50`}>
     {#if selecting}
@@ -159,7 +208,7 @@
         />
       </div>
     {/if}
-    <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2">
+    <div role="cell" aria-colspan={5} class="col-span-5 flex min-w-0 items-center gap-2 @max-[56rem]/band:col-span-4">
       <button
         type="button"
         aria-expanded={open}
@@ -239,10 +288,53 @@
         <span data-import-band-files class="shrink-0 text-[0.8125rem] leading-[calc(18/13)] text-ink-muted">{plural(band.total, "file")}</span>
       </span>
     </div>
-    <!-- When the Science code column is narrow, the words wrap onto a second line instead of running into "N files". -->
-    <div role="cell" data-import-band-status class="flex min-w-0 flex-wrap content-center items-center justify-end gap-x-3 px-2 text-[0.8125rem] leading-[calc(16/13)]">
+    <!--
+      Under Science code, as drawn. On a sheet narrower than 896px (a 1100px
+      window) that column is too narrow for "Approve N ready", so the words
+      take Reviewer's room too and "N files" ends on its rule. The words wrap
+      onto a second line instead of running into "N files".
+    -->
+    <div role="cell" data-import-band-status class="flex min-w-0 flex-wrap content-center items-center justify-end gap-x-3 px-2 text-[0.8125rem] leading-[calc(16/13)] @max-[56rem]/band:col-span-2">
       {#each words as word (word.text)}
-        <span class={`shrink-0 whitespace-nowrap ${word.tone === "amber" ? AMBER : "text-ink-muted"}`}>{word.text}</span>
+        {#if approvable && word.text === readyWord}
+          <!-- "Approve 77 ready" where "77 ready" would be, above the row's whole-row toggle. -->
+          <Popover.Root bind:open={approveOpen}>
+            <Popover.Trigger
+              data-import-band-approve={band.companyKey}
+              class="relative z-[1] shrink-0 rounded-sm font-medium whitespace-nowrap text-primary-selected transition-colors hover:text-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fir data-[state=open]:text-primary-dark motion-reduce:transition-none pointer-coarse:min-h-11"
+            >{approveReadyText(band.ready)}</Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                side="bottom"
+                align="end"
+                sideOffset={6}
+                collisionPadding={12}
+                aria-label={approveCompanyTitle(band.ready, name)}
+                data-import-approve-confirm
+                class={`${POPOVER_CARD} w-[20rem] max-w-[calc(100vw-1.5rem)] p-3`}
+              >
+                <p class="text-[0.8125rem] leading-[calc(18/13)] font-medium text-ink">{approveCompanyTitle(band.ready, name)}</p>
+                <ul class={`mt-1.5 flex flex-col gap-1 ${SHEET_SMALL} text-ink-muted`}>
+                  {#each APPROVE_NOTES as line (line)}<li>{line}</li>{/each}
+                  {#if newNote}<li data-import-approve-new-company class={!shownIndustry && (band.categories.final_pd?.total ?? 0) > 0 ? AMBER : ""}>{newNote}</li>{/if}
+                </ul>
+                {#if mergedInto}
+                  <p data-import-approve-merged class={`mt-2 ${SHEET_SMALL} ${AMBER}`}>{mergedNote(name, mergedInto)}</p>
+                {:else}
+                  <button
+                    type="button"
+                    disabled={approving}
+                    data-import-approve-go
+                    onclick={() => void approveReady()}
+                    class={`mt-2.5 ${CONFIRM_LINE}`}
+                  >{approving ? "Approving..." : approveLine(band.ready)}</button>
+                {/if}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        {:else}
+          <span class={`shrink-0 whitespace-nowrap ${word.tone === "amber" ? AMBER : "text-ink-muted"}`}>{word.text}</span>
+        {/if}
       {/each}
     </div>
   </div>
