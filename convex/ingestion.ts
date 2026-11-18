@@ -97,10 +97,18 @@ import {
 import {
   addShare,
   adjustImportCompanyCounts,
+  adjustImportFinalPdCounts,
   countShareOf,
   emptyImportCounts,
+  ensureFinalPdTotalRow,
+  FINAL_PD_TOTAL_KEY,
+  finalPdCountRow,
+  finalPdShareOf,
   importCompanyRow,
   NO_COMPANY_KEY,
+  NO_FISCAL_YEAR,
+  NO_WRITER_KEY,
+  UNSORTED_WRITER_KEY,
   writeImportCompany,
 } from "./lib/importCompanyCounts";
 import {
@@ -186,7 +194,8 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
 // follows category, companyKey follows clientName, fiscalYear follows
 // fiscalYearEnd, pairGroupKey follows companyKey and fiscalYear, and the
 // sheet fields follow the rest), then move the row's share between the
-// company bands (convex/lib/importCompanyCounts.ts). The only other writes to
+// company bands and, for a final PD, the progress counts
+// (convex/lib/importCompanyCounts.ts). The only other writes to
 // these rows are recomputePairGroup (pairStatus and updatedAt), porting
 // (convex/ingestionPort.ts, the ported* fields) and project erasure
 // (convex/projects.ts, which clears the ported* fields): none of them writes
@@ -307,6 +316,7 @@ async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promis
   const row = definedFields(await settleWithWriter(ctx, fields));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
+  await adjustImportFinalPdCounts(ctx, null, row);
   await adjustWriterFiles(ctx, null, row);
   await scheduleNamesRead(ctx, null, { _id: id, _creationTime: 0, ...row });
   return id;
@@ -334,6 +344,7 @@ async function patchItem(
   if (changed) await ctx.db.patch(_id, changes);
   const after = { _id, _creationTime, ...definedFields(settled) } as Doc<"ingestionItems">;
   await adjustImportCompanyCounts(ctx, before, after);
+  await adjustImportFinalPdCounts(ctx, before, after);
   await adjustWriterFiles(ctx, before, after);
   await scheduleNamesRead(ctx, before, after);
   return { after, changed };
@@ -5441,6 +5452,267 @@ export const repairImportCompanyTab = internalMutation({
       });
     }
     return { rebuilds: 0, removed, done: page.isDone };
+  },
+});
+
+// ─── Final PD progress (2026-11-17, docs/product-domain.md) ─────────────────
+// "312 of 1,040 final PDs approved" on the Import page, and its breakdown by
+// fiscal year and by writer. Both read the importFinalPdCounts rows, which
+// insertItem and patchItem keep in step (convex/lib/importCompanyCounts.ts),
+// so no query reads an import file. The staged count is the final PDs on
+// To review and Approved so far; a deleted one is not counted.
+
+/** Year rows read by the breakdown: far more fiscal years than the firm has. */
+const FINAL_PD_YEARS_READ = 200;
+/** Writer rows read by the breakdown and the rebuild: more writers than the firm has had. */
+const FINAL_PD_WRITERS_READ = 2000;
+
+/**
+ * The progress line: final PDs approved, and final PDs staged so far (To
+ * review and Approved). Admin only (null otherwise). Reads one row.
+ */
+export const finalPdProgress = query({
+  args: {},
+  returns: v.union(v.null(), v.object({ approved: v.number(), staged: v.number() })),
+  handler: async (ctx) => {
+    if ((await adminOrNull(ctx)) === null) return null;
+    const total = await finalPdCountRow(ctx, "total", FINAL_PD_TOTAL_KEY);
+    const review = Math.max(0, total?.review ?? 0);
+    const approved = Math.max(0, total?.approved ?? 0);
+    return { approved, staged: review + approved };
+  },
+});
+
+const finalPdBreakdownRowValidator = v.object({
+  key: v.string(),
+  approved: v.number(),
+  staged: v.number(),
+});
+
+/**
+ * The breakdown behind the progress line (2026-11-17). Years newest first,
+ * then "none" (no fiscal year). Writers by how many final PDs are staged,
+ * most first, each under the writer's label as it is now: a team member's
+ * own writer and the past writer an Admin linked to them are one row, under
+ * the member's name; a writer with no login says so (`noLogin`). Then the
+ * two buckets that are not a writer yet: "none" (no writer yet) and
+ * "unsorted" (a name with three or four initials groups, waiting for the
+ * client). Admin only (null otherwise). Bounded: reads the counter rows and
+ * each counted writer and its member.
+ */
+export const finalPdBreakdown = query({
+  args: {},
+  returns: v.union(
+    v.null(),
+    v.object({
+      years: v.array(finalPdBreakdownRowValidator),
+      writers: v.array(
+        v.object({
+          key: v.string(),
+          label: v.string(),
+          noLogin: v.boolean(),
+          approved: v.number(),
+          staged: v.number(),
+        })
+      ),
+      noWriter: v.union(finalPdBreakdownRowValidator, v.null()),
+      unsorted: v.union(finalPdBreakdownRowValidator, v.null()),
+      complete: v.boolean(),
+    })
+  ),
+  handler: async (ctx) => {
+    if ((await adminOrNull(ctx)) === null) return null;
+    const counted = (row: Doc<"importFinalPdCounts">) => {
+      const approved = Math.max(0, row.approved);
+      return { approved, staged: Math.max(0, row.review) + approved };
+    };
+    const yearRows = await ctx.db
+      .query("importFinalPdCounts")
+      .withIndex("by_kind_and_key", (q) => q.eq("kind", "year"))
+      .take(FINAL_PD_YEARS_READ + 1);
+    const writerRows = await ctx.db
+      .query("importFinalPdCounts")
+      .withIndex("by_kind_and_key", (q) => q.eq("kind", "writer"))
+      .take(FINAL_PD_WRITERS_READ + 1);
+    const complete = yearRows.length <= FINAL_PD_YEARS_READ && writerRows.length <= FINAL_PD_WRITERS_READ;
+
+    const years = yearRows
+      .slice(0, FINAL_PD_YEARS_READ)
+      .map((row) => ({ key: row.key, ...counted(row) }))
+      .filter((row) => row.staged > 0)
+      .sort((a, b) => {
+        if (a.key === NO_FISCAL_YEAR) return 1;
+        if (b.key === NO_FISCAL_YEAR) return -1;
+        return b.key.localeCompare(a.key);
+      });
+
+    let noWriter: { key: string; approved: number; staged: number } | null = null;
+    let unsorted: { key: string; approved: number; staged: number } | null = null;
+    const people = new Map<string, { key: string; label: string; noLogin: boolean; approved: number; staged: number; own: boolean }>();
+    const users = new Map<Id<"users">, Doc<"users"> | null>();
+    for (const row of writerRows.slice(0, FINAL_PD_WRITERS_READ)) {
+      const counts = counted(row);
+      if (counts.staged === 0) continue;
+      if (row.key === NO_WRITER_KEY) {
+        noWriter = { key: row.key, ...counts };
+        continue;
+      }
+      if (row.key === UNSORTED_WRITER_KEY) {
+        unsorted = { key: row.key, ...counts };
+        continue;
+      }
+      const writer = await liveWriter(ctx, row.writerId);
+      let user: Doc<"users"> | null = null;
+      if (writer?.userId) {
+        if (!users.has(writer.userId)) users.set(writer.userId, await ctx.db.get(writer.userId));
+        user = users.get(writer.userId) ?? null;
+      }
+      // A writer removed since (nothing pointed at it) has no files left; a stale row shows as unknown.
+      const label = writer ? writerLabelFor(writer, user) : "Unknown writer";
+      const key = writer?.userId ? `user:${writer.userId}` : `writer:${row.key}`;
+      // The member's own writer names the row when both are there.
+      const own = writer !== null && writer.linkedAt === undefined;
+      const seen = people.get(key);
+      if (seen) {
+        seen.approved += counts.approved;
+        seen.staged += counts.staged;
+        if (own && !seen.own) Object.assign(seen, { label, own });
+      } else {
+        people.set(key, { key, label, noLogin: !writer?.userId, ...counts, own });
+      }
+    }
+    const writers = [...people.values()]
+      .map(({ own: _own, ...row }) => row)
+      .sort((a, b) => b.staged - a.staged || a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    return { years, writers, noWriter, unsorted, complete };
+  },
+});
+
+const FINAL_PD_REBUILD_DEFAULT_PAGE = 100;
+const FINAL_PD_REBUILD_MAX_PAGE = 200;
+const FINAL_PD_REBUILD_MAX_RESTARTS = 3;
+
+const finalPdTallyValidator = v.object({
+  key: v.string(),
+  writerId: v.optional(v.id("pdWriters")),
+  review: v.number(),
+  approved: v.number(),
+});
+type FinalPdTally = Infer<typeof finalPdTallyValidator>;
+
+/**
+ * Owner-run repair, and the deploy step of 2026-11-17: rebuild the final PD
+ * counts (importFinalPdCounts) from the files. Reads one page of import
+ * files per run in creation order (an order no edit changes) and schedules
+ * the next page with the running tallies; the last page writes every year
+ * and writer row and the total, and deletes the rows no file needs. If the
+ * counts changed while it paged (a final PD was written meanwhile), it
+ * starts again, up to three times, rather than write counts that may miss
+ * that file: the first run makes sure the total row exists, and every later
+ * change raises its revision. Safe to run again. Run it with the OneDrive
+ * sync, the uploader and approvals paused, so it can finish.
+ */
+export const rebuildImportFinalPdCounts = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    progress: v.optional(
+      v.object({
+        years: v.array(finalPdTallyValidator),
+        writers: v.array(finalPdTallyValidator),
+        startedFrom: v.object({ id: v.id("importFinalPdCounts"), revision: v.number() }),
+      })
+    ),
+    restarts: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
+  returns: v.object({ scanned: v.number(), done: v.boolean(), written: v.boolean() }),
+  handler: async (ctx, args) => {
+    const requested = Number.isFinite(args.pageSize) ? Math.floor(args.pageSize!) : FINAL_PD_REBUILD_DEFAULT_PAGE;
+    const pageSize = Math.min(Math.max(1, requested), FINAL_PD_REBUILD_MAX_PAGE);
+    const restarts = args.restarts ?? 0;
+    const total = await ensureFinalPdTotalRow(ctx);
+    const progress = args.progress ?? {
+      years: [],
+      writers: [],
+      startedFrom: { id: total._id, revision: total.revision },
+    };
+
+    const years = new Map(progress.years.map((row) => [row.key, { ...row }]));
+    const writers = new Map(progress.writers.map((row) => [row.key, { ...row }]));
+    const tally = (map: Map<string, FinalPdTally>, key: string, tab: "review" | "approved", writerId?: Id<"pdWriters">) => {
+      const row = map.get(key) ?? { key, ...(writerId ? { writerId } : {}), review: 0, approved: 0 };
+      row[tab] += 1;
+      map.set(key, row);
+    };
+    const page = await ctx.db.query("ingestionItems").paginate({ cursor: args.cursor ?? null, numItems: pageSize });
+    for (const item of page.page) {
+      const share = finalPdShareOf(item);
+      if (!share) continue;
+      tally(years, share.fiscalYear, share.tab);
+      tally(writers, share.writerKey, share.tab, share.writerId);
+    }
+    const scanned = page.page.length;
+
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.rebuildImportFinalPdCounts, {
+        cursor: page.continueCursor,
+        progress: { years: [...years.values()], writers: [...writers.values()], startedFrom: progress.startedFrom },
+        restarts,
+        pageSize,
+      });
+      return { scanned, done: false, written: false };
+    }
+
+    const started = progress.startedFrom;
+    if (total._id !== started.id || total.revision !== started.revision) {
+      if (restarts >= FINAL_PD_REBUILD_MAX_RESTARTS) {
+        console.warn("rebuildImportFinalPdCounts: the counts kept changing; pause the sync and run it again");
+        return { scanned, done: true, written: false };
+      }
+      await ctx.scheduler.runAfter(0, internal.ingestion.rebuildImportFinalPdCounts, { restarts: restarts + 1, pageSize });
+      return { scanned, done: false, written: false };
+    }
+
+    const now = Date.now();
+    const writeKind = async (kind: "year" | "writer", wanted: Map<string, FinalPdTally>, limit: number) => {
+      const stored = await ctx.db
+        .query("importFinalPdCounts")
+        .withIndex("by_kind_and_key", (q) => q.eq("kind", kind))
+        .take(limit);
+      const kept = new Set<string>();
+      for (const row of stored) {
+        const want = wanted.get(row.key);
+        // A row no file needs, or an extra row for a key a bad write left.
+        if (!want || kept.has(row.key)) {
+          await ctx.db.delete(row._id);
+          continue;
+        }
+        kept.add(row.key);
+        if (row.review !== want.review || row.approved !== want.approved || row.writerId !== want.writerId) {
+          await ctx.db.patch(row._id, { review: want.review, approved: want.approved, writerId: want.writerId, updatedAt: now });
+        }
+      }
+      for (const want of wanted.values()) {
+        if (kept.has(want.key)) continue;
+        await ctx.db.insert("importFinalPdCounts", { kind, ...want, revision: 1, updatedAt: now });
+      }
+    };
+    await writeKind("year", years, FINAL_PD_YEARS_READ * 2);
+    await writeKind("writer", writers, FINAL_PD_WRITERS_READ * 2);
+    // One total row; remove any extra a bad write left.
+    const totals = await ctx.db
+      .query("importFinalPdCounts")
+      .withIndex("by_kind_and_key", (q) => q.eq("kind", "total"))
+      .take(10);
+    for (const extra of totals) if (extra._id !== total._id) await ctx.db.delete(extra._id);
+    let review = 0;
+    let approved = 0;
+    for (const row of years.values()) {
+      review += row.review;
+      approved += row.approved;
+    }
+    await ctx.db.patch(total._id, { review, approved, revision: total.revision + 1, updatedAt: now });
+    return { scanned, done: true, written: true };
   },
 });
 

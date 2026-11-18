@@ -3,7 +3,7 @@
 // adjustImportCompanyCounts with the row before and after, and nothing else
 // changes the counts, so a band always equals a recount of its files.
 
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { activeClientForKey } from "./clients";
 import { isBeingRead, sheetSectionFor } from "./ingestionSheet";
@@ -301,4 +301,171 @@ export async function adjustImportCompanyCounts(
   }
   if (out) await changeBand(ctx, out.sheetTab, out.companyKey, (c) => addShare(c, out, -1), undefined);
   if (into) await changeBand(ctx, into.sheetTab, into.companyKey, (c) => addShare(c, into, 1), displayName);
+}
+
+// ─── Final PD progress (2026-11-17, docs/product-domain.md) ─────────────────
+// The progress line on the Import page ("312 of 1,040 final PDs approved")
+// and its breakdown by fiscal year and by writer read the
+// importFinalPdCounts table, never the files. Only final PDs count, and only
+// on To review (staged, not yet approved) and Approved: a deleted file is not
+// counted. The staged total is the final PDs added so far, so it grows as
+// files arrive; nothing here knows how many PDs the firm has in all.
+
+/** The key of the one total row. */
+export const FINAL_PD_TOTAL_KEY = "all";
+/** The writer bucket for a final PD with no writer yet. */
+export const NO_WRITER_KEY = "none";
+/**
+ * The writer bucket for a final PD whose name has three or four initials
+ * groups (initialsGroups) and no writer: what the groups mean waits for the
+ * client (2026-11-17), so it is not sorted to a writer yet.
+ */
+export const UNSORTED_WRITER_KEY = "unsorted";
+
+type FinalPdTab = "review" | "approved";
+
+/** The fields of a row the final PD counts read. */
+export type FinalPdCountedRow = Pick<
+  Doc<"ingestionItems">,
+  "sheetTab" | "category" | "fiscalYearEnd" | "writerId" | "initialsGroups"
+>;
+
+/** Where one final PD counts. */
+export type FinalPdShare = {
+  tab: FinalPdTab;
+  fiscalYear: string;
+  /** The writer's id, NO_WRITER_KEY or UNSORTED_WRITER_KEY. */
+  writerKey: string;
+  writerId?: Id<"pdWriters">;
+};
+
+/** Where a row counts, or null for a row that is not a final PD on To review or Approved. */
+export function finalPdShareOf(row: FinalPdCountedRow | null | undefined): FinalPdShare | null {
+  if (!row || row.category !== "final_pd") return null;
+  if (row.sheetTab !== "review" && row.sheetTab !== "approved") return null;
+  const fiscalYear = fiscalYearBucket(row.fiscalYearEnd);
+  if (row.writerId !== undefined) return { tab: row.sheetTab, fiscalYear, writerKey: row.writerId, writerId: row.writerId };
+  const unsorted = (row.initialsGroups?.length ?? 0) > 0;
+  return { tab: row.sheetTab, fiscalYear, writerKey: unsorted ? UNSORTED_WRITER_KEY : NO_WRITER_KEY };
+}
+
+/** One counter row's change: what is added to its two counts. */
+type FinalPdMove = {
+  kind: "total" | "year" | "writer";
+  key: string;
+  writerId?: Id<"pdWriters">;
+  review: number;
+  approved: number;
+};
+
+/** The moves one share makes, signed. */
+function finalPdMoves(share: FinalPdShare, sign: 1 | -1): FinalPdMove[] {
+  const review = share.tab === "review" ? sign : 0;
+  const approved = share.tab === "approved" ? sign : 0;
+  return [
+    { kind: "total", key: FINAL_PD_TOTAL_KEY, review, approved },
+    { kind: "year", key: share.fiscalYear, review, approved },
+    { kind: "writer", key: share.writerKey, ...(share.writerId ? { writerId: share.writerId } : {}), review, approved },
+  ];
+}
+
+/** The stored counter row for a kind and key, or null. */
+export async function finalPdCountRow(
+  ctx: QueryCtx | MutationCtx,
+  kind: FinalPdMove["kind"],
+  key: string
+): Promise<Doc<"importFinalPdCounts"> | null> {
+  return await ctx.db
+    .query("importFinalPdCounts")
+    .withIndex("by_kind_and_key", (q) => q.eq("kind", kind).eq("key", key))
+    .first();
+}
+
+/**
+ * The total row, made with zero counts when it is missing, so its revision
+ * can always be read and raised.
+ */
+export async function ensureFinalPdTotalRow(ctx: MutationCtx): Promise<Doc<"importFinalPdCounts">> {
+  const existing = await finalPdCountRow(ctx, "total", FINAL_PD_TOTAL_KEY);
+  if (existing) return existing;
+  const id = await ctx.db.insert("importFinalPdCounts", {
+    kind: "total",
+    key: FINAL_PD_TOTAL_KEY,
+    review: 0,
+    approved: 0,
+    revision: 1,
+    updatedAt: Date.now(),
+  });
+  return (await ctx.db.get(id))!;
+}
+
+/**
+ * Keep the final PD counts right after one write to an ingestion item, as
+ * adjustImportCompanyCounts does for the bands: take the row's old share
+ * out and put the new one in. Writes nothing when neither the tab, the
+ * fiscal year nor the writer bucket moved. Every change raises the total
+ * row's revision, even one that leaves its counts as they were (a file
+ * moved to another writer), so a rebuild running meanwhile starts again.
+ *
+ * Not handled yet: every final PD writes the total row, so final PDs
+ * written at once by separate mutations conflict on it and Convex retries
+ * them, as for a company's band. A sync page or an approval step writes many
+ * files in one mutation, so this is a slower burst, not a failure.
+ */
+export async function adjustImportFinalPdCounts(
+  ctx: MutationCtx,
+  before: FinalPdCountedRow | null,
+  after: FinalPdCountedRow | null
+): Promise<void> {
+  const out = finalPdShareOf(before);
+  const into = finalPdShareOf(after);
+  if (out && into && out.tab === into.tab && out.fiscalYear === into.fiscalYear && out.writerKey === into.writerKey) return;
+  if (!out && !into) return;
+  const moves = new Map<string, FinalPdMove>();
+  for (const move of [...(out ? finalPdMoves(out, -1) : []), ...(into ? finalPdMoves(into, 1) : [])]) {
+    const id = `${move.kind}|${move.key}`;
+    const seen = moves.get(id);
+    if (seen) {
+      seen.review += move.review;
+      seen.approved += move.approved;
+    } else moves.set(id, { ...move });
+  }
+  const now = Date.now();
+  for (const move of moves.values()) {
+    if (move.kind === "total") continue;
+    if (move.review === 0 && move.approved === 0) continue;
+    const existing = await finalPdCountRow(ctx, move.kind, move.key);
+    const review = (existing?.review ?? 0) + move.review;
+    const approved = (existing?.approved ?? 0) + move.approved;
+    if (review < 0 || approved < 0) {
+      // Only a write that skipped this helper, or counts never rebuilt after the deploy, can cause it.
+      console.warn("importFinalPdCounts went below zero; run ingestion.rebuildImportFinalPdCounts", {
+        kind: move.kind,
+        key: move.key,
+      });
+    }
+    if (review === 0 && approved === 0) {
+      if (existing) await ctx.db.delete(existing._id);
+    } else if (existing) {
+      await ctx.db.patch(existing._id, { review, approved, updatedAt: now });
+    } else {
+      await ctx.db.insert("importFinalPdCounts", {
+        kind: move.kind,
+        key: move.key,
+        ...(move.writerId ? { writerId: move.writerId } : {}),
+        review,
+        approved,
+        revision: 1,
+        updatedAt: now,
+      });
+    }
+  }
+  const total = await ensureFinalPdTotalRow(ctx);
+  const move = moves.get(`total|${FINAL_PD_TOTAL_KEY}`)!;
+  await ctx.db.patch(total._id, {
+    review: total.review + move.review,
+    approved: total.approved + move.approved,
+    revision: total.revision + 1,
+    updatedAt: now,
+  });
 }

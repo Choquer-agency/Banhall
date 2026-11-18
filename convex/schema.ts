@@ -5025,6 +5025,29 @@ export default defineSchema({
     .index("by_sheetTab_and_hasCheck_and_companyKey", ["sheetTab", "hasCheck", "companyKey"])
     .index("by_sheetTab_and_hasNew_and_companyKey", ["sheetTab", "hasNew", "companyKey"]),
 
+  // 2026-11-17 (Import progress, docs/product-domain.md): how many final
+  // PDs are staged on To review and how many are approved, without reading
+  // import files. One "total" row (key "all"), one row per fiscal year
+  // (key "2025", or "none") and one row per writer (key: the writer's id,
+  // or "none" for no writer yet, or "unsorted" for a name with three or
+  // four initials groups waiting for the client). Kept in step with
+  // ingestionItems by convex/lib/importCompanyCounts.ts on every write;
+  // a year or writer row is deleted at zero. Deleted files are never
+  // counted. Rebuilt by ingestion.rebuildImportFinalPdCounts.
+  importFinalPdCounts: defineTable({
+    kind: v.union(v.literal("total"), v.literal("year"), v.literal("writer")),
+    key: v.string(),
+    // On a writer row for one writer.
+    writerId: v.optional(v.id("pdWriters")),
+    // Final PDs on To review, and on Approved.
+    review: v.number(),
+    approved: v.number(),
+    // The total row's goes up on every change of any row, so the rebuild
+    // can tell nothing moved while it paged through the files.
+    revision: v.number(),
+    updatedAt: v.number(),
+  }).index("by_kind_and_key", ["kind", "key"]),
+
   // ─── Story 1 (CAP-1/2/4): Generation Brief ────────────────────────────────
   // Stores the Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
   // Keyed by (projectId, inputsHash); reused across generations with identical inputs.

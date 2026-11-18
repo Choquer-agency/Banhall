@@ -6,7 +6,8 @@
   the legend for the AI mark and, 16px after it, "Select" (To review and
   Deleted; off while a search is showing). Approve (2026-11-17) is on each
   company ("Approve N ready") and in the selection bar, not here. The right-hand group wraps to its own line before
-  the field would shrink. Nothing else sits above the sheet (owner rule).
+  the field would shrink. Nothing else sits above the sheet (owner rule), but
+  the final PD progress line above this row (owner, 2026-11-17).
 
   "New N" (2026-11-12, Paper Files 2 and 3) sits 8px after "To check", on
   To review while at least one file is New, and works like it: one filter
