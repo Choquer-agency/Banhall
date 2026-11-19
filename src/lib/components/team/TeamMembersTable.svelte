@@ -1,6 +1,7 @@
 <script lang="ts">
-  // C1 members table: Name (260), Email (flex), Role (120), Last active
-  // (110). The Admin viewers' 28px row menu (decision 54) sits over the right
+  // C1 members table: Name (260), Initials (56, 2026-11-16: the saved
+  // initials Import matches file names against), Email (flex), Role (120),
+  // Last active (110). The Admin viewers' 28px row menu (decision 54) sits over the right
   // end of Last active rather than in a column of its own, so the columns
   // keep the board's positions (Role at x 1108 on C1). 36px
   // header (12/16 muted on canvas), 48px rows, plain names with no avatar
@@ -21,6 +22,10 @@
     isDeveloper: boolean;
     lastActiveAt: number | null;
     isSelf: boolean;
+    /** Saved initials, or null for none (2026-11-16). */
+    initials: string | null;
+    /** The past writer an Admin linked to this account, if any. */
+    linkedWriter: { writerId: string; label: string; initials: string | null; fileCount: number } | null;
   };
 
   let {
@@ -29,19 +34,24 @@
     showActions,
     onChangeRole,
     onSetPassword,
+    onEditInitials,
+    onUnlinkWriter,
   }: {
     members: TeamMember[];
     now: number;
     showActions: boolean;
     onChangeRole: (member: TeamMember, role: Role) => void;
     onSetPassword: (member: TeamMember) => void;
+    onEditInitials: (member: TeamMember) => void;
+    onUnlinkWriter: (member: TeamMember) => void;
   } = $props();
 </script>
 
 <div id="team-people" data-team-members class="flex shrink-0 scroll-mt-4 flex-col overflow-x-auto rounded-[0.625rem] border border-line-soft">
-  <div class="min-w-[45rem]" role="table" aria-label="Team members">
+  <div class="min-w-[44rem]" role="table" aria-label="Team members">
     <div role="row" class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted">
       <span role="columnheader" class="w-[16.25rem] shrink-0">Name</span>
+      <span role="columnheader" class="w-[3.5rem] shrink-0">Initials</span>
       <span role="columnheader" class="min-w-0 flex-1">Email</span>
       <span role="columnheader" class="w-[7.5rem] shrink-0">Role</span>
       <span role="columnheader" class="w-[6.875rem] shrink-0">Last active</span>
@@ -53,6 +63,7 @@
         <span role="cell" class="flex w-[16.25rem] shrink-0 items-center">
           <span data-member-name class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{member.name}</span>
         </span>
+        <span role="cell" data-member-initials class="w-[3.5rem] shrink-0 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{member.initials ?? ""}</span>
         <span role="cell" class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{member.email ?? ""}</span>
         <span role="cell" class="flex w-[7.5rem] shrink-0">
           <RoleChip role={member.role} isOwner={member.isOwner} isDeveloper={member.isDeveloper} />
@@ -67,8 +78,11 @@
               userId={member._id}
               role={member.role}
               isSelf={member.isSelf}
+              linkedWriterLabel={member.linkedWriter?.label ?? null}
               onChangeRole={(role) => onChangeRole(member, role)}
               onSetPassword={() => onSetPassword(member)}
+              onEditInitials={() => onEditInitials(member)}
+              onUnlinkWriter={member.linkedWriter ? () => onUnlinkWriter(member) : null}
             />
           </span>
         {/if}

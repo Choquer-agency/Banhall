@@ -183,10 +183,20 @@ export default defineSchema({
     // (account.setMyPhoto). Listed in STORAGE_REFERENCE_FIELDS so the storage
     // sweep never deletes it.
     imageStorageId: v.optional(v.id("_storage")),
+    // 2026-11-16 widen (writers from initials): the initials Import matches
+    // a file name's writer initials against ("T1.DW.PN"). Upper case, 1 to 4
+    // letters. Absent: not set yet, so it is prefilled from the first and
+    // last name (users.backfillUserInitials, invite acceptance, a name
+    // save; team members with a role only). "": an Admin said this person
+    // has none, so they never match. Admins change it on Team
+    // (users.setUserInitials). A change only gives a writer to files that
+    // have none yet: a file's writer, once set, never moves with it.
+    initials: v.optional(v.string()),
   })
     .index("by_email", ["email"])
     .index("by_authId", ["authId"])
-    .index("by_imageStorageId", ["imageStorageId"]),
+    .index("by_imageStorageId", ["imageStorageId"])
+    .index("by_initials", ["initials"]),
 
   // ─── Invite-only membership: admin-issued signup tokens ────────────────────
   invites: defineTable({
@@ -4430,7 +4440,8 @@ export default defineSchema({
     fiscalYearEndAssumed: v.optional(v.boolean()),
     // From the file name ("04 Client 2025-03-31 T2.DW.PN Title") of a final
     // PD, or of a draft or review copy whose name carries a version token.
-    // Initials are text only: never an Owner, writer or user link.
+    // Initials are never an Owner or a user link. Since 2026-11-16 the
+    // writer's initials pick the file's writer (writerId, below).
     pdNumber: v.optional(v.string()),
     versionCode: v.optional(pdVersionCodeValidator),
     versionNumber: v.optional(v.number()),
@@ -4452,16 +4463,43 @@ export default defineSchema({
     sortKey: v.optional(v.string()),
     // Set by a person on the sheet (ingestion.setSheetLabels), or since
     // 2026-11-12 taken from the writer a person said the file name's
-    // initials stand for (importWriterInitials). Text only: never linked to
-    // a user.
+    // initials stand for. Since 2026-11-16 the label of `writerId` below.
     writerName: v.optional(v.string()),
     // 2026-11-12 widen: where writerName came from. Absent on names set
     // before (a person's: editedLabels has "writerName").
     writerNameSource: v.optional(writerNameSourceValidator),
+    // 2026-11-16 widen (writers from initials): the writer the file points
+    // at (pdWriters). Filled by the check on the file name's initials only
+    // while the file has no writer, then frozen: it moves only on a
+    // firm-wide pick (and its Undo) or a person setting it on the file.
+    // writerName stays as the writer's label when it was written, for the
+    // old page and approval (an approved file's stored name is never
+    // rewritten); the sheet shows the writer's label as it is now. Absent
+    // on rows not written since, until ingestion.backfillImportWriters runs.
+    writerId: v.optional(v.id("pdWriters")),
+    // 2026-11-16 widen: on a file that follows a person's firm-wide pick
+    // (writerNameSource "pick"), the writer it had before the pick (all
+    // three absent: it had none), so the pick's Undo puts back exactly that.
+    // Absent on every other file.
+    writerBeforePick: v.optional(
+      v.object({
+        writerId: v.optional(v.id("pdWriters")),
+        writerName: v.optional(v.string()),
+        writerNameSource: v.optional(writerNameSourceValidator),
+      })
+    ),
     // A code from shared/craScienceCodes.ts: read from a final PD's text
     // ("document") or set by a person ("person"). Source is absent with no code.
     scienceCode: v.optional(v.string()),
     scienceCodeSource: v.optional(scienceCodeSourceValidator),
+    // 2026-11-16 widen (writers from initials): the distinct names that
+    // follow a writer cue ("Prepared by Dana Whitlock") in the file's full
+    // text, at most 5 (shared/writerNameFromText.ts), read by the
+    // extraction or by ingestion.backfillDocumentWriterNames. [] when the
+    // text names no one; absent when the text has not been read for them.
+    // The one that matches the file's writer initials names a past writer
+    // the check made (convex/lib/teamRoster.ts nameWriterFromDocument).
+    documentWriterNames: v.optional(v.array(v.string())),
     // The labels a person set. A move or a new copy on the drive keeps
     // these instead of what the new path says.
     editedLabels: v.optional(v.array(editableLabelValidator)),
@@ -4521,20 +4559,96 @@ export default defineSchema({
     // 2026-11-12: the files whose name gave these initials, for applying a
     // writer a person matched to them (ingestion.matchWriterInitials).
     .index("by_sheetTab_and_writerInitials", ["sheetTab", "writerInitials"])
+    // 2026-11-16: a writer's files by tab, for refreshing them after a
+    // rename, link or unlink, and for moving them when two writers become one.
+    .index("by_writerId_and_sheetTab", ["writerId", "sheetTab"])
     .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
 
   // 2026-11-12 (Import sheet): "these initials are this writer", said once
-  // by a person for the whole firm (ingestion.matchWriterInitials). The code
-  // never makes a match itself (shared/pdFilename.ts): only a person's pick
-  // does. Every import file whose name gave these initials and whose writer
-  // no person set on the file shows this name (writerNameSource "initials").
-  // One row per initials (upper case, as the file names give them).
+  // by a person for the whole firm, as text. Superseded on 2026-11-16 by
+  // pdWriters and pdWriterPicks below: ingestion.migrateImportWriterInitials
+  // copies each row into them, and no code reads or writes this table any
+  // more. Kept in the schema (widen only) until a later narrow step.
   importWriterInitials: defineTable({
     initials: v.string(),
     writerName: v.string(),
     setBy: v.string(),
     updatedAt: v.number(),
+    // 2026-11-16 widen: when ingestion.migrateImportWriterInitials copied
+    // this row; a copied row is never copied again, so a pick a person undid
+    // stays undone when the migration runs again.
+    migratedAt: v.optional(v.number()),
   }).index("by_initials", ["initials"]),
+
+  // ─── 2026-11-16: writers from initials (docs/product-domain.md) ─────────
+  // The people who wrote PDs, as Import knows them: one row per writer,
+  // with a login (`userId`, a team member) or without one (a past writer:
+  // initials from a file name, maybe a name an Admin added). Not
+  // writerProfiles, which is a signed-in user's writing preferences. A
+  // writer with no login is never a user: it cannot sign in, has no role,
+  // is never a project Owner and is never assigned work. A team member has
+  // at most one writer of their own (made by the check or a person's
+  // choice, no linkedAt) and at most one past writer an Admin linked to
+  // them (linkedAt set); Unlink takes the second away again, so files never
+  // move between writers when an account is linked or unlinked.
+  pdWriters: defineTable({
+    // The file name initials an import-made writer was made from, upper
+    // case. Absent on a member's own writer (their saved initials on users
+    // govern) and on one a person typed on Import (the pick, if any,
+    // carries the initials).
+    initials: v.optional(v.string()),
+    // A name an Admin or a person on Import gave it, or since 2026-11-16 one
+    // read from a PD (nameSource). Absent: shown as its initials.
+    name: v.optional(v.string()),
+    // 2026-11-16 widen: where the name came from. "document": read from a
+    // PD's writer cue, only ever on a writer the check made with no login,
+    // which no person named. "person": an Admin's Edit name (also with no
+    // name: they cleared it), so no PD names it again. "documents_disagree":
+    // two PDs named different people, so it went back to its initials and
+    // no PD names it again. Absent: a person's name (as before), or never named.
+    nameSource: v.optional(v.union(v.literal("document"), v.literal("person"), v.literal("documents_disagree"))),
+    // The team member this writer is: their own writer, or a past writer an
+    // Admin linked to them (linkedBy, linkedAt).
+    userId: v.optional(v.id("users")),
+    linkedBy: v.optional(v.id("users")),
+    linkedAt: v.optional(v.number()),
+    // How it was made: by the check on an imported file ("import") or by a
+    // person choosing 'Use "..."', or by the migration of a person's match
+    // ("person"). updatedBy below is set by every Admin change (a name, a
+    // link, an unlink): only a writer the check made that no person ever
+    // changed is removed when nothing points at it any more.
+    createdVia: v.union(v.literal("import"), v.literal("person")),
+    createdBy: v.optional(v.id("users")),
+    createdAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+    updatedAt: v.optional(v.number()),
+    // How many import files point at this writer, on every tab. Kept in
+    // step by ingestion.ts insertItem and patchItem, so Team never counts
+    // by reading files.
+    fileCount: v.number(),
+    // How many files following a pick remember this writer as the one they
+    // had before it (ingestionItems.writerBeforePick), so the pick's Undo
+    // can give them back: a writer held this way is never removed. Absent: 0.
+    heldCount: v.optional(v.number()),
+  })
+    .index("by_initials", ["initials"])
+    .index("by_userId", ["userId"])
+    .index("by_name", ["name"]),
+
+  // 2026-11-16: "these initials are this writer", said by a person for the
+  // whole firm by choosing a writer on an Import file whose name gave the
+  // initials (ingestion.matchWriterInitials, with Undo). Every file with
+  // the initials whose writer no person set on the file follows it (writer
+  // source "pick"), whatever writer it had; a writer a person set on one
+  // file still wins for that file. One row per initials (upper case).
+  pdWriterPicks: defineTable({
+    initials: v.string(),
+    writerId: v.id("pdWriters"),
+    setBy: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_initials", ["initials"])
+    .index("by_writerId", ["writerId"]),
 
   // 2026-11-12 (Import sheet): what a person picked on the sheet for a
   // company the app does not have yet, kept by company key so it holds on

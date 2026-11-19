@@ -66,10 +66,12 @@ const FINAL_PDS = [
     versionCode: "T",
     versionNumber: 2,
     writerName: "Dana Whitlock",
+    writerId: "w-dana",
+    writerHasLogin: true,
     scienceCode: "2.02.09",
     scienceCodeSource: "document",
   }),
-  // Initials no person has matched yet (2026-11-12): the file needs a writer.
+  // Initials two people share (2026-11-16): no writer, so a person must choose.
   row("pd2", { pdNumber: "2", pdTitle: "Yard map solver", fiscalYearEnd: MAR_31_2025, versionCode: "T", versionNumber: 1, writerInitials: "KT", scienceCode: "1.02.02", scienceCodeSource: "person", needsCheck: true, checkReasons: ["unmatched_initials"] }),
   row("pd4", {
     pdNumber: "4",
@@ -84,6 +86,22 @@ const FINAL_PDS = [
   // Could not be read: the reasons stay amber words, not pickers.
   row("pd6", { pdNumber: "6", pdTitle: "Pallet count camera", status: "failed", needsCheck: true, checkReasons: ["could_not_read", "no_writer"] }),
 ];
+
+/** The writer picker's list (2026-11-16): team members, then writers with no login. */
+const WRITER_CHOICES = {
+  members: [
+    { userId: "u1", label: "Dana Whitlock", writerId: "w-dana", linkedWriterId: null },
+    { userId: "u2", label: "Priya Nair", writerId: null, linkedWriterId: null },
+    // Sam has a writer of his own and a past writer an Admin linked to him.
+    { userId: "u3", label: "Sam Okafor", writerId: "w-sam", linkedWriterId: "w-so" },
+  ],
+  pastWriters: [
+    { writerId: "w-dw", label: "DW", initials: "DW", nameFromDocument: false },
+    { writerId: "w-jordan", label: "Jordan Ellis", initials: "JE", nameFromDocument: false },
+  ],
+};
+const OPTION_LABELS = ["Dana Whitlock", "Priya Nair", "Sam Okafor", "DW", "Jordan Ellis"];
+const optionLabels = () => all("[data-import-name-option]").map((node) => text(node.querySelector("span")));
 
 const SUPPORTING = [row("sup1", { name: "Site notes.pdf", category: "supporting", fiscalYearEnd: MAR_31_2025 })];
 
@@ -120,14 +138,7 @@ async function mount() {
 describe("changing one file on the Import sheet", () => {
   beforeEach(() => {
     __resetConvexStub();
-    __setQueryData("users:listTeam", [
-      { id: "u1", name: "Dana Whitlock", email: null, role: "writer" },
-      { id: "u2", name: "Priya Nair", email: null, role: "writer" },
-      { id: "u3", name: "Sam Okafor", email: null, role: "manager" },
-      // No name: the roster shows the email, or "Unknown team member"; neither is a writer.
-      { id: "u4", name: "jordan.ellis@example.com", email: "jordan.ellis@example.com", role: "writer" },
-      { id: "u5", name: "Unknown team member", email: null, role: "writer" },
-    ]);
+    __setQueryData("ingestion:writerChoices", WRITER_CHOICES);
   });
 
   it("opens the year end calendar under the fiscal year cell and sends the UTC day picked", async () => {
@@ -237,75 +248,153 @@ describe("changing one file on the Import sheet", () => {
     expect(one("[data-import-year-edit]", fileRow("sup1"))).not.toBeNull();
   });
 
-  it("picks a writer from the firm's people, or takes a typed name", async () => {
+  it("lists team members, then past writers with a quiet No login tag, and sends the one picked or a typed name", async () => {
     await mount();
-    // A file with a writer: the pick sets that file alone.
+    // A file with no initials: the pick sets that file alone.
     await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
-    await expect.poll(() => all("[data-import-name-option]").map((node) => text(node))).toEqual([
-      "Dana Whitlock",
-      "Priya Nair",
-      "Sam Okafor",
-    ]);
-    await userEvent.click(one('[data-import-name-option="Priya Nair"]')!);
-    await expect.poll(labelCalls).toEqual([{ ids: ["pd1"], patch: { writerName: "Priya Nair" } }]);
+    await expect.poll(optionLabels).toEqual(OPTION_LABELS);
+    expect(all("[data-import-name-group]").map((node) => node.dataset.importNameGroup)).toEqual(["Team members", "Past writers"]);
+    expect(all('[data-import-name-group="Past writers"] [data-import-name-detail]').map((node) => text(node))).toEqual(["No login", "No login"]);
+    expect(one('[data-import-name-group="Team members"] [data-import-name-detail]')).toBeNull();
+    // Its writer now is checked.
+    expect(one('[data-import-name-option="user:u1"]')?.getAttribute("aria-current")).toBe("true");
+    await userEvent.click(one('[data-import-name-option="user:u2"]')!);
+    await expect.poll(labelCalls).toEqual([{ ids: ["pd1"], patch: { writer: { kind: "user", userId: "u2" } } }]);
 
-    // Someone not on the roster: type the name and take it.
+    // A past writer, on a file with no writer and no initials.
     await userEvent.click(inRow("pd4", "[data-import-writer-pick]"));
-    await userEvent.fill(page.getByRole("combobox", { name: "Writer" }), "Jordan Ellis");
-    await expect.element(page.getByText('Use "Jordan Ellis"')).toBeVisible();
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="writer:w-jordan"]')!));
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd4"], patch: { writer: { kind: "writer", writerId: "w-jordan" } } });
+
+    // Someone not listed: type the name and take it (a new writer with no login).
+    await userEvent.click(inRow("pd4", "[data-import-writer-pick]"));
+    await userEvent.fill(page.getByRole("combobox", { name: "Writer" }), "Kim Tran");
+    await expect.element(page.getByText('Use "Kim Tran"')).toBeVisible();
     expect(all("[data-import-name-option]")).toHaveLength(0);
     await userEvent.keyboard("{Enter}");
-    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd4"], patch: { writerName: "Jordan Ellis" } });
+    await expect.poll(() => labelCalls().at(-1)).toEqual({ ids: ["pd4"], patch: { writer: { kind: "name", name: "Kim Tran" } } });
   });
 
-  it("lists only people with a real name, and refuses a typed email address as a writer", async () => {
+  it("refuses a typed email address as a writer, and picking the writer a file has changes nothing", async () => {
     await mount();
     await userEvent.click(inRow("pd2", "[data-import-writer-pick]"));
-    await expect.poll(() => all("[data-import-name-option]").map((node) => text(node))).toEqual([
-      "Dana Whitlock",
-      "Priya Nair",
-      "Sam Okafor",
-    ]);
+    await expect.poll(optionLabels).toEqual(OPTION_LABELS);
     await userEvent.fill(page.getByRole("combobox", { name: "Writer" }), "jordan.ellis@example.com");
     await expect.element(page.getByText("Type the writer's name, not an email address.")).toBeVisible();
     expect(one("[data-import-name-new]")).toBeNull();
     await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="user:u1"]')!));
     expect(labelCalls()).toEqual([]);
+    // A file whose writer is the past writer linked to Sam checks Sam.
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
+      { ...FINAL_PDS[0], writerId: "w-so", writerName: "Sam Okafor" },
+      ...FINAL_PDS.slice(1),
+    ]);
+    await expect.poll(() => text(one("[data-import-writer-tone]", fileRow("pd1")))).toBe("Sam Okafor");
+    await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
+    await expect.poll(() => one('[data-import-name-option="user:u3"]')?.getAttribute("aria-current")).toBe("true");
     expect(__mutationCalls("ingestion:matchWriterInitials")).toEqual([]);
   });
 
-  it("asks who unmatched initials are, says the pick holds for every file with them, and Undo takes it back (2026-11-12)", async () => {
+  it("makes a PD's name a person's when the writer a file has is chosen again, and changes nothing else (Greptile fix, 2026-11-17)", async () => {
+    // Dara Wynn's name came from a PD; Jordan Ellis's did not.
+    __setQueryData("ingestion:writerChoices", {
+      ...WRITER_CHOICES,
+      pastWriters: [
+        { writerId: "w-dw", label: "Dara Wynn", initials: "DW", nameFromDocument: true },
+        { writerId: "w-jordan", label: "Jordan Ellis", initials: "JE", nameFromDocument: false },
+      ],
+    });
+    __setMutationHandler("ingestion:confirmWriterName", () => true);
+    const confirmCalls = () => __mutationCalls("ingestion:confirmWriterName");
+    await mount();
+    __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
+      // Its writer follows the initials DW: a different writer would be a firm-wide pick.
+      { ...FINAL_PDS[0], writerId: "w-dw", writerName: "Dara Wynn", writerHasLogin: false, writerInitials: "DW", writerNameSource: "initials" },
+      // A writer a person set on this file.
+      { ...FINAL_PDS[1], writerId: "w-dw", writerName: "Dara Wynn", writerHasLogin: false, writerNameSource: "person", editedLabels: ["writerName"], needsCheck: false, checkReasons: [] },
+      { ...FINAL_PDS[2], writerId: "w-jordan", writerName: "Jordan Ellis", writerHasLogin: false, needsCheck: true, checkReasons: ["no_science_code"] },
+      ...FINAL_PDS.slice(3),
+    ]);
+    await expect.poll(() => text(one("[data-import-writer-tone]", fileRow("pd1")))).toBe("Dara Wynn");
+
+    for (const id of ["pd1", "pd2"]) {
+      await userEvent.click(inRow(id, "[data-import-writer-edit]"));
+      const option = await vi.waitFor(() => one('[data-import-name-option="writer:w-dw"]')!);
+      expect(option.getAttribute("aria-current")).toBe("true");
+      await userEvent.click(option);
+      await expect.poll(() => one('[data-import-name-option="writer:w-dw"]')).toBeNull();
+    }
+    // Each choice confirms the name; no file's writer and no pick is sent.
+    await expect.poll(confirmCalls).toEqual([{ writerId: "w-dw" }, { writerId: "w-dw" }]);
+    expect(labelCalls()).toEqual([]);
+    expect(__mutationCalls("ingestion:matchWriterInitials")).toEqual([]);
+
+    // A writer whose name did not come from a PD: choosing it again is nothing.
+    await userEvent.click(inRow("pd4", "[data-import-writer-edit]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="writer:w-jordan"]')!));
+    await expect.poll(() => one('[data-import-name-option="writer:w-jordan"]')).toBeNull();
+    expect(confirmCalls()).toHaveLength(2);
+    expect(labelCalls()).toEqual([]);
+
+    // A refusal shows the server's words.
+    __setMutationHandler("ingestion:confirmWriterName", () => {
+      throw Object.assign(new Error("[CONVEX M(ingestion:confirmWriterName)] Server Error"), {
+        data: { code: "NOT_FOUND", message: "That writer is no longer in Banhall." },
+      });
+    });
+    await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="writer:w-dw"]')!));
+    await expect.element(page.getByText("That writer is no longer in Banhall.")).toBeVisible();
+  });
+
+  it("asks a person to choose on initials that could be more than one person, holds the pick for every file with them, and Undo takes it back (2026-11-16)", async () => {
     __setMutationHandler("ingestion:matchWriterInitials", (args) => {
-      const { initials, writerName } = args as { initials: string; writerName: string | null };
-      return { initials, writerName, previous: null, changed: 9, more: false };
+      const { initials, writer } = args as { initials: string; writer: { kind: string; userId?: string } | null };
+      const label = writer?.userId === "u3" ? "Sam Okafor" : writer ? "Priya Nair" : null;
+      return { initials, writerId: writer ? "w-x" : null, writerName: label, previous: null, changed: 9, more: false };
     });
     await mount();
     const pick = inRow("pd2", "[data-import-writer-pick]");
-    expect(text(pick)).toBe("Pick a writer for KT");
+    // Just the two words: no initials in them.
+    expect(text(pick)).toBe("Choose writer");
     expect(getComputedStyle(pick).color).toBe(AMBER);
     await userEvent.click(pick);
-    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="Priya Nair"]')!));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="user:u2"]')!));
     // The pick says who KT is for the whole firm: never a label on this file alone.
-    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials")).toEqual([{ initials: "KT", writerName: "Priya Nair" }]);
+    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials")).toEqual([
+      { initials: "KT", writer: { kind: "user", userId: "u2" } },
+    ]);
     expect(labelCalls()).toEqual([]);
     await expect.element(page.getByText("KT is Priya Nair on 9 files")).toBeVisible();
     await userEvent.click(undoIn("KT is Priya Nair on 9 files"));
-    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials").at(-1)).toEqual({ initials: "KT", writerName: null });
+    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials").at(-1)).toEqual({ initials: "KT", writer: null });
 
-    // A name taken from matched initials shows like any name, with no AI mark;
-    // a pick there changes this file alone, and wins for it.
+    // A writer that came from the initials shows like any name, with no AI
+    // mark and no amber; a pick there says who KT is for every file again.
     __setPaginatedRowsForArgs("ingestion:sheetFiles", filesArgs("final_pd"), [
-      { ...FINAL_PDS[1], writerName: "Priya Nair", writerNameSource: "initials", needsCheck: false, checkReasons: [] },
-      ...FINAL_PDS.filter((entry) => entry._id !== "pd2"),
+      { ...FINAL_PDS[1], writerName: "Priya Nair", writerId: "w-x", writerNameSource: "initials", needsCheck: false, checkReasons: [] },
+      // A writer a person set on this file: a pick changes this file alone.
+      { ...FINAL_PDS[0], writerInitials: "KT", writerNameSource: "person", editedLabels: ["writerName"] },
+      ...FINAL_PDS.slice(2),
     ]);
     await expect.poll(() => text(one("[data-import-writer-tone]", fileRow("pd2")))).toBe("Priya Nair");
     const named = inRow("pd2", "[data-import-writer-edit]");
-    expect(named.getAttribute("aria-label")).toBe("Writer Priya Nair, from the initials KT. Change the writer for this file");
+    expect(named.getAttribute("aria-label")).toBe("Writer Priya Nair, from the initials KT. Change the writer for KT");
+    expect(getComputedStyle(one("[data-import-writer-tone]", fileRow("pd2"))!).color).not.toBe(AMBER);
     expect(one('[data-import-cell="writer"] [data-ai-mark]', fileRow("pd2"))).toBeNull();
     await userEvent.click(named);
-    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="Sam Okafor"]')!));
-    await expect.poll(labelCalls).toEqual([{ ids: ["pd2"], patch: { writerName: "Sam Okafor" } }]);
-    expect(__mutationCalls("ingestion:matchWriterInitials")).toHaveLength(2);
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="user:u3"]')!));
+    await expect.poll(() => __mutationCalls("ingestion:matchWriterInitials").at(-1)).toEqual({
+      initials: "KT",
+      writer: { kind: "user", userId: "u3" },
+    });
+    await userEvent.click(inRow("pd1", "[data-import-writer-edit]"));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="writer:w-dw"]')!));
+    await expect.poll(labelCalls).toEqual([{ ids: ["pd1"], patch: { writer: { kind: "writer", writerId: "w-dw" } } }]);
+    expect(__mutationCalls("ingestion:matchWriterInitials")).toHaveLength(3);
   });
 
   it("says when a match could not be saved", async () => {
@@ -316,7 +405,7 @@ describe("changing one file on the Import sheet", () => {
     });
     await mount();
     await userEvent.click(inRow("pd2", "[data-import-writer-pick]"));
-    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="Dana Whitlock"]')!));
+    await userEvent.click(await vi.waitFor(() => one('[data-import-name-option="user:u1"]')!));
     await expect.element(page.getByText("Initials are two or three letters, such as KT.")).toBeVisible();
   });
 
@@ -358,10 +447,11 @@ describe("changing one file on the Import sheet", () => {
       expect(control.tagName, selector).toBe("BUTTON");
     }
     // pd1 has a writer and a code: no pick controls. pd2 has a code, and
-    // initials no person has matched: only the writer is asked for.
+    // initials two people share: only the writer is asked for.
     expect(one("[data-import-writer-pick], [data-import-code-pick]", fileRow("pd1"))).toBeNull();
     expect(one("[data-import-code-pick]", fileRow("pd2"))).toBeNull();
-    expect(text(inRow("pd2", "[data-import-writer-pick]"))).toBe("Pick a writer for KT");
+    expect(text(inRow("pd2", "[data-import-writer-pick]"))).toBe("Choose writer");
+    expect(text(inRow("pd4", "[data-import-writer-pick]"))).toBe("Choose writer");
     // Still being read: nothing to pick yet, and its cells are empty.
     expect(one("[data-import-writer-pick], [data-import-code-pick], [data-import-year-edit]", fileRow("pd5"))).toBeNull();
     // Could not be read: the amber words stay, but nothing opens.
@@ -600,5 +690,22 @@ describe("changing one file on the Import sheet", () => {
     await expect.element(page.getByRole("menuitem", { name: "Move to another category" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await expect.poll(() => document.activeElement).toBe(menu);
+  });
+
+  it("captures the writer picker, with team members and past writers, at 1280 and 1100 wide (2026-11-16)", async () => {
+    for (const width of [1280, 1100]) {
+      document.body.innerHTML = "";
+      await page.viewport(width, 900);
+      await mount();
+      await userEvent.click(inRow("pd2", "[data-import-writer-pick]"));
+      await expect.poll(optionLabels).toEqual(OPTION_LABELS);
+      // The list sits inside the window.
+      for (const node of [one("[data-import-name-search]")!, ...all("[data-import-name-option]")]) {
+        expect(node.getBoundingClientRect().right).toBeLessThanOrEqual(width);
+      }
+      await page.screenshot({ path: `../../../../.vitest-attachments/import-writers/import-picker-${width}.png` });
+      await userEvent.keyboard("{Escape}");
+    }
+    await page.viewport(1280, 800);
   });
 });

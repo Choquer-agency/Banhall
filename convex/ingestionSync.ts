@@ -34,6 +34,7 @@ import {
 import { createHash } from "node:crypto";
 import { readFileOnServer } from "./ai/fileReader";
 import { scienceCodeFromText } from "./lib/scienceCodeFromText";
+import { writerNamesFromText } from "../shared/writerNameFromText";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 // Full extracted text is byte-capped (UTF-8) and stored as a blob; only a
@@ -199,6 +200,10 @@ async function finishExtraction(
     // Read from the whole text, not the preview; the mutation keeps it only
     // for a final PD with no science code a person set.
     documentScienceCode: scienceCodeFromText(bounded.text),
+    // The same for who wrote it ("Prepared by Dana Whitlock"): the mutation
+    // names a past writer the check made only from a name matching the
+    // file's writer initials.
+    documentWriterNames: writerNamesFromText(bounded.text),
   });
 }
 

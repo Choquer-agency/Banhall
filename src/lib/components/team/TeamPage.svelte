@@ -19,12 +19,18 @@
   import { inviteLink } from "$lib/team/inviteEmails";
   import { userErrorMessage } from "$lib/errors";
   import { hasCapability } from "../../../../shared/capabilities";
+  import { rosterWriterName } from "../../../../shared/importSheetRules";
   import type { Role } from "../../../../shared/roles";
   import TeamMembersTable, { type TeamMember } from "./TeamMembersTable.svelte";
   import PendingInvitesTable, { type PendingInvite } from "./PendingInvitesTable.svelte";
   import InviteDialog from "./InviteDialog.svelte";
   import RevokeInviteDialog from "./RevokeInviteDialog.svelte";
   import TemporaryPasswordDialog from "./TemporaryPasswordDialog.svelte";
+  import PastWritersTable, { type PastWriter } from "./PastWritersTable.svelte";
+  import InitialsDialog from "./InitialsDialog.svelte";
+  import WriterNameDialog from "./WriterNameDialog.svelte";
+  import LinkWriterDialog from "./LinkWriterDialog.svelte";
+  import WriterConfirmDialog from "./WriterConfirmDialog.svelte";
 
   let { origin = typeof window === "undefined" ? "" : window.location.origin }: { origin?: string } = $props();
 
@@ -41,8 +47,11 @@
   const invitesQ = useQuery(api.invites.listTeamInvites, () =>
     auth.isAuthenticated && realCanView ? {} : "skip",
   );
+  // 2026-11-16: writers with no login (Team, Past writers), read like the members.
+  const pastWritersQ = useQuery(api.users.listPastWriters, () => (auth.isAuthenticated && realCanView ? {} : "skip"));
   const members = $derived((membersQ.data ?? []) as TeamMember[]);
   const invites = $derived((invitesQ.data ?? []) as PendingInvite[]);
+  const pastWriters = $derived((pastWritersQ.data ?? []) as PastWriter[]);
 
   const createInvites = useMutation(api.invites.createInvites);
   const resendInvite = useMutation(api.invites.resendInvite);
@@ -50,6 +59,11 @@
   const revokeInvite = useMutation(api.invites.revokeInvite);
   const setUserRole = useMutation(api.users.setUserRole);
   const setTemporaryPassword = useMutation(api.users.setTemporaryPassword);
+  const setUserInitials = useMutation(api.users.setUserInitials);
+  const renamePastWriter = useMutation(api.users.renamePastWriter);
+  const linkPastWriter = useMutation(api.users.linkPastWriter);
+  const unlinkPastWriter = useMutation(api.users.unlinkPastWriter);
+  const deletePastWriter = useMutation(api.users.deletePastWriter);
 
   // Relative times ("12 min ago") move on without a refetch.
   let now = $state(Date.now());
@@ -63,6 +77,19 @@
   let revokeError = $state<string | null>(null);
   let passwordTarget = $state<TeamMember | null>(null);
   let passwordOpen = $state(false);
+  let initialsTarget = $state<TeamMember | null>(null);
+  let initialsOpen = $state(false);
+  let nameTarget = $state<PastWriter | null>(null);
+  let nameOpen = $state(false);
+  let linkTarget = $state<PastWriter | null>(null);
+  let linkPreselect = $state<string | null>(null);
+  let linkOpen = $state(false);
+  let deleteTarget = $state<PastWriter | null>(null);
+  let deleteOpen = $state(false);
+  let unlinkTarget = $state<TeamMember | null>(null);
+  let unlinkOpen = $state(false);
+  /** The members a past writer may be linked to: none linked to them yet. */
+  const linkable = $derived(members.filter((member) => member.linkedWriter === null));
   let copiedId = $state<string | null>(null);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   onDestroy(() => clearTimeout(copiedTimer));
@@ -144,6 +171,64 @@
     passwordTarget = member;
     passwordOpen = true;
   }
+
+  // ─── Writers from initials (2026-11-16) ───────────────────────────────────
+
+  function askInitials(member: TeamMember) {
+    initialsTarget = member;
+    initialsOpen = true;
+  }
+
+  async function saveInitials(initials: string) {
+    const member = initialsTarget!;
+    const result = await setUserInitials({ userId: member._id as Id<"users">, initials });
+    toast.success(result.initials ? `Initials for ${member.name} saved as ${result.initials}.` : `${member.name} has no initials now.`);
+  }
+
+  function askUnlink(member: TeamMember) {
+    if (!member.linkedWriter) return;
+    unlinkTarget = member;
+    unlinkOpen = true;
+  }
+
+  async function unlinkWriter() {
+    const member = unlinkTarget!;
+    const writer = member.linkedWriter!;
+    await unlinkPastWriter({ writerId: writer.writerId as Id<"pdWriters"> });
+    toast.success(`${writer.label} is unlinked from ${member.name}. It is listed under Past writers again.`);
+  }
+
+  function askName(writer: PastWriter) {
+    nameTarget = writer;
+    nameOpen = true;
+  }
+
+  async function saveName(name: string) {
+    await renamePastWriter({ writerId: nameTarget!._id as Id<"pdWriters">, name });
+  }
+
+  function askLink(writer: PastWriter, userId: string | null) {
+    linkTarget = writer;
+    linkPreselect = userId;
+    linkOpen = true;
+  }
+
+  async function saveLink(userId: string) {
+    const writer = linkTarget!;
+    const result = await linkPastWriter({ writerId: writer._id as Id<"pdWriters">, userId: userId as Id<"users"> });
+    toast.success(`${writer.label} is linked to ${result.label}. Their past PDs show under them now.`);
+  }
+
+  function askDelete(writer: PastWriter) {
+    deleteTarget = writer;
+    deleteOpen = true;
+  }
+
+  async function removeWriter() {
+    const writer = deleteTarget!;
+    await deletePastWriter({ writerId: writer._id as Id<"pdWriters"> });
+    toast.success(`${writer.label} deleted.`);
+  }
 </script>
 
 {#snippet teamSidebar()}
@@ -196,6 +281,8 @@
           showActions={isAdminViewer}
           onChangeRole={changeMemberRole}
           onSetPassword={askPassword}
+          onEditInitials={askInitials}
+          onUnlinkWriter={askUnlink}
         />
       {/if}
       {#if invitesQ.data !== undefined || invitesQ.error}
@@ -209,6 +296,15 @@
           onResend={resend}
           onChangeRole={changeRole}
           onRevoke={askRevoke}
+        />
+      {/if}
+      {#if pastWriters.length > 0}
+        <PastWritersTable
+          writers={pastWriters}
+          showActions={isAdminViewer}
+          onEditName={askName}
+          onLink={askLink}
+          onDelete={askDelete}
         />
       {/if}
     {/if}
@@ -230,6 +326,51 @@
     busy={revoking}
     errorMessage={revokeError}
     onConfirm={confirmRevoke}
+  />
+{/if}
+{#if isAdminViewer && initialsTarget}
+  <InitialsDialog
+    bind:open={initialsOpen}
+    name={initialsTarget.name}
+    initials={initialsTarget.initials}
+    others={members.filter((member) => member._id !== initialsTarget?._id)}
+    hasRealName={rosterWriterName({ name: initialsTarget.name, email: initialsTarget.email }) !== null}
+    onSubmit={saveInitials}
+  />
+{/if}
+{#if isAdminViewer && nameTarget}
+  <WriterNameDialog bind:open={nameOpen} initials={nameTarget.initials} name={nameTarget.name} onSubmit={saveName} />
+{/if}
+{#if isAdminViewer && linkTarget}
+  <LinkWriterDialog
+    bind:open={linkOpen}
+    writerLabel={linkTarget.label}
+    members={linkable}
+    preselect={linkPreselect}
+    onSubmit={saveLink}
+  />
+{/if}
+{#if isAdminViewer && deleteTarget}
+  <WriterConfirmDialog
+    bind:open={deleteOpen}
+    testId="delete-writer-dialog"
+    title={`Delete ${deleteTarget.label}?`}
+    description="No file points at this writer. It is removed from Past writers and the Import writer list, and a pick that names it goes too."
+    confirmLabel="Delete writer"
+    busyLabel="Deleting..."
+    danger
+    onConfirm={removeWriter}
+  />
+{/if}
+{#if isAdminViewer && unlinkTarget?.linkedWriter}
+  <WriterConfirmDialog
+    bind:open={unlinkOpen}
+    testId="unlink-writer-dialog"
+    title={`Unlink ${unlinkTarget.linkedWriter.label} from ${unlinkTarget.name}?`}
+    description={`Its past PDs will show as ${unlinkTarget.linkedWriter.label} again, with no login, and it goes back under Past writers. You can link it again later.`}
+    confirmLabel="Unlink"
+    busyLabel="Unlinking..."
+    onConfirm={unlinkWriter}
   />
 {/if}
 {#if passwordTarget}

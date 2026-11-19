@@ -1,51 +1,123 @@
 <!--
-  The writer picker's list (board ao5): the firm's people from the team
-  roster (users.listTeam, the bounded roster the app's people pickers read),
-  then 'Use "..."' for a writer who is not on it. Read only while a picker is
-  open: mount it inside the popover.
+  The writer picker's list (board ao5; writers from initials, 2026-11-16):
+  the firm's team members (people with a login), then Past writers (writers
+  with no login: "DW" or "Dana Whitlock", each with a quiet "No login" tag),
+  then 'Use "..."', which makes a writer with no login and that name (the
+  server reuses one with exactly that name). Read only while a picker is
+  open: mount it inside the popover. The list is ingestion.writerChoices
+  (Admin only, bounded like the team roster).
 
-  Only real names are offered (phase 3b fixes): the roster's label falls
-  back to an email address or "Unknown team member" for a person with no
-  name, and neither is a writer. A typed email address is refused in words
-  (the server refuses it too, labelPatchFields).
+  Only real names are offered (phase 3b fixes): a member whose roster label
+  is only an email address or "Unknown team member" is left out by the
+  server. A typed email address is refused in words (the server refuses it
+  too, cleanWriterName).
 -->
+<script lang="ts" module>
+  import type { FunctionArgs } from "convex/server";
+  import type { api as apiType } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
+
+  /** A writer a person can choose: a team member, a writer by id, or a typed name. */
+  export type WriterChoice = NonNullable<FunctionArgs<typeof apiType.ingestion.matchWriterInitials>["writer"]>;
+
+  /**
+   * What the list gives back: the choice, its label, its option value,
+   * whether it is the file's writer now, and whether its name came from a PD
+   * (a past writer's; choosing it makes the name a person's, even when it is
+   * the file's writer now).
+   */
+  export type PickedWriter = {
+    choice: WriterChoice;
+    label: string;
+    value: string | null;
+    current: boolean;
+    nameFromDocument: boolean;
+  };
+</script>
+
 <script lang="ts">
   import { useQuery } from "convex-svelte";
   import { api } from "../../../../convex/_generated/api";
-  import { looksLikeEmail, rosterWriterName } from "../../../../shared/importSheetRules";
+  import { looksLikeEmail, NO_LOGIN } from "../../../../shared/importSheetRules";
   import ImportNameList from "./ImportNameList.svelte";
 
   let {
-    current = null,
+    currentWriterId = null,
+    currentValue = null,
     onPick,
   }: {
-    current?: string | null;
-    onPick: (name: string) => void;
+    /** The file's writer now, checked in the list. */
+    currentWriterId?: Id<"pdWriters"> | null;
+    /** Or an option already picked (the selection bar), by its value. */
+    currentValue?: string | null;
+    onPick: (picked: PickedWriter) => void;
   } = $props();
 
-  const teamQ = useQuery(api.users.listTeam, () => ({}));
-  // One entry per name: two people listed under one name would be one writer here.
-  const options = $derived.by(() => {
-    const seen = new Set<string>();
-    const out: { value: string; label: string }[] = [];
-    for (const person of teamQ.data ?? []) {
-      const name = rosterWriterName(person);
-      if (name === null || seen.has(name)) continue;
-      seen.add(name);
-      out.push({ value: name, label: name });
-    }
-    return out;
+  const choicesQ = useQuery(api.ingestion.writerChoices, () => ({}));
+
+  /** One option; `writerIds`: the writers that are this option (a member's own and the past writer linked to them). */
+  type Entry = {
+    value: string;
+    label: string;
+    detail: string | null;
+    group: string;
+    choice: WriterChoice;
+    writerIds: Id<"pdWriters">[];
+    nameFromDocument: boolean;
+  };
+
+  const entries = $derived.by((): Entry[] => {
+    const data = choicesQ.data;
+    if (!data) return [];
+    return [
+      ...data.members.map((member) => ({
+        value: `user:${member.userId}`,
+        label: member.label,
+        detail: null,
+        group: "Team members",
+        choice: { kind: "user" as const, userId: member.userId },
+        writerIds: [member.writerId, member.linkedWriterId].filter((id): id is Id<"pdWriters"> => id !== null),
+        nameFromDocument: false,
+      })),
+      ...data.pastWriters.map((writer) => ({
+        value: `writer:${writer.writerId}`,
+        label: writer.label,
+        detail: NO_LOGIN,
+        group: "Past writers",
+        choice: { kind: "writer" as const, writerId: writer.writerId },
+        writerIds: [writer.writerId],
+        nameFromDocument: writer.nameFromDocument,
+      })),
+    ];
   });
+
+  const current = $derived(
+    currentValue ?? (currentWriterId ? (entries.find((entry) => entry.writerIds.includes(currentWriterId))?.value ?? null) : null)
+  );
+
+  function pick(value: string) {
+    const entry = entries.find((option) => option.value === value);
+    if (!entry) return;
+    onPick({
+      choice: entry.choice,
+      label: entry.label,
+      value: entry.value,
+      current: entry.value === current,
+      nameFromDocument: entry.nameFromDocument,
+    });
+  }
 </script>
 
 <ImportNameList
   label="Writer"
   placeholder="Find or type a writer"
-  {options}
+  options={entries}
   {current}
-  loading={teamQ.data === undefined && !teamQ.error}
+  loading={choicesQ.data === undefined && !choicesQ.error}
   hint="Type the writer's name."
   newText={(typed) => `Use "${typed}"`}
   refuseTyped={(typed) => (looksLikeEmail(typed) ? "Type the writer's name, not an email address." : null)}
-  {onPick}
+  onPick={pick}
+  onNew={(typed) =>
+    onPick({ choice: { kind: "name", name: typed }, label: typed, value: null, current: false, nameFromDocument: false })}
 />

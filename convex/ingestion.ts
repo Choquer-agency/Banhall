@@ -2,8 +2,10 @@ import {
   query,
   mutation,
   action,
+  internalAction,
   internalMutation,
   internalQuery,
+  type ActionCtx,
   type QueryCtx,
   type MutationCtx,
 } from "./_generated/server";
@@ -27,22 +29,48 @@ import {
 } from "./lib/ingestionClassify";
 import {
   changedFields,
-  cleanWriterName,
   definedFields,
   fieldsForLabels,
   followsRememberedWriter,
   hasReadText,
+  isBeingRead,
   labelPatchFields,
+  initialsWriterFields,
+  initialsWriterStep,
   mergeEditedLabels,
   pairGroupsTouched,
   pathFieldsFor,
+  pickWriterFields,
   previewScienceCode,
-  rememberedWriterFields,
   settleItem,
   sheetTabForStatus,
+  takesInitialsWriter,
+  writerBeforePickFields,
   writerInitialsKey,
+  writerSetByPerson,
   type IngestionItemFields,
 } from "./lib/ingestionSheet";
+import {
+  adjustWriterFiles,
+  choiceForUndo,
+  confirmDocumentName,
+  forgetWriterMatches,
+  isLoginMember,
+  linkedWriterOf,
+  listTeamRoster,
+  liveWriter,
+  membersWithInitials,
+  nameWriterFromDocument,
+  pickedWriter,
+  userDisplayLabel,
+  writerForChoice,
+  writerForInitials,
+  writerForUser,
+  writerLabel,
+  writerLabelFor,
+  writerOfUser,
+  writerPick,
+} from "./lib/teamRoster";
 import {
   addShare,
   adjustImportCompanyCounts,
@@ -63,6 +91,7 @@ import {
   scienceCodeSourceValidator,
   sheetLabelPatchValidator,
   sheetTabValidator,
+  writerChoiceValidator,
   writerNameSourceValidator,
 } from "./lib/ingestionSheetValidators";
 import {
@@ -73,6 +102,7 @@ import {
 } from "./lib/clients";
 import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
+import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
 import {
   canDelete,
@@ -80,6 +110,7 @@ import {
   DELETED_IN_ONEDRIVE_NOTE,
   deletedReasonFor,
   labelApplies,
+  looksLikeEmail,
   type BatchSkipReason,
 } from "../shared/importSheetRules";
 
@@ -95,7 +126,7 @@ const SYNC_STATE_KEY = "onedrive";
 // Statuses that participate in pair math / can still be acted on.
 const LIVE_STATUSES = new Set(["discovered", "fetched", "pending_review", "approved"]);
 
-async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<string> {
+async function assertAdmin(ctx: QueryCtx | MutationCtx): Promise<Id<"users">> {
   const user = await getCurrentUserOrNull(ctx);
   if (!user || user.isAnonymous === true) throw new Error("Not authenticated");
   if (user.role !== "admin") throw new Error("Admin only");
@@ -120,44 +151,81 @@ async function adminOrNull(ctx: QueryCtx): Promise<string | null> {
 // a field the sheet fields or the counts are worked out from.
 
 /**
- * The writer a person said some initials stand for, by initials, as one
- * mutation has read them (2026-11-12). A batch passes one so it reads each
- * match once; a mutation that writes a match fills it with the new value.
- */
-type RememberedWriters = Map<string, string | null>;
-
-async function rememberedWriter(
-  ctx: QueryCtx,
-  initials: string,
-  memo?: RememberedWriters
-): Promise<string | null> {
-  if (memo?.has(initials)) return memo.get(initials) ?? null;
-  const match = await ctx.db
-    .query("importWriterInitials")
-    .withIndex("by_initials", (q) => q.eq("initials", initials))
-    .first();
-  const name = match?.writerName ?? null;
-  memo?.set(initials, name);
-  return name;
-}
-
-/**
- * A settled row with the writer its initials stand for (2026-11-12): every
- * write of a row that follows the remembered initials (not approved, no
- * writer a person set on the file) reads the match, so a new file, a file
- * put back or renamed, and a match made or undone all show the same name.
+ * A settled row with the writer its initials give (2026-11-12; since
+ * 2026-11-16 the freeze rule, convex/lib/ingestionSheet.ts
+ * initialsWriterStep): a file that follows its initials takes a person's
+ * pick for them if there is one; otherwise the check (convex/lib/teamRoster.ts
+ * writerForInitials) fills its writer only while it has none, or when its
+ * initials changed. A file that has a writer from the check keeps it, so
+ * editing a file (its science code, its year) never re-runs the match.
+ * `previousInitials` are the row's initials before this write (a patch).
+ * The lookup may make a writer; it reads only indexes. Then a past writer
+ * the check made may take its name from the file's PD text (withDocumentName).
  */
 async function settleWithWriter(
   ctx: MutationCtx,
   row: IngestionItemFields,
-  memo?: RememberedWriters
+  previousInitials?: string | null
+): Promise<IngestionItemFields> {
+  const settled = await settleInitialsWriter(ctx, row, previousInitials);
+  return await withDocumentName(ctx, { ...settled, ...previewWriterNames(settled) });
+}
+
+/**
+ * The writer names of a file that needs them (needsDocumentWriterNames)
+ * and has no full text in storage, only its preview (a row read long ago):
+ * read from the preview here, as previewScienceCode does for the science
+ * code; {} otherwise. A file with full text in storage has it read in an
+ * action (scheduleNamesRead).
+ */
+function previewWriterNames(row: IngestionItemFields): Partial<IngestionItemFields> {
+  if (row.textStorageId !== undefined || !needsDocumentWriterNames(row)) return {};
+  return { documentWriterNames: writerNamesFromText(row.text ?? "") };
+}
+
+/**
+ * A settled row after its writer may have taken a name from the row's PD
+ * text (2026-11-16, convex/lib/teamRoster.ts nameWriterFromDocument), in
+ * whichever order the text was read and the writer set. When the writer's
+ * name changed, this row stores its new label (an approved one keeps the
+ * name it was approved with) and the writer's other files on To review and
+ * Deleted are written again in scheduled pages (refreshWriterFiles), as
+ * after an Admin's rename.
+ */
+async function withDocumentName(ctx: MutationCtx, settled: IngestionItemFields): Promise<IngestionItemFields> {
+  const named = await nameWriterFromDocument(ctx, settled);
+  if (named === null) return settled;
+  await ctx.scheduler.runAfter(0, internal.ingestion.refreshWriterFiles, { writerId: named.writerId, tab: "review", cursor: null });
+  if (settled.status === "approved" || settled.writerName === undefined) return settled;
+  return settleItem({ ...settled, writerName: named.label });
+}
+
+/** settleWithWriter's first step: the row settled with the writer its initials give. */
+async function settleInitialsWriter(
+  ctx: MutationCtx,
+  row: IngestionItemFields,
+  previousInitials?: string | null
 ): Promise<IngestionItemFields> {
   const settled = settleItem(row);
-  if (!followsRememberedWriter(settled)) return settled;
   const initials = writerInitialsKey(settled.writerInitials);
-  const name = initials === null ? null : await rememberedWriter(ctx, initials, memo);
-  const writer = rememberedWriterFields(settled, name);
-  return Object.keys(writer).length === 0 ? settled : settleItem({ ...settled, ...writer });
+  const initialsChanged = previousInitials !== undefined && writerInitialsKey(previousInitials) !== initials;
+  const pick = initials === null ? null : await pickedWriter(ctx, initials);
+  const step = initialsWriterStep(settled, { hasPick: pick !== null, initialsChanged });
+  let fields: Partial<IngestionItemFields> | null = null;
+  if (step === "clear") fields = initialsWriterFields(null, "initials");
+  else if (step === "pick") fields = pickWriterFields(settled, pick!, initialsChanged);
+  else if (step === "fill") {
+    // A pick's Undo: back to exactly the writer the file had before it
+    // (never removed while a file remembers it); else the check.
+    const before = writerBeforePickFields(settled, initialsChanged);
+    fields =
+      before && (await liveWriter(ctx, before.writerId))
+        ? before
+        : initialsWriterFields(await writerForInitials(ctx, initials!), "initials");
+  }
+  if (fields === null) return settled;
+  const changed = Object.keys(changedFields(settled, { ...settled, ...fields })).length > 0;
+  return changed ? settleItem({ ...settled, ...fields }) : settled;
 }
 
 /** Insert an ingestion item: the one place rows are created. */
@@ -165,23 +233,24 @@ async function insertItem(ctx: MutationCtx, fields: IngestionItemFields): Promis
   const row = definedFields(await settleWithWriter(ctx, fields));
   const id = await ctx.db.insert("ingestionItems", row);
   await adjustImportCompanyCounts(ctx, null, row);
+  await adjustWriterFiles(ctx, null, row.writerId, null, row.writerBeforePick?.writerId);
+  await scheduleNamesRead(ctx, null, { _id: id, _creationTime: 0, ...row });
   return id;
 }
 
 /**
  * Patch an ingestion item: settles the patched row, writes only the fields
- * that changed and keeps the company counts right. With `touch`, updatedAt
- * moves only when something else changed. `writers` lets a batch read each
- * remembered writer once.
+ * that changed and keeps the company counts and the writers' file counts
+ * right. With `touch`, updatedAt moves only when something else changed.
  */
 async function patchItem(
   ctx: MutationCtx,
   before: Doc<"ingestionItems">,
   patch: Partial<IngestionItemFields>,
-  options: { touch?: boolean; writers?: RememberedWriters } = {}
+  options: { touch?: boolean } = {}
 ): Promise<{ after: Doc<"ingestionItems">; changed: boolean }> {
   const { _id, _creationTime, ...fields } = before;
-  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, options.writers);
+  let settled = await settleWithWriter(ctx, { ...fields, ...patch }, before.writerInitials ?? null);
   let changes = changedFields(fields, settled);
   const changed = Object.keys(changes).length > 0;
   if (changed && options.touch) {
@@ -191,6 +260,8 @@ async function patchItem(
   if (changed) await ctx.db.patch(_id, changes);
   const after = { _id, _creationTime, ...definedFields(settled) } as Doc<"ingestionItems">;
   await adjustImportCompanyCounts(ctx, before, after);
+  await adjustWriterFiles(ctx, before.writerId, after.writerId, before.writerBeforePick?.writerId, after.writerBeforePick?.writerId);
+  await scheduleNamesRead(ctx, before, after);
   return { after, changed };
 }
 
@@ -369,10 +440,16 @@ const sheetRowFields = {
   fiscalYearEndAssumed: v.optional(v.boolean()),
   versionCode: v.optional(pdVersionCodeValidator),
   versionNumber: v.optional(v.number()),
+  // The writer's label as it is now (2026-11-16: the linked member's name,
+  // else the writer's name, else its initials), or the stored name of a row
+  // with no writer record.
   writerName: v.optional(v.string()),
-  // 2026-11-12: "initials" when the name is the writer a person said the
-  // file name's initials stand for (no AI mark: the file name and a person).
+  // 2026-11-12: "initials" when the writer came from the file name's
+  // initials (no AI mark: the file name and the firm's people).
   writerNameSource: v.optional(writerNameSourceValidator),
+  // 2026-11-16: the writer the file points at, and whether it has a login.
+  writerId: v.optional(v.id("pdWriters")),
+  writerHasLogin: v.optional(v.boolean()),
   writerInitials: v.optional(v.string()),
   reviewerInitials: v.optional(v.string()),
   scienceCode: v.optional(v.string()),
@@ -411,6 +488,7 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     versionNumber: item.versionNumber,
     writerName: item.writerName,
     writerNameSource: item.writerNameSource,
+    writerId: item.writerId,
     writerInitials: item.writerInitials,
     reviewerInitials: item.reviewerInitials,
     scienceCode: item.scienceCode,
@@ -423,6 +501,27 @@ function sheetRow(item: Doc<"ingestionItems">): SheetRow {
     error: item.error,
     deletedReason: deletedReasonFor(item),
     isNew: item.isNew === true && item.sheetTab === "review" ? true : undefined,
+  });
+}
+
+/**
+ * Rows with their writers' labels as they are now (2026-11-16): a writer
+ * renamed or linked, or a member who changed their name, shows at once on
+ * every file, approved ones included, without waiting for the files to be
+ * written again. Reads each writer (and its member) once; a page holds at
+ * most 200 rows.
+ */
+async function withWriterLabels<R extends SheetRow>(ctx: QueryCtx, rows: R[]): Promise<R[]> {
+  const labels = new Map<Id<"pdWriters">, { label: string; hasLogin: boolean } | null>();
+  for (const row of rows) {
+    if (!row.writerId || labels.has(row.writerId)) continue;
+    const writer = await liveWriter(ctx, row.writerId);
+    const user = writer?.userId ? await ctx.db.get(writer.userId) : null;
+    labels.set(row.writerId, writer ? { label: writerLabelFor(writer, user), hasLogin: isLoginMember(user) } : null);
+  }
+  return rows.map((row) => {
+    const found = row.writerId ? labels.get(row.writerId) : null;
+    return found ? { ...row, writerName: found.label, writerHasLogin: found.hasLogin } : row;
   });
 }
 
@@ -651,7 +750,7 @@ export const sheetFiles = query({
             q.eq("sheetTab", args.tab).eq("companyKey", companyKey).eq("sheetSection", args.category)
           );
     const result = await files.paginate(boundedPage(args.paginationOpts, SHEET_FILES_PAGE_MAX));
-    return { ...result, page: result.page.map(sheetRow) };
+    return { ...result, page: await withWriterLabels(ctx, result.page.map(sheetRow)) };
   },
 });
 
@@ -706,12 +805,15 @@ export const sheetSearch = query({
         needsCheck: band.needsCheck,
       }));
     return {
-      files: files.map((file) =>
-        definedFields({
-          ...sheetRow(file),
-          companyKey: file.companyKey ?? NO_COMPANY_KEY,
-          clientName: file.clientName,
-        })
+      files: await withWriterLabels(
+        ctx,
+        files.map((file) =>
+          definedFields({
+            ...sheetRow(file),
+            companyKey: file.companyKey ?? NO_COMPANY_KEY,
+            clientName: file.clientName,
+          })
+        )
       ),
       companies,
     };
@@ -763,8 +865,9 @@ export const sheetFile = query({
     if ((await adminOrNull(ctx)) === null) return null;
     const item = await ctx.db.get(args.id);
     if (!item) return null;
+    const [row] = await withWriterLabels(ctx, [sheetRow(item)]);
     return definedFields({
-      ...sheetRow(item),
+      ...row,
       sheetTab: item.sheetTab,
       companyKey: item.companyKey ?? NO_COMPANY_KEY,
       clientName: item.clientName,
@@ -1220,12 +1323,18 @@ export const setSheetLabels = mutation({
   },
   returns: batchResultValidator,
   handler: async (ctx, args) => {
-    await assertAdmin(ctx);
+    const admin = await assertAdmin(ctx);
     const ids = batchIds(args.ids, `Change up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
     const outcome = batchOutcome();
     if (ids.length === 0) return outcome.result();
-    const { fields, labels } = labelPatchFields(args.patch);
+    const { fields, labels, writer } = labelPatchFields(args.patch);
     if (fields.clientName !== undefined) fields.clientName = await companyNameToStore(ctx, fields.clientName);
+    if (writer) {
+      // 2026-11-16: a writer set on these files alone (it wins for them).
+      const chosen = await writerForChoice(ctx, writer, { by: admin });
+      fields.writerId = chosen._id;
+      fields.writerName = await writerLabel(ctx, chosen);
+    }
 
     const groups = new Set<string>();
     for (const id of ids) {
@@ -1278,15 +1387,25 @@ export const setSheetLabels = mutation({
   },
 });
 
-// ─── Writers by initials (2026-11-12) ───────────────────────────────────────
-// A final PD's file name gives its writer's initials ("T2.KT"), never a
-// person (shared/pdFilename.ts): the code never guesses who KT is. When an
-// admin picks a writer on a file whose initials have no writer yet, that pick
-// says "KT is Kim Tran" for the whole firm (importWriterInitials), and every
-// import file with those initials whose writer no person set on the file
-// takes the name (writerNameSource "initials"; patchItem reads the match on
-// every write, so new and put-back files take it too). A writer set on one
-// file still wins for that file. Undo sets the match back the same way.
+// ─── Writers from initials (2026-11-12, 2026-11-16) ──────────────────────────
+// A final PD's file name gives its writer's initials ("T2.KT"). Since
+// 2026-11-16 (docs/product-domain.md) a file whose name has them takes a
+// person's pick for them for the whole firm (pdWriterPicks) when there is
+// one; otherwise, only while it has no writer, the check
+// (convex/lib/teamRoster.ts writerForInitials) fills it: the one team
+// member whose saved initials they are, else the one writer the check made
+// from them, else a new one ("KT"); when they could be more than one
+// person the file has no writer and shows "Choose writer". The freeze
+// rule: once a file has a writer it moves only on a pick (and its Undo), a
+// person setting it on the file, or a change of its own initials; never on
+// a change of a member's initials or an edit to the file. When a person
+// chooses a writer on a file whose writer follows its initials, that choice
+// is a pick: "KT is Kim Tran" for the whole firm, with Undo, which puts
+// every file back exactly as it was. A writer set on one file still wins
+// for that file. When the facts change, the files on To
+// review and Deleted with the initials are settled again in pages (files
+// following a pick move, files with no writer are filled); approved files
+// keep their writer.
 
 /** Files one run of a writer match settles before it schedules the rest. */
 const WRITER_MATCH_BATCH = 100;
@@ -1298,17 +1417,17 @@ const writerMatchTabValidator = v.union(v.literal("review"), v.literal("deleted"
 
 /**
  * One page of the files on `tab` whose name gave `initials`, each settled
- * with the writer they stand for now (patchItem reads it, from `writers`).
- * Counts move through patchItem; pairing does not read the writer, but a row
- * written for the first time since the labels may move group, so the groups
- * touched are recomputed.
+ * again (patchItem: a file following a pick takes it, a file with no writer
+ * is filled, a file with a writer from the check keeps it). Counts move
+ * through patchItem; pairing does not read the writer, but a row written for
+ * the first time since the labels may move group, so the groups touched are
+ * recomputed.
  */
 async function applyWriterPage(
   ctx: MutationCtx,
   initials: string,
   tab: WriterMatchTab,
-  cursor: string | null,
-  writers: RememberedWriters
+  cursor: string | null
 ): Promise<{ changed: number; isDone: boolean; continueCursor: string }> {
   const page = await ctx.db
     .query("ingestionItems")
@@ -1318,7 +1437,7 @@ async function applyWriterPage(
   const groups = new Set<string>();
   for (const item of page.page) {
     if (!followsRememberedWriter(item)) continue;
-    const result = await patchItem(ctx, item, {}, { touch: true, writers });
+    const result = await patchItem(ctx, item, {}, { touch: true });
     if (!result.changed) continue;
     changed += 1;
     for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
@@ -1344,20 +1463,29 @@ async function continueWriterMatch(
 }
 
 /**
- * Says which writer some initials stand for, for the whole firm, or with
- * `writerName` null that no one has said (Undo). Admin only. The first 100
- * files with those initials on To review take the name in this call; the
- * rest of To review, then Deleted, follow in scheduled runs of 100.
- * Returns the match before (for Undo), how many files changed now, and
- * whether more To review files are still to follow. The name follows the
- * writer name rules (cleanWriterName); refusals are ConvexErrors.
+ * Says which writer some initials are, for the whole firm (2026-11-16: a
+ * pdWriterPicks row), or with `writer` null takes the pick away (Undo).
+ * Admin only. `writer` is a team member, a writer, or a typed name (a
+ * writer with no login and that name; the pick carries the initials). Every
+ * file with those initials whose writer no person set on the file follows
+ * the pick, whatever writer it had, and remembers that writer
+ * (writerBeforePick); when the pick goes, each file gets exactly the writer
+ * it had before (or, if it had none, what the check gives), so a pick then
+ * its Undo leaves every file as it was. The first 100
+ * files with the initials on To review follow in this call; the rest of To
+ * review, then Deleted, follow in scheduled runs of 100. Returns the writer
+ * and its label, the pick before as a choice an Undo can send back (it still
+ * works when that writer was a bare one that has been removed since), how
+ * many files changed now, and whether more To review files are still to
+ * follow. Refusals are ConvexErrors.
  */
 export const matchWriterInitials = mutation({
-  args: { initials: v.string(), writerName: v.union(v.string(), v.null()) },
+  args: { initials: v.string(), writer: v.union(writerChoiceValidator, v.null()) },
   returns: v.object({
     initials: v.string(),
+    writerId: v.union(v.id("pdWriters"), v.null()),
     writerName: v.union(v.string(), v.null()),
-    previous: v.union(v.string(), v.null()),
+    previous: v.union(writerChoiceValidator, v.null()),
     changed: v.number(),
     more: v.boolean(),
   }),
@@ -1365,36 +1493,535 @@ export const matchWriterInitials = mutation({
     const admin = await assertAdmin(ctx);
     const initials = writerInitialsKey(args.initials);
     if (initials === null) domainError("INVALID_INPUT", "Initials are two or three letters, such as KT.");
-    const name = args.writerName === null ? null : cleanWriterName(args.writerName);
-    const match = await ctx.db
-      .query("importWriterInitials")
-      .withIndex("by_initials", (q) => q.eq("initials", initials))
-      .first();
-    const previous = match?.writerName ?? null;
-    if (name === null) {
-      if (match) await ctx.db.delete(match._id);
-    } else if (!match) {
-      await ctx.db.insert("importWriterInitials", { initials, writerName: name, setBy: admin, updatedAt: Date.now() });
-    } else if (match.writerName !== name) {
-      await ctx.db.patch(match._id, { writerName: name, setBy: admin, updatedAt: Date.now() });
+    const chosen = args.writer === null ? null : await writerForChoice(ctx, args.writer, { by: admin });
+    const pick = await writerPick(ctx, initials);
+    const before = pick ? await liveWriter(ctx, pick.writerId) : null;
+    const previous = before ? choiceForUndo(before) : null;
+    if (chosen === null) {
+      if (pick) await ctx.db.delete(pick._id);
+    } else if (!pick) {
+      await ctx.db.insert("pdWriterPicks", { initials, writerId: chosen._id, setBy: admin, updatedAt: Date.now() });
+    } else if (pick.writerId !== chosen._id) {
+      await ctx.db.patch(pick._id, { writerId: chosen._id, setBy: admin, updatedAt: Date.now() });
     }
-    const page = await applyWriterPage(ctx, initials, "review", null, new Map([[initials, name]]));
+    forgetWriterMatches(ctx);
+    const page = await applyWriterPage(ctx, initials, "review", null);
     await continueWriterMatch(ctx, initials, "review", page);
-    return { initials, writerName: name, previous, changed: page.changed, more: !page.isDone };
+    return {
+      initials,
+      writerId: chosen?._id ?? null,
+      writerName: chosen ? await writerLabel(ctx, chosen) : null,
+      previous,
+      changed: page.changed,
+      more: !page.isDone,
+    };
   },
 });
 
-/** The rest of a match's walk (matchWriterInitials): one page, then it schedules the next. */
+/**
+ * The rest of a match's walk (matchWriterInitials), and the walk after any
+ * other change of the facts for some initials (users.setUserInitials, a
+ * writer linked or unlinked, a pick deleted with its writer): one page,
+ * then it schedules the next. Under the freeze rule it moves only files
+ * that follow a pick, and fills only files with no writer yet (for example
+ * initials two people shared, once only one member has them).
+ */
 export const applyWriterInitials = internalMutation({
   args: { initials: v.string(), tab: writerMatchTabValidator, cursor: v.union(v.string(), v.null()) },
   returns: v.object({ changed: v.number(), done: v.boolean() }),
   handler: async (ctx, args) => {
     const initials = writerInitialsKey(args.initials);
     if (initials === null) return { changed: 0, done: true };
-    // The match as it is now: a later pick or an Undo meanwhile wins.
-    const page = await applyWriterPage(ctx, initials, args.tab, args.cursor, new Map());
+    // The facts as they are now: a later pick or an Undo meanwhile wins.
+    const page = await applyWriterPage(ctx, initials, args.tab, args.cursor);
     await continueWriterMatch(ctx, initials, args.tab, page);
     return { changed: page.changed, done: page.isDone && args.tab === WRITER_MATCH_TABS[WRITER_MATCH_TABS.length - 1] };
+  },
+});
+
+/**
+ * One page of a writer's files on To review or Deleted, written again
+ * (2026-11-16) after the writer was renamed, linked or unlinked, or took
+ * or lost a name from a PD (withDocumentName): a file a
+ * person set takes the writer's new label as its stored name, and every
+ * file is settled again. Approved files keep the name they were approved
+ * with (the sheet shows the writer's label as it is now anyway). Then it
+ * schedules the next page, else the next tab. Bounded: 100 files a run.
+ */
+export const refreshWriterFiles = internalMutation({
+  args: {
+    writerId: v.id("pdWriters"),
+    tab: writerMatchTabValidator,
+    cursor: v.union(v.string(), v.null()),
+  },
+  returns: v.object({ changed: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const writer = await liveWriter(ctx, args.writerId);
+    if (!writer) return { changed: 0, done: true };
+    const label = await writerLabel(ctx, writer);
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_writerId_and_sheetTab", (q) => q.eq("writerId", args.writerId).eq("sheetTab", args.tab))
+      .paginate({ cursor: args.cursor, numItems: WRITER_MATCH_BATCH });
+    let changed = 0;
+    const groups = new Set<string>();
+    for (const item of page.page) {
+      const result = await patchItem(ctx, item, { writerName: label }, { touch: true });
+      if (!result.changed) continue;
+      changed += 1;
+      for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    const next = page.isDone ? WRITER_MATCH_TABS[WRITER_MATCH_TABS.indexOf(args.tab) + 1] : args.tab;
+    if (next !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.refreshWriterFiles, {
+        writerId: args.writerId,
+        tab: next,
+        cursor: page.isDone ? null : page.continueCursor,
+      });
+    }
+    return { changed, done: next === undefined };
+  },
+});
+
+/**
+ * A person chose, on one file or for some initials, the writer the file
+ * already has (2026-11-16; Greptile fix, 2026-11-17). When that writer's name
+ * came from a PD, the name is now a person's (confirmDocumentName), so a
+ * later PD that names someone else never takes it back. Nothing else
+ * changes: no file's writer or stored name (the writer's label is the same),
+ * no pick and no count. Admin only. True when the name became a person's.
+ */
+export const confirmWriterName = mutation({
+  args: { writerId: v.id("pdWriters") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const admin = await assertAdmin(ctx);
+    const writer = await liveWriter(ctx, args.writerId);
+    if (!writer) domainError("NOT_FOUND", "That writer is no longer in Banhall.");
+    const after = await confirmDocumentName(ctx, writer, admin);
+    return after.nameSource !== writer.nameSource;
+  },
+});
+
+/** Past writers one read lists. */
+const PAST_WRITERS_READ = 200;
+
+/**
+ * The writers the Import page's writer picker lists (2026-11-16): the team
+ * members with a login (their own writer, if they have one yet, and the
+ * past writer an Admin linked to them), then the writers with no login
+ * (past writers), each with its label and whether its name came from a PD
+ * (so choosing it on a file that has it can confirm that name,
+ * confirmWriterName). Admin only (null otherwise).
+ * Bounded: the roster's 200 people and 200 past writers (the index read
+ * holds only writers with no account, so the cap counts them alone).
+ */
+export const writerChoices = query({
+  args: {},
+  returns: v.union(
+    v.null(),
+    v.object({
+      members: v.array(
+        v.object({
+          userId: v.id("users"),
+          label: v.string(),
+          writerId: v.union(v.id("pdWriters"), v.null()),
+          linkedWriterId: v.union(v.id("pdWriters"), v.null()),
+        })
+      ),
+      pastWriters: v.array(
+        v.object({
+          writerId: v.id("pdWriters"),
+          label: v.string(),
+          initials: v.union(v.string(), v.null()),
+          nameFromDocument: v.boolean(),
+        })
+      ),
+    })
+  ),
+  handler: async (ctx) => {
+    if ((await adminOrNull(ctx)) === null) return null;
+    const roster = (await listTeamRoster(ctx)).filter(isLoginMember);
+    const members = [];
+    for (const user of roster) {
+      const label = userDisplayLabel(user);
+      if (label === "Unknown team member" || looksLikeEmail(label)) continue;
+      const own = await writerOfUser(ctx, user._id);
+      const linked = await linkedWriterOf(ctx, user._id);
+      members.push({ userId: user._id, label, writerId: own?._id ?? null, linkedWriterId: linked?._id ?? null });
+    }
+    members.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    const unlinked = await ctx.db
+      .query("pdWriters")
+      .withIndex("by_userId", (q) => q.eq("userId", undefined))
+      .take(PAST_WRITERS_READ);
+    const pastWriters = unlinked
+      .map((writer) => ({
+        writerId: writer._id,
+        label: writerLabelFor(writer, null),
+        initials: writer.initials ?? null,
+        nameFromDocument: Boolean(writer.name) && writer.nameSource === "document",
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    return { members, pastWriters };
+  },
+});
+
+// ─── Moving to writers (2026-11-16, run once after the deploy) ──────────────
+// Order: users.backfillUserInitials (saved initials from names), then
+// ingestion.migrateImportWriterInitials (each "KT is Kim Tran" becomes a
+// writer and a pick), which ends by scheduling
+// ingestion.backfillImportWriters (every file on To review, Deleted and
+// Approved gets its writer). Each is paged and safe to run again.
+
+const WRITER_MIGRATION_BATCH = 50;
+
+/**
+ * Copies each importWriterInitials row (2026-11-12, "KT is Kim Tran" as text)
+ * into the new model: a writer with that name, linked to a team member only
+ * when exactly one member has that name and those saved initials (their own
+ * writer), else the writer with no login that has that name (made with the
+ * initials if there is none), and a pick for the initials, so the person's
+ * statement still wins. Each row is marked as copied (migratedAt) in the
+ * same transaction and never copied again, so running it again is safe and
+ * never brings back a pick a person has undone. Paged; a pick already there
+ * is kept. When done it schedules backfillImportWriters.
+ */
+export const migrateImportWriterInitials = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ migrated: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("importWriterInitials")
+      .paginate({ cursor: args.cursor ?? null, numItems: WRITER_MIGRATION_BATCH });
+    let migrated = 0;
+    for (const row of page.page) {
+      // A row copied once is never copied again: a pick a person has undone
+      // since stays undone. A row a pick already covers is marked too.
+      if (row.migratedAt !== undefined) continue;
+      await ctx.db.patch(row._id, { migratedAt: Date.now() });
+      const initials = writerInitialsKey(row.initials);
+      if (initials === null || (await writerPick(ctx, initials))) continue;
+      const name = row.writerName.trim().replace(/\s+/g, " ");
+      if (!name) continue;
+      const setBy = ctx.db.normalizeId("users", row.setBy);
+      if (!setBy) continue;
+      const members = (await membersWithInitials(ctx, initials)).filter((user) => userDisplayLabel(user) === name);
+      let writerId: Id<"pdWriters">;
+      if (members.length === 1) {
+        writerId = (await writerForUser(ctx, members[0]))._id;
+      } else {
+        const named = await ctx.db
+          .query("pdWriters")
+          .withIndex("by_name", (q) => q.eq("name", name))
+          .take(10);
+        const reuse = named.find((w) => !w.userId);
+        writerId =
+          reuse?._id ??
+          (await ctx.db.insert("pdWriters", { initials, name, createdVia: "person", createdBy: setBy, createdAt: row.updatedAt, fileCount: 0 }));
+      }
+      await ctx.db.insert("pdWriterPicks", { initials, writerId, setBy, updatedAt: row.updatedAt });
+      forgetWriterMatches(ctx);
+      migrated += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.migrateImportWriterInitials, { cursor: page.continueCursor });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillImportWriters, { tab: "review", cursor: null });
+    }
+    return { migrated, done: page.isDone };
+  },
+});
+
+/** The tabs the backfill walks: To review and Deleted are settled; Approved only gains a writer. */
+const WRITER_BACKFILL_TABS = ["review", "deleted", "approved"] as const;
+const writerBackfillTabValidator = v.union(v.literal("review"), v.literal("deleted"), v.literal("approved"));
+
+/**
+ * The writer a file whose writer a person typed as text (before writers
+ * existed) points at: the team member who has exactly that name when there
+ * is one, else the writer with no login by that name (made if there is none).
+ */
+async function writerForTypedName(
+  ctx: MutationCtx,
+  roster: Array<Doc<"users">>,
+  name: string
+): Promise<Doc<"pdWriters">> {
+  const named = roster.filter((user) => isLoginMember(user) && userDisplayLabel(user) === name);
+  return named.length === 1 ? await writerForUser(ctx, named[0]) : await writerForChoice(ctx, { kind: "name", name }, {});
+}
+
+/**
+ * Gives every file its writer (2026-11-16), To review, then Deleted, then
+ * Approved. On To review and Deleted a file is settled (the pick or the
+ * check fills a file with no writer), and one whose writer a person set as
+ * text gets the writer for that name (writerForTypedName). An approved file
+ * gains only a writer reference, so the PD counts and Link include it: the
+ * writer for its stored name whenever it has one (so it shows what it was
+ * approved as, even when its initials stand for someone else now), else the
+ * pick or the check for its initials. Its stored name is never rewritten (the sheet
+ * shows the writer's label as it is now). 100 files a run; it schedules the
+ * rest. Safe to run again.
+ */
+export const backfillImportWriters = internalMutation({
+  args: { tab: writerBackfillTabValidator, cursor: v.union(v.string(), v.null()) },
+  returns: v.object({ changed: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
+      .paginate({ cursor: args.cursor, numItems: WRITER_MATCH_BATCH });
+    let changed = 0;
+    const groups = new Set<string>();
+    const roster = await listTeamRoster(ctx);
+    for (const item of page.page) {
+      let patch: Partial<IngestionItemFields> = {};
+      if (item.writerId === undefined && item.status === "approved" && item.writerName) {
+        // Approved with a stored name (a person's, or one its initials stood
+        // for then): the writer for that name, so it shows what it was
+        // approved as, whatever its initials stand for now.
+        patch = { writerId: (await writerForTypedName(ctx, roster, item.writerName))._id };
+      } else if (item.writerId === undefined && writerSetByPerson(item) && item.writerName) {
+        const writer = await writerForTypedName(ctx, roster, item.writerName);
+        patch = { writerId: writer._id, writerName: await writerLabel(ctx, writer) };
+      } else if (item.writerId === undefined && item.status === "approved" && takesInitialsWriter(item)) {
+        const initials = writerInitialsKey(item.writerInitials)!;
+        const writer = (await pickedWriter(ctx, initials)) ?? (await writerForInitials(ctx, initials));
+        if (writer) patch = { writerId: writer.id };
+      }
+      if (item.status === "approved" && Object.keys(patch).length === 0) continue;
+      const result = await patchItem(ctx, item, patch);
+      if (!result.changed) continue;
+      changed += 1;
+      for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    const next = page.isDone ? WRITER_BACKFILL_TABS[WRITER_BACKFILL_TABS.indexOf(args.tab) + 1] : args.tab;
+    if (next !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillImportWriters, {
+        tab: next,
+        cursor: page.isDone ? null : page.continueCursor,
+      });
+    } else {
+      // Every file has its writer: now past writers can take names from PDs read before.
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentWriterNames, {});
+    }
+    return { changed, done: next === undefined };
+  },
+});
+
+// ─── Names from PDs read before (2026-11-16, run after the deploy) ──────────
+// Files read before the names were kept have their text in storage but no
+// documentWriterNames. backfillDocumentWriterNames reads that text for the
+// final PDs, drafts and review copies on To review, Deleted and Approved, a
+// page at a time, keeps the names on each file, and so lets a past writer
+// the check made take its name from them (settleWithWriter). It runs after
+// backfillImportWriters, and on its own. Safe to run again: a file that has
+// its names already is skipped. A file that comes to need its names later
+// (a person makes it a final PD, draft or review copy, or a reading that
+// started before the deploy lands without them) is read on its own
+// (readDocumentWriterNames, scheduled by insertItem and patchItem).
+
+/** Rows one run of the names backfill pages through. */
+const NAMES_BACKFILL_ROWS = 100;
+/** Files whose full text one run reads, at most: each is up to 700 KB. */
+const NAMES_BACKFILL_READS = 25;
+
+/** Whether a file still needs its writer names read: it takes a writer from its initials, has read text and no names yet. */
+function needsDocumentWriterNames(item: IngestionItemFields): boolean {
+  return item.documentWriterNames === undefined && takesInitialsWriter(item) && hasReadText(item) && !isBeingRead(item.status);
+}
+
+/**
+ * Schedules readDocumentWriterNames for a file a write left needing its
+ * names (needsDocumentWriterNames) with full text in storage: one that just
+ * came to take a writer (a person changed its category), or whose text just
+ * landed without names (a reading begun before the deploy).
+ */
+async function scheduleNamesRead(ctx: MutationCtx, before: IngestionItemFields | null, after: Doc<"ingestionItems">) {
+  if (after.textStorageId === undefined || !needsDocumentWriterNames(after)) return;
+  if (before && needsDocumentWriterNames(before) && before.textStorageId === after.textStorageId) return;
+  await ctx.scheduler.runAfter(0, internal.ingestion.readDocumentWriterNames, { itemId: after._id });
+}
+
+const namesBackfillItemValidator = v.object({
+  itemId: v.id("ingestionItems"),
+  textStorageId: v.union(v.id("_storage"), v.null()),
+  // Only for a file with no full text in storage.
+  preview: v.union(v.string(), v.null()),
+});
+const namesBackfillPageValidator = v.object({
+  items: v.array(namesBackfillItemValidator),
+  isDone: v.boolean(),
+  continueCursor: v.string(),
+});
+
+function namesBackfillItem(item: Doc<"ingestionItems">): Infer<typeof namesBackfillItemValidator> {
+  return {
+    itemId: item._id,
+    textStorageId: item.textStorageId ?? null,
+    preview: item.textStorageId === undefined ? (item.text ?? null) : null,
+  };
+}
+
+/**
+ * One page of 100 rows on `tab`, with the files among them the names
+ * backfill reads (needsDocumentWriterNames).
+ */
+export const documentWriterNamesPage = internalQuery({
+  args: { tab: writerBackfillTabValidator, cursor: v.union(v.string(), v.null()) },
+  returns: namesBackfillPageValidator,
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
+      .paginate({ cursor: args.cursor, numItems: NAMES_BACKFILL_ROWS });
+    const items = page.page.filter(needsDocumentWriterNames).map(namesBackfillItem);
+    return { items, isDone: page.isDone, continueCursor: page.continueCursor };
+  },
+});
+
+/** One file, when it still needs its names read; null otherwise. */
+export const documentWriterNamesItem = internalQuery({
+  args: { itemId: v.id("ingestionItems") },
+  returns: v.union(namesBackfillItemValidator, v.null()),
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId);
+    return item && needsDocumentWriterNames(item) ? namesBackfillItem(item) : null;
+  },
+});
+
+/**
+ * Keeps the names read from each file's text (the names backfill's write),
+ * which may name the file's past writer (settleWithWriter). A file that has
+ * names already (a fresh read got there first), or whose text changed since
+ * it was read, is left alone. Up to 25 files.
+ */
+export const recordDocumentWriterNames = internalMutation({
+  args: {
+    entries: v.array(
+      v.object({
+        itemId: v.id("ingestionItems"),
+        textStorageId: v.union(v.id("_storage"), v.null()),
+        names: v.array(v.string()),
+      })
+    ),
+  },
+  returns: v.object({ recorded: v.number() }),
+  handler: async (ctx, args) => {
+    let recorded = 0;
+    const groups = new Set<string>();
+    for (const entry of args.entries.slice(0, NAMES_BACKFILL_READS)) {
+      const item = await ctx.db.get(entry.itemId);
+      if (!item || item.documentWriterNames !== undefined || (item.textStorageId ?? null) !== entry.textStorageId) continue;
+      const result = await patchItem(ctx, item, { documentWriterNames: cleanDocumentWriterNames(entry.names) });
+      recorded += 1;
+      for (const key of pairGroupsTouched(item, result.after)) groups.add(key);
+    }
+    await recomputeGroups(ctx, groups, MANY_ROWS);
+    return { recorded };
+  },
+});
+
+/**
+ * The writer names in each file's text: its full text from storage, else its
+ * preview (none when the stored text is gone or cannot be read).
+ */
+async function readNames(
+  ctx: ActionCtx,
+  items: ReadonlyArray<Infer<typeof namesBackfillItemValidator>>
+): Promise<Array<{ itemId: Id<"ingestionItems">; textStorageId: Id<"_storage"> | null; names: string[] }>> {
+  const entries = [];
+  for (const item of items) {
+    let names: string[] = [];
+    try {
+      const blob = item.textStorageId ? await ctx.storage.get(item.textStorageId) : null;
+      names = writerNamesFromText(blob ? await blob.text() : (item.preview ?? ""));
+    } catch (error) {
+      // One unreadable text never stops the walk: the file keeps no names
+      // (a person can still name its writer) and the rest go on.
+      console.warn("Could not read a file's text for its writer names", {
+        itemId: item.itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    entries.push({ itemId: item.itemId, textStorageId: item.textStorageId, names });
+  }
+  return entries;
+}
+
+/**
+ * Reads the writer names in the text of files read before 2026-11-16 (see
+ * above): To review, then Deleted, then Approved, 100 rows a run, reading
+ * at most 25 files' text (a page with more is run again, without the files
+ * just read), each run scheduling the next. Run it on its own with no
+ * arguments. Returns how many files it kept names for in this run.
+ */
+export const backfillDocumentWriterNames = internalAction({
+  args: { tab: v.optional(writerBackfillTabValidator), cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ recorded: v.number(), done: v.boolean() }),
+  handler: async (ctx, args): Promise<{ recorded: number; done: boolean }> => {
+    const tab = args.tab ?? "review";
+    const cursor = args.cursor ?? null;
+    const page: Infer<typeof namesBackfillPageValidator> = await ctx.runQuery(internal.ingestion.documentWriterNamesPage, {
+      tab,
+      cursor,
+    });
+    const entries = await readNames(ctx, page.items.slice(0, NAMES_BACKFILL_READS));
+    let recorded = 0;
+    let saved = true;
+    if (entries.length > 0) {
+      try {
+        recorded = (await ctx.runMutation(internal.ingestion.recordDocumentWriterNames, { entries })).recorded;
+      } catch (error) {
+        // Keep walking: these files stay without names until a later run.
+        saved = false;
+        console.warn("Could not keep the writer names of a page of files", {
+          tab,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    // More files on this page than one run reads: the same page again (the
+    // files just read have names now, so they are left out). Else, or when
+    // keeping them failed, the next page, then the next tab.
+    const again = page.items.length > NAMES_BACKFILL_READS && saved;
+    const next = again || !page.isDone ? tab : WRITER_BACKFILL_TABS[WRITER_BACKFILL_TABS.indexOf(tab) + 1];
+    if (next !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.ingestion.backfillDocumentWriterNames, {
+        tab: next,
+        cursor: again ? cursor : page.isDone ? null : page.continueCursor,
+      });
+    }
+    return { recorded, done: next === undefined };
+  },
+});
+
+/**
+ * Reads the writer names of one file that came to need them after the
+ * backfill (scheduleNamesRead), and keeps them. Nothing when it no longer
+ * needs them.
+ */
+export const readDocumentWriterNames = internalAction({
+  args: { itemId: v.id("ingestionItems") },
+  returns: v.object({ recorded: v.number() }),
+  handler: async (ctx, args): Promise<{ recorded: number }> => {
+    const item: Infer<typeof namesBackfillItemValidator> | null = await ctx.runQuery(
+      internal.ingestion.documentWriterNamesItem,
+      { itemId: args.itemId }
+    );
+    if (item === null) return { recorded: 0 };
+    const entries = await readNames(ctx, [item]);
+    try {
+      return await ctx.runMutation(internal.ingestion.recordDocumentWriterNames, { entries });
+    } catch (error) {
+      console.warn("Could not keep a file's writer names", {
+        itemId: args.itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { recorded: 0 };
+    }
   },
 });
 
@@ -1777,6 +2404,7 @@ async function upsertDiscovered(
     status: "discovered",
     text: undefined,
     textStorageId: undefined,
+    documentWriterNames: undefined,
     extractNote: undefined,
     error: undefined,
     deletedFromStatus: undefined,
@@ -1959,6 +2587,9 @@ export const markItemProcessed = internalMutation({
     // 2026-11-11 (Import sheet, phase 2): the CRA science code the
     // extraction read from the full text (lib/scienceCodeFromText.ts), if any.
     documentScienceCode: v.optional(v.string()),
+    // 2026-11-16 (writers from initials): the names after a writer cue in
+    // the full text (shared/writerNameFromText.ts), [] when there are none.
+    documentWriterNames: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
@@ -1983,6 +2614,10 @@ export const markItemProcessed = internalMutation({
       text: args.text,
       textStorageId: args.textStorageId,
       extractNote: args.extractNote,
+      // Kept for every file (its category may change); only a final PD,
+      // draft or review copy names its writer (settleWithWriter).
+      documentWriterNames:
+        args.documentWriterNames === undefined ? undefined : cleanDocumentWriterNames(args.documentWriterNames),
       // No text (pdf/legacy .doc) still lands in review — the admin can see
       // the file exists and chase a readable copy; it just can't be approved.
       status: "pending_review",

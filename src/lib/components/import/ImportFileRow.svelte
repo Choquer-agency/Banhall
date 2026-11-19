@@ -13,18 +13,20 @@
   person must fill in. A cell whose label the file's category does not take
   stays empty (fileCells).
 
-  Writers by initials (2026-11-12): a final PD whose initials no person has
-  said who they are shows the amber "Pick a writer for KT"; a draft or
-  review copy shows the initials muted. A writer picked on a file whose
-  initials have no writer yet says "KT is Kim Tran" for the whole firm
-  (matchWriter, with Undo); on any other file it sets that file alone, and
-  that wins for the file. A name taken from initials has no AI mark.
+  Writers from initials (2026-11-12, 2026-11-16): a file whose name gave
+  initials shows the writer they give (a team member, or a writer with no
+  login such as "DW") as plain words, with no AI mark. A final PD whose
+  initials could be more than one person, or that has no writer at all,
+  shows the amber "Choose writer"; a draft or review copy shows the
+  initials muted. A writer chosen on a file whose writer follows its
+  initials says "KT is Kim Tran" for the whole firm (matchWriter, with
+  Undo); on any other file it sets that file alone, and that wins for it.
 
   On To review (2026-11-11 phase 3b) a read file's cells are its pickers,
   each cell's one tab stop: the year end calendar, the version menu, the
-  writer (the firm's people or a typed name) and, on a final PD, the science
-  code; a final PD with no writer or code shows the amber "Pick a writer" or
-  "Pick a code". The "..." at the row's end moves or deletes the file, on
+  writer (team members, past writers or a typed name) and, on a final PD,
+  the science code; a final PD with no writer or code shows the amber
+  "Choose writer" or "Pick a code". The "..." at the row's end moves or deletes the file, on
   any row, read or not; when that takes the row away, focus goes to the next
   row's "...". A move says so in a toast with Undo, which sets the category
   or company back. On Deleted the row ends with why the file is there and,
@@ -49,6 +51,7 @@
   import { toast } from "svelte-sonner";
   import { CaretDownIcon } from "phosphor-svelte";
   import { api } from "../../../../convex/_generated/api";
+  import type { Id } from "../../../../convex/_generated/dataModel";
   import Tooltip from "$lib/components/ui/Tooltip.svelte";
   import AuroraMark from "$lib/components/ui/AuroraMark.svelte";
   import Checkbox from "$lib/components/ui/Checkbox.svelte";
@@ -58,7 +61,7 @@
   import ImportPickerPopover from "./ImportPickerPopover.svelte";
   import ImportRowMenu from "./ImportRowMenu.svelte";
   import ImportVersionPicker from "./ImportVersionPicker.svelte";
-  import ImportWriterList from "./ImportWriterList.svelte";
+  import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
   import { deleteFiles, IMPORT_TOAST, matchWriter, moveUndo, putBackFiles } from "./importActions";
   import {
     dateInputFromUtcDay,
@@ -66,7 +69,7 @@
     fileSelectLabel,
     moveBackGroups,
     movedText,
-    pickWriterText,
+    CHOOSE_WRITER,
     rowAbilities,
     settledIds,
     skippedText,
@@ -143,16 +146,39 @@
   const removeItems = useMutation(api.ingestion.removeItems);
   const restoreItems = useMutation(api.ingestion.restoreItems);
   const matchInitials = useMutation(api.ingestion.matchWriterInitials);
+  const confirmName = useMutation(api.ingestion.confirmWriterName);
+
+  /** Whether the file's writer follows its name's initials: no person set one on the file itself. */
+  const followsInitials = $derived(
+    row.writerNameSource !== "person" && !(row.editedLabels ?? []).includes("writerName")
+  );
 
   /**
-   * A writer picked in the Writer cell (2026-11-12). On a file whose name
-   * gave initials no person has matched yet, the pick says who they are for
-   * the whole firm; otherwise it sets this file's writer, which wins for it.
+   * A writer chosen in the Writer cell (2026-11-12, 2026-11-16). On a file
+   * whose name gave initials and whose writer follows them, the choice says
+   * which writer those initials are for the whole firm; otherwise it sets
+   * this file's writer, which wins for it. Choosing the writer it has
+   * changes no file; when that writer's name came from a PD, the choice
+   * makes the name a person's (Greptile fix, 2026-11-17), so a later PD
+   * never takes it back. Otherwise it is nothing.
    */
-  function pickWriter(name: string) {
-    const initials = row.writerName ? null : cells.writer?.initials ?? null;
-    if (initials) void matchWriter(initials, name, matchInitials);
-    else if (name !== row.writerName) void change({ writerName: name });
+  function pickWriter(picked: PickedWriter) {
+    if (picked.current) {
+      if (picked.nameFromDocument && picked.choice.kind === "writer") void confirmWriter(picked.choice.writerId);
+      return;
+    }
+    const initials = followsInitials ? (cells.writer?.initials ?? null) : null;
+    if (initials) void matchWriter(initials, picked, matchInitials);
+    else void change({ writer: picked.choice });
+  }
+
+  /** A writer's name from a PD made a person's; it says nothing unless it fails. */
+  async function confirmWriter(writerId: Id<"pdWriters">) {
+    try {
+      await confirmName({ writerId });
+    } catch (error) {
+      toast.error(userErrorMessage(error, "The writer could not be saved."), IMPORT_TOAST);
+    }
   }
 
   /**
@@ -303,7 +329,7 @@
       : cells.writer.tone === "muted"
         ? `Writer ${cells.writer.text}, initials only. Set the writer's name`
         : cells.writer.remembered && cells.writer.initials
-          ? `Writer ${cells.writer.text}, from the initials ${cells.writer.initials}. Change the writer for this file`
+          ? `Writer ${cells.writer.text}, from the initials ${cells.writer.initials}. Change the writer for ${cells.writer.initials}`
           : `Writer ${cells.writer.text}. Change the writer`
   );
   const codeLabel = $derived(
@@ -482,13 +508,13 @@
             <button
               {...props}
               type="button"
-              title={pickWriterText(cells.writer.initials)}
+              title={CHOOSE_WRITER}
               data-import-writer-pick
               data-import-writer-tone="amber"
               data-import-writer-initials={cells.writer.initials ?? undefined}
               class={PICK_CONTROL}
             >
-              <span class="truncate">{pickWriterText(cells.writer.initials)}</span>
+              <span class="truncate">{CHOOSE_WRITER}</span>
               <CaretDownIcon size={PICK_CARET_SIZE} aria-hidden="true" class="shrink-0" />
             </button>
           {:else}
@@ -506,10 +532,10 @@
         {/snippet}
         {#snippet content({ close })}
           <ImportWriterList
-            current={row.writerName ?? null}
-            onPick={(name) => {
+            currentWriterId={row.writerId ?? null}
+            onPick={(picked) => {
               close();
-              pickWriter(name);
+              pickWriter(picked);
             }}
           />
         {/snippet}
@@ -517,7 +543,7 @@
     {:else if cells.writer}
       <!-- Read only: an amber writer cell says what is missing. -->
       <span data-import-writer-tone={cells.writer.tone} class={`truncate ${toneClass[cells.writer.tone]}`}>{
-        cells.writer.tone === "amber" && cells.writer.initials ? `No writer for ${cells.writer.initials}` : cells.writer.text
+        cells.writer.tone === "amber" ? "No writer" : cells.writer.text
       }</span>
     {/if}
   </div>

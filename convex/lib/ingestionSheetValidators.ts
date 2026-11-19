@@ -30,8 +30,10 @@ export type SheetTab = Infer<typeof sheetTabValidator>;
  * (2026-11-11, phase 3b fixes): the file was read but no text came out of it
  * (a PDF that is only a scan); "could_not_read" stays for a file that failed.
  * "unmatched_initials" (2026-11-12): a final PD whose file name gave the
- * writer's initials, which no person has said who they are yet
- * (importWriterInitials); "no_writer" stays for one with no initials at all.
+ * writer's initials but has no writer: since 2026-11-16 only when the
+ * initials could be more than one person (two team members share them, or
+ * two writers with no login do), so a person must choose. "no_writer" stays
+ * for one with no initials at all.
  */
 export const checkReasonValidator = v.union(
   v.literal("no_company"),
@@ -46,12 +48,29 @@ export const checkReasonValidator = v.union(
 export type CheckReason = Infer<typeof checkReasonValidator>;
 
 /**
- * Where a row's writer name came from (2026-11-12): a person set it on the
- * file ("person"), or a person said once which writer the file name's
- * initials stand for ("initials", importWriterInitials). Absent with no
- * name; a name set before this existed is a person's (its editedLabels say so).
+ * Where a row's writer came from (2026-11-12, 2026-11-16): a person set it
+ * on the file ("person"); the check on the file name's initials filled it
+ * while the file had none ("initials", then frozen); or it follows a
+ * person's pick for those initials for the whole firm ("pick", which moves
+ * with the pick and its Undo). Absent with no writer; a name set before
+ * this existed is a person's (its editedLabels say so).
  */
-export const writerNameSourceValidator = v.union(v.literal("person"), v.literal("initials"));
+export const writerNameSourceValidator = v.union(v.literal("person"), v.literal("initials"), v.literal("pick"));
+
+/**
+ * A writer a person chose on Import (2026-11-16): a team member (their own
+ * writer, made if they have none yet), a writer by id (a past writer), or a
+ * name typed with 'Use "..."' (a writer with no login and that name, the one
+ * there is or a new one). `orInitials`, on an Undo's choice of a bare writer
+ * the check made: if it has since been removed, the bare writer made from
+ * those initials stands in for it (it is the same as far as anyone can see).
+ */
+export const writerChoiceValidator = v.union(
+  v.object({ kind: v.literal("user"), userId: v.id("users") }),
+  v.object({ kind: v.literal("writer"), writerId: v.id("pdWriters"), orInitials: v.optional(v.string()) }),
+  v.object({ kind: v.literal("name"), name: v.string() })
+);
+export type WriterChoice = Infer<typeof writerChoiceValidator>;
 
 /** Why a batch call left a file as it was (shared/importSheetRules.ts BatchSkipReason). */
 export const batchSkipReasonValidator = v.union(
@@ -103,7 +122,9 @@ export const sheetLabelPatchValidator = v.object({
   fiscalYearEnd: v.optional(v.number()),
   pdNumber: v.optional(v.string()),
   version: v.optional(v.object({ code: pdVersionCodeValidator, number: v.number() })),
+  // A typed name, as before 2026-11-16: the same as `writer` { kind: "name" }.
   writerName: v.optional(v.string()),
+  writer: v.optional(writerChoiceValidator),
   scienceCode: v.optional(v.string()),
 });
 export type SheetLabelPatch = Infer<typeof sheetLabelPatchValidator>;

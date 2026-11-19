@@ -3,6 +3,9 @@ import {
   canDelete,
   canPutBack,
   categoryTakes,
+  CHOOSE_WRITER,
+  initialsFromName,
+  savedInitials,
   deletedReasonFor,
   DELETED_IN_ONEDRIVE_NOTE,
   labelApplies,
@@ -115,5 +118,28 @@ describe("normalizePdNumber", () => {
     expect(normalizePdNumber("20")).toBe("20");
     for (const value of ["", "0", "21", "PD 4", "4ab", "4.5", "-1"]) expect(normalizePdNumber(value), value).toBeNull();
     expect(PD_NUMBER_RULE).toBe("A PD number is 1 to 20, with an optional letter, for example 4 or 12a.");
+  });
+});
+
+describe("saved initials (2026-11-16)", () => {
+  it("saves 1 to 4 letters upper case, empty as none, and refuses anything else", () => {
+    expect(savedInitials(" dw ")).toBe("DW");
+    expect(savedInitials("J")).toBe("J");
+    expect(savedInitials("abcd")).toBe("ABCD");
+    expect(savedInitials("  ")).toBe("");
+    for (const value of ["ABCDE", "D1", "D W", "D.W", "É"]) expect(savedInitials(value), value).toBeNull();
+  });
+
+  it("prefills from a first and last name, accents dropped, only when both give a letter", () => {
+    expect(initialsFromName("Dana", "Whitlock")).toBe("DW");
+    expect(initialsFromName(" priya ", "nair")).toBe("PN");
+    expect(initialsFromName("Élise", "Ōtani")).toBe("EO");
+    expect(initialsFromName("Kim", "")).toBeNull();
+    expect(initialsFromName(undefined, "Tran")).toBeNull();
+    expect(initialsFromName("1st", "Tran")).toBeNull();
+  });
+
+  it("names the amber control without the initials", () => {
+    expect(CHOOSE_WRITER).toBe("Choose writer");
   });
 });

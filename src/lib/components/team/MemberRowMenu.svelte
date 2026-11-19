@@ -2,8 +2,11 @@
   // Admin member actions on Team (decision 54; not on the boards, built in
   // C4's style): change role, set a temporary password, edit writing
   // preferences on /admin/users. Owner and Developer flags stay there.
+  // 2026-11-16 (writers from initials): edit the initials Import matches
+  // file names against, and unlink a past writer an Admin linked to them.
   import { DropdownMenu } from "bits-ui";
-  import { IconLock, IconMore, IconPencil } from "$lib/components/icons";
+  import { LinkBreakIcon } from "phosphor-svelte";
+  import { IconLock, IconMore, IconPencil, IconTag } from "$lib/components/icons";
   import { resolve } from "$app/paths";
   import RoleSubmenu from "./RoleSubmenu.svelte";
   import { MENU_CONTENT, MENU_ITEM, ROW_MENU_TRIGGER } from "./menuStyles";
@@ -14,15 +17,22 @@
     userId,
     role,
     isSelf,
+    linkedWriterLabel = null,
     onChangeRole,
     onSetPassword,
+    onEditInitials,
+    onUnlinkWriter = null,
   }: {
     name: string;
     userId: string;
     role: Role;
     isSelf: boolean;
+    /** The past writer an Admin linked to this person ("DW"), if any. */
+    linkedWriterLabel?: string | null;
     onChangeRole: (role: Role) => void;
     onSetPassword: () => void;
+    onEditInitials: () => void;
+    onUnlinkWriter?: (() => void) | null;
   } = $props();
 
   const writingHref = $derived(`${resolve("/admin/users")}?user=${encodeURIComponent(userId)}`);
@@ -38,6 +48,14 @@
       {#if !isSelf}
         <DropdownMenu.Item data-menu-item="password" onSelect={onSetPassword} class={`${MENU_ITEM} text-ink`}>
           <IconLock size={15} strokeWidth={1.5} class="shrink-0" />Set a temporary password
+        </DropdownMenu.Item>
+      {/if}
+      <DropdownMenu.Item data-menu-item="initials" onSelect={onEditInitials} class={`${MENU_ITEM} text-ink`}>
+        <IconTag size={15} strokeWidth={1.5} class="shrink-0" />Edit initials
+      </DropdownMenu.Item>
+      {#if linkedWriterLabel && onUnlinkWriter}
+        <DropdownMenu.Item data-menu-item="unlink-writer" onSelect={onUnlinkWriter} class={`${MENU_ITEM} text-ink`}>
+          <LinkBreakIcon size="0.9375rem" aria-hidden="true" class="shrink-0" /><span class="truncate">Unlink past writer {linkedWriterLabel}</span>
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Item class={`${MENU_ITEM} text-ink`}>

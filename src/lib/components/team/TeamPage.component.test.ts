@@ -252,11 +252,13 @@ describe("TeamPage", () => {
         Math.round(cell.getBoundingClientRect().width),
       );
       expect(widths[0]).toBe(Math.round(board(260)));
-      expect(widths[2]).toBe(Math.round(board(120)));
-      expect(widths[3]).toBe(Math.round(board(110)));
+      // Initials (2026-11-16), between Name and Email.
+      expect(widths[1]).toBe(Math.round(board(56)));
+      expect(widths[3]).toBe(Math.round(board(120)));
+      expect(widths[4]).toBe(Math.round(board(110)));
       // C1: the Admin row menu takes no column of its own, so Last active
       // ends 16px inside the table and the menu sits over its right end.
-      const lastActive = header.querySelectorAll<HTMLElement>('[role="columnheader"]')[3].getBoundingClientRect();
+      const lastActive = header.querySelectorAll<HTMLElement>('[role="columnheader"]')[4].getBoundingClientRect();
       expect(members.getBoundingClientRect().right - lastActive.right).toBeCloseTo(board(17), 0);
       const menu = members.querySelector<HTMLElement>("[data-member-row] [data-member-menu]")!.getBoundingClientRect();
       expect(Math.round(menu.right)).toBe(Math.round(lastActive.right));

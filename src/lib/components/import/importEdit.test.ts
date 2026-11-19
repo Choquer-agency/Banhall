@@ -15,7 +15,7 @@ import {
   MOVE_CATEGORIES,
   moveBackGroups,
   movedText,
-  pickWriterText,
+  CHOOSE_WRITER,
   putBackLine,
   putBackText,
   rowAbilities,
@@ -317,7 +317,7 @@ describe("the bar's words", () => {
     expect(confirmLine(year, 6)).toBe("Set the year end to Mar 31, 2025 for 6 files");
     expect(confirmLine(year, 1)).toBe("Set the year end to Mar 31, 2025 for 1 file");
     expect(confirmLine({ kind: "company", company: "Halden Foods" }, 1_204)).toBe("Move 1,204 files to Halden Foods");
-    expect(confirmLine({ kind: "writer", writerName: "Priya Nair" }, 2)).toBe("Set the writer to Priya Nair for 2 files");
+    expect(confirmLine({ kind: "writer", writer: { kind: "name", name: "Priya Nair" }, writerName: "Priya Nair" }, 2)).toBe("Set the writer to Priya Nair for 2 files");
     expect(confirmLine({ kind: "pdNumber", pdNumber: "12a" }, 3)).toBe("Set the PD number to 12a for 3 files");
     expect(confirmLine({ kind: "scienceCode", scienceCode: "2.02.09" }, 1)).toBe("Set the science code to 2.02.09 for 1 file");
     expect(deleteLine(6)).toBe("Delete 6 files");
@@ -328,7 +328,7 @@ describe("the bar's words", () => {
   it("says what was done, and how far a run got when it stopped", () => {
     expect(changedText({ kind: "category", category: "transcript" }, 6)).toBe("6 files moved to Transcripts");
     expect(changedText(year, 1)).toBe("Year end set to Mar 31, 2025 for 1 file");
-    expect(changedText({ kind: "writer", writerName: "Sam Okafor" }, 3)).toBe("Writer set to Sam Okafor for 3 files");
+    expect(changedText({ kind: "writer", writer: { kind: "name", name: "Sam Okafor" }, writerName: "Sam Okafor" }, 3)).toBe("Writer set to Sam Okafor for 3 files");
     expect(changedText({ kind: "pdNumber", pdNumber: "4" }, 1)).toBe("PD number set to 4 for 1 file");
     expect(deletedText(1)).toBe("1 file deleted");
     expect(deletedText(6)).toBe("6 files deleted");
@@ -349,7 +349,8 @@ describe("the bar's words", () => {
     expect(changePatch(year)).toEqual({ fiscalYearEnd: Date.UTC(2025, 2, 31) });
     expect(changePatch({ kind: "company", company: "Northgate Labs" })).toEqual({ company: "Northgate Labs" });
     expect(changePatch({ kind: "pdNumber", pdNumber: "7" })).toEqual({ pdNumber: "7" });
-    expect(changePatch({ kind: "writer", writerName: "Jordan Ellis" })).toEqual({ writerName: "Jordan Ellis" });
+    const jordan = { kind: "name" as const, name: "Jordan Ellis" };
+    expect(changePatch({ kind: "writer", writer: jordan, writerName: "Jordan Ellis" })).toEqual({ writer: jordan });
     expect(changePatch({ kind: "scienceCode", scienceCode: "1.02.02" })).toEqual({ scienceCode: "1.02.02" });
   });
 
@@ -373,10 +374,9 @@ describe("the bar's words", () => {
   });
 });
 
-describe("writers by initials (2026-11-12)", () => {
-  it("asks for the writer of the initials, or for a writer", () => {
-    expect(pickWriterText("KT")).toBe("Pick a writer for KT");
-    expect(pickWriterText(null)).toBe("Pick a writer");
+describe("writers from initials (2026-11-12, 2026-11-16)", () => {
+  it("asks a person to choose a writer in two words, with no initials in them", () => {
+    expect(CHOOSE_WRITER).toBe("Choose writer");
   });
 
   it("says who the initials are, on how many files, and when more are still to follow", () => {

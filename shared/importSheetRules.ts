@@ -198,14 +198,55 @@ export function rowAbilities(
 }
 
 /**
- * The initials a file name gave, as a remembered writer is kept under
- * (2026-11-12, importWriterInitials): trimmed and upper case, two or three
- * letters as the naming scheme has them (shared/pdFilename.ts); null for
- * anything else. Initials are only ever matched to a writer by a person.
+ * The initials a file name gave, as writers are matched by (2026-11-16):
+ * trimmed and upper case, two or three letters as the naming scheme has them
+ * (shared/pdFilename.ts); null for anything else. A team member matches only
+ * when their saved initials are exactly these (savedInitials).
  */
 export function writerInitialsKey(initials: string | undefined | null): string | null {
   const key = initials?.trim().toUpperCase() ?? "";
   return /^[A-Z]{2,3}$/.test(key) ? key : null;
+}
+
+// ─── Writers from initials (2026-11-16) ─────────────────────────────────────
+
+/** The amber control on a file whose writer a person still has to choose. */
+export const CHOOSE_WRITER = "Choose writer";
+
+/** The quiet tag on a writer who has no login (a past writer). */
+export const NO_LOGIN = "No login";
+
+/** The most letters a team member's saved initials may have. */
+export const MAX_SAVED_INITIALS = 4;
+
+/**
+ * A team member's initials as they are saved (users.initials): trimmed,
+ * upper case, 1 to 4 letters from A to Z. "" for an empty value, which means
+ * "no initials" (they never match a file). Null when the value is not that.
+ */
+export function savedInitials(value: string): string | null {
+  const key = value.trim().toUpperCase();
+  if (key === "") return "";
+  return new RegExp(`^[A-Z]{1,${MAX_SAVED_INITIALS}}$`).test(key) ? key : null;
+}
+
+/** The words a refused initials value shows. */
+export const INITIALS_RULE = `Initials are 1 to ${MAX_SAVED_INITIALS} letters, such as DW.`;
+
+/** The first letter of a name from A to Z, accents dropped ("Élodie" gives "E"); null when there is none. */
+function firstLetter(name: string | undefined | null): string | null {
+  const letter = (name ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(letter) ? letter : null;
+}
+
+/**
+ * The initials prefilled for a team member with a first and last name: the
+ * first letter of each ("Dana Whitlock" gives "DW"). Null unless both give one.
+ */
+export function initialsFromName(firstName: string | undefined | null, lastName: string | undefined | null): string | null {
+  const first = firstLetter(firstName);
+  const last = firstLetter(lastName);
+  return first && last ? `${first}${last}` : null;
 }
 
 /** Looks like an email address, which is never saved as a writer's name. */

@@ -195,8 +195,9 @@ export function yearSplitText(fiscalYears: Record<string, number>): string {
 
 /**
  * The order reasons are named in a section's note, and how. A file with no
- * writer and one whose initials no person has matched yet (2026-11-12) both
- * "need a writer": a file has one or the other, never both.
+ * writer and one whose initials give none because they could be more than
+ * one person (2026-11-16) both "need a writer": a file has one or the
+ * other, never both.
  */
 const REASON_WORDS: readonly [readonly CheckReason[], string, string][] = [
   [["could_not_read"], "could not be read", "could not be read"],
@@ -365,11 +366,14 @@ export type Tone = "ink" | "muted" | "amber";
 export type CellText = { text: string; tone: Tone };
 
 /**
- * The Writer cell (2026-11-12): a name (ink), the file name's initials when
- * no person has said who they are (amber on a final PD, which needs a
- * writer; muted on a draft or review copy), or amber "No writer". `initials`
- * are the file name's; `remembered` is a name that came from them, which a
- * person matched once for every file (no AI mark: the file name and a person).
+ * The Writer cell (2026-11-12, 2026-11-16): the writer's label (ink: a team
+ * member's name, a past writer's name, or initials such as "DW" for a
+ * writer with no login), the file name's initials when they give no writer
+ * because they could be more than one person (amber on a final PD, which
+ * needs a writer, where the row shows "Choose writer"; muted on a draft or
+ * review copy), or amber "No writer". `initials` are the file name's;
+ * `remembered` is a writer that came from them (no AI mark: the file name
+ * and the firm's people).
  */
 export type WriterCell = CellText & { initials: string | null; remembered: boolean };
 
@@ -450,7 +454,7 @@ export function fileCells(
   const writer: WriterCell | null = !categoryTakes("writerName", row.category)
     ? null
     : writerName
-      ? { text: writerName, tone: "ink", initials, remembered: row.writerNameSource === "initials" }
+      ? { text: writerName, tone: "ink", initials, remembered: row.writerNameSource === "initials" || row.writerNameSource === "pick" }
       : initials
         ? { text: initials, tone: reasons.has("unmatched_initials") ? "amber" : "muted", initials, remembered: false }
         : reasons.has("no_writer")

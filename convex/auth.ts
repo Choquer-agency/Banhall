@@ -13,6 +13,7 @@ import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
 import { notify } from "./lib/notify";
 import { ROLE_LABELS } from "../shared/roles";
+import { initialsFromName } from "../shared/importSheetRules";
 import { notificationCopy } from "../shared/notifications";
 import { customAuthCookiePrefix } from "../shared/authCookies";
 import {
@@ -90,6 +91,11 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         if (!firstName || !lastName) {
           throw new ConvexError("First and last name are required.");
         }
+        // 2026-11-16: saved initials (Import's writer match) are prefilled
+        // from the names while none are saved. No file is checked again:
+        // files keep their writer (the freeze rule), and an Admin links a
+        // past writer with the same initials on Team.
+        const initials = initialsFromName(firstName, lastName);
         let userId;
         if (existing) {
           await ctx.db.patch(existing._id, {
@@ -97,6 +103,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
             firstName,
             lastName,
             role: existing.role ?? invite.role,
+            ...(existing.initials === undefined && initials ? { initials } : {}),
           });
           userId = existing._id;
         } else {
@@ -108,6 +115,7 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
             name: authUser.name ?? undefined,
             role: invite.role,
             createdAt: now,
+            ...(initials ? { initials } : {}),
           });
         }
         await ctx.db.patch(invite._id, {
