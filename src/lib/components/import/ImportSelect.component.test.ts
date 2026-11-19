@@ -275,6 +275,7 @@ describe("selecting files on the Import page", () => {
       "Category",
       "Fiscal year",
       "More",
+      "Approve",
       "Delete",
       "Clear selection",
     ]);
@@ -611,7 +612,7 @@ describe("selecting files on the Import page", () => {
     await userEvent.click(page.getByRole("button", { name: "Delete", exact: true }));
     await userEvent.click(page.getByRole("button", { name: "Delete 3 files" }));
     await expect.element(page.getByText("2 files deleted")).toBeVisible();
-    await expect.element(page.getByText("1 file is already approved into the Brain.")).toBeVisible();
+    await expect.element(page.getByText("1 file is already approved.")).toBeVisible();
     await expect.poll(bar).toBeNull();
     await userEvent.click(page.getByRole("button", { name: "Undo" }));
     await expect.poll(() => __mutationCalls("ingestion:restoreItems")).toEqual([{ ids: ["pd1", "pd2"] }]);

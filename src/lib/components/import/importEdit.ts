@@ -320,7 +320,7 @@ function skipWords(reason: BatchSkipReason, tab: SheetTab): readonly [string, st
     case "being_read":
       return ["is still being read, so it cannot be deleted yet", "are still being read, so they cannot be deleted yet"];
     case "approved":
-      return ["is already approved into the Brain", "are already approved into the Brain"];
+      return ["is already approved", "are already approved"];
     case "already_deleted":
       return ["was already deleted", "were already deleted"];
     case "does_not_apply":
@@ -526,10 +526,12 @@ export function putBackText(count: number): string {
 /** Said once, quietly, where a delete is confirmed. */
 export const DELETE_NOTE = "Deleting only takes a file out of Import. Nothing changes on anyone's computer or in OneDrive.";
 
-const PAST: Record<"Changed" | "Deleted" | "Put back", string> = {
+const PAST: Record<"Changed" | "Deleted" | "Put back" | "Sent", string> = {
   Changed: "changed",
   Deleted: "deleted",
   "Put back": "put back",
+  // 2026-11-17: files sent to be approved.
+  Sent: "sent",
 };
 
 /**
@@ -541,7 +543,7 @@ const PAST: Record<"Changed" | "Deleted" | "Put back", string> = {
  * changed, only the reason.
  */
 export function stoppedText(
-  verb: "Changed" | "Deleted" | "Put back",
+  verb: "Changed" | "Deleted" | "Put back" | "Sent",
   done: number,
   total: number,
   reason: string,

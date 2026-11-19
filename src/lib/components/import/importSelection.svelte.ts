@@ -23,7 +23,9 @@ import { checkState, type CheckState } from "./importEdit";
 import type { ImportCategory, SheetFileRow } from "./importFormat";
 
 export type SelectedFile = Pick<SheetFileRow, "_id" | "name" | "status" | "category" | "fiscalYearEnd"> &
-  Partial<Pick<SheetFileRow, "deletedReason">>;
+  // 2026-11-17: whether it still needs a check, which Approve leaves out,
+  // and why it is on Deleted, which Put back follows.
+  Partial<Pick<SheetFileRow, "needsCheck" | "deletedReason">>;
 type FileId = SheetFileRow["_id"];
 
 const sectionKey = (companyKey: string, category: ImportCategory) => JSON.stringify([companyKey, category]);
@@ -35,6 +37,7 @@ function slim(row: SelectedFile): SelectedFile {
     status: row.status,
     category: row.category,
     fiscalYearEnd: row.fiscalYearEnd,
+    ...(row.needsCheck !== undefined ? { needsCheck: row.needsCheck } : {}),
     ...(row.deletedReason !== undefined ? { deletedReason: row.deletedReason } : {}),
   };
 }
@@ -45,6 +48,7 @@ function same(a: SelectedFile, b: SelectedFile): boolean {
     a.status === b.status &&
     a.category === b.category &&
     a.fiscalYearEnd === b.fiscalYearEnd &&
+    a.needsCheck === b.needsCheck &&
     a.deletedReason === b.deletedReason
   );
 }

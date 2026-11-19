@@ -13,7 +13,9 @@ import { v, type Infer } from "convex/values";
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { importSource, sourceIdOrRefuse } from "./brain";
+import { contentHash as brainContentHash, findImportMatch, importSource } from "./brain";
+import { addImportedCompanyFile, linkKeyProjectsPage } from "./companyFiles";
+import { hasReadText as hasServerReadText } from "./lib/serverReading";
 import { getCurrentUserOrNull } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { graphConfiguration } from "./lib/providerConfig";
@@ -35,6 +37,7 @@ import {
   fieldsForLabels,
   followsRememberedWriter,
   hasReadText,
+  IMPORT_TEXT_CUT_NOTE,
   isBeingRead,
   labelPatchFields,
   initialsReviewerFields,
@@ -70,6 +73,7 @@ import {
   membersWithInitials,
   nameWriterFromDocument,
   pickedWriter,
+  reviewerForInitials,
   userDisplayLabel,
   writerForChoice,
   writerForInitials,
@@ -89,6 +93,7 @@ import {
   writeImportCompany,
 } from "./lib/importCompanyCounts";
 import {
+  approveRefusalValidator,
   batchResultValidator,
   checkReasonValidator,
   editableLabelValidator,
@@ -109,6 +114,7 @@ import {
   dashboardCompanyForKey,
   mergedClientForKey,
 } from "./lib/clients";
+import { projectIndustry } from "./clients";
 import {
   buildImportBrainCopy,
   IMPORT_BRAIN_NOT_COVERED,
@@ -120,6 +126,8 @@ import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
 import { industrySlug } from "../shared/industries";
 import {
+  APPROVAL_STALE_MS,
+  approveRefusalFor,
   canDelete,
   canPutBack,
   craReviewedApplies,
@@ -528,6 +536,16 @@ const sheetRowFields = {
   ),
   // New (2026-11-12): arrived in the last 24 hours. Only on To review.
   isNew: v.optional(v.boolean()),
+  // 2026-11-17 (Approve on Import), approved files only: the company page
+  // the file is on (absent when its company file was removed since, or it
+  // was approved on the old page), and what became of it in the Brain:
+  // in_brain, brain_check (waiting for a person), kept_out, or removed (an
+  // Admin removed its Brain copy since). Absent: it has no Brain copy and
+  // none is waiting (every file but a final PD).
+  companyPage: v.optional(v.object({ key: v.string(), name: v.string() })),
+  brain: v.optional(
+    v.union(v.literal("in_brain"), v.literal("brain_check"), v.literal("kept_out"), v.literal("removed"))
+  ),
 };
 const sheetRowValidator = v.object(sheetRowFields);
 type SheetRow = Infer<typeof sheetRowValidator>;
@@ -596,6 +614,48 @@ async function withWriterLabels<R extends SheetRow>(ctx: QueryCtx, rows: R[]): P
   });
 }
 
+/**
+ * Approved rows with what each became (2026-11-17): the company page its
+ * company file is on, and its Brain state, read from the company file, its
+ * company and the Brain source's list card (each read once a page). Other
+ * rows are returned as they are.
+ */
+async function withApprovedLinks<R extends SheetRow>(
+  ctx: QueryCtx,
+  items: readonly Doc<"ingestionItems">[],
+  rows: R[]
+): Promise<R[]> {
+  const clients = new Map<Id<"clients">, Doc<"clients"> | null>();
+  const out: R[] = [];
+  for (const [index, row] of rows.entries()) {
+    const item = items[index];
+    if (!item || item.status !== "approved") {
+      out.push(row);
+      continue;
+    }
+    let companyPage: { key: string; name: string } | undefined;
+    const file = item.companyFileId ? await ctx.db.get(item.companyFileId) : null;
+    if (file) {
+      if (!clients.has(file.clientId)) clients.set(file.clientId, await ctx.db.get(file.clientId));
+      const client = clients.get(file.clientId);
+      if (client?.status === "active") companyPage = { key: client.nameKey, name: client.name };
+    }
+    let brain: SheetRow["brain"];
+    if (item.brainSourceId) {
+      const card = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_sourceId", (q) => q.eq("sourceId", item.brainSourceId!))
+        .first();
+      // No card: the source was removed for good on /admin/brain
+      // (removeSourcePermanently leaves the file's brainSourceId).
+      brain = !card || card.status === "revoked" ? "removed" : "in_brain";
+    } else if (item.brainCheck === "waiting") brain = "brain_check";
+    else if (item.brainCheck === "kept_out") brain = "kept_out";
+    out.push(definedFields({ ...row, companyPage, brain }));
+  }
+  return out;
+}
+
 /** A page size the sheet may ask for, from 1 to `max`. */
 function boundedPage<T extends { numItems: number }>(opts: T, max: number): T {
   const n = Number.isFinite(opts.numItems) ? Math.floor(opts.numItems) : max;
@@ -629,6 +689,8 @@ export const sheetTotals = query({
       beingRead: v.number(),
       // 2026-11-12: files that are New (To review only).
       newFiles: v.number(),
+      // 2026-11-17: approved final PDs waiting for their Brain check (Approved only).
+      brainCheck: v.number(),
       complete: v.boolean(),
     })
   ),
@@ -638,7 +700,7 @@ export const sheetTotals = query({
       .query("importCompanies")
       .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", args.tab))
       .take(SHEET_BAND_READ_LIMIT + 1);
-    const totals = { files: 0, companies: 0, needsCheck: 0, ready: 0, beingRead: 0, newFiles: 0 };
+    const totals = { files: 0, companies: 0, needsCheck: 0, ready: 0, beingRead: 0, newFiles: 0, brainCheck: 0 };
     for (const band of bands.slice(0, SHEET_BAND_READ_LIMIT)) {
       // A rebuild's start row has no files yet; it is not a company on the sheet.
       if (band.total <= 0) continue;
@@ -648,6 +710,7 @@ export const sheetTotals = query({
       totals.ready += band.ready;
       totals.beingRead += band.beingRead;
       totals.newFiles += band.newFiles ?? 0;
+      totals.brainCheck += band.brainCheck ?? 0;
     }
     return { ...totals, complete: bands.length <= SHEET_BAND_READ_LIMIT };
   },
@@ -698,6 +761,8 @@ const sheetBandValidator = v.object({
   beingRead: v.number(),
   // 2026-11-12: the band's New files (To review only).
   newFiles: v.number(),
+  // 2026-11-17: its approved final PDs waiting for a Brain check (Approved only).
+  brainCheck: v.number(),
   categories: v.record(v.string(), importCategoryCountsValidator),
   company: v.union(v.null(), knownCompanyValidator),
   // A company key the app does not know yet (never true for the no-company band).
@@ -880,6 +945,7 @@ export const sheetCompanies = query({
           ready: band.ready,
           beingRead: band.beingRead,
           newFiles: band.newFiles ?? 0,
+          brainCheck: band.brainCheck ?? 0,
           categories: band.categories,
           company,
           isNew,
@@ -937,7 +1003,8 @@ export const sheetFiles = query({
             q.eq("sheetTab", args.tab).eq("companyKey", companyKey).eq("sheetSection", args.category)
           );
     const result = await files.paginate(boundedPage(args.paginationOpts, SHEET_FILES_PAGE_MAX));
-    return { ...result, page: await withWriterLabels(ctx, result.page.map(sheetRow)) };
+    const rows = await withWriterLabels(ctx, result.page.map(sheetRow));
+    return { ...result, page: await withApprovedLinks(ctx, result.page, rows) };
   },
 });
 
@@ -991,19 +1058,17 @@ export const sheetSearch = query({
         total: band.total,
         needsCheck: band.needsCheck,
       }));
-    return {
-      files: await withWriterLabels(
-        ctx,
-        files.map((file) =>
-          definedFields({
-            ...sheetRow(file),
-            companyKey: file.companyKey ?? NO_COMPANY_KEY,
-            clientName: file.clientName,
-          })
-        )
-      ),
-      companies,
-    };
+    const rows = await withWriterLabels(
+      ctx,
+      files.map((file) =>
+        definedFields({
+          ...sheetRow(file),
+          companyKey: file.companyKey ?? NO_COMPANY_KEY,
+          clientName: file.clientName,
+        })
+      )
+    );
+    return { files: await withApprovedLinks(ctx, files, rows), companies };
   },
 });
 
@@ -1052,7 +1117,7 @@ export const sheetFile = query({
     if ((await adminOrNull(ctx)) === null) return null;
     const item = await ctx.db.get(args.id);
     if (!item) return null;
-    const [row] = await withWriterLabels(ctx, [sheetRow(item)]);
+    const [row] = await withApprovedLinks(ctx, [item], await withWriterLabels(ctx, [sheetRow(item)]));
     return definedFields({
       ...row,
       sheetTab: item.sheetTab,
@@ -1079,91 +1144,25 @@ export const sheetFile = query({
 // Refusals people read (2026-11-11, phase 3b fixes: plain words, as they
 // reach the Import page's toasts), shared by the single-file mutations below.
 const ITEM_NOT_FOUND = "This file is no longer in Import.";
-const ALREADY_IN_BRAIN = "This file is already approved into the Brain. Remove it from the Brain page instead.";
+// 2026-11-17: an approved file is on its company's page (and a final PD may
+// be in the Brain), so it is neither rejected nor deleted here.
+const ALREADY_APPROVED = "This file is already approved, so it cannot be rejected or deleted here.";
 const STILL_PROCESSING = "This file is still processing and cannot be deleted yet";
 const ONLY_DELETED_RESTORE = "This file is not deleted, so there is nothing to put back.";
 
-/** Auth + preconditions for approval; runs with the caller's identity. */
-export const getItemForApproval = internalQuery({
-  args: { itemId: v.id("ingestionItems") },
-  handler: async (ctx, args) => {
-    await assertAdmin(ctx);
-    const item = await ctx.db.get(args.itemId);
-    if (!item) throw new Error(ITEM_NOT_FOUND);
-    if (item.status !== "pending_review") {
-      throw new Error("Only items pending review can be approved");
-    }
-    if (!item.text?.trim() && !item.textStorageId) {
-      throw new Error("No extracted text on this item — it cannot enter the Brain");
-    }
-    return item;
-  },
-});
-
-export const finalizeApproval = internalMutation({
-  args: {
-    itemId: v.id("ingestionItems"),
-    content: v.string(),
-    industry: v.string(),
-    writerName: v.optional(v.string()),
-    writerTier: v.number(),
-    scienceCode: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const admin = await assertAdmin(ctx);
-    const item = await ctx.db.get(args.itemId);
-    if (!item || item.status !== "pending_review") {
-      throw new Error("Item is no longer pending review");
-    }
-    const docType =
-      item.docKind === "pd"
-        ? "pd"
-        : item.docKind === "transcript"
-          ? "transcript"
-          : "supporting_doc";
-    const title = [item.clientName, item.fiscalYearLabel, item.name]
-      .filter(Boolean)
-      .join(" — ");
-    // 2026-11-17: a match an Admin revoked is refused in plain words and
-    // nothing is approved (the item stays in review); a pending match is
-    // approved, an approved one reused. The file's bytes are matched first.
-    const sourceId = sourceIdOrRefuse(
-      await importSource(
-        ctx,
-        {
-          kind: "pd_pair",
-          title,
-          industry: args.industry.trim(),
-          writerName: args.writerName?.trim() || undefined,
-          writerTier: args.writerTier,
-          docType,
-          fiscalYear: item.fiscalYear,
-          content: args.content,
-          scienceCode: args.scienceCode?.trim() || undefined,
-          approve: true,
-          importItem: { itemId: item._id, contentHash: item.contentHash },
-        },
-        admin
-      )
-    );
-    const { after } = await patchItem(ctx, item, {
-      status: "approved",
-      brainSourceId: sourceId,
-      reviewedBy: admin,
-      reviewedAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    // The old group, and the new one if settling an old row moved it.
-    await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
-    return sourceId;
-  },
-});
+/**
+ * 2026-11-17 (owner): the old review page's Approve is switched off. Files
+ * are approved on the Import page, which puts every approved file on its
+ * company's page and gives a final PD a Brain check first.
+ */
+export const OLD_APPROVE_OFF =
+  "Approving here is switched off. Approve files on the Import page: they go on their company's page, and final PDs get a Brain check.";
 
 /**
- * Approve one reviewed item into The Brain. An action (not a mutation)
- * because the full extracted text lives in storage; reuses brain.importSource
- * with approve=true (the review happening here IS the approval), so dedupe,
- * audit logging, and embed scheduling behave exactly like a curated import.
+ * The old review page's Approve (BNH-17), switched off on 2026-11-17: it
+ * refuses every call in plain words that point to the Import page, so an
+ * old page or preview that still offers it changes nothing. Its arguments
+ * stay as they were. Reject, delete and port to a project keep working.
  */
 export const approveItem = action({
   args: {
@@ -1173,35 +1172,1033 @@ export const approveItem = action({
     writerTier: v.number(),
     scienceCode: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<Id<"brainSources">> => {
-    if (
-      !Number.isFinite(args.writerTier) ||
-      args.writerTier < 0 ||
-      args.writerTier > 1
-    ) {
-      throw new Error("Writer tier must be between 0 and 1");
+  handler: async (ctx): Promise<Id<"brainSources">> => {
+    await ctx.runQuery(internal.ingestion.adminCheck, {});
+    domainError("INVALID_STATE", OLD_APPROVE_OFF, { reason: "OLD_APPROVE_OFF" });
+  },
+});
+
+/** Throws "Admin only" for anyone else; for actions, which have no database. */
+export const adminCheck = internalQuery({
+  args: {},
+  returns: v.id("users"),
+  handler: async (ctx) => await assertAdmin(ctx),
+});
+
+// ─── Approve on Import (2026-11-17, docs/product-domain.md) ─────────────────
+// Owner rule, "as told to the client": approving a file on the Import page
+// puts every approved file on its company's page; a final PD also gets a
+// scrubbed Brain copy, but only after a person has read it (the Brain check
+// below). Approve finds or makes the company (a new one takes the industry
+// picked on the sheet), adds the company file with the Import file's own
+// stored original, and marks the file approved through patchItem, so the
+// company counts and pairing follow. It never makes a project, a
+// previous_pd file or a lesson set. Admins only.
+
+/** Files one approval step handles before it schedules the next step. */
+const APPROVAL_STEP_FILES = 10;
+/** Import files one step of a company's approval reads to find its ready files. */
+const APPROVAL_LIST_PAGE = 40;
+/** Refused files one approval's result lists. */
+const APPROVAL_REFUSALS_LISTED = 100;
+
+/**
+ * Whether the extraction cut the Import file's text at the import's limit
+ * (2026-11-17): the stored `textCut`, set by every extraction; for a row
+ * read before it existed, the words finishExtraction left in its note
+ * (IMPORT_TEXT_CUT_NOTE). Approval stores the answer on the row.
+ */
+export function importTextCut(item: Pick<Doc<"ingestionItems">, "textCut" | "extractNote">): boolean {
+  return item.textCut ?? (item.extractNote ?? "").includes(IMPORT_TEXT_CUT_NOTE);
+}
+
+/**
+ * Whether the Import file holds its whole text (2026-11-17): read into
+ * storage, and not cut at the import's limit. A file read long ago has only
+ * its preview; its company file is read again on the server.
+ */
+export function importHasWholeText(item: Pick<Doc<"ingestionItems">, "textStorageId" | "extractNote" | "textCut">): boolean {
+  return item.textStorageId !== undefined && !importTextCut(item);
+}
+
+/** The company file category an Import category is filed under on approval. */
+export function companyFileCategoryFor(
+  category: Doc<"ingestionItems">["category"]
+): NonNullable<Doc<"companyFiles">["category"]> | null {
+  switch (category) {
+    case "final_pd":
+    case "draft":
+    case "review_copy":
+    case "transcript":
+    case "supporting":
+      return category;
+    // A file of the company, not of a fiscal year: company background, which
+    // a draft reads as a file added by hand (2026-11-17 company files entry).
+    case "company_file":
+      return "background";
+    default:
+      return null;
+  }
+}
+
+type ApproveRefusalCode = Infer<typeof approveRefusalValidator>;
+type ImportCompany =
+  | { kind: "client"; client: Doc<"clients"> }
+  | { kind: "create"; name: string; industry?: string; fromProjects: boolean }
+  | { kind: "refuse"; reason: ApproveRefusalCode; detail?: string };
+
+/**
+ * The company an Import file is approved into, by the app's company key
+ * (as porting matches projects), failing closed (D7: never merge or pick
+ * on its own): the one active company with the key; a key merged into
+ * another company is refused with that company's name, so a person moves
+ * the file there; two active companies with the key are refused. A key only
+ * projects carry gets its company row made from them, as the company page
+ * does; a new key gets a new company with the industry picked on the sheet.
+ */
+async function importCompanyFor(ctx: MutationCtx, item: Doc<"ingestionItems">): Promise<ImportCompany> {
+  const key = item.companyKey;
+  if (!key) return { kind: "refuse", reason: "needs_check" };
+  const active = await ctx.db
+    .query("clients")
+    .withIndex("by_status_and_nameKey", (q) => q.eq("status", "active").eq("nameKey", key))
+    .take(2);
+  if (active.length > 1) return { kind: "refuse", reason: "company_unclear" };
+  if (active.length === 1) return { kind: "client", client: active[0] };
+  const merged = await mergedClientForKey(ctx, key);
+  if (merged) {
+    const kept = await activeClientAfterMerges(ctx, merged);
+    return { kind: "refuse", reason: "company_merged", ...(kept ? { detail: `Merged into ${kept.name}` } : {}) };
+  }
+  const picks = await newCompanyPicks(ctx, key);
+  const projects = await dashboardCompanyForKey(ctx, key);
+  if (projects && projects.projectCount > 0) {
+    const industry = picks?.industry ?? (await projectIndustry(ctx, key)) ?? undefined;
+    return {
+      kind: "create",
+      name: projects.clientName.trim() || item.clientName?.trim() || key,
+      ...(industry ? { industry } : {}),
+      fromProjects: true,
+    };
+  }
+  const band = await importCompanyRow(ctx, "review", key);
+  const name = (band?.displayName.trim() || item.clientName?.trim() || key).slice(0, 200);
+  return { kind: "create", name, ...(picks?.industry ? { industry: picks.industry } : {}), fromProjects: false };
+}
+
+/** Makes the company an approval found no row for: the sheet's picked industry, its projects linked. */
+async function createImportCompany(
+  ctx: MutationCtx,
+  key: string,
+  plan: Extract<ImportCompany, { kind: "create" }>,
+  actor: Doc<"users">
+): Promise<Doc<"clients">> {
+  const now = Date.now();
+  const clientId = await ctx.db.insert("clients", {
+    name: plan.name,
+    nameKey: key,
+    ...(plan.industry ? { industry: plan.industry } : {}),
+    status: "active",
+    nameHistoryComplete: true,
+    createdBy: actor._id,
+    createdAt: now,
+    updatedAt: now,
+  });
+  // Projects with the key reach their new company's files, as when the
+  // company page makes a company from its projects.
+  if (plan.fromProjects) await linkKeyProjectsPage(ctx, key, clientId, null);
+  // The company is made: what the sheet held for it until now has done its job.
+  const picks = await newCompanyPicks(ctx, key);
+  if (picks) await ctx.db.delete(picks._id);
+  return (await ctx.db.get(clientId))!;
+}
+
+type ApproveOutcome =
+  | { state: "approved" | "already"; companyFileId?: Id<"companyFiles">; readOnServer?: boolean }
+  | { state: "refused"; reason: ApproveRefusalCode; detail?: string };
+
+/**
+ * Approves one Import file in the caller's mutation (2026-11-17): the
+ * refusals first, then the company (found or made), the company file
+ * (sharing the original; `text` is the Import file's whole text, read by the
+ * caller's action, when it has it), then the file approved with its link,
+ * and pairing for its group. A final PD waits for its Brain check. Safe to
+ * run again: an approved file is "already", and its company file is found.
+ */
+async function approveOneFile(
+  ctx: MutationCtx,
+  itemId: Id<"ingestionItems">,
+  read: { text: string; textStorageId: Id<"_storage"> } | undefined,
+  actor: Doc<"users">,
+  options: { companyKey?: string } = {}
+): Promise<ApproveOutcome> {
+  const item = await ctx.db.get(itemId);
+  if (!item) return { state: "refused", reason: "missing" };
+  if (item.status === "approved") {
+    return { state: "already", ...(item.companyFileId ? { companyFileId: item.companyFileId } : {}) };
+  }
+  const refusal = approveRefusalFor(item);
+  if (refusal) return { state: "refused", reason: refusal };
+  // A company's "Approve N ready" approves only files still in that company.
+  if (options.companyKey !== undefined && item.companyKey !== options.companyKey) {
+    return { state: "refused", reason: "left_company" };
+  }
+  // The text the action read is used only if it is still the file's whole
+  // text (the file may have been read again meanwhile); otherwise the
+  // original is read on the server, as for a file a person adds.
+  const text =
+    read && read.textStorageId === item.textStorageId && importHasWholeText(item) ? read.text : undefined;
+  const category = companyFileCategoryFor(item.category);
+  if (!category || !item.companyKey) return { state: "refused", reason: "needs_check" };
+  const found = await importCompanyFor(ctx, item);
+  if (found.kind === "refuse") return { state: "refused", reason: found.reason, ...(found.detail ? { detail: found.detail } : {}) };
+  // A final PD's Brain copy needs an industry: the company's, or the one
+  // picked for a new company. Refused before anything is made.
+  const industry = found.kind === "client" ? found.client.industry : found.industry;
+  if (item.category === "final_pd" && !industry?.trim()) {
+    return { state: "refused", reason: "no_industry", detail: "Pick an industry for this company." };
+  }
+  const client = found.kind === "client" ? found.client : await createImportCompany(ctx, item.companyKey, found, actor);
+  const wholeText = text !== undefined && hasServerReadText(text) ? text : undefined;
+  // A file with no original and only its preview keeps the preview: nothing else can be read.
+  const companyText = wholeText ?? (item.storageId === undefined && item.text?.trim() ? item.text : null);
+  // The file's own reviewer (one an Admin chose, setFileReviewers, or one it
+  // kept after its initials changed) is copied as it is; only a final PD
+  // with none takes one from its reviewer initials.
+  const savedReviewer = await liveWriter(ctx, item.reviewerId);
+  const reviewerId =
+    savedReviewer?._id ?? (item.category === "final_pd" ? await reviewerForInitials(ctx, item.reviewerInitials) : null);
+  const importLabels = definedFields({
+    pdTitle: item.pdTitle,
+    versionCode: item.versionCode,
+    versionNumber: item.versionNumber,
+    scienceCode: item.scienceCode,
+    fiscalYearEnd: item.fiscalYearEnd,
+    writerInitials: item.writerInitials,
+    reviewerInitials: item.reviewerInitials,
+  });
+  const added = await addImportedCompanyFile(ctx, {
+    clientId: client._id,
+    importItemId: item._id,
+    fileName: item.name,
+    category,
+    ...(item.storageId ? { storageId: item.storageId } : {}),
+    text: companyText,
+    ...(item.fiscalYear !== undefined ? { fiscalYear: item.fiscalYear } : {}),
+    ...(item.pdNumber ? { pdNumber: item.pdNumber } : {}),
+    ...(item.writerId ? { writerId: item.writerId } : {}),
+    ...(reviewerId ? { reviewerId } : {}),
+    ...(Object.keys(importLabels).length > 0 ? { importLabels } : {}),
+    addedBy: actor,
+  });
+  const now = Date.now();
+  const { after } = await patchItem(ctx, item, {
+    status: "approved",
+    companyFileId: added.companyFileId,
+    reviewedBy: actor._id,
+    reviewedAt: now,
+    updatedAt: now,
+    // A row read before textCut existed stores the answer now.
+    ...(item.textCut === undefined && item.textStorageId !== undefined ? { textCut: importTextCut(item) } : {}),
+    ...(item.category === "final_pd" && !item.brainSourceId ? { brainCheck: "waiting" as const } : {}),
+  });
+  await recomputeGroups(ctx, [after.pairGroupKey, item.pairGroupKey], ONE_ROW);
+  return { state: "approved", companyFileId: added.companyFileId, readOnServer: added.readOnServer };
+}
+
+/** The approval's starter, while still a signed-in Admin; null otherwise. */
+async function approvalActor(ctx: MutationCtx, run: Doc<"importApprovals">): Promise<Doc<"users"> | null> {
+  const user = await ctx.db.get(run.startedBy);
+  return user && user.role === "admin" && user.isAnonymous !== true ? user : null;
+}
+
+async function startApprovalChain(ctx: MutationCtx, approvalId: Id<"importApprovals">) {
+  await ctx.scheduler.runAfter(0, internal.ingestion.runApproval, { approvalId });
+}
+
+/**
+ * "Approve N ready" on a company band (2026-11-17): approves the band's
+ * ready files on To review (read, nothing to check) in a scheduled chain,
+ * one mutation per file, with a counter the page shows. A company whose
+ * approval is still moving gets that one back, not a second.
+ */
+export const approveCompanyReady = mutation({
+  args: { companyKey: v.string() },
+  returns: v.object({
+    approvalId: v.id("importApprovals"),
+    ready: v.number(),
+    // Set when this company's approval was already running, started by another Admin.
+    alreadyRunningBy: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    if (args.companyKey === NO_COMPANY_KEY) {
+      domainError("INVALID_INPUT", "Files with no company cannot be approved. Pick their company first.");
     }
-    if (!args.industry.trim()) throw new Error("Industry is required");
-    const item = await ctx.runQuery(internal.ingestion.getItemForApproval, {
-      itemId: args.itemId,
+    const band = await importCompanyRow(ctx, "review", args.companyKey);
+    if (!band || band.ready <= 0) domainError("INVALID_STATE", "This company has no files ready to approve.");
+    const now = Date.now();
+    const running = await ctx.db
+      .query("importApprovals")
+      .withIndex("by_scope_and_companyKey_and_status", (q) =>
+        q.eq("scope", "company").eq("companyKey", args.companyKey).eq("status", "running")
+      )
+      .take(5);
+    for (const run of running) {
+      if (now - run.updatedAt < APPROVAL_STALE_MS) {
+        const by = run.startedBy === adminId ? null : await ctx.db.get(run.startedBy);
+        return { approvalId: run._id, ready: band.ready, ...(by ? { alreadyRunningBy: userDisplayLabel(by) } : {}) };
+      }
+      await ctx.db.patch(run._id, { status: "stopped", updatedAt: now });
+    }
+    const approvalId = await ctx.db.insert("importApprovals", {
+      startedBy: adminId,
+      startedAt: now,
+      updatedAt: now,
+      scope: "company",
+      companyKey: args.companyKey,
+      companyName: band.displayName,
+      listed: 0,
+      status: "running",
+      total: band.ready,
+      done: 0,
+      approved: 0,
+      refused: 0,
     });
-    let content = item.text ?? "";
-    if (item.textStorageId) {
-      const blob = await ctx.storage.get(item.textStorageId);
-      if (!blob) throw new Error("Extracted text not found in storage");
-      content = await blob.text();
+    await startApprovalChain(ctx, approvalId);
+    return { approvalId, ready: band.ready };
+  },
+});
+
+/**
+ * Approve on selected files (2026-11-17): up to 100 files a call. The first
+ * call starts an approval; a later call with its `approvalId` adds more of
+ * the same selection to it (the page sends a large selection in parts), so
+ * one counter covers them all. A file already in it is not added twice.
+ */
+export const approveFiles = mutation({
+  args: { ids: v.array(v.id("ingestionItems")), approvalId: v.optional(v.id("importApprovals")) },
+  returns: v.object({ approvalId: v.id("importApprovals"), added: v.number() }),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    const ids = batchIds(args.ids, `Approve up to ${SHEET_BATCH_MAX_FILES} files at a time.`);
+    const now = Date.now();
+    let run = args.approvalId ? await ctx.db.get(args.approvalId) : null;
+    if (args.approvalId && (!run || run.startedBy !== adminId || run.scope !== "files")) {
+      domainError("INVALID_INPUT", "That approval is not yours to add files to.");
     }
-    if (!content.trim()) {
-      throw new Error("No extracted text on this item — it cannot enter the Brain");
+    if (!run) {
+      const approvalId = await ctx.db.insert("importApprovals", {
+        startedBy: adminId,
+        startedAt: now,
+        updatedAt: now,
+        scope: "files",
+        listed: 0,
+        status: "running",
+        total: 0,
+        done: 0,
+        approved: 0,
+        refused: 0,
+      });
+      run = (await ctx.db.get(approvalId))!;
+      await startApprovalChain(ctx, approvalId);
+    } else if (run.status !== "running" || now - run.updatedAt >= APPROVAL_STALE_MS) {
+      // Finished or stopped: it runs again for the files added now.
+      await startApprovalChain(ctx, run._id);
     }
-    return await ctx.runMutation(internal.ingestion.finalizeApproval, {
-      itemId: args.itemId,
-      content,
-      industry: args.industry,
-      writerName: args.writerName,
-      writerTier: args.writerTier,
-      scienceCode: args.scienceCode,
+    let listed = run.listed ?? run.total;
+    let added = 0;
+    // One company's name; "" once the files are of several companies.
+    let companyName: string | null | undefined = run.companyName === "" ? null : run.companyName;
+    for (const id of ids) {
+      const there = await ctx.db
+        .query("importApprovalFiles")
+        .withIndex("by_approvalId_and_itemId", (q) => q.eq("approvalId", run!._id).eq("itemId", id))
+        .first();
+      if (there) continue;
+      const item = await ctx.db.get(id);
+      await ctx.db.insert("importApprovalFiles", {
+        approvalId: run._id,
+        itemId: id,
+        position: listed,
+        state: "waiting",
+        name: item?.name ?? "A file no longer in Import",
+      });
+      // One company's name, or none when the files are of several.
+      const name = item?.clientName?.trim() || null;
+      companyName = companyName === undefined ? name : companyName === name ? companyName : null;
+      listed += 1;
+      added += 1;
+    }
+    await ctx.db.patch(run._id, {
+      listed,
+      total: run.total + added,
+      status: "running",
+      updatedAt: now,
+      companyName: companyName === null ? "" : companyName,
+      dismissedAt: undefined,
     });
+    return { approvalId: run._id, added };
+  },
+});
+
+const approvalNextValidator = v.union(
+  v.object({ kind: v.literal("stop") }),
+  v.object({ kind: v.literal("listed") }),
+  v.object({
+    kind: v.literal("file"),
+    fileRowId: v.id("importApprovalFiles"),
+    itemId: v.id("ingestionItems"),
+    textStorageId: v.optional(v.id("_storage")),
+  })
+);
+
+/**
+ * The approval's next step (internal): stops when the approval is not
+ * running or its starter is no longer an Admin; for a company, lists a page
+ * of its ready files first; then hands back the next waiting file (with
+ * where its whole text is, when Import has it), or finishes the approval.
+ */
+export const approvalNext = internalMutation({
+  args: { approvalId: v.id("importApprovals") },
+  returns: approvalNextValidator,
+  handler: async (ctx, args): Promise<Infer<typeof approvalNextValidator>> => {
+    const run = await ctx.db.get(args.approvalId);
+    if (!run || run.status !== "running") return { kind: "stop" };
+    const now = Date.now();
+    if (!(await approvalActor(ctx, run))) {
+      await ctx.db.patch(run._id, { status: "stopped", updatedAt: now });
+      return { kind: "stop" };
+    }
+    if (run.scope === "company" && run.paged !== true && run.companyKey) {
+      const companyKey = run.companyKey;
+      const page = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_sheetTab_and_companyKey", (q) => q.eq("sheetTab", "review").eq("companyKey", companyKey))
+        .paginate({ cursor: run.cursor ?? null, numItems: APPROVAL_LIST_PAGE });
+      let listed = run.listed ?? 0;
+      for (const item of page.page) {
+        if (item.status !== "pending_review" || approveRefusalFor(item) !== null) continue;
+        const there = await ctx.db
+          .query("importApprovalFiles")
+          .withIndex("by_approvalId_and_itemId", (q) => q.eq("approvalId", run._id).eq("itemId", item._id))
+          .first();
+        if (there) continue;
+        await ctx.db.insert("importApprovalFiles", {
+          approvalId: run._id,
+          itemId: item._id,
+          position: listed,
+          state: "waiting",
+          name: item.name,
+        });
+        listed += 1;
+      }
+      await ctx.db.patch(run._id, {
+        cursor: page.continueCursor,
+        paged: page.isDone,
+        listed,
+        // The band's ready count until every page is read, then exactly the files listed.
+        total: page.isDone ? listed : Math.max(run.total, listed),
+        updatedAt: now,
+      });
+      return { kind: "listed" };
+    }
+    const next = await ctx.db
+      .query("importApprovalFiles")
+      .withIndex("by_approvalId_and_state_and_position", (q) => q.eq("approvalId", run._id).eq("state", "waiting"))
+      .first();
+    if (!next) {
+      await ctx.db.patch(run._id, { status: "done", total: run.done, updatedAt: now });
+      return { kind: "stop" };
+    }
+    const item = await ctx.db.get(next.itemId);
+    return {
+      kind: "file",
+      fileRowId: next._id,
+      itemId: next.itemId,
+      ...(item && importHasWholeText(item) ? { textStorageId: item.textStorageId } : {}),
+    };
+  },
+});
+
+/** What one approved file came to, for the approval's counters and the batch result. */
+async function recordApprovalFile(
+  ctx: MutationCtx,
+  fileRow: Doc<"importApprovalFiles">,
+  outcome: ApproveOutcome
+): Promise<void> {
+  const run = await ctx.db.get(fileRow.approvalId);
+  await ctx.db.patch(fileRow._id, {
+    state: outcome.state,
+    ...(outcome.state === "refused" ? { reason: outcome.reason, ...(outcome.detail ? { detail: outcome.detail } : {}) } : {}),
+  });
+  if (!run) return;
+  await ctx.db.patch(run._id, {
+    done: run.done + 1,
+    approved: run.approved + (outcome.state === "refused" ? 0 : 1),
+    refused: run.refused + (outcome.state === "refused" ? 1 : 0),
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * Approves one file of an approval (internal; the chain's one mutation per
+ * file). `text` is the Import file's whole text, read from storage by the
+ * chain's action. A file row already settled is left as it is (a retried
+ * step), so nothing is made or counted twice.
+ */
+export const approveImportFile = internalMutation({
+  args: {
+    fileRowId: v.id("importApprovalFiles"),
+    // The Import file's whole text as the action read it, and from which stored file.
+    text: v.optional(v.string()),
+    textStorageId: v.optional(v.id("_storage")),
+  },
+  returns: v.object({ state: v.string(), reason: v.optional(approveRefusalValidator) }),
+  handler: async (ctx, args) => {
+    const fileRow = await ctx.db.get(args.fileRowId);
+    if (!fileRow || fileRow.state !== "waiting") return { state: fileRow?.state ?? "missing" };
+    const run = await ctx.db.get(fileRow.approvalId);
+    const actor = run ? await approvalActor(ctx, run) : null;
+    if (!run || !actor || run.status !== "running") return { state: "stopped" };
+    const read = args.text !== undefined && args.textStorageId ? { text: args.text, textStorageId: args.textStorageId } : undefined;
+    const outcome = await approveOneFile(ctx, fileRow.itemId, read, actor, run.scope === "company" ? { companyKey: run.companyKey } : {});
+    await recordApprovalFile(ctx, fileRow, outcome);
+    return { state: outcome.state, ...(outcome.state === "refused" ? { reason: outcome.reason } : {}) };
+  },
+});
+
+/**
+ * A file whose approval threw (a text too long to keep, say): left on To
+ * review, and named. `text_not_read`: its text could not be read from
+ * storage, so it was not tried; approving it again tries again.
+ */
+export const recordApprovalFailure = internalMutation({
+  args: { fileRowId: v.id("importApprovalFiles"), reason: v.optional(v.literal("text_not_read")) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const fileRow = await ctx.db.get(args.fileRowId);
+    if (!fileRow || fileRow.state !== "waiting") return null;
+    await recordApprovalFile(
+      ctx,
+      fileRow,
+      args.reason === "text_not_read"
+        ? { state: "refused", reason: "text_not_read", detail: "Try again." }
+        : { state: "refused", reason: "not_saved" }
+    );
+    return null;
+  },
+});
+
+/**
+ * One step of an approval's chain (internal): up to ten files, each read
+ * here (an action, since an Import file's whole text is in storage) and
+ * approved in its own mutation, then the next step is scheduled. A file
+ * that fails is left on To review and named; the chain goes on.
+ */
+export const runApproval = internalAction({
+  args: { approvalId: v.id("importApprovals") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let files = 0;
+    // Listing steps do not count as files, but are bounded too.
+    for (let step = 0; step < APPROVAL_STEP_FILES * 3 && files < APPROVAL_STEP_FILES; step++) {
+      const next: Infer<typeof approvalNextValidator> = await ctx.runMutation(internal.ingestion.approvalNext, {
+        approvalId: args.approvalId,
+      });
+      if (next.kind === "stop") return null;
+      if (next.kind === "listed") continue;
+      files += 1;
+      let text: string | undefined;
+      // A failed read of one file's text refuses that file in plain words;
+      // the chain goes on with the next.
+      try {
+        if (next.textStorageId) {
+          const blob = await ctx.storage.get(next.textStorageId);
+          text = blob ? await blob.text() : undefined;
+        }
+      } catch (error) {
+        console.error("runApproval: a file's text could not be read", { itemId: next.itemId, error: String(error) });
+        await ctx.runMutation(internal.ingestion.recordApprovalFailure, { fileRowId: next.fileRowId, reason: "text_not_read" });
+        continue;
+      }
+      try {
+        await ctx.runMutation(internal.ingestion.approveImportFile, {
+          fileRowId: next.fileRowId,
+          ...(text !== undefined && next.textStorageId ? { text, textStorageId: next.textStorageId } : {}),
+        });
+      } catch (error) {
+        console.error("runApproval: a file could not be approved", { itemId: next.itemId, error: String(error) });
+        await ctx.runMutation(internal.ingestion.recordApprovalFailure, { fileRowId: next.fileRowId });
+      }
+    }
+    await ctx.scheduler.runAfter(0, internal.ingestion.runApproval, args);
+    return null;
+  },
+});
+
+const approvalProgressValidator = v.object({
+  approvalId: v.id("importApprovals"),
+  scope: v.union(v.literal("company"), v.literal("files")),
+  companyName: v.optional(v.string()),
+  status: v.union(v.literal("running"), v.literal("done"), v.literal("stopped")),
+  // When its chain last moved (2026-11-17): the page says a running
+  // approval stopped once this is APPROVAL_STALE_MS old, on its own timer,
+  // since this query does not run again as time passes.
+  lastProgressAt: v.number(),
+  total: v.number(),
+  done: v.number(),
+  approved: v.number(),
+  refused: v.number(),
+  startedAt: v.number(),
+  // Started by the signed-in Admin (only they close its line), else by whom.
+  mine: v.boolean(),
+  startedByName: v.optional(v.string()),
+});
+
+/** Approvals running at once that the line shows (every Admin's). */
+const APPROVALS_SHOWN = 5;
+
+/**
+ * The approvals the line under the toolbar shows, newest first: every
+ * approval still running, whoever started it (so two Admins see the same
+ * company's approval), and the signed-in Admin's latest one until they
+ * close its line. Empty for anyone but an Admin.
+ */
+export const approvalProgress = query({
+  args: {},
+  returns: v.array(approvalProgressValidator),
+  handler: async (ctx) => {
+    const adminId = await adminOrNull(ctx);
+    if (adminId === null) return [];
+    // A stopped approval (no progress for APPROVAL_STALE_MS) its starter
+    // closed stays closed (2026-11-19, from code review); one still moving
+    // always shows, whoever closed it.
+    const now = Date.now();
+    const running = (
+      await ctx.db
+        .query("importApprovals")
+        .withIndex("by_status_and_startedAt", (q) => q.eq("status", "running"))
+        .order("desc")
+        .take(APPROVALS_SHOWN * 2)
+    )
+      .filter((run) => !(run.dismissedAt !== undefined && now - run.updatedAt >= APPROVAL_STALE_MS))
+      .slice(0, APPROVALS_SHOWN);
+    const latest = await ctx.db
+      .query("importApprovals")
+      .withIndex("by_startedBy_and_startedAt", (q) => q.eq("startedBy", adminId as Id<"users">))
+      .order("desc")
+      .first();
+    const runs = [...running];
+    if (latest && latest.dismissedAt === undefined && !runs.some((run) => run._id === latest._id)) runs.push(latest);
+    runs.sort((a, b) => b.startedAt - a.startedAt);
+    const names = new Map<Id<"users">, string>();
+    const out = [];
+    for (const run of runs) {
+      const mine = run.startedBy === adminId;
+      if (!mine && !names.has(run.startedBy)) {
+        const user = await ctx.db.get(run.startedBy);
+        names.set(run.startedBy, user ? userDisplayLabel(user) : "another Admin");
+      }
+      out.push(
+        definedFields({
+          approvalId: run._id,
+          scope: run.scope,
+          companyName: run.companyName || undefined,
+          status: run.status,
+          lastProgressAt: run.updatedAt,
+          total: Math.max(run.total, run.done),
+          done: run.done,
+          approved: run.approved,
+          refused: run.refused,
+          startedAt: run.startedAt,
+          mine,
+          startedByName: mine ? undefined : names.get(run.startedBy),
+        })
+      );
+    }
+    return out;
+  },
+});
+
+/** The files an approval left on To review, with why (up to 100), for "Show why". */
+export const approvalRefusals = query({
+  args: { approvalId: v.id("importApprovals") },
+  returns: v.object({
+    files: v.array(
+      v.object({
+        itemId: v.id("ingestionItems"),
+        name: v.string(),
+        reason: approveRefusalValidator,
+        detail: v.optional(v.string()),
+      })
+    ),
+    more: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    if ((await adminOrNull(ctx)) === null) return { files: [], more: false };
+    const rows = await ctx.db
+      .query("importApprovalFiles")
+      .withIndex("by_approvalId_and_state_and_position", (q) => q.eq("approvalId", args.approvalId).eq("state", "refused"))
+      .take(APPROVAL_REFUSALS_LISTED + 1);
+    return {
+      files: rows.slice(0, APPROVAL_REFUSALS_LISTED).map((row) =>
+        definedFields({ itemId: row.itemId, name: row.name, reason: row.reason ?? "not_saved", detail: row.detail })
+      ),
+      more: rows.length > APPROVAL_REFUSALS_LISTED,
+    };
+  },
+});
+
+/** Closes an approval's line on the page; a running approval goes on. */
+export const dismissApproval = mutation({
+  args: { approvalId: v.id("importApprovals") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    const run = await ctx.db.get(args.approvalId);
+    if (!run || run.startedBy !== adminId) return null;
+    await ctx.db.patch(run._id, { dismissedAt: Date.now() });
+    return null;
+  },
+});
+
+// ─── Brain check (2026-11-17) ───────────────────────────────────────────────
+// A person reads each approved final PD's scrubbed Brain copy before one is
+// made (the 2026-11-17 Brain copy amendment's condition): the copy, its
+// warnings, what the check does not cover, and an "Also remove" box. Then
+// "Add to the Brain" (importSource with the import file's links, approved,
+// its embedding queued, the file's brainSourceId set) or "Keep out of the
+// Brain", which is remembered. The company file is not touched either way.
+
+/** Words a person may add to Also remove, and how long each may be. */
+const ALSO_REMOVE_MAX_WORDS = 30;
+const ALSO_REMOVE_MAX_CHARS = 80;
+const BRAIN_CHECK_PAGE_MAX = 25;
+
+/** The Also remove words, trimmed, each once, bounded. */
+function cleanAlsoRemove(words: readonly string[]): string[] {
+  const cleaned = [...new Set(words.map((word) => word.replace(/\s+/g, " ").trim()).filter(Boolean))];
+  if (cleaned.length > ALSO_REMOVE_MAX_WORDS) {
+    domainError("INVALID_INPUT", `Add up to ${ALSO_REMOVE_MAX_WORDS} words to Also remove.`);
+  }
+  if (cleaned.some((word) => word.length > ALSO_REMOVE_MAX_CHARS)) {
+    domainError("INVALID_INPUT", `Each Also remove entry can be at most ${ALSO_REMOVE_MAX_CHARS} characters.`);
+  }
+  return cleaned;
+}
+
+export const BRAIN_CHECK_GONE = "This PD is no longer waiting for a Brain check.";
+export const BRAIN_COPY_CHANGED = "The Brain copy changed since you read it. Read it again, then add it.";
+export const BRAIN_COPY_DIFFERS =
+  "This PD is already in the Brain as a different copy. Remove that copy on the Brain page first, or keep this one out.";
+
+/** Greptile on PR #45 (2026-11-19): the same text is in the Brain with other labels than the ones the person read. */
+export const BRAIN_COPY_LABELS_DIFFER =
+  "This PD is already in the Brain with another title, industry or writer. Remove that copy on the Brain page first, or keep this one out.";
+
+/**
+ * Whether an approved Brain source holds the labels a person read for this
+ * copy (`brainCopySeen`'s title, industry, writer and tier; the title holds
+ * the fiscal year). Reusing it as this copy would keep its own labels
+ * (`importSource` changes them only on a pending match).
+ */
+function brainSourceHasLabels(
+  source: Pick<Doc<"brainSources">, "title" | "industry" | "writerName" | "writerTier">,
+  fields: { title: string; industry: string; writerName?: string; writerTier: number }
+): boolean {
+  return (
+    source.title === fields.title &&
+    source.industry === fields.industry &&
+    (source.writerName ?? "").trim() === (fields.writerName ?? "").trim() &&
+    source.writerTier === fields.writerTier
+  );
+}
+
+/**
+ * The fingerprint of a Brain copy as the person read it: its text and what
+ * the Brain stores with it (title, industry, writer and tier), so a change
+ * to any of them between reading and adding is refused until read again.
+ */
+export function brainCopySeen(fields: { content: string; title: string; industry: string; writerName?: string; writerTier: number }): string {
+  return brainContentHash(JSON.stringify([fields.content, fields.title, fields.industry, fields.writerName ?? "", fields.writerTier]));
+}
+
+const brainCheckRowValidator = v.object({
+  _id: v.id("ingestionItems"),
+  name: v.string(),
+  companyKey: v.string(),
+  companyName: v.string(),
+  fiscalYear: v.optional(v.number()),
+  pdNumber: v.optional(v.string()),
+  pdTitle: v.optional(v.string()),
+  versionCode: v.optional(pdVersionCodeValidator),
+  versionNumber: v.optional(v.number()),
+  writerName: v.optional(v.string()),
+  scienceCode: v.optional(v.string()),
+});
+
+/** The approved final PDs waiting for a Brain check, company by company, then by year. */
+export const brainCheckFiles = query({
+  args: { paginationOpts: paginationOptsValidator },
+  returns: paginationResultValidator(brainCheckRowValidator),
+  handler: async (ctx, args) => {
+    if ((await adminOrNull(ctx)) === null) return EMPTY_PAGE;
+    const result = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_brainCheck_and_companyKey_and_fiscalYear", (q) => q.eq("brainCheck", "waiting"))
+      .paginate(boundedPage(args.paginationOpts, BRAIN_CHECK_PAGE_MAX));
+    const labelled = await withWriterLabels(ctx, result.page.map(sheetRow));
+    return {
+      ...result,
+      page: result.page.map((item, index) =>
+        definedFields({
+          _id: item._id,
+          name: item.name,
+          companyKey: item.companyKey ?? NO_COMPANY_KEY,
+          companyName: item.clientName?.trim() || item.companyKey || "",
+          fiscalYear: item.fiscalYear,
+          pdNumber: item.pdNumber,
+          pdTitle: item.pdTitle,
+          versionCode: item.versionCode,
+          versionNumber: item.versionNumber,
+          writerName: labelled[index]?.writerName,
+          scienceCode: item.scienceCode,
+        })
+      ),
+    };
+  },
+});
+
+const brainCheckTargetValidator = v.object({ textStorageId: v.optional(v.id("_storage")), preview: v.optional(v.string()) });
+type BrainCheckTarget = Infer<typeof brainCheckTargetValidator>;
+
+/** A final PD waiting for its Brain check, for the check's actions (with the caller's identity). */
+export const brainCheckTarget = internalQuery({
+  args: { itemId: v.id("ingestionItems") },
+  returns: brainCheckTargetValidator,
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+    const item = await ctx.db.get(args.itemId);
+    if (!item || item.status !== "approved" || item.brainCheck !== "waiting") {
+      domainError("INVALID_STATE", BRAIN_CHECK_GONE);
+    }
+    return definedFields({ textStorageId: item.textStorageId, preview: item.text });
+  },
+});
+
+/** The Import file's text for its Brain copy: its whole text in storage, else its preview. */
+async function brainCheckText(
+  ctx: ActionCtx,
+  target: { textStorageId?: Id<"_storage">; preview?: string }
+): Promise<string> {
+  if (target.textStorageId) {
+    const blob = await ctx.storage.get(target.textStorageId);
+    if (blob) return await blob.text();
+  }
+  return target.preview ?? "";
+}
+
+const brainPreviewValidator = v.union(
+  v.object({
+    ok: v.literal(true),
+    content: v.string(),
+    title: v.string(),
+    industry: v.string(),
+    writerName: v.optional(v.string()),
+    warnings: v.array(v.string()),
+    notCovered: v.string(),
+    // The copy's fingerprint: "Add to the Brain" adds only the copy the person read.
+    seen: v.string(),
+  }),
+  v.object({ ok: v.literal(false), code: v.string(), reason: v.string(), notCovered: v.string() })
+);
+
+/**
+ * The scrubbed Brain copy a final PD would get, or the plain reason it
+ * cannot have one, with the words a person added to Also remove. Nothing
+ * is written.
+ */
+export const previewBrainCopy = action({
+  args: { itemId: v.id("ingestionItems"), alsoRemove: v.array(v.string()) },
+  returns: brainPreviewValidator,
+  handler: async (ctx, args): Promise<Infer<typeof brainPreviewValidator>> => {
+    const alsoRemove = cleanAlsoRemove(args.alsoRemove);
+    const target: BrainCheckTarget = await ctx.runQuery(internal.ingestion.brainCheckTarget, { itemId: args.itemId });
+    const text = await brainCheckText(ctx, target);
+    const copy: Infer<typeof importBrainCopyResultValidator> = await ctx.runQuery(internal.ingestion.importBrainCopyPreview, {
+      itemId: args.itemId,
+      text,
+      alsoRemove,
+    });
+    if (!copy.ok) return { ok: false, code: copy.code, reason: copy.reason, notCovered: copy.notCovered };
+    return definedFields({
+      ok: true as const,
+      content: copy.fields.content,
+      title: copy.fields.title,
+      industry: copy.fields.industry,
+      writerName: copy.fields.writerName,
+      warnings: copy.warnings,
+      notCovered: copy.notCovered,
+      seen: brainCopySeen(copy.fields),
+    });
+  },
+});
+
+const brainAddResultValidator = v.union(
+  v.object({ ok: v.literal(true), outcome: v.union(v.literal("added"), v.literal("matched")), sourceId: v.id("brainSources") }),
+  // `changed` (2026-11-17): the copy is no longer the one the person read,
+  // so the page offers Check again to read it as it is now.
+  v.object({ ok: v.literal(false), reason: v.string(), changed: v.optional(v.literal(true)) })
+);
+
+/**
+ * Adds a final PD's scrubbed copy to the Brain (internal; the action reads
+ * its text). The copy is made again here, in the same transaction as the
+ * write, and must be the one the person read (`seen`). A leak refusal is
+ * logged with its log reason only, never the word. Dedup is importSource's:
+ * a pending match is approved and reused, an approved one reused, a revoked
+ * one refused in plain words (the PD stays in Brain check).
+ */
+export const finishBrainCheck = internalMutation({
+  args: { itemId: v.id("ingestionItems"), text: v.string(), alsoRemove: v.array(v.string()), seen: v.string() },
+  returns: brainAddResultValidator,
+  handler: async (ctx, args): Promise<Infer<typeof brainAddResultValidator>> => {
+    const adminId = await assertAdmin(ctx);
+    const item = await ctx.db.get(args.itemId);
+    if (!item || item.status !== "approved" || item.brainCheck !== "waiting") return { ok: false, reason: BRAIN_CHECK_GONE };
+    const copy = await importBrainCopyFor(ctx, item, args.text, cleanAlsoRemove(args.alsoRemove));
+    if (!copy.ok) {
+      if (copy.code === "names_left") {
+        await ctx.db.insert("brainAuditLog", { action: "reject", actorId: adminId, reason: copy.logReason, at: Date.now() });
+      }
+      return { ok: false, reason: copy.reason };
+    }
+    if (brainCopySeen(copy.fields) !== args.seen) return { ok: false, reason: BRAIN_COPY_CHANGED, changed: true };
+    const { importItemId, importContentHash, ...fields } = copy.fields;
+    // A Brain source this file already matches (by its bytes, then by text)
+    // is reused only when it holds exactly this scrubbed copy: one approved
+    // on the old page unscrubbed, or a copy made with other Also remove
+    // words, is never linked as this one.
+    const match = await findImportMatch(ctx, brainContentHash(fields.content), importContentHash);
+    if (match && match.status !== "revoked" && match.sourceHash !== brainContentHash(fields.content)) {
+      return { ok: false, reason: BRAIN_COPY_DIFFERS };
+    }
+    // An approved match keeps its own labels, so it is reused only when they
+    // are the ones the person read; a pending match takes this copy's.
+    if (match && match.status === "approved" && !brainSourceHasLabels(match, fields)) {
+      return { ok: false, reason: BRAIN_COPY_LABELS_DIFFER };
+    }
+    const result = await importSource(
+      ctx,
+      { ...fields, approve: true, importItem: { itemId: importItemId, contentHash: importContentHash } },
+      adminId
+    );
+    if (result.outcome === "revoked") return { ok: false, reason: result.message };
+    await patchItem(ctx, item, {
+      brainSourceId: result.sourceId,
+      brainCheck: "added",
+      brainCheckedBy: adminId,
+      brainCheckedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return { ok: true, outcome: result.outcome, sourceId: result.sourceId };
+  },
+});
+
+/** "Add to the Brain" in the Brain check: the copy the person read (`seen`), with their Also remove words. */
+export const addToBrain = action({
+  args: { itemId: v.id("ingestionItems"), alsoRemove: v.array(v.string()), seen: v.string() },
+  returns: brainAddResultValidator,
+  handler: async (ctx, args): Promise<Infer<typeof brainAddResultValidator>> => {
+    const target: BrainCheckTarget = await ctx.runQuery(internal.ingestion.brainCheckTarget, { itemId: args.itemId });
+    const text = await brainCheckText(ctx, target);
+    return await ctx.runMutation(internal.ingestion.finishBrainCheck, {
+      itemId: args.itemId,
+      text,
+      alsoRemove: args.alsoRemove,
+      seen: args.seen,
+    });
+  },
+});
+
+/** "Keep out of the Brain": remembered on the file; its company file stays. */
+export const keepOutOfBrain = mutation({
+  args: { itemId: v.id("ingestionItems") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const adminId = await assertAdmin(ctx);
+    const item = await ctx.db.get(args.itemId);
+    if (!item || item.status !== "approved" || item.brainCheck !== "waiting") domainError("INVALID_STATE", BRAIN_CHECK_GONE);
+    await patchItem(ctx, item, {
+      brainCheck: "kept_out",
+      brainCheckedBy: adminId,
+      brainCheckedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+// ─── A file's text, for the file view (2026-11-17) ──────────────────────────
+
+/** Characters the file view reads at a time. */
+export const FILE_TEXT_PAGE_CHARS = 20_000;
+
+const fileTextSourceValidator = v.object({
+  textStorageId: v.optional(v.id("_storage")),
+  preview: v.optional(v.string()),
+  cutAtImport: v.boolean(),
+});
+
+const fileTextPageValidator = v.object({
+  text: v.string(),
+  start: v.number(),
+  end: v.number(),
+  total: v.number(),
+  source: v.union(v.literal("full"), v.literal("preview"), v.literal("none")),
+  cutAtImport: v.boolean(),
+});
+
+/** Where an Import file's text is, for the file view (with the caller's identity). */
+export const sheetFileTextSource = internalQuery({
+  args: { id: v.id("ingestionItems") },
+  returns: v.union(v.null(), fileTextSourceValidator),
+  handler: async (ctx, args) => {
+    await assertAdmin(ctx);
+    const item = await ctx.db.get(args.id);
+    if (!item) return null;
+    return definedFields({
+      textStorageId: item.textStorageId,
+      preview: item.text,
+      cutAtImport: importTextCut(item),
+    });
+  },
+});
+
+/**
+ * A page of an Import file's text for the file view (read only): up to
+ * 20,000 characters from `start`, the whole length, and where it came from
+ * (its whole text in storage, its preview only, or none). Admins only.
+ */
+export const sheetFileText = action({
+  args: { id: v.id("ingestionItems"), start: v.optional(v.number()) },
+  returns: v.union(v.null(), fileTextPageValidator),
+  handler: async (ctx, args): Promise<Infer<typeof fileTextPageValidator> | null> => {
+    const found: Infer<typeof fileTextSourceValidator> | null = await ctx.runQuery(internal.ingestion.sheetFileTextSource, {
+      id: args.id,
+    });
+    if (!found) return null;
+    let whole: string | null = null;
+    if (found.textStorageId) {
+      const blob = await ctx.storage.get(found.textStorageId);
+      whole = blob ? await blob.text() : null;
+    }
+    const source = whole !== null ? ("full" as const) : found.preview?.trim() ? ("preview" as const) : ("none" as const);
+    const text = whole ?? found.preview ?? "";
+    const start = Math.min(Math.max(0, Math.floor(args.start ?? 0)), text.length);
+    const end = Math.min(text.length, start + FILE_TEXT_PAGE_CHARS);
+    return { text: text.slice(start, end), start, end, total: text.length, source, cutAtImport: found.cutAtImport };
   },
 });
 
@@ -1211,7 +2208,7 @@ export const rejectItem = mutation({
     const admin = await assertAdmin(ctx);
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error(ITEM_NOT_FOUND);
-    if (item.status === "approved") throw new Error(ALREADY_IN_BRAIN);
+    if (item.status === "approved") throw new Error(ALREADY_APPROVED);
     if (item.status === "deleted") {
       throw new Error("Restore this item before rejecting it");
     }
@@ -1234,7 +2231,7 @@ export const rejectItem = mutation({
 
 /** Why a staged item cannot be deleted, or null when it can (or already is). */
 function removalRefusal(item: Doc<"ingestionItems">): string | null {
-  if (item.status === "approved") return ALREADY_IN_BRAIN;
+  if (item.status === "approved") return ALREADY_APPROVED;
   if (item.status === "deleted") return null;
   if (!canDelete(item.status)) return STILL_PROCESSING;
   return null;
@@ -2979,6 +3976,8 @@ export const markItemProcessed = internalMutation({
     // 2026-11-16 (writers from initials): the names after a writer cue in
     // the full text (shared/writerNameFromText.ts), [] when there are none.
     documentWriterNames: v.optional(v.array(v.string())),
+    // 2026-11-17: whether the extraction cut the text at the import's limit.
+    textCut: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
@@ -3003,6 +4002,7 @@ export const markItemProcessed = internalMutation({
       text: args.text,
       textStorageId: args.textStorageId,
       extractNote: args.extractNote,
+      textCut: args.textCut,
       // Kept for every file (its category may change); only a final PD,
       // draft or review copy names its writer (settleWithWriter).
       documentWriterNames:

@@ -1141,7 +1141,7 @@ async function projectYearEnd(
  * were made; no index orders a company's projects by their last update), or
  * null. An older project updated lately, past those 25, is not read.
  */
-async function projectIndustry(ctx: Ctx, key: string): Promise<string | null> {
+export async function projectIndustry(ctx: Ctx, key: string): Promise<string | null> {
   if (key === DASHBOARD_UNNAMED_COMPANY_KEY) return null;
   const rows = await ctx.db
     .query("projects")

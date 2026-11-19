@@ -34,6 +34,7 @@ import {
 } from "./lib/draftWebBackgroundValidators";
 import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
+  approveRefusalValidator,
   checkReasonValidator,
   editableLabelValidator,
   importCountFields,
@@ -2769,6 +2770,20 @@ export default defineSchema({
     writerId: v.optional(v.id("pdWriters")),
     reviewerId: v.optional(v.id("pdWriters")),
     pdNumber: v.optional(v.string()),
+    // 2026-11-17 widen (Approve on Import): the Import file's own labels as
+    // they were when it was approved, kept for the company's history and
+    // for editing after approval (a later change). Never evidence.
+    importLabels: v.optional(
+      v.object({
+        pdTitle: v.optional(v.string()),
+        versionCode: v.optional(v.union(v.literal("T"), v.literal("S"), v.literal("R"))),
+        versionNumber: v.optional(v.number()),
+        scienceCode: v.optional(v.string()),
+        fiscalYearEnd: v.optional(v.number()),
+        writerInitials: v.optional(v.string()),
+        reviewerInitials: v.optional(v.string()),
+      })
+    ),
   })
     .index("by_clientId_and_archived", ["clientId", "archived"])
     // 2026-11-17: a company's files of one category, newest first within it
@@ -4451,6 +4466,53 @@ export default defineSchema({
     batchId: v.optional(v.id("importBatches")),
   }).index("by_startedAt", ["startedAt"]),
 
+  // 2026-11-17 (Approve on Import, docs/product-domain.md): one row per
+  // approval an Admin starts, "Approve N ready" on a company or Approve on
+  // selected files. A scheduled chain (ingestion.runApproval) approves its
+  // files one mutation each and moves the counters, which the page shows.
+  // Safe to run again: a file already approved is counted, never made twice.
+  importApprovals: defineTable({
+    startedBy: v.id("users"),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+    // "company": the ready files of one company band on To review, found a
+    // page at a time (`cursor`, then `paged`). "files": files a person picked.
+    scope: v.union(v.literal("company"), v.literal("files")),
+    companyKey: v.optional(v.string()),
+    companyName: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    paged: v.optional(v.boolean()),
+    // Files listed in it so far (the next file's position).
+    listed: v.optional(v.number()),
+    status: v.union(v.literal("running"), v.literal("done"), v.literal("stopped")),
+    // Files in the approval (a company's ready count when it started, until
+    // its pages are read), files looked at, approved and left on To review.
+    total: v.number(),
+    done: v.number(),
+    approved: v.number(),
+    refused: v.number(),
+    // The person closed its line on the page.
+    dismissedAt: v.optional(v.number()),
+  })
+    .index("by_startedBy_and_startedAt", ["startedBy", "startedAt"])
+    // Approvals still running, for every Admin's approval line.
+    .index("by_status_and_startedAt", ["status", "startedAt"])
+    .index("by_scope_and_companyKey_and_status", ["scope", "companyKey", "status"]),
+
+  // 2026-11-17: the files of one approval, in order, with what became of each.
+  importApprovalFiles: defineTable({
+    approvalId: v.id("importApprovals"),
+    itemId: v.id("ingestionItems"),
+    position: v.number(),
+    state: v.union(v.literal("waiting"), v.literal("approved"), v.literal("already"), v.literal("refused")),
+    reason: v.optional(approveRefusalValidator),
+    // Plain words beside the reason ("merged into Halden Foods").
+    detail: v.optional(v.string()),
+    name: v.string(),
+  })
+    .index("by_approvalId_and_state_and_position", ["approvalId", "state", "position"])
+    .index("by_approvalId_and_itemId", ["approvalId", "itemId"]),
+
   // 2026-11-12 (Import page, adding files): one row per batch of files that
   // arrived together, for the History tab and the status line under the
   // toolbar. `source`: "page" (dropped on the Import page or Add files; the
@@ -4683,9 +4745,29 @@ export default defineSchema({
     // batch still waits for this file's reading to count it as read.
     batchId: v.optional(v.id("importBatches")),
     batchReadPending: v.optional(v.boolean()),
+    // 2026-11-17 widen (Approve on Import, docs/product-domain.md): the
+    // company file an approval made from this file (companyFiles), so the
+    // Approved tab links to it and Send back (a later change) removes it.
+    // Absent on files approved on the old page before this change.
+    companyFileId: v.optional(v.id("companyFiles")),
+    // 2026-11-17 widen: a final PD's Brain check, the person's look at its
+    // scrubbed Brain copy before one is made. "waiting" from its approval
+    // until an Admin adds it (brainSourceId is set) or keeps it out.
+    // Absent on every other file, and on final PDs approved before.
+    brainCheck: v.optional(v.union(v.literal("waiting"), v.literal("added"), v.literal("kept_out"))),
+    brainCheckedBy: v.optional(v.id("users")),
+    brainCheckedAt: v.optional(v.number()),
+    // 2026-11-17 widen: true when the extraction cut the file's text at the
+    // import's limit, so the import does not hold its whole text. Set by
+    // every extraction; absent on rows read before, which fall back to the
+    // words the extraction left in extractNote (ingestion.importTextCut)
+    // and store this field at their approval.
+    textCut: v.optional(v.boolean()),
     updatedAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
+    // 2026-11-17: the final PDs waiting for a Brain check, company by company.
+    .index("by_brainCheck_and_companyKey_and_fiscalYear", ["brainCheck", "companyKey", "fiscalYear"])
     .index("by_textStorageId", ["textStorageId"])
     .index("by_driveItemId", ["driveItemId"])
     .index("by_status", ["status"])

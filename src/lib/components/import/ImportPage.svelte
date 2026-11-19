@@ -21,6 +21,14 @@
   one plain line under the toolbar says what is arriving
   (ImportStatusLine). The History tab lists every batch. The sender warns
   before the tab is closed while it checks or sends, on any page.
+
+  Approve on Import (2026-11-17): "Approve N ready" on a company and Approve
+  in the selection bar put files on their company's page; the line under
+  the toolbar (ImportApprovalLine) says how far an approval is and why any
+  file was left. The Brain check tab, after Approved with its count, shows
+  each approved final PD's scrubbed Brain copy for a person to add or keep
+  out (ImportBrainCheck). A file's name, or Open in its menu, opens the file
+  view (ImportFilePanel), held here for every row.
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
@@ -40,6 +48,10 @@
   import ImportDropZone from "./ImportDropZone.svelte";
   import ImportStatusLine from "./ImportStatusLine.svelte";
   import ImportHistory from "./ImportHistory.svelte";
+  import ImportApprovalLine from "./ImportApprovalLine.svelte";
+  import ImportBrainCheck from "./ImportBrainCheck.svelte";
+  import ImportFilePanel from "./ImportFilePanel.svelte";
+  import { provideFileView } from "./importFileView";
   import { ImportSelection } from "./importSelection.svelte";
   import { canSelect } from "./importEdit";
   import { IMPORT_TOAST } from "./importActions";
@@ -51,14 +63,18 @@
     formatCount,
     searchText,
     SHEET_TABS,
+    type SheetFileRow,
     type SheetSearchCompany,
     type SheetTab,
   } from "./importFormat";
 
   const auth = useAuth();
 
-  /** The sheet's tabs, then History (2026-11-12), which has no count and no sheet. */
-  type PageTab = SheetTab | "history";
+  /**
+   * The sheet's tabs, Brain check after Approved (2026-11-17, its count the
+   * final PDs waiting), then History (2026-11-12), which has no count and no sheet.
+   */
+  type PageTab = SheetTab | "brain" | "history";
   let tab = $state<PageTab>("review");
   let search = $state("");
   /** The search text once typing settles; null shows the sheet. */
@@ -86,8 +102,8 @@
   const deletedQ = useQuery(api.ingestion.sheetTotals, () => (auth.isAuthenticated ? { tab: "deleted" as const } : "skip"));
 
   const totals = $derived({ review: reviewQ.data, approved: approvedQ.data, deleted: deletedQ.data });
-  // History has no sheet: the top bar keeps To review's count there.
-  const current = $derived(totals[tab === "history" ? "review" : tab] ?? null);
+  // History has no sheet: the top bar keeps To review's count there; Brain check keeps Approved's.
+  const current = $derived(totals[tab === "history" ? "review" : tab === "brain" ? "approved" : tab] ?? null);
   /** Not an admin: every sheet query answers null or nothing. */
   const denied = $derived(reviewQ.data === null);
   const loading = $derived(reviewQ.data === undefined && !reviewQ.error);
@@ -101,18 +117,26 @@
     if (onlyNew && totals.review && newFiles === 0 && !importUploads.busy) onlyNew = false;
   });
 
+  const brainWaiting = $derived(totals.approved?.brainCheck ?? null);
   const tabs = $derived([
-    ...SHEET_TABS.map((entry) => {
+    ...SHEET_TABS.flatMap((entry) => {
       const count = totals[entry.id];
-      return { id: entry.id as PageTab, label: entry.label, count: count ? formatCount(count.files) : null };
+      const tabEntry = { id: entry.id as PageTab, label: entry.label, count: count ? formatCount(count.files) : null };
+      return entry.id === "approved"
+        ? [tabEntry, { id: "brain" as PageTab, label: "Brain check", count: brainWaiting === null ? null : formatCount(brainWaiting) }]
+        : [tabEntry];
     }),
     { id: "history" as PageTab, label: "History", count: null },
   ]);
 
   /** Searching hides the sheet, so nobody acts on rows they cannot see. */
   const searching = $derived(settled !== null);
-  /** The sheet's tab, or null on History. */
-  const sheetTab = $derived(tab === "history" ? null : tab);
+  /** The sheet's tab, or null on Brain check and History. */
+  const sheetTab = $derived(tab === "history" || tab === "brain" ? null : tab);
+
+  // ─── The file view (2026-11-17) ─────────────────────────────────────────
+  let openFile = $state<SheetFileRow["_id"] | null>(null);
+  provideFileView({ open: (id) => (openFile = id) });
   /** Select applies to To review and Deleted. */
   const selectable = $derived(sheetTab !== null && canSelect(sheetTab));
 
@@ -203,7 +227,9 @@
         aria-labelledby={`import-tab-${tab}`}
         class={`${workPanelInline} flex flex-col gap-5 pt-6 pb-14 lg:pt-8`}
       >
-        {#if sheetTab === null}
+        {#if tab === "brain"}
+          <ImportBrainCheck total={brainWaiting} />
+        {:else if sheetTab === null}
           <ImportHistory />
         {:else}
           <ImportToolbar
@@ -220,6 +246,9 @@
           />
           {#if tab === "review"}
             <ImportStatusLine onRetry={() => void importUploads.retry(uploadCallbacks)} />
+          {/if}
+          {#if tab === "review" || tab === "approved"}
+            <ImportApprovalLine />
           {/if}
           {#if settled !== null}
             <ImportSearchResults tab={sheetTab} text={settled} onJump={jumpTo} />
@@ -244,5 +273,6 @@
       <ImportSelectionBar {selection} tab={sheetTab} />
     {/if}
     <ImportDropZone anchor={pageRoot} onFiles={addFiles} />
+    <ImportFilePanel id={openFile} onClose={() => (openFile = null)} />
   {/if}
 </AdminWorkspacePage>

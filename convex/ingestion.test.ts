@@ -107,7 +107,7 @@ describe("OneDrive ingestion queue deletion", () => {
     await f.t.run((ctx) => ctx.db.patch(itemId, { status: "approved" }));
     await expect(
       f.admin.mutation(api.ingestion.removeItem, { itemId })
-    ).rejects.toThrow("This file is already approved into the Brain. Remove it from the Brain page instead.");
+    ).rejects.toThrow("This file is already approved, so it cannot be rejected or deleted here.");
   });
 });
 

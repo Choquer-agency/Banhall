@@ -47,7 +47,7 @@ export type DeletedReason = "deleted" | "removed_in_onedrive" | "rejected";
  * - not_on_tab: it is no longer on the tab the call works on (To review for
  *   a change, Deleted for a put back).
  * - being_read: it is still being read, so it cannot be deleted yet.
- * - approved: it is already approved into the Brain.
+ * - approved: it is already approved (since 2026-11-17 it is on its company's page).
  * - already_deleted: it was already deleted.
  * - does_not_apply: none of the change's labels can go on it (see labelApplies).
  * - removed_in_onedrive: it was removed in OneDrive, so it is not put back.
@@ -60,6 +60,93 @@ export type BatchSkipReason =
   | "already_deleted"
   | "does_not_apply"
   | "removed_in_onedrive";
+
+/**
+ * Why Approve (2026-11-17) left a file on To review:
+ * - missing: the file is no longer in Import.
+ * - not_on_review: it is no longer on To review (deleted, rejected).
+ * - being_read: it is still being read.
+ * - needs_check: it has a check reason (no company, no fiscal year, no text,
+ *   no writer, no science code, an unknown kind, could not be read).
+ * - no_industry: a final PD whose company has no industry, and none was
+ *   picked on the sheet for a new company: its Brain copy needs one.
+ * - company_merged: its company was merged into another one.
+ * - company_unclear: more than one company has its name, so Approve does
+ *   not guess (D7: never merge or pick on its own).
+ * - left_company: in a company's "Approve N ready", the file was moved to
+ *   another company before its turn came.
+ * - not_saved: something went wrong while it was approved.
+ * - text_not_read: its text could not be read from storage for its
+ *   approval (a failed read); approving it again tries again.
+ * A file that is already approved is not a refusal: Approve counts it and
+ * makes nothing again.
+ */
+export type ApproveRefusal =
+  | "missing"
+  | "not_on_review"
+  | "being_read"
+  | "needs_check"
+  | "no_industry"
+  | "company_merged"
+  | "company_unclear"
+  | "left_company"
+  | "not_saved"
+  | "text_not_read";
+
+/**
+ * The refusals Approve can tell from the row alone (the page's selection
+ * bar leaves these out before it sends, and the server checks them again),
+ * or null when only the server can tell (the company, its industry).
+ */
+export function approveRefusalFor(row: {
+  status: ImportItemStatus;
+  needsCheck?: boolean;
+  checkReasons?: readonly string[];
+}): ApproveRefusal | null {
+  if (row.status === "approved") return null;
+  if (tabForStatus(row.status) !== "review") return "not_on_review";
+  if (isBeingRead(row.status)) return "being_read";
+  if (row.needsCheck === true || (row.checkReasons ?? []).length > 0 || row.status !== "pending_review") return "needs_check";
+  return null;
+}
+
+/**
+ * A running approval whose chain has not moved for this long has stopped
+ * (2026-11-17): the page says so on its own timer, and approving the
+ * company again starts a new one.
+ */
+export const APPROVAL_STALE_MS = 5 * 60 * 1000;
+
+/** Whether a running approval has stopped by `now`: its chain has not moved for APPROVAL_STALE_MS. */
+export function approvalStopped(run: { status: string; lastProgressAt: number }, now: number): boolean {
+  return run.status === "stopped" || (run.status === "running" && now - run.lastProgressAt >= APPROVAL_STALE_MS);
+}
+
+/** A refusal in plain words, for one file and for many ("is" and "are"). */
+export function approveRefusalWords(reason: ApproveRefusal): readonly [string, string] {
+  switch (reason) {
+    case "missing":
+      return ["is no longer in Import", "are no longer in Import"];
+    case "not_on_review":
+      return ["is no longer on To review", "are no longer on To review"];
+    case "being_read":
+      return ["is still being read", "are still being read"];
+    case "needs_check":
+      return ["still needs a check", "still need a check"];
+    case "no_industry":
+      return ["is a final PD whose company has no industry yet", "are final PDs whose company has no industry yet"];
+    case "company_merged":
+      return ["belongs to a company that was merged into another one", "belong to a company that was merged into another one"];
+    case "company_unclear":
+      return ["has a company name that more than one company has", "have a company name that more than one company has"];
+    case "left_company":
+      return ["is no longer in this company", "are no longer in this company"];
+    case "not_saved":
+      return ["could not be approved because something went wrong", "could not be approved because something went wrong"];
+    case "text_not_read":
+      return ["could not be approved because its text could not be read", "could not be approved because their text could not be read"];
+  }
+}
 
 /** The review note markDriveItemRemoved leaves on a file removed in OneDrive. */
 export const DELETED_IN_ONEDRIVE_NOTE = "Deleted in OneDrive";

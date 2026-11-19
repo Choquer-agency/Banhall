@@ -72,6 +72,13 @@ export function hasReadText(row: Pick<IngestionItemFields, "text" | "textStorage
   return Boolean(row.text?.trim()) || row.textStorageId !== undefined;
 }
 
+/**
+ * The words the extraction adds to a file's note when it cut the text at
+ * the import's limit (ingestionSync.ts finishExtraction): such a file does
+ * not hold its whole text (2026-11-17, Approve on Import).
+ */
+export const IMPORT_TEXT_CUT_NOTE = "text truncated at";
+
 /** docKind, which pairing, approval and porting read, from the category. */
 export function docKindForCategory(category: IngestionCategory): DocKind {
   if (category === "final_pd") return "pd";

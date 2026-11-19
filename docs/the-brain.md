@@ -230,9 +230,10 @@ a later PR). Retrieval's join moved to the cards on 2026-11-17
 
 ## Brain copies of imported PDs (2026-11-17)
 
-A final PD approved on Import (a later change) also gets a scrubbed Brain
-copy made from the import file; the company file itself never enters the
-Brain. `convex/lib/importBrainCopy.ts` builds it: the company's names and
+A final PD approved on Import also gets a scrubbed Brain copy made from the
+import file, but only after an Admin reads it on the Import page's Brain
+check tab and adds it (2026-11-17, fourth); the company file itself never
+enters the Brain. The old `/admin/ingestion` Approve is switched off. `convex/lib/importBrainCopy.ts` builds it: the company's names and
 every distinctive word of them, their initials, the folder, the file name's
 client part, the website domain, Business Numbers, addresses with a postal
 code, and people (on the company's projects, after a writer cue, or next to

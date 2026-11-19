@@ -180,21 +180,33 @@ async function markRead(t: T, id: Id<"ingestionItems">, text = "Extracted text")
   await t.mutation(internal.ingestion.markItemProcessed, { itemId: id, storageId, text });
 }
 
-const embedPoolRegistered = new WeakSet<T>();
-
-/** Approves a file into the Brain the way the old page does (its embedding is scheduled, never run). */
-async function approveForTest(t: T, admin: ReturnType<T["withIdentity"]>, id: Id<"ingestionItems">) {
-  vi.stubEnv("VOYAGE_API_KEY", "test-voyage-key");
-  if (!embedPoolRegistered.has(t)) {
-    t.registerComponent("embedPool", workpoolSchema, workpoolModules);
-    embedPoolRegistered.add(t);
+/**
+ * Approves a file the way the Import page does (2026-11-17): an approval of
+ * that one file, then one step of its chain run here (its next step stays
+ * scheduled). Industry for a final PD's new company is picked first.
+ */
+async function approveForTest(
+  t: T,
+  admin: ReturnType<T["withIdentity"]>,
+  id: Id<"ingestionItems">,
+  options: { mayRefuse?: boolean } = {}
+) {
+  const item = await getItem(t, id);
+  if (item.companyKey && item.category === "final_pd") {
+    const picked = await t.run((ctx) =>
+      ctx.db.query("importNewCompanies").withIndex("by_companyKey", (q) => q.eq("companyKey", item.companyKey!)).first()
+    );
+    const client = await t.run((ctx) =>
+      ctx.db.query("clients").withIndex("by_status_and_nameKey", (q) => q.eq("status", "active").eq("nameKey", item.companyKey!)).first()
+    );
+    if (!picked && !client) await admin.mutation(api.ingestion.setNewCompanyIndustry, { companyKey: item.companyKey, industry: "Food processing" });
   }
-  await admin.mutation(internal.ingestion.finalizeApproval, {
-    itemId: id,
-    content: "Approved text",
-    industry: "Cold chain logistics",
-    writerTier: 0.5,
-  });
+  const { approvalId } = await admin.mutation(api.ingestion.approveFiles, { ids: [id] });
+  await t.action(internal.ingestion.runApproval, { approvalId });
+  const after = await getItem(t, id);
+  if (!options.mayRefuse && after.status !== "approved") {
+    throw new Error(`approveForTest: not approved (${after.status}; ${(after.checkReasons ?? []).join(", ")})`);
+  }
 }
 
 /** Takes a row out of Import altogether, with its band share, so a later call finds it missing. */
@@ -381,13 +393,8 @@ describe("a move with unchanged bytes", () => {
       const { t, admin } = await setup();
       t.registerComponent("embedPool", workpoolSchema, workpoolModules);
       const { pd, transcript } = await pairedPd(t);
-      await admin.mutation(api.ingestion.setSheetLabels, { ids: [pd], patch: { writerName: "Dana Whitlock" } });
-      await admin.mutation(internal.ingestion.finalizeApproval, {
-        itemId: pd,
-        content: "The approved PD text",
-        industry: "Cold chain logistics",
-        writerTier: 0.5,
-      });
+      await admin.mutation(api.ingestion.setSheetLabels, { ids: [pd], patch: { writerName: "Dana Whitlock", scienceCode: "2.02.09" } });
+      await approveForTest(t, admin, pd);
       await admin.action(api.ingestionPort.portItemToProject, { itemId: pd });
       await runPairing(t);
       const approved = await getItem(t, pd);
@@ -850,12 +857,8 @@ describe("importCompanies counts", () => {
         ["approve", async () => {
           const candidates = await withStatus("pending_review");
           if (candidates.length === 0) return;
-          await admin.mutation(internal.ingestion.finalizeApproval, {
-            itemId: pick(candidates)._id,
-            content: `Approved text ${hashes++}`,
-            industry: "Food processing",
-            writerTier: 0.5,
-          });
+          // Files that are not ready are left on To review, as on the page.
+          await approveForTest(t, admin, pick(candidates)._id, { mayRefuse: true });
         }],
         ["reject", async () => {
           const candidates = await withStatus("discovered", "fetched", "pending_review", "failed", "rejected");
@@ -1069,13 +1072,15 @@ describe("importCompanies counts", () => {
       }
       expect(bandsSeen.has("review|")).toBe(true);
 
-      // A rebuild of every band, in pages of three files, changes nothing.
+      // A rebuild of every band, in pages of two files, changes nothing. (Two,
+      // not three: with Approve's chain and the reviewer steps in the run, its
+      // biggest band at the end holds six files.)
       const { stored } = await countsNowAndRecount(t);
       let pagedBands = 0;
       for (const key of Object.keys(stored)) {
         const [sheetTab, companyKey] = key.split("|") as ["review" | "approved" | "deleted", string];
-        const pages = await driveRebuild(t, { sheetTab, companyKey, pageSize: 3 });
-        expect(pages, key).toBeGreaterThanOrEqual(Math.ceil(stored[key].total / 3));
+        const pages = await driveRebuild(t, { sheetTab, companyKey, pageSize: 2 });
+        expect(pages, key).toBeGreaterThanOrEqual(Math.ceil(stored[key].total / 2));
         if (pages > 2) pagedBands += 1;
       }
       expect(pagedBands, "some bands needed several pages").toBeGreaterThan(0);
@@ -1430,6 +1435,7 @@ describe("sheet queries", () => {
     expect(await admin.query(api.ingestion.sheetTotals, { tab: "review" })).toEqual({
       files: 9,
       companies: 4,
+      brainCheck: 0,
       // The four final PDs (no science code) and the loose file.
       needsCheck: 5,
       ready: 3,
@@ -2324,10 +2330,10 @@ describe("removeItems and restoreItems", () => {
 
     // The single-file mutations keep their rules, in plain words.
     await expect(admin.mutation(api.ingestion.removeItem, { itemId: approved })).rejects.toThrow(
-      "This file is already approved into the Brain. Remove it from the Brain page instead."
+      "This file is already approved, so it cannot be rejected or deleted here."
     );
     await expect(admin.mutation(api.ingestion.rejectItem, { itemId: approved })).rejects.toThrow(
-      "This file is already approved into the Brain. Remove it from the Brain page instead."
+      "This file is already approved, so it cannot be rejected or deleted here."
     );
     await expect(admin.mutation(api.ingestion.restoreItem, { itemId: reading })).rejects.toThrow(
       "This file is not deleted, so there is nothing to put back."
@@ -3368,7 +3374,10 @@ describe("files checked again when the facts change", () => {
     const deleted = await pdBy(t, "KT", 1);
     await admin.mutation(api.ingestion.removeItems, { ids: [deleted] });
     const approved = await pdBy(t, "KT", 2);
+    // Approve needs a writer (2026-11-17): a person names one on this file.
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [approved], patch: { writerName: "Robin Sample" } });
     await approveForTest(t, admin, approved);
+    const approvedWriter = (await getItem(t, approved)).writerId;
     const review = await insertRaw(
       t,
       Array.from({ length: 104 }, (_, i) => ({ path: pdPath("KT", (i % 20) + 1).replace("Project", `P${i} Project`), driveItemId: `kt-${i}` }))
@@ -3384,8 +3393,8 @@ describe("files checked again when the facts change", () => {
     expect(runs).toMatchObject({ applyWriterInitials: 9 });
     const kimWriter = (await ownWriterOf(t, kim))!;
     for (const id of [...review, deleted]) expect((await getItem(t, id)).writerId, id).toBe(kimWriter._id);
-    // An approved file keeps what it was approved with (no writer).
-    expect((await getItem(t, approved)).writerId).toBeUndefined();
+    // An approved file keeps what it was approved with (the writer a person named).
+    expect((await getItem(t, approved)).writerId).toBe(approvedWriter);
     await expectCountsMatchRecount(t, "after Jordan's initials");
 
     // Kim's initials change: her files keep her (frozen).
@@ -5325,6 +5334,7 @@ describe("a file added on the page with a path a row already has", () => {
     await addOnPage(t, admin, [{ path: DROP_PD, text: "Cedarline cold chain PD, approved" }]);
     const [first] = await rowsWithPath(t, DROP_PD);
     await markRead(t, first._id);
+    await admin.mutation(api.ingestion.setSheetLabels, { ids: [first._id], patch: { scienceCode: "2.02.09" } });
     await approveForTest(t, admin, first._id);
     const before = await getItem(t, first._id);
     expect(before.status).toBe("approved");

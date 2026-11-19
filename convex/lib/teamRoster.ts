@@ -262,6 +262,27 @@ export async function writerForInitials(ctx: MutationCtx, initials: string): Pro
   return result;
 }
 
+/**
+ * The reviewer a final PD's second initials name (2026-11-17, Approve on
+ * Import), by the writers' own rules but never making a writer with no
+ * login: a person's pick for the initials; else the one team member whose
+ * saved initials they are (their own writer, made if they have none yet,
+ * as the writer check does); else the one writer the check made from them.
+ * Null when none, or more than one, fits: the company file then has no
+ * reviewer, and the initials stay in its Import labels.
+ */
+export async function reviewerForInitials(ctx: MutationCtx, initials: string | undefined): Promise<Id<"pdWriters"> | null> {
+  const key = writerInitialsKey(initials);
+  if (key === null) return null;
+  const pick = await writerPick(ctx, key);
+  if (pick && (await ctx.db.get(pick.writerId))) return pick.writerId;
+  const members = await membersWithInitials(ctx, key);
+  if (members.length === 1) return (await writerForUser(ctx, members[0]))._id;
+  if (members.length > 1) return null;
+  const writers = await writersMadeFromInitials(ctx, key);
+  return writers.length === 1 ? writers[0]._id : null;
+}
+
 async function checkInitials(ctx: MutationCtx, initials: string): Promise<WriterDoc | null> {
   const members = await membersWithInitials(ctx, initials);
   if (members.length === 1) return await writerForUser(ctx, members[0]);

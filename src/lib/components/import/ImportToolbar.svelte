@@ -4,8 +4,8 @@
   cuts the placeholder short in Geist, the app's font), the "To check N" chip
   (a bits-ui checkbox drawn as a chip; review tab only), then on the right
   the legend for the AI mark and, 16px after it, "Select" (To review and
-  Deleted; off while a search is showing). "Approve N ready" comes after
-  Select in a later pass. The right-hand group wraps to its own line before
+  Deleted; off while a search is showing). Approve (2026-11-17) is on each
+  company ("Approve N ready") and in the selection bar, not here. The right-hand group wraps to its own line before
   the field would shrink. Nothing else sits above the sheet (owner rule).
 
   "New N" (2026-11-12, Paper Files 2 and 3) sits 8px after "To check", on

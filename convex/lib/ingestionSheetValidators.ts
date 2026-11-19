@@ -72,6 +72,25 @@ export const writerChoiceValidator = v.union(
 );
 export type WriterChoice = Infer<typeof writerChoiceValidator>;
 
+/**
+ * Why Approve left a file on To review (2026-11-17, shared/importSheetRules.ts
+ * ApproveRefusal), so a batch result names each file it did not approve.
+ */
+export const approveRefusalValidator = v.union(
+  v.literal("missing"),
+  v.literal("not_on_review"),
+  v.literal("being_read"),
+  v.literal("needs_check"),
+  v.literal("no_industry"),
+  v.literal("company_merged"),
+  v.literal("company_unclear"),
+  v.literal("left_company"),
+  v.literal("not_saved"),
+  // 2026-11-17: the file's text could not be read from storage for its approval.
+  v.literal("text_not_read")
+);
+export type ApproveRefusalCode = Infer<typeof approveRefusalValidator>;
+
 /** Why a batch call left a file as it was (shared/importSheetRules.ts BatchSkipReason). */
 export const batchSkipReasonValidator = v.union(
   v.literal("missing"),
@@ -163,6 +182,10 @@ export const importCountFields = {
   ready: v.number(),
   beingRead: v.number(),
   newFiles: v.optional(v.number()),
+  // 2026-11-17 (Approve on Import): approved final PDs waiting for their
+  // Brain check (ingestionItems.brainCheck "waiting"), Approved tab only.
+  // Left out when there are none.
+  brainCheck: v.optional(v.number()),
   categories: v.record(v.string(), importCategoryCountsValidator),
 };
 export const importCountsValidator = v.object(importCountFields);

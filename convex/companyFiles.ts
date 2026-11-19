@@ -328,6 +328,108 @@ export const addCompanyFile = mutation({
   },
 });
 
+// ─── A company file from an approved Import file (2026-11-17) ───────────────
+
+/** A company file's type from its name, for a file Import approved. */
+export function companyFileTypeForName(fileName: string): Doc<"companyFiles">["fileType"] {
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot === -1 ? "" : fileName.slice(dot + 1).toLowerCase();
+  if (ext === "pdf" || ext === "docx" || ext === "txt" || ext === "md" || ext === "msg" || ext === "eml") return ext;
+  if (ext === "vtt") return "txt";
+  if (ext === "xlsx" || ext === "xls" || ext === "csv") return "xlsx";
+  if (["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff"].includes(ext)) return "image";
+  return "other";
+}
+
+const IMPORTED_MIME_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  txt: "text/plain",
+  vtt: "text/vtt",
+  md: "text/markdown",
+};
+
+export type ImportedCompanyFile = {
+  clientId: Id<"clients">;
+  importItemId: Id<"ingestionItems">;
+  fileName: string;
+  category: NonNullable<Doc<"companyFiles">["category"]>;
+  /** The Import file's original, shared with it (never copied). */
+  storageId?: Id<"_storage">;
+  /** The Import file's whole text when it has it; otherwise the original is read again on the server. */
+  text: string | null;
+  fiscalYear?: number;
+  pdNumber?: string;
+  writerId?: Id<"pdWriters">;
+  reviewerId?: Id<"pdWriters">;
+  importLabels?: Doc<"companyFiles">["importLabels"];
+  addedBy: Doc<"users">;
+};
+
+/**
+ * Puts an approved Import file on its company's page (2026-11-17, Approve on
+ * Import), the way `addCompanyFile` adds one: its text in pieces, marked due
+ * for search pieces (then labels), the add logged. The original is the
+ * Import file's own stored file, shared: removing the company file deletes
+ * it only when nothing else holds it (`deleteStorageIfUnreferenced`), and
+ * the Import file always does. With no whole text from Import (a file read
+ * long ago with only its preview, or one whose text was cut at Import's
+ * limit), the file is added with no text and the original is read on the
+ * server, as for a file a person adds. Made once per Import file: a retry
+ * finds the row it made (`by_importItemId`). Returns the row and whether
+ * the server reads it.
+ */
+export async function addImportedCompanyFile(
+  ctx: MutationCtx,
+  file: ImportedCompanyFile
+): Promise<{ companyFileId: Id<"companyFiles">; created: boolean; readOnServer: boolean }> {
+  const existing = await ctx.db
+    .query("companyFiles")
+    .withIndex("by_importItemId", (q) => q.eq("importItemId", file.importItemId))
+    .first();
+  if (existing) return { companyFileId: existing._id, created: false, readOnServer: false };
+  const fileName = file.fileName.trim().slice(0, MAX_FILE_NAME_CHARS) || "Imported file";
+  const content = file.text ?? "";
+  const facts = await companyFileTextFacts(content);
+  const derived = deriveProcessingStatus({ fileName, content, extractionFailed: false });
+  const dot = fileName.lastIndexOf(".");
+  const mimeType = IMPORTED_MIME_TYPES[dot === -1 ? "" : fileName.slice(dot + 1).toLowerCase()];
+  const now = Date.now();
+  const companyFileId = await ctx.db.insert("companyFiles", {
+    clientId: file.clientId,
+    fileName,
+    fileType: companyFileTypeForName(fileName),
+    category: file.category,
+    ...(mimeType ? { mimeType } : {}),
+    ...(file.storageId ? { storageId: file.storageId } : {}),
+    ...facts,
+    processingStatus: derived.status,
+    ...(derived.detail ? { processingDetail: derived.detail } : {}),
+    uploadedBy: file.addedBy._id,
+    ...(file.addedBy.role ? { uploaderRole: file.addedBy.role } : {}),
+    createdAt: now,
+    ...(facts.hasText ? { searchPiecesDue: true as const, searchPiecesNextAt: 0 } : {}),
+    ...(file.fiscalYear !== undefined ? { fiscalYear: file.fiscalYear } : {}),
+    importItemId: file.importItemId,
+    ...(file.writerId ? { writerId: file.writerId } : {}),
+    ...(file.reviewerId ? { reviewerId: file.reviewerId } : {}),
+    ...(file.pdNumber ? { pdNumber: file.pdNumber } : {}),
+    ...(file.importLabels ? { importLabels: file.importLabels } : {}),
+  });
+  if (content) await insertCompanyFileTextPieces(ctx, companyFileId, content);
+  await logEvent(ctx, { _id: companyFileId, clientId: file.clientId, fileName }, "add", file.addedBy._id);
+  const readOnServer = needsServerReading({
+    fileName,
+    ...(file.storageId ? { storageId: file.storageId } : {}),
+    hasReadText: hasReadText(content),
+  });
+  if (readOnServer) {
+    await ctx.scheduler.runAfter(0, internal.ai.fileReading.readStoredCompanyFile, { companyFileId });
+  }
+  return { companyFileId, created: true, readOnServer };
+}
+
 const listedFileValidator = v.object({
   _id: v.id("companyFiles"),
   fileName: v.string(),
