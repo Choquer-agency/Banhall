@@ -1,3 +1,4 @@
+import { liveInvitesForEmail, TOO_MANY_PENDING_INVITES } from "./lib/inviteRows";
 import {
   createClient,
   type AuthFunctions,
@@ -61,15 +62,9 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         // gate): a fresh signup must carry a pending unexpired invite for
         // this email. (The legacy pre-migration relink window closed
         // 2026-07-20 — all original accounts re-created.)
-        const invites = email
-          ? await ctx.db
-              .query("invites")
-              .withIndex("by_email_and_status", (q) =>
-                q.eq("email", email).eq("status", "pending"),
-              )
-              .take(10)
-          : [];
-        const live = invites.filter((i) => i.status === "pending" && i.expiresAt > now);
+        const found = email ? await liveInvitesForEmail(ctx, email, now) : { live: [], complete: true };
+        if (!found.complete) throw new ConvexError(TOO_MANY_PENDING_INVITES);
+        const live = found.live;
         // One live invite per email (createInvites and resendInvite keep it).
         // Should two ever exist, sign-up cannot tell which link was used, so
         // it refuses rather than take one, since an invite can link a past
