@@ -7,6 +7,7 @@ import schema from "./schema";
 import { sha256 } from "./lib/contracts";
 import { buildTiptapDocument } from "./lib/tiptapReport";
 import { getReportBody, reportWithBody } from "./lib/reportBodies";
+import { reportForGeneration } from "./lib/generations/redraft";
 
 const modules = import.meta.glob("./**/*.ts");
 const FAILURE = "It was uncertain whether the alloy would resist fatigue.";
@@ -163,6 +164,65 @@ describe("CAP-8 absolute current-revision QA gate", () => {
       stoppedAfterSection: "242", qaScoreRequired: true,
     }));
     expect((await readiness(f)).blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
+  });
+
+  // 2026-11-09: a restore keeps the snapshot's own generation, so a report
+  // restored from an earlier draft shares that draft's generation. The QA
+  // pass used to score the earlier draft's report and the restored report
+  // stayed closed to export for good.
+  test("a report restored from an earlier draft's snapshot can still get a current QA score", async () => {
+    const f = await setup();
+    rateLimiterTest.register(f.t);
+    // The first draft has a current score of its own.
+    await saveQa(f, { why_how_why_intact: true, uncertainties_distinguished: true });
+    await f.t.run((ctx) => ctx.db.patch(f.generationId, { postQaStatus: "done", qaScoreRequired: true }));
+    expect(await f.actor.query(api.generations.getGenerationQaResult, { generationId: f.generationId }))
+      .toMatchObject({ reportId: f.reportId, current: true });
+    const newer = await f.t.run(async (ctx) => {
+      const content = contentFor("It was uncertain whether the second alloy would hold because its grain response was unknown.");
+      const first = await ctx.db.get(f.generationId);
+      const generationId = await ctx.db.insert("generations", {
+        projectId: f.projectId, transcriptId: first!.transcriptId, requestedBy: f.ownerId,
+        status: "completed", candidateMode: "single", startedAt: 2,
+      });
+      const reportId = await ctx.db.insert("reports", {
+        projectId: f.projectId, generationId, content, revisionNumber: 0, contentHash: await sha256(content),
+        version: 2, generatedAt: 2, updatedAt: 2,
+      });
+      return { reportId };
+    });
+    const restored: Fixture = { ...f, reportId: newer.reportId };
+    const snapshotId = await f.t.run((ctx) => ctx.db.insert("reportSnapshots", {
+      projectId: f.projectId, reportId: f.reportId, generationId: f.generationId,
+      content: contentFor(FIXED), reason: "manual", createdByRole: "writer", createdAt: 1,
+    }));
+    await f.actor.mutation(api.snapshots.restoreSnapshot, { snapshotId, targetReportId: newer.reportId, expectedRevisionNumber: 0 });
+    // Both reports now name the first draft's generation.
+    expect((await f.t.run((ctx) => ctx.db.get(newer.reportId)))?.generationId).toBe(f.generationId);
+    expect((await readiness(restored)).blockers.map((blocker) => blocker.code)).toContain("QA_SCORE_REQUIRED");
+    // The first draft's score is not offered as this report's score.
+    expect(await f.actor.query(api.generations.getGenerationQaResult, { generationId: f.generationId }))
+      .toMatchObject({ reportId: f.reportId, current: false });
+    // "Draft the rest" and its progress read the generation's report: the
+    // restored one, with no refusal for finding two.
+    expect((await f.t.run((ctx) => reportForGeneration(ctx, f.generationId)))?._id).toBe(newer.reportId);
+
+    // The writer runs QA again from the panel: the pass reads the restored report.
+    await f.actor.mutation(api.generations.requestReportQa, { generationId: f.generationId });
+    const attempt = await f.t.run((ctx) => ctx.db.get(f.generationId));
+    const input = await f.t.query(internal.generations.getPostQaInput, { generationId: f.generationId });
+    expect(input?.capturedRef).toEqual(await ref(restored));
+    await f.t.mutation(internal.generations.saveReportQa, {
+      generationId: f.generationId,
+      attemptStartedAt: attempt!.postQaStartedAt,
+      capturedRef: input!.capturedRef,
+      qa: scorecard({ why_how_why_intact: true, uncertainties_distinguished: true }),
+      qaScore: 90,
+    });
+    expect(await f.t.run((ctx) => ctx.db.get(f.generationId))).toMatchObject({ postQaStatus: "done" });
+    expect((await readiness(restored)).blockers.map((blocker) => blocker.code)).not.toContain("QA_SCORE_REQUIRED");
+    expect(await f.actor.query(api.generations.getGenerationQaResult, { generationId: f.generationId }))
+      .toMatchObject({ reportId: newer.reportId, current: true, qaScore: 90 });
   });
 
   test("human content save persists because findings and rejects publish atomically", async () => {
