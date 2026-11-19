@@ -288,7 +288,10 @@ export type RowAbilities = {
 /**
  * What a file row may do on a tab: its label cells follow labelApplies, its
  * menu (a move) is on every file on To review, delete follows canDelete and
- * "Put back" follows canPutBack. Approved is read only.
+ * "Put back" follows canPutBack. On Deleted a file is selectable for Put back
+ * or for the bar's reviewer and "Reviewed by CRA" actions, so a final PD
+ * removed in OneDrive can still be marked; Put back skips it. Approved is
+ * read only.
  */
 export function rowAbilities(
   row: { status: ImportItemStatus; category: ImportCategory; deletedReason?: DeletedReason },
@@ -296,18 +299,20 @@ export function rowAbilities(
 ): RowAbilities {
   const review = tab === "review" && tabForStatus(row.status) === "review";
   const putBack = tab === "deleted" && canPutBack(row);
+  const reviewer = tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row);
+  const craReviewed = tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row);
   return {
     edit: review && labelApplies("fiscalYearEnd", row),
     pdNumber: review && labelApplies("pdNumber", row),
     version: review && labelApplies("version", row),
     writer: review && labelApplies("writerName", row),
-    reviewer: tab !== "approved" && tabForStatus(row.status) === tab && reviewerApplies(row),
-    craReviewed: tab !== "approved" && tabForStatus(row.status) === tab && craReviewedApplies(row),
+    reviewer,
+    craReviewed,
     scienceCode: review && labelApplies("scienceCode", row),
     menu: review,
     remove: review && canDelete(row.status),
     putBack,
-    select: review || putBack,
+    select: review || putBack || (tab === "deleted" && (reviewer || craReviewed)),
   };
 }
 
