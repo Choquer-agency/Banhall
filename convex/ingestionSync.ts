@@ -33,6 +33,7 @@ import {
 } from "./lib/ingestionClassify";
 import { createHash } from "node:crypto";
 import { readFileOnServer } from "./ai/fileReader";
+import { scienceCodeFromText } from "./lib/scienceCodeFromText";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 // Full extracted text is byte-capped (UTF-8) and stored as a blob; only a
@@ -195,6 +196,9 @@ async function finishExtraction(
     extractNote: bounded.truncated
       ? `${note ? `${note}; ` : ""}text truncated at ${MAX_TEXT_BYTES} bytes`
       : note,
+    // Read from the whole text, not the preview; the mutation keeps it only
+    // for a final PD with no science code a person set.
+    documentScienceCode: scienceCodeFromText(bounded.text),
   });
 }
 
@@ -211,7 +215,8 @@ async function processBatches(
   const flushGroups = async () => {
     const keys = [...groupKeys];
     groupKeys.clear();
-    // recomputePairs bounds itself to 25 groups per mutation.
+    // recomputePairs recomputes two groups per mutation and schedules itself
+    // for the rest.
     for (let i = 0; i < keys.length; i += 25) {
       await ctx.runMutation(internal.ingestion.recomputePairs, {
         groupKeys: keys.slice(i, i + 25),

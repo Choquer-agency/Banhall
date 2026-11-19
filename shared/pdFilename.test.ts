@@ -11,6 +11,7 @@ describe("parsePdFilename", () => {
       projectNumber: "3",
       clientName: "3GA Marine",
       fiscalYearEnd: "2025-12-31",
+      versionCode: "R",
       revision: "1",
       writerInitials: "LR",
       reviewerInitials: "MO",
@@ -23,6 +24,7 @@ describe("parsePdFilename", () => {
       projectNumber: "7",
       clientName: "Acme Labs",
       fiscalYearEnd: "2024-06-30",
+      versionCode: "R",
       revision: "12",
       writerInitials: "TL",
       reviewerInitials: "EC",
@@ -44,6 +46,7 @@ describe("parsePdFilename", () => {
     expect(parsePdFilename("21 Client 2025-12-31 R1.LR Title.docx")).toEqual({
       clientName: "Client",
       fiscalYearEnd: "2025-12-31",
+      versionCode: "R",
       revision: "1",
       writerInitials: "LR",
       title: "Title",
@@ -86,6 +89,7 @@ describe("parsePdFilename", () => {
     expect(parsePdFilename("3 3GAMarine R2.OM SolarTracker.docx")).toEqual({
       projectNumber: "3",
       clientName: "3GA Marine",
+      versionCode: "R",
       revision: "2",
       writerInitials: "OM",
       title: "Solar Tracker",
@@ -97,6 +101,7 @@ describe("parsePdFilename", () => {
       projectNumber: "3",
       clientName: "Client",
       fiscalYearEnd: "2025-12-31",
+      versionCode: "R",
       revision: "1",
       writerInitials: "LR",
     });
@@ -106,6 +111,7 @@ describe("parsePdFilename", () => {
     expect(parsePdFilename("3 Client 2025-02-30 R1.LR Title.docx")).toEqual({
       projectNumber: "3",
       clientName: "Client",
+      versionCode: "R",
       revision: "1",
       writerInitials: "LR",
       title: "Title",
@@ -147,6 +153,150 @@ describe("parsePdFilename", () => {
     expect(parsePdFilename("3 Client 2025-12-31 R1.LR MarineBattery ThermalBehaviour.docx")?.title).toBe(
       "Marine Battery Thermal Behaviour"
     );
+  });
+
+  it("reads a T (to be submitted) version as its letter and number", () => {
+    expect(parsePdFilename("04 CedarlineSystems 2025-03-31 T2.DW.PN ColdChainSensorDrift.docx")).toEqual({
+      projectNumber: "4",
+      clientName: "Cedarline Systems",
+      fiscalYearEnd: "2025-03-31",
+      versionCode: "T",
+      revision: "2",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+      title: "Cold Chain Sensor Drift",
+    });
+  });
+
+  it("reads an S (submitted) version as its letter and number", () => {
+    expect(parsePdFilename("11 HaldenFoods 2024-12-31 S1.so.dw ShelfLifeModel.docx")).toEqual({
+      projectNumber: "11",
+      clientName: "Halden Foods",
+      fiscalYearEnd: "2024-12-31",
+      versionCode: "S",
+      revision: "1",
+      writerInitials: "SO",
+      reviewerInitials: "DW",
+      title: "Shelf Life Model",
+    });
+  });
+
+  it("accepts a lowercase t or s and upper-cases the letter", () => {
+    expect(parsePdFilename("2 NorthgateLabs 2025-06-30 t3.pn Title.docx")?.versionCode).toBe("T");
+    expect(parsePdFilename("2 NorthgateLabs 2025-06-30 s10.pn Title.docx")).toMatchObject({
+      versionCode: "S",
+      revision: "10",
+    });
+  });
+
+  it("reads a T or S version with no reviewer initials", () => {
+    expect(parsePdFilename("5 HaldenFoods 2025-12-31 T1.DW Title.docx")).toEqual({
+      projectNumber: "5",
+      clientName: "Halden Foods",
+      fiscalYearEnd: "2025-12-31",
+      versionCode: "T",
+      revision: "1",
+      writerInitials: "DW",
+      title: "Title",
+    });
+    expect(parsePdFilename("5 HaldenFoods S4.DW Title.docx")).toEqual({
+      projectNumber: "5",
+      clientName: "Halden Foods",
+      versionCode: "S",
+      revision: "4",
+      writerInitials: "DW",
+      title: "Title",
+    });
+  });
+
+  it("does not read any other letter, or a letter with no number, as a version", () => {
+    // With no fiscal year-end to anchor them, these names do not parse at all.
+    expect(parsePdFilename("3 Client X1.DW Title.docx")).toBeNull();
+    expect(parsePdFilename("3 Client V2.DW.PN Title.docx")).toBeNull();
+    expect(parsePdFilename("3 Client T.DW Title.docx")).toBeNull();
+    expect(parsePdFilename("3 Client TS1.DW Title.docx")).toBeNull();
+    expect(parsePdFilename("3 Client T1 Title.docx")).toBeNull();
+    // With a fiscal year-end the name parses, and the odd token is title.
+    expect(parsePdFilename("3 Client 2025-12-31 X1.DW Title.docx")).toEqual({
+      projectNumber: "3",
+      clientName: "Client",
+      fiscalYearEnd: "2025-12-31",
+      title: "X1.DW Title",
+    });
+  });
+
+  it("never reads a T or S version token as the client, and needs a project number", () => {
+    expect(parsePdFilename("2 T1.DW 2025-12-31 Title.docx")).toBeNull();
+    expect(parsePdFilename("2 S1.DW.PN Title.docx")).toBeNull();
+    expect(parsePdFilename("CedarlineSystems 2025-12-31 T1.DW Title.docx")).toBeNull();
+    expect(parsePdFilename("T1.DW.PN Title.docx")).toBeNull();
+  });
+
+  it("keeps a trailing T or S token when the name has no extension", () => {
+    expect(parsePdFilename("3 Client 2025-12-31 T1.DW.PN")).toMatchObject({
+      versionCode: "T",
+      revision: "1",
+      writerInitials: "DW",
+      reviewerInitials: "PN",
+    });
+    expect(parsePdFilename("3 Client 2025-12-31 S2.DW")).toMatchObject({ versionCode: "S", revision: "2" });
+  });
+
+  it("never reads a document extension as initials", () => {
+    for (const extension of ["doc", "pdf", "txt", "vtt", "DOC"]) {
+      expect(parsePdFilename(`03 Cedarline 2025-12-31 T1.${extension}`), extension).toEqual({
+        projectNumber: "3",
+        clientName: "Cedarline",
+        fiscalYearEnd: "2025-12-31",
+        versionCode: "T",
+        revision: "1",
+      });
+      expect(parsePdFilename(`03 Cedarline 2025-12-31 R2.DW.${extension}`), extension).toEqual({
+        projectNumber: "3",
+        clientName: "Cedarline",
+        fiscalYearEnd: "2025-12-31",
+        versionCode: "R",
+        revision: "2",
+        writerInitials: "DW",
+      });
+    }
+    // A title that ends in a version-like token loses only the extension.
+    expect(parsePdFilename("3 Client 2025-12-31 Title R1.LR.pdf")?.title).toBe("Title R1.LR");
+  });
+
+  it("reads a version with no initials right before a document extension", () => {
+    expect(parsePdFilename("03 Cedarline 2025-12-31 T1.docx")).toEqual({
+      projectNumber: "3",
+      clientName: "Cedarline",
+      fiscalYearEnd: "2025-12-31",
+      versionCode: "T",
+      revision: "1",
+    });
+    // The version is enough to anchor the name, as a version with initials is.
+    expect(parsePdFilename("5 HaldenFoods r3.doc")).toEqual({
+      projectNumber: "5",
+      clientName: "Halden Foods",
+      versionCode: "R",
+      revision: "3",
+    });
+  });
+
+  it("keeps a version with no initials as title anywhere else", () => {
+    // Not the last token, or no document extension after it.
+    expect(parsePdFilename("3 Client 2025-12-31 T1 Title.docx")).toMatchObject({ title: "T1 Title" });
+    expect(parsePdFilename("3 Client 2025-12-31 T1")).toMatchObject({ title: "T1" });
+    expect(parsePdFilename("3 Client 2025-12-31 T1.xlsx")).toMatchObject({ title: "T1" });
+    expect(parsePdFilename("3 Client 2025-12-31 T1.docx")?.title).toBeUndefined();
+    expect(parsePdFilename("3 Client T1 Title.docx")).toBeNull();
+    expect(parsePdFilename("3 Client T1")).toBeNull();
+  });
+
+  it("still reads dotted initials when the name has no document extension", () => {
+    expect(parsePdFilename("3 Client 2025-12-31 R1.LR.mo")).toMatchObject({
+      writerInitials: "LR",
+      reviewerInitials: "MO",
+    });
+    expect(parsePdFilename("3 Client 2025-12-31 T1.DW")).toMatchObject({ writerInitials: "DW" });
   });
 });
 

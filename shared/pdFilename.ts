@@ -5,6 +5,11 @@
  *   ── ───────── ────────── ──────── ────────────────────────────────────────────────────────
  *   #  Client    FYE        Rev.W.R  Project title (CamelCase, spaces removed)
  *
+ * The version token starts with a letter (2026-11-11, from the client's
+ * naming): T is to be submitted (the final copy), S is submitted, R is in
+ * review (the most common). The number after the letter counts versions.
+ * A name may end in a version with no initials ("… 2025-12-31 T1.docx").
+ *
  * Pure and framework-free so the create-project page can prefill from a
  * dropped file and tests can pin the grammar. Parsing is positional and
  * tolerant: the project number and client are the anchor; every later token
@@ -13,6 +18,9 @@
  * Owner or writer (ownership is never inferred from metadata).
  */
 
+/** The version letter: T to be submitted, S submitted, R in review. */
+export type PdVersionCode = "T" | "S" | "R";
+
 export type ParsedPdFilename = {
   /** Leading zero stripped: "03" → "3", "12a" → "12a". */
   projectNumber?: string;
@@ -20,9 +28,14 @@ export type ParsedPdFilename = {
   clientName?: string;
   /** Calendar-valid yyyy-mm-dd. */
   fiscalYearEnd?: string;
-  /** The revision number without its R: "R1.LR.mo" → "1". */
+  /** The version letter, upper-cased: "t1.LR" → "T". Set with `revision`. */
+  versionCode?: PdVersionCode;
+  /** The version number without its letter: "R1.LR.mo" → "1", "T2.LR" → "2". */
   revision?: string;
-  /** Upper-cased: "lr" → "LR". */
+  /**
+   * Upper-cased: "lr" → "LR". Set with `revision`, except for a version with
+   * no initials right before the extension ("… T1.docx").
+   */
   writerInitials?: string;
   reviewerInitials?: string;
   /** Remaining tokens, CamelCase split; lowercase runs are left as typed. */
@@ -32,7 +45,18 @@ export type ParsedPdFilename = {
 const PROJECT_NUMBER = /^(\d{1,2})([A-Za-z])?$/;
 const CLIENT_TOKEN = /^[A-Za-z0-9][A-Za-z0-9&'-]*$/;
 const FISCAL_YEAR_END = /^(\d{4})-(\d{2})-(\d{2})$/;
-const REVISION = /^[Rr](\d+)\.([A-Za-z]{2,3})(?:\.([A-Za-z]{2,3}))?$/;
+// Version letter (either case), version number, writer, optional reviewer.
+const REVISION = /^([RrSsTt])(\d+)\.([A-Za-z]{2,3})(?:\.([A-Za-z]{2,3}))?$/;
+// A version with no initials ("T1"). Read only as the last token, right
+// before a document extension ("… T1.doc"); see parsePdFilename.
+const BARE_VERSION = /^([RrSsTt])(\d+)$/;
+
+/**
+ * The extensions a PD file can have (the file types ingestion stages, in
+ * convex/lib/ingestionClassify.ts). doc, pdf, txt and vtt are as short as
+ * initials, so "T1.doc" would otherwise read as writer DOC.
+ */
+const DOCUMENT_EXTENSIONS = new Set(["doc", "docx", "pdf", "txt", "vtt"]);
 
 /** True for a real calendar date (rejects 2025-02-30, 2025-13-01). */
 function isCalendarDate(year: number, month: number, day: number): boolean {
@@ -62,13 +86,20 @@ export function splitCamelCase(token: string): string {
 /**
  * Strip a short extension such as `.docx`, `.pdf` or `.txt`. A name with no
  * extension whose last token is the revision ("… R1.LR.mo") keeps it: the
- * dotted initials are scheme fields, not an extension.
+ * dotted initials are scheme fields, not an extension. A document extension
+ * is always stripped, even where it looks like initials: "T1.DW.doc" is
+ * version T1 by DW in a .doc file, never reviewer DOC.
  */
-function stripExtension(fileName: string): string {
+function stripExtension(fileName: string): { stem: string; documentExtension: boolean } {
   const trimmed = fileName.trim();
+  const extension = /\.([A-Za-z0-9]{1,8})$/.exec(trimmed);
+  const documentExtension =
+    extension !== null && DOCUMENT_EXTENSIONS.has(extension[1].toLowerCase());
   const last = trimmed.split(/\s+/).at(-1) ?? "";
-  if (REVISION.test(last)) return trimmed;
-  return trimmed.replace(/\.[A-Za-z0-9]{1,8}$/, "");
+  if (!extension || (!documentExtension && REVISION.test(last))) {
+    return { stem: trimmed, documentExtension: false };
+  }
+  return { stem: trimmed.slice(0, extension.index), documentExtension };
 }
 
 /** Numbered projects are capped at 20 per company (convex/projects.ts). */
@@ -84,7 +115,8 @@ const MAX_PROJECT_NUMBER = 20;
  * page never prefills a value the server will reject.
  */
 export function parsePdFilename(fileName: string): ParsedPdFilename | null {
-  const tokens = stripExtension(fileName).split(/\s+/).filter(Boolean);
+  const { stem, documentExtension } = stripExtension(fileName);
+  const tokens = stem.split(/\s+/).filter(Boolean);
   const [first, second] = tokens;
   if (!first || !second) return null;
   const numberMatch = PROJECT_NUMBER.exec(first);
@@ -113,10 +145,20 @@ export function parsePdFilename(fileName: string): ParsedPdFilename | null {
   }
   const revision = tokens[index] ? REVISION.exec(tokens[index]) : null;
   if (revision) {
-    parsed.revision = String(Number.parseInt(revision[1], 10));
-    parsed.writerInitials = revision[2].toUpperCase();
-    if (revision[3]) parsed.reviewerInitials = revision[3].toUpperCase();
+    parsed.versionCode = revision[1].toUpperCase() as PdVersionCode;
+    parsed.revision = String(Number.parseInt(revision[2], 10));
+    parsed.writerInitials = revision[3].toUpperCase();
+    if (revision[4]) parsed.reviewerInitials = revision[4].toUpperCase();
     index += 1;
+  } else if (documentExtension && index === tokens.length - 1) {
+    // "… 2025-12-31 T1.doc": a version with no initials, with nothing after
+    // it but the extension. Anywhere else a bare "T1" stays title text.
+    const bare = BARE_VERSION.exec(tokens[index]);
+    if (bare) {
+      parsed.versionCode = bare[1].toUpperCase() as PdVersionCode;
+      parsed.revision = String(Number.parseInt(bare[2], 10));
+      index += 1;
+    }
   }
   if (!parsed.fiscalYearEnd && !parsed.revision) return null;
   const title = tokens.slice(index).map(splitCamelCase).join(" ").trim();

@@ -34,6 +34,15 @@ import {
 } from "./lib/draftWebBackgroundValidators";
 import { seedAnswerCountsValidator } from "./lib/seedAnswerCounts";
 import {
+  checkReasonValidator,
+  editableLabelValidator,
+  importCountFields,
+  ingestionCategoryValidator,
+  pdVersionCodeValidator,
+  scienceCodeSourceValidator,
+  sheetTabValidator,
+} from "./lib/ingestionSheetValidators";
+import {
   sectionMetricsValidator,
   sectionQaFindingsValidator,
   selfCheckSummaryValidator,
@@ -4332,7 +4341,11 @@ export default defineSchema({
     error: v.optional(v.string()),
     // Pair bookkeeping per client+fiscal-year group. Gaps are a feature, not
     // an error — "we need to get the transcript for this one" (Jun 19).
-    pairGroupKey: v.string(), // `${clientName}::${fiscalYearLabel}`
+    // `${companyKey}::${fiscalYear}` since 2026-11-11 ("?" for a missing
+    // part; lib/ingestionClassify.ts pairGroupKeyFor). Rows staged before
+    // carry main's `${clientName}::${fiscalYearLabel}` until their next write
+    // or ingestion.backfillIngestionLabels.
+    pairGroupKey: v.string(),
     pairStatus: v.optional(
       v.union(
         v.literal("paired"),
@@ -4365,6 +4378,51 @@ export default defineSchema({
     ),
     deletedBy: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
+    // 2026-11-11 widen (Import sheet, labels): what classify works out from
+    // the item's path and file name (convex/lib/ingestionClassify.ts).
+    // Refreshed whenever the stored path is written; absent on rows from
+    // before the change until ingestion.backfillIngestionLabels runs.
+    // `docKind` above still drives pairing and approval; since phase 2 every
+    // write sets it from `category` (convex/lib/ingestionSheet.ts).
+    category: v.optional(ingestionCategoryValidator),
+    companyKey: v.optional(v.string()), // dashboardCompanyKey(client folder)
+    // UTC, from the fiscal year label; a final PD's file name date fills in
+    // a day the label left out.
+    fiscalYearEnd: v.optional(v.number()),
+    // true: neither gave the day, so the month's last day (or Dec 31) was assumed
+    fiscalYearEndAssumed: v.optional(v.boolean()),
+    // From the file name ("04 Client 2025-03-31 T2.DW.PN Title") of a final
+    // PD, or of a draft or review copy whose name carries a version token.
+    // Initials are text only: never an Owner, writer or user link.
+    pdNumber: v.optional(v.string()),
+    versionCode: v.optional(pdVersionCodeValidator),
+    versionNumber: v.optional(v.number()),
+    writerInitials: v.optional(v.string()),
+    reviewerInitials: v.optional(v.string()),
+    pdTitle: v.optional(v.string()),
+    // 2026-11-11 widen (Import sheet, phase 2). Worked out on every write by
+    // convex/lib/ingestionSheet.ts settleItem; absent on rows not written
+    // since, until ingestion.backfillIngestionLabels runs. A row with no
+    // sheetTab is not on the sheet and not in importCompanies.
+    // review: discovered, fetched, pending_review, failed; approved;
+    // deleted: rejected, deleted.
+    sheetTab: v.optional(sheetTabValidator),
+    // Review tab only: true when checkReasons is not empty.
+    needsCheck: v.optional(v.boolean()),
+    checkReasons: v.optional(v.array(checkReasonValidator)),
+    // Order inside a category section: PD number, version, then name for
+    // final PDs, drafts and review copies; the lower-cased name otherwise.
+    sortKey: v.optional(v.string()),
+    // Set by a person on the sheet (ingestion.setSheetLabels). Text only:
+    // never linked to a user.
+    writerName: v.optional(v.string()),
+    // A code from shared/craScienceCodes.ts: read from a final PD's text
+    // ("document") or set by a person ("person"). Source is absent with no code.
+    scienceCode: v.optional(v.string()),
+    scienceCodeSource: v.optional(scienceCodeSourceValidator),
+    // The labels a person set. A move or a new copy on the drive keeps
+    // these instead of what the new path says.
+    editedLabels: v.optional(v.array(editableLabelValidator)),
     updatedAt: v.number(),
   })
     .index("by_storageId", ["storageId"])
@@ -4373,7 +4431,49 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_pairGroupKey", ["pairGroupKey"])
     .index("by_pairStatus", ["pairStatus"])
-    .index("by_portedProjectId", ["portedProjectId"]),
+    .index("by_portedProjectId", ["portedProjectId"])
+    // Import sheet (phase 2). Rows with no company have no companyKey. The
+    // first one is in creation order, which no label edit changes, so the
+    // counts rebuild can page through it while files change.
+    .index("by_sheetTab_and_companyKey", ["sheetTab", "companyKey"])
+    .index("by_sheetTab_and_companyKey_and_category_and_sortKey", [
+      "sheetTab",
+      "companyKey",
+      "category",
+      "sortKey",
+    ])
+    .index("by_sheetTab_and_companyKey_and_category_and_needsCheck_and_sortKey", [
+      "sheetTab",
+      "companyKey",
+      "category",
+      "needsCheck",
+      "sortKey",
+    ])
+    .searchIndex("search_name", { searchField: "name", filterFields: ["sheetTab"] }),
+
+  // 2026-11-11 (Import sheet, phase 2): what one company band shows without
+  // reading its files. One row per sheet tab and company key; companyKey is
+  // "" for files with no company yet. Kept in step with ingestionItems by
+  // convex/lib/importCompanyCounts.ts on every write, deleted when its total
+  // reaches zero, and rebuilt from the rows by
+  // ingestion.rebuildImportCompanyCounts. companyKey is the normalized
+  // lower-case name, so its order is name order.
+  importCompanies: defineTable({
+    sheetTab: sheetTabValidator,
+    companyKey: v.string(),
+    // The client folder name (or a person's company name) of the latest
+    // file written; "" for the no-company band.
+    displayName: v.string(),
+    ...importCountFields,
+    // needsCheck > 0, for listing only the bands with something to check.
+    hasCheck: v.boolean(),
+    // Goes up on every change of the counts; the rebuild checks it did not
+    // move while it paged through the files.
+    revision: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_sheetTab_and_companyKey", ["sheetTab", "companyKey"])
+    .index("by_sheetTab_and_hasCheck_and_companyKey", ["sheetTab", "hasCheck", "companyKey"]),
 
   // ─── Story 1 (CAP-1/2/4): Generation Brief ────────────────────────────────
   // Stores the Brief: Storyline, Claim Exclusions, Confidence Map, Glossary Terms.
