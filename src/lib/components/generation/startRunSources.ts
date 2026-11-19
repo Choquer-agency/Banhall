@@ -101,7 +101,7 @@ export const PINNED_FINAL_PD_NOTE = "Past final PD, read last while there is roo
  * 2026-11-18 (third, owner): last year's final PD that a draft reads as the
  * project's previous-year report, so the Previous-year status step opens.
  */
-export const PREVIOUS_YEAR_PD_NOTE = "Last year's final PD, read as the previous-year report while there is room";
+export const PREVIOUS_YEAR_PD_NOTE = "Read as last year's report while there is room";
 
 function companyFileNote(file: CompanyFileRow): string {
   if (file.previousYear) return PREVIOUS_YEAR_PD_NOTE;

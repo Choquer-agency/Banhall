@@ -1003,7 +1003,8 @@ export const setServingSearchIndex = internalMutation({
         };
       }
     }
-    const actor = args.actor?.trim() || "cli";
+    // A command-line actor is stored as "cli:<name>", as /admin/brain shows actors.
+    const actor = `cli:${args.actor?.trim() || "command line"}`;
     await writeIndexState(ctx, { serving: args.index, servingSince: Date.now(), changedBy: actor, changedAt: Date.now(), moveCheck: undefined });
     const from = BRAIN_SEARCH_INDEXES[state.serving].embeddingModelId;
     const to = BRAIN_SEARCH_INDEXES[args.index].embeddingModelId;
@@ -1375,7 +1376,7 @@ export const dropOldSearchIndex = internalMutation({
           `Run brain:calibrateSearchIndexes again first: the drop waits for a report made after the cutover, with voyage4 serving and at least ${CALIBRATION_MIN_PROBES} probes, so the floors have been checked on the PDs it serves.`
         );
       }
-      const actor = args.actor?.trim() || "cli";
+      const actor = `cli:${args.actor?.trim() || "command line"}`;
       await writeIndexState(ctx, { oldIndexDropped: true, changedBy: actor, changedAt: Date.now() });
       await ctx.db.insert("brainAuditLog", {
         action: "switch_index",

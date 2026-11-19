@@ -234,6 +234,8 @@ describe("two indexes, one pointer", () => {
       "Search moved from voyage3 (voyage-3-large) to voyage4 (voyage-4-large)",
       "Search moved from voyage4 (voyage-4-large) to voyage3 (voyage-3-large): rollback drill",
     ]);
+    // /admin/brain shows a "cli:" actor as it is, so the name of who moved it shows.
+    expect(audit.filter((a) => a.action === "switch_index").map((a) => a.actorId)).toEqual(["cli:owner", "cli:owner"]);
   });
 
   test("with voyage4 serving, the query is embedded by voyage-4-large, reranked by rerank-3 at its floor, and billed under those ids", async () => {
