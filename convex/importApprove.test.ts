@@ -14,6 +14,7 @@ import type { ImportCounts } from "./lib/ingestionSheetValidators";
 import { IMPORT_BRAIN_LEAK_LOG_REASON, IMPORT_BRAIN_NOT_COVERED } from "./lib/importBrainCopy";
 import { BRAIN_CHECK_GONE, BRAIN_COPY_CHANGED, BRAIN_COPY_DIFFERS, BRAIN_COPY_LABELS_DIFFER, FILE_TEXT_PAGE_CHARS, OLD_APPROVE_OFF } from "./ingestion";
 import { importSource } from "./brain";
+import { APPROVAL_STALE_MS } from "../shared/importSheetRules";
 import schema from "./schema";
 import workpoolSchema from "../node_modules/@convex-dev/workpool/src/component/schema.js";
 
@@ -628,6 +629,23 @@ describe("approving in batches", () => {
     expect(refusal(await admin.mutation(api.ingestion.approveCompanyReady, { companyKey: "" }).catch((e: unknown) => e))?.message).toBe(
       "Files with no company cannot be approved. Pick their company first."
     );
+  });
+
+  it("closes a stopped approval's line for good once its starter closes it, and keeps a moving one shown", async () => {
+    const { t, admin } = await setup();
+    const id = await stageRead(t, `${FY}/Data/Sheet stalled.pdf`, "Sheet stalled");
+    const { approvalId } = await admin.mutation(api.ingestion.approveFiles, { ids: [id] });
+    expect((await admin.query(api.ingestion.approvalProgress, {})).map((run) => run.approvalId)).toEqual([approvalId]);
+    // Closed while it is still moving: it stays shown.
+    await admin.mutation(api.ingestion.dismissApproval, { approvalId });
+    expect((await admin.query(api.ingestion.approvalProgress, {})).map((run) => run.approvalId)).toEqual([approvalId]);
+    // Stopped (no progress for APPROVAL_STALE_MS) and closed: gone, after a reload too.
+    await t.run((ctx) => ctx.db.patch(approvalId, { updatedAt: Date.now() - APPROVAL_STALE_MS - 1000 }));
+    expect(await admin.query(api.ingestion.approvalProgress, {})).toEqual([]);
+    expect(await admin.query(api.ingestion.approvalProgress, {})).toEqual([]);
+    // Moving again: shown again.
+    await t.run((ctx) => ctx.db.patch(approvalId, { updatedAt: Date.now() }));
+    expect((await admin.query(api.ingestion.approvalProgress, {})).map((run) => run.approvalId)).toEqual([approvalId]);
   });
 
   it("takes a selection of more than 100 in parts of up to 100 into one approval with one counter", async () => {
