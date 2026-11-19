@@ -1905,6 +1905,28 @@ export const BRAIN_COPY_CHANGED = "The Brain copy changed since you read it. Rea
 export const BRAIN_COPY_DIFFERS =
   "This PD is already in the Brain as a different copy. Remove that copy on the Brain page first, or keep this one out.";
 
+/** Greptile on PR #45 (2026-11-19): the same text is in the Brain with other labels than the ones the person read. */
+export const BRAIN_COPY_LABELS_DIFFER =
+  "This PD is already in the Brain with another title, industry or writer. Remove that copy on the Brain page first, or keep this one out.";
+
+/**
+ * Whether an approved Brain source holds the labels a person read for this
+ * copy (`brainCopySeen`'s title, industry, writer and tier; the title holds
+ * the fiscal year). Reusing it as this copy would keep its own labels
+ * (`importSource` changes them only on a pending match).
+ */
+function brainSourceHasLabels(
+  source: Pick<Doc<"brainSources">, "title" | "industry" | "writerName" | "writerTier">,
+  fields: { title: string; industry: string; writerName?: string; writerTier: number }
+): boolean {
+  return (
+    source.title === fields.title &&
+    source.industry === fields.industry &&
+    (source.writerName ?? "").trim() === (fields.writerName ?? "").trim() &&
+    source.writerTier === fields.writerTier
+  );
+}
+
 /**
  * The fingerprint of a Brain copy as the person read it: its text and what
  * the Brain stores with it (title, industry, writer and tier), so a change
@@ -2075,6 +2097,11 @@ export const finishBrainCheck = internalMutation({
     const match = await findImportMatch(ctx, brainContentHash(fields.content), importContentHash, { skipSentBack: true });
     if (match && match.status !== "revoked" && match.sourceHash !== brainContentHash(fields.content)) {
       return { ok: false, reason: BRAIN_COPY_DIFFERS };
+    }
+    // An approved match keeps its own labels, so it is reused only when they
+    // are the ones the person read; a pending match takes this copy's.
+    if (match && match.status === "approved" && !brainSourceHasLabels(match, fields)) {
+      return { ok: false, reason: BRAIN_COPY_LABELS_DIFFER };
     }
     const result = await importSource(
       ctx,
@@ -4235,16 +4262,17 @@ async function changeBatch(
 
 /**
  * The fields of a file that just arrived: New from now, in its batch, which
- * waits for its reading. A file that was still waiting in another batch
- * stops waiting there (that batch counts it as done), so no batch waits on
- * a file that left it.
+ * waits for its reading. A file that was still waiting stops waiting for its
+ * earlier copy (that copy's batch counts it as done), so no batch waits on a
+ * copy that was replaced. Since 2026-11-19 this holds in the same batch too:
+ * both arrivals count in `added`, so each needs its own done.
  */
 async function arrivalFields(
   ctx: MutationCtx,
   existing: Doc<"ingestionItems"> | null,
   arrival: Arrival
 ): Promise<Partial<IngestionItemFields>> {
-  if (existing?.batchReadPending && existing.batchId && existing.batchId !== arrival.batchId) {
+  if (existing?.batchReadPending && existing.batchId) {
     await changeBatch(ctx, existing.batchId, { read: 1 }, arrival.now, false);
   }
   return {
