@@ -38,6 +38,7 @@ import {
   extensionOf,
   INGEST_EXTENSIONS,
   isJunkPath,
+  labelsForItemPath,
   MAX_FILE_BYTES,
   sanitizeRelPath,
   uploadUpsertFields,
@@ -4370,6 +4371,21 @@ async function writerForTypedName(
  * its reviewer initials). 100 files a run; it schedules the rest. Safe to
  * run again.
  */
+/**
+ * The reviewer initials of an approved file, for the writers backfill: the
+ * stored ones, or, for a file approved before reviewers were read (its
+ * stored initials empty), the ones its file name gives now. Read only: the
+ * labels saved at approval stay as they were.
+ */
+function reviewerInitialsOfApproved(item: Doc<"ingestionItems">): string | null {
+  if (takesInitialsReviewer(item)) return writerInitialsKey(item.reviewerInitials);
+  if (item.reviewerInitials !== undefined || item.category === undefined) return null;
+  const read = labelsForItemPath(item.path, item.name);
+  return takesInitialsReviewer({ category: item.category, reviewerInitials: read.reviewerInitials })
+    ? writerInitialsKey(read.reviewerInitials)
+    : null;
+}
+
 export const backfillImportWriters = internalMutation({
   args: { tab: writerBackfillTabValidator, cursor: v.union(v.string(), v.null()) },
   returns: v.object({ changed: v.number(), done: v.boolean() }),
@@ -4396,11 +4412,14 @@ export const backfillImportWriters = internalMutation({
         const writer = (await pickedWriter(ctx, initials)) ?? (await writerForInitials(ctx, initials));
         if (writer) patch = { writerId: writer.id };
       }
-      if (item.reviewerId === undefined && item.status === "approved" && takesInitialsReviewer(item) && !reviewerSetByPerson(item)) {
+      // 2026-11-17 (edit after approval): never over a reviewer a person set.
+      const approvedReviewerInitials =
+        item.status === "approved" && !reviewerSetByPerson(item) ? reviewerInitialsOfApproved(item) : null;
+      if (item.reviewerId === undefined && approvedReviewerInitials !== null) {
         // 2026-11-17: an approved file gains only a reviewer reference too,
         // the pick or the check for its reviewer initials. Files on To
         // review and Deleted get theirs when they are settled below.
-        const initials = writerInitialsKey(item.reviewerInitials)!;
+        const initials = approvedReviewerInitials;
         const reviewer = (await pickedWriter(ctx, initials)) ?? (await writerForInitials(ctx, initials));
         // Only the reference, as for the writer: no source, since an
         // approved file follows neither a pick nor the check any more.
