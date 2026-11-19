@@ -360,6 +360,9 @@ export function companyNameVariants(
  * "Quill\u00ADmere" and "Quillmere\u2122" match "Quillmere".
  */
 const SCRUB_SKIPPED = /^[\p{Default_Ignorable_Code_Point}\u2122\u2120\u00AE]$/u;
+/** Characters a reader never sees, left out of a Brain copy's text. */
+const INVISIBLE_CHARACTERS = /\p{Default_Ignorable_Code_Point}/gu;
+
 /** Every character the scrub reads past, for finding names in the text as a reader sees it. */
 const SCRUB_SKIPPED_ALL = /[\p{Default_Ignorable_Code_Point}\u2122\u2120\u00AE]/gu;
 
@@ -1096,7 +1099,12 @@ export function buildImportBrainCopy(input: ImportBrainCopyInput, fullText: stri
   const industry = (input.company ? input.company.industry : input.newCompanyIndustry)?.trim();
   if (!industry) return refuse("no_industry", IMPORT_BRAIN_REFUSALS.no_industry);
 
-  const text = fullText.normalize("NFC");
+  // Invisible characters (zero-width spaces and joiners, soft hyphens and
+  // the rest of Default_Ignorable_Code_Point) are left out of the copy before
+  // anything is read or hidden (2026-11-19, from code review): a reader never
+  // sees them, and every pass then works on the text as it reads, so one can
+  // never split a name, its initials or a joined word ("QM\u200BCloud").
+  const text = fullText.normalize("NFC").replace(INVISIBLE_CHARACTERS, "");
   const organizations = organizationNames(input);
   // An entry with no letter or digit could hide nothing, so it is refused
   // rather than ignored. A blank entry ("") is no entry.
