@@ -964,6 +964,41 @@ describe("editing an approved file", () => {
     );
   });
 
+  it("checks the writer against every company whose PD shares the Brain copy (Greptile, 2026-11-19)", async () => {
+    const { t, admin, adminId } = await setup();
+    const { pd, sourceId } = await approvedPdInBrain(t, admin);
+    // Another company's approved PD scrubbed to the same text shares the copy,
+    // and that company's project interviewed Morgan Vale.
+    await t.run(async (ctx) => {
+      const cedarline = (await ctx.db.query("clients").collect()).find((client) => client.name === CEDARLINE)!;
+      const { _id: _c, _creationTime: _ct, ...clientFields } = cedarline;
+      const haldenId = await ctx.db.insert("clients", { ...clientFields, name: "Halden Foods", nameKey: "halden foods" });
+      const own = (await ctx.db.get(pd))!;
+      const { _id: _i, _creationTime: _it, ...itemFields } = own;
+      await ctx.db.insert("ingestionItems", {
+        ...itemFields,
+        driveItemId: "halden-drive",
+        path: "Halden Foods/2025 - Mar 31/Submitted/01 HaldenFoods 2025-03-31 T1.DW.PN Sensors.docx",
+        name: "01 HaldenFoods 2025-03-31 T1.DW.PN Sensors.docx",
+        companyKey: "halden foods",
+        clientName: "Halden Foods",
+        brainSourceId: sourceId,
+      });
+      await ctx.db.insert("projects", {
+        title: "Halden sensors", clientName: "Halden Foods", clientId: haldenId, dashboardCompanyKey: "halden foods",
+        status: "review", createdBy: adminId, shareToken: "halden-token", interviewees: ["Morgan Vale"], createdAt: 1, updatedAt: 1,
+      });
+    });
+    expect(await errorOf(admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Morgan Vale" } } }))).toBe(
+      "That writer's name is a person the company's projects interviewed, so it cannot go on this PD's Brain copy. Choose the writer by their own name."
+    );
+    expect(await source(t, sourceId)).toMatchObject({ writerName: "Dana Whitlock" });
+    // Another name is fine.
+    expect(await admin.mutation(api.ingestion.editApprovedFile, { id: pd, patch: { writer: { kind: "name", name: "Morgan Hale" } } })).toMatchObject({
+      changed: ["writer"],
+    });
+  });
+
   it("keeps a reviewer cleared by a person cleared through Send back and the next approval", async () => {
     const { t, admin } = await setup();
     const { pd } = await approvedPdInBrain(t, admin);
