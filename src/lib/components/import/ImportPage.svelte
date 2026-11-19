@@ -29,6 +29,11 @@
   each approved final PD's scrubbed Brain copy for a person to add or keep
   out (ImportBrainCheck). A file's name, or Open in its menu, opens the file
   view (ImportFilePanel), held here for every row.
+
+  Final PD progress (2026-11-17, a client meeting): above each tab's own
+  content, "312 of 1,040 final PDs approved" with a thin bar and the note
+  that the total is the final PDs added so far; it opens the breakdown by
+  fiscal year and by writer (ImportProgressLine).
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
@@ -51,6 +56,7 @@
   import ImportApprovalLine from "./ImportApprovalLine.svelte";
   import ImportBrainCheck from "./ImportBrainCheck.svelte";
   import ImportFilePanel from "./ImportFilePanel.svelte";
+  import ImportProgressLine from "./ImportProgressLine.svelte";
   import { provideFileView } from "./importFileView";
   import { ImportSelection } from "./importSelection.svelte";
   import { canSelect } from "./importEdit";
@@ -227,6 +233,8 @@
         aria-labelledby={`import-tab-${tab}`}
         class={`${workPanelInline} flex flex-col gap-5 pt-6 pb-14 lg:pt-8`}
       >
+        <!-- Final PD progress (2026-11-17): the whole Import, so on every tab. -->
+        <ImportProgressLine />
         {#if tab === "brain"}
           <ImportBrainCheck total={brainWaiting} />
         {:else if sheetTab === null}
