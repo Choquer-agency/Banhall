@@ -8,8 +8,8 @@
   import { Select } from "bits-ui";
   import { CaretDownIcon, CheckIcon } from "phosphor-svelte";
   import {
-    CATEGORY_OPTIONS,
     categoryLabel,
+    categoryOptionsFor,
     fiscalYearOf,
     fiscalYearOptions,
     type CompanyFileCategory,
@@ -38,7 +38,8 @@
   // svelte-ignore state_referenced_locally
   let year = $state<string>(fiscalYearOf(file)?.toString() ?? NONE);
 
-  const categoryItems = [{ value: NONE, label: "No category" }, ...CATEGORY_OPTIONS];
+  // svelte-ignore state_referenced_locally
+  const categoryItems = [{ value: NONE, label: "No category" }, ...categoryOptionsFor(file)];
   const yearItems = $derived([
     { value: NONE, label: "No fiscal year" },
     ...fiscalYearOptions(new Date(), fiscalYearOf(file)).map((value) => ({ value: String(value), label: `FY ${value}` })),

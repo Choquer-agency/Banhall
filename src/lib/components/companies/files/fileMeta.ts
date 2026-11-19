@@ -18,8 +18,34 @@ export const CATEGORY_OPTIONS: readonly { value: CompanyFileCategory; label: str
   { value: "other", label: "Other" },
 ];
 
+/**
+ * 2026-11-17: the categories an approved Import file keeps. Shown, never
+ * offered: only Import files a file under one.
+ */
+export const IMPORT_CATEGORY_LABELS: Readonly<Partial<Record<CompanyFileCategory, string>>> = {
+  final_pd: "Final PD",
+  draft: "Draft",
+  review_copy: "Review copy",
+  transcript: "Transcript",
+  supporting: "Supporting file",
+};
+
 export function categoryLabel(category: CompanyFileCategory | null | undefined): string | null {
-  return CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? null;
+  if (!category) return null;
+  return CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? IMPORT_CATEGORY_LABELS[category] ?? null;
+}
+
+/**
+ * The categories Edit details offers for a file: a person's five, plus the
+ * Import category the file has, or had before a person changed it, so
+ * saving its year keeps it and it can be given back.
+ */
+export function categoryOptionsFor(
+  file: Pick<ListedCompanyFile, "category" | "importCategory">
+): readonly { value: CompanyFileCategory; label: string }[] {
+  const imported = file.category && IMPORT_CATEGORY_LABELS[file.category] ? file.category : file.importCategory;
+  const label = imported ? IMPORT_CATEGORY_LABELS[imported] : undefined;
+  return imported && label ? [{ value: imported, label }, ...CATEGORY_OPTIONS] : CATEGORY_OPTIONS;
 }
 
 const KIND_LABELS: Record<string, string> = {

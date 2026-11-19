@@ -328,7 +328,8 @@ describe("the start dialog's company files (Phase C)", () => {
     await addCompanyFile(s, "empty.txt", "");
     const listed = await s.authed.query(api.companyFiles.listForProject, { projectId: s.projectId });
     expect(listed.files.map((file) => file.fileName)).toEqual(["newer.txt", "older.txt"]);
-    expect(listed.usedAtMost).toBe(FROZEN_COMPANY_FILES);
+    // 2026-11-17: the hand-added places and the pinned final PDs on top.
+    expect(listed.usedAtMost).toBe(FROZEN_COMPANY_FILES + 4);
 
     const plain = await setup({ company: false });
     await addCompanyFile(plain, "history.txt", "History.");

@@ -19,7 +19,8 @@ import { DASHBOARD_UNNAMED_COMPANY_KEY } from "../shared/dashboardProjection";
 import { requireAttemptKey } from "./lib/uploadAttempts";
 import { labelsCurrent } from "./lib/fileLabels";
 import { companyFileNeedsServerReading } from "./companyFileWork";
-import { companyFilesNewestFirst, eligibleCompanyFiles, FROZEN_COMPANY_FILES } from "./lib/briefEvidence";
+import { companyDraftSubject, draftCompanyFiles, FROZEN_COMPANY_FILES, PINNED_FINAL_PDS } from "./lib/briefEvidence";
+import { isCompanyHistoryCategory } from "./lib/companyEvidence";
 import { getInternalProjectAccessOrNull } from "./lib/auth";
 import { hasCapability } from "../shared/capabilities";
 import { deriveProcessingStatus } from "../shared/documentStatus";
@@ -57,12 +58,26 @@ const fileTypeValidator = v.union(
   v.literal("other")
 );
 
+/** The categories a person picks for a file added by hand. */
 const categoryValidator = v.union(
   v.literal("previous_pd"),
   v.literal("scoping_notes"),
   v.literal("writer_notes"),
   v.literal("background"),
   v.literal("other")
+);
+
+/**
+ * Every category a company file can hold: a person's, and since 2026-11-17
+ * the ones an approved Import file keeps (`COMPANY_HISTORY_CATEGORIES`).
+ */
+const storedCategoryValidator = v.union(
+  categoryValidator,
+  v.literal("final_pd"),
+  v.literal("draft"),
+  v.literal("review_copy"),
+  v.literal("transcript"),
+  v.literal("supporting")
 );
 
 /**
@@ -317,7 +332,7 @@ const listedFileValidator = v.object({
   _id: v.id("companyFiles"),
   fileName: v.string(),
   fileType: fileTypeValidator,
-  category: v.union(categoryValidator, v.null()),
+  category: v.union(storedCategoryValidator, v.null()),
   sizeChars: v.number(),
   wordCount: v.number(),
   archived: v.boolean(),
@@ -337,11 +352,30 @@ const listedFileValidator = v.object({
    * undefined when nobody did and the AI label's year applies.
    */
   fiscalYear: v.optional(v.union(v.number(), v.null())),
+  /**
+   * 2026-11-17: the Import category of a file Import approved that a person
+   * filed under another category since, which Edit details can give back.
+   */
+  importCategory: v.optional(storedCategoryValidator),
   labels: v.union(
     v.null(),
     v.object({ documentType: v.string(), fiscalYear: v.union(v.number(), v.null()), title: v.string(), summary: v.string() })
   ),
 });
+
+/**
+ * The Import category a person moved an Import file away from, read from
+ * its Import file only for such a file (rare), so the list reads no Import
+ * row for any other.
+ */
+async function movedImportCategory(
+  ctx: QueryCtx,
+  row: Doc<"companyFiles">
+): Promise<{ importCategory?: "final_pd" | "draft" | "review_copy" | "transcript" | "supporting" }> {
+  if (!row.importItemId || isCompanyHistoryCategory(row.category)) return {};
+  const category = (await ctx.db.get(row.importItemId))?.category;
+  return isCompanyHistoryCategory(category) ? { importCategory: category } : {};
+}
 
 /** A company's files, newest first: active ones, or the archived ones. */
 export const listCompanyFiles = query({
@@ -384,6 +418,7 @@ export const listCompanyFiles = query({
         fromWebsite: row._id === websiteFileId,
         bytes: row.storageId ? ((await ctx.db.system.get(row.storageId))?.size ?? null) : null,
         ...(row.fiscalYear !== undefined ? { fiscalYear: row.fiscalYear } : {}),
+        ...(await movedImportCategory(ctx, row)),
         labels: row.labels
           ? {
               documentType: row.labels.documentType,
@@ -400,15 +435,22 @@ export const listCompanyFiles = query({
 
 /**
  * Edit details (2026-11-04): a company file's category and the fiscal year
- * it is filed under, for everyone who may add company files. The year is a
- * label only: drafts read company files exactly as before. A null category
- * clears it; a null year says the file has none (the AI label's year is no
- * longer shown).
+ * it is filed under, for everyone who may add company files. A null
+ * category clears it; a null year says the file has none (the AI label's
+ * year is no longer shown). The year was a label only until 2026-11-17;
+ * since then a draft pins a final PD by it.
+ *
+ * 2026-11-17: an Import category (final PD, draft, review copy, transcript,
+ * supporting file) is kept when a file already has it, and can be given
+ * back to a file Import approved under it (`importItemId`, the Import
+ * file's own category) after a person changed it; no person files any
+ * other file into one: a final PD a person picked would be pinned in
+ * drafts without coming from Import.
  */
 export const updateCompanyFileDetails = mutation({
   args: {
     companyFileId: v.id("companyFiles"),
-    category: v.union(categoryValidator, v.null()),
+    category: v.union(storedCategoryValidator, v.null()),
     fiscalYear: v.union(v.number(), v.null()),
   },
   returns: v.null(),
@@ -417,6 +459,12 @@ export const updateCompanyFileDetails = mutation({
     const file = await ctx.db.get(args.companyFileId);
     if (!file) domainError("NOT_FOUND", "This file no longer exists.");
     await requireActiveClient(ctx, file.clientId);
+    if (isCompanyHistoryCategory(args.category) && args.category !== file.category) {
+      const item = file.importItemId ? await ctx.db.get(file.importItemId) : null;
+      if (item?.category !== args.category) {
+        domainError("INVALID_INPUT", "Only Import can set this category. Pick another category.");
+      }
+    }
     if (
       args.fiscalYear !== null &&
       (!Number.isInteger(args.fiscalYear) || args.fiscalYear < FISCAL_YEAR_MIN || args.fiscalYear > FISCAL_YEAR_MAX)
@@ -734,8 +782,9 @@ export const removeCompanyFiles = mutation({
 
 /**
  * The company files a project's next draft can read (Phase C), for its start
- * dialog: those a draft freezes when none is left out
- * (`eligibleCompanyFiles`), newest first. A draft reads them only while the
+ * dialog: those a draft freezes when none is left out (`draftCompanyFiles`:
+ * the files added by hand, newest first, as before, then since 2026-11-17
+ * the pinned final PDs). A draft reads them only while the
  * project's own frozen text leaves room in the frozen total (`frozenTotal`,
  * F5 stress run 2026-10-27), which this list cannot know without reading
  * every file: the dialog says so on each company file, and the Inputs band
@@ -749,7 +798,7 @@ export const listForProject = query({
       v.object({
         _id: v.id("companyFiles"),
         fileName: v.string(),
-        category: v.union(categoryValidator, v.null()),
+        category: v.union(storedCategoryValidator, v.null()),
         wordCount: v.number(),
         createdAt: v.number(),
       })
@@ -757,20 +806,20 @@ export const listForProject = query({
     usedAtMost: v.number(),
   }),
   handler: async (ctx, args) => {
-    const empty = { files: [], usedAtMost: FROZEN_COMPANY_FILES };
+    const empty = { files: [], usedAtMost: FROZEN_COMPANY_FILES + PINNED_FINAL_PDS };
     const access = await getInternalProjectAccessOrNull(ctx, args.projectId);
     if (!access?.user.role || !hasCapability(access.user.role, "companyFiles.read")) return empty;
     const client = access.project.clientId ? await ctx.db.get(access.project.clientId) : null;
     if (!client || client.status !== "active") return empty;
     return {
-      files: eligibleCompanyFiles(await companyFilesNewestFirst(ctx, client._id)).map(({ file }) => ({
+      files: (await draftCompanyFiles(ctx, client._id, companyDraftSubject(access.project))).map(({ file }) => ({
         _id: file._id,
         fileName: file.fileName,
         category: file.category ?? null,
         wordCount: file.wordCount,
         createdAt: file.createdAt,
       })),
-      usedAtMost: FROZEN_COMPANY_FILES,
+      usedAtMost: FROZEN_COMPANY_FILES + PINNED_FINAL_PDS,
     };
   },
 });

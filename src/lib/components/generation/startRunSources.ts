@@ -73,7 +73,7 @@ export type ProjectDocumentRow = {
   createdAt: number;
 };
 
-export type CompanyFileRow = { _id: string; fileName: string; wordCount: number };
+export type CompanyFileRow = { _id: string; fileName: string; wordCount: number; category?: string | null };
 
 /**
  * 2026-10-28 (third, owner): a draft reads company files after everything
@@ -84,9 +84,17 @@ export type CompanyFileRow = { _id: string; fileName: string; wordCount: number 
 export const COMPANY_FILE_ROOM_NOTE = "Read last, newest first, while there is room";
 
 /**
+ * 2026-11-17 (company history): a final PD a draft pins (from the two
+ * fiscal years before the project's) is read after the company files added
+ * by hand, by fiscal year rather than newest first.
+ */
+export const PINNED_FINAL_PD_NOTE = "Past final PD, read last while there is room";
+
+/**
  * A project's start dialog rows: its transcripts in list order, then its
  * files that are not archived, in SR&ED weight order (oldest first within
- * a category), then its company's files, newest first (Phase C). Archived
+ * a category), then its company's files in the order a draft reads them
+ * (Phase C: newest first; since 2026-11-17 the pinned final PDs after). Archived
  * files are never read, so they are not offered.
  */
 export function projectStartSources(
@@ -121,7 +129,7 @@ export function projectStartSources(
       kind: "companyFile" as const,
       name: file.fileName,
       typeLabel: "Company file",
-      meta: `${words(file.wordCount)} · ${COMPANY_FILE_ROOM_NOTE}`,
+      meta: `${words(file.wordCount)} · ${file.category === "final_pd" ? PINNED_FINAL_PD_NOTE : COMPANY_FILE_ROOM_NOTE}`,
     })),
   ];
 }

@@ -179,7 +179,7 @@ describe("the company files a chat turn lists and searches (review 2)", () => {
     expect(await read(s, pdId, s.writerId)).toMatchObject({ status: "ok", category: "background" });
   });
 
-  test("search reaches only listed files, and none after an archive, a relink or a merge", async () => {
+  test("search reaches every file of the company, listed or not, and none after an archive, a relink or a merge", async () => {
     const s = await setup();
     // Excerpts of Acme's history.txt.
     const historyExcerpts = async () => {
@@ -200,11 +200,14 @@ describe("the company files a chat turn lists and searches (review 2)", () => {
     expect(await historyExcerpts()).toBe(0);
     await s.t.run(async (ctx) => ctx.db.patch(s.acmeId, { status: "active", mergedIntoClientId: undefined }));
     expect(await historyExcerpts()).toBe(1);
-    // 30 newer files push history.txt out of the list: search no longer finds what readDocument could not open.
+    // 2026-11-17 (company history): 30 newer files push history.txt out of
+    // the list, and search still finds it (it was left out before).
     for (let index = 0; index < MAX_CHAT_COMPANY_FILES; index += 1) {
       await addAcmeFile(s, `note-${index}.txt`, `Acme note ${index} about valves.`);
     }
-    expect(await historyExcerpts()).toBe(0);
+    const listed = await s.t.run(async (ctx) => chatCompanyFilesFor(ctx, s.projectId, s.writerId));
+    expect(listed.map((file) => file.companyFileId)).not.toContain(s.historyId);
+    expect(await historyExcerpts()).toBe(1);
   });
 
   test("a company excerpt is placed by its handle and shown as a company file", async () => {

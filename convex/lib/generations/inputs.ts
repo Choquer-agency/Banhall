@@ -271,7 +271,7 @@ export const INCLUSION_DOCUMENT_ROWS = 1000;
 
 /**
  * Phase D (step 2): recorded uses one Inputs band reads per step. A draft
- * writes a row per frozen source per step run (at most 123 sources): the
+ * writes a row per frozen source per step run (at most 127 sources since 2026-11-17): the
  * analyzer and the Brief once or a few times, a Seed step once per answered
  * Batch, a Line's facts check once per claim; rows are small.
  */
@@ -344,7 +344,7 @@ export async function getContextInclusionHandler(
   }
   // 2026-10-28 (third, owner): the company files the draft could read but
   // did not fit, as it recorded them at its start (at most
-  // FROZEN_COMPANY_FILES), for a viewer who may read company files. A file
+  // FROZEN_COMPANY_FILES plus PINNED_FINAL_PDS), for a viewer who may read company files. A file
   // deleted since is left off; one archived since says so, as project files
   // do. Read under the same budget as the documents (DW-133).
   const showCompanyFiles = hasCapability(access.user.role ?? null, "companyFiles.read");

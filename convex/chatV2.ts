@@ -3130,6 +3130,13 @@ function chatReadBudget() {
     used += getConvexSize(value) + CHAT_DOCUMENT_OVERHEAD;
   }
   return {
+    /**
+     * Whether one more maximum-size row fits, before a read a helper makes
+     * on its own (a `ReadCounter`'s `mayRead`); false marks the budget spent.
+     */
+    hasRoom(): boolean {
+      return reserve();
+    },
     /** Charge a point read (`ctx.db.get`, a `.take`) that already happened. */
     charge<T extends Value | null | undefined>(value: T): T {
       if (Array.isArray(value)) value.forEach((row) => account(row));
@@ -3646,7 +3653,18 @@ export const getChatContextV2 = internalQuery({
     // Phase C (W1): whether the chat may see PDFs and images.
     const chatVisionRead = await budget.read(() => chatVisionEnabled(ctx), 1024);
     // 2026-10-26 (Phase C): the company's files, facts only (at most 30).
-    const companyFilesRead = await budget.read(() => chatCompanyFilesFor(ctx, report.projectId, args.userId), 64 * 1024);
+    // 2026-11-17: every company file row it reads is charged as read (final
+    // PDs by year, the newest hand-added and Import files), not a flat guess,
+    // and the budget is asked before each row: once it has no room, the
+    // list ends with what it has (review, 2026-11-17).
+    const companyFilesRead = await budget.read(
+      () =>
+        chatCompanyFilesFor(ctx, report.projectId, args.userId, {
+          mayRead: () => budget.hasRoom(),
+          read: (row) => void budget.charge(row as Value | null | undefined),
+        }),
+      4 * 1024
+    );
 
     // BNH-24: archived docs are out of AI context.
     const activeDocuments = documents.filter((d) => !d.archived);
