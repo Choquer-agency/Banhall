@@ -326,6 +326,15 @@ describe("people the scrub must not miss (Greptile, 2026-11-19)", () => {
     );
   });
 
+  test("an invisible character never splits a company's joined initials, and the copy has none left", () => {
+    const text = "We built QM\u200BCloud and Quill\u00ADmere\u2060Mira tools.";
+    const result = copyFor("Quillmere Mira Inc.", text);
+    expect(result.ok).toBe(true);
+    const content = result.ok ? result.fields.content : "";
+    expect(content).not.toMatch(/QM|Quillmere|Mira/);
+    expect(content).not.toMatch(/\p{Default_Ignorable_Code_Point}/u);
+  });
+
   test("a name with invisible characters inside it is still found and hidden", () => {
     const text = "Reviewed by Anja\u200Bli Ver\u00ADma. Prepared by Tom\u2060asz Brightwater.";
     expect(peopleNamedByCues(text)).toEqual(["Anjali Verma", "Tomasz Brightwater"]);
