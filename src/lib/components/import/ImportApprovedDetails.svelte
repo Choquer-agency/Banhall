@@ -33,7 +33,17 @@
   }: {
     file: Pick<
       SheetFileRow,
-      "_id" | "status" | "category" | "writerId" | "writerName" | "reviewerId" | "reviewerName" | "scienceCode" | "pdTitle" | "craReviewed"
+      | "_id"
+      | "status"
+      | "category"
+      | "writerId"
+      | "writerName"
+      | "reviewerId"
+      | "reviewerName"
+      | "scienceCode"
+      | "scienceCodeSource"
+      | "pdTitle"
+      | "craReviewed"
     >;
     onSentBack: () => void;
   } = $props();
@@ -156,7 +166,11 @@
             clearable={false}
             onSelect={(picked) => {
               close();
-              if (picked && picked !== file.scienceCode) void save("scienceCode", { scienceCode: picked });
+              // As the row's picker: choosing the code the document gave confirms it;
+              // only a code a person already chose is left alone.
+              if (picked && !(picked === file.scienceCode && file.scienceCodeSource === "person")) {
+                void save("scienceCode", { scienceCode: picked });
+              }
             }}
           />
         {/snippet}
