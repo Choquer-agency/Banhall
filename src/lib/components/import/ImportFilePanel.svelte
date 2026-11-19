@@ -43,30 +43,41 @@
   let loading = $state(false);
   let textError = $state<string | null>(null);
 
+  // Each open of the panel, or of another file, is a new generation
+  // (Greptile, 2026-11-19): a page asked for before a close and reopen of
+  // the same file is dropped, and a page is added only where the loaded text
+  // ends, so no page is ever skipped.
+  let generation = 0;
+
   async function loadFrom(target: SheetFileRow["_id"], start: number) {
+    const asked = generation;
+    const current = () => asked === generation && target === id;
     loading = true;
     textError = null;
     try {
       const page = await readText({ id: target, start });
-      if (target !== id) return;
+      if (!current()) return;
       if (!page) {
         loaded = { text: "", total: 0, source: "none", cutAtImport: false };
         return;
       }
+      if (start > 0 && start !== loaded?.text.length) return;
       const before = start === 0 ? "" : (loaded?.text ?? "");
       loaded = { text: before + page.text, total: page.total, source: page.source, cutAtImport: page.cutAtImport };
     } catch (error) {
-      if (target === id) textError = userErrorMessage(error, "The text could not be loaded.");
+      if (current()) textError = userErrorMessage(error, "The text could not be loaded.");
     } finally {
-      if (target === id) loading = false;
+      if (current()) loading = false;
     }
   }
 
-  // A new file starts its text from the top.
+  // A new file, or the same file opened again, starts its text from the top.
   $effect(() => {
     const target = id;
     untrack(() => {
+      generation += 1;
       loaded = null;
+      loading = false;
       textError = null;
       if (target) void loadFrom(target, 0);
     });

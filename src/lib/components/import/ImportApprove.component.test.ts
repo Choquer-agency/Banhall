@@ -541,6 +541,44 @@ describe("the file view", () => {
     await expect.poll(() => one("[data-import-file-panel]")).toBeNull();
   });
 
+  it("drops a page asked for before the panel closed, so a reopened file never skips a page (Greptile, 2026-11-19)", async () => {
+    seedPage();
+    __setQueryDataForArgs("ingestion:sheetFile", { id: "pd1" }, FILE);
+    const size = page1.length;
+    let releaseThird: (() => void) | null = null;
+    __setMutationHandler("ingestion:sheetFileText", (args) => {
+      const start = (args as { start?: number }).start ?? 0;
+      const answer = { text: start === 0 ? page1 : start === size ? "B".repeat(size) : "C".repeat(size), start, end: start + size, total: size * 4, source: "full", cutAtImport: false };
+      if (start !== size * 2) return answer;
+      // The third page waits until the test lets it through.
+      return new Promise((resolvePage) => {
+        releaseThird = () => resolvePage(answer);
+      });
+    });
+    await mount();
+    await openCedarline();
+    await userEvent.click(one('[data-import-file-open="pd1"]')!);
+    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(size);
+    await userEvent.click(page.getByRole("button", { name: "Show more" }));
+    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(size * 2);
+    await userEvent.click(page.getByRole("button", { name: "Show more" }));
+    await expect.poll(() => releaseThird !== null).toBe(true);
+    // Closed while the third page loads, then the same file opened again.
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => one("[data-import-file-panel]")).toBeNull();
+    await userEvent.click(one('[data-import-file-open="pd1"]')!);
+    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.length ?? 0).toBe(size);
+    releaseThird!();
+    await new Promise((settle) => setTimeout(settle, 50));
+    const shown = one("[data-import-file-panel-text]")?.textContent ?? "";
+    expect(shown.length).toBe(size);
+    expect(shown.includes("C")).toBe(false);
+    // Show more goes on from where the text ends: the second page.
+    await userEvent.click(page.getByRole("button", { name: "Show more" }));
+    expect(__mutationCalls("ingestion:sheetFileText").at(-1)).toEqual({ id: "pd1", start: size });
+    await expect.poll(() => one("[data-import-file-panel-text]")?.textContent?.endsWith("B")).toBe(true);
+  });
+
   it("opens from Open in a row's menu, and lists what a file still needs", async () => {
     seedPage();
     __setQueryDataForArgs("ingestion:sheetFile", { id: "pd3" }, { ...FILE, ...FINAL_PDS[2], name: "pd3.docx" });
