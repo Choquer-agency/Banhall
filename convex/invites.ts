@@ -5,6 +5,7 @@ import { getCurrentUserOrNull, requireInternalActor } from "./lib/auth";
 import { domainError } from "./lib/contracts";
 import { normalizeEmail } from "./lib/email";
 import { hasCapability } from "./lib/roleCapabilities";
+import { liveInvitesForEmail, TOO_MANY_PENDING_INVITES } from "./lib/inviteRows";
 import { userDisplayLabel, waitingWriterInvite } from "./lib/teamRoster";
 import { canManageInvite } from "../shared/capabilities";
 import { personInitials } from "../shared/personInitials";
@@ -177,13 +178,10 @@ export const createInvites = mutation({
         results.push({ email, status: "already_member" as const });
         continue;
       }
-      const pending = await ctx.db
-        .query("invites")
-        .withIndex("by_email_and_status", (q) =>
-          q.eq("email", email).eq("status", "pending"),
-        )
-        .take(10);
-      if (pending.some((invite) => invite.expiresAt > now)) {
+      const pending = await liveInvitesForEmail(ctx, email, now);
+      // More waiting rows than one call reads counts as already invited, so
+      // no second live invite is ever made.
+      if (!pending.complete || pending.live.length > 0) {
         results.push({ email, status: "already_invited" as const });
         continue;
       }
@@ -287,11 +285,9 @@ export const resendInvite = mutation({
     // One live invite per email, as createInvites keeps: sign-up takes the
     // email's live invite (auth.ts onCreate), so two would let it pick the
     // wrong one, and with it the wrong past writer to link.
-    const others = await ctx.db
-      .query("invites")
-      .withIndex("by_email_and_status", (q) => q.eq("email", invite.email).eq("status", "pending"))
-      .take(10);
-    if (others.some((other) => other._id !== invite._id && other.expiresAt > now)) {
+    const others = await liveInvitesForEmail(ctx, invite.email, now);
+    if (!others.complete) domainError("INVALID_STATE", TOO_MANY_PENDING_INVITES);
+    if (others.live.some((other) => other._id !== invite._id)) {
       domainError("INVALID_STATE", "This email has a newer invite waiting. Use that one.");
     }
     const token = generateInviteToken();
