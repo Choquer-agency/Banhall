@@ -2522,6 +2522,39 @@ async function writerNameGivesAwayCompany(
   return null;
 }
 
+/** Most approved files sharing one Brain copy the writer check reads; more and the edit is refused. */
+const SHARED_COPY_FILES_READ = 20;
+
+/**
+ * writerNameGivesAwayCompany for every company whose approved file shares
+ * this file's Brain copy (2026-11-19, from code review): two companies' PDs
+ * can share one copy when their scrubbed text matches, and the copy's writer
+ * label is read by every company's search. Refused when more files share it
+ * than one call reads.
+ */
+async function writerNameGivesAwayAnyCompany(
+  ctx: MutationCtx,
+  item: Doc<"ingestionItems">,
+  name: string
+): Promise<{ kind: "company"; form: string } | { kind: "person" } | null> {
+  const own = await writerNameGivesAwayCompany(ctx, item, name);
+  if (own !== null || !item.brainSourceId) return own;
+  const sharing = await ctx.db
+    .query("ingestionItems")
+    .withIndex("by_brainSourceId_and_status", (q) => q.eq("brainSourceId", item.brainSourceId).eq("status", "approved"))
+    .take(SHARED_COPY_FILES_READ + 1);
+  if (sharing.length > SHARED_COPY_FILES_READ) domainError("INVALID_STATE", WRITER_CHECK_INCOMPLETE);
+  const checked = new Set([item.companyKey ?? ""]);
+  for (const other of sharing) {
+    const key = other.companyKey ?? "";
+    if (checked.has(key)) continue;
+    checked.add(key);
+    const given = await writerNameGivesAwayCompany(ctx, other, name);
+    if (given !== null) return given;
+  }
+  return null;
+}
+
 /**
  * Edit after approval (Admins only): an approved file's writer, reviewer,
  * science code, PD title or "Reviewed by CRA" mark. Metadata only: the
@@ -2576,7 +2609,7 @@ export const editApprovedFile = mutation({
         // Brain check scrubbed out. The whole edit is refused, so nothing
         // (not even a writer made for a typed name) is kept.
         if (category === "final_pd") {
-          const given = await writerNameGivesAwayCompany(ctx, item, chosen.name?.trim() || label);
+          const given = await writerNameGivesAwayAnyCompany(ctx, item, chosen.name?.trim() || label);
           if (given?.kind === "company") {
             domainError(
               "INVALID_INPUT",
