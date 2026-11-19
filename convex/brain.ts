@@ -1150,15 +1150,37 @@ export const calibrateSearchIndexes = internalAction({
       });
       tokens[index] += usage.tokens;
       const byEntry = new Map(entries.map((entry) => [entry.entryId, entry.metadata as BrainEntryMetadata | undefined]));
-      return results.map((result) => {
-        const meta = byEntry.get(result.entryId);
-        return {
-          sourceId: meta?.sourceId,
-          scienceCode: meta?.scienceCode,
+      // Greptile on #51 (P2): each hit's science code as its source card
+      // holds it now, as served search reads it (servableBrainSources). The
+      // code saved with the vectors stays as it was when an Admin edits it
+      // on Import (no new embed), and the probes are grouped by the card.
+      // A hit served search would drop (its source no longer approved) is
+      // dropped here too.
+      const sourceIds = [
+        ...new Set(
+          results
+            .map((result) => byEntry.get(result.entryId)?.sourceId)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        ),
+      ];
+      const cards = new Map(
+        sourceIds.length > 0
+          ? (await ctx.runQuery(internal.brain.servableBrainSources, { sourceIds })).map((row) => [row.sourceId, row])
+          : []
+      );
+      const hits: Hit[] = [];
+      for (const result of results) {
+        const sourceId = byEntry.get(result.entryId)?.sourceId;
+        const card = sourceId ? cards.get(sourceId) : undefined;
+        if (sourceId && !card) continue;
+        hits.push({
+          sourceId,
+          scienceCode: card?.scienceCode,
           score: result.score,
           text: result.content.map((c) => c.text).join("\n"),
-        };
-      });
+        });
+      }
+      return hits;
     };
     const rerankScores = async (index: BrainIndexId, query: string, documents: string[]) => {
       if (documents.length === 0) return [] as number[];

@@ -446,6 +446,43 @@ export async function syncBrainSourceCard(
   } else if (!sameCard(next, card)) {
     await ctx.db.replace(card._id, next);
   }
+  if (changesPointerCheck(card, next)) await restartMoveCheck(ctx);
+}
+
+/**
+ * The card fields the pointer's live check reads (`entryIsCurrent` over
+ * approved cards): whether the card is approved, and each index's entry
+ * id, note version and (voyage3) importance.
+ */
+const POINTER_CHECK_FIELDS = [
+  "status",
+  "ragEntryId",
+  "ragImportance",
+  "chunkNotesVersion",
+  "ragEntryIdV4",
+  "chunkNotesVersionV4",
+] as const satisfies readonly (keyof CardFields)[];
+
+/** Whether a card write can change what a saved pointer check already read. */
+function changesPointerCheck(before: CardFields | null, after: CardFields | null): boolean {
+  if (!before && !after) return false;
+  if (!before || !after) return (before ?? after)!.status === "approved";
+  if (before.status !== "approved" && after.status !== "approved") return false;
+  return POINTER_CHECK_FIELDS.some((field) => before[field] !== after[field]);
+}
+
+/**
+ * Greptile on #51 (P1): a pointer check longer than one call keeps its
+ * place (`moveCheck`) and does not read the cards before it again. Every
+ * card write goes through syncBrainSourceCard, so a write that changes what
+ * the check reads (an entry erased, replaced or renewed, a note version or
+ * importance, a source approved or no longer approved) clears the saved
+ * place here, and the next call checks every card again from the first.
+ * One indexed read of the pointer row, only on such a write.
+ */
+async function restartMoveCheck(ctx: MutationCtx): Promise<void> {
+  const { row } = await readBrainIndexState(ctx);
+  if (row?.moveCheck) await ctx.db.patch(row._id, { moveCheck: undefined });
 }
 
 /** Insert a source with its card and counts. */

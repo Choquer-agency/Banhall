@@ -1278,3 +1278,108 @@ describe("final review of #48 to #51", () => {
     expect((await t.run((ctx) => ctx.db.query("brainIndexWrites").collect())).map((r) => r._id)).toEqual([live]);
   });
 });
+
+describe("Greptile on #51, second round", () => {
+  test("P1: a write that changes an already-checked entry restarts a saved pointer check, so the move is refused", async () => {
+    const t = setup();
+    const total = MOVE_CHECK_BUDGET + 1;
+    const ids: Id<"brainSources">[] = [];
+    for (let start = 0; start < total; start += 500) {
+      ids.push(
+        ...(await t.run(async (ctx) => {
+          const out: Id<"brainSources">[] = [];
+          for (let i = start; i < Math.min(total, start + 500); i++) {
+            out.push(
+              await insertBrainSource(ctx, {
+                kind: "pd_pair", status: "approved", title: "x", industry: "manufacturing", writerTier: 1, docType: "pd",
+                content: "x", ragKey: `k-${i}`, sourceHash: `h-${i}`, createdBy: "test", createdAt: i,
+                ragEntryId: `e3-${i}`, ragImportance: 1, ragEntryIdV4: `e4-${i}`,
+              })
+            );
+          }
+          return out;
+        }))
+      );
+    }
+    await t.run(async (ctx) => {
+      await ctx.db.insert("brainSourceCounts", { scope: "meta", key: "cards_ready", count: total });
+      await ctx.db.insert("brainSearchIndexState", { key: "search", serving: "voyage4", changedBy: "test", changedAt: 1 });
+    });
+    const state = () => t.run((ctx) => ctx.db.query("brainSearchIndexState").unique());
+    const rollback = () => t.mutation(internal.brain.setServingSearchIndex, { index: "voyage3" });
+
+    expect(await rollback()).toMatchObject({ changed: false, checked: MOVE_CHECK_BUDGET });
+    expect((await state())?.moveCheck).toMatchObject({ index: "voyage3", checked: MOVE_CHECK_BUDGET });
+
+    // A write the check does not read (a writer's name) keeps the place.
+    await t.run(async (ctx) => {
+      const { patchBrainSource } = await import("./ai/brain/rag");
+      await patchBrainSource(ctx, (await ctx.db.get(ids[1]))!, { writerName: "Robin Sample" });
+    });
+    expect((await state())?.moveCheck).toBeDefined();
+
+    // The full requeue's confirmed erasure of an already-checked voyage3 entry, whose refill then fails.
+    await t.mutation(internal.brain.recordUnlearnConfirmed, { ragEntryId: "e3-0", sourceId: ids[0], index: "voyage3", requeued: true });
+    expect((await t.run((ctx) => ctx.db.get(ids[0])))?.ragEntryId).toBeUndefined();
+    expect((await state())?.moveCheck).toBeUndefined();
+
+    // The next call checks from the first card again and refuses at the gap.
+    const next = await rollback();
+    expect(next).toMatchObject({ serving: "voyage4", changed: false, checked: 1 });
+    expect(next.message).toContain(`${ids[0]} has no current voyage3 entry (no entry)`);
+    expect((await state())?.serving).toBe("voyage4");
+  });
+
+  test("P2: calibration groups hits by the science code on the source card, not the one saved with the vectors", async () => {
+    const t = setup();
+    // Two sources embedded under one code, then both moved to another on Import (no new embed).
+    const coded = [await source(t, { scienceCode: "1.02.02" }), await source(t, { scienceCode: "1.02.02" })];
+    const plain = await source(t);
+    for (const [i, id] of [...coded, plain].entries()) {
+      const src = (await row(t, id))!;
+      for (const [rag, namespace, axis] of [[brain, "brain", 2 + i], [brainV4, "brain-v4", 10 + i]] as const) {
+        await t.action(async (ctx) =>
+          rag.add(ctx, {
+            namespace,
+            key: src.ragKey,
+            title: src.title,
+            importance: BRAIN_ENTRY_IMPORTANCE,
+            metadata: {
+              sourceId: id, industry: src.industry, writerTier: src.writerTier, docType: src.docType,
+              ...(src.scienceCode ? { scienceCode: src.scienceCode } : {}),
+            },
+            filterValues: [
+              { name: "industryApproved", value: { industry: src.industry, approved: true } },
+              { name: "docType", value: src.docType },
+            ],
+            chunks: [{ text: `${namespace} passage for ${src.title}.`, embedding: vectorAt(0.5 + i * 0.1, axis) }],
+            onComplete: internal.ai.brain.rag.ingestOnComplete,
+          })
+        );
+      }
+    }
+    const { relabelImportedSource } = await import("./brain");
+    for (const id of coded) {
+      await t.run(async (ctx) => relabelImportedSource(ctx, (await ctx.db.get(id))!, { scienceCode: "2.02.09" }, "admin"));
+    }
+    await backfillCards(t);
+    vi.spyOn(brainRerankModel, "doRerank").mockImplementation(async ({ documents }) => ({
+      ranking: (documents as unknown as { values: unknown[] }).values.map((_, index) => ({ index, relevanceScore: 0.5 })),
+      response: { body: {} },
+    }) as never);
+    vi.spyOn(brainRerankModelV4, "doRerank").mockImplementation(async ({ documents }) => ({
+      ranking: (documents as unknown as { values: unknown[] }).values.map((_, index) => ({ index, relevanceScore: 0.6 })),
+      response: { body: {} },
+    }) as never);
+    const report = await t.action(internal.brain.calibrateSearchIndexes, { probes: 3 });
+    // Each coded probe finds the other one under the card's code: one each, in both indexes.
+    expect(report.search.voyage3.sameScienceCode.count).toBe(2);
+    expect(report.search.voyage4.sameScienceCode.count).toBe(2);
+    // A hit whose source is no longer approved is left out, as served search leaves it out.
+    const { patchBrainSource } = await import("./ai/brain/rag");
+    await t.run(async (ctx) => patchBrainSource(ctx, (await ctx.db.get(plain))!, { status: "revoked" }));
+    const after = await t.action(internal.brain.calibrateSearchIndexes, { probes: 3 });
+    expect(after.probes).toBe(2);
+    expect(after.search.voyage3.otherScienceCode.count).toBe(0);
+  });
+});
