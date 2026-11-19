@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 // The Import sheet's data (2026-11-11, phase 2): the move fix, the company
 // counts, the sheet queries, label edits and the science code from text.
+import { TOO_MANY_PENDING_INVITES } from "./lib/inviteRows";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -4681,6 +4682,30 @@ describe("inviting a past writer (2026-11-17)", () => {
     // Once the extra one is revoked, the link that is left works.
     await admin.mutation(api.invites.revokeInvite, { inviteId: forB });
     const sam = await acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: sam._id });
+  });
+
+  it("never misses a live invite behind many old ones for the same email", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const live = await inviteFor(admin, dw._id, "sam@example.com");
+    const old = await t.run(async (ctx) => {
+      const row = (await ctx.db.get(live.inviteId))!;
+      const { _id, _creationTime, ...rest } = row;
+      const ids = [];
+      // 55 expired invites for the same email, all still pending.
+      for (let n = 0; n < 55; n += 1) ids.push(await ctx.db.insert("invites", { ...rest, token: `old-${n}`, expiresAt: 1, pdWriterId: undefined }));
+      return ids;
+    });
+    // No second live invite: not by a new invite, not by a resend.
+    const [again] = await admin.mutation(api.invites.createInvites, { emails: ["sam@example.com"], role: "writer" });
+    expect(again.status).toBe("already_invited");
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: old[0] })).rejects.toThrow(TOO_MANY_PENDING_INVITES);
+    // Sign-up cannot tell it read them all, so it refuses rather than guess.
+    await expect(acceptInvite(t, live.token, "sam@example.com", "Sam", "Rivera")).rejects.toThrow(TOO_MANY_PENDING_INVITES);
+    // Once the old ones are revoked, the live link works.
+    for (const id of old) await admin.mutation(api.invites.revokeInvite, { inviteId: id });
+    const sam = await acceptInvite(t, live.token, "sam@example.com", "Sam", "Rivera");
     expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: sam._id });
   });
 
