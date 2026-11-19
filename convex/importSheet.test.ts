@@ -4861,6 +4861,25 @@ async function storedFile(t: T, id: Id<"_storage">) {
   return await t.run((ctx) => ctx.db.system.get("_storage", id));
 }
 
+describe("a file sent again with new bytes before it was read (Greptile, 2026-11-19)", () => {
+  it("counts the replaced copy as done even in the same batch, so nothing is left unread", async () => {
+    const { t } = await setup();
+    vi.setSystemTime(Date.UTC(2026, 10, 12, 9, 0));
+    const path = `${CEDARLINE_FY}/Drafts/plan.docx`;
+    const send = (hash: string) =>
+      t.mutation(internal.ingestion.upsertDiscoveredItem, { ...discoveredArgs(path, { driveItemId: `local:${path}`, contentHash: hash }), via: "uploader" });
+    await send("h1");
+    vi.advanceTimersByTime(2 * 60_000);
+    // Changed bytes within the uploader's ten minutes: the same batch.
+    await send("h2");
+    const row = await itemAt(t, path);
+    expect(await batchOf(t, row.batchId!)).toMatchObject({ added: 2, read: 1 });
+    await markRead(t, row._id);
+    expect(await batchOf(t, row.batchId!)).toMatchObject({ added: 2, read: 2, couldNotRead: 0 });
+    expect((await getItem(t, row._id)).batchReadPending).toBeUndefined();
+  });
+});
+
 describe("a file added on the page with a path a row already has", () => {
   it("skips the same path and bytes as already here, and the row keeps what a person set", async () => {
     const { t, admin } = await setup();
