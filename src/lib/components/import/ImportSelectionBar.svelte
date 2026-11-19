@@ -55,6 +55,7 @@
   import ImportCompanyList from "./ImportCompanyList.svelte";
   import ImportPdNumberList from "./ImportPdNumberList.svelte";
   import ImportWriterList, { type PickedWriter } from "./ImportWriterList.svelte";
+  import { canPutBack } from "../../../../shared/importSheetRules";
   import { deleteFiles, IMPORT_TOAST, moveUndo, putBackFiles } from "./importActions";
   import {
     changedText,
@@ -174,6 +175,8 @@
   const forYear = $derived(splitForChange("fiscalYearEnd", selection.selected));
   const forMore = $derived(moreView === "list" ? null : splitForChange(moreView, selection.selected));
   const forDelete = $derived(splitForChange("delete", selection.selected));
+  // On Deleted a file removed in OneDrive can be selected for the reviewer and the CRA mark, but never put back.
+  const forPutBack = $derived(selection.selected.filter((file) => canPutBack(file)));
 
   function closeMenus() {
     categoryOpen = false;
@@ -290,7 +293,7 @@
 
   async function putBack() {
     if (busy) return;
-    const ids = selection.ids;
+    const ids = forPutBack.map((file) => file._id);
     if (ids.length === 0) return;
     busy = true;
     try {
@@ -509,7 +512,7 @@
       </Popover.Portal>
     </Popover.Root>
   {:else if tab === "deleted"}
-    <button type="button" disabled={busy} data-import-bar-put-back onclick={() => void putBack()} class={`ml-1.5 ${plainButton}`} aria-label={putBackLine(count)}>
+    <button type="button" disabled={busy || forPutBack.length === 0} data-import-bar-put-back onclick={() => void putBack()} class={`ml-1.5 ${plainButton}`} aria-label={putBackLine(forPutBack.length)}>
       <ArrowCounterClockwiseIcon size="0.875rem" aria-hidden="true" class="text-on-ink-muted" />
       Put back
     </button>
