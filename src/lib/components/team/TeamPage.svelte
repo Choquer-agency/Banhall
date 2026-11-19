@@ -71,6 +71,8 @@
   onDestroy(() => clearInterval(tick));
 
   let inviteOpen = $state(false);
+  /** The past writer the invite dialog is for (2026-11-17), or null for Invite people. */
+  let inviteFor = $state<PastWriter | null>(null);
   let revokeTarget = $state<PendingInvite | null>(null);
   let revokeOpen = $state(false);
   let revoking = $state(false);
@@ -82,7 +84,6 @@
   let nameTarget = $state<PastWriter | null>(null);
   let nameOpen = $state(false);
   let linkTarget = $state<PastWriter | null>(null);
-  let linkPreselect = $state<string | null>(null);
   let linkOpen = $state(false);
   let deleteTarget = $state<PastWriter | null>(null);
   let deleteOpen = $state(false);
@@ -207,10 +208,20 @@
     await renamePastWriter({ writerId: nameTarget!._id as Id<"pdWriters">, name });
   }
 
-  function askLink(writer: PastWriter, userId: string | null) {
+  function askLink(writer: PastWriter) {
     linkTarget = writer;
-    linkPreselect = userId;
     linkOpen = true;
+  }
+
+  function openInvite() {
+    inviteFor = null;
+    inviteOpen = true;
+  }
+
+  /** Invite a past writer (Admins): the invite dialog for this one person; accepting it links them. */
+  function askInvite(writer: PastWriter) {
+    inviteFor = writer;
+    inviteOpen = true;
   }
 
   async function saveLink(userId: string) {
@@ -235,7 +246,7 @@
   <TeamSidebar
     peopleCount={membersQ.data ? members.length : null}
     invitesCount={invitesQ.data && !invitesQ.error ? invites.length : null}
-    onInvite={canInvite ? () => (inviteOpen = true) : null}
+    onInvite={canInvite ? openInvite : null}
   />
 {/snippet}
 
@@ -247,7 +258,7 @@
   count={canView && membersQ.data ? (members.length === 1 ? "1 person" : `${members.length} people`) : null}
   panel="flush"
   viewAsGate="team"
-  primaryAction={user && canView && canInvite ? { label: "Invite people", onclick: () => (inviteOpen = true) } : null}
+  primaryAction={user && canView && canInvite ? { label: "Invite people", onclick: openInvite } : null}
   primaryActionInSidebar
   sidebar={user && realCanView && canView ? teamSidebar : undefined}
 >
@@ -302,6 +313,7 @@
         <PastWritersTable
           writers={pastWriters}
           showActions={isAdminViewer}
+          onInvite={askInvite}
           onEditName={askName}
           onLink={askLink}
           onDelete={askDelete}
@@ -316,7 +328,9 @@
     bind:open={inviteOpen}
     canInviteAdmin={isAdminViewer}
     {origin}
-    onSend={(emails, role) => createInvites({ emails, role })}
+    forPerson={inviteFor?.label ?? null}
+    onSend={(emails, role) =>
+      createInvites({ emails, role, ...(inviteFor ? { pdWriterId: inviteFor._id as Id<"pdWriters"> } : {}) })}
   />
 {/if}
 {#if revokeTarget}
@@ -346,7 +360,7 @@
     bind:open={linkOpen}
     writerLabel={linkTarget.label}
     members={linkable}
-    preselect={linkPreselect}
+    sameInitialsAs={linkTarget.sameInitialsAs?.canLink ? linkTarget.sameInitialsAs : null}
     onSubmit={saveLink}
   />
 {/if}

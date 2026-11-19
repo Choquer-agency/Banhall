@@ -1,6 +1,7 @@
 <script lang="ts">
   // C4 pending invite row menu: copy the link, change the role the invite
-  // grants, make a fresh link, revoke. Admin appears in "Invite as" only for
+  // grants, make a fresh link (only when canResend: not for a Manager on an
+  // invite for a past writer), revoke. Admin appears in "Invite as" only for
   // viewers who may invite Admins (roles.manage). Board values: 220px menu,
   // 6px padding, radius 12, the menu shadow; 32px items with 15px icons
   // (stroke 1.5) in ink and 13/19 text; Revoke in the danger red.
@@ -14,6 +15,7 @@
     email,
     role,
     canInviteAdmin,
+    canResend,
     onCopy,
     onChangeRole,
     onResend,
@@ -22,6 +24,7 @@
     email: string;
     role: Role;
     canInviteAdmin: boolean;
+    canResend: boolean;
     onCopy: () => void;
     onChangeRole: (role: Role) => void;
     onResend: () => void;
@@ -46,9 +49,11 @@
         <IconBook size={15} strokeWidth={1.5} class="shrink-0" />Copy invite link
       </DropdownMenu.Item>
       <RoleSubmenu heading="Invite as" {roles} current={role} onSelect={onChangeRole} />
-      <DropdownMenu.Item data-menu-item="resend" onSelect={onResend} class={`${MENU_ITEM} text-ink`}>
-        <IconArrowLeft size={15} strokeWidth={1.5} class="shrink-0" />Resend invite
-      </DropdownMenu.Item>
+      {#if canResend}
+        <DropdownMenu.Item data-menu-item="resend" onSelect={onResend} class={`${MENU_ITEM} text-ink`}>
+          <IconArrowLeft size={15} strokeWidth={1.5} class="shrink-0" />Resend invite
+        </DropdownMenu.Item>
+      {/if}
       <DropdownMenu.Separator class="my-1 h-px bg-line-soft" />
       <DropdownMenu.Item data-menu-item="revoke" onSelect={onRevoke} class={`${MENU_ITEM} text-danger`}>
         <IconLogout size={15} strokeWidth={1.5} class="shrink-0" />Revoke invite

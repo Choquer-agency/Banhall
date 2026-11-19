@@ -14,6 +14,8 @@ import {
   isLoginMember,
   linkedWriterOf,
   listTeamRoster,
+  linkWriterToUser,
+  waitingWriterInvite,
   liveWriter,
   membersWithInitials,
   userDisplayLabel,
@@ -466,6 +468,10 @@ const pastWriterValidator = v.object({
   fileCount: v.number(),
   // No file points at it, and none remembers it from before a pick: Delete is offered.
   canDelete: v.boolean(),
+  // 2026-11-17: an Admin invited this person from Team and the invite is
+  // still waiting (pending, not expired): Team says "Invite sent" and does
+  // not offer a second invite.
+  invitePending: v.boolean(),
   // The one team member whose saved initials are this writer's, if there is
   // exactly one: a hint, never a link. `canLink`: Link may name them.
   sameInitialsAs: v.union(
@@ -515,6 +521,7 @@ export const listPastWriters = query({
         nameFromDocument: Boolean(writer.name) && writer.nameSource === "document",
         fileCount: writer.fileCount,
         canDelete: writer.fileCount === 0 && (writer.heldCount ?? 0) === 0,
+        invitePending: (await waitingWriterInvite(ctx, writer._id)) !== null,
         sameInitialsAs,
       });
     }
@@ -580,11 +587,7 @@ export const linkPastWriter = mutation({
     if (!(await canTakeLink(ctx, user._id))) {
       domainError("INVALID_INPUT", `${userDisplayLabel(user)} already has past PDs linked. Unlink them first.`);
     }
-    const now = Date.now();
-    await ctx.db.patch(writer._id, { userId: user._id, linkedBy: admin._id, linkedAt: now, updatedBy: admin._id, updatedAt: now });
-    forgetWriterMatches(ctx);
-    await refreshFilesOf(ctx, writer._id);
-    await recheckInitials(ctx, writer.initials);
+    await linkWriterToUser(ctx, writer, user._id, admin._id);
     return { label: userDisplayLabel(user) };
   },
 });

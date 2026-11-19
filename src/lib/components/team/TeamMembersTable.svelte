@@ -5,10 +5,27 @@
   // end of Last active rather than in a column of its own, so the columns
   // keep the board's positions (Role at x 1108 on C1). 36px
   // header (12/16 muted on canvas), 48px rows, plain names with no avatar
-  // (owner rule, Paper S11).
+  // (owner rule, Paper S11). The columns are teamColumns.ts, shared with
+  // Past writers (2026-11-17) so the two tables line up.
   import RoleChip from "$lib/components/ui/RoleChip.svelte";
   import MemberRowMenu from "./MemberRowMenu.svelte";
   import { lastActiveLabel } from "$lib/team/teamFormat";
+  import {
+    EMAIL_COLUMN,
+    INITIALS_COLUMN,
+    LAST_ACTIVE_COLUMN,
+    MENU_CELL,
+    MENU_ROOM,
+    MUTED_TEXT,
+    NAME_COLUMN,
+    NAME_TEXT,
+    PEOPLE_FRAME,
+    PEOPLE_HEADER_ROW,
+    PEOPLE_ROW,
+    PEOPLE_TABLE,
+    QUIET_TEXT,
+    ROLE_COLUMN,
+  } from "./teamColumns";
   import type { Role } from "../../../../shared/roles";
 
   export type TeamMember = {
@@ -47,32 +64,32 @@
   } = $props();
 </script>
 
-<div id="team-people" data-team-members class="flex shrink-0 scroll-mt-4 flex-col overflow-x-auto rounded-[0.625rem] border border-line-soft">
-  <div class="min-w-[44rem]" role="table" aria-label="Team members">
-    <div role="row" class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted">
-      <span role="columnheader" class="w-[16.25rem] shrink-0">Name</span>
-      <span role="columnheader" class="w-[3.5rem] shrink-0">Initials</span>
-      <span role="columnheader" class="min-w-0 flex-1">Email</span>
-      <span role="columnheader" class="w-[7.5rem] shrink-0">Role</span>
-      <span role="columnheader" class="w-[6.875rem] shrink-0">Last active</span>
+<div id="team-people" data-team-members class={PEOPLE_FRAME}>
+  <div class={PEOPLE_TABLE} role="table" aria-label="Team members">
+    <div role="row" class={PEOPLE_HEADER_ROW}>
+      <span role="columnheader" class={NAME_COLUMN}>Name</span>
+      <span role="columnheader" class={INITIALS_COLUMN}>Initials</span>
+      <span role="columnheader" class={EMAIL_COLUMN}>Email</span>
+      <span role="columnheader" class={ROLE_COLUMN}>Role</span>
+      <span role="columnheader" class={LAST_ACTIVE_COLUMN}>Last active</span>
       {#if showActions}<span role="columnheader" class="sr-only">Actions</span>{/if}
     </div>
     {#each members as member (member._id)}
-      <div role="row" data-member-row={member._id} class="relative flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
+      <div role="row" data-member-row={member._id} class={PEOPLE_ROW}>
         <!-- Plain names, no avatar (owner rule; Paper S11, 2026-10-28). -->
-        <span role="cell" class="flex w-[16.25rem] shrink-0 items-center">
-          <span data-member-name class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{member.name}</span>
+        <span role="cell" class={`flex items-center ${NAME_COLUMN}`}>
+          <span data-member-name class={NAME_TEXT}>{member.name}</span>
         </span>
-        <span role="cell" data-member-initials class="w-[3.5rem] shrink-0 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{member.initials ?? ""}</span>
-        <span role="cell" class="min-w-0 flex-1 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{member.email ?? ""}</span>
-        <span role="cell" class="flex w-[7.5rem] shrink-0">
+        <span role="cell" data-member-initials class={`${INITIALS_COLUMN} ${QUIET_TEXT}`}>{member.initials ?? ""}</span>
+        <span role="cell" class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}>{member.email ?? ""}</span>
+        <span role="cell" class={`flex ${ROLE_COLUMN}`}>
           <RoleChip role={member.role} isOwner={member.isOwner} isDeveloper={member.isDeveloper} />
         </span>
-        <span role="cell" data-last-active class={`w-[6.875rem] shrink-0 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-muted ${showActions ? "pr-8" : ""}`}>
+        <span role="cell" data-last-active class={`${LAST_ACTIVE_COLUMN} ${MUTED_TEXT} ${showActions ? MENU_ROOM : ""}`}>
           {lastActiveLabel(member.lastActiveAt, member.isSelf, now)}
         </span>
         {#if showActions}
-          <span role="cell" data-member-actions class="absolute right-4 top-1/2 flex w-7 -translate-y-1/2 justify-end">
+          <span role="cell" data-member-actions class={MENU_CELL}>
             <MemberRowMenu
               name={member.name}
               userId={member._id}

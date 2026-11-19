@@ -1,3 +1,4 @@
+import { liveInvitesForEmail, TOO_MANY_PENDING_INVITES } from "./lib/inviteRows";
 import {
   createClient,
   type AuthFunctions,
@@ -12,6 +13,7 @@ import type { DataModel } from "./_generated/dataModel";
 import authConfig from "./auth.config";
 import { normalizeEmail } from "./lib/email";
 import { notify } from "./lib/notify";
+import { linkWriterFromInvite } from "./lib/teamRoster";
 import { ROLE_LABELS } from "../shared/roles";
 import { initialsFromName } from "../shared/importSheetRules";
 import { notificationCopy } from "../shared/notifications";
@@ -60,17 +62,19 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
         // gate): a fresh signup must carry a pending unexpired invite for
         // this email. (The legacy pre-migration relink window closed
         // 2026-07-20 — all original accounts re-created.)
-        const invites = email
-          ? await ctx.db
-              .query("invites")
-              .withIndex("by_email_and_status", (q) =>
-                q.eq("email", email).eq("status", "pending"),
-              )
-              .take(10)
-          : [];
-        const invite =
-          invites.find((i) => i.status === "pending" && i.expiresAt > now) ??
-          null;
+        const found = email ? await liveInvitesForEmail(ctx, email, now) : { live: [], complete: true };
+        if (!found.complete) throw new ConvexError(TOO_MANY_PENDING_INVITES);
+        const live = found.live;
+        // One live invite per email (createInvites and resendInvite keep it).
+        // Should two ever exist, sign-up cannot tell which link was used, so
+        // it refuses rather than take one, since an invite can link a past
+        // writer to the new account.
+        if (live.length > 1) {
+          throw new ConvexError(
+            "This email has more than one invite waiting. Ask an admin to revoke the extra ones, then use the newest link.",
+          );
+        }
+        const invite = live[0] ?? null;
         const existing = email
           ? await ctx.db
               .query("users")
@@ -123,6 +127,12 @@ export const authComponent = createClient<DataModel>(components.betterAuth, {
           acceptedAt: now,
           acceptedUserId: userId,
         });
+        // 2026-11-17: an invite an Admin sent for a past writer links that
+        // writer to the new account, in this same transaction (skipped
+        // quietly if the writer is gone or linked meanwhile).
+        if (invite.pdWriterId) {
+          await linkWriterFromInvite(ctx, invite.pdWriterId, userId, invite.invitedBy);
+        }
         // Round 2 (I3): tell the inviter.
         const copy = notificationCopy.inviteAccepted({
           name: `${firstName} ${lastName}`,

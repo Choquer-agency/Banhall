@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 // The Import sheet's data (2026-11-11, phase 2): the move fix, the company
 // counts, the sheet queries, label edits and the science code from text.
+import { TOO_MANY_PENDING_INVITES } from "./lib/inviteRows";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
@@ -3357,7 +3358,7 @@ describe("files checked again when the facts change", () => {
     const so = (await writerOf(t, open))!;
     const sam = await addMember(t, "Sam", "Okafor", { initials: "SK" });
     const past = await admin.query(api.users.listPastWriters, {});
-    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, canDelete: false, sameInitialsAs: null }]);
+    expect(past).toEqual([{ _id: so._id, name: null, initials: "SO", label: "SO", nameFromDocument: false, fileCount: 2, canDelete: false, invitePending: false, sameInitialsAs: null }]);
 
     await expect(admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: sam })).resolves.toEqual({ label: "Sam Okafor" });
     for (const id of [open, approved]) expect(await shownWriter(admin, id)).toEqual({ name: "Sam Okafor", hasLogin: true });
@@ -4316,6 +4317,279 @@ describe("past writers named from their PDs (2026-11-16)", () => {
       writers: await ctx.db.query("pdWriters").collect(),
     }));
     expect(after).toEqual(before);
+  });
+});
+
+// ─── Inviting a past writer (2026-11-17) ────────────────────────────────────
+
+/** An invite's new account, made the way sign-up makes it (auth.ts onCreate). */
+async function acceptInvite(t: T, token: string, email: string, firstName: string, lastName: string) {
+  await t.mutation(api.invites.confirmInviteNames, { token, firstName, lastName });
+  await t.mutation(internal.auth.onCreate, {
+    model: "user",
+    doc: { _id: `auth-${firstName}`, email, name: `${firstName} ${lastName}` },
+  });
+  return (await t.run((ctx) => ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", `auth-${firstName}`)).unique()))!;
+}
+
+async function inviteFor(admin: ReturnType<T["withIdentity"]>, writerId: Id<"pdWriters">, email: string) {
+  const [result] = await admin.mutation(api.invites.createInvites, { emails: [email], role: "writer", pdWriterId: writerId });
+  if (result.status !== "created") throw new Error(result.status);
+  return result;
+}
+
+describe("inviting a past writer (2026-11-17)", () => {
+  it("lets only an Admin invite a past writer, one address, once while it waits, and shows the invite on the writer", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    await addMember(t, "Sam", "Okafor", { role: "manager" });
+    const manager = t.withIdentity({ subject: "member-Sam-Okafor" });
+    await expect(
+      manager.mutation(api.invites.createInvites, { emails: ["dana@example.com"], role: "writer", pdWriterId: dw._id })
+    ).rejects.toThrow("Only an Admin can invite a past writer");
+    // A Manager still invites people the usual way.
+    await expect(manager.mutation(api.invites.createInvites, { emails: ["kim@example.com"], role: "writer" })).resolves.toMatchObject([
+      { status: "created" },
+    ]);
+    await expect(
+      admin.mutation(api.invites.createInvites, { emails: ["a@example.com", "b@example.com"], role: "writer", pdWriterId: dw._id })
+    ).rejects.toThrow("Add one email address for this person");
+
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: false });
+    const created = await inviteFor(admin, dw._id, "dana@example.com");
+    expect(await t.run((ctx) => ctx.db.get(created.inviteId))).toMatchObject({ pdWriterId: dw._id, status: "pending" });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: true });
+    await expect(inviteFor(admin, dw._id, "dana.w@example.com")).rejects.toThrow("This person has an invite waiting already");
+    // Managers read it too.
+    expect((await manager.query(api.users.listPastWriters, {}))[0]).toMatchObject({ invitePending: true });
+
+    // Revoking changes nothing on the writer, and a new invite can be sent.
+    await admin.mutation(api.invites.revokeInvite, { inviteId: created.inviteId });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: false });
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toEqual(dw);
+    await inviteFor(admin, dw._id, "dana@example.com");
+    // An expired invite no longer counts as waiting.
+    await t.run(async (ctx) => {
+      for (const invite of await ctx.db.query("invites").collect()) await ctx.db.patch(invite._id, { expiresAt: 1 });
+    });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ invitePending: false });
+  });
+
+  it("links the past writer to the new account when the invite is accepted, in the same step", async () => {
+    const { t, admin } = await setup();
+    const pd = await readPd(t, "DW", 1, DANA_PD);
+    const approved = await pdBy(t, "DW", 2);
+    await approveForTest(t, admin, approved);
+    const dw = (await writerOf(t, pd))!;
+    const adminId = (await t.run((ctx) => ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "sheet-admin")).unique()))!._id;
+    const created = await inviteFor(admin, dw._id, "dana@example.com");
+    const before = await writerPointers(t);
+    const dana = await acceptInvite(t, created.token, "dana@example.com", "Dana", "Whitlock");
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: dana._id, linkedBy: adminId, linkedAt: expect.any(Number) });
+    expect(await t.run((ctx) => ctx.db.get(created.inviteId))).toMatchObject({ status: "accepted", acceptedUserId: dana._id });
+    // No file changes writer; every file, approved too, shows her now.
+    expect(await writerPointers(t)).toEqual(before);
+    for (const id of [pd, approved]) expect(await shownWriter(admin, id)).toEqual({ name: "Dana Whitlock", hasLogin: true });
+    await runWriterWalk(t);
+    expect((await getItem(t, pd)).writerName).toBe("Dana Whitlock");
+    expect(await admin.query(api.users.listPastWriters, {})).toEqual([]);
+    const members = await admin.query(api.team.listMembers, {});
+    expect(members.find((member) => member._id === dana._id)).toMatchObject({ initials: "DW", linkedWriter: { writerId: dw._id } });
+    await expectCountsMatchRecount(t, "after an invite linked a past writer");
+  });
+
+  it("lets only an Admin resend an invite for a past writer, and never while a newer one waits or once it is linked", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    await addMember(t, "Sam", "Okafor", { role: "manager" });
+    const manager = t.withIdentity({ subject: "member-Sam-Okafor" });
+    const old = await inviteFor(admin, dw._id, "dana@example.com");
+    await expect(manager.mutation(api.invites.resendInvite, { inviteId: old.inviteId })).rejects.toThrow(
+      "Only an Admin can resend an invite for a past writer"
+    );
+    // The only one: an Admin resends it.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: old.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
+    // It expires and a newer one is sent: the old one cannot come back.
+    await t.run((ctx) => ctx.db.patch(old.inviteId, { expiresAt: 1 }));
+    const newer = await inviteFor(admin, dw._id, "dana.w@example.com");
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: old.inviteId })).rejects.toThrow("This person has a newer invite waiting");
+    // Linked meanwhile: no resend at all.
+    await admin.mutation(api.invites.revokeInvite, { inviteId: newer.inviteId });
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    await admin.mutation(api.users.linkPastWriter, { writerId: dw._id, userId: kim });
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: old.inviteId })).rejects.toThrow("This writer is linked to an account already");
+    // A plain invite is resent by a Manager as before.
+    const [plain] = await manager.mutation(api.invites.createInvites, { emails: ["jordan@example.com"], role: "writer" });
+    if (plain.status !== "created") throw new Error(plain.status);
+    await expect(manager.mutation(api.invites.resendInvite, { inviteId: plain.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
+  });
+
+  it("never resends an invite while another for the same email waits, so sign-up links the writer of the invite it takes", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const pn = (await writerOf(t, await pdBy(t, "PN", 2)))!;
+    // Writer A's invite expires; writer B's is sent to the same email.
+    const forA = await inviteFor(admin, dw._id, "sam@example.com");
+    await t.run((ctx) => ctx.db.patch(forA.inviteId, { expiresAt: 1 }));
+    const forB = await inviteFor(admin, pn._id, "sam@example.com");
+    // A's cannot come back while B's waits.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: forA.inviteId })).rejects.toThrow(
+      "This email has a newer invite waiting. Use that one."
+    );
+    const sam = await acceptInvite(t, forB.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(pn._id))).toMatchObject({ userId: sam._id });
+    expect((await t.run((ctx) => ctx.db.get(dw._id)))?.userId).toBeUndefined();
+    // The same rule for a plain invite.
+    const [one] = await admin.mutation(api.invites.createInvites, { emails: ["jo@example.com"], role: "writer" });
+    if (one.status !== "created") throw new Error(one.status);
+    await t.run((ctx) => ctx.db.patch(one.inviteId, { expiresAt: 1 }));
+    const [two] = await admin.mutation(api.invites.createInvites, { emails: ["jo@example.com"], role: "writer" });
+    if (two.status !== "created") throw new Error(two.status);
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: one.inviteId })).rejects.toThrow("This email has a newer invite waiting");
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: two.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
+  });
+
+  it("refuses sign-up when an email has two live invites, so it never links the wrong past writer", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const pn = (await writerOf(t, await pdBy(t, "PN", 2)))!;
+    const forA = await inviteFor(admin, dw._id, "sam@example.com");
+    // Made before the resend rule, say: a second live invite for the same email.
+    const forB = await t.run(async (ctx) => {
+      const a = (await ctx.db.get(forA.inviteId))!;
+      const { _id, _creationTime, ...rest } = a;
+      return await ctx.db.insert("invites", { ...rest, token: "second-token", pdWriterId: pn._id });
+    });
+    await expect(acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera")).rejects.toThrow(
+      "This email has more than one invite waiting"
+    );
+    expect((await t.run((ctx) => ctx.db.get(dw._id)))?.userId).toBeUndefined();
+    expect((await t.run((ctx) => ctx.db.get(pn._id)))?.userId).toBeUndefined();
+    // Once the extra one is revoked, the link that is left works.
+    await admin.mutation(api.invites.revokeInvite, { inviteId: forB });
+    const sam = await acceptInvite(t, forA.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: sam._id });
+  });
+
+  it("never misses a live invite behind many old ones for the same email", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const live = await inviteFor(admin, dw._id, "sam@example.com");
+    const old = await t.run(async (ctx) => {
+      const row = (await ctx.db.get(live.inviteId))!;
+      const { _id, _creationTime, ...rest } = row;
+      const ids = [];
+      // 55 expired invites for the same email, all still pending.
+      for (let n = 0; n < 55; n += 1) ids.push(await ctx.db.insert("invites", { ...rest, token: `old-${n}`, expiresAt: 1, pdWriterId: undefined }));
+      return ids;
+    });
+    // No second live invite: not by a new invite, not by a resend.
+    const [again] = await admin.mutation(api.invites.createInvites, { emails: ["sam@example.com"], role: "writer" });
+    expect(again.status).toBe("already_invited");
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: old[0] })).rejects.toThrow(TOO_MANY_PENDING_INVITES);
+    // Sign-up cannot tell it read them all, so it refuses rather than guess.
+    await expect(acceptInvite(t, live.token, "sam@example.com", "Sam", "Rivera")).rejects.toThrow(TOO_MANY_PENDING_INVITES);
+    // Once the old ones are revoked, the live link works.
+    for (const id of old) await admin.mutation(api.invites.revokeInvite, { inviteId: id });
+    const sam = await acceptInvite(t, live.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ userId: sam._id });
+  });
+
+  it("links on acceptance only while the Admin who sent the invite is still an Admin", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const created = await inviteFor(admin, dw._id, "dana@example.com");
+    await t.run(async (ctx) => {
+      const sender = await ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "sheet-admin")).unique();
+      await ctx.db.patch(sender!._id, { role: "manager" });
+    });
+    const dana = await acceptInvite(t, created.token, "dana@example.com", "Dana", "Whitlock");
+    expect(dana).toMatchObject({ role: "writer" });
+    expect(await t.run((ctx) => ctx.db.get(created.inviteId))).toMatchObject({ status: "accepted" });
+    expect((await t.run((ctx) => ctx.db.get(dw._id)))!.userId).toBeUndefined();
+  });
+
+  it("finds the invite that waits behind five expired ones, and keeps a bare writer an invite waits for", async () => {
+    const { t, admin } = await setup();
+    const pd = await pdBy(t, "DW", 1);
+    const dw = (await writerOf(t, pd))!;
+    const adminId = (await t.run((ctx) => ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "sheet-admin")).unique()))!._id;
+    await t.run(async (ctx) => {
+      for (let n = 0; n < 5; n += 1) {
+        await ctx.db.insert("invites", {
+          email: `old${n}@example.com`, role: "writer", token: `old-${n}`, invitedBy: adminId,
+          createdAt: 1, expiresAt: 2, status: "pending", pdWriterId: dw._id,
+        });
+      }
+    });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ invitePending: false });
+    await t.run((ctx) =>
+      ctx.db.insert("invites", {
+        email: "dana@example.com", role: "writer", token: "live", invitedBy: adminId,
+        createdAt: Date.now(), expiresAt: Date.now() + 86_400_000, status: "pending", pdWriterId: dw._id,
+      })
+    );
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ invitePending: true });
+    await expect(inviteFor(admin, dw._id, "dana.w@example.com")).rejects.toThrow("This person has an invite waiting already");
+
+    // Its only file moves to Transcripts: the bare writer stays while the invite waits.
+    const move = () =>
+      t.mutation(internal.ingestion.upsertDiscoveredItem, {
+        ...discoveredArgs(`${CEDARLINE_FY}/WIP/Technical/Audio/01 CedarlineSystems 2025-03-31 T1.DW Project1.docx`, {
+          driveItemId: `DW-1-${CEDARLINE_FY}`,
+        }),
+      });
+    await move();
+    expect(await t.run((ctx) => ctx.db.get(dw._id))).toMatchObject({ fileCount: 0 });
+    await expectCountsMatchRecount(t, "after a bare writer an invite waits for lost its last file");
+  });
+
+  it("finds an old invite resent after ten newer ones expired: Invite sent shows and a new invite is refused", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const adminId = (await t.run((ctx) => ctx.db.query("users").withIndex("by_authId", (q) => q.eq("authId", "sheet-admin")).unique()))!._id;
+    // Eleven expired invites; the first made is the oldest.
+    const ids = await t.run(async (ctx) => {
+      const made: Id<"invites">[] = [];
+      for (let n = 0; n < 11; n += 1) {
+        made.push(
+          await ctx.db.insert("invites", {
+            email: `old${n}@example.com`, role: "writer", token: `old-${n}`, invitedBy: adminId,
+            createdAt: 1 + n, expiresAt: 2 + n, status: "pending", pdWriterId: dw._id,
+          })
+        );
+      }
+      return made;
+    });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: false });
+    // The oldest is resent: its expiry moves past now, its creation order stays.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: ids[0] })).resolves.toMatchObject({ token: expect.any(String) });
+    expect((await admin.query(api.users.listPastWriters, {}))[0]).toMatchObject({ _id: dw._id, invitePending: true });
+    await expect(inviteFor(admin, dw._id, "dana.w@example.com")).rejects.toThrow("This person has an invite waiting already");
+    // Another of the expired ones cannot be resent beside it.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: ids[10] })).rejects.toThrow("This person has a newer invite waiting");
+  });
+
+  it("skips the link quietly when the writer was deleted or linked meanwhile, and accepts the invite as usual", async () => {
+    const { t, admin } = await setup();
+    // Deleted: a past writer no file points at.
+    const lone = await t.run((ctx) => ctx.db.insert("pdWriters", { initials: "PN", name: "Priya Nair", createdVia: "person", createdAt: 1, fileCount: 0 }));
+    const toDeleted = await inviteFor(admin, lone, "priya@example.com");
+    await admin.mutation(api.users.deletePastWriter, { writerId: lone });
+    const priya = await acceptInvite(t, toDeleted.token, "priya@example.com", "Priya", "Nair");
+    expect(priya).toMatchObject({ role: "writer" });
+    expect(await t.run((ctx) => ctx.db.get(toDeleted.inviteId))).toMatchObject({ status: "accepted" });
+    expect(await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_userId", (q) => q.eq("userId", priya._id)).collect())).toEqual([]);
+
+    // Linked to someone else meanwhile: it stays with them.
+    const so = (await writerOf(t, await pdBy(t, "SO", 1)))!;
+    const toLinked = await inviteFor(admin, so._id, "sam@example.com");
+    const kim = await addMember(t, "Kim", "Tran", { initials: "KT" });
+    await admin.mutation(api.users.linkPastWriter, { writerId: so._id, userId: kim });
+    const sam = await acceptInvite(t, toLinked.token, "sam@example.com", "Sam", "Okafor");
+    expect(await t.run((ctx) => ctx.db.get(so._id))).toMatchObject({ userId: kim });
+    expect(await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_userId", (q) => q.eq("userId", sam._id)).collect())).toEqual([]);
+    await expectCountsMatchRecount(t, "after invites whose writers moved on");
   });
 });
 

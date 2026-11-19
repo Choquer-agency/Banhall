@@ -1,47 +1,62 @@
 <script lang="ts">
-  // Team, Past writers (writers from initials, 2026-11-16): the writers with
-  // no login that imported PDs point at, under the members and pending
-  // invites, shown only when there is at least one. Columns: Writer (its
-  // name, or its initials with "Add a name"), Initials and PDs (how many
-  // import files point at it). Admins get a row menu (Edit name, Link to an
-  // account, Delete when no file points at it). When exactly one member has
-  // the same saved initials the row says so quietly, with Link; it is never
-  // linked automatically. A name read from a PD ("Prepared by ...") rather
-  // than typed by a person has a quiet "From a PD" tag beside it. Others see
-  // it read only. Same table look as Pending invites: 36px header, 48px rows.
+  // Team, Past writers (writers from initials, 2026-11-16; owner, 2026-11-17:
+  // "same layout as above"): the writers with no login that imported PDs
+  // point at, under the members and pending invites, shown only when there
+  // is at least one. The same grid as the members table (teamColumns.ts):
+  // Name (its name, or its initials), Initials, Email (empty), Role (a quiet
+  // "No login" tag), Last active ("Invite sent" while an invite an Admin
+  // sent for it waits). Admins get a row menu: Invite to Banhall, Link to a
+  // team member, Edit name, and Delete when no file points at it. Others
+  // see it read only. Where a name came from and how many PDs point at a
+  // writer stay on the server, not on this table.
   import PastWriterRowMenu from "./PastWriterRowMenu.svelte";
-  import { formatCount } from "$lib/components/import/importFormat";
+  import { NO_LOGIN } from "../../../../shared/importSheetRules";
+  import {
+    EMAIL_COLUMN,
+    INITIALS_COLUMN,
+    LAST_ACTIVE_COLUMN,
+    MENU_CELL,
+    MENU_ROOM,
+    MUTED_TEXT,
+    NAME_COLUMN,
+    NAME_TEXT,
+    NEUTRAL_CHIP,
+    PEOPLE_FRAME,
+    PEOPLE_HEADER_ROW,
+    PEOPLE_ROW,
+    PEOPLE_TABLE,
+    QUIET_TEXT,
+    ROLE_COLUMN,
+  } from "./teamColumns";
 
   export type PastWriter = {
     _id: string;
     name: string | null;
     initials: string | null;
     label: string;
-    /** Its name was read from a PD, not typed by a person. */
-    nameFromDocument?: boolean;
-    fileCount: number;
     /** No file points at it or remembers it from before a pick. */
     canDelete: boolean;
+    /** An invite an Admin sent for this person is waiting (2026-11-17). */
+    invitePending: boolean;
+    /** The one member with the same saved initials, if exactly one: the Link dialog starts with them. */
     sameInitialsAs: { userId: string; name: string; canLink: boolean } | null;
   };
 
   let {
     writers,
     showActions,
+    onInvite,
     onEditName,
     onLink,
     onDelete,
   }: {
     writers: PastWriter[];
     showActions: boolean;
+    onInvite: (writer: PastWriter) => void;
     onEditName: (writer: PastWriter) => void;
-    /** Link, with the member the same-initials hint names, if any. */
-    onLink: (writer: PastWriter, userId: string | null) => void;
+    onLink: (writer: PastWriter) => void;
     onDelete: (writer: PastWriter) => void;
   } = $props();
-
-  const QUIET_BUTTON =
-    "shrink-0 rounded text-[0.8125rem] leading-[calc(19/13)] text-primary-selected hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
 </script>
 
 <section id="team-past-writers" data-past-writers class="flex shrink-0 scroll-mt-4 flex-col gap-2.5 pt-2">
@@ -54,49 +69,39 @@
       People who wrote imported PDs and have no login. They can be chosen as a writer on Import, but cannot sign in or be given work.
     </p>
   </div>
-  <div class="overflow-x-auto rounded-[0.625rem] border border-line-soft">
-    <div class="min-w-[40rem]" role="table" aria-label="Past writers">
-      <div role="row" class="flex h-9 items-center gap-4 border-b border-line-soft bg-canvas px-4 text-xs leading-[calc(4/3)] text-ink-muted">
-        <span role="columnheader" class="min-w-0 flex-1">Writer</span>
-        <span role="columnheader" class="w-[5rem] shrink-0">Initials</span>
-        <span role="columnheader" class={`w-[5rem] shrink-0 ${showActions ? "pr-8" : ""}`}>PDs</span>
+  <div class={PEOPLE_FRAME}>
+    <div class={PEOPLE_TABLE} role="table" aria-label="Past writers">
+      <div role="row" class={PEOPLE_HEADER_ROW}>
+        <span role="columnheader" class={NAME_COLUMN}>Name</span>
+        <span role="columnheader" class={INITIALS_COLUMN}>Initials</span>
+        <span role="columnheader" class={EMAIL_COLUMN}>Email</span>
+        <span role="columnheader" class={ROLE_COLUMN}>Role</span>
+        <span role="columnheader" class={LAST_ACTIVE_COLUMN}>Last active</span>
         {#if showActions}<span role="columnheader" class="sr-only">Actions</span>{/if}
       </div>
       {#each writers as writer (writer._id)}
-        <div role="row" data-past-writer-row={writer._id} class="relative flex h-12 items-center gap-4 border-b border-line-soft px-4 last:border-b-0">
-          <span role="cell" class="flex min-w-0 flex-1 items-center gap-2.5">
-            <span data-past-writer-name class="truncate text-[0.8125rem] leading-[calc(19/13)] font-medium text-ink">{writer.label}</span>
-            {#if writer.name && writer.nameFromDocument}
-              <span data-past-writer-from-pd class="shrink-0 text-xs leading-[calc(4/3)] text-ink-muted">From a PD</span>
-            {/if}
-            {#if !writer.name && showActions}
-              <button type="button" data-past-writer-add-name onclick={() => onEditName(writer)} class={QUIET_BUTTON}>Add a name</button>
-            {/if}
-            {#if writer.sameInitialsAs}
-              <span data-past-writer-hint class="flex min-w-0 items-center gap-1.5 text-[0.8125rem] leading-[calc(19/13)] text-ink-muted">
-                <span class="truncate">Same initials as {writer.sameInitialsAs.name}</span>
-                {#if showActions && writer.sameInitialsAs.canLink}
-                  <button
-                    type="button"
-                    data-past-writer-hint-link
-                    aria-label={`Link ${writer.label} to ${writer.sameInitialsAs.name}`}
-                    onclick={() => onLink(writer, writer.sameInitialsAs?.userId ?? null)}
-                    class={QUIET_BUTTON}
-                  >Link</button>
-                {/if}
-              </span>
-            {/if}
+        <div role="row" data-past-writer-row={writer._id} class={PEOPLE_ROW}>
+          <span role="cell" class={`flex items-center ${NAME_COLUMN}`}>
+            <span data-past-writer-name class={NAME_TEXT}>{writer.label}</span>
           </span>
-          <span role="cell" data-past-writer-initials class="w-[5rem] shrink-0 truncate text-[0.8125rem] leading-[calc(19/13)] text-ink-secondary">{writer.initials ?? ""}</span>
-          <span role="cell" data-past-writer-pds class={`w-[5rem] shrink-0 text-[0.8125rem] leading-[calc(19/13)] tabular-nums text-ink-secondary ${showActions ? "pr-8" : ""}`}>{formatCount(writer.fileCount)}</span>
+          <span role="cell" data-past-writer-initials class={`${INITIALS_COLUMN} ${QUIET_TEXT}`}>{writer.initials ?? ""}</span>
+          <span role="cell" data-past-writer-email class={`${EMAIL_COLUMN} ${QUIET_TEXT}`}></span>
+          <span role="cell" class={`flex ${ROLE_COLUMN}`}>
+            <span data-past-writer-role class={NEUTRAL_CHIP}>{NO_LOGIN}</span>
+          </span>
+          <span role="cell" data-past-writer-last-active class={`${LAST_ACTIVE_COLUMN} ${MUTED_TEXT} ${showActions ? MENU_ROOM : ""}`}>
+            {writer.invitePending ? "Invite sent" : ""}
+          </span>
           {#if showActions}
-            <span role="cell" class="absolute right-4 top-1/2 flex w-7 -translate-y-1/2 justify-end">
+            <span role="cell" class={MENU_CELL}>
               <PastWriterRowMenu
                 label={writer.label}
                 writerId={writer._id}
+                canInvite={!writer.invitePending}
                 canDelete={writer.canDelete}
+                onInvite={() => onInvite(writer)}
                 onEditName={() => onEditName(writer)}
-                onLink={() => onLink(writer, null)}
+                onLink={() => onLink(writer)}
                 onDelete={() => onDelete(writer)}
               />
             </span>

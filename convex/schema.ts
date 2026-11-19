@@ -225,11 +225,18 @@ export default defineSchema({
     resendCount: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     revokedBy: v.optional(v.id("users")),
+    // 2026-11-17 widen: the past writer (pdWriters, no login) an Admin sent
+    // this invite for from Team. Accepting it links that writer to the new
+    // account (auth.ts onCreate, lib/teamRoster.ts linkWriterFromInvite).
+    pdWriterId: v.optional(v.id("pdWriters")),
   })
     .index("by_token", ["token"])
     .index("by_email", ["email"])
     .index("by_email_and_status", ["email", "status"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // Expiry last, so the live invites for one past writer are read by
+    // range, not by creation order: a resend moves an old invite's expiry.
+    .index("by_pdWriterId_and_status_and_expiresAt", ["pdWriterId", "status", "expiresAt"]),
 
   // ─── Round 2 (decision 54): Team's "Last active" ──────────────────────────
   // One row per user, written by team.markActive at most once per 5 minutes.

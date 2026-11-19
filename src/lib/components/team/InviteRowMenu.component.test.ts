@@ -9,6 +9,7 @@ function props(overrides: Record<string, unknown> = {}) {
     email: "ana@banhall.com",
     role: "manager" as const,
     canInviteAdmin: false,
+    canResend: true,
     onCopy: vi.fn(),
     onChangeRole: vi.fn(),
     onResend: vi.fn(),
@@ -33,6 +34,13 @@ describe("InviteRowMenu", () => {
     await open();
     const items = [...document.querySelectorAll("[data-menu-item]")].map((el) => el.textContent?.trim());
     expect(items).toEqual(["Copy invite link", "Change role", "Resend invite", "Revoke invite"]);
+  });
+
+  it("leaves Resend invite out when the viewer may not resend it", async () => {
+    await render(InviteRowMenu, props({ canResend: false }));
+    await open();
+    const items = [...document.querySelectorAll("[data-menu-item]")].map((el) => el.textContent?.trim());
+    expect(items).toEqual(["Copy invite link", "Change role", "Revoke invite"]);
   });
 
   it("copies and resends through the callbacks", async () => {
