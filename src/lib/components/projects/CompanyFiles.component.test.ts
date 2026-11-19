@@ -840,6 +840,18 @@ describe("a company holds all its files (2026-11-18): the list in pages", () => 
     expect(__loadMoreCalls(PAGE_QUERY)).toEqual([{ args: { clientId: "c3", archived: true }, numItems: 100 }]);
   });
 
+  it("Find a file sends the server the search as typed, so its capitals still split words (Greptile, 2026-11-19)", async () => {
+    seedPaged();
+    __setQueryDataForArgs(SEARCH_QUERY, { clientId: "c3", search: "GasketReport" }, {
+      files: [listed("old1", "AcmeGasketReport2021.pdf", { fileType: "pdf", fiscalYear: 2021, createdAt: at("2021-03-01T12:00:00Z") })],
+    });
+    await mount("manager");
+    await expect.poll(() => rowOf("n1")).not.toBeNull();
+    await page.getByRole("searchbox", { name: "Find a file" }).fill("GasketReport");
+    await expect.poll(() => rowOf("old1")).not.toBeNull();
+    expect(__activeQueryArgs(SEARCH_QUERY)).toEqual([{ clientId: "c3", search: "GasketReport" }]);
+  });
+
   it("Find a file also asks the server while files are not loaded, and shows an old file it finds", async () => {
     seedPaged();
     __setQueryDataForArgs(SEARCH_QUERY, { clientId: "c3", search: "claim" }, {

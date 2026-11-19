@@ -321,13 +321,17 @@
 
   // ─── Search, groups ───────────────────────────────────────────────────────
   let search = $state("");
-  const query = $derived(search.trim().toLowerCase());
+  // The search as typed goes to the server, whose word split reads capitals
+  // ("GasketReport" is "gasket" and "report", Greptile 2026-11-19); only the
+  // comparison on the loaded files is lower case.
+  const typed = $derived(search.trim());
+  const query = $derived(typed.toLowerCase());
   const matches = (file: ListedCompanyFile) => !query || file.fileName.toLowerCase().includes(query);
   // 2026-11-18: while some files are not loaded, the server finds matches
   // among all of them too (asked a moment after typing stops).
   let serverQuery = $state("");
   $effect(() => {
-    const next = query;
+    const next = typed;
     const timer = setTimeout(() => (serverQuery = next), 250);
     return () => clearTimeout(timer);
   });
@@ -338,7 +342,7 @@
   // Review P3-1: only an answer to the query on screen counts, and only the
   // rows the tab's own filter would show, so the two never disagree.
   const found = $derived(
-    askingServer && serverQuery === query && !searchQ.error ? (searchQ.data?.files ?? []).filter(matches) : []
+    askingServer && serverQuery === typed && !searchQ.error ? (searchQ.data?.files ?? []).filter(matches) : []
   );
   /** Loaded files that match, then the server's matches not loaded. */
   function withFound(loaded: readonly ListedCompanyFile[], archivedOnes: boolean): ListedCompanyFile[] {
@@ -347,9 +351,9 @@
     return [...shown, ...found.filter((file) => file.archived === archivedOnes && !ids.has(file._id))];
   }
   /** The server's search failed for the query on screen (review P3-2). */
-  const searchFailed = $derived(askingServer && serverQuery === query && Boolean(searchQ.error));
+  const searchFailed = $derived(askingServer && serverQuery === typed && Boolean(searchQ.error));
   /** The server's search over files not loaded has not answered this query yet. */
-  const searchingAll = $derived(askingServer && !searchFailed && (serverQuery !== query || searchQ.data === undefined));
+  const searchingAll = $derived(askingServer && !searchFailed && (serverQuery !== typed || searchQ.data === undefined));
   const listedFiles = $derived(withFound(files, false).filter((file) => !justAddedIds.has(file._id)));
   const groups = $derived(groupFiles(listedFiles));
   const shownArchived = $derived(withFound(archived, true));
