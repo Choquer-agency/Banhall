@@ -88,8 +88,17 @@ describe("rowAbilities", () => {
     expect(rowAbilities(row("deleted", "draft", "deleted"), "deleted")).toMatchObject({ edit: false, menu: false, putBack: true, select: true });
     expect(rowAbilities(row("rejected", "draft", "rejected"), "deleted")).toMatchObject({ edit: false, menu: false, putBack: true, select: true });
     for (const status of ["rejected", "deleted"]) {
-      expect(rowAbilities(row(status, "draft", "removed_in_onedrive"), "deleted"), status).toMatchObject({ putBack: false, select: false });
+      // Never put back; selectable only for the bar's reviewer and CRA actions.
+      expect(rowAbilities(row(status, "transcript", "removed_in_onedrive"), "deleted"), status).toMatchObject({ putBack: false, select: false });
+      expect(rowAbilities(row(status, "draft", "removed_in_onedrive"), "deleted"), status).toMatchObject({ putBack: false, select: true });
     }
+    // A final PD removed in OneDrive can still be selected and marked Reviewed by CRA.
+    expect(rowAbilities(row("deleted", "final_pd", "removed_in_onedrive"), "deleted")).toMatchObject({
+      putBack: false,
+      reviewer: true,
+      craReviewed: true,
+      select: true,
+    });
     // 2026-11-17: the reviewer can be set on Deleted too, and the CRA mark on a deleted final PD.
     expect(rowAbilities(row("deleted", "draft", "removed_in_onedrive"), "deleted")).toMatchObject({ reviewer: true, craReviewed: false });
     expect(rowAbilities(row("deleted", "final_pd", "deleted"), "deleted")).toMatchObject({ reviewer: true, craReviewed: true });
