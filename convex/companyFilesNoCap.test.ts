@@ -23,6 +23,17 @@ import { fileNameTerms } from "../shared/fileNameTerms";
 
 const modules = import.meta.glob("./**/*.ts");
 
+/**
+ * The most rows a fixture check reads (the project's rule: never count by
+ * collecting). Every fixture here is well below it; a read that fills it
+ * fails, so a check can never pass on a cut-off read.
+ */
+const FIXTURE_ROWS = 10_000;
+function bounded<Row>(rows: Row[]): Row[] {
+  if (rows.length >= FIXTURE_ROWS) throw new Error(`A fixture check read ${FIXTURE_ROWS} rows; raise FIXTURE_ROWS.`);
+  return rows;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -136,13 +147,13 @@ async function allPages(s: Setup, clientId: Id<"clients">, ask: number, archived
 
 async function filesOn(s: Setup, clientId: Id<"clients">) {
   return await s.t.run(async (ctx) =>
-    (await ctx.db.query("companyFiles").withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId)).collect()).length
+    (bounded(await ctx.db.query("companyFiles").withIndex("by_clientId_and_archived", (q) => q.eq("clientId", clientId)).take(FIXTURE_ROWS))).length
   );
 }
 
 async function eventCount(s: Setup, clientId: Id<"clients">, action: "merge_in" | "merge_out") {
   return await s.t.run(async (ctx) =>
-    (await ctx.db.query("companyFileEvents").withIndex("by_clientId_and_at", (q) => q.eq("clientId", clientId)).collect()).filter(
+    (bounded(await ctx.db.query("companyFileEvents").withIndex("by_clientId_and_at", (q) => q.eq("clientId", clientId)).take(FIXTURE_ROWS))).filter(
       (event) => event.action === action
     ).length
   );
@@ -283,7 +294,7 @@ describe("a merge moves every file, in steps", () => {
     expect(await eventCount(s, s.acme.clientId, "merge_in")).toBe(500);
     expect(await eventCount(s, s.borealis.clientId, "merge_out")).toBe(500);
     const due = await s.t.run(async (ctx) =>
-      (await ctx.db.query("companyFiles").withIndex("by_clientId_and_archived", (q) => q.eq("clientId", s.acme.clientId)).collect()).every(
+      (bounded(await ctx.db.query("companyFiles").withIndex("by_clientId_and_archived", (q) => q.eq("clientId", s.acme.clientId)).take(FIXTURE_ROWS))).every(
         (file) => file.searchPiecesDue === true && file.searchPiecesNextAt === 0
       )
     );
@@ -384,7 +395,7 @@ describe("a merge moves every file, in steps", () => {
     await merge(s, "acme", ["borealis"]);
     expect(await s.t.run((ctx) => ctx.db.get(website!))).toMatchObject({ clientId: s.acme.clientId, archived: true });
     const archives = await s.t.run(async (ctx) =>
-      (await ctx.db.query("companyFileEvents").withIndex("by_clientId_and_at", (q) => q.eq("clientId", s.acme.clientId)).collect()).filter(
+      (bounded(await ctx.db.query("companyFileEvents").withIndex("by_clientId_and_at", (q) => q.eq("clientId", s.acme.clientId)).take(FIXTURE_ROWS))).filter(
         (event) => event.action === "archive"
       )
     );
@@ -463,7 +474,7 @@ describe("review fixes (2026-11-18)", () => {
     expect(await s.t.mutation(internal.companyFiles.backfillCompanyFileNameTerms, {})).toEqual({ filled: 200, done: false });
     await s.t.finishAllScheduledFunctions(vi.runAllTimers);
     const empty = await s.t.run(async (ctx) =>
-      (await ctx.db.query("companyFiles").collect()).filter((row) => row.fileNameTerms !== fileNameTerms(row.fileName)).length
+      (bounded(await ctx.db.query("companyFiles").take(FIXTURE_ROWS))).filter((row) => row.fileNameTerms !== fileNameTerms(row.fileName)).length
     );
     expect(empty).toBe(0);
     expect((await search(s, "2019")).files).toHaveLength(50);
