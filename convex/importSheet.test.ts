@@ -4510,6 +4510,31 @@ describe("inviting a past writer (2026-11-17)", () => {
     await expect(manager.mutation(api.invites.resendInvite, { inviteId: plain.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
   });
 
+  it("never resends an invite while another for the same email waits, so sign-up links the writer of the invite it takes", async () => {
+    const { t, admin } = await setup();
+    const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
+    const pn = (await writerOf(t, await pdBy(t, "PN", 2)))!;
+    // Writer A's invite expires; writer B's is sent to the same email.
+    const forA = await inviteFor(admin, dw._id, "sam@example.com");
+    await t.run((ctx) => ctx.db.patch(forA.inviteId, { expiresAt: 1 }));
+    const forB = await inviteFor(admin, pn._id, "sam@example.com");
+    // A's cannot come back while B's waits.
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: forA.inviteId })).rejects.toThrow(
+      "This email has a newer invite waiting. Use that one."
+    );
+    const sam = await acceptInvite(t, forB.token, "sam@example.com", "Sam", "Rivera");
+    expect(await t.run((ctx) => ctx.db.get(pn._id))).toMatchObject({ userId: sam._id });
+    expect((await t.run((ctx) => ctx.db.get(dw._id)))?.userId).toBeUndefined();
+    // The same rule for a plain invite.
+    const [one] = await admin.mutation(api.invites.createInvites, { emails: ["jo@example.com"], role: "writer" });
+    if (one.status !== "created") throw new Error(one.status);
+    await t.run((ctx) => ctx.db.patch(one.inviteId, { expiresAt: 1 }));
+    const [two] = await admin.mutation(api.invites.createInvites, { emails: ["jo@example.com"], role: "writer" });
+    if (two.status !== "created") throw new Error(two.status);
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: one.inviteId })).rejects.toThrow("This email has a newer invite waiting");
+    await expect(admin.mutation(api.invites.resendInvite, { inviteId: two.inviteId })).resolves.toMatchObject({ token: expect.any(String) });
+  });
+
   it("links on acceptance only while the Admin who sent the invite is still an Admin", async () => {
     const { t, admin } = await setup();
     const dw = (await writerOf(t, await pdBy(t, "DW", 1)))!;
