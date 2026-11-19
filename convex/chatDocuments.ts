@@ -23,7 +23,7 @@ import {
   companyFileCategory,
   companyFinalPdsOfYear,
   handCompanyFilesNewestFirst,
-  historyCompanyFilesNewestFirst,
+  nonFinalHistoryCompanyFilesNewestFirst,
   pinnedFinalPdsOfYear,
   pinnedYears,
   previousYearCompanyFileId,
@@ -345,8 +345,10 @@ async function listedCompanyFiles(
   for (const file of hand) add(file);
   const room = MAX_CHAT_COMPANY_FILES - listed.length;
   if (room > 0) {
-    // Reads nothing for a company with no Import files.
-    for (const file of await historyCompanyFilesNewestFirst(ctx, clientId, room + CHAT_LISTED_FINAL_PDS, meter)) {
+    // Reads nothing for a company with no Import files. Final PDs are never
+    // read here: the pass above lists them up to CHAT_LISTED_FINAL_PDS, and
+    // this room is for the other Import files.
+    for (const file of await nonFinalHistoryCompanyFilesNewestFirst(ctx, clientId, room, meter)) {
       if (listed.length >= MAX_CHAT_COMPANY_FILES) break;
       add(file);
     }
