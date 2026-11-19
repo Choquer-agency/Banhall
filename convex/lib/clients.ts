@@ -83,6 +83,24 @@ export async function activeClientAfterMerges(
   return current?.status === "active" ? current : null;
 }
 
+/**
+ * 2026-11-18 (a company holds all its files): whether files of a company
+ * merged into this one are still moving here (`clients.companyFilesMovingTo`
+ * on the merge tombstone). A draft of the company's projects waits until
+ * none is. False for a project with no company.
+ */
+export async function companyFilesMovingInto(
+  ctx: Ctx,
+  clientId: Id<"clients"> | undefined
+): Promise<boolean> {
+  if (!clientId) return false;
+  const moving = await ctx.db
+    .query("clients")
+    .withIndex("by_companyFilesMovingTo", (q) => q.eq("companyFilesMovingTo", clientId))
+    .first();
+  return moving !== null;
+}
+
 /** The dashboardCompanies projection row for a company key, or null. */
 export async function dashboardCompanyForKey(
   ctx: Ctx,

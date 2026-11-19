@@ -22,6 +22,13 @@
     MB" and is not sent. Files added here wait in Just added for a person to
     confirm their category and fiscal year.
   - The preview is a full-screen viewer (FilePreview.svelte).
+  - 2026-11-18 (a company holds all its files): the list loads 100 files at
+    a time, newest first, with Show more under it and the tab's count
+    ending in "+" while more are left. Groups are built from the files
+    loaded. While some are not loaded, Find a file also asks the server
+    (up to 50 matches by name), so an old file is found too. A ticked file
+    stays ticked when it is not loaded any more; it leaves the selection
+    only when it is gone from where it should show.
 
   A company known only by its projects' name has no company row yet: the
   tab says it has no files, and the first upload makes the row. The tab
@@ -31,9 +38,9 @@
 -->
 <script lang="ts">
   import { AlertDialog, DropdownMenu } from "bits-ui";
-  import { useMutation, useQuery } from "convex-svelte";
+  import { useMutation, usePaginatedQuery, useQuery } from "convex-svelte";
   import { useAuth } from "@mmailaender/convex-better-auth-svelte/svelte";
-  import { SvelteSet } from "svelte/reactivity";
+  import { SvelteMap } from "svelte/reactivity";
   import { toast } from "svelte-sonner";
   import { api } from "../../../../convex/_generated/api";
   import type { Id } from "../../../../convex/_generated/dataModel";
@@ -74,6 +81,7 @@
     TooMuchToDownloadError,
   } from "$lib/components/companies/files/downloadOriginals";
   import { inFlight, type UploadEntry } from "$lib/components/companies/files/uploads";
+  import { COMPANY_FILE_PAGE_SIZE } from "../../../../shared/companyFileMoves";
 
   let {
     companyKey,
@@ -96,8 +104,11 @@
     canManage?: boolean;
     /** Edit details (companyFiles.add); the same as `canAdd` when not given. */
     canEdit?: boolean;
-    /** The number of files (not archived), or null while unknown, for the tab's count. */
-    onCount?: (count: number | null) => void;
+    /**
+     * The number of files (not archived) loaded, or null while unknown, for
+     * the tab's count; `more` while the company has more than are loaded.
+     */
+    onCount?: (count: number | null, more: boolean) => void;
   } = $props();
 
   const mayEdit = $derived(canEdit ?? canAdd);
@@ -120,22 +131,31 @@
   /** Company rows the first uploads made, by company key. */
   let madeClientIds = $state<Record<string, Id<"clients">>>({});
   const clientId = $derived(companyQ.data?.clientId ?? madeClientIds[companyKey] ?? null);
-  const filesQ = useQuery(api.companyFiles.listCompanyFiles, () => (clientId ? { clientId } : "skip"));
-  const archivedQ = useQuery(api.companyFiles.listCompanyFiles, () =>
-    active && clientId ? { clientId, archived: true } : "skip"
+  const filesQ = usePaginatedQuery(
+    api.companyFiles.listCompanyFilesPage,
+    () => (clientId ? { clientId } : "skip"),
+    { initialNumItems: COMPANY_FILE_PAGE_SIZE }
+  );
+  const archivedQ = usePaginatedQuery(
+    api.companyFiles.listCompanyFilesPage,
+    () => (active && clientId ? { clientId, archived: true } : "skip"),
+    { initialNumItems: COMPANY_FILE_PAGE_SIZE }
   );
 
-  const files = $derived(filesQ.data?.files ?? []);
-  const archived = $derived(archivedQ.data?.files ?? []);
+  const files = $derived(filesQ.results);
+  const archived = $derived(archivedQ.results);
+  const filesLoaded = $derived(filesQ.status !== "LoadingFirstPage");
+  const moreFiles = $derived(filesQ.status === "CanLoadMore" || filesQ.status === "LoadingMore");
+  const moreArchived = $derived(archivedQ.status === "CanLoadMore" || archivedQ.status === "LoadingMore");
   const loading = $derived(
-    companyQ.data === undefined || (clientId !== null && filesQ.data === undefined && !filesQ.error)
+    companyQ.data === undefined || (clientId !== null && !filesLoaded && !filesQ.error)
   );
   const failed = $derived(Boolean(companyQ.error || filesQ.error));
 
   // The frame's Files tab count.
   $effect(() => {
-    const count = failed ? null : companyQ.data === null && !clientId ? 0 : filesQ.data ? files.length : null;
-    onCount?.(count);
+    const count = failed ? null : companyQ.data === null && !clientId ? 0 : filesLoaded ? files.length : null;
+    onCount?.(count, count !== null && moreFiles);
   });
 
   // A clock for files waiting on their labels.
@@ -301,24 +321,78 @@
 
   // ─── Search, groups ───────────────────────────────────────────────────────
   let search = $state("");
-  const query = $derived(search.trim().toLowerCase());
+  // The search as typed goes to the server, whose word split reads capitals
+  // ("GasketReport" is "gasket" and "report", Greptile 2026-11-19); only the
+  // comparison on the loaded files is lower case.
+  const typed = $derived(search.trim());
+  const query = $derived(typed.toLowerCase());
   const matches = (file: ListedCompanyFile) => !query || file.fileName.toLowerCase().includes(query);
-  const listedFiles = $derived(files.filter((file) => !justAddedIds.has(file._id) && matches(file)));
+  // 2026-11-18: while some files are not loaded, the server finds matches
+  // among all of them too (asked a moment after typing stops).
+  let serverQuery = $state("");
+  $effect(() => {
+    const next = typed;
+    const timer = setTimeout(() => (serverQuery = next), 250);
+    return () => clearTimeout(timer);
+  });
+  const searchQ = useQuery(api.companyFiles.searchCompanyFiles, () =>
+    clientId && serverQuery && query && (moreFiles || moreArchived) ? { clientId, search: serverQuery } : "skip"
+  );
+  const askingServer = $derived(Boolean(query) && (moreFiles || moreArchived));
+  // Review P3-1: only an answer to the query on screen counts, and only the
+  // rows the tab's own filter would show, so the two never disagree.
+  const found = $derived(
+    askingServer && serverQuery === typed && !searchQ.error ? (searchQ.data?.files ?? []).filter(matches) : []
+  );
+  /** Loaded files that match, then the server's matches not loaded. */
+  function withFound(loaded: readonly ListedCompanyFile[], archivedOnes: boolean): ListedCompanyFile[] {
+    const shown = loaded.filter(matches);
+    const ids = new Set(loaded.map((file) => file._id));
+    return [...shown, ...found.filter((file) => file.archived === archivedOnes && !ids.has(file._id))];
+  }
+  /** The server's search failed for the query on screen (review P3-2). */
+  const searchFailed = $derived(askingServer && serverQuery === typed && Boolean(searchQ.error));
+  /** The server's search over files not loaded has not answered this query yet. */
+  const searchingAll = $derived(askingServer && !searchFailed && (serverQuery !== typed || searchQ.data === undefined));
+  const listedFiles = $derived(withFound(files, false).filter((file) => !justAddedIds.has(file._id)));
   const groups = $derived(groupFiles(listedFiles));
-  const shownArchived = $derived(archived.filter(matches));
+  const shownArchived = $derived(withFound(archived, true));
   /** Every file the preview can move through, in the order shown. */
   const previewOrder = $derived([...justAddedFiles, ...groups.flatMap((group) => group.files)]);
 
   // ─── Select and download ──────────────────────────────────────────────────
   let selectMode = $state(false);
-  const selected = new SvelteSet<Id<"companyFiles">>();
+  /** Ticked files, each as last seen, so one stays ticked when it is not loaded any more. */
+  const selected = new SvelteMap<Id<"companyFiles">, ListedCompanyFile>();
   let downloading = $state(false);
-  const selectedFiles = $derived([...files, ...archived].filter((file) => selected.has(file._id)));
+  const selectedFiles = $derived.by(() => {
+    const current = new Map([...files, ...archived, ...found].map((file) => [file._id, file]));
+    return [...selected.values()].map((file) => current.get(file._id) ?? file);
+  });
 
-  // Files that left the list leave the selection.
+  /**
+   * Whether a file of this list, as last seen, would be among the rows
+   * loaded now: the list is newest first, so yes when it is no older than
+   * the oldest row loaded, or the whole list is loaded.
+   */
+  function inLoadedRange(file: ListedCompanyFile, rows: readonly ListedCompanyFile[], more: boolean): boolean {
+    if (!more) return true;
+    const oldest = rows.at(-1);
+    return oldest !== undefined && file.createdAt >= oldest.createdAt;
+  }
+
+  // Files that left the list leave the selection: only once both lists are
+  // settled, and only a file missing from the rows it would be among, so a
+  // page loading or moving its boundary never clears a tick.
   $effect(() => {
-    const present = new Set([...files, ...archived].map((file) => file._id));
-    for (const id of selected) if (!present.has(id)) selected.delete(id);
+    const settled = (status: string) => status === "CanLoadMore" || status === "Exhausted";
+    if (!settled(filesQ.status) || (active && !settled(archivedQ.status))) return;
+    const present = new Set([...files, ...archived, ...found].map((file) => file._id));
+    for (const [id, file] of selected) {
+      if (present.has(id)) continue;
+      const expected = file.archived ? inLoadedRange(file, archived, moreArchived) : inLoadedRange(file, files, moreFiles);
+      if (expected) selected.delete(id);
+    }
   });
 
   function clearSelection() {
@@ -613,11 +687,13 @@
     "rounded-md px-1.5 py-1 text-xs leading-[calc(4/3)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:min-h-11";
   const barButton =
     "inline-flex h-8 items-center gap-1.5 rounded-[0.4375rem] px-3 text-[0.8125rem] leading-[calc(18/13)] font-medium whitespace-nowrap transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-light disabled:opacity-50 motion-reduce:transition-none pointer-coarse:h-11";
+  const showMoreButton =
+    "flex h-[1.875rem] shrink-0 items-center rounded-[0.4375rem] border border-line px-2.5 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary transition-colors hover:bg-primary-wash hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-60 motion-reduce:transition-none pointer-coarse:h-11";
   const toolbarButton =
     "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md pr-3 pl-2.5 text-[0.8125rem] leading-[calc(18/13)] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy motion-reduce:transition-none pointer-coarse:h-11";
 </script>
 
-{#snippet countBadge(count: number, muted = false)}
+{#snippet countBadge(count: number | string, muted = false)}
   <span class={`flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] leading-[1.2] ${muted ? "bg-gray-50 text-ink-faint" : "bg-chrome text-primary-selected"}`}>{count}</span>
 {/snippet}
 
@@ -678,7 +754,7 @@
       <Checkbox
         checked={selected.has(file._id)}
         disabled={!selected.has(file._id) && selected.size >= MAX_DOWNLOAD_FILES}
-        onCheckedChange={(value) => (value ? selected.add(file._id) : selected.delete(file._id))}
+        onCheckedChange={(value) => (value ? selected.set(file._id, file) : selected.delete(file._id))}
         aria-label={`Select ${file.fileName}`}
         data-company-file-select={file._id}
       />
@@ -877,7 +953,10 @@
       {companyName} has no files yet.{canAdd ? " Add past reports, scoping notes or background the writers should know, or drop them here." : ""}
     </p>
   {:else}
-    {#if query && groups.length === 0 && shownArchived.length === 0}
+    {#if searchFailed}
+      <p role="alert" class="pt-6 text-[0.8125rem] leading-[calc(18/13)] text-ink" data-company-files-search-failed>Older files could not be searched. The list shows only the files loaded so far.</p>
+    {/if}
+    {#if query && groups.length === 0 && shownArchived.length === 0 && !searchingAll}
       <p class="py-8 text-[0.8125rem] leading-[calc(18/13)] text-ink-secondary" data-company-files-no-match>No file matches "{search.trim()}".</p>
     {/if}
     <div data-company-files-list>
@@ -896,8 +975,17 @@
         </section>
       {/each}
     </div>
-    {#if filesQ.data?.truncated}
-      <p class="pt-3 text-xs leading-[calc(4/3)] text-ink-muted">Showing the newest {files.length} files.</p>
+    {#if moreFiles && !query}
+      <div class="flex items-center gap-3 pt-3" data-company-files-more>
+        <p class="text-xs leading-[calc(4/3)] text-ink-muted" data-company-files-shown>Showing the newest {files.length.toLocaleString("en-CA")} files.</p>
+        <button
+          type="button"
+          data-company-files-show-more
+          disabled={filesQ.status === "LoadingMore"}
+          onclick={() => filesQ.loadMore(COMPANY_FILE_PAGE_SIZE)}
+          class={showMoreButton}
+        >{filesQ.status === "LoadingMore" ? "Loading..." : "Show more"}</button>
+      </div>
     {/if}
   {/if}
 
@@ -907,7 +995,7 @@
     {:else if shownArchived.length > 0}
       <section class="flex flex-col gap-2 pt-7" aria-label="Archived, not used by the AI" data-company-files-archived>
         <h3 class="flex items-center gap-2 text-xs leading-[calc(4/3)] tracking-[0.04em] text-ink-muted uppercase">
-          Archived, not used by the AI {@render countBadge(shownArchived.length, true)}
+          Archived, not used by the AI {@render countBadge(moreArchived && !query ? `${shownArchived.length.toLocaleString("en-CA")}+` : shownArchived.length, true)}
         </h3>
         <ul class="flex flex-col border-y border-line-soft">
           {#each shownArchived as file (file._id)}
@@ -932,6 +1020,18 @@
             </li>
           {/each}
         </ul>
+        {#if moreArchived && !query}
+          <div class="flex items-center gap-3 pt-1" data-company-files-archived-more>
+            <p class="text-xs leading-[calc(4/3)] text-ink-muted">Showing the newest {archived.length.toLocaleString("en-CA")} archived files.</p>
+            <button
+              type="button"
+              data-company-files-archived-show-more
+              disabled={archivedQ.status === "LoadingMore"}
+              onclick={() => archivedQ.loadMore(COMPANY_FILE_PAGE_SIZE)}
+              class={showMoreButton}
+            >{archivedQ.status === "LoadingMore" ? "Loading..." : "Show more"}</button>
+          </div>
+        {/if}
       </section>
     {/if}
   {/if}

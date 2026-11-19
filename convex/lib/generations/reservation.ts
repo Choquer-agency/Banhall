@@ -10,6 +10,8 @@
 import { storedSourceTextVersion, type SourceTextOwner } from "../sourceText";
 import { TransactionGuard, countedRows } from "../readMeter";
 import { PROJECT_STILL_COPYING_MESSAGE, projectCopyInProgress } from "../projectCopy";
+import { companyFilesMovingInto } from "../clients";
+import { COMPANY_FILES_MOVING_MESSAGE } from "../../../shared/companyFileMoves";
 import { getDocumentSize, v, type ObjectType, type Value } from "convex/values";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModelFreeze } from "../modelCatalogValidators";
@@ -409,6 +411,11 @@ export async function reserveGeneration(
   // project whose files are still being copied into it.
   if (await projectCopyInProgress(ctx, project._id)) {
     domainError("INVALID_STATE", PROJECT_STILL_COPYING_MESSAGE, { reason: "PROJECT_STILL_COPYING" });
+  }
+  // 2026-11-18 (a company holds all its files): nor a company whose merged
+  // files are still moving into it, so a draft never reads only some.
+  if (await companyFilesMovingInto(ctx, project.clientId)) {
+    domainError("INVALID_STATE", COMPANY_FILES_MOVING_MESSAGE, { reason: "COMPANY_FILES_MOVING" });
   }
   // The source rules below and the frozen sources run on what remains after
   // the leave-out list (decision 56). Shared with the Brief preparation

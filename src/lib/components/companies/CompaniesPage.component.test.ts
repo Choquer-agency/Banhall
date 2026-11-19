@@ -157,7 +157,7 @@ function seed(role: keyof typeof USERS = "manager", clients: unknown[] = CLIENTS
     ])
   );
   __setQueryData("companyFiles:companyForKey", { clientId: "c3", name: "Cedarline Systems" });
-  __setQueryData("companyFiles:listCompanyFiles", { files: [], truncated: false });
+  __setPaginatedRows("companyFiles:listCompanyFilesPage", []);
 }
 
 async function mount(companyKey: string | null, width = 1440) {

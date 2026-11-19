@@ -120,6 +120,7 @@
     type GenerationModeId,
   } from "../../../../shared/generationModes";
   import { pickerModels } from "$lib/modelPicker";
+  import { COMPANY_FILES_MOVING_MESSAGE } from "../../../../shared/companyFileMoves";
   import StartRunDialog, { type StartRunExcluded, type StartRunOptions } from "$lib/components/generation/StartRunDialog.svelte";
   import {
     projectStartProblem,
@@ -3063,6 +3064,7 @@
       mode={requestMode}
       sources={startSources}
       models={startModels}
+      blockingMessage={companyFilesQ.data?.filesMoving ? COMPANY_FILES_MOVING_MESSAGE : null}
       validate={(excluded) => projectStartProblem(excluded, transcriptsQ.data ?? [], documentsQ.data ?? [])}
       onConfirm={confirmStart}
       offerWebBackground={webBackgroundQ.data === true}

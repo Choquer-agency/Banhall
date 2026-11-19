@@ -34,6 +34,7 @@ import { clientNamesLookAlike, isValidClientYearEnd } from "../shared/clientName
 import { COMPANY_WEBSITE_INVALID, companyWebsiteProblem, normalizeCompanyWebsite } from "../shared/companyWebsite";
 import { onCompanyWebsiteChanged } from "./companyWebsite";
 import { userDisplayLabel } from "./lib/teamRoster";
+import { MERGE_COMPANY_FILES_PER_STEP } from "../shared/companyFileMoves";
 
 // ─── Saved clients (2026-10-14 amendment) ───────────────────────────────────
 // "Saved clients, client merge, and the Projects page redesign" in
@@ -57,8 +58,19 @@ const SIMILAR_CLIENT_LIMIT = 5;
 const CLIENT_NAME_MAX_LENGTH = 200;
 /** A merge that would move more projects than this is refused. */
 const MERGE_PROJECT_LIMIT = 200;
-/** Company files one merge may move (2026-10-26, Phase C); more refuses the merge. */
-export const MERGE_COMPANY_FILE_LIMIT = 500;
+/**
+ * Company files the merge preview counts (2026-11-18: no longer a cap; a
+ * merge moves every file). Past it the preview says "more than 500".
+ */
+export const MERGE_COMPANY_FILE_COUNT_SHOWN = 500;
+/** Company files one transaction moves (2026-11-18); shared with the merge dialog. */
+export { MERGE_COMPANY_FILES_PER_STEP };
+/**
+ * Earlier merges whose files are still moving into one of the companies
+ * being merged, that one merge points at the new kept company. Past it the
+ * merge is refused until they finish (a few minutes).
+ */
+const MERGE_MOVING_REPOINT_LIMIT = 100;
 /** Former names one company keeps (Phase C); a merge that would need more is refused. */
 export const MAX_FORMER_NAMES = 200;
 /**
@@ -611,14 +623,16 @@ async function mergeNumberCollisions(ctx: Ctx, plan: MergePlan) {
 
 /**
  * The merged companies' files, which move to the kept company (Phase C),
- * read up to one past MERGE_COMPANY_FILE_LIMIT.
+ * up to `limit` of them, oldest first per company: the preview counts up to
+ * one past MERGE_COMPANY_FILE_COUNT_SHOWN, and the merge moves the first
+ * MERGE_COMPANY_FILES_PER_STEP itself (2026-11-18).
  */
-async function mergedCompanyFiles(ctx: QueryCtx, plan: MergePlan): Promise<Doc<"companyFiles">[]> {
+async function mergedCompanyFiles(ctx: QueryCtx, plan: MergePlan, limit: number): Promise<Doc<"companyFiles">[]> {
   const files: Doc<"companyFiles">[] = [];
   for (const side of plan.merged) {
     if (!side.client) continue;
     const clientId = side.client._id;
-    const room = MERGE_COMPANY_FILE_LIMIT + 1 - files.length;
+    const room = limit - files.length;
     if (room <= 0) break;
     files.push(
       ...(await ctx.db
@@ -657,8 +671,15 @@ export const previewClientMerge = query({
     ),
     /** The collision check hit its read bound: numbers may repeat unlisted. */
     collisionCheckIncomplete: v.boolean(),
-    /** Company files that move to the kept company (read up to one past the cap). */
+    /** Company files that move to the kept company, counted up to MERGE_COMPANY_FILE_COUNT_SHOWN. */
     companyFileCount: v.number(),
+    /** 2026-11-18: more files than `companyFileCount` move (the count stops at 500). */
+    moreCompanyFiles: v.optional(v.boolean()),
+    /**
+     * Always false since 2026-11-18 (a merge moves every file); kept for
+     * the frontend that is live while the backend deploys first. Remove it
+     * in a later narrow step.
+     */
     tooManyCompanyFiles: v.boolean(),
     /** Company contacts that move to the kept company (2026-11-04). */
     companyContactCount: v.number(),
@@ -670,7 +691,7 @@ export const previewClientMerge = query({
     await requireRole(ctx, ["manager", "admin"]);
     const plan = await planClientMerge(ctx, args, { strictName: false });
     const check = await mergeNumberCollisions(ctx, plan);
-    const files = await mergedCompanyFiles(ctx, plan);
+    const files = await mergedCompanyFiles(ctx, plan, MERGE_COMPANY_FILE_COUNT_SHOWN + 1);
     const contacts = await mergeContacts(ctx, plan);
     return {
       projectCount: plan.projectCount,
@@ -682,8 +703,9 @@ export const previewClientMerge = query({
       nameConflict: plan.nameConflict,
       numberCollisions: check.collisions,
       collisionCheckIncomplete: !check.complete,
-      companyFileCount: files.length,
-      tooManyCompanyFiles: files.length > MERGE_COMPANY_FILE_LIMIT,
+      companyFileCount: Math.min(files.length, MERGE_COMPANY_FILE_COUNT_SHOWN),
+      moreCompanyFiles: files.length > MERGE_COMPANY_FILE_COUNT_SHOWN,
+      tooManyCompanyFiles: false,
       companyContactCount: contacts.moving.length,
       tooManyCompanyContacts: contacts.tooMany,
     };
@@ -709,12 +731,36 @@ export const mergeClients = mutation({
         `This merge would move more than ${MERGE_PROJECT_LIMIT} projects. Merge fewer companies at a time.`
       );
     }
-    const movingFiles = await mergedCompanyFiles(ctx, plan);
-    if (movingFiles.length > MERGE_COMPANY_FILE_LIMIT) {
-      domainError(
-        "INVALID_INPUT",
-        `This merge would move more than ${MERGE_COMPANY_FILE_LIMIT} company files. Merge fewer companies at a time.`
+    // 2026-11-18 (a company holds all its files): no cap on the files a
+    // merge moves. The first MERGE_COMPANY_FILES_PER_STEP move here, with
+    // each merged company's website file; the rest follow in scheduled
+    // steps (step 2b'').
+    const movingFiles = await mergedCompanyFiles(ctx, plan, MERGE_COMPANY_FILES_PER_STEP);
+    for (const side of plan.merged) {
+      const websiteFileId = side.client?.websiteFileId;
+      if (!side.client || !websiteFileId || movingFiles.some((file) => file._id === websiteFileId)) continue;
+      const websiteFile = await ctx.db.get(websiteFileId);
+      if (websiteFile && websiteFile.clientId === side.client._id) movingFiles.push(websiteFile);
+    }
+    // Files of earlier merges still moving into a company merged now go to
+    // the new kept company instead (merges of merges).
+    const stillMovingIn: Doc<"clients">[] = [];
+    for (const side of plan.merged) {
+      if (!side.client) continue;
+      const sideId = side.client._id;
+      stillMovingIn.push(
+        ...(await ctx.db
+          .query("clients")
+          .withIndex("by_companyFilesMovingTo", (q) => q.eq("companyFilesMovingTo", sideId))
+          .take(MERGE_MOVING_REPOINT_LIMIT + 1 - stillMovingIn.length))
       );
+      if (stillMovingIn.length > MERGE_MOVING_REPOINT_LIMIT) {
+        domainError(
+          "INVALID_STATE",
+          "Files from earlier merges are still moving into these companies. Try again in a few minutes.",
+          { reason: "COMPANY_FILES_MOVING" }
+        );
+      }
     }
     // 2026-11-04 (company contacts): the merged companies' contacts move too,
     // and the kept company may end up with at most MERGE_COMPANY_CONTACT_LIMIT.
@@ -793,30 +839,12 @@ export const mergeClients = mutation({
       }
     }
 
-    // 2b. The merged companies' files move to the kept company in the same
-    //     step (2026-10-26, Phase C), each logged on both companies. Their
-    //     search pieces are cut again under the kept company; until then
-    //     search skips them (a piece counts only for the file's company).
-    for (const file of movingFiles) {
-      await ctx.db.patch(file._id, {
-        clientId: keptClientId,
-        ...(file.hasText ? { searchPiecesDue: true as const, searchPiecesNextAt: 0, searchPiecesAttempts: undefined } : {}),
-      });
-      for (const [clientId, action, otherClientId] of [
-        [file.clientId, "merge_out", keptClientId],
-        [keptClientId, "merge_in", file.clientId],
-      ] as const) {
-        await ctx.db.insert("companyFileEvents", {
-          clientId,
-          companyFileId: file._id,
-          fileName: file.fileName,
-          action,
-          otherClientId,
-          userId: user._id,
-          at: now,
-        });
-      }
-    }
+    // 2b. The merged companies' files move to the kept company (2026-10-26,
+    //     Phase C), each logged on both companies. Their search pieces are
+    //     cut again under the kept company; until then search skips them (a
+    //     piece counts only for the file's company). Since 2026-11-18 the
+    //     first MERGE_COMPANY_FILES_PER_STEP move in this step.
+    for (const file of movingFiles) await moveCompanyFileInMerge(ctx, file, keptClientId, user._id, now);
 
     // 2b'. A merged company's website file (2026-10-29) moved with its
     //      files; its website does not come along, so the file is archived
@@ -836,6 +864,24 @@ export const mergeClients = mutation({
       });
     }
 
+    // 2b''. 2026-11-18: a merged company with files left marks where they
+    //      go and schedules the steps that move them, 100 at a time. Until
+    //      none is left a draft of the kept company's projects waits
+    //      (`companyFilesMovingInto`). Earlier merges still moving into a
+    //      merged company now move to the kept company.
+    for (const side of plan.merged) {
+      if (!side.client) continue;
+      const sideId = side.client._id;
+      const left = await ctx.db
+        .query("companyFiles")
+        .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", sideId))
+        .first();
+      if (!left) continue;
+      await ctx.db.patch(sideId, { companyFilesMovingTo: keptClientId, companyFilesMoveAt: now });
+      await ctx.scheduler.runAfter(0, internal.clients.moveMergedCompanyFiles, { fromClientId: sideId, userId: user._id });
+    }
+    for (const earlier of stillMovingIn) await ctx.db.patch(earlier._id, { companyFilesMovingTo: keptClientId });
+
     // 2c. The merged companies' contacts (2026-11-04) move to the kept
     //     company; the kept company's main contact stays its main contact.
     await moveContactsInMerge(ctx, movingContacts, keptClientId, user._id, now);
@@ -854,6 +900,153 @@ export const mergeClients = mutation({
       keptName: plan.keptName,
       clientId: keptClientId,
     };
+  },
+});
+
+/**
+ * One company file moves to `toClientId` in a merge: logged on both
+ * companies (merge_out, merge_in) and, with text, due to be cut into
+ * search pieces again under its new company.
+ */
+async function moveCompanyFileInMerge(
+  ctx: MutationCtx,
+  file: Doc<"companyFiles">,
+  toClientId: Id<"clients">,
+  userId: Id<"users">,
+  now: number
+) {
+  await ctx.db.patch(file._id, {
+    clientId: toClientId,
+    ...(file.hasText ? { searchPiecesDue: true as const, searchPiecesNextAt: 0, searchPiecesAttempts: undefined } : {}),
+  });
+  for (const [clientId, action, otherClientId] of [
+    [file.clientId, "merge_out", toClientId],
+    [toClientId, "merge_in", file.clientId],
+  ] as const) {
+    await ctx.db.insert("companyFileEvents", {
+      clientId,
+      companyFileId: file._id,
+      fileName: file.fileName,
+      action,
+      otherClientId,
+      userId,
+      at: now,
+    });
+  }
+}
+
+/**
+ * The active company a merged company's files move to now: the one its mark
+ * names when that is still active (a later merge points the mark at its
+ * kept company), else the company the mark's merges lead to, else the one
+ * its own merges lead to (review P3-3). Null when none can be found.
+ */
+async function moveTarget(ctx: MutationCtx, from: Doc<"clients">): Promise<Doc<"clients"> | null> {
+  const named = from.companyFilesMovingTo ? await ctx.db.get(from.companyFilesMovingTo) : null;
+  if (named?.status === "active") return named;
+  return (named ? await activeClientAfterMerges(ctx, named) : null) ?? (await activeClientAfterMerges(ctx, from));
+}
+
+/** Ends a move: the merged company's mark and its progress time go. */
+async function clearMoveMark(ctx: MutationCtx, fromClientId: Id<"clients">) {
+  await ctx.db.patch(fromClientId, { companyFilesMovingTo: undefined, companyFilesMoveAt: undefined });
+}
+
+/**
+ * 2026-11-18 (a company holds all its files): the next
+ * MERGE_COMPANY_FILES_PER_STEP files of a merged company move to the active
+ * company they go to now (`moveTarget`; a merge of merges moves them on),
+ * logged and marked for search pieces as in the merge itself, then the step
+ * schedules itself until none is left and clears the mark. Moved files
+ * leave the index range, so it needs no cursor and running it twice moves
+ * nothing twice. When no active company can be found, the mark is cleared
+ * so drafts are not held up for good, and the log names the company whose
+ * files stay where they are (review P3-3).
+ *
+ * Internal only. `userId` is the person whose merge moves the files (the
+ * stalled-move sweep passes the merge's `mergedBy`); it only names them in
+ * the file events and authorizes nothing (the merge checked their role).
+ */
+export const moveMergedCompanyFiles = internalMutation({
+  args: { fromClientId: v.id("clients"), userId: v.id("users") },
+  returns: v.object({ moved: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const from = await ctx.db.get(args.fromClientId);
+    if (!from || from.status !== "merged" || !from.companyFilesMovingTo) return { moved: 0, done: true };
+    const target = await moveTarget(ctx, from);
+    if (!target) {
+      console.error(
+        `moveMergedCompanyFiles: no active company to move the files of "${from.name}" (${from._id}) to; its mark is cleared and its files stay on it`
+      );
+      await clearMoveMark(ctx, from._id);
+      return { moved: 0, done: true };
+    }
+    const now = Date.now();
+    const files = await ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", from._id))
+      .take(MERGE_COMPANY_FILES_PER_STEP);
+    for (const file of files) await moveCompanyFileInMerge(ctx, file, target._id, args.userId, now);
+    const left = await ctx.db
+      .query("companyFiles")
+      .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", from._id))
+      .first();
+    if (left) {
+      await ctx.db.patch(from._id, { companyFilesMovingTo: target._id, companyFilesMoveAt: now });
+      await ctx.scheduler.runAfter(0, internal.clients.moveMergedCompanyFiles, args);
+      return { moved: files.length, done: false };
+    }
+    await clearMoveMark(ctx, from._id);
+    return { moved: files.length, done: true };
+  },
+});
+
+/** A move with no progress for this long is started again (review P3-3). */
+export const STALLED_MOVE_MS = 10 * 60 * 1000;
+/** Stalled moves one sweep looks at. */
+const STALLED_MOVES_PER_SWEEP = 20;
+
+/**
+ * 2026-11-18 (review P3-3): moves of merged companies' files that made no
+ * progress for STALLED_MOVE_MS (a step that failed, or a chain that stopped)
+ * are started again with the merging person, or their mark is cleared when
+ * no files are left or nobody is named to log them under. Run by the
+ * "resume stalled project copies" cron, in its own transaction; at most
+ * STALLED_MOVES_PER_SWEEP rows a run, read by the progress index.
+ */
+export const resumeStalledCompanyFileMoves = internalMutation({
+  args: {},
+  returns: v.object({ restarted: v.number(), cleared: v.number() }),
+  handler: async (ctx) => {
+    const now = Date.now();
+    const stalled = await ctx.db
+      .query("clients")
+      .withIndex("by_companyFilesMoveAt", (q) => q.gt("companyFilesMoveAt", 0).lt("companyFilesMoveAt", now - STALLED_MOVE_MS))
+      .take(STALLED_MOVES_PER_SWEEP);
+    let restarted = 0;
+    let cleared = 0;
+    for (const from of stalled) {
+      const left = await ctx.db
+        .query("companyFiles")
+        .withIndex("by_clientId_and_archived", (q) => q.eq("clientId", from._id))
+        .first();
+      if (!from.companyFilesMovingTo || !left || !from.mergedBy) {
+        if (left) {
+          console.error(
+            `resumeStalledCompanyFileMoves: "${from.name}" (${from._id}) has files left but no merging person to log the move under; its mark is cleared`
+          );
+        }
+        await clearMoveMark(ctx, from._id);
+        cleared += 1;
+        continue;
+      }
+      // The next sweep waits another STALLED_MOVE_MS for this restart.
+      await ctx.db.patch(from._id, { companyFilesMoveAt: now });
+      await ctx.scheduler.runAfter(0, internal.clients.moveMergedCompanyFiles, { fromClientId: from._id, userId: from.mergedBy });
+      restarted += 1;
+    }
+    if (restarted + cleared > 0) console.warn(`resumeStalledCompanyFileMoves: ${restarted} restarted, ${cleared} cleared`);
+    return { restarted, cleared };
   },
 });
 

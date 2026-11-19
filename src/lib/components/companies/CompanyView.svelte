@@ -85,7 +85,7 @@
   } = $props();
 
   // The counts the Files and People tabs report (null: not known yet).
-  let filesCount = $state<number | null>(null);
+  let filesCount = $state<number | string | null>(null);
   let peopleCount = $state<number | null>(null);
   let countsKey = $state<string | null>(null);
   $effect(() => {
@@ -165,7 +165,7 @@
         canAdd={canAddFiles}
         canEdit={canEditFiles}
         canManage={canManageFiles}
-        onCount={(count: number | null) => (filesCount = count)}
+        onCount={(count: number | null, more: boolean) => (filesCount = count === null ? null : more ? `${count.toLocaleString("en-CA")}+` : count)}
       />
     </div>
   {/if}
