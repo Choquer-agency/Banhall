@@ -3015,13 +3015,18 @@ export const listProposalItems = query({
 /** Project metadata for the searchBrain tool. */
 export const getThreadBrainContext = internalQuery({
   args: { agentThreadId: v.string() },
-  handler: async (ctx, args): Promise<{ industry: string | null; scienceCode: string | null }> => {
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ industry: string | null; scienceCode: string | null; projectId: Id<"projects"> | null }> => {
     const thread = await threadRow(ctx, args.agentThreadId);
-    if (!thread) return { industry: null, scienceCode: null };
+    if (!thread) return { industry: null, scienceCode: null, projectId: null };
     const project = await ctx.db.get(thread.projectId);
     return {
       industry: project?.industry ?? null,
       scienceCode: normalizeCraScienceCode(project?.scienceCode) ?? null,
+      // 2026-11-17: the Brain leaves out this project's company's own imported PDs.
+      projectId: project?._id ?? null,
     };
   },
 });

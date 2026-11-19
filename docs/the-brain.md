@@ -9,10 +9,13 @@ generation and the chat assistant. Ticket: **BNH-10**. Last updated 2026-07-02.
 search; provider: first-party `@ai-sdk/voyage`). Our own reactive tables own
 **governance**: nothing is retrievable until an admin approves it, revoking
 unlearns it (deleted from the index), and every change lands in an audit log.
-Each entry's `importance` = the writer's tier (shapes the wide first-stage
-net), and the tier is blended back in after reranking
-(`rerankScore × (0.6 + 0.4·tier)`), so stronger writers rank higher at equal
-relevance end-to-end.
+Every entry's `importance` is 1 since 2026-11-17 (it used to be the writer's
+tier, which the component applied before the relevance floor, so low tiers
+were near invisible). The tier is blended in after the floors
+(`score × (0.6 + 0.4·tier)`, after rerank and on the exit without rerank),
+read from the source's card, so stronger writers rank higher at equal
+relevance and a weight change takes effect at once (a source is re-embedded
+once, at importance 1, if its vectors still carry its old tier).
 
 **A good PD is a good PD.** Everything lives in ONE namespace (`brain`), so the
 Brain helps every generation — no industry required. Setting an industry on a
@@ -46,10 +49,11 @@ Source: `~/Downloads/Sample PD's/<Writer>/<Abundant|Sparse> Info/Submitted PD/`.
 
 ### Conventions locked in by this import
 
-- **Writer tiers** (`writerTier` → RAG `importance`): Tracy **1.0** (gold
+- **Writer tiers** (`writerTier`, a ranking weight): Tracy **1.0** (gold
   standard) · Larry / Emily / Orel **0.7** · other writers (incl. Eniko) **0.4**.
   Change any entry's weight in `/admin/brain` → expand row → Weight → Save
-  (re-ingests automatically).
+  (takes effect at once; since 2026-11-17 a source is re-embedded only once,
+  if its vectors still carry its old tier).
 - **Industry values** (exact strings — the project-page Industry dropdown and
   Brain filters share them): `software` · `manufacturing` · `life-sciences`.
   Set per project on the project header (Industry dropdown). Optional —
@@ -104,7 +108,7 @@ for the exact event write/read boundaries, privacy-review UI, and limitations.
 |---|---|
 | Approve | Embeds + becomes retrievable (audit-logged) |
 | Reject / Revoke | Unlearned — deleted from the vector index, row kept for history |
-| Weight + Save | Changes writer tier, re-ingests with new importance |
+| Weight + Save | Changes writer tier (a ranking weight); re-embeds once only if not yet at importance 1 |
 | Writer feedback tab | Approve/reject writer-submitted rules (BNH-39 conduit) |
 | Audit log tab | Every action, actor, reason, timestamp |
 
@@ -218,7 +222,41 @@ before anyone opens `/admin/brain` (the list and counts miss older rows until
 it finishes). Repair: `brain:recountBrainSourceCounts` rebuilds the counts from
 the cards. See the 2026-11-17 amendment in `docs/product-domain.md`.
 
-Follow-ups (left as they are, bounded by the hits they look up):
-`brain:approvedBrainSourceIds` and learning health's source lookup
-(`convex/learningHealth.ts:133`) still `db.get` the full source row, text
-included. Move them to the cards (or to the text table of the next PR).
+Follow-up (left as it is, bounded by the hits it looks up): learning
+health's source lookup (`convex/learningHealth.ts:133`) still `db.get`s the
+full source row, text included. Move it to the cards (or to the text table of
+a later PR). Retrieval's join moved to the cards on 2026-11-17
+(`brain:servableBrainSources`).
+
+## Brain copies of imported PDs (2026-11-17)
+
+A final PD approved on Import (a later change) also gets a scrubbed Brain
+copy made from the import file; the company file itself never enters the
+Brain. `convex/lib/importBrainCopy.ts` builds it: the company's names and
+every distinctive word of them, their initials, the folder, the file name's
+client part, the website domain, Business Numbers, addresses with a postal
+code, and people (on the company's projects, after a writer cue, or next to
+a title, a role or a cue such as "led by") become `[redacted]`, matched
+without regard to accents. The title is "Past PD, FY2024", and a separate
+leak check with its own forms refuses the copy if the company's name
+survives (ordinary first words still capitalized come back as warnings).
+Approve must show the scrubbed text to a person, with an "Also remove" box
+for product names and other words (each hidden and checked as a whole
+word whatever its length, so "Li" counts; an entry of only punctuation is
+refused) and a note of what the check does not cover, before the copy is
+made.
+Industry comes from the company (or the one picked for a new company) and
+is required; the tier comes from `pdWriters.tier`, default 0.4.
+
+Retrieval leaves a company's own imported PDs out of its own exemplars
+(fetching 90 hits only when the company has any, keeping a slate of 30). A
+source counts as the company's when any import file linked to it is (two
+companies' PDs can scrub to one shared source), checked over at most 20
+links per source; more than that leaves the source out.
+Chunk notes never name the company.
+
+Deploy: `brain:backfillBrainSourceCards`, then
+`brain:reembedBelowFullImportance` (re-embeds only sources below importance
+1, and with chunk notes on those whose notes came from the old prompt that
+asked for the company; deletes nothing first; not `requeueAllApprovedEmbeds`). See the
+2026-11-17 (third) amendment in `docs/product-domain.md`.

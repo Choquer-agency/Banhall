@@ -1238,8 +1238,13 @@ describe("prompt versions", () => {
     // only where the evidence gives it), the status rule's ending and QA's
     // line on the next sentence's reason move on purpose; before it they
     // were sha256:b6b137cb... and sha256:6210a515....
-    expect(await hashPromptProgram()).toBe("sha256:583428e91384b485b6220bf7c8d7e94e7ad59e55315b3f041db9e50265e78f9e");
-    expect(await legacyPromptVersion()).toBe("sha256:f7f54caf8fdaaaffa13b454d94fb75896cd76d302afe597c405d1c65d041bcfe");
+    // Re-read after 2026-11-17 (third, Brain copies of imported PDs): the
+    // Brain search records the entry importance of 1, the writer tier
+    // blended after the floors on both exits (positions recounted over the
+    // kept slate), and the own-company exclusion with its wider fetch,
+    // on purpose; before it they were sha256:583428e9... and sha256:f7f54caf....
+    expect(await hashPromptProgram()).toBe("sha256:d5692a9b0f10721c462edf6ba259f2665a6c7aab5f68c9176925fa4d31103c3b");
+    expect(await legacyPromptVersion()).toBe("sha256:45eabb14e17b0237aee420bd15e81922aa6ee5fd57a5ae0c38166b081f9005b0");
     // Today's defaults freeze other models, so a new generation's version differs.
     expect(await currentPromptVersion()).not.toBe(await legacyPromptVersion());
   });

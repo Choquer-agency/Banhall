@@ -105,9 +105,16 @@ import {
 import {
   activeClientAfterMerges,
   activeClientForKey,
+  companyIdentityNames,
   dashboardCompanyForKey,
   mergedClientForKey,
 } from "./lib/clients";
+import {
+  buildImportBrainCopy,
+  IMPORT_BRAIN_NOT_COVERED,
+  IMPORT_BRAIN_REFUSALS,
+  type ImportBrainCopyResult,
+} from "./lib/importBrainCopy";
 import { dashboardCompanyKey, normalizeDashboardText } from "../shared/dashboardProjection";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { cleanDocumentWriterNames, writerNamesFromText } from "../shared/writerNameFromText";
@@ -707,6 +714,122 @@ async function newCompanyPicks(ctx: QueryCtx, companyKey: string): Promise<Doc<"
     .withIndex("by_companyKey", (q) => q.eq("companyKey", companyKey))
     .first();
 }
+
+// ─── Brain copy of an imported final PD (2026-11-17) ────────────────────────
+// What a later Approve needs to turn an approved final PD into a scrubbed
+// Brain copy (docs/product-domain.md, the 2026-11-17 Brain copy amendment).
+// Nothing here writes: Approve calls `importBrainCopyFor` in its own
+// mutation, passes the fields to `importSource` with `approve: true`, and
+// sets the file's `brainSourceId` (retrieval's own-company check reads it).
+
+/** The company row an import file's company key names (following merges), or null. */
+async function importClientForKey(ctx: QueryCtx, companyKey: string): Promise<Doc<"clients"> | null> {
+  if (companyKey === NO_COMPANY_KEY) return null;
+  const active = await activeClientForKey(ctx, companyKey);
+  if (active) return active;
+  const merged = await mergedClientForKey(ctx, companyKey);
+  return merged ? await activeClientAfterMerges(ctx, merged) : null;
+}
+
+/**
+ * The Brain copy of one import file from its full text (read from storage by
+ * the caller), or the plain reason it cannot have one. Reads the company and
+ * every name tied to it, the industry picked for a new company, and the
+ * file's writer.
+ */
+export async function importBrainCopyFor(
+  ctx: QueryCtx,
+  item: Doc<"ingestionItems">,
+  fullText: string,
+  alsoRemove: readonly string[] = []
+): Promise<ImportBrainCopyResult> {
+  const companyKey = item.companyKey;
+  const company = companyKey ? await importClientForKey(ctx, companyKey) : null;
+  let identity: { organizations: string[]; people: string[] } = { organizations: [], people: [] };
+  if (company) {
+    try {
+      identity = await companyIdentityNames(ctx, company);
+    } catch {
+      return {
+        ok: false,
+        code: "names_unreadable",
+        reason: IMPORT_BRAIN_REFUSALS.names_unreadable,
+        logReason: IMPORT_BRAIN_REFUSALS.names_unreadable,
+        notCovered: IMPORT_BRAIN_NOT_COVERED,
+      };
+    }
+  }
+  const picks = !company && companyKey ? await newCompanyPicks(ctx, companyKey) : null;
+  const writer = item.writerId ? await ctx.db.get(item.writerId) : null;
+  return buildImportBrainCopy(
+    {
+      item,
+      company,
+      identity,
+      newCompanyIndustry: picks?.industry,
+      writer,
+      alsoRemove,
+    },
+    fullText
+  );
+}
+
+const importBrainCopyResultValidator = v.union(
+  v.object({
+    ok: v.literal(true),
+    warnings: v.array(v.string()),
+    notCovered: v.string(),
+    fields: v.object({
+      kind: v.literal("pd_pair"),
+      docType: v.literal("pd"),
+      title: v.string(),
+      content: v.string(),
+      industry: v.string(),
+      writerName: v.optional(v.string()),
+      writerTier: v.number(),
+      scienceCode: v.optional(v.string()),
+      fiscalYear: v.optional(v.number()),
+      importItemId: v.id("ingestionItems"),
+      importContentHash: v.string(),
+    }),
+  }),
+  v.object({
+    ok: v.literal(false),
+    code: v.union(
+      v.literal("not_final_pd"),
+      v.literal("no_company"),
+      v.literal("no_text"),
+      v.literal("no_industry"),
+      v.literal("names_unreadable"),
+      v.literal("also_remove_no_word"),
+      v.literal("names_left"),
+      v.literal("not_found")
+    ),
+    reason: v.string(),
+    logReason: v.string(),
+    notCovered: v.string(),
+  })
+);
+
+/**
+ * The Brain copy an Approve would make for one import file, without making
+ * it (internal: Approve's action reads the file's text from storage first).
+ * Approve shows a person the scrubbed text or the reason, with a box for
+ * more words to remove (`alsoRemove`, such as product names), before the
+ * copy is made.
+ */
+export const importBrainCopyPreview = internalQuery({
+  args: { itemId: v.id("ingestionItems"), text: v.string(), alsoRemove: v.optional(v.array(v.string())) },
+  returns: importBrainCopyResultValidator,
+  handler: async (
+    ctx,
+    args
+  ): Promise<ImportBrainCopyResult | { ok: false; code: "not_found"; reason: string; logReason: string; notCovered: string }> => {
+    const item = await ctx.db.get(args.itemId);
+    if (!item) return { ok: false, code: "not_found", reason: ITEM_NOT_FOUND, logReason: ITEM_NOT_FOUND, notCovered: IMPORT_BRAIN_NOT_COVERED };
+    return await importBrainCopyFor(ctx, item, args.text, args.alsoRemove ?? []);
+  },
+});
 
 /**
  * A page of company bands for a tab in name order (the no-company band, key

@@ -16,6 +16,7 @@ import { Workpool } from "@convex-dev/workpool";
 import { components, internal } from "./_generated/api";
 import { eraseBrainEntry } from "./ai/brain/erase";
 import {
+  BRAIN_CHUNK_NOTES_VERSION,
   countKeys,
   deleteBrainSource,
   deleteSourceImportLinksPage,
@@ -30,6 +31,8 @@ import { requireBrainConfigured } from "./lib/providerConfig";
 import { normalizeCraScienceCode } from "../shared/craScienceCodes";
 import { extractPlainText } from "./lib/reportEdits";
 import { deidentify } from "./lib/deidentify";
+import { companyOtherNames } from "./lib/clients";
+import { dashboardCompanyKey } from "../shared/dashboardProjection";
 import {
   getCurrentUserOrNull,
   requireInternalProjectAccess,
@@ -494,6 +497,62 @@ export const requeueAllApprovedEmbeds = internalMutation({
 });
 
 /**
+ * Whether a source's vectors still carry its writer tier as importance
+ * (2026-11-17). Embeds since then record `ragImportance` (always 1); an
+ * older row's importance was its tier, clamped, as of its last embed.
+ */
+export function needsFullImportanceEmbed(source: Pick<Doc<"brainSources">, "ragImportance" | "writerTier">): boolean {
+  const stored = source.ragImportance ?? Math.max(0, Math.min(1, source.writerTier));
+  return stored < 1;
+}
+
+/**
+ * The deploy step of 2026-11-17 (relevance floor on raw similarity):
+ * re-embeds, at importance 1, every approved source whose vectors still
+ * carry its tier and, when chunk notes are on (`BRAIN_CONTEXTUAL=1`), every
+ * one whose notes predate BRAIN_CHUNK_NOTES_VERSION (older notes may name
+ * the company), one page of 50 approved cards per run, scheduling the next.
+ * Unlike `requeueAllApprovedEmbeds` it deletes nothing first: the embed adds
+ * under the same key, and the RAG component replaces an entry whose
+ * importance or content hash differs, so the Brain never shrinks during the
+ * run. Sources already at importance 1 (tier 1.0, or embedded since) with
+ * current notes, or with notes off, are skipped. Each
+ * re-embed pays Voyage and, when chunk notes are on, Haiku again. Needs
+ * `backfillBrainSourceCards` finished first.
+ */
+export const reembedBelowFullImportance = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.object({ queued: v.number(), skipped: v.number(), done: v.boolean() }),
+  handler: async (ctx, args) => {
+    if (!(await cardsReady(ctx))) {
+      throw new Error(
+        "The Brain's list cards are not built yet. Run brain:backfillBrainSourceCards to the end first."
+      );
+    }
+    const page = await ctx.db
+      .query("brainSourceCards")
+      .withIndex("by_status_and_createdAt", (q) => q.eq("status", "approved"))
+      .paginate({ cursor: args.cursor ?? null, numItems: REQUEUE_PAGE_SIZE });
+    // Chunk notes are on in this deployment: notes from an older prompt
+    // (which asked for the company) are renewed too, tier 1.0 included.
+    const notesOn = process.env.BRAIN_CONTEXTUAL === "1";
+    let queued = 0;
+    for (const card of page.page) {
+      const oldNotes = notesOn && card.chunkNotesVersion !== BRAIN_CHUNK_NOTES_VERSION;
+      if (!needsFullImportanceEmbed(card) && !oldNotes) continue;
+      await scheduleEmbed(ctx, card.sourceId);
+      queued += 1;
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.brain.reembedBelowFullImportance, {
+        cursor: page.continueCursor,
+      });
+    }
+    return { queued, skipped: page.page.length - queued, done: page.isDone };
+  },
+});
+
+/**
  * Sources read per page of `backfillBrainSourceCards`. Small, because each
  * row still carries its full text (up to 1 MiB) until the text moves off
  * the row.
@@ -866,34 +925,172 @@ export const recordUnlearnFailure = internalMutation({
 });
 
 /**
- * Served-result status join (CAP-10 g). A revoked source's RAG entry still
- * carries `approved: true` in its own filter value until deletion succeeds, so
- * retrieval joins each hit's `metadata.sourceId` back to governance and drops
- * anything not currently approved. One `db.get` per distinct source in the
- * top-N. Ids are normalized: metadata is a plain string and may be stale.
+ * The company keys a project's company has had: its own key, its company's
+ * key and the keys of the company's other names (renames, merges). An import
+ * file whose company key is among them is that company's file.
  */
-export const approvedBrainSourceIds = internalQuery({
-  args: { sourceIds: v.array(v.string()) },
-  handler: async (ctx, args) => {
-    const approved: string[] = [];
-    for (const raw of args.sourceIds) {
-      const id = ctx.db.normalizeId("brainSources", raw);
-      if (!id) continue;
-      const row = await ctx.db.get(id);
-      if (row?.status === "approved") approved.push(raw);
+async function projectCompanyKeys(ctx: QueryCtx, projectId: Id<"projects">): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const project = await ctx.db.get(projectId);
+  if (!project) return keys;
+  if (project.dashboardCompanyKey) keys.add(project.dashboardCompanyKey);
+  if (project.clientName?.trim()) keys.add(dashboardCompanyKey(project.clientName));
+  const client = project.clientId ? await ctx.db.get(project.clientId) : null;
+  if (client) {
+    keys.add(client.nameKey);
+    let others: string[] = client.formerNames ?? [];
+    try {
+      others = await companyOtherNames(ctx, client);
+    } catch {
+      // Too many merges to read: the kept history still counts.
     }
-    return approved;
+    for (const name of others) keys.add(dashboardCompanyKey(name));
+  }
+  return keys;
+}
+
+/**
+ * The company keys of a project's company when that company has import
+ * files with a Brain source (`ingestionItems.brainSourceId`, set when an
+ * import file is approved into the Brain), else null (2026-11-17). One
+ * indexed read per key; retrieval fetches extra hits only when it is not null.
+ */
+export const ownCompanyImports = internalQuery({
+  args: { projectId: v.id("projects") },
+  returns: v.union(v.null(), v.object({ companyKeys: v.array(v.string()) })),
+  handler: async (ctx, args) => {
+    const keys = await projectCompanyKeys(ctx, args.projectId);
+    for (const key of keys) {
+      const linked = await ctx.db
+        .query("ingestionItems")
+        .withIndex("by_companyKey_and_brainSourceId", (q) =>
+          // Every id sorts after "", and a missing id before it.
+          q.eq("companyKey", key).gt("brainSourceId", "" as Id<"brainSources">)
+        )
+        .first();
+      if (linked) return { companyKeys: [...keys] };
+    }
+    return null;
   },
 });
 
-/** Change a writer's weight for an entry and re-ingest (replace by key). */
+/**
+ * The most import file links `servableBrainSources` reads for one source. A
+ * source with more is left out of the search of any company that has
+ * imported PDs in the Brain, since its files cannot all be checked.
+ */
+export const SERVABLE_SOURCE_LINK_CAP = 20;
+
+/**
+ * Whether a source is linked to an import file of a company with these keys
+ * (2026-11-17): its first file, every file in `brainSourceImportFiles` (up to
+ * SERVABLE_SOURCE_LINK_CAP; more counts as yes), and any of the company's
+ * files approved with it (`ingestionItems.brainSourceId`, which also covers a
+ * file whose bytes match another company's file, so it has no link row of its
+ * own). `itemKeys` caches each file's company key across sources.
+ */
+async function ownCompanyImport(
+  ctx: QueryCtx,
+  sourceId: Id<"brainSources">,
+  firstItemId: Id<"ingestionItems"> | undefined,
+  ownKeys: ReadonlySet<string>,
+  itemKeys: Map<Id<"ingestionItems">, string | undefined>
+): Promise<boolean> {
+  const links = await ctx.db
+    .query("brainSourceImportFiles")
+    .withIndex("by_sourceId", (q) => q.eq("sourceId", sourceId))
+    .take(SERVABLE_SOURCE_LINK_CAP + 1);
+  if (links.length > SERVABLE_SOURCE_LINK_CAP) return true;
+  const itemIds = new Set(links.map((link) => link.importItemId));
+  if (firstItemId) itemIds.add(firstItemId);
+  for (const itemId of itemIds) {
+    if (!itemKeys.has(itemId)) {
+      const item = await ctx.db.get(itemId);
+      itemKeys.set(
+        itemId,
+        item?.companyKey ?? (item?.clientName ? dashboardCompanyKey(item.clientName) : undefined)
+      );
+    }
+    const key = itemKeys.get(itemId);
+    if (key !== undefined && ownKeys.has(key)) return true;
+  }
+  for (const key of ownKeys) {
+    const approved = await ctx.db
+      .query("ingestionItems")
+      .withIndex("by_companyKey_and_brainSourceId", (q) =>
+        q.eq("companyKey", key).eq("brainSourceId", sourceId)
+      )
+      .first();
+    if (approved) return true;
+  }
+  return false;
+}
+
+/**
+ * Served-result status join (CAP-10 g), since 2026-11-17 by card. A revoked
+ * source's RAG entry still carries `approved: true` in its own filter value
+ * until deletion succeeds, so retrieval joins each hit's `metadata.sourceId`
+ * back to governance and drops anything not currently approved. Ids are
+ * normalized: metadata is a plain string and may be stale.
+ *
+ * The hits retrieval may serve (2026-11-17): the approved sources among
+ * `sourceIds`, with each one's current writer tier, leaving out a source
+ * linked to any import file of the searching project's company (its
+ * `ownCompanyKeys`, from `ownCompanyImports`; those PDs
+ * already reach the company's drafts as company files, and the Brain must
+ * not hand a company its own PD as a "never copy facts" exemplar).
+ *
+ * One source can hold several companies' files: two PDs that differ only by
+ * the company's name scrub to the same text, so the second import reuses the
+ * first one's source. So every file linked to the source counts, not only its
+ * first (`ownCompanyImport`).
+ *
+ * Reads each source's list card, never its text; a source with no card yet
+ * (before brain:backfillBrainSourceCards) is read whole, as before.
+ */
+export const servableBrainSources = internalQuery({
+  args: {
+    sourceIds: v.array(v.string()),
+    ownCompanyKeys: v.optional(v.array(v.string())),
+  },
+  returns: v.array(v.object({ sourceId: v.string(), writerTier: v.number() })),
+  handler: async (ctx, args) => {
+    const ownKeys = new Set(args.ownCompanyKeys ?? []);
+    const itemKeys = new Map<Id<"ingestionItems">, string | undefined>();
+    const servable: { sourceId: string; writerTier: number }[] = [];
+    for (const raw of args.sourceIds) {
+      const id = ctx.db.normalizeId("brainSources", raw);
+      if (!id) continue;
+      const card = await ctx.db
+        .query("brainSourceCards")
+        .withIndex("by_sourceId", (q) => q.eq("sourceId", id))
+        .unique();
+      const row = card ?? (await ctx.db.get(id));
+      if (row?.status !== "approved") continue;
+      if (ownKeys.size > 0 && (await ownCompanyImport(ctx, id, row.importItemId, ownKeys, itemKeys))) continue;
+      servable.push({ sourceId: raw, writerTier: row.writerTier });
+    }
+    return servable;
+  },
+});
+
+/**
+ * Change a writer's weight for an entry. Since 2026-11-17 retrieval reads
+ * the weight from the source's card and every entry has RAG importance 1,
+ * so a source already embedded at 1 is not re-embedded; one whose vectors
+ * still carry its old tier is re-embedded once.
+ */
 export const reweightSource = mutation({
   args: { sourceId: v.id("brainSources"), writerTier: v.number() },
   handler: async (ctx, args) => {
     const admin = await assertAdmin(ctx);
+    if (!Number.isFinite(args.writerTier)) throw new Error("Weight must be a number from 0 to 1.");
     const s = await ctx.db.get(args.sourceId);
     if (!s) throw new Error("Source not found");
     const tier = Math.max(0, Math.min(1, args.writerTier));
+    // Read before the patch: a source not yet re-embedded at importance 1
+    // still has its old tier in its vectors, so it is re-embedded once now.
+    const reembed = s.status === "approved" && needsFullImportanceEmbed(s);
     await patchBrainSource(ctx, s, { writerTier: tier });
     await ctx.db.insert("brainAuditLog", {
       action: "reweight",
@@ -902,9 +1099,7 @@ export const reweightSource = mutation({
       reason: `writerTier → ${tier}`,
       at: Date.now(),
     });
-    if (s.status === "approved") {
-      await scheduleEmbed(ctx, args.sourceId);
-    }
+    if (reembed) await scheduleEmbed(ctx, args.sourceId);
   },
 });
 

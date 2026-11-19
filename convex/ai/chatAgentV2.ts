@@ -12,6 +12,7 @@ import {
 } from "@convex-dev/agent";
 import { onHistoryPath } from "../lib/chatPath";
 import type { ModelMessage } from "ai";
+import type { Id } from "../_generated/dataModel";
 // The report chat assistant calls Anthropic directly with ANTHROPIC_API_KEY,
 // whatever ANTHROPIC_TRANSPORT says (owner decision 30, 2026-09-25: chat
 // moves to OpenRouter in a later change). Its helper calls (clientForRole)
@@ -711,7 +712,7 @@ const makeSearchBrain = (allowBrain: boolean) => createTool({
     if (!marked) return CHAT_BRAIN_NOT_STARTED;
     // The project code is normalized by getThreadBrainContext. Retrieval uses
     // it as structured metadata routing, with cross-code/legacy fallback.
-    const brainContext: { industry: string | null; scienceCode: string | null } =
+    const brainContext: { industry: string | null; scienceCode: string | null; projectId: Id<"projects"> | null } =
       await ctx.runQuery(internal.chatV2.getThreadBrainContext, {
         agentThreadId: ctx.threadId,
       });
@@ -722,6 +723,7 @@ const makeSearchBrain = (allowBrain: boolean) => createTool({
         query: input.query,
         k: 3,
         docType: "pd",
+        ...(brainContext.projectId ? { ownCompanyProjectId: brainContext.projectId } : {}),
         agentThreadId: ctx.threadId,
         usageLabel: "chat",
       });
