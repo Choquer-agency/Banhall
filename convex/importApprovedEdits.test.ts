@@ -591,9 +591,11 @@ describe("Send back to review", () => {
     });
     expect(await item(t, draft)).toMatchObject({ status: "approved" });
     expect(await companyFiles(t)).toHaveLength(1);
-    // One that has stopped moving (five minutes) no longer blocks.
+    // One that has stopped moving (five minutes) no longer blocks, and Send
+    // back stops it for good, so it can never take the file back.
     await t.run((ctx) => ctx.db.patch(running, { updatedAt: Date.now() - 6 * 60 * 1000 }));
     expect((await sendBack(admin, [draft])).sentBack).toEqual([draft]);
+    expect((await t.run((ctx) => ctx.db.get(running)))?.status).toBe("stopped");
     // A file sent back twice is refused the second time, and nothing is made twice.
     expect((await sendBack(admin, [draft])).refused).toEqual([{ id: draft, reason: "not_approved" }]);
     expect(await events(t, draft)).toHaveLength(1);
@@ -676,6 +678,38 @@ describe("Send back and approvals it must see (Greptile, 2026-11-19)", () => {
       await ctx.db.patch(row!._id, { state: "already" });
     });
     expect((await sendBack(admin, [draft])).sentBack).toEqual([draft]);
+  });
+});
+
+describe("Send back past a stalled approval (Greptile, 2026-11-19)", () => {
+  it("stops a stalled approval of picked files the file still waits in, so its next step never approves it again", async () => {
+    const { t, admin, adminId } = await setup();
+    const draft = await stageRead(t, `${FY}/Drafts/Stalled notes.docx`, "Stalled text");
+    await approve(t, admin, [draft]);
+    const { approvalId, fileRowId } = await t.run(async (ctx) => {
+      const approvalId = await ctx.db.insert("importApprovals", {
+        startedBy: adminId,
+        startedAt: Date.now() - 10 * 60 * 1000,
+        updatedAt: Date.now() - 6 * 60 * 1000,
+        scope: "files",
+        status: "running",
+        total: 1,
+        done: 0,
+        approved: 0,
+        refused: 0,
+      });
+      const fileRowId = await ctx.db.insert("importApprovalFiles", { approvalId, itemId: draft, position: 0, state: "waiting", name: "Stalled notes.docx" });
+      return { approvalId, fileRowId };
+    });
+    expect((await sendBack(admin, [draft])).sentBack).toEqual([draft]);
+    expect((await t.run((ctx) => ctx.db.get(approvalId)))?.status).toBe("stopped");
+    // Its queued step resumes: it stops, and the file stays on To review.
+    await t.action(internal.ingestion.runApproval, { approvalId });
+    expect((await item(t, draft)).status).toBe("pending_review");
+    expect((await t.run((ctx) => ctx.db.get(fileRowId)))?.state).toBe("waiting");
+    // A new approval of the same file is a fresh one.
+    const again = await admin.mutation(api.ingestion.approveFiles, { ids: [draft] });
+    expect(again.approvalId).not.toBe(approvalId);
   });
 });
 
