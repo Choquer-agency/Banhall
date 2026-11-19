@@ -2467,6 +2467,40 @@ async function otherApprovedLink(
  * (the steps above). The company file is the one the approval recorded, or
  * one made from this file (by_importItemId) when the link is missing.
  */
+/**
+ * Stops every stalled approval that could still approve this file once it is
+ * back on To review (2026-11-19, from code review): an approval of picked
+ * files it still waits in, and an approval of its company. Send back runs
+ * only past stalled ones (companyApprovalMoving, waitingInFileApproval), but
+ * a stalled one stays running, so its queued step, or a new batch added to
+ * it, would approve the sent-back file again. A stopped approval never runs
+ * another step (approveImportFile and runApproval check for running).
+ */
+async function stopStalledApprovalsHolding(ctx: MutationCtx, item: Doc<"ingestionItems">): Promise<void> {
+  const now = Date.now();
+  const stop = async (run: Doc<"importApprovals"> | null) => {
+    if (run && run.status === "running" && now - run.updatedAt >= APPROVAL_STALE_MS) {
+      await ctx.db.patch(run._id, { status: "stopped", updatedAt: now });
+    }
+  };
+  const rows = await ctx.db
+    .query("importApprovalFiles")
+    .withIndex("by_itemId_and_state", (q) => q.eq("itemId", item._id).eq("state", "waiting"))
+    .take(FILE_WAITING_ROWS_READ);
+  for (const row of rows) {
+    const run = await ctx.db.get(row.approvalId);
+    if (run?.scope === "files") await stop(run);
+  }
+  if (item.companyKey) {
+    const companyKey = item.companyKey;
+    const running = await ctx.db
+      .query("importApprovals")
+      .withIndex("by_scope_and_companyKey_and_status", (q) => q.eq("scope", "company").eq("companyKey", companyKey).eq("status", "running"))
+      .take(5);
+    for (const run of running) await stop(run);
+  }
+}
+
 async function sendBackOne(
   ctx: MutationCtx,
   item: Doc<"ingestionItems">,
@@ -2488,6 +2522,7 @@ async function sendBackOne(
   /** What it read, near enough, for the call's read budget. */
   readBytes: number;
 }> {
+  await stopStalledApprovalsHolding(ctx, item);
   const brainPolicy = options.brainPolicy ?? "auto";
   const source = item.brainSourceId ? await ctx.db.get(item.brainSourceId) : null;
   const other =
