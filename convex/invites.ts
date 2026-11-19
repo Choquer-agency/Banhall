@@ -284,6 +284,16 @@ export const resendInvite = mutation({
     }
     await requirePastWriterResend(ctx, viewer, invite);
     const now = Date.now();
+    // One live invite per email, as createInvites keeps: sign-up takes the
+    // email's live invite (auth.ts onCreate), so two would let it pick the
+    // wrong one, and with it the wrong past writer to link.
+    const others = await ctx.db
+      .query("invites")
+      .withIndex("by_email_and_status", (q) => q.eq("email", invite.email).eq("status", "pending"))
+      .take(10);
+    if (others.some((other) => other._id !== invite._id && other.expiresAt > now)) {
+      domainError("INVALID_STATE", "This email has a newer invite waiting. Use that one.");
+    }
     const token = generateInviteToken();
     await ctx.db.patch(invite._id, {
       token,
