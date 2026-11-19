@@ -524,6 +524,28 @@ describe("Reviewed by CRA", () => {
 });
 
 describe("the writers backfill gives reviewers too", () => {
+  it("reads an older approved file's reviewer from its name, leaving its saved labels as they were", async () => {
+    const { t, admin } = await setup();
+    const approved = await pd(t, "DW", "PN", 3);
+    await approve(t, admin, approved);
+    // Approved before the reader knew reviewers: no reviewer initials kept.
+    await t.run(async (ctx) => {
+      await ctx.db.patch(approved, { reviewerId: undefined, reviewerSource: undefined, reviewerInitials: undefined });
+      const pn = (await ctx.db.query("pdWriters").withIndex("by_initials", (q) => q.eq("initials", "PN")).collect())[0];
+      await ctx.db.patch(pn._id, { reviewCount: 0 });
+    });
+    const before = await getItem(t, approved);
+    await t.mutation(internal.ingestion.backfillImportWriters, { tab: "review", cursor: null });
+    await runWriterWalk(t);
+    const pn = (await t.run((ctx) => ctx.db.query("pdWriters").withIndex("by_initials", (q) => q.eq("initials", "PN")).collect()))[0];
+    const after = await getItem(t, approved);
+    expect(after).toMatchObject({ reviewerId: pn._id, status: "approved" });
+    expect(after.reviewerInitials).toBeUndefined();
+    expect(after.category).toBe(before.category);
+    expect(after.writerName).toBe(before.writerName);
+    await expectWriterCountsByHand(t, "after reading an older approved file's reviewer");
+  });
+
   it("settles To review and Deleted, gives an approved file only the reference, and can run again", async () => {
     const { t, admin } = await setup();
     const review = await pd(t, "DW", "PN", 1);
